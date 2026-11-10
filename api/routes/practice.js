@@ -18,6 +18,7 @@ import { timeId } from '../lib/util.js';
 import { safeImageSrc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
 import practice from '../generated/practice-content.json' with { type: 'json' };
+import incidentCatalogue from '../generated/incidents.json' with { type: 'json' };
 
 const router = createRouter();
 
@@ -391,6 +392,215 @@ router.get('/manage/audit', async (c) => {
   if (denied) return denied;
   const rows = await all(c.env, 'SELECT actor, action, target, detail, at FROM audit_log ORDER BY at DESC LIMIT 200');
   return c.json(rows);
+});
+
+/* ------------------------------------------------------------------ daily architectural incidents */
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b + 'T00:00:00Z').getTime() - new Date(a + 'T00:00:00Z').getTime()) / 86400000);
+}
+
+function getTodayIncident() {
+  const today = todayStr();
+  const dateObj = new Date(today + 'T00:00:00Z');
+  const startOfYear = new Date(Date.UTC(dateObj.getUTCFullYear(), 0, 0));
+  const dayOfYear = Math.floor((dateObj.getTime() - startOfYear.getTime()) / 86400000);
+  const incidents = incidentCatalogue?.incidents || [];
+  const index = Math.abs(dayOfYear) % (incidents.length || 1);
+  return { incident: incidents[index] || null, today };
+}
+
+router.get('/practice/daily-incident', async (c) => {
+  const reqId = c.req.query('id');
+  const { incident: defaultIncident, today } = getTodayIncident();
+  const incidents = incidentCatalogue?.incidents || [];
+  const incident = reqId ? (incidents.find((i) => i.id === reqId) || defaultIncident) : defaultIncident;
+
+  if (!incident) return notFound(c);
+
+  const session = await getSession(c);
+  let completion = null;
+  let streak = null;
+  let shields = 1;
+
+  if (session) {
+    completion = await first(
+      c.env,
+      'SELECT selected_option, is_correct, completed_at FROM incident_completions WHERE user_id = ?1 AND incident_id = ?2',
+      session.sub, incident.id
+    );
+    const streakRow = await first(
+      c.env,
+      'SELECT current_streak, longest_streak, last_active_date FROM streaks WHERE user_id = ?1',
+      session.sub
+    );
+    const shieldRow = await first(
+      c.env,
+      'SELECT shields_remaining FROM streak_shields WHERE user_id = ?1',
+      session.sub
+    );
+    if (shieldRow) shields = shieldRow.shields_remaining;
+    if (streakRow) {
+      streak = {
+        current: streakRow.current_streak,
+        longest: streakRow.longest_streak,
+        lastActiveDate: streakRow.last_active_date,
+        shields
+      };
+    }
+  }
+
+  if (completion) {
+    return c.json({
+      completed: true,
+      incident: {
+        id: incident.id,
+        date: today,
+        title: incident.title,
+        severity: incident.severity,
+        serviceName: incident.service_name,
+        scenario: incident.scenario_markdown,
+        logs: incident.logs_snippet,
+        options: incident.options,
+        correctOption: incident.correct_option,
+        postMortem: incident.post_mortem_markdown,
+        relatedModule: incident.related_module
+      },
+      userAttempt: {
+        selectedOption: completion.selected_option,
+        isCorrect: !!completion.is_correct,
+        completedAt: completion.completed_at
+      },
+      streak
+    });
+  }
+
+  // Not yet completed: hide correctOption and postMortem to prevent cheating
+  return c.json({
+    completed: false,
+    incident: {
+      id: incident.id,
+      date: today,
+      title: incident.title,
+      severity: incident.severity,
+      serviceName: incident.service_name,
+      scenario: incident.scenario_markdown,
+      logs: incident.logs_snippet,
+      options: incident.options.map((o) => ({ id: o.id, text: o.text }))
+    },
+    userAttempt: null,
+    streak
+  });
+});
+
+router.post('/practice/daily-incident/attempt', async (c) => {
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const incidentId = typeof body?.incidentId === 'string' ? body.incidentId : null;
+  const selectedOption = typeof body?.selectedOption === 'number' ? body.selectedOption : parseInt(body?.selectedOption, 10);
+
+  const incidents = incidentCatalogue?.incidents || [];
+  const incident = incidents.find((i) => i.id === incidentId);
+  if (!incident) return notFound(c);
+  if (!selectedOption || selectedOption < 1 || selectedOption > incident.options.length) {
+    return c.json({ error: 'invalid option' }, 400);
+  }
+
+  const isCorrect = selectedOption === incident.correct_option ? 1 : 0;
+  const today = todayStr();
+  const session = await getSession(c);
+
+  if (!session) {
+    return c.json({
+      isCorrect: !!isCorrect,
+      correctOption: incident.correct_option,
+      postMortem: incident.post_mortem_markdown,
+      relatedModule: incident.related_module,
+      streak: null,
+      anonymous: true
+    });
+  }
+
+  const now = new Date().toISOString();
+  await run(
+    c.env,
+    `INSERT INTO incident_completions (user_id, incident_id, selected_option, is_correct, completed_at)
+     VALUES (?1, ?2, ?3, ?4, ?5)
+     ON CONFLICT(user_id, incident_id) DO UPDATE SET selected_option = ?3, is_correct = ?4, completed_at = ?5`,
+    session.sub, incident.id, selectedOption, isCorrect, now
+  );
+
+  // Compute streak with shield protection
+  const streakRow = await first(
+    c.env,
+    'SELECT current_streak, longest_streak, last_active_date FROM streaks WHERE user_id = ?1',
+    session.sub
+  );
+  let shieldRow = await first(
+    c.env,
+    'SELECT shields_remaining FROM streak_shields WHERE user_id = ?1',
+    session.sub
+  );
+  if (!shieldRow) {
+    await run(
+      c.env,
+      'INSERT INTO streak_shields (user_id, shields_remaining, last_replenished) VALUES (?1, 1, ?2) ON CONFLICT(user_id) DO NOTHING',
+      session.sub, today
+    );
+    shieldRow = { shields_remaining: 1 };
+  }
+
+  let current = 1;
+  let shields = shieldRow.shields_remaining;
+  let shieldUsed = false;
+
+  if (streakRow) {
+    if (streakRow.last_active_date === today) {
+      current = streakRow.current_streak;
+    } else {
+      const diff = daysBetween(streakRow.last_active_date, today);
+      if (diff === 1) {
+        current = streakRow.current_streak + 1;
+      } else if (diff === 2 && shields > 0) {
+        current = streakRow.current_streak + 1;
+        shields = Math.max(0, shields - 1);
+        shieldUsed = true;
+        await run(
+          c.env,
+          'UPDATE streak_shields SET shields_remaining = ?1 WHERE user_id = ?2',
+          shields, session.sub
+        );
+      } else {
+        current = 1;
+      }
+    }
+  }
+
+  const longest = Math.max(current, streakRow?.longest_streak || 0);
+  await run(
+    c.env,
+    `INSERT INTO streaks (user_id, current_streak, longest_streak, last_active_date)
+     VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(user_id) DO UPDATE SET current_streak = ?2, longest_streak = ?3, last_active_date = ?4`,
+    session.sub, current, longest, today
+  );
+
+  return c.json({
+    isCorrect: !!isCorrect,
+    correctOption: incident.correct_option,
+    postMortem: incident.post_mortem_markdown,
+    relatedModule: incident.related_module,
+    streak: {
+      current,
+      longest,
+      shields,
+      shieldUsed
+    }
+  });
 });
 
 export default router;

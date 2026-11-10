@@ -1,67 +1,209 @@
-/* The page's voice, drawn from the tokens (tokens.css): dotted drafting paper behind the page, headings and labels in the monospace and in
-   capitals like the annotations on a drawing, the text itself in the serif, the selected row and the lifted panels in lavender, and one violet ink
-   for what is yours to act on. It is a layer over global.css and ui.css, so taking it off is deleting this file and its import in main.jsx.
-   The capitals are set with CSS only: the words in the page, in search and in the sitemap are unchanged. */
+/* The page's voice: modern, sleek developer documentation styling.
+   Clean sans-serif typography, spacious layouts, high-contrast tables, and rich code blocks. */
 
-/* The paper. The dots are the violet ink at about one part in eight, behind the text and never over it. */
+/* Clean workspace background without distracting dotted noise */
 #main {
-  background-image: radial-gradient(var(--dot) 1.1px, transparent 1.4px);
-  background-size: 22px 22px;
-  background-position: 11px 11px;
+  background: var(--bg);
 }
 
-/* A page's own title: violet, in capitals, over a rule. */
+/* Page titles: clean, modern, high-contrast heading */
 #content h1, .doc-title, .planned-title {
-  font-family: var(--display); text-transform: uppercase; letter-spacing: .02em; font-weight: 800; color: var(--signal);
-  font-size: clamp(24px, 2.6vw, 36px); line-height: 1.15; padding-bottom: 16px; border-bottom: 2px solid var(--signal);
-  text-wrap: balance; overflow-wrap: anywhere;
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: -.025em;
+  font-weight: 750;
+  color: var(--fg);
+  font-size: clamp(26px, 2.8vw, 36px);
+  line-height: 1.2;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
+
 #content h2 {
-  font-family: var(--display); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; font-size: 17px; line-height: 1.3;
-  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: -.018em;
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.3;
+  margin-top: 44px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--fg);
 }
-#content h3 { font-family: var(--display); font-size: 15.5px; font-weight: 700; letter-spacing: .01em; }
-#content h4 { font-family: var(--display); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 
-/* Georgia draws old-style numerals (a 5 that looks like an o): every serif text uses the lining ones. */
-#content, #toc, .row .name { font-variant-numeric: lining-nums; }
+#content h3 {
+  font-family: var(--sans);
+  text-transform: none;
+  font-size: 17.5px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  margin-top: 28px;
+  color: var(--fg);
+}
 
-/* The text of a lesson is in the serif; tables, code, figures, video and the controls around them keep their own faces. */
-#content :is(p, li, blockquote) { font-family: var(--serif); }
-#content { font-size: 17.5px; line-height: 1.72; }
-#content :is(table, figcaption, .lecture, .video, .codeblock, .cblock, .mermaid-diagram, details > summary, button) { font-family: var(--sans); }
-#content table :is(p, li) { font-family: var(--sans); }
+#content h4 {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  color: var(--fg-muted);
+}
 
-/* The headings of the other screens (the home page, the learning paths, the videos). #root keeps them above the rules of the screens' own files. */
-#root :is(.lp h1) { font-family: var(--display); text-transform: uppercase; letter-spacing: .02em; font-weight: 800; color: var(--signal); font-size: clamp(1.7rem, 3.4vw, 2.7rem); line-height: 1.12; }
+#content, #toc, .row .name {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Modern, high-legibility sans-serif for curriculum reading */
+#content :is(p, li, blockquote) {
+  font-family: var(--sans);
+}
+
+#content {
+  font-size: 16px;
+  line-height: 1.68;
+  color: var(--fg);
+}
+
+#content p {
+  max-width: 86ch;
+}
+
+#content :is(table, figcaption, .lecture, .video, .codeblock, .cblock, .mermaid-diagram, details > summary, button) {
+  font-family: var(--sans);
+}
+
+/* High-contrast, beautifully structured tables */
+#content table {
+  width: 100%;
+  display: table;
+  margin: 22px 0 32px;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+#content thead {
+  background: var(--bg-sunken);
+}
+
+#content th {
+  padding: 11px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+#content td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+  line-height: 1.55;
+  vertical-align: top;
+}
+
+#content tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+#content tbody tr:hover {
+  background: var(--hover);
+}
+
+#content table code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 2px 6px;
+  background: var(--bg-sunken);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-subtle);
+  color: var(--accent);
+}
+
+/* Headings on landing and listing pages */
+#root :is(.lp h1) {
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: -.03em;
+  font-weight: 800;
+  color: var(--fg);
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.08;
+}
+
 #root :is(.lp-sec h2, .lp-account h2, .lpath-picker-head h2, .lpath-head h2, .lpath-done h2, .vid-head h2, #empty h2) {
-  font-family: var(--display); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; font-size: 19px; line-height: 1.25;
+  font-family: var(--sans);
+  text-transform: none;
+  letter-spacing: -.02em;
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.25;
 }
 
-/* The labels along the edges. */
-#toc .toc-h, .rail-tabs button { font-family: var(--display); letter-spacing: .1em; }
-#toc .toc-h { color: var(--signal); }
-#toc a, .row .name .ttl { font-family: var(--serif); }
-#toc a { font-size: 13.4px; }
-.row .name .ttl { font-size: 14.2px; }
-.row .name .ord { font-family: var(--display); }
-.row.sel { background: var(--accent-subtle); }
-html[data-theme="dark"] .row.sel, html[data-theme="auto"] .row.sel { background: var(--accent-subtle); }
-.crumb-trail, .crumb-pos { font-family: var(--display); }
-.crumb-trail { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+/* Table of Contents in Right Rail */
+#toc .toc-h, .rail-tabs button {
+  font-family: var(--sans);
+  letter-spacing: .05em;
+  font-size: 12px;
+}
 
-/* The top navigation. */
-.mainnav-link { font-family: var(--display); font-size: 11.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+#toc .toc-h {
+  color: var(--fg-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+}
 
-/* Buttons are annotations too: a violet fill for the one action that matters, a hairline for the rest. */
-:is(#root, #overlays) .ui-btn { font-family: var(--display); font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-:is(#root, #overlays) .ui-btn--sm { font-size: 11px; }
-:is(#root, #overlays) .ui-btn--lg { font-size: 12.5px; }
+#toc a {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  transition: color .12s ease, border-color .12s ease;
+}
 
-/* A notice from the admins: a violet bar across the top. */
-.notice-bar { background: var(--signal); color: var(--on-signal); border-bottom: 0; font-family: var(--display); font-size: 12.5px; letter-spacing: .02em; }
-.notice-bar a { color: inherit; font-weight: 700; text-decoration: underline; }
-.notice-bar__close, .notice-bar__close:hover { color: var(--on-signal); }
+#toc a:hover {
+  color: var(--fg);
+}
 
-@media (prefers-reduced-data: reduce) { #main { background-image: none; } }
-@media print { #main { background-image: none; } }
+#toc a.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.row .name .ttl {
+  font-family: var(--sans);
+  font-size: 13.8px;
+}
+
+.crumb-trail, .crumb-pos {
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+/* Top Navigation */
+.mainnav-link {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* Buttons */
+:is(#root, #overlays) .ui-btn {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}

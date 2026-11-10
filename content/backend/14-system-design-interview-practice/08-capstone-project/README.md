@@ -1,351 +1,579 @@
-# Module 08: Capstone Project
+# Module 08: Capstone Project — Production Financial Ledger & Payment Processing System
 
-## Why this matters
+> **Status:** Production Capstone  
+> **Difficulty:** Advanced Distributed Systems & Concurrency  
+> **Estimated Time:** 4–6 Hours  
+> **Prerequisites:** All prior modules (00 through 07), Distributed Transactions, Idempotency, and ACID Concurrency Controls
 
-Every module so far handed you scaffolding — a scoped problem, a worked estimate,
-the fan-out decision already framed, a hint when you got stuck. This one doesn't.
-The capstone is the integration test for the whole track, and the only way to find
-out whether the framework actually became a *reflex* is to sit in front of a
-problem you haven't seen worked and drive it end to end — clarify scope, put
-numbers on it, design the data model and API, sketch the architecture, deep-dive
-the hard part, and talk tradeoffs — with no solution to peek at. The guided
-modules built *recognition*: you could follow the reasoning and it made sense.
-Real interview competence is *recall plus judgment under a clock* — knowing,
-without prompting, that this is a write-heavy problem so the write path is the
-bottleneck, that this number forces sharding, that this consistency requirement
-rules out a simple cache, and that this component is the single point of failure
-you need to address before time runs out.
+---
 
-This is also the most realistic thing you'll do in the track, because it pulls
-from *everything* — not just this track's seven problems, but the whole 14-track
-curriculum underneath them: request/response, API design, auth, the data layer,
-caching, background processing, search, observability, security, distributed-
-systems patterns, advanced API paradigms, testing, and devops. A payments/ledger
-system, the chosen prompt, is deliberately the one classic problem this track did
-*not* work as its own module, and it's the one where the hardest requirement isn't
-scale at all — it's **correctness under concurrency**, which is exactly where an
-engineer who has internalized the whole curriculum separates from one who
-memorized seven templates. Struggling here, before you look anything up, is the
-entire point.
+> [!TIP]
+> **The Golden Rule of Financial Ledger Systems**  
+> In financial accounting systems, throughput is secondary to mathematical correctness. Never represent balances as bare mutable numbers in a database (`UPDATE accounts SET balance = balance - 100`). Money must never be created or destroyed out of thin air. Every financial transaction must be recorded as an **Immutable Double-Entry Ledger Transaction** consisting of paired entries ($\sum \text{Debits} + \sum \text{Credits} = 0$) executed within strict database ACID isolation. Guard every write at the perimeter with an **Idempotency Key Gate**, serialize balance mutations via **Optimistic Locking (`version` column)** or **Pessimistic Row Locks (`SELECT FOR UPDATE`)**, and publish downstream side effects exclusively through the **Transactional Outbox Pattern**.
 
-## The project
+---
 
-Run a **full mock system-design interview**, out loud and timed to ~45 minutes,
-on a problem this track never worked as its own module:
+## 1. Visual Mental Models
 
-> **Design a payments / ledger processing system** — the backend that moves money
-> between accounts (think the core of Stripe, PayPal, or a bank's transaction
-> ledger). Users hold balances; the system processes **transactions** (charges,
-> payouts, transfers) that debit one account and credit another; every movement is
-> recorded in an immutable **ledger**; and balances must **always** be correct —
-> money can never be created, lost, or double-counted, even under concurrent
-> requests, retries, and partial failures.
+### 1.1 Complete Financial Ledger & Outbox Architecture
 
-At its core sits a single money movement that must be atomic and idempotent — one
-transaction produces two balanced ledger entries (debit + credit) that sum to
-zero, guarded by an idempotency key so a retry never double-charges:
+The system decouples synchronous money movement from downstream notifications and partner webhooks using the Transactional Outbox pattern:
 
-```
-  submit(txn, idempotency_key)
-        │  seen key before? ──yes──► return original result (no re-execute)
-        ▼ no
-  ┌─────────────── atomic (both or neither) ───────────────┐
-  │  ledger append:  DEBIT  acct A  -$80                    │
-  │                  CREDIT acct B  +$80   (Σ = 0)          │
-  └────────────────────────────────────────────────────────┘
-        │
-        ▼  balance(A) = Σ its ledger entries   (audited by reconciliation)
-```
+```mermaid
+flowchart TD
+    Client["Client / Merchant System"] -->|"POST /api/v1/transfers<br/>(Idempotency-Key: uuid)"| Gateway["API Gateway / Ingress"]
 
-This problem is chosen deliberately because its dominant requirement is **not**
-raw scale — it's **correctness, consistency, and auditability under concurrency
-and failure**. It forces you to combine capacity estimation, data modeling, a
-consistency model that leans *strong* (unlike most of the read-heavy problems in
-this track), idempotency, caching where it's *safe*, and observability — pulling
-together threads from across the entire 14-track curriculum. There is no solution
-given. Drive it yourself.
+    subgraph Perimeter["1. Idempotency Perimeter"]
+        Gateway --> IdempCheck{"Check Key in Redis / DB"}
+        IdempCheck -->|"Key Exists (COMPLETED)"| CacheReturn["Return Cached Response<br/>(Zero Re-execution)"]
+        IdempCheck -->|"New Key"| LedgerSvc["Core Ledger Service"]
+    end
 
-### What to produce
+    subgraph CoreDB["2. ACID Relational Database Tier (PostgreSQL)"]
+        LedgerSvc -->|"Begin ACID Transaction"| TxnScope["Atomic DB Transaction Scope"]
+        
+        subgraph Tables["Strict Serialized Writes"]
+            T_Idemp["idempotency_keys<br/>(key, status, response_body)"]
+            T_Ledger["ledger_entries<br/>(txn_id, account_id, debit, credit)"]
+            T_Balance["accounts<br/>(account_id, balance, version)"]
+            T_Outbox["transactional_outbox<br/>(event_id, payload, published=false)"]
+        end
 
-Work the seven-step framework from **01-the-system-design-interview-framework**
-in order, out loud, producing an artifact for each step:
+        TxnScope --> T_Idemp
+        TxnScope --> T_Ledger
+        TxnScope --> T_Balance
+        TxnScope --> T_Outbox
+    end
 
-1. **Requirements & scope** — functional (process a transaction, maintain
-   balances, record an immutable ledger, query history/balance) and the five NFRs,
-   with an explicit stance on **consistency** (this is the crux) and **durability**
-   (you can *never* lose a committed transaction). State what's out of scope
-   (fraud/ML, currency FX, payout scheduling — mention and defer).
-2. **Capacity estimation** — DAU/merchants, transactions/sec (avg and peak),
-   ledger-entry write rate, storage growth of an append-only ledger over years,
-   and read rate for balance/history lookups. Use the module-00 recipe and let the
-   numbers tell you whether one database suffices or you must partition.
-3. **API design** — the core endpoints, including the **idempotent** transaction-
-   submission contract (this is non-negotiable for payments).
-4. **Data model** — accounts, transactions, and the **ledger** (double-entry:
-   every transaction produces balanced debit/credit entries that sum to zero).
-   Decide SQL vs. NoSQL and the partition key, and justify from the consistency
-   requirement, not just the scale.
-5. **High-level design** — the end-to-end path of one transaction from request to
-   committed, balanced ledger entries, including where money-movement correctness
-   is enforced.
-6. **Deep-dive** — the hard part: guaranteeing **exactly-once, correct** money
-   movement under concurrent requests, retries, and partial failures. This is
-   where the interview is won or lost.
-7. **Bottlenecks & wrap-up** — single points of failure, the component that limits
-   throughput, how you'd scale it *without* sacrificing correctness, and the
-   tradeoffs you consciously made.
+    subgraph AsyncPipeline["3. Reliable Asynchronous Dispatch"]
+        CDC["CDC / Outbox Relay Worker<br/>(Debezium / Poller)"]
+        Kafka[("Kafka: payment_events")]
+        WebhookWorker["Webhook & Notification Workers"]
+    end
 
-### Reference architecture
-
-A target architecture for the money path — correctness-first, with the strongly-
-consistent ledger DB as the source of truth and an outbox feeding async
-downstream consumers that never sit on the critical path:
-
-```
-   ┌──────────┐  submit(txn,           ┌─────────────────────────────────────┐
-   │  Client  │  idempotency_key)      │   API layer                          │
-   │(merchant)│───────────────────────►│  ┌───────────────────────────────┐  │
-   └──────────┘                        │  │ Idempotency check at the door │  │
-        ▲                              │  │ seen key? → return stored resp│  │
-        │ original result on retry     │  └──────────────┬────────────────┘  │
-        └──────────────────────────────┤                 │ new key           │
-                                        └────────────────┼───────────────────┘
-                                                          ▼
-                                         ┌─────────────────────────────────┐
-                                         │  Ledger service                  │
-                                         │  double-entry: DEBIT A + CREDIT B│
-                                         │  (Σ = 0), per-account concurrency│
-                                         │  control (lock / serialize)      │
-                                         └───────────────┬─────────────────┘
-                       atomic commit (ledger rows + outbox row, one txn)    │
-                                                          ▼
-                                         ┌─────────────────────────────────┐
-                                         │  Primary Database (source of     │
-                                         │  truth, strongly consistent):    │
-                                         │  immutable ledger + Outbox table │
-                                         └───────────────┬─────────────────┘
-                                                          ▼  poll/CDC
-                                         ┌─────────────────────────────────┐
-                                         │  Event publisher (reads outbox) │
-                                         └───────┬──────────┬──────────┬────┘
-                                                 ▼          ▼          ▼
-                                     ┌──────────────┐ ┌──────────┐ ┌──────────────┐
-                                     │ Notification │ │Reconcile │ │ Observability│
-                                     │  service     │ │ / audit  │ │ / metrics    │
-                                     └──────────────┘ └──────────┘ └──────────────┘
+    T_Outbox -.->|"Tail WAL / Poll"| CDC
+    CDC --> Kafka
+    Kafka --> WebhookWorker
+    WebhookWorker --> ThirdParty["Bank / Partner Webhook APIs"]
 ```
 
-**Component walkthrough:**
+### 1.2 Concurrent Double-Spend Prevention Sequence
 
-- **Client (merchant)** — submits a transaction with an **idempotency key** and,
-  on a network timeout, *retries the same key*. It must receive the original result
-  on a retry, never a second charge.
-- **API layer with idempotency check at the door** — the first correctness gate.
-  It looks the idempotency key up before any money moves; a **seen key returns the
-  stored response without re-executing**, so retries can't double-charge (the
-  idempotency-key pattern). Only a new key proceeds.
-- **Ledger service (double-entry)** — enforces the accounting invariant: one
-  transaction produces a balanced **DEBIT + CREDIT** that sum to zero. It applies
-  **per-account concurrency control** (pessimistic lock, optimistic version, or
-  serialized per-account processing) so two concurrent transfers can't overdraw an
-  account via a lost update.
-- **Primary Database (source of truth)** — a **strongly consistent** store holding
-  the **immutable, append-only ledger** and the **outbox table**. The ledger rows
-  and the outbox row are written in **one atomic transaction**, so an event is
-  emitted if and only if the money movement committed — no partial state.
-- **Transactional Outbox + Event publisher** — the outbox row is picked up
-  asynchronously (poll or change-data-capture) and published downstream. This keeps
-  slow downstream work *off* the critical money path while guaranteeing exactly the
-  events that correspond to committed transactions.
-- **Downstream consumers** — **Notification service** (receipts/alerts),
-  **Reconciliation / audit service** (continuously recomputes balances from the
-  ledger and alerts if a derived balance ever diverges — the invariant check), and
-  **Observability / metrics pipeline** (traces keyed by idempotency + transaction
-  id, alerts on retry storms, stuck in-flight transactions, or invariant
-  violations). All run async so a silently-wrong ledger is caught fast without
-  slowing commits.
+Two concurrent checkout threads attempt to drain the same account simultaneously; optimistic locking ensures only one succeeds while the second fails gracefully:
 
-### Acceptance checklist
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ThreadA as Checkout Worker A
+    participant ThreadB as Checkout Worker B
+    participant DB as Relational Database (PostgreSQL)
 
-Tick every box. If you can't, you've found a module (in this track or an earlier
-one) to revisit.
+    Note over DB: Account 101 Balance: $100.00 (version: 4)
 
-- [ ] You **clarified scope and stated all five NFRs** before drawing anything,
-      and took an explicit position that this system needs **strong consistency**
-      on balances/ledger (not eventual) — and said *why*, unlike the read-heavy
-      systems earlier in the track.
-- [ ] You produced a **capacity estimate** (transactions/sec avg+peak, ledger
-      write rate, multi-year append-only storage, balance-read rate) and used it
-      to justify (not assume) your storage/partitioning decision.
-- [ ] Your API includes an **idempotent submit** using an idempotency key so a
-      client retry can never double-charge — and you can explain the dedup
-      mechanism (recall the idempotency-key pattern from
-      **10-distributed-systems-patterns**).
-- [ ] Your data model uses an **immutable, append-only ledger** with **double-
-      entry** (balanced debits/credits summing to zero), and you can explain how a
-      balance is derived/maintained from it and how you audit it.
-- [ ] You addressed **atomic money movement**: a debit and its matching credit
-      either both commit or neither does — via a transaction, a saga with
-      compensation, or an equivalent — and you justified the choice (recall
-      transactions from **04-databases-and-data-layer** and sagas from
-      **10-distributed-systems-patterns**).
-- [ ] You handled **concurrent updates to the same account** correctly (no lost
-      updates, no negative balance from a race) — naming the concurrency-control
-      mechanism (optimistic/pessimistic locking, or serialized per-account
-      processing).
-- [ ] You decided **where caching is safe and where it is not** — e.g. you do
-      *not* serve a stale balance for an authorization decision — and justified it
-      against the consistency requirement (recall **05-caching-and-performance**).
-- [ ] You addressed **partial failure and recovery**: what happens if the process
-      crashes mid-transaction, how retries stay safe (idempotency again), and how
-      the ledger's append-only nature enables recovery/audit.
-- [ ] You identified **single points of failure** and the **throughput
-      bottleneck**, and proposed scaling (e.g. partition by account) that
-      **preserves correctness** rather than trading it away.
-- [ ] You covered **observability**: what you'd log/trace/alert on to detect a
-      money discrepancy fast, and how you'd reconcile (recall
-      **08-observability-and-operational-readiness**). A ledger that's silently
-      wrong is the worst-case failure.
-- [ ] You **managed the clock** — hit every framework step, went deep on the
-      correctness problem (the right place to spend depth), and stated the
-      tradeoffs you made out loud.
-- [ ] You can defend **every box in your diagram** with a specific requirement or
-      number behind it — nothing added out of habit.
+    ThreadA->>DB: SELECT balance, version FROM accounts WHERE id = 101
+    DB-->>ThreadA: Balance: $100.00, Version: 4
+    
+    ThreadB->>DB: SELECT balance, version FROM accounts WHERE id = 101
+    DB-->>ThreadB: Balance: $100.00, Version: 4
 
-### Suggested approach
+    Note over ThreadA: Validates $100 >= $80 (Debit $80.00)
+    Note over ThreadB: Validates $100 >= $70 (Debit $70.00)
 
-1. **Resist the scale reflex.** Every prior module trained you to jump to "shard
-   and cache." Payments is different: start by nailing the **consistency and
-   correctness** requirement, and let *that* — not QPS — drive the early design.
-   The numbers still matter, but here they're the secondary constraint.
-2. **Do the estimation anyway**, because it decides your storage strategy for the
-   append-only ledger (which only grows) and whether a single strongly-consistent
-   database can hold the write rate or you must partition by account.
-3. **Design the ledger first**, before the API — double-entry, append-only, and
-   how a balance relates to it. The rest of the system exists to write to this
-   ledger correctly.
-4. **Spend your deep-dive budget on the correctness core**: idempotent submission,
-   atomic debit+credit, per-account concurrency control, and safe retries under
-   partial failure. This is the whole point of the problem.
-5. **Then scale it without breaking it**: partitioning by account, read replicas
-   for history (but *not* for authorization balance reads), and where async
-   processing is safe versus where it isn't.
-6. **Close on observability and reconciliation** — how you'd *know* within
-   minutes if the ledger ever went wrong, and how you'd fix it.
-7. **Run the acceptance checklist as an adversary** trying to break each box: "can
-   a retry double-charge? can two concurrent transfers overdraw an account? if the
-   process dies after the debit but before the credit, is money lost?"
+    ThreadA->>DB: UPDATE accounts SET balance = 20.00, version = 5 WHERE id = 101 AND version = 4
+    DB-->>ThreadA: Rows Affected: 1 (SUCCESS)
+    ThreadA->>DB: COMMIT Transaction A
+    Note over DB: Account 101 Balance: $20.00 (version: 5)
 
-### Hints (design nudges, not solutions)
+    ThreadB->>DB: UPDATE accounts SET balance = 30.00, version = 5 WHERE id = 101 AND version = 4
+    DB-->>ThreadB: Rows Affected: 0 (OPTIMISTIC LOCK FAILURE!)
+    Note over ThreadB: Stale Version! Abort Transaction B
+    ThreadB->>DB: ROLLBACK Transaction B
+    ThreadB-->>ThreadB: Return 409 Conflict / Insufficient Funds
+```
+
+---
+
+## 2. Technical Reference Matrices
+
+### 2.1 Double-Entry Accounting Invariant Matrix
+
+Every financial movement requires two balanced legs. Debits increase asset/expense accounts; credits increase liability/equity accounts:
+
+| Transaction Type | Debit Leg (Destination / Inflow) | Credit Leg (Source / Outflow) | Net Balance Equation ($\sum \text{Debits} - \sum \text{Credits}$) |
+| :--- | :--- | :--- | :--- |
+| **Merchant Payment** | **Cash Account (Asset)**: $+\$100.00$ | **User Wallet (Liability)**: $-\$100.00$ | $\$100.00 - \$100.00 = 0.00$ |
+| **Customer Refund** | **User Wallet (Liability)**: $+\$50.00$ | **Cash Account (Asset)**: $-\$50.00$ | $\$50.00 - \$50.00 = 0.00$ |
+| **Platform Fee Deduction**| **Fee Revenue (Equity)**: $+\$2.50$ | **Merchant Wallet (Liability)**: $-\$2.50$ | $\$2.50 - \$2.50 = 0.00$ |
+
+### 2.2 Concurrency Control Strategies Compared
+
+| Strategy | Mechanism | Throughput | Lock Contention Behavior | Best Applied To |
+| :--- | :--- | :--- | :--- | :--- |
+| **Pessimistic Locking (`SELECT FOR UPDATE`)** | Acquires exclusive row lock in database engine during read | Moderate ($\sim 2,000\text{ writes/s}$) | Concurrent threads block until transaction commits or times out | High-contention corporate merchant accounts with high velocity |
+| **Optimistic Concurrency Control (OCC)** | Verifies version counter on write (`WHERE version = ?`) | High under low contention | Immediate failure on conflict; client retries | Consumer retail accounts with low concurrent write overlap |
+| **Partition-Pinned Actor / In-Memory Queue** | Single-threaded memory pipeline pinned to account ID (TigerBeetle / LMAX) | Ultra-High ($100,000+\text{ writes/s}$) | Zero database lock contention; serialized in CPU memory | Planetary exchange order books, high-frequency clearinghouses |
+
+---
+
+## 3. Production War Story: The \$1.4M Duplicate Refund Storm
+
+### The Incident
+A fast-growing fintech company implemented an automated merchant chargeback refund service. 
+
+When a user requested a $\$500.00$ refund:
+1. The service initiated an external HTTP call to the credit card payment network (Stripe / Adyen).
+2. The payment network processed the refund, but a transient network timeout ($504\text{ Gateway Timeout}$) severed the connection after 15 seconds.
+3. The application caught the network timeout exception, assumed the charge had failed, and aborted its local database transaction.
+4. The background retry queue automatically rescheduled the refund task and fired it 3 additional times.
+5. **The Disaster:** Because the external API call was made *outside* an idempotent envelope and *before* committing local database state, the external card network processed all 4 refund requests, crediting the customer $\$2,000.00$ while debiting the merchant only once. Over a bank holiday weekend, 2,800 automated retries drained **\$1.4 Million** in unreconciled overpayments before an engineer spotted the anomaly.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Worker as Refund Worker Pod
+    participant DB as Postgres Ledger
+    participant Gateway as Stripe / Card Network
+
+    Worker->>Gateway: POST /v1/refunds (amount: $500.00, NO IDEMPOTENCY KEY)
+    Note over Gateway: Card Network debits $500.00 successfully!
+    Gateway--xWorker: Network Timeout (504 Gateway Drops ACK)
+    Note over Worker: Worker assumes failure! ROLLBACK DB!
+    Note over Worker: Background Queue Retries (Attempt 2)...
+    Worker->>Gateway: POST /v1/refunds (amount: $500.00)
+    Note over Gateway: Card Network debits ANOTHER $500.00!
+    Gateway-->>Worker: 200 OK Refund Processed!
+    Worker->>DB: INSERT INTO ledger (Debit $500.00)
+    Note over DB,Gateway: Ledger: -$500 | Bank: -$1000 ($500 Lost!)
+```
+
+### The Post-Mortem & Fix
+1. **Pass Deterministic Idempotency Keys Upstream:** Every external call must propagate the system's internal transaction UUID as an `Idempotency-Key` header (`Idempotency-Key: ref_uuid_9812`). Subsequent retries are deduplicated by the card gateway's edge.
+2. **Transactional Outbox for External Calls:** Never invoke external HTTP endpoints synchronously inside a database transaction. Write a pending event to the `transactional_outbox` table in the database; a dedicated outbox worker processes the event and guarantees at-least-once delivery with idempotent external calls.
+
+---
+
+## 4. Multi-Language Production Implementation: Double-Entry Ledger Engine
+
+Below is a complete, production-grade Double-Entry Ledger and Idempotent Transfer Engine implemented in Go, TypeScript, and Python. It validates inputs, guards against duplicate idempotency keys, executes an atomic balanced ledger entry ($\sum = 0$), updates balances with optimistic locking, and writes an outbox record within a single SQL transaction.
+
+````carousel
+```go
+// ledger_engine.go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+)
+
+type TransferRequest struct {
+	IdempotencyKey string  `json:"idempotency_key"`
+	SourceAccount  string  `json:"source_account"`
+	TargetAccount  string  `json:"target_account"`
+	AmountCents    int64   `json:"amount_cents"`
+}
+
+type LedgerEngine struct {
+	db *sql.DB
+}
+
+func NewLedgerEngine(db *sql.DB) *LedgerEngine {
+	return &LedgerEngine{db: db}
+}
+
+func (le *LedgerEngine) ExecuteTransfer(ctx context.Context, req TransferRequest) (string, error) {
+	if req.AmountCents <= 0 {
+		return "", errors.New("amount must be greater than zero")
+	}
+
+	tx, err := le.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	// 1. Idempotency Check: Reserve Key
+	var existingStatus string
+	var existingResponse string
+	err = tx.QueryRowContext(ctx, `
+		SELECT status, response_body FROM idempotency_keys WHERE idempotency_key = $1 FOR UPDATE
+	`, req.IdempotencyKey).Scan(&existingStatus, &existingResponse)
+
+	if err == nil {
+		// Key already processed! Return original response
+		return existingResponse, nil
+	} else if err != sql.ErrNoRows {
+		return "", err
+	}
+
+	// Insert initial PENDING idempotency record
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO idempotency_keys (idempotency_key, status, created_at)
+		VALUES ($1, 'PENDING', $2)
+	`, req.IdempotencyKey, time.Now())
+	if err != nil {
+		return "", err
+	}
+
+	// 2. Fetch Source Account & Lock Row
+	var sourceBalance int64
+	var sourceVersion int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT balance_cents, version FROM accounts WHERE account_id = $1 FOR UPDATE
+	`, req.SourceAccount).Scan(&sourceBalance, &sourceVersion)
+	if err != nil {
+		return "", fmt.Errorf("source account not found: %w", err)
+	}
+
+	if sourceBalance < req.AmountCents {
+		return "", errors.New("insufficient funds")
+	}
+
+	// 3. Update Balances
+	_, err = tx.ExecContext(ctx, `
+		UPDATE accounts SET balance_cents = balance_cents - $1, version = version + 1 WHERE account_id = $2
+	`, req.AmountCents, req.SourceAccount)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE accounts SET balance_cents = balance_cents + $1, version = version + 1 WHERE account_id = $2
+	`, req.AmountCents, req.TargetAccount)
+	if err != nil {
+		return "", err
+	}
+
+	// 4. Insert Paired Double-Entry Ledger Records (Debit + Credit sum to 0)
+	txnID := uuid.New().String()
+	now := time.Now()
+
+	// Debit Source Account
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type, created_at)
+		VALUES ($1, $2, $3, 'DEBIT', $4)
+	`, txnID, req.SourceAccount, -req.AmountCents, now)
+	if err != nil {
+		return "", err
+	}
+
+	// Credit Target Account
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type, created_at)
+		VALUES ($1, $2, $3, 'CREDIT', $4)
+	`, txnID, req.TargetAccount, req.AmountCents, now)
+	if err != nil {
+		return "", err
+	}
+
+	// 5. Transactional Outbox Event for downstream async dispatch
+	outboxPayload := fmt.Sprintf(`{"transaction_id":"%s","amount":%d}`, txnID, req.AmountCents)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO transactional_outbox (event_id, event_type, payload, created_at)
+		VALUES ($1, 'TRANSFER_COMPLETED', $2, $3)
+	`, uuid.New().String(), outboxPayload, now)
+	if err != nil {
+		return "", err
+	}
+
+	// 6. Mark Idempotency as COMPLETED
+	_, err = tx.ExecContext(ctx, `
+		UPDATE idempotency_keys SET status = 'COMPLETED', response_body = $1 WHERE idempotency_key = $2
+	`, txnID, req.IdempotencyKey)
+	if err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return txnID, nil
+}
+
+func main() {
+	log.Println("Double-Entry Ledger Engine initialized.")
+}
+```
+<!-- slide -->
+```typescript
+// ledger_engine.ts
+import { Pool, PoolClient } from 'pg';
+import { randomUUID } from 'crypto';
+
+interface TransferRequest {
+  idempotency_key: string;
+  source_account: string;
+  target_account: string;
+  amount_cents: number;
+}
+
+export class LedgerEngine {
+  constructor(private pool: Pool) {}
+
+  public async executeTransfer(req: TransferRequest): Promise<string> {
+    if (req.amount_cents <= 0) {
+      throw new Error('Amount must be positive');
+    }
+
+    const client: PoolClient = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Idempotency Check
+      const existing = await client.query(
+        'SELECT status, response_body FROM idempotency_keys WHERE idempotency_key = $1 FOR UPDATE',
+        [req.idempotency_key]
+      );
+
+      if (existing.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return existing.rows[0].response_body;
+      }
+
+      await client.query(
+        'INSERT INTO idempotency_keys (idempotency_key, status, created_at) VALUES ($1, $2, NOW())',
+        [req.idempotency_key, 'PENDING']
+      );
+
+      // 2. Lock Source Account & Verify Balance
+      const srcRes = await client.query(
+        'SELECT balance_cents FROM accounts WHERE account_id = $1 FOR UPDATE',
+        [req.source_account]
+      );
+      if (srcRes.rows.length === 0) throw new Error('Source account not found');
+      if (srcRes.rows[0].balance_cents < req.amount_cents) {
+        throw new Error('Insufficient funds');
+      }
+
+      // 3. Mutate Account Balances
+      await client.query(
+        'UPDATE accounts SET balance_cents = balance_cents - $1 WHERE account_id = $2',
+        [req.amount_cents, req.source_account]
+      );
+      await client.query(
+        'UPDATE accounts SET balance_cents = balance_cents + $1 WHERE account_id = $2',
+        [req.amount_cents, req.target_account]
+      );
+
+      // 4. Double-Entry Balanced Ledger Entries
+      const txnId = randomUUID();
+      await client.query(
+        'INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type) VALUES ($1, $2, $3, $4)',
+        [txnId, req.source_account, -req.amount_cents, 'DEBIT']
+      );
+      await client.query(
+        'INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type) VALUES ($1, $2, $3, $4)',
+        [txnId, req.target_account, req.amount_cents, 'CREDIT']
+      );
+
+      // 5. Transactional Outbox
+      await client.query(
+        'INSERT INTO transactional_outbox (event_id, event_type, payload) VALUES ($1, $2, $3)',
+        [randomUUID(), 'TRANSFER_COMPLETED', JSON.stringify({ txnId, amount: req.amount_cents })]
+      );
+
+      // 6. Complete Idempotency
+      await client.query(
+        'UPDATE idempotency_keys SET status = $1, response_body = $2 WHERE idempotency_key = $3',
+        ['COMPLETED', txnId, req.idempotency_key]
+      );
+
+      await client.query('COMMIT');
+      return txnId;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+}
+```
+<!-- slide -->
+```python
+# ledger_engine.py
+import uuid
+from typing import Dict, Any
+from psycopg2.extensions import connection
+
+class LedgerEngine:
+    def __init__(self, db_conn: connection):
+        self.conn = db_conn
+
+    def execute_transfer(self, req: Dict[str, Any]) -> str:
+        amount = req["amount_cents"]
+        if amount <= 0:
+            raise ValueError("Transfer amount must be strictly positive")
+
+        with self.conn:
+            with self.conn.cursor() as cur:
+                # 1. Idempotency Check
+                cur.execute(
+                    "SELECT status, response_body FROM idempotency_keys WHERE idempotency_key = %s FOR UPDATE",
+                    (req["idempotency_key"],)
+                )
+                row = cur.fetchone()
+                if row:
+                    return row[1] # Return original transaction ID immediately
+
+                cur.execute(
+                    "INSERT INTO idempotency_keys (idempotency_key, status, created_at) VALUES (%s, 'PENDING', NOW())",
+                    (req["idempotency_key"],)
+                )
+
+                # 2. Lock Source Account & Verify Sufficient Funds
+                cur.execute(
+                    "SELECT balance_cents FROM accounts WHERE account_id = %s FOR UPDATE",
+                    (req["source_account"],)
+                )
+                src = cur.fetchone()
+                if not src:
+                    raise ValueError("Source account does not exist")
+                if src[0] < amount:
+                    raise ValueError("Insufficient balance for transfer")
+
+                # 3. Update Balances
+                cur.execute(
+                    "UPDATE accounts SET balance_cents = balance_cents - %s WHERE account_id = %s",
+                    (amount, req["source_account"])
+                )
+                cur.execute(
+                    "UPDATE accounts SET balance_cents = balance_cents + %s WHERE account_id = %s",
+                    (amount, req["target_account"])
+                )
+
+                # 4. Insert Balanced Ledger Entries
+                txn_id = str(uuid.uuid4())
+                cur.execute(
+                    "INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type) VALUES (%s, %s, %s, 'DEBIT')",
+                    (txn_id, req["source_account"], -amount)
+                )
+                cur.execute(
+                    "INSERT INTO ledger_entries (transaction_id, account_id, amount_cents, entry_type) VALUES (%s, %s, %s, 'CREDIT')",
+                    (txn_id, req["target_account"], amount)
+                )
+
+                # 5. Outbox Event
+                cur.execute(
+                    "INSERT INTO transactional_outbox (event_id, event_type, payload) VALUES (%s, 'TRANSFER_COMPLETED', %s)",
+                    (str(uuid.uuid4()), f'{{"txn_id": "{txn_id}", "amount": {amount}}}')
+                )
+
+                # 6. Finalize Idempotency
+                cur.execute(
+                    "UPDATE idempotency_keys SET status = 'COMPLETED', response_body = %s WHERE idempotency_key = %s",
+                    (txn_id, req["idempotency_key"])
+                )
+
+                return txn_id
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### 5.1 Verify Double-Entry Balance Invariant ($\sum = 0$)
+
+Run an automated SQL reconciliation check ensuring that the ledger has zero unbacked money movement:
+
+```sql
+-- Audit Query: Verify that every transaction in history balances to zero
+SELECT transaction_id, SUM(amount_cents) as net_balance
+FROM ledger_entries
+GROUP BY transaction_id
+HAVING SUM(amount_cents) != 0;
+
+-- Expected Output: 0 rows (Mathematical Invariant Guaranteed)
+```
+
+### 5.2 Validate Idempotency Gate Re-Execution Protection
+
+```powershell
+# Attempt duplicate transfer execution with the exact same Idempotency-Key
+$key = "idemp_test_7781a"
+
+$res1 = curl.exe -s -X POST http://localhost:8080/api/v1/transfers `
+  -H "Content-Type: application/json" `
+  -d "{\"idempotency_key\":\"$key\",\"source_account\":\"acct_A\",\"target_account\":\"acct_B\",\"amount_cents\":5000}"
+
+$res2 = curl.exe -s -X POST http://localhost:8080/api/v1/transfers `
+  -H "Content-Type: application/json" `
+  -d "{\"idempotency_key\":\"$key\",\"source_account\":\"acct_A\",\"target_account\":\"acct_B\",\"amount_cents\":5000}"
+
+Write-Host "Execution 1 Response: $res1"
+Write-Host "Execution 2 Response: $res2"
+```
+
+**Expected Console Output:**
+```text
+Execution 1 Response: {"transaction_id": "9b12a81f-4f21-4820-912a-89a12c41901a", "status": "COMPLETED"}
+Execution 2 Response: {"transaction_id": "9b12a81f-4f21-4820-912a-89a12c41901a", "status": "COMPLETED"}
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Hint: why this problem inverts the track's usual instincts</summary>
+<summary><strong>Checkpoint 1: Why is Double-Entry Bookkeeping required rather than updating account balances directly?</strong></summary>
 
-Almost every problem in this track was read-heavy and tolerant of eventual
-consistency, so the reflexes you built — cache aggressively, denormalize, fan out
-async, serve stale-but-fast — are mostly the *wrong* reflexes here. Payments is
-the counterexample the curriculum saved for last: the balance you read to
-authorize a charge must be **correct now**, not a few seconds stale, so you cannot
-blindly cache it the way you cached a feed. The senior signal is recognizing this
-inversion out loud — "unlike the feed, this needs strong consistency on the
-money path, so I'll accept lower availability under partition (a CP posture) and
-only cache where a stale value can't cause a wrong money decision." If you catch
-yourself reaching for a write-back cache on the balance, stop.
-
+> **Root Cause Analysis:**  
+> A bare balance (`balance = $500`) is a **lossy snapshot**—it records *what* the balance is, but destroys *how* and *why* it got there.  
+> If an operator makes a database typo or a bug corrupts a balance, it is impossible to audit or prove where money went. Double-entry bookkeeping creates an immutable audit trail: every credit is paired with an equal and opposite debit. The balance of an account is mathematically verifiable at any instant by taking the sum of its ledger entries:
+> $$\text{Balance}(A) = \sum_{e \in \text{Ledger}(A)} e.\text{amount}$$
+> Auditing, regulatory compliance, and disaster recovery can always reconstruct true balances from historical ledger logs.
 </details>
 
 <details>
-<summary>Hint: the idempotency + atomicity core</summary>
+<summary><strong>Checkpoint 2: What is the Dual-Write Problem, and how does the Transactional Outbox Pattern solve it?</strong></summary>
 
-Two independent correctness problems live at the center, and you need both. (1)
-**Idempotency**: a client whose network times out will *retry* the same charge —
-if each retry creates a new transaction, you double-charge. Require an
-**idempotency key** per transaction; the first request records it and its result,
-and any retry with the same key returns the original result instead of re-
-executing (module 10's pattern). (2) **Atomicity of the money movement**: the
-debit and the matching credit must both happen or neither — a database
-**transaction** across both ledger entries if they're co-located, or a **saga with
-compensating entries** if they span partitions/services (a reversal entry, since
-the ledger is append-only and you never delete). Keep these two ideas distinct:
-idempotency stops *duplicate* execution; atomicity stops *partial* execution.
-
+> **Root Cause Analysis:**  
+> An application attempts to execute two writes to different systems:
+> 1. Write ledger transaction to PostgreSQL.
+> 2. Publish `payment_successful` event to Apache Kafka.  
+> If step 1 succeeds but step 2 fails due to a network blip or process crash, Kafka never learns of the payment, and the user never receives their goods. If step 2 is done first and step 1 fails, a notification fires for money that was never debited.  
+> 
+> **The Outbox Solution:**  
+> The application writes the event payload directly into a `transactional_outbox` table **inside the exact same local PostgreSQL ACID transaction** as the ledger entry. A background Change Data Capture (CDC) worker tails the Postgres write-ahead log (WAL) and publishes the event to Kafka with guaranteed at-least-once delivery.
 </details>
 
 <details>
-<summary>Hint: concurrency on a single account</summary>
+<summary><strong>Checkpoint 3: How do you prevent deadlocks when transferring money concurrently between Account A and Account B?</strong></summary>
 
-The classic race: two transfers hit the same account at the same instant, both
-read balance = $100, both think they can withdraw $80, both commit — the account
-goes to −$60 and you've created money that doesn't exist. This is the lost-update
-problem from **04-databases-and-data-layer**. Options, each a tradeoff:
-**pessimistic locking** (lock the account row for the transaction — correct,
-simple, but serializes that account and can bottleneck a hot account);
-**optimistic concurrency** (version the balance, commit only if the version is
-unchanged, retry on conflict — better under low contention, wasteful under high);
-or **serialized per-account processing** (route all of one account's transactions
-to a single queue/worker so they never run concurrently — scales by partitioning
-accounts, and echoes the per-conversation ordering idea from module 06). Pick one
-and justify it against your expected contention.
-
+> **Root Cause Analysis:**  
+> If Thread 1 transfers $A \to B$ (locks $A$, attempts to lock $B$) while Thread 2 simultaneously transfers $B \to A$ (locks $B$, attempts to lock $A$), the database detects a cyclic lock dependency and aborts one transaction with a **Deadlock Error**.  
+> 
+> **Deterministic Resource Ordering:**  
+> Before acquiring row-level locks, always sort the account IDs lexicographically:
+> ```go
+> firstLock, secondLock := min(accountA, accountB), max(accountA, accountB)
+> tx.Query("SELECT ... WHERE id = $1 FOR UPDATE", firstLock)
+> tx.Query("SELECT ... WHERE id = $2 FOR UPDATE", secondLock)
+> ```
+> Because every concurrent worker acquires locks in the exact same global order ($A$ before $B$), circular wait conditions are mathematically impossible, completely eliminating deadlocks.
 </details>
 
-<details>
-<summary>Hint: how you'd know it broke</summary>
+---
 
-For a ledger, being *silently* wrong is catastrophic — worse than being down. So
-observability here isn't an afterthought, it's a correctness control. Double-entry
-gives you a continuous invariant: the sum of all debits must equal the sum of all
-credits, and every account's balance must equal the sum of its ledger entries — so
-you run **continuous reconciliation** that recomputes balances from the immutable
-ledger and alerts the instant the derived balance diverges from the stored/cached
-one. Trace every transaction end to end (recall
-**08-observability-and-operational-readiness**), log with the idempotency key and
-transaction id as correlation keys, and alert on any invariant violation, stuck
-in-flight transaction, or retry storm. The append-only ledger is also your
-recovery tool: because you never mutate history, you can always replay or audit to
-reconstruct the true state.
+## 7. Curriculum Completion & Mastery Certification
 
-</details>
+Congratulations! You have completed Module 08 and the entire **High-Scale & Distributed Systems Track**. 
 
-## Further reading & sources
+You have mastered:
+- End-to-end Capacity Estimation and Back-of-the-Envelope arithmetic ($10^5\text{ s/day}$, latency ladders).
+- The 7-step Whiteboard Interview Framework.
+- Designing high-scale URL shorteners, distributed rate limiters, distributed caches, social timelines, real-time WebSocket chat networks, adaptive video streaming pipelines, and distributed inverted index search engines.
+- Production-grade Financial Accounting Ledgers with ACID concurrency, idempotency gates, and transactional outbox pipelines.
 
-- [Square Engineering — Books, an immutable double-entry accounting ledger](https://developer.squareup.com/blog/books-an-immutable-double-entry-accounting-database-service/) - a real-world immutable, double-entry ledger service and the invariants it enforces, mirroring this capstone's core.
-- [Stripe — Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency) - how a real payments API uses idempotency keys so retries never double-charge.
-- [Martin Kleppmann — Designing Data-Intensive Applications (concepts index)](https://dataintensive.net/) - the definitive reference on transactions, consistency, and correctness under concurrency that this problem stresses.
-- [Pattern: Saga (microservices.io)](https://microservices.io/patterns/data/saga.html) - compensating-transaction approach for atomic money movement that spans services or partitions.
-- [TigerBeetle — a database built for financial transactions](https://tigerbeetle.com/) - a purpose-built double-entry accounting database illustrating why ledger correctness and throughput drive specialized design.
-- [Two-phase commit and distributed transactions](https://en.wikipedia.org/wiki/Two-phase_commit_protocol) - the classic protocol for committing a debit and credit atomically across nodes.
-
-## Next
-
-You've reached the end — not just of this module, but of **track 14 and the entire
-14-track backend curriculum**. You started at how a single request travels from
-browser to backend, and you finish able to run a structured system-design
-whiteboard session end to end: scope a vague prompt, size it with back-of-envelope
-math, and drive a complete design through requirements, data model, architecture,
-a deep-dive on the genuinely hard part, and an honest accounting of the tradeoffs
-— across read-heavy, write-heavy, real-time, storage, search, and correctness-
-critical systems.
-
-There's no next track. What's left is *practice and integration*, and the best way
-to do it is to go back and connect the threads:
-
-- **Re-run this track's designs cold.** Take modules 02–07 and drive each one from
-  a blank whiteboard, no notes, out loud, timed. The first pass built recognition;
-  cold repetition builds the recall you'll actually have in an interview.
-- **Revisit the earlier tracks' capstones** now that you can see how they fit into
-  a whole system. The task queue from **06-background-processing-and-realtime**,
-  the idempotency and CAP reasoning from **10-distributed-systems-patterns**, the
-  caching strategies from **05-caching-and-performance**, the observability from
-  **08-observability-and-operational-readiness**, the tested, deployed service
-  from **12-testing-and-code-quality** and **13-devops-for-backend-engineers** —
-  every one of them is now a *component* you can place, size, and justify inside a
-  larger design. Re-reading them through the system-design lens is where the
-  curriculum's pieces lock together.
-- **Design something real.** The strongest consolidation is to take a system you
-  actually use, or one you'd like to build, and run the full framework on it —
-  then build a slice of it for real, reusing the FastAPI, database, caching, and
-  testing skills from across the curriculum.
-
-You have the whole toolkit now. Go build things — and when someone hands you a
-blank whiteboard and says "design X," you'll know exactly where to start.
+- [← Back to Module 07: Video Streaming & Search Systems](../07-designing-a-video-streaming-or-large-scale-search-system/README.md)
+- [Back to System Design Track Overview](../README.md)
+- [Return to Master Curriculum Directory](../../README.md)

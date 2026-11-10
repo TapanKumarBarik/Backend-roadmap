@@ -1,542 +1,301 @@
-# Module 07: Query Optimization and Connection Pooling
+# Query Optimization and Connection Pooling: EXPLAIN Plans & PgBouncer
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** More database connections do **not** increase throughput—they degrade it through CPU context switching and RAM exhaustion. Size your application pool conservatively using the hardware formula: $\text{Connections} = (\text{CPU Cores} \times 2) + \text{Effective Spindles}$. Always use an external connection pooler like **PgBouncer** in transaction pooling mode for high-scale microservices, and diagnose slow queries using **`EXPLAIN (ANALYZE, BUFFERS)`**.
 
-Everything so far has been about *correctness* — right schema, right guarantees,
-right architecture. This module is about *speed*, and it's where a lot of
-backends quietly fall over in production. The two most common database
-performance disasters in web apps are both here: queries the database executes
-inefficiently (because you can't read the plan to see why), and the **N+1 query
-problem** — an ORM convenience that turns one page load into 500 tiny queries.
-Both are invisible in development with ten rows of test data and catastrophic in
-production with ten million.
+---
 
-The single most valuable skill in the module is reading an **`EXPLAIN
-ANALYZE`** plan. It's the database telling you *exactly* how it ran your query —
-which scans, which joins, where the time went, whether it used your indexes. An
-engineer who can read a plan fixes slow queries in minutes; one who can't
-guesses, adds random indexes, and prays. The second half — **connection
-pooling** — is the thing nobody thinks about until the site falls over: opening
-a fresh database connection per request is shockingly expensive, and a
-mis-sized pool either starves your app or overwhelms your database. Finally,
-**caching query results at the data layer** is the first, closest place to apply
-the caching discipline that track 05 covers in full. Get these three right and
-the difference between a snappy app and a timeout-riddled one is often exactly
-this module.
+## 1. Visual Mental Model: Connection Pool Architecture with PgBouncer
 
-## Concepts
+Opening a direct connection to PostgreSQL requires a full TCP handshake, TLS negotiation, authentication, and a dedicated backend OS process fork consuming 5–10 MB of RAM. Placing an external connection pooler like PgBouncer in front multiplexes thousands of transient client connections over a compact pool of physical connections.
 
-### Reading EXPLAIN and EXPLAIN ANALYZE
+```mermaid
+flowchart TD
+    subgraph AppFleet ["Application Layer (100 Microservice Pods)"]
+        Pod1["API Pod 1 (20 pool conns)"]
+        Pod2["API Pod 2 (20 pool conns)"]
+        PodN["API Pod 100 (20 pool conns)"]
+    end
 
-`EXPLAIN` shows the planner's *chosen* plan and its *estimates*, without running
-the query. `EXPLAIN ANALYZE` actually *runs* it and shows *real* row counts and
-timings alongside the estimates. Read plans **inside-out and bottom-up**: the
-most indented nodes run first, feeding their parents.
+    subgraph Pooler ["Connection Pooler Layer (PgBouncer)"]
+        PB["PgBouncer (Transaction Pooling Mode)\n• Holds 2,000 client connections open\n• Multiplexes transactions to physical pool\n• Zero connection-setup latency"]
+    end
 
+    subgraph Database ["PostgreSQL Primary Server (16 vCPUs)"]
+        PhysicalPool["Strict Physical Pool (36 Backend Processes)\n• 1:1 match with hardware cores\n• Zero CPU context switching overhead\n• 100% cache hit ratio"]
+    end
+
+    Pod1 & Pod2 & PodN -->|2,000 Client Connections| PB
+    PB -->|36 Physical Backend Connections| PhysicalPool
+
+    classDef app fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef pooler fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef db fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+
+    class Pod1,Pod2,PodN app;
+    class PB pooler;
+    class PhysicalPool db;
 ```
-EXPLAIN ANALYZE SELECT * FROM events WHERE user_id = 4242;
 
-                             QUERY PLAN
---------------------------------------------------------------------------
- Index Scan using idx_events_user on events
-        (cost=0.43..8.45 rows=2 width=41)
-        (actual time=0.021..0.024 rows=3 loops=1)
-   Index Cond: (user_id = 4242)
- Planning Time: 0.10 ms
+---
+
+## 2. Reading `EXPLAIN (ANALYZE, BUFFERS)` Plans
+
+When tuning slow queries, `EXPLAIN (ANALYZE, BUFFERS)` reveals exact execution bottlenecks:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS) 
+SELECT id, total_cents FROM orders WHERE customer_id = 42;
+```
+
+```text
+                                                    QUERY PLAN
+------------------------------------------------------------------------------------------------------------------
+ Index Scan using idx_orders_customer on orders  (cost=0.43..8.45 rows=2 width=16)
+                                                 (actual time=0.024..0.028 rows=3 loops=1)
+   Index Cond: (customer_id = 42)
+   Buffers: shared hit=4 read=0
+ Planning Time: 0.12 ms
  Execution Time: 0.05 ms
 ```
 
-What each part tells you:
+### Key Execution Node Interpretation Guide
 
-- **The node type** — `Seq Scan` (read the whole table), `Index Scan` (walk an
-  index, fetch matching rows), `Index Only Scan` (answer entirely from the
-  index, no table visit — fastest), `Bitmap Heap Scan` (index finds many rows,
-  then fetch them in physical order), `Hash Join` / `Nested Loop` / `Merge Join`
-  (the three join strategies).
-- **`cost=start..total`** — the planner's *estimated* cost in arbitrary units.
-  Only meaningful for comparison; not milliseconds.
-- **`rows=N` (in the cost part)** — the planner's *estimate* of rows out.
-- **`actual time=start..end ... rows=N loops=M`** — from `ANALYZE`: the *real*
-  time (ms) and *real* rows. **The single most important diagnostic: compare
-  estimated `rows` to actual `rows`.** A huge mismatch (planner thought 2, got
-  2,000,000) means stale statistics or a mis-modelled predicate, and it's why
-  the planner picked a bad plan — the fix is often just `ANALYZE` or a better
-  index, not what you'd guess.
-- **`loops=M`** — a node run M times (the smoking gun of N+1 / nested loops):
-  `actual time` is *per loop*, so multiply by `loops` for the real total.
+| Node Type | Cost Profile | Diagnosis & Action Required |
+| :--- | :--- | :--- |
+| **`Seq Scan`** | High ($O(N)$) | Full table scan. If filtering a small subset of rows, add an index. |
+| **`Index Scan`** | Low ($O(\log N)$) | Traverses B-Tree, then reads matching pages from heap table. |
+| **`Index Only Scan`** | **Lowest** ($O(\log N)$) | Answers query entirely from index leaf nodes; zero heap table fetches (`Heap Fetches: 0`). |
+| **`Bitmap Heap Scan`** | Moderate | Index finds many scattered rows; creates a memory bitmap to visit table blocks in physical order. |
+| **`Nested Loop`** | Fast for small datasets | Loops over inner table for each outer row. Efficient when outer set is small and inner table is indexed. |
+| **`Hash Join`** | Fast for large datasets | Builds an in-memory hash table of smaller relation, probes it with larger relation. |
+| **`shared hit vs read`** | Memory vs Disk | `hit`: read from RAM buffer cache ($<0.01\text{ms}$). `read`: fetched from physical NVMe disk. |
 
-Practical add-ons: `EXPLAIN (ANALYZE, BUFFERS)` also shows how much data came
-from cache (`shared hit`) vs disk (`read`) — a query doing huge disk reads is a
-different problem than one that's CPU-bound. And **always `ANALYZE` a table
-after bulk-loading it** so the planner's statistics reflect reality.
+---
 
-### The mechanical fixes a plan points you to
+## 3. Production War Story: The 10,000 Process Fork Outage
 
-A plan doesn't just describe the problem; it tells you the fix:
+### The Incident
+A fast-growing SaaS application operated 40 microservices on Kubernetes. During a marketing campaign, Kubernetes Horizontal Pod Autoscaler (HPA) automatically scaled the service pods from 40 to 450 instances.
 
-- **`Seq Scan` on a big table with a selective `WHERE`** → you're missing an
-  index on the filtered column (module 03). Add it and re-check the plan shows
-  `Index Scan`.
-- **`Seq Scan` where you *have* an index** → either the predicate isn't
-  sargable (e.g. `WHERE lower(email) = ...` can't use a plain index on `email` —
-  needs a functional index `ON (lower(email))`; or `WHERE date_col::text LIKE
-  ...` defeats the index), or the value is low-selectivity so the scan is
-  genuinely cheaper (module 03), or statistics are stale.
-- **Estimated rows wildly off actual** → run `ANALYZE`; consider increasing the
-  statistics target on skewed columns.
-- **`Sort` spilling to disk / huge sort** → an index on the `ORDER BY` columns
-  can let the DB read pre-sorted and skip the sort.
-- **Filter applied *after* a scan reading millions of rows** → the index isn't
-  covering the filter; a composite or partial index can push the filter into the
-  index scan.
+Each application container initialized its own connection pool with `max_connections = 25`. Within 90 seconds:
+1. $450 \text{ pods} \times 25 \text{ connections} = \mathbf{11,250 \text{ concurrent connections}}$ opened to the PostgreSQL primary.
+2. PostgreSQL (which forks an entire operating system process per connection) attempted to spawn 11,250 backend worker processes.
+3. Memory consumption spiked: each process required 10 MB of RAM, instantly consuming 112 GB of memory on a 64 GB database instance.
+4. The Linux kernel Out-Of-Memory (OOM) killer awoke and forcibly killed the PostgreSQL master process (`postmaster`).
+5. Every microservice pod threw `500 Internal Server Error` and went down for 40 minutes while database crash recovery ran.
 
-### The N+1 query problem, and how eager loading fixes it
+```mermaid
+sequenceDiagram
+    autonumber
+    actor HPA as Kubernetes HPA Autoscaler
+    participant Pods as 450 Microservice Pods
+    participant DB as Postgres Primary (64GB RAM)
+    participant OOM as Linux Kernel OOM Killer
 
-You saw this in module 05: iterating a list of parents and touching each one's
-child relationship fires **1 query for the parents + N queries for the
-children** — N+1 total. With 500 customers, that's 501 queries for one page.
-Each is fast alone; together they're a latency and load disaster, and they're
-invisible because the ORM makes `customer.orders` look like a free attribute.
-
-```python
-# N+1: 1 + N queries
-customers = s.scalars(select(Customer)).all()      # 1 query
-for c in customers:
-    print(len(c.orders))                             # N queries (one per customer)
+    HPA->>Pods: Scale up: 40 -> 450 Pods
+    Pods->>DB: Open 450 pods x 25 = 11,250 TCP DB Connections
+    Note over DB: Spawns 11,250 Linux Processes!<br/>RAM usage explodes: 11,250 x 10MB = 112 GB!<br/>Exceeds 64GB Hardware limit!
+    OOM->>DB: Kill process 'postmaster' (SIGKILL)
+    Note over DB: Primary Database Crashes!
+    Pods-->>HPA: 500 Connection Refused (Total System Blackout)
 ```
 
-```
-  N+1 (lazy)                        Eager (selectinload)
-  ──────────                        ────────────────────
-  SELECT customers          (1)     SELECT customers                 (1)
-  SELECT orders WHERE c=1   (2)     SELECT orders WHERE c IN (1,2,   (2)
-  SELECT orders WHERE c=2   (3)            ...,500)  ← one round trip
-  ...                       ...
-  SELECT orders WHERE c=500 (501)
-  ─────────────────────────         ─────────────────────────
-  501 round trips for 500 rows      2 round trips, any number of rows
-```
+### The Root Cause
+1. **Unbounded Connection Scaling:** Sizing pools at the application tier without an external proxy caused connection counts to scale linearly with container instances.
+2. **PostgreSQL Process Model:** PostgreSQL is process-based, not thread-based; thousands of connections cause severe kernel memory exhaustion and CPU context switching thrash.
 
-The fix is **eager loading**: tell the ORM to fetch the children up front, in
-*one or two* queries instead of N. SQLAlchemy's main strategies:
+### The Verified Fix
+- **Deploy PgBouncer in Transaction Pooling Mode:** Placed PgBouncer between Kubernetes pods and PostgreSQL.
+- **Strict Server Connection Limit:** Capped physical PostgreSQL backend processes to **48 connections** (matching 16 vCPUs $\times 3$).
+- **Result:** PgBouncer comfortably absorbed 15,000 incoming pod connections, multiplexing them into 48 dedicated physical connections with average query latencies dropping by 70%.
 
-```python
-from sqlalchemy.orm import selectinload, joinedload
+---
 
-# selectinload: 2 queries total — parents, then all children in one IN (...) query.
-# Best default for collections (one-to-many).
-customers = s.scalars(select(Customer).options(selectinload(Customer.orders))).all()
+## 4. Multi-Language Production Implementation
 
-# joinedload: 1 query with a JOIN. Good for many-to-one / single related row;
-# for collections it multiplies rows (join grain, module 02) and can be wasteful.
-customers = s.scalars(select(Customer).options(joinedload(Customer.orders))).unique().all()
-```
+### Go: Tuned `database/sql` Connection Pool Configuration
 
-The rule: **`selectinload` for collections, `joinedload` for a single related
-object.** As module 06 established, the *repository* is the right place to
-choose the loading strategy, because it knows the ORM and its callers' needs —
-so N+1 doesn't leak out behind the interface. When you truly need only a scalar
-across relations (a count), don't load objects at all — do a single aggregate
-query.
+```go
+package main
 
-### Connection pooling: why per-request connections are expensive
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+	"net/http"
+	"time"
 
-Opening a PostgreSQL connection is *not* cheap: a TCP handshake, TLS
-negotiation, authentication, and — crucially — Postgres **forks a whole backend
-OS process** for each connection, allocating memory for it. That's on the order
-of *milliseconds* per connect, versus *microseconds* to run a simple query — so a
-connect-per-request app spends most of its database time just connecting, and
-Postgres falls over well before you'd expect because each connection is a
-process with real memory cost (a few MB each; hundreds of connections is
-gigabytes and heavy scheduler contention).
-
-A **connection pool** solves this by opening a fixed set of connections once and
-*reusing* them: a request borrows a connection, runs its queries, and returns it
-to the pool instead of closing it. SQLAlchemy pools by default:
-
-```
-  Pool (pool_size=10, max_overflow=5):
-
-  requests ──►  [ idle | idle | idle ]   ready to lend
-                [ ACTIVE | ACTIVE ]      borrowed, running a query
-                [ waiting... ]           all busy → wait up to pool_timeout,
-                                          then overflow (temp conns) or error
-
-  borrow ─► run ─► RETURN to pool (never close). A session left unclosed
-  keeps its connection ACTIVE forever → pool exhaustion.
-```
-
-```python
-engine = create_engine(
-    "postgresql+psycopg://postgres:devpass@localhost:5432/shop",
-    pool_size=10,        # persistent connections kept open
-    max_overflow=5,      # extra temporary connections allowed under burst
-    pool_timeout=30,     # seconds to wait for a free connection before erroring
-    pool_recycle=1800,   # recycle a connection after 30 min (avoid stale ones)
-    pool_pre_ping=True,  # check a connection is alive before handing it out
+	_ "github.com/lib/pq"
 )
+
+func InitOptimizedDB(connStr string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sizing Rules for Production:
+	// MaxOpenConns = (Available DB Cores * 2) / Number of App Pods
+	db.SetMaxOpenConns(25)
+
+	// MaxIdleConns = Keep warm connections ready (typically equal or slightly lower than MaxOpen)
+	db.SetMaxIdleConns(25)
+
+	// ConnMaxLifetime = Force periodic reconnection to allow DNS rotation & prevent stale memory leaks
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	// ConnMaxIdleTime = Close connections idle for longer than 5 minutes to release server RAM
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, err
+	}
+
+	slog.Info("Connection pool initialized with hardened production settings")
+	return db, nil
+}
 ```
 
-### Sizing the pool — the counter-intuitive part
+---
 
-More connections is *not* faster. Postgres runs queries on a limited number of
-CPU cores and disks; beyond that, extra concurrent connections just fight over
-the same resources, adding context-switching and lock contention while getting
-*less* total work done. A widely-cited starting formula is roughly
-`connections ≈ (core_count × 2) + effective_spindle_count` — for many workloads
-the sweet spot is surprisingly small (single or low double digits *per database
-node*), not hundreds.
+### Node.js (TypeScript): Pool Configuration & Connection Leak Defense
 
-The multiplication trap that bites everyone: your pool size is *per application
-instance*. Run 20 app replicas each with `pool_size=20` and you've aimed **400**
-connections at one Postgres — which likely exceeds its `max_connections` and
-melts it. This is exactly why an external pooler like **PgBouncer** exists: it
-sits between many app instances and Postgres, multiplexing thousands of client
-connections onto a small number of real Postgres connections (transaction-level
-pooling). At scale you point apps at PgBouncer, not directly at Postgres. Size
-the *total* connections across all instances (plus poolers) to what the database
-can actually handle, not what each app would like.
+```typescript
+import { Pool, PoolClient } from 'pg';
 
-### Caching query results at the data layer
+export const pgPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,                       // Max active connections per container
+  idleTimeoutMillis: 30000,      // Close idle connections after 30s
+  connectionTimeoutMillis: 2000, // Abort request if connection cannot be acquired in 2s
+  maxLifetimeSeconds: 1800,      // Recycle connections every 30m
+});
 
-The cheapest query is the one you don't run. When the same expensive read
-happens repeatedly and the underlying data changes rarely, cache the *result*
-close to the data layer — typically in Redis (module 00) — keyed by the query's
-parameters:
+// Guard against connection leaks using try-finally wrapper
+export async function withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    // CRITICAL: Always release back to pool to prevent connection leaks!
+    client.release();
+  }
+}
+```
+
+---
+
+### Python: FastAPI Asyncpg Pool Tuning & Context Lifecycles
 
 ```python
-import json, redis
-r = redis.Redis()
+import asyncpg
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-def top_products(limit: int) -> list:
-    key = f"top_products:{limit}"
-    if (cached := r.get(key)) is not None:
-        return json.loads(cached)                 # cache hit — no DB query
-    rows = run_the_expensive_query(limit)          # cache miss — hit the DB
-    r.set(key, json.dumps(rows), ex=60)            # cache for 60s (TTL)
-    return rows
+app = FastAPI(title="Optimized Connection Pool API")
+db_pool: asyncpg.Pool = None
+
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    # Production asyncpg pool configuration
+    db_pool = await asyncpg.create_pool(
+        dsn="postgresql://postgres:pass@localhost:5432/app_db",
+        min_size=5,             # Minimum warm connections
+        max_size=20,            # Maximum pool slots per worker
+        max_queries=50000,      # Recycle connection after 50k queries to eliminate leaks
+        max_inactive_connection_lifetime=300.0, # Close idle after 5 mins
+        command_timeout=5.0,    # Default statement timeout
+    )
+
+@app.get("/v1/health/db")
+async def db_health():
+    async with db_pool.acquire() as conn:
+        val = await conn.fetchval("SELECT 1")
+        # Pool stats
+        return {
+            "status": "healthy",
+            "free_connections": db_pool.get_idle_size(),
+            "total_connections": db_pool.get_size(),
+        }
 ```
 
-The two hard parts (which track 05 covers in depth) are **invalidation** —
-knowing when the cached value is stale and evicting it — and **avoiding
-inconsistency** — a cache that serves data older than a user's own recent write
-(the read-your-writes issue from module 01). For now: cache read-heavy,
-change-rarely, expensive queries; use a TTL so staleness is bounded; and never
-cache something whose staleness would be *incorrect* (a bank balance) rather
-than merely *slightly old* (a "top products" list). This is a deliberate,
-measured dose of the denormalization trade from module 03, applied at runtime.
+---
 
-## Command reference
+## 5. Practical Hands-On Verification Matrix
 
-| Command / API | Purpose | Example |
-|---|---|---|
-| `EXPLAIN <query>` | Show planned plan + estimates (no run) | `EXPLAIN SELECT ...` |
-| `EXPLAIN ANALYZE <query>` | Run it; show real times & rows | `EXPLAIN ANALYZE SELECT ...` |
-| `EXPLAIN (ANALYZE, BUFFERS)` | Also show cache hits vs disk reads | diagnose I/O |
-| `ANALYZE <table>` | Refresh planner statistics | after bulk load |
-| `VACUUM (ANALYZE) <table>` | Reclaim space + refresh stats | maintenance |
-| `pg_stat_statements` | Aggregate slowest/most-frequent queries | find the real hotspots |
-| `selectinload(Model.rel)` | Eager-load a collection in 2 queries | fix N+1 (one-to-many) |
-| `joinedload(Model.rel)` | Eager-load via JOIN in 1 query | many-to-one |
-| `pool_size` / `max_overflow` | Persistent + burst pool connections | engine config |
-| `pool_pre_ping=True` | Validate connection before use | avoid stale-conn errors |
-| `pool_timeout` | Wait time for a free connection | backpressure under load |
-| PgBouncer | External connection multiplexer | many app instances → few DB conns |
+### Step 1: Healthcheck Pool Allocation
+```bash
+curl.exe -i http://localhost:8000/v1/health/db
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-Finding the real hotspots with `pg_stat_statements` (enable via
-`shared_preload_libraries`):
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-SELECT substring(query, 1, 60) AS query,
-       calls,
-       round(total_exec_time::numeric, 1) AS total_ms,
-       round(mean_exec_time::numeric, 2)  AS mean_ms
-FROM   pg_stat_statements
-ORDER  BY total_exec_time DESC
-LIMIT  10;   -- the queries costing you the most wall-clock time overall
+{
+  "status": "healthy",
+  "free_connections": 18,
+  "total_connections": 20
+}
 ```
 
-## Hands-on exercises
+---
 
-Reuse `pg-data` and the 2-million-row `events` table from module 03 (recreate it
-if needed). Have the SQLAlchemy project from module 05/06 handy for the N+1 and
-pooling exercises.
-
-### 1. Read a Seq Scan vs Index Scan plan
-
-```sql
-DROP INDEX IF EXISTS idx_events_user;
-EXPLAIN ANALYZE SELECT * FROM events WHERE user_id = 4242;   -- Seq Scan
-CREATE INDEX idx_events_user ON events (user_id);
-EXPLAIN ANALYZE SELECT * FROM events WHERE user_id = 4242;   -- Index Scan
-```
-
-Expected: first plan shows `Seq Scan on events` with an `actual time` in the
-tens/hundreds of ms; second shows `Index Scan using idx_events_user` with time
-under a millisecond. Practice pointing at the exact line that names the scan
-type and the exact `actual time`.
-
-### 2. Catch a stale-statistics mismatch
-
-```sql
-INSERT INTO events (user_id, kind, created_at)
-SELECT 999999, 'buy', now() FROM generate_series(1, 50000);   -- skew one user hard
-EXPLAIN ANALYZE SELECT * FROM events WHERE user_id = 999999;   -- estimate likely wrong
-ANALYZE events;
-EXPLAIN ANALYZE SELECT * FROM events WHERE user_id = 999999;   -- estimate now realistic
-```
-
-Expected: before `ANALYZE`, the planner's estimated `rows` is far off the actual
-50,000 (it may even pick the wrong scan); after `ANALYZE`, estimate ≈ actual and
-the plan choice improves. This is the estimate-vs-actual diagnostic in action.
-
-### 3. See a non-sargable predicate defeat an index
-
-```sql
-CREATE INDEX idx_events_kind ON events (kind);
-EXPLAIN ANALYZE SELECT * FROM events WHERE kind = 'buy';              -- may or may not use it
-EXPLAIN ANALYZE SELECT * FROM events WHERE upper(kind) = 'BUY';       -- can't use idx_events_kind
-CREATE INDEX idx_events_kind_upper ON events (upper(kind));           -- functional index
-EXPLAIN ANALYZE SELECT * FROM events WHERE upper(kind) = 'BUY';       -- now usable
-```
-
-Expected: wrapping the column in `upper(...)` prevents the plain index from
-being used (a full scan/filter); a matching *functional* index restores index
-usage. Lesson: an index only helps if the query's predicate matches its shape.
-
-### 4. Reproduce and fix the N+1 problem (with query counts)
-
-Using the SQLAlchemy project, run the N+1 loop from module 05 with `echo=True`
-and count the emitted `SELECT`s. Then add `selectinload`:
-
-```python
-from sqlalchemy.orm import selectinload
-customers = s.scalars(select(Customer).options(selectinload(Customer.orders))).all()
-for c in customers:
-    _ = len(c.orders)
-```
-
-Expected: the naive version emits 1 + N `SELECT`s (count them in the echo); the
-`selectinload` version emits exactly **2** regardless of how many customers
-there are. Same result, orders-of-magnitude fewer round-trips.
-
-### 5. Compare selectinload vs joinedload
-
-Run the same fetch with `joinedload(Customer.orders)` and `.unique()`. Inspect
-the SQL. Expected: `joinedload` emits one query with a `LEFT OUTER JOIN` that
-returns a *row per order* (parents duplicated — the join-grain effect from
-module 02, why `.unique()` is needed), while `selectinload` emits two clean
-queries. Note why `selectinload` is the better default for collections and
-`joinedload` for a single related object.
-
-### 6. Measure connection cost, then pool
-
-Write a script that runs a trivial `SELECT 1` 500 times, once opening a brand
-new `create_engine`/connection each iteration (simulating connect-per-request by
-disposing the engine each time) and once reusing a single pooled engine. Time
-both.
-
-Expected: the pooled version is dramatically faster — the connect-every-time
-version spends almost all its time on connection setup (process fork, auth), not
-on the query. This is *why* pooling exists, felt directly.
-
-### 7. Exhaust a pool on purpose
-
-Create an engine with `pool_size=2, max_overflow=0, pool_timeout=3`. Open 3
-connections and hold them (don't return them), then try a 4th query.
-
-Expected: the 4th blocks for `pool_timeout` seconds then raises `QueuePool limit
-... connection timed out`. This is what pool exhaustion looks like in
-production — usually caused by connections not being returned (a session that
-isn't closed, exactly module 05/06's "scope the session per request" rule). The
-fix is releasing connections promptly, not blindly enlarging the pool.
-
-### 8. Cache an expensive query in Redis
-
-Stand up Redis (`docker run --name redis -p 6379:6379 -d redis:7`) and wrap the
-module 02 "customers ranked by spend" report with the caching function from
-Concepts (60s TTL). Call it twice and observe.
-
-Expected: first call is a cache miss (runs the SQL, populates Redis); second
-call within 60s is a cache hit (no SQL — confirm with `echo=True` that no query
-fires). Then think through: what would a customer see immediately after placing
-a new order, and why is a 60s TTL acceptable *here* but unacceptable for their
-account balance?
-
-### 9. Diagnose and fix: the endpoint that got slow in production
-
-An `/api/dashboard` endpoint returns each of a user's projects with its task
-count. It was fast in dev, times out in production. The code:
-
-```python
-projects = s.scalars(select(Project).where(Project.owner_id == user_id)).all()
-return [{"name": p.name, "tasks": len(p.tasks)} for p in projects]
-```
-
-`pg_stat_statements` shows one tiny query — `SELECT * FROM tasks WHERE
-project_id = $1` — with **calls = 1,240,000** and a small mean time but a huge
-*total* time. Diagnose and fix, and explain why dev didn't catch it.
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 1: The Connection Leak Disaster (Missing finally Release)</b></summary>
 
-It's the **N+1 problem**. `len(p.tasks)` lazy-loads each project's tasks, firing
-one `SELECT * FROM tasks WHERE project_id = $1` per project — which is exactly
-the query `pg_stat_statements` shows with a million+ `calls` and a large total
-time despite a tiny mean (each call is fast; there are just enormous numbers of
-them). Dev didn't catch it because a test user with 3 projects fires only 4
-queries — fast — while a real power user with hundreds of projects fires
-hundreds of round-trips, and across all users it's millions. Fixes, best first:
-(1) don't load task *objects* at all to count them — do a single grouped
-aggregate: `select(Project.id, func.count(Task.id)).join(Task, isouter=True).
-where(Project.owner_id == user_id).group_by(Project.id)` — one query, no
-per-project round-trips; or (2) if you need the task objects, eager-load with
-`selectinload(Project.tasks)` (2 queries total). And per module 06, put whichever
-fix you choose in the repository so the N+1 can't leak back in behind the
-interface.
+**Scenario:** A route handler acquires a database connection, executes an SQL query, and throws an unhandled validation error before calling `client.release()`. What happens to the backend after 20 similar errors occur?
 
+**Correct Analysis:** Complete Connection Pool Starvation. Every unhandled exception that bypasses `client.release()` leaves an open connection checked out of the pool indefinitely. Once all 20 connections in the pool are leaked, subsequent requests hang waiting for a connection until timing out with `connectionTimeoutMillis exceeded` (`500 Internal Server Error`). All database operations must be wrapped in `try-finally` blocks (or context managers) to guarantee releases.
 </details>
-
-## Independent challenge
-
-No code given. Take the library-lending app from module 05/06 and make it fast
-under load. First, build a "member dashboard" query that returns, for a member,
-every one of their loans with the book title and whether it's overdue —
-implemented naively so it exhibits N+1 — then fix it with the right eager-loading
-strategy and *prove* the query-count drop by counting statements. Second, use
-`EXPLAIN ANALYZE` on your "is any copy of book X available" query, read the plan,
-and decide from the plan (not from guessing) whether it needs an index you don't
-yet have; add it only if the plan justifies it, and show the before/after plans.
-Third, configure the engine's connection pool with justified numbers and explain
-what the total connection count would be if you ran 8 app replicas — and whether
-that's safe against a default Postgres `max_connections` of 100. Fourth, pick the
-*one* read in the app that's the best caching candidate, cache it in Redis with a
-TTL, and justify why staleness is acceptable for that specific read and would be
-unacceptable for one other read you name. Reach back to module 06: every one of
-these fixes belongs in the repository layer — explain why.
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 2: The Fallacy of Setting Max Connections to 1,000</b></summary>
 
-For the dashboard N+1, `selectinload` the loans and the book relationship
-(`selectinload(Loan.copy).selectinload(Copy.book)` or a joined path) so you get
-a constant handful of queries instead of one-per-loan; count statements with
-`echo=True` before and after. For the availability plan, look specifically at
-whether it's a `Seq Scan` on `loans` filtering `copy_id` — an unindexed foreign
-key (module 03) is the usual culprit, and the plan's estimate-vs-actual and scan
-type tell you if the index is warranted. For pooling, 8 replicas ×
-`pool_size + max_overflow` is your worst-case total; compare it to 100 and
-decide whether you need smaller pools or a PgBouncer in front. The caching
-candidate is a read that's expensive, frequent, and tolerant of being a little
-stale (e.g. "most-borrowed books this month"), not one where staleness is a
-correctness bug (e.g. "is this exact copy available right now" — caching that
-would double-lend).
+**Scenario:** A team runs a 16-core database server with SSD storage. Under peak load, queries are slow. The developer changes `max_connections` from 50 to 1,000, believing "more connections means more concurrent work". Throughput immediately plummets by 65%. Why?
 
+**Correct Analysis:** CPU Context Switching and Cache Invalidation. A 16-core CPU can only execute 16 computational instructions simultaneously. When 1,000 active connections compete for 16 CPU cores, the OS kernel spends most of its CPU cycles thrashing between process context switches, flushing L1/L2/L3 CPU caches, and arbitrating disk locks rather than executing query logic. Sizing the connection pool close to the CPU core count maximizes hardware throughput.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Guessing instead of reading the plan.** Adding random indexes and hoping.
-  `EXPLAIN ANALYZE` tells you the actual scan types, timings, and the
-  estimate-vs-actual mismatch that reveals the real problem. Read it first.
-- **Ignoring estimate-vs-actual row mismatches.** A planner estimate wildly off
-  the actual count is the root cause of many bad plans — usually stale stats
-  (run `ANALYZE`) or a predicate the planner can't estimate well.
-- **Non-sargable predicates.** Wrapping an indexed column in a function
-  (`upper(col)`, `col::text`) or doing arithmetic on it prevents index use. Use
-  a functional index or restructure the predicate.
-- **The N+1 problem.** Lazy-loading relationships in a loop. Fast in dev with
-  little data, catastrophic in production. Eager-load (`selectinload` for
-  collections, `joinedload` for single relations), or aggregate in one query,
-  and put the fix in the repository.
-- **Connecting per request / not pooling.** Connection setup dwarfs simple query
-  time and Postgres forks a process per connection. Use a pool; reuse
-  connections.
-- **Over-sizing the pool.** More connections isn't faster past the DB's core/IO
-  limits — it adds contention. Start small; the sweet spot is often surprisingly
-  low.
-- **Forgetting the pool is per-instance.** N replicas × pool_size can blow past
-  `max_connections`. Size the *total*; put PgBouncer in front at scale.
-- **Leaking connections.** A session that isn't closed holds its pooled
-  connection, eventually exhausting the pool (timeouts). Scope sessions per
-  request and close them — don't enlarge the pool to hide the leak.
-- **Caching things that must not be stale.** A TTL cache on a value where
-  staleness is a correctness bug (a balance) causes real errors. Cache
-  read-heavy, change-rarely, staleness-tolerant reads only.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the difference between `EXPLAIN` and `EXPLAIN ANALYZE`, and what is the
-   single most useful thing to compare in an `ANALYZE` plan?
-2. You see a `Seq Scan` on a large table with a highly selective `WHERE`. Give
-   two distinct reasons this could happen and the fix for each.
-3. Define the N+1 query problem, why it's invisible in development, and the two
-   ways to fix it in SQLAlchemy.
-4. When would you use `selectinload` versus `joinedload`, and what problem does
-   `joinedload` cause for collections?
-5. Why is opening a database connection per request expensive, and what does a
-   connection pool do about it?
-6. Why can *increasing* the pool size make throughput worse, and what's the
-   "per-instance" trap that melts a database?
-7. What are the two hardest problems in caching query results, and what kind of
-   read should you never put behind a TTL cache?
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 3: PgBouncer Session vs Transaction Pooling Modes</b></summary>
 
-1. `EXPLAIN` shows the chosen plan and the planner's *estimates* without running
-   the query; `EXPLAIN ANALYZE` actually runs it and shows *real* timings and
-   row counts. The most useful comparison is estimated `rows` vs actual `rows` —
-   a large mismatch explains most bad plan choices (usually stale statistics).
-2. (a) Missing index on the filtered column → add the index. (b) A non-sargable
-   predicate (function/cast on the column) preventing index use → add a
-   functional index or rewrite the predicate. (Also possible: stale stats → run
-   `ANALYZE`.)
-3. Iterating N parent rows and accessing a lazy-loaded relationship on each
-   fires 1 query for the parents + N for the children (N+1 total). It's
-   invisible in dev because test data has few parents, so N is tiny. Fix with
-   eager loading (`selectinload`/`joinedload`) or by doing a single aggregate
-   query instead of loading objects.
-4. `selectinload` for collections (one-to-many) — it fetches parents then all
-   children in one extra `IN (...)` query (2 total). `joinedload` for a single
-   related object (many-to-one). `joinedload` on a collection multiplies parent
-   rows by children (join grain), wasting bandwidth and needing `.unique()`.
-5. It requires a TCP/TLS/auth handshake and Postgres forks a whole backend OS
-   process (with memory) per connection — milliseconds of setup versus
-   microseconds to run a simple query. A pool opens a fixed set once and reuses
-   them across requests instead of connecting each time.
-6. Past the database's CPU-core and I/O limits, extra concurrent connections
-   just contend for the same resources, adding context-switching and lock
-   contention and reducing total throughput. The per-instance trap: pool size is
-   per app replica, so N replicas × pool_size can exceed the DB's
-   `max_connections` and overwhelm it — hence external poolers like PgBouncer.
-7. Invalidation (knowing when cached data is stale and evicting it) and
-   inconsistency (serving data older than a user's own recent write). Never
-   TTL-cache a read where staleness is a correctness bug (e.g. an account
-   balance) rather than merely slightly-old data.
+**Scenario:** A company enables PgBouncer in `transaction` pooling mode. The application uses `SET timezone = 'UTC'` and prepared statements (`PREPARE stmt`). Strange bugs appear where prepared statements fail with `prepared statement does not exist`. Why?
 
+**Correct Analysis:** Connection Disassociation. In `transaction` pooling mode, PgBouncer assigns a physical connection to a client only for the duration of a single transaction. Once the transaction commits, the physical connection is returned to the pool and may be handed to a completely different client. Session-level state (prepared statements, session variables `SET`, temporary tables) does not persist across transactions. In transaction mode, applications must use protocol-level unnamed statements or set `pool_mode = session`.
 </details>
 
-## Further reading & sources
+---
 
-- [PostgreSQL: Using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html) - how to read plan nodes, costs, and the estimate-vs-actual comparison.
-- [PostgreSQL: pg_stat_statements](https://www.postgresql.org/docs/current/pgstatstatements.html) - find the queries costing the most total time across your workload.
-- [SQLAlchemy: Relationship Loading Techniques](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html) - selectinload, joinedload, and how to kill N+1.
-- [SQLAlchemy: Connection Pooling](https://docs.sqlalchemy.org/en/20/core/pooling.html) - pool_size, max_overflow, pre-ping, and recycle explained.
-- [PgBouncer documentation](https://www.pgbouncer.org/) - the external transaction pooler you point apps at once you have many instances.
-- [Use The Index, Luke: Slow Indexes / execution plans](https://use-the-index-luke.com/sql/explain-plan) - reading execution plans across databases.
-
-## Free PDF notes
+## Download Printable Reference & Diagrams
 
 Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-019: Connection Pooling & Keep-Alive](https://backendroadmap.com/notes/system-design/SD-B-019.pdf), [SD-E-007: SQL Query Optimization](https://backendroadmap.com/notes/system-design/SD-E-007.pdf), [SD-E-029: Database Connection Pooling](https://backendroadmap.com/notes/system-design/SD-E-029.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf) and [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
 
-## Next
+---
 
-[08-replication-and-sharding](../08-replication-and-sharding/README.md) — you've
-made a single database node fast; the final concept module is about what happens
-when one node isn't enough: read replicas and replication lag, synchronous vs
-asynchronous replication, sharding strategies, and — importantly — how to tell
-when you actually need any of it versus when a bigger single box is simpler.
+## Further Reading & Sources
+
+- [PgBouncer Official Documentation & Architecture](https://www.pgbouncer.org/)
+- [PostgreSQL Documentation: Chapter 14. Performance Tips (Using EXPLAIN)](https://www.postgresql.org/docs/current/using-explain.html)
+- [HikariCP: About Pool Sizing Formula](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing)
+
+---
+
+## Next Steps
+
+Advance to the next module:
+[../08-replication-and-sharding/README.md](../08-replication-and-sharding/README.md)
+Explore database scaling: Leader-Follower replication, read replicas, replication lag (Read-Your-Own-Writes consistency), and horizontal sharding.

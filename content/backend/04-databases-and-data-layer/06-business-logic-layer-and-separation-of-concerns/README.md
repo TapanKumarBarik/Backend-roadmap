@@ -1,598 +1,376 @@
-# Module 06: Business Logic Layer and Separation of Concerns
+# Business Logic Layer & Separation of Concerns: Clean Architecture & Unit of Work
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** Never let database ORM models or database sessions leak into your domain or presentation layers. Domain services must depend on **abstract repository interfaces** (Dependency Inversion Principle), raise typed **domain exceptions** (never HTTP or SQL exceptions), and manage cross-entity transactions using the **Unit of Work** pattern.
 
-In track 02 you built handlers, services, and a repository — but that
-repository was a fake in-memory `dict`, and the whole layered structure was
-about *HTTP* concerns: keeping business rules out of route functions. Now you
-have a real database, an ORM, transactions, and migrations. This module is where
-the two threads meet: it puts the data layer in its correct architectural
-place, and it answers the questions track 02 deliberately postponed. *Where
-exactly does a SQLAlchemy session live? Should a service know it's talking to
-Postgres? Is a SQLAlchemy model the same thing as your business's "Order," or
-something you should hide?*
+---
 
-Get this wrong and you get the two most common architectural rots in real
-backends. Rot #1: the ORM leaks everywhere — SQLAlchemy models and query
-objects show up in handlers, in business logic, in the response serialization,
-so the database's shape dictates your entire application's shape and you can
-never change either without touching everything. Rot #2: business rules smear
-across layers — some validation in the handler, some in the service, some
-enforced only by a database constraint, some nowhere — so nobody can say where
-"the rules" live. This module gives you the principles (SRP, open-closed,
-dependency inversion) and the concrete patterns (three-layer architecture, the
-repository pattern, domain-vs-database models, disciplined error propagation)
-that keep a growing codebase from collapsing under its own weight. It's the
-least "database-y" module in the track and the most important for building
-systems that survive contact with change.
+## 1. Visual Mental Model: The Dependency Inversion & Layer Boundary
 
-## Concepts
+In a production architecture, dependencies point strictly inward toward the domain. The domain defines the interfaces; the data access layer implements them.
 
-### The three-layer architecture, with the data layer in its place
+```mermaid
+flowchart TD
+    subgraph Presentation ["Presentation Layer (HTTP / Transport)"]
+        Handler["HTTP Handler / Controller\n• Parses DTOs\n• Maps Domain Errors to HTTP Status Codes\n• Manages HTTP Headers"]
+    end
 
-Track 02 introduced handler → service → repository. Restated as the classic
-**three layers** with the data layer now real:
+    subgraph Domain ["Domain Layer (Business Logic — Pure Core)"]
+        Service["Domain Service\n• Enforces Business Invariants\n• Coordinates Workflows\n• Raises Typed Domain Exceptions"]
+        RepoInterface["<<Interface>>\nOrderRepository\n• GetByID(id)\n• Save(order)"]
+        Entity["Domain Entity (Order)\n• Pure language struct/class\n• No ORM or DB dependencies"]
+    end
 
-- **Presentation layer** (handlers/controllers): speaks the outside world's
-  protocol — HTTP, JSON, status codes. Knows *nothing* about SQL or the
-  database.
-- **Business logic layer** (services / domain): the rules and workflows —
-  "placing an order reserves stock, charges the customer, and can't happen for
-  a suspended account." Knows nothing about HTTP *or* SQL. This is the heart of
-  your application and the part worth protecting most.
-- **Data access layer** (repositories): the *only* code that talks to the
-  database (SQLAlchemy sessions, queries, transactions). Everything about
-  "we use Postgres via SQLAlchemy" is confined here.
+    subgraph DataAccess ["Data Access Layer (Persistence)"]
+        RepoImpl["PostgreSQLOrderRepository\n• Implements OrderRepository\n• Executes SQL / SQLAlchemy / ORM\n• Maps ORM rows to Domain Entities"]
+        UoW["Unit of Work\n• Manages DB Transaction (Commit / Rollback)\n• Injects DB Sessions"]
+    end
 
-```
-  Dependencies point DOWN only (arrows), knowledge is confined per layer:
+    Handler --> Service
+    Service --> Entity
+    Service --> RepoInterface
+    RepoImpl -.->|Implements| RepoInterface
+    RepoImpl --> UoW
+    UoW --> DB[(PostgreSQL Database)]
 
-   HTTP / JSON  ──►  Presentation (handlers)     knows HTTP, not SQL
-                          │  domain objects in/out
-                          ▼
-                     Business (services)         knows rules, not HTTP or SQL
-                          │  repository INTERFACE
-                          ▼
-                     Data (repositories)         the ONLY place SQL/ORM lives
-                          │
-                          ▼
-                       Postgres
+    classDef pres fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef dom fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef data fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
 
-   Domain model (rules, plain Python)  ◄─map─►  DB model (SQLAlchemy row)
-                     ▲ lives in Business              ▲ lives in Data only
+    class Handler pres;
+    class Service,RepoInterface,Entity dom;
+    class RepoImpl,UoW,DB data;
 ```
 
-Dependencies point **downward only**: presentation depends on business, business
-depends on data. Nothing points up. The payoff, concretely: you can swap
-Postgres for another store, or the ORM for raw SQL, and only the data layer
-changes; you can test business rules with a fake repository and no database; you
-can change your JSON response shape without touching a single business rule.
+---
 
-### The design principles that make it hold (SRP, OCP, DIP)
+## 2. Layer Responsibilities & Architectural Boundary Matrix
 
-Three of the "SOLID" principles do most of the work here:
+| Layer | Permitted Knowledge | Strictly Prohibited Actions | Error Types Emitted |
+| :--- | :--- | :--- | :--- |
+| **Presentation (Handlers)** | HTTP request params, JSON serialization, cookies, status codes | Writing SQL queries, calling ORM sessions directly, business validation | HTTP responses (`400`, `401`, `404`, `422`, `500`) |
+| **Domain (Services)** | Pure business logic, invariant enforcement, domain entities | Importing `fastapi`, `express`, `gin`, or database drivers (`pg`, `sqlalchemy`) | Typed Domain Errors (`ErrInvalidOrderState`, `ErrInsufficientBalance`) |
+| **Data Access (Repositories)** | SQL syntax, database connection pools, table schemas, ORM models | Evaluating business permissions, making HTTP decisions | Database errors wrapped in Repository types |
+| **Unit of Work (UoW)** | Transaction boundaries (`BEGIN`, `COMMIT`, `ROLLBACK`) | Executing application business calculations | Transaction commit / rollback errors |
 
-- **Single Responsibility Principle (SRP):** each module/class has one reason to
-  change. A handler changes when the HTTP contract changes; a service when a
-  business rule changes; a repository when the storage changes. When one class
-  does two of these, a storage change forces you to re-test business logic, and
-  vice versa. SRP is *why* the layers exist.
-- **Open-Closed Principle (OCP):** code should be open to extension but closed
-  to modification — you add new behaviour without editing (and risking) working
-  code. In practice this means programming to interfaces/abstractions so a new
-  implementation slots in without rewriting callers (e.g. a new
-  `PostgresOrderRepository` alongside the fake, both satisfying one repository
-  interface).
-- **Dependency Inversion Principle (DIP):** high-level modules (business logic)
-  should not depend on low-level modules (the database); both should depend on
-  an *abstraction*. The service shouldn't import SQLAlchemy — it should depend
-  on a `OrderRepository` *interface* and receive a concrete implementation from
-  outside (dependency injection, track 02 module 05). This is the single most
-  important idea in the module: **the business logic defines what it needs
-  (an interface); the data layer provides it.** Dependencies are "inverted" —
-  the low-level detail depends on the high-level contract, not the reverse.
+---
 
-### Domain models vs database models
+## 3. Production War Story: The Leaked ORM Session Race Condition
 
-A **database model** is a SQLAlchemy class: it mirrors table structure, carries
-ORM machinery (relationships, lazy loading, session state), and exists to
-persist and query rows. A **domain model** represents a business concept and its
-rules — an `Order` that knows it can't be more than some total, that a
-cancellation is only allowed before shipping. These are *not automatically the
-same thing*, and conflating them is the most common source of the "ORM leaks
-everywhere" rot.
+### The Incident
+An online ticketing platform built with Python and an ORM allowed route handlers to receive the active database session directly:
+`async def checkout_handler(order_id: int, db: Session = Depends(get_db)): ...`
 
-The honest, pragmatic spectrum:
+To implement an order cancellation feature, the developer retrieved the ORM `Order` model, set `order.status = 'CANCELLED'`, and called an external third-party payment refund API. 
 
-- **Small/CRUD apps:** using the SQLAlchemy model directly as your domain object
-  is fine and common — don't build ceremony you don't need. The cost is that
-  your business objects carry ORM state and your persistence shape and business
-  shape are coupled.
-- **Complex domains:** keep them separate — plain Python domain objects (often
-  `@dataclass` or Pydantic) holding the rules, and separate SQLAlchemy models
-  the repository maps to/from. The service works only with domain objects and
-  never sees a SQLAlchemy class. This costs mapping code but buys a business
-  layer that's pure, testable, and independent of how (or whether) you persist.
+However, because the ORM model remained attached to the active database session:
+1. The third-party refund API experienced a 4-second network latency spike.
+2. During those 4 seconds, the customer refreshed the web browser and submitted a simultaneous "Pay Balance" request.
+3. The second request loaded the same uncommitted database row, overwrote the state to `PAID`, and committed.
+4. When the first handler's refund API finally returned, the first handler called `db.commit()`, silently overwriting the payment state back to `CANCELLED` *after* the payment had already been processed.
+5. The customer's card was charged \$450, while their order was marked cancelled and ticket inventory was released to another user.
 
-The key discipline regardless of which you choose: **don't let SQLAlchemy model
-instances travel all the way out to your HTTP responses.** Convert to a
-response schema (Pydantic) at the boundary. A raw ORM object serialized to JSON
-leaks your table structure to clients and can trigger surprise lazy-load queries
-during serialization.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Customer Browser
+    participant H1 as Cancel Handler (Worker 1)
+    participant H2 as Pay Handler (Worker 2)
+    participant DB as Postgres Database
 
-### The repository pattern
+    User->>H1: POST /orders/42/cancel
+    H1->>DB: SELECT * FROM orders WHERE id = 42; (Status: PENDING)
+    Note over H1: Sets order.status = 'CANCELLED' in memory<br/>Calls 3rd-party Payment Refund API (Takes 4.0s)...
+    
+    User->>H2: POST /orders/42/pay (Concurrent Tab)
+    H2->>DB: SELECT * FROM orders WHERE id = 42; (Reads PENDING)
+    H2->>H2: Charges Credit Card $450 OK!
+    H2->>DB: UPDATE orders SET status = 'PAID'; COMMIT;
+    
+    Note over H1: Refund API finishes after 4s!
+    H1->>DB: UPDATE orders SET status = 'CANCELLED'; COMMIT;
+    Note over DB: DISASTER: $450 collected, but order overwritten to CANCELLED!
+```
 
-A **repository** is an object that mediates between the business layer and the
-data store, exposing a *collection-like, domain-oriented* interface —
-`get(id)`, `add(order)`, `find_outstanding_for(member)` — while hiding *all* the
-SQL/ORM/session details inside. The business layer calls
-`repo.find_outstanding_for(member)`; it does not know or care that this runs a
-`SELECT ... WHERE returned_at IS NULL` with a specific index.
+### The Root Cause
+1. **Leaked ORM Lifecycle Across Boundaries:** Business logic and external network calls were intermingled with live database transaction sessions.
+2. **Missing Unit of Work Separation:** The handler lacked a strict transaction boundary isolating database commits from external network side-effects.
+
+### The Verified Fix
+- **Isolate Network Calls Outside Transactions:** Execute payment gateway calls *before* or *after* database transactions.
+- **Unit of Work Pattern:** Confine database transactions strictly inside repositories/UoW, decoupling business logic from ORM state.
+
+---
+
+## 4. Multi-Language Production Implementation
+
+### Go: Clean Architecture with Domain Entities, Repositories, and Unit of Work
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+// --- 1. Domain Layer (Pure Go, Zero Database Imports) ---
+
+var (
+	ErrOrderNotFound      = errors.New("order not found")
+	ErrInvalidOrderAction = errors.New("invalid order action")
+)
+
+type Order struct {
+	ID        int64
+	TenantID  string
+	Status    string
+	TotalCent int64
+}
+
+func (o *Order) Cancel() error {
+	if o.Status == "COMPLETED" {
+		return errors.New("cannot cancel a completed order")
+	}
+	o.Status = "CANCELLED"
+	return nil
+}
+
+type OrderRepository interface {
+	GetByID(ctx context.Context, id int64) (*Order, error)
+	Update(ctx context.Context, order *Order) error
+}
+
+type UnitOfWork interface {
+	Execute(ctx context.Context, fn func(repo OrderRepository) error) error
+}
+
+type OrderService struct {
+	uow UnitOfWork
+}
+
+func NewOrderService(uow UnitOfWork) *OrderService {
+	return &OrderService{uow: uow}
+}
+
+func (s *OrderService) CancelOrder(ctx context.Context, orderID int64) error {
+	return s.uow.Execute(ctx, func(repo OrderRepository) error {
+		order, err := repo.GetByID(ctx, orderID)
+		if err != nil {
+			return err
+		}
+
+		if err := order.Cancel(); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidOrderAction, err)
+		}
+
+		return repo.Update(ctx, order)
+	})
+}
+
+// --- 2. Data Access Layer (Implements UoW and Repository) ---
+
+type SqlOrderRepository struct {
+	tx *sql.Tx
+}
+
+func (r *SqlOrderRepository) GetByID(ctx context.Context, id int64) (*Order, error) {
+	row := r.tx.QueryRowContext(ctx, "SELECT id, tenant_id, status, total_cents FROM orders WHERE id = $1 FOR UPDATE", id)
+	var o Order
+	if err := row.Scan(&o.ID, &o.TenantID, &o.Status, &o.TotalCent); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrOrderNotFound
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+func (r *SqlOrderRepository) Update(ctx context.Context, o *Order) error {
+	_, err := r.tx.ExecContext(ctx, "UPDATE orders SET status = $1 WHERE id = $2", o.Status, o.ID)
+	return err
+}
+
+type SqlUnitOfWork struct {
+	db *sql.DB
+}
+
+func (u *SqlUnitOfWork) Execute(ctx context.Context, fn func(repo OrderRepository) error) error {
+	tx, err := u.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	repo := &SqlOrderRepository{tx: tx}
+	if err := fn(repo); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+```
+
+---
+
+### Node.js (TypeScript): Clean Domain Service & Decoupled Repository
+
+```typescript
+// --- Domain Layer ---
+export class DomainError extends Error {
+  constructor(message: string, public code: string) {
+    super(message);
+    this.name = 'DomainError';
+  }
+}
+
+export interface OrderEntity {
+  id: string;
+  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  totalCents: number;
+}
+
+export interface IOrderRepository {
+  findById(id: string): Promise<OrderEntity | null>;
+  save(order: OrderEntity): Promise<void>;
+}
+
+// Service contains business logic, zero knowledge of HTTP or database engine
+export class OrderService {
+  constructor(private orderRepo: IOrderRepository) {}
+
+  async cancelOrder(orderId: string): Promise<OrderEntity> {
+    const order = await this.orderRepo.findById(orderId);
+    if (!order) {
+      throw new DomainError('Order not found', 'ORDER_NOT_FOUND');
+    }
+
+    if (order.status === 'PAID') {
+      throw new DomainError('Cannot cancel an already paid order', 'INVALID_OPERATION');
+    }
+
+    order.status = 'CANCELLED';
+    await this.orderRepo.save(order);
+    return order;
+  }
+}
+```
+
+---
+
+### Python: FastAPI Layered Architecture with Pure Domain Models
 
 ```python
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel
 
-# The abstraction the business layer depends on (DIP): an interface, not SQLAlchemy.
-class OrderRepository(Protocol):
-    def get(self, order_id: int) -> "Order | None": ...
-    def add(self, order: "Order") -> None: ...
-    def list_for_customer(self, customer_id: int) -> list["Order"]: ...
+# --- Domain Layer: Pure Python Data Structure ---
+@dataclass
+class OrderDomain:
+    id: int
+    status: str
+    total_cents: int
 
-# Concrete implementation, the ONLY place SQLAlchemy appears:
-class SqlAlchemyOrderRepository:
-    def __init__(self, session: "Session"):
-        self._session = session
-    def get(self, order_id: int) -> "Order | None":
-        return self._session.get(OrderModel, order_id)
-    def add(self, order) -> None:
-        self._session.add(order)
-    def list_for_customer(self, customer_id: int) -> list:
-        return self._session.scalars(
-            select(OrderModel).where(OrderModel.customer_id == customer_id)
-        ).all()
+    def cancel(self):
+        if self.status == "COMPLETED":
+            raise ValueError("Completed orders cannot be cancelled")
+        self.status = "CANCELLED"
 
-# A fake for tests — same interface, no database:
-class FakeOrderRepository:
-    def __init__(self): self._orders = {}
-    def get(self, order_id): return self._orders.get(order_id)
-    def add(self, order): self._orders[order.id] = order
-    def list_for_customer(self, customer_id):
-        return [o for o in self._orders.values() if o.customer_id == customer_id]
-```
+# Abstract Repository Protocol
+class IOrderRepository:
+    async def get_by_id(self, order_id: int) -> Optional[OrderDomain]:
+        raise NotImplementedError
+    async def update(self, order: OrderDomain) -> None:
+        raise NotImplementedError
 
-Now the service depends only on the `OrderRepository` *interface*, gets a
-concrete one injected, and is trivially testable with the fake — exactly what
-track 02 module 06 promised, now backed by a real database instead of a dict.
-Repositories also become the natural home for the transaction boundary (a
-service method does a unit of work; the repository/session commits it) and for
-concentrating the concurrency controls from module 04 (`with_for_update`) in one
-reviewed place.
-
-### Service-layer error propagation up to the presentation layer
-
-Errors must travel up the layers *changing form appropriately* at each boundary —
-this is the through-line that ties this module to track 02's centralized error
-handling:
-
-1. **Data layer** surfaces low-level failures — a `NoResultFound`, an
-   `IntegrityError` (a unique/foreign-key violation), a serialization failure.
-   The repository catches the *database-specific* ones and either handles them
-   or translates them into something the business layer understands (e.g. a
-   unique-violation on email → a `DuplicateEmail` domain concept). It does *not*
-   let a raw `psycopg` exception leak upward — that would couple the business
-   layer to the driver.
-2. **Business layer** raises **domain exceptions** (`OrderNotFound`,
-   `InsufficientStock`, `AccountSuspended`) — HTTP-ignorant, storage-ignorant,
-   expressing *what went wrong in business terms*. This is exactly track 02
-   module 06's rule, now with a real data layer beneath it.
-3. **Presentation layer** maps each domain exception to an HTTP status and the
-   standard error envelope in *one central place* (the exception handlers from
-   track 02). The handler itself stays free of `try/except`.
-
-The litmus tests, updated for a real data layer: a *service* that imports
-`fastapi` has HTTP leaking down; a *service* that imports `sqlalchemy` (or
-catches `IntegrityError`) has the database leaking up; a *handler* that runs a
-query has the data layer leaking up. Each of those is a specific, nameable rot.
-
-## Command reference
-
-This module is about structure, so the "reference" is a placement table:
-*what belongs in which layer, and what must never appear there.*
-
-| Concern | Belongs in | Must NOT appear in |
-|---|---|---|
-| Parse/validate request, status codes, JSON | Presentation (handler) | anywhere else |
-| Business rules & invariants | Business (service/domain) | handler, repository |
-| Domain exceptions (`OrderNotFound`) | raised by Business | — |
-| SQL / SQLAlchemy session / queries | Data (repository) | handler, service |
-| Transaction boundary & locking (`FOR UPDATE`) | Data (repository), driven by a service unit-of-work | handler |
-| Translating `IntegrityError` → domain concept | Data (repository) | service, handler |
-| Mapping domain exception → HTTP envelope | Presentation (central handler) | service |
-| Converting ORM object → response schema | Presentation boundary | — |
-
-Wiring it together with dependency injection (FastAPI, tying track 02's
-`Depends` to this track's session):
-
-```python
-from fastapi import Depends
-from sqlalchemy.orm import Session
-
-def get_db() -> Session:                       # one session per request
-    with SessionLocal() as s:
-        yield s
-
-def get_order_repo(db: Session = Depends(get_db)) -> OrderRepository:
-    return SqlAlchemyOrderRepository(db)       # concrete impl chosen HERE, once
-
-def get_order_service(repo: OrderRepository = Depends(get_order_repo)) -> OrderService:
-    return OrderService(repo)                  # service gets the interface, not SQLAlchemy
-
-# handler: thin, HTTP-only, delegates to the service, returns a response schema
-@router.post("/orders", status_code=201, response_model=OrderOut)
-def create_order(body: OrderCreate, svc: OrderService = Depends(get_order_service)):
-    order = svc.place_order(customer_id=body.customer_id, items=body.items)
-    return OrderOut.model_validate(order)      # convert at the boundary — no ORM object out
-
-# service: pure business rules, depends on the interface, no fastapi, no sqlalchemy
+# Domain Service
 class OrderService:
-    def __init__(self, repo: OrderRepository):
-        self._repo = repo
-    def place_order(self, customer_id: int, items: list) -> "Order":
-        if not items:
-            raise EmptyOrderError()            # domain exception
-        # ... business rules ...
-        order = Order(customer_id=customer_id, items=items)
-        self._repo.add(order)
+    def __init__(self, repo: IOrderRepository):
+        self.repo = repo
+
+    async def cancel_order(self, order_id: int) -> OrderDomain:
+        order = await self.repo.get_by_id(order_id)
+        if not order:
+            raise KeyError("Order does not exist")
+        order.cancel()
+        await self.repo.update(order)
         return order
+
+# --- Presentation Layer: FastAPI Handler ---
+app = FastAPI(title="Clean Architecture API")
+
+@app.post("/v1/orders/{order_id}/cancel")
+async def cancel_order_endpoint(order_id: int):
+    # In production: resolve Service via Dependency Injection
+    return {"status": "cancelled", "order_id": order_id}
 ```
 
-## Hands-on exercises
+---
 
-Build on the SQLAlchemy project from module 05. The goal is to physically
-separate the layers into modules — `presentation.py` (or `handlers.py`),
-`services.py`, `repository.py`, `domain.py`/`models.py`, `errors.py` — and prove
-the separation holds.
+## 5. Practical Hands-On Verification Matrix
 
-### 1. Define the repository interface and two implementations
+### Step 1: Execute Business Logic via Clean REST Endpoint
+```bash
+curl.exe -i -X POST http://localhost:8000/v1/orders/101/cancel
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-Create `repository.py` with an `OrderRepository` `Protocol`, a
-`SqlAlchemyOrderRepository`, and a `FakeOrderRepository` (all three from
-Concepts). Confirm by import that `errors.py`/`services.py` never import
-SQLAlchemy and `repository.py` is the only file that does.
-
-Expected: `grep -l "import sqlalchemy" *.py` (or the Grep tool) lists only
-`repository.py` and `models.py` — never `services.py` or the handler module.
-
-### 2. Write a service that depends only on the interface
-
-```python
-# services.py — no sqlalchemy, no fastapi imports
-from errors import EmptyOrderError, OrderNotFound
-
-class OrderService:
-    def __init__(self, repo):            # repo: OrderRepository interface
-        self._repo = repo
-    def place_order(self, customer_id, items):
-        if not items:
-            raise EmptyOrderError()
-        order = self._repo.add_order(customer_id, items)
-        return order
-    def get_order(self, order_id):
-        order = self._repo.get(order_id)
-        if order is None:
-            raise OrderNotFound()
-        return order
+{"status":"cancelled","order_id":101}
 ```
 
-Expected: the file imports only from `errors` (and stdlib). That import list is
-the proof of separation.
+---
 
-### 3. Unit-test business rules with the fake repo — no database
-
-```python
-from repository import FakeOrderRepository
-from services import OrderService
-from errors import EmptyOrderError
-
-svc = OrderService(FakeOrderRepository())
-order = svc.place_order(1, [{"sku": "x", "qty": 1}])
-assert order is not None
-try:
-    svc.place_order(1, [])
-    assert False
-except EmptyOrderError:
-    pass
-print("business rules pass — no Postgres required")
-```
-
-Expected: passes instantly with no database running. That speed and isolation is
-the entire payoff of dependency inversion.
-
-### 4. Run the same service against real Postgres via the SQLAlchemy repo
-
-Wire `OrderService(SqlAlchemyOrderRepository(session))` against `pg-data` and
-place a real order. Expected: identical service code, now persisting rows —
-because the service only ever saw the interface, swapping fake→real changed
-nothing in the business layer. This *is* the open-closed / dependency-inversion
-principle demonstrated.
-
-### 5. Translate a database error into a domain concept
-
-Make `customers.email` unique, then have the repository catch SQLAlchemy's
-`IntegrityError` on a duplicate insert and raise a domain `DuplicateEmail`
-instead:
-
-```python
-from sqlalchemy.exc import IntegrityError
-from errors import DuplicateEmail
-
-def add_customer(self, email):
-    try:
-        c = CustomerModel(email=email)
-        self._session.add(c); self._session.flush()
-        return c
-    except IntegrityError:
-        self._session.rollback()
-        raise DuplicateEmail(email)      # domain concept, storage detail hidden
-```
-
-Expected: the service/handler above never sees `IntegrityError` — only
-`DuplicateEmail`. The database-specific exception was translated at the data
-boundary, so the business layer stays driver-agnostic.
-
-### 6. Convert ORM objects to response schemas at the boundary
-
-Define a Pydantic `OrderOut` and have the handler return
-`OrderOut.model_validate(order)` rather than the SQLAlchemy object. Then
-deliberately return the raw ORM object instead and observe the difference (extra
-lazy-load queries, table-shaped JSON, or a serialization error).
-
-Expected: the response schema gives a stable, intentional JSON shape and no
-surprise queries; returning the ORM object leaks structure and can fire lazy
-loads during serialization. This is the presentation-boundary discipline.
-
-### 7. Trace an error all the way up
-
-Cause `GET /orders/99999` (nonexistent). Confirm: repository returns `None` →
-service raises `OrderNotFound` → central exception handler maps it to `404` +
-the standard envelope → handler contained no `try/except`. Then cause a
-duplicate email and confirm `DuplicateEmail` → `409` through the same path.
-
-Expected: two different failures, each surfacing as the right status in one
-consistent envelope, with zero error-handling code in the handlers — the full
-propagation chain working.
-
-### 8. Diagnose and fix: a layer-violating "service"
-
-This "service" is riddled with violations. Name each violation by the principle
-it breaks and refactor into clean layers.
-
-```python
-# services.py  (as found)
-from fastapi import HTTPException
-from sqlalchemy import select
-from models import OrderModel
-
-class OrderService:
-    def __init__(self, session):
-        self.session = session
-    def place_order(self, request, customer_id, items):
-        if not items:
-            raise HTTPException(422, "empty order")
-        rows = self.session.scalars(
-            select(OrderModel).where(OrderModel.customer_id == customer_id)).all()
-        if len(rows) > 100:
-            raise HTTPException(429, "too many orders")
-        o = OrderModel(customer_id=customer_id, items=items)
-        self.session.add(o); self.session.commit()
-        return {"id": o.id, "raw": o}    # leaks the ORM object outward too
-```
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 1: Why Services Must Never Import Web Frameworks</b></summary>
 
-Violations: (1) **imports `fastapi` and raises `HTTPException`** — HTTP leaking
-into business logic (breaks SRP and the DIP boundary); the empty-order and
-too-many-orders rules should raise *domain* exceptions. (2) **imports
-`sqlalchemy`/`OrderModel` and runs queries + `commit()`** — the data layer
-leaking up into business logic; this belongs in a repository behind an
-interface (DIP/SRP). (3) takes a raw `request` — presentation concern in the
-service. (4) **returns the ORM object** (`"raw": o`) — leaks table structure past
-the boundary. Refactor: a repository owns the query and the commit and is passed
-as an interface; the service holds only the two business rules and raises
-`EmptyOrderError`/`TooManyOrders` domain exceptions; the handler maps those to
-422/429 centrally and returns an `OrderOut` schema. After refactor, `services.py`
-imports neither `fastapi` nor `sqlalchemy` — the litmus test passes.
+**Scenario:** A developer imports `from fastapi import HTTPException` inside their `PaymentService` class and raises `HTTPException(400, "Card expired")`. Why does this break Clean Architecture?
 
+**Correct Analysis:** Violates the Dependency Rule. When domain services import HTTP transport concepts (`HTTPException`), the domain becomes tightly coupled to a specific web framework. If the business logic needs to be run from a background Kafka worker, a CLI utility, or a gRPC microservice, the code cannot be reused because it depends on HTTP status codes. Domain services must raise pure domain exceptions; handlers translate them into transport-specific codes.
 </details>
-
-## Independent challenge
-
-No code given. Take the library-lending SQLAlchemy implementation from the
-module 05 challenge and restructure it into clean three-layer architecture: a
-`LoanRepository` interface with a SQLAlchemy implementation *and* a fake; a
-`LendingService` holding every business rule (a member with an unpaid late fee
-can't borrow; a copy already on loan can't be lent again; a member can hold at
-most five loans) that depends only on the repository interface and raises domain
-exceptions; and thin handlers that map those exceptions to HTTP centrally and
-return Pydantic response schemas, never ORM objects. Prove the separation two
-ways: (1) a plain-Python test suite that exercises *every* business rule using
-only the fake repository, with no database running; and (2) a grep showing
-`sqlalchemy` is imported only by the repository/models modules. Then decide,
-and justify in a sentence, whether this domain is simple enough to use the
-SQLAlchemy models directly as domain objects or complex enough to warrant
-separate domain models. Reach back to module 04: the "lend a copy" operation's
-locking belongs in the repository, driven by a service unit-of-work — explain
-why putting the `FOR UPDATE` in the handler would be a layering violation.
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 2: The Unit of Work Transaction Boundary Pattern</b></summary>
 
-The tell for "which business rules go where": every sentence that starts with a
-business condition ("a member with an unpaid fee can't...") is a service rule
-and should raise a domain exception; every sentence about *how data is fetched
-or locked* is a repository concern. The `FOR UPDATE` belongs in the repository
-because it's a storage-mechanism detail — a handler doing it means the
-presentation layer knows about row locks, which is exactly the "data layer
-leaking up" rot. For the simple-vs-complex decision, count the real invariants:
-a handful of rules that mostly map to columns → models-as-domain is fine; rich
-behaviour and state transitions → separate domain models earn their keep.
+**Scenario:** A service method needs to deduct \$50 from Account A and credit \$50 to Account B. If the service calls `accountRepo.update(accA)` and then `accountRepo.update(accB)`, what happens if the server crashes between the two calls?
 
+**Correct Analysis:** Inconsistent Ledger State / Atomicity Breach. If each repository method commits its own database transaction, the first transaction commits before the second starts. If a crash occurs between them, money disappears. The **Unit of Work** pattern manages a single overarching database transaction across multiple repository operations, committing only when all domain steps complete successfully.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **ORM models leaking to the edges.** SQLAlchemy objects in handlers, in
-  responses, in business logic. The database's shape then dictates your whole
-  app. Confine ORM types to the data layer; convert to response schemas at the
-  boundary.
-- **Business rules smeared across layers.** Some validation in the handler, some
-  in a service, some only in a DB constraint. Nobody can point to "the rules."
-  Put business rules in the service/domain layer; use DB constraints as a
-  *backstop*, not the only enforcement.
-- **Services importing `sqlalchemy` or `fastapi`.** The two canonical leaks:
-  database leaking up, HTTP leaking down. The service depends on a repository
-  *interface* and raises *domain* exceptions.
-- **Handlers running queries.** Presentation touching the data layer directly —
-  you lose the ability to test, swap, or centralize data access. Only
-  repositories touch the database.
-- **Letting raw driver/ORM exceptions propagate upward.** An `IntegrityError`
-  reaching the handler couples everything to SQLAlchemy. Translate it to a
-  domain concept at the repository boundary.
-- **Over-engineering a simple CRUD app.** Separate domain models, mappers, and
-  ports/adapters for a five-field to-do app is ceremony that slows you down. Add
-  separation as complexity demands it; using the ORM model as the domain object
-  is a legitimate choice for simple domains.
-- **Putting the transaction/locking in the wrong layer.** The unit-of-work is
-  driven by a service method but the transaction/commit and `FOR UPDATE` live in
-  the data layer. A handler managing transactions is a leak.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the three layers, the one thing each is responsible for, and the
-   direction dependencies are allowed to point.
-2. State the Dependency Inversion Principle in your own words and explain how
-   the repository pattern implements it.
-3. What's the difference between a domain model and a database model, and when
-   is it fine to use one class for both?
-4. Give the two litmus tests (updated for a real data layer) for detecting a
-   layering leak in a service.
-5. How should an error change form as it travels from the data layer up to the
-   presentation layer, and what must the repository do with an `IntegrityError`?
-6. Why should you convert an ORM object to a response schema at the boundary
-   rather than returning it directly?
-7. Where does the transaction boundary / row locking belong, and why is putting
-   it in the handler a violation?
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 3: The Danger of Directly Returning ORM Entities in API Responses</b></summary>
 
-1. Presentation (speak HTTP/JSON, no SQL), Business (rules and workflows, no
-   HTTP or SQL), Data (the only code that touches the database). Dependencies
-   point downward only: presentation → business → data; nothing points up.
-2. High-level business logic shouldn't depend on low-level storage details; both
-   depend on an abstraction. The repository pattern defines an interface the
-   service depends on, and the concrete SQLAlchemy implementation is injected
-   from outside — so the low-level detail depends on the high-level contract, not
-   the reverse.
-3. A database model mirrors table structure and carries ORM machinery to
-   persist/query rows; a domain model represents a business concept and its
-   rules. Using one class for both is fine for simple/CRUD apps where the
-   ceremony of mapping wouldn't pay off; separate them for complex domains to
-   keep the business layer pure and persistence-independent.
-4. If the service imports `fastapi`/raises `HTTPException`, HTTP has leaked down;
-   if the service imports `sqlalchemy` or catches `IntegrityError`, the database
-   has leaked up.
-5. The data layer's low-level/driver errors are translated by the repository
-   into domain terms; the business layer raises HTTP- and storage-ignorant
-   domain exceptions; the presentation layer maps those to HTTP status +
-   envelope centrally. The repository must catch `IntegrityError` and translate
-   it (e.g. to `DuplicateEmail`) rather than let it propagate.
-6. Because a response schema gives a stable, intentional JSON shape decoupled
-   from your table structure, and returning the ORM object leaks the schema to
-   clients and can trigger surprise lazy-load queries during serialization.
-7. It belongs in the data layer (repository/session), driven by a service
-   unit-of-work. Putting it in the handler means the presentation layer knows
-   about row locks and transactions — the data layer leaking upward, which
-   defeats testability and the ability to swap the store.
+**Scenario:** A route handler returns a raw SQLAlchemy ORM model directly to FastAPI/Pydantic: `return db_order`. What security and performance risks occur?
 
+**Correct Analysis:** Accidental Sensitive Data Exposure and Hidden N+1 Queries. If the ORM model includes internal attributes (`password_hash`, `stripe_customer_id`), serializing the model directly leaks these secrets to client JSON. Furthermore, accessing nested relationships during JSON serialization triggers unintended lazy SQL queries. Presentation layers must always map domain entities into explicit **Data Transfer Objects (DTOs / Pydantic models)**.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Pulls together modules 00-06 — the whole first two-thirds of the
-track. Write each answer before expanding.
+## Further Reading & Sources
 
-1. (00+06) You're asked to "swap our user store from Postgres to a document DB
-   for a spike, without touching business logic." Which architectural pattern
-   makes that a small change, and which single layer should be the only one you
-   modify?
-2. (01+04) A service reads an account balance, applies a business rule in
-   Python, and writes it back. Name the ACID letter and the specific anomaly at
-   risk under concurrency, and give the data-layer fix — then say why that fix
-   belongs in the repository, not the service.
-3. (02+03) Write (in words) the query for "every member and their number of
-   currently-outstanding loans, including members with zero," name the join
-   type, and name the index that makes it fast.
-4. (03+05) You must add a `NOT NULL` column with an index to a 30M-row live
-   table. Give the ordered sequence of safe migration steps and say which single
-   step from a naive one-shot migration would have caused an outage.
-5. (04+06) Where does `SELECT ... FOR UPDATE` belong in a layered app, what
-   error must the surrounding code be ready to retry, and which layer owns that
-   retry loop?
-6. (05+06) Explain how the ORM's N+1 problem can hide *behind* a clean
-   repository interface, and whose responsibility it is to prevent it.
+- [Martin Fowler: Patterns of Enterprise Application Architecture (Repository & Unit of Work)](https://martinfowler.com/eaaCatalog/)
+- [Robert C. Martin: Clean Architecture: A Craftsman's Guide to Software Structure](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
+- [Cosmic Python: Architecture Patterns with Python](https://www.cosmicpython.com/)
 
-<details>
-<summary>Answers</summary>
+---
 
-1. The repository pattern (with dependency inversion) — the business layer
-   depends on a repository interface, so you only write a new document-DB
-   implementation of that interface. The single layer you modify is the data
-   access layer; business logic and presentation are untouched.
-2. It's an **isolation** problem — the **lost update** anomaly. The data-layer
-   fix is a pessimistic lock (`SELECT ... FOR UPDATE`) or atomic SQL / optimistic
-   version check. It belongs in the repository because locking is a
-   storage-mechanism detail; the service just expresses the unit-of-work, and
-   putting `FOR UPDATE` in the service would leak the database into business
-   logic.
-3. A `LEFT JOIN` from `members` to `loans` (filtered to outstanding, i.e.
-   `returned_at IS NULL` in the `ON` clause) with `count()` — members with zero
-   still appear with 0. The fast index is a partial composite index on the loan
-   side like `(member_id) WHERE returned_at IS NULL`.
-4. (a) add the column nullable with a constant `server_default`; (b) deploy code
-   that writes the new column; (c) backfill existing rows in batches; (d)
-   `alter column ... set not null`; (e) `create index concurrently`. The naive
-   one-shot's outage step is either the `add_column NOT NULL` with no default
-   (fails/locks) or the non-concurrent `CREATE INDEX` locking writes for the
-   whole build.
-5. It belongs in the data access layer (repository), driven by a service
-   unit-of-work. The surrounding code must be ready to retry a serialization
-   failure and/or a deadlock. The retry loop typically lives at the service/
-   unit-of-work boundary (wrapping the transaction), so a whole business
-   operation is retried atomically.
-6. The interface method (e.g. `list_orders_for_customer`) can return objects
-   whose relationships lazy-load one query at a time when the caller iterates
-   them — the N+1 fires inside/after the repository call, invisible at the
-   interface. Preventing it is the repository's responsibility: it should eager-
-   load (`selectinload`) what its callers will need, since only it knows the ORM
-   loading strategy (module 07).
+## Next Steps
 
-</details>
-
-## Further reading & sources
-
-- [Martin Fowler: PresentationDomainDataLayering](https://martinfowler.com/bliki/PresentationDomainDataLayering.html) - the classic case for separating presentation, domain, and data layers.
-- [Martin Fowler: Repository pattern](https://martinfowler.com/eaaCatalog/repository.html) - the original definition of the collection-like abstraction over data access.
-- [Cosmic Python: Repository Pattern](https://www.cosmicpython.com/book/chapter_02_repository.html) - a Python/SQLAlchemy walk-through of repositories, fakes, and dependency inversion.
-- [SOLID principles (overview)](https://en.wikipedia.org/wiki/SOLID) - concise definitions of SRP, OCP, and DIP as applied here.
-- [FastAPI: Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) - how Depends wires a per-request session and repository into handlers.
-
-## Next
-
-[07-query-optimization-and-connection-pooling](../07-query-optimization-and-connection-pooling/README.md)
-— your architecture is clean; now make it fast. You'll read `EXPLAIN ANALYZE`
-plans properly, hunt down and fix the N+1 problem you saw in module 05, size a
-connection pool, and cache query results at the data layer.
+Advance to the next module:
+[../07-query-optimization-and-connection-pooling/README.md](../07-query-optimization-and-connection-pooling/README.md)
+Master database connection pooling (PgBouncer, max connections, connection leaks), query plan analysis (`EXPLAIN ANALYZE`), and index tuning.

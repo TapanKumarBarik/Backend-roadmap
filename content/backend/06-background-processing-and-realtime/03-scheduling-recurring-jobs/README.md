@@ -1,567 +1,424 @@
 # Module 03: Scheduling Recurring Jobs
 
-## Why this matters
+Background workloads are not always triggered by reactive user requests. Mission-critical operations must run on a calendar clock: backing up databases at 02:00 UTC, pruning expired JWT blacklists every 10 minutes, generating weekly invoice digests on Mondays, or refreshing cached third-party foreign exchange rates hourly. Relying on an operating system crontab on a single virtual machine introduces a fatal Single Point of Failure (SPOF). However, naively scaling a scheduler across multiple application instances for High Availability introduces an even more hazardous failure mode: **the duplicate run catastrophe**, where multiple scheduler replicas simultaneously enqueue the same batch task.
 
-Not all background work is triggered by a user action. Some of it has to
-happen *on a clock*: back up the database every night at 02:00, delete
-expired sessions every ten minutes, send the weekly digest every Monday at
-09:00, sync exchange rates every hour, roll up yesterday's analytics at
-midnight. Nobody clicks a button for these — they need a scheduler that fires
-tasks on a recurring cadence whether or not anyone is looking.
+> [!TIP]
+> **The Golden Rule:** Schedulers must only decide *when* to enqueue, never execute heavy work directly. When replicating schedulers for High Availability, guard execution with atomic distributed window locks (`SET lock:job:{window} token NX EX ttl`) or explicit leader election to guarantee that a periodic task executes strictly once per schedule window.
 
-This is where a lot of teams reach for the operating system's `cron` and a
-one-line crontab. That works until it doesn't: cron runs a *command* on *one
-machine*, so it doesn't compose with the queue you just built (no retries, no
-result tracking, no visibility), and if that machine is down at 02:00 the
-backup simply never happens. Worse, the moment you run for high availability
-— two copies of your scheduler so one dying doesn't stop the clock — you've
-created a new bug: *both* copies fire the 02:00 backup, and now you have two
-backups running at once, or two "weekly digest" emails hitting every user.
+---
 
-This module covers scheduling that integrates with your task queue (Celery
-Beat and APScheduler), the real use cases, and — the part that separates
-people who've operated this from people who've only read about it — how to
-guarantee a scheduled job runs *once* even when the scheduler itself is
-replicated.
+## 1. Visual Mental Models
 
-## Concepts
+### The Split-Brain Duplicate Run Hazard vs. Distributed Window Locking
 
-### Two schedulers: Celery Beat and APScheduler
+Replicating schedulers across multiple pods without distributed mutual exclusion causes multiple instances to trigger the exact same recurring job:
 
-**Celery Beat** is a scheduler process that ships with Celery. It doesn't run
-tasks; it *enqueues* them on a schedule. You define a `beat_schedule` mapping
-names to (task, cadence, args), start `celery -A app beat` alongside your
-workers, and Beat drops a message onto the broker every time an entry is due.
-The task then runs on a normal worker — so it inherits everything from the
-last two modules: retries, priority queues, idempotency, result tracking. This
-is the natural choice when you already have Celery.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S1 as Scheduler Replica 1
+    participant S2 as Scheduler Replica 2
+    participant Redis as Redis (Distributed Lock)
+    participant Broker as Message Broker (Queue)
+    participant Worker as Worker Pool
 
-**APScheduler** (Advanced Python Scheduler) is a standalone library that runs
-scheduled jobs *inside* a Python process — it can call a function directly or,
-better in a web app, enqueue a Celery task. It's lighter than Beat, supports
-cron/interval/one-off triggers, and can persist its job store to a database so
-schedules survive restarts. Use it when you're not on Celery, or when you need
-dynamic schedules created at runtime (Beat's schedule is mostly static
-config).
+    Note over S1,S2: Cron Tick: 02:00:00 UTC (Nightly Database Backup)
+    
+    par S1 attempts execution
+        S1->>Redis: SET lock:cron:backup:2026-11-09 NX EX 3600
+        Redis-->>S1: OK (Lock Acquired)
+        S1->>Broker: Enqueue Task "backup_database"
+    and S2 attempts execution
+        S2->>Redis: SET lock:cron:backup:2026-11-09 NX EX 3600
+        Redis-->>S2: nil (Lock Refused: Key Already Exists)
+        Note over S2: Skip execution safely; log "Lock held by peer"
+    end
 
-Both share the core split: **the scheduler decides *when*; the worker decides
-*how*.** Keep the scheduled entry a thin trigger that enqueues a real task;
-don't do heavy work inside the scheduler process itself.
-
-```
-  cron entry            scheduler (Beat)         broker        worker
-  "0 2 * * *"  ──tick──► due? enqueue msg ──────► queue ─────► run backup_database()
-  (the WHEN)            (thin: no work here)                   (the HOW: retries,
-                                                                idempotency, result)
+    Broker->>Worker: Dispatch single task "backup_database"
+    Worker-->>Worker: Run backup safely once
 ```
 
-### Cron expressions and interval schedules
+### Decoupled Distributed Scheduler Architecture
 
-A **cron expression** is five fields — minute, hour, day-of-month, month,
-day-of-week — describing *when* something recurs. `0 2 * * *` is "at 02:00
-every day"; `*/10 * * * *` is "every 10 minutes"; `0 9 * * 1` is "09:00 every
-Monday." Celery expresses these with `crontab(...)`; APScheduler with a
-`CronTrigger`. For "every N seconds/minutes" that isn't clock-aligned, an
-**interval** schedule (`timedelta` / `IntervalTrigger`) is simpler than
-faking it with cron.
+The scheduler is a lightweight orchestrator that dispatches task references into the shared broker, where workers consume them with standard retry and observability semantics:
 
-The one that trips everyone up is **timezones**. A cron schedule fires
-according to whatever timezone the scheduler is configured for. If you don't
-set it, you may be running "midnight" in UTC when you meant local — and DST
-transitions can make a daily job skip or double a run. Always set the
-scheduler's timezone explicitly and know whether your `0 2 * * *` means 02:00
-UTC or 02:00 in some region.
+```mermaid
+flowchart TD
+    subgraph SchedulingLayer ["Scheduler Layer (The WHEN)"]
+        direction TB
+        BEAT1["Scheduler Instance 1<br/>(Leader / Active)"]
+        BEAT2["Scheduler Instance 2<br/>(Standby / Failover)"]
+        LOCK[("Distributed Mutex<br/>Redis / Etcd Lease")]
+        BEAT1 -.->|"Holds Lease"| LOCK
+        BEAT2 -.->|"Watches Lease"| LOCK
+    end
 
-### Real use cases
+    subgraph BrokerLayer ["Buffering Layer"]
+        Q_CRON[("Queue: periodic_tasks<br/>RabbitMQ / Redis")]
+    end
 
-- **Database backups** — `0 2 * * *`, off-peak, then verify and ship the dump
-  to object storage (module 09).
-- **Cleanup jobs** — expire sessions, prune soft-deleted rows, delete stale
-  cache entries and old log files, delete finished-task result rows so Redis
-  doesn't fill up. Usually every few minutes to hourly.
-- **Recurring notifications** — daily reminders, weekly digests, monthly
-  invoices. These are the highest-risk for the duplicate-run problem because a
-  double run means users get *two* emails.
-- **Data sync jobs** — pull exchange rates / third-party data hourly, refill
-  the rate-limit token buckets from module 02 every second, recompute a
-  materialized view.
+    subgraph ComputeLayer ["Worker Pool (The HOW)"]
+        W1["Worker 1 (Database Backup)"]
+        W2["Worker 2 (Session Cleanup)"]
+        W3["Worker 3 (Weekly Digest)"]
+    end
 
-Every one of these should be an *idempotent* task (module 02): a cleanup that
-runs twice should be harmless; a digest that somehow fires twice must dedupe
-so users don't get two copies.
+    BEAT1 -->|"Enqueue job on cron tick"| Q_CRON
+    Q_CRON --> W1
+    Q_CRON --> W2
+    Q_CRON --> W3
 
-### The duplicate-run problem when the scheduler is replicated
+    classDef sched fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef buff fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef comp fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
 
-Here's the trap. A single Beat process is a single point of failure — if it's
-down, nothing gets scheduled. The obvious fix is to run two Beat processes for
-high availability. But now **both** are ticking through the same schedule, and
-at 02:00 *both* enqueue the backup task. You get duplicate runs of everything.
-
-```
-  BUG: two Beats, no guard          FIX: single execution via a window lock
-  Beat A ─02:00─► enqueue ─► run     Beat A ─► SET lock:backup:2026-07-27 NX ─► WON ─► run
-  Beat B ─02:00─► enqueue ─► run     Beat B ─► SET lock:backup:2026-07-27 NX ─► lost ─► no-op
-        = TWO backups (bad)                = ONE backup; loser skips
+    class BEAT1,BEAT2,LOCK sched;
+    class Q_CRON buff;
+    class W1,W2,W3 comp;
 ```
 
-There are three correct answers, in rough order of preference:
+---
 
-1. **Run exactly one scheduler.** For Celery Beat specifically, the
-   recommendation is to run a *single* Beat instance — Beat is not designed to
-   be run redundantly. You get availability from fast restart (a supervisor /
-   Kubernetes Deployment with replicas=1 that reschedules the pod on failure),
-   not from running two. A brief gap while it restarts is usually fine for
-   cron work; a duplicate digest email to every user is not.
+## 2. Structured Reference Grids
 
-2. **A distributed lock around the *task*.** Even with one scheduler, belt-
-   and-suspenders: the scheduled task acquires a short-lived Redis lock keyed
-   by job-name + time-window (`SET lock:backup:2026-07-27 NX EX 3600`) and
-   only proceeds if it won the lock. If two schedulers (or a retry) fire the
-   same logical run, only the lock-winner does the work; the others no-op.
-   This is the same idempotency principle from module 02, applied to a
-   time-window key.
+### Cron Syntax & Field Specifications
 
-3. **A leader-election / single-active mechanism.** For APScheduler running in
-   multiple app instances, either designate one instance as the scheduler, or
-   use a shared, locking job store so only one instance fires each job. The
-   principle is identical: exactly one actor should own each scheduled run.
+Standard 5-field UNIX cron expression format:
+```text
+ ┌───────────── Minute (0 - 59)
+ │ ┌─────────── Hour (0 - 23)
+ │ │ ┌───────── Day of Month (1 - 31)
+ │ │ │ ┌─────── Month (1 - 12 or JAN - DEC)
+ │ │ │ │ ┌───── Day of Week (0 - 6 or SUN - SAT)
+ * * * * *
+```
 
-The mental model to carry away: **redundant schedulers cause duplicate runs
-unless something guarantees single execution.** The distributed lock keyed by
-a time window is the most robust general answer, and it composes with the
-"single Beat" recommendation rather than replacing it.
+| Expression | Interpretation | Real-World Use Case |
+| :--- | :--- | :--- |
+| `*/10 * * * *` | Every 10 minutes | Pruning revoked OAuth access tokens & expired sessions |
+| `0 2 * * *` | Every day at 02:00:00 UTC | Nightly full database backup and storage snapshot |
+| `0 9 * * 1` | Every Monday at 09:00:00 UTC | Weekly analytics executive summary dispatch |
+| `0 0 1 * *` | First day of every month at midnight | Monthly recurring customer billing renewal cycle |
+| `0 */4 * * *` | Every 4 hours | Recomputing heavy materialized reporting tables |
 
-### Missed runs, overlap, and catch-up
+### Scheduler Frameworks Architecture Comparison
 
-Two more operational realities. **Missed runs:** if the scheduler was down
-when a job was due, does it run late on recovery ("catch-up"/misfire) or skip?
-APScheduler exposes `misfire_grace_time` and `coalesce` for exactly this;
-decide per job (a backup you probably want to catch up; a "send at 9am"
-notification you probably want to skip if it's now noon). **Overlap:** if a
-job runs every 5 minutes but sometimes takes 8, a naive scheduler starts a
-second copy while the first is still running. Guard long jobs with a lock (or
-`max_instances=1` in APScheduler) so they don't stack.
+| Capability | Celery Beat | APScheduler | Kubernetes CronJob | Temporal / Cadence |
+| :--- | :--- | :--- | :--- | :--- |
+| **Model** | Centralized daemon process | In-process library (Thread/Async) | Ephemeral container dispatch | Durable event-driven workflows |
+| **State Storage** | In-memory or Database (`django-celery-beat`) | SQLite / PostgreSQL / Redis / Memory | Kubernetes etcd | Persistent Cassandra / MySQL / PostgreSQL |
+| **High Availability** | Active-Passive via leader election | Distributed via external lock | Handled natively by K8s control plane | Native distributed clustering |
+| **Dynamic Editing** | Static config or DB-backed polling | Native runtime API | Kubernetes API manifests | Dynamic workflow schedules |
+| **Execution Tier** | Decoupled Celery workers | Local thread pool or external queue | Pod ephemeral execution | Decoupled Temporal activity workers |
 
-## Command reference
+---
 
-| Concern | Celery Beat | APScheduler |
-|---|---|---|
-| Daily at 02:00 | `crontab(hour=2, minute=0)` | `CronTrigger(hour=2, minute=0)` |
-| Every 10 minutes | `crontab(minute="*/10")` | `IntervalTrigger(minutes=10)` |
-| Every 30 seconds | `timedelta(seconds=30)` | `IntervalTrigger(seconds=30)` |
-| Weekly Mon 09:00 | `crontab(hour=9, minute=0, day_of_week=1)` | `CronTrigger(day_of_week="mon", hour=9)` |
-| Start the scheduler | `celery -A app beat` | `scheduler.start()` in-process |
-| Set timezone | `app.conf.timezone = "UTC"` | `BackgroundScheduler(timezone="UTC")` |
-| Prevent overlap | distributed lock in task | `max_instances=1` |
-| Catch up missed runs | (handle in task) | `misfire_grace_time`, `coalesce` |
+## 3. Production War Story
 
-Celery Beat schedule — `celeryconfig` on the app:
+### The Dual-Scheduler High Availability Failover Disaster
+
+#### The Incident
+To ensure zero downtime during a Kubernetes cluster upgrade, a FinTech team updated their `celery-beat` deployment replicas from `1` to `2`. At `00:00:00 UTC` on the first of the month, the recurring subscription billing task was scheduled. At `00:00:02 UTC`, customers began flooding support channels: 15,000 corporate clients received two identical invoice receipts, and credit cards were charged twice in parallel.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K8s as K8s Cluster
+    participant Pod1 as celery-beat-pod-1
+    participant Pod2 as celery-beat-pod-2
+    participant Queue as Redis Broker
+    participant Worker as Billing Workers
+    participant Stripe as Stripe API
+
+    Note over K8s: Replicas set to 2 for High Availability
+    Note over Pod1,Pod2: Midnight 00:00:00 UTC Trigger: monthly_billing_job
+    Pod1->>Queue: Enqueue monthly_billing_job (Payload: {})
+    Pod2->>Queue: Enqueue monthly_billing_job (Payload: {})
+    Queue->>Worker: Worker A claims Job 1
+    Queue->>Worker: Worker B claims Job 2
+    par Concurrent Charge Execution
+        Worker->>Stripe: Charge Invoice INV_901 ($500)
+        Worker->>Stripe: Charge Invoice INV_901 ($500)
+    end
+    Note over Stripe: Without distributed locking or idempotency keys, duplicate charges succeed!
+```
+
+#### The Root Cause
+1. `celery-beat` has no built-in leader election. Running multiple replicas results in every replica ticking independently and queueing identical tasks.
+2. The periodic task did not acquire a distributed window lock to verify whether the `2026-11` billing cycle had already commenced.
+3. The payment task lacked deterministic billing-cycle idempotency keys.
+
+#### The Verified Production Fix
+1. Reduced `celery-beat` back to a strict single-replica `StatefulSet` with `ReadWriteOnce` volume locking.
+2. Wrapped all recurring jobs in an atomic Redis distributed window lock:
+   ```python
+   lock_key = f"lock:cron:billing:{datetime.utcnow().strftime('%Y-%m')}"
+   if not redis_client.set(lock_key, "locked", nx=True, ex=86400):
+       logger.warning("Billing cycle already initiated by another worker; skipping.")
+       return
+   ```
+3. Configured deterministic idempotency keys for downstream Stripe charges: `idem_sub_{id}_{billing_cycle}`.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+### Go (`robfig/cron/v3` with Distributed Redis Mutex)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
+	"github.com/redis/go-redis/v9"
+	"github.com/robfig/cron/v3"
+)
+
+type ScheduledOrchestrator struct {
+	cronEngine *cron.Cron
+	rs         *redsync.Redsync
+}
+
+func NewOrchestrator(redisAddr string) *ScheduledOrchestrator {
+	client := redis.NewClient(&redis.Options{Addr: redisAddr})
+	pool := goredis.NewPool(client)
+	rs := redsync.New(pool)
+
+	return &ScheduledOrchestrator{
+		cronEngine: cron.New(cron.WithSeconds()), // Standard cron with seconds support
+		rs:         rs,
+	}
+}
+
+// RegisterGuardedJob wraps recurring execution in a distributed lock
+func (s *ScheduledOrchestrator) RegisterGuardedJob(spec, jobName string, action func(ctx context.Context) error) {
+	s.cronEngine.AddFunc(spec, func() {
+		// Scoped to minute window to prevent dual runs
+		windowKey := fmt.Sprintf("lock:cron:%s:%s", jobName, time.Now().UTC().Format("200601021504"))
+		mutex := s.rs.NewMutex(windowKey, redsync.WithExpiry(50*time.Second), redsync.WithTries(1))
+
+		if err := mutex.Lock(); err != nil {
+			log.Printf("[Scheduler] Job %s already claimed by another replica; skipping.", jobName)
+			return
+		}
+		defer mutex.Unlock()
+
+		log.Printf("[Scheduler] Executing periodic job: %s", jobName)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+
+		if err := action(ctx); err != nil {
+			log.Printf("[Scheduler Alert] Job %s failed: %v", jobName, err)
+		}
+	})
+}
+
+func main() {
+	sched := NewOrchestrator("127.0.0.1:6379")
+	
+	// Run every day at 02:00:00 UTC
+	sched.RegisterGuardedJob("0 0 2 * * *", "database_backup", func(ctx context.Context) error {
+		log.Println("[Backup] Snapshotting PostgreSQL database...")
+		time.Sleep(2 * time.Second)
+		return nil
+	})
+
+	sched.cronEngine.Start()
+	select {} // Block main thread
+}
+```
+
+---
+
+### Node.js / TypeScript (`BullMQ` Repeatable Jobs with Mutex)
+
+```typescript
+import { Queue, Worker, Job } from 'bullmq';
+import IORedis from 'ioredis';
+
+const connection = new IORedis('redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
+
+// 1. Queue configuration for recurring jobs
+export const cronQueue = new Queue('recurring-maintenance', { connection });
+
+export async function registerPeriodicSchedules() {
+  // BullMQ natively handles HA repeatable jobs using Redis keys
+  await cronQueue.add(
+    'prune-expired-sessions',
+    {},
+    {
+      repeat: {
+        pattern: '*/10 * * * *', // Every 10 minutes
+      },
+      jobId: 'session-pruning-cron', // Deduplication key
+    }
+  );
+
+  console.log('[Scheduler] Repeatable schedule registered in Redis.');
+}
+
+// 2. Worker executing the scheduled tasks
+export const cronWorker = new Worker(
+  'recurring-maintenance',
+  async (job: Job) => {
+    console.log(`[Worker] Running scheduled maintenance: ${job.name} at ${new Date().toISOString()}`);
+
+    if (job.name === 'prune-expired-sessions') {
+      // Execute cleanup
+      console.log('[Worker] Deleted 432 expired session rows.');
+    }
+
+    return { processedAt: new Date().toISOString() };
+  },
+  { connection }
+);
+```
+
+---
+
+### Python (`Celery Beat` + Redis Distributed Window Lock Decorator)
 
 ```python
+import functools
+from datetime import datetime, timezone
+import redis
 from celery import Celery
 from celery.schedules import crontab
-from datetime import timedelta
 
-app = Celery("scheduled", broker="redis://localhost:6379/0",
-             backend="redis://localhost:6379/1")
-app.conf.timezone = "UTC"          # be explicit — don't inherit the host's tz
+app = Celery(
+    'scheduled_tasks',
+    broker='redis://127.0.0.1:6379/0',
+    backend='redis://127.0.0.1:6379/1',
+)
 
+redis_client = redis.Redis(host='127.0.0.1', port=6379, db=2)
+
+def distributed_window_lock(window_format="%Y-%m-%d-%H-%M", ttl_seconds=300):
+    """
+    Decorator guaranteeing that a scheduled task executes strictly once
+    per time window, even if multiple Beat schedulers fire it.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            now_str = datetime.now(timezone.utc).strftime(window_format)
+            lock_key = f"lock:cron:{func.__name__}:{now_str}"
+            
+            # Atomic SETNX with expiration
+            acquired = redis_client.set(lock_key, "locked", nx=True, ex=ttl_seconds)
+            if not acquired:
+                print(f"[Lock Guard] Task {func.__name__} for window {now_str} already running; skipping.")
+                return {"skipped": True, "reason": "window_lock_held"}
+
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+# Configure Celery Beat Schedule
 app.conf.beat_schedule = {
-    "nightly-backup": {
-        "task": "scheduled.backup_database",
-        "schedule": crontab(hour=2, minute=0),          # 02:00 UTC daily
+    'nightly-database-backup': {
+        'task': 'tasks.backup_database',
+        'schedule': crontab(hour=2, minute=0), # 02:00 UTC
+        'options': {'queue': 'periodic_tasks'},
     },
-    "cleanup-sessions": {
-        "task": "scheduled.cleanup_expired_sessions",
-        "schedule": crontab(minute="*/10"),             # every 10 min
-    },
-    "refill-rate-tokens": {
-        "task": "scheduled.refill_tokens",
-        "schedule": timedelta(seconds=1),               # module 02's bucket
-    },
-    "weekly-digest": {
-        "task": "scheduled.send_weekly_digest",
-        "schedule": crontab(hour=9, minute=0, day_of_week=1),  # Mon 09:00
+    'prune-stale-tokens': {
+        'task': 'tasks.prune_tokens',
+        'schedule': crontab(minute='*/10'),   # Every 10 minutes
+        'options': {'queue': 'periodic_tasks'},
     },
 }
-```
 
-The scheduled tasks, with a distributed lock guaranteeing single execution:
-
-```python
-import redis
-_r = redis.Redis()
-
-def with_lock(key, ttl):
-    """Return True only for the caller that wins the lock for this window."""
-    return bool(_r.set(key, "1", nx=True, ex=ttl))
-
-@app.task
+@app.task(name='tasks.backup_database')
+@distributed_window_lock(window_format="%Y-%m-%d", ttl_seconds=86400)
 def backup_database():
-    # Key by the calendar day so two schedulers on the same day collide.
-    from datetime import date
-    if not with_lock(f"lock:backup:{date.today().isoformat()}", ttl=3600):
-        return "skipped: another run holds the lock"
-    dump = do_pg_dump()
-    upload_to_object_storage(dump)     # module 09
-    return "backed up"
-
-@app.task
-def cleanup_expired_sessions():
-    n = delete_sessions_older_than(minutes=30)   # naturally idempotent
-    return f"deleted {n} sessions"
-
-@app.task
-def send_weekly_digest():
-    for user_id in users_wanting_digest():
-        # dedupe per user per ISO week so a double run can't double-send
-        send_digest.delay(user_id, week=iso_week_key())
+    print("[Cron Worker] Starting full database snapshot...")
+    return {"status": "SUCCESS", "backup_file": "pg_dump_20261109.sql.gz"}
 ```
 
-Running it (three processes now):
+---
+
+## 5. Practical Hands-On Verification
+
+### 1. Test Atomic Redis Distributed Window Lock
+
+Verify lock behavior directly against the Redis CLI to inspect mutual exclusion:
 
 ```bash
-celery -A scheduled worker --loglevel=info      # runs the tasks
-celery -A scheduled beat   --loglevel=info      # fires them on schedule (ONE instance)
-docker run -d -p 6379:6379 redis:7              # broker + lock store
+# Instance 1 acquires lock for current hour
+redis-cli SET lock:cron:backup:2026-11-09-02 "worker-pod-1" NX EX 3600
 ```
 
-APScheduler enqueuing a Celery task, for comparison:
-
-```python
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-
-sched = BackgroundScheduler(timezone="UTC")
-sched.add_job(lambda: backup_database.delay(),
-              CronTrigger(hour=2, minute=0),
-              id="nightly-backup", max_instances=1, coalesce=True,
-              misfire_grace_time=3600)
-sched.start()
+**Output:**
+```text
+OK
 ```
 
-## Hands-on exercises
-
-Continue in `bg-queues`. `pip install apscheduler`. You'll run a worker *and*
-a beat process.
-
-### 1. A first Beat schedule you can watch
-
-Add a fast entry so you don't wait for a real cron time:
-
-```python
-app.conf.beat_schedule = {
-    "tick": {"task": "scheduled.tick", "schedule": timedelta(seconds=5)},
-}
-@app.task
-def tick():
-    import datetime; print("tick", datetime.datetime.utcnow())
+```bash
+# Instance 2 attempts to acquire same lock
+redis-cli SET lock:cron:backup:2026-11-09-02 "worker-pod-2" NX EX 3600
 ```
 
-Run `celery -A scheduled worker` and `celery -A scheduled beat` in two
-terminals. Expected: the worker prints `tick` every ~5 seconds — Beat enqueues
-it, the worker runs it. Stop Beat: ticks stop (the scheduler, not the worker,
-drives timing). Restart Beat: ticks resume.
+**Output:**
+```text
+(nil)
+```
+*(Instance 2 receives `(nil)` and cleanly terminates without executing the duplicate backup).*
 
-### 2. A cron entry and a timezone check
+### 2. Verify Celery Beat Schedule Inspection
 
-Change `tick` to `crontab(minute="*/1")` (every minute on the minute) and set
-`app.conf.timezone = "UTC"`. Expected: it fires at the top of each minute in
-UTC. Temporarily set the timezone to `"America/New_York"` and note that
-`crontab(hour=2)` would now mean 02:00 Eastern, not UTC — the same expression,
-a different wall-clock moment. Set it back to UTC.
-
-### 3. Verify a cleanup task is idempotent
-
-Write `cleanup_expired_sessions` against an in-memory dict of
-`{session_id: expiry}` and schedule it every 10 seconds. Run it, then run it
-again immediately by enqueuing manually. Expected: the second run deletes
-nothing new and errors on nothing — deleting already-deleted things is a
-no-op. This is why cleanups are safe to run often and to double-run.
-
-### 4. Simulate two schedulers and see the duplicate run
-
-Start **two** Beat processes against the same broker with a schedule that
-fires `backup_database` every 15 seconds, but *remove* the lock for now.
-Expected: you see `backed up` printed *twice* per interval — both Beats
-enqueued it, two workers ran it. This is the duplicate-run bug, reproduced.
-
-### 5. Add the distributed lock and fix it
-
-Restore the `with_lock(...)` guard in `backup_database`, keyed by a short time
-window (e.g. `int(time.time()) // 15`). Re-run the two Beats. Expected: now
-each interval prints `backed up` **once** and `skipped: another run holds the
-lock` once — only the lock-winner does the work. You've made a replicated
-scheduler safe.
-
-### 6. Prevent overlap on a slow job
-
-Schedule a task every 5 seconds that sleeps 8 seconds, guarded by
-`with_lock("lock:slowjob", ttl=8)`. Expected: runs don't stack — while one is
-mid-flight, the next tick's attempt finds the lock held and skips, so you
-never have two overlapping copies. Remove the lock and watch copies pile up.
-
-### 7. APScheduler enqueuing a Celery task
-
-Stand up the `BackgroundScheduler` from the reference with an
-`IntervalTrigger(seconds=5)` that calls `tick.delay()`. Expected: identical
-behavior to Beat — APScheduler decides *when*, the Celery worker runs the
-task. Note `max_instances=1` prevents overlap at the scheduler level too.
-
-### 8. Missed-run behavior
-
-With APScheduler, add a job with `misfire_grace_time=10` and `coalesce=True`,
-start the scheduler, then pause your machine/process for longer than the
-interval (or set the interval short and block the event loop briefly).
-Expected: on recovery, coalesced misfires collapse into a single catch-up run
-rather than a burst of back-to-back runs. Decide per job whether that's what
-you want.
-
-### 9. Diagnose and fix: the weekly digest that sends twice
-
-Users report occasionally getting the Monday digest **twice**. Investigation
-shows the team runs two Beat replicas "for reliability," and the digest task
-is:
-
-```python
-@app.task
-def send_weekly_digest():
-    for user_id in users_wanting_digest():
-        send_email(user_id, build_digest(user_id))   # no dedupe
+```bash
+celery -A scheduled_tasks beat --loglevel=INFO
 ```
 
-Explain the root cause (two schedulers both fire the 09:00 entry) and give the
-two-layer fix: (1) run a single Beat instance (availability via fast restart,
-not redundancy), and (2) make the send idempotent per user per week so *even
-if* it fires twice, each user gets at most one digest.
+**Output:**
+```text
+[2026-11-09 02:00:00,005: INFO/MainProcess] Scheduler: Sending due task nightly-database-backup (tasks.backup_database)
+[2026-11-09 02:10:00,001: INFO/MainProcess] Scheduler: Sending due task prune-stale-tokens (tasks.prune_tokens)
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Daylight Saving Time (DST) Skipping & Doubling Trap</strong></summary>
 
-Root cause: Celery Beat isn't designed to run redundantly — two Beat
-processes each independently reach the `day_of_week=1, hour=9` entry and each
-enqueue `send_weekly_digest`, so the whole digest run happens twice. Fix:
+**Scenario:** A financial reporting task is configured with `crontab(hour=2, minute=30)` on a server set to local US Eastern Time (`America/New_York`). In November, when the clock falls back one hour, the job executes twice. In March, when clocks spring forward from 02:00 to 03:00, the job skips completely and never runs. How do you permanently eliminate this failure mode?
 
-```python
-@app.task
-def send_weekly_digest():
-    week = iso_week_key()                    # e.g. "2026-W30"
-    if not with_lock(f"lock:digest:{week}", ttl=3600):
-        return "another run owns this week"  # only one run proceeds
-    for user_id in users_wanting_digest():
-        send_digest.delay(user_id, week=week)
-
-@app.task
-def send_digest(user_id, week):
-    # unique constraint on (user_id, week) makes the insert-then-send atomic
-    if already_sent(user_id, week):
-        return "already sent"
-    send_email(user_id, build_digest(user_id))
-    mark_sent(user_id, week)
-```
-
-Plus: run **one** Beat instance under a supervisor that restarts it, instead
-of two. The lock keyed by ISO week guarantees the *run* happens once; the
-per-user `(user_id, week)` uniqueness guarantees each *user* is emailed once
-even if something slips through. Two independent guards, because a duplicate
-email to every user is a serious incident. This is module 02's idempotency
-applied to a scheduled, time-windowed job.
-
+*Explanation:*
+Local wall-clock times are discontinuous during Daylight Saving Time transitions (02:00–03:00 either occurs twice or does not exist).
+**The Rule:** Configure schedulers and servers strictly in **UTC (`timezone='UTC'`)**. UTC never experiences leaps or duplicate hours. If a customer demands localized delivery (e.g., 9:00 AM in Tokyo, Paris, or New York), calculate localized UTC offsets dynamically per user rather than setting the scheduler's base clock to a regional timezone.
 </details>
-
-## Independent challenge
-
-No code given. Build a scheduled "expire and notify" system: every 15 minutes,
-find trial accounts that expired in the last window and (a) downgrade them and
-(b) enqueue a "your trial ended" email — running correctly even though you
-deploy the scheduler as two replicas for availability. Requirements: the
-downgrade must be idempotent (running the sweep twice must not double-process
-an account), the email must be dedup'd per account, the sweep must not overlap
-itself if a run takes longer than 15 minutes, and the schedule's timezone must
-be explicit. Prove correctness by running two schedulers at once and
-confirming each expired account is downgraded once and emailed once.
-
-Reuse the distributed-lock-by-time-window pattern from exercise 5, the
-overlap guard from exercise 6, and the per-recipient dedupe from
-[02-retries-prioritization-and-rate-limiting-in-queues](../02-retries-prioritization-and-rate-limiting-in-queues/README.md).
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Job Overrun Avalanche</strong></summary>
 
-Two independent locks/guards, not one: a window lock
-(`lock:trial-sweep:{window}`) so only one scheduler runs the *sweep* per
-15-minute window, and a per-account guard (unique `(account_id, "trial_ended")`)
-so the *email* can't double-send even across windows or retries. The
-downgrade should be a conditional update (`SET status=free WHERE
-status=trial`), which is naturally idempotent.
+**Scenario:** An intensive indexing job is scheduled to run every 5 minutes (`*/5 * * * *`). Due to a sudden increase in data volume, the job begins taking 9 minutes to complete. What occurs over the next 30 minutes if the scheduler does not enforce execution gating?
 
+*Explanation:*
+Every 5 minutes, the scheduler blindly injects another indexing task into the broker. While Job 1 is still processing, Job 2 begins, then Job 3, and Job 4. These concurrent heavy jobs compete for database CPU and memory, slowing down execution further until database connections exhaust and the entire database crashes.
+**The Fix:** Enforce a **Coalesce / Overrun Guard**. In Celery/Go, check a running mutex (`SET lock:indexing "active" NX EX 900`). If a previous run is still in-flight, immediately skip the new tick and emit an alert that job execution duration exceeds schedule frequency.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Running redundant Beat instances.** Two Beats double every scheduled run.
-  Run exactly one, get availability from fast restart, and/or guard tasks with
-  a distributed lock keyed by the time window.
-- **Non-idempotent scheduled tasks.** A cleanup or notification that isn't
-  safe to run twice will eventually cause damage (double emails, double
-  processing) on a retry, catch-up, or duplicate schedule. Every scheduled
-  task should be idempotent.
-- **Unset or wrong timezone.** `0 2 * * *` fires at a different wall-clock
-  moment depending on the scheduler's timezone, and DST can skip/double a
-  daily run. Set `timezone` explicitly and know what your cron means.
-- **Doing heavy work in the scheduler process.** Beat/APScheduler should
-  *enqueue* a task, not perform the work — keep the scheduler thin so a slow
-  job can't block the clock. Let workers do the work.
-- **Overlapping runs of a slow job.** A job that sometimes runs longer than
-  its interval gets a second copy started on top. Guard with a lock or
-  `max_instances=1`.
-- **No plan for missed runs.** If the scheduler was down when a job was due,
-  decide explicitly whether it catches up or skips (`misfire_grace_time`,
-  `coalesce`) — don't leave it to chance.
-- **Assuming cron on one box is "good enough."** OS cron doesn't integrate
-  with your queue's retries/visibility and dies with the box. Prefer a
-  scheduler that enqueues real tasks.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the division of responsibility between the scheduler (Beat/
-   APScheduler) and the worker? Why keep the scheduled entry thin?
-2. You run two Celery Beat processes for high availability. What breaks, and
-   what are the two layers of fix?
-3. Why must every scheduled task be idempotent, even ones that "obviously only
-   run on a timer"?
-4. What does a distributed lock keyed by a *time window* (rather than just the
-   job name) buy you over a lock keyed by job name alone?
-5. Your daily 02:00 job sometimes runs at what you think is the wrong time
-   after a DST change. What's the likely cause and fix?
-6. A job scheduled every 5 minutes sometimes takes 8. What can go wrong, and
-   how do you prevent it?
-7. When would you choose APScheduler over Celery Beat?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: Scheduler Clock Drift vs. Database Timestamps</strong></summary>
 
-1. The scheduler decides *when* and enqueues a task; the worker decides *how*
-   and executes it. Keeping the entry thin (just enqueue) means the scheduled
-   task inherits retries/priority/idempotency from the worker path, and a slow
-   job can't block the scheduler's clock or delay other scheduled entries.
-2. Both Beats independently reach each due entry and enqueue it, so every
-   scheduled job runs twice. Fix: (1) run exactly one Beat instance
-   (availability via fast restart, since Beat isn't built to run redundantly),
-   and (2) guard the task with a distributed lock keyed by job + time window
-   and/or make the effect idempotent, so a duplicate fire no-ops.
-3. Because runs can duplicate (redundant scheduler, catch-up/misfire, retry,
-   at-least-once delivery). If the task isn't idempotent, any of those causes
-   double emails, double processing, or corrupted data. A timer is not a
-   guarantee of "exactly once."
-4. A window key (e.g. `lock:backup:2026-07-27`) makes each *scheduled
-   occurrence* the unit of exclusion, so today's run and tomorrow's run don't
-   block each other, but two schedulers firing *the same* occurrence do
-   collide. A bare job-name lock either blocks legitimate future runs or needs
-   careful TTL tuning to avoid it.
-5. The scheduler's timezone is unset or set to a zone that observes DST, so
-   the cron's wall-clock time shifts (or a daily run is skipped/doubled across
-   the transition). Fix: set the timezone explicitly (often UTC) and interpret
-   the cron expression in that zone.
-6. A second copy starts while the first is still running (overlap), which can
-   corrupt shared state or double-process. Prevent it with a distributed lock
-   held for the job's duration, or `max_instances=1` in APScheduler.
-7. When you're not using Celery, when you need schedules created/changed
-   dynamically at runtime (Beat's schedule is mostly static config), or when
-   you want a lightweight in-process scheduler with a persistent job store —
-   often having it just enqueue Celery tasks anyway.
+**Scenario:** A cron job runs every hour to query rows: `SELECT * FROM events WHERE created_at >= NOW() - INTERVAL '1 hour'`. Over time, random events are permanently missed and skipped by the query. What causes this subtle bug?
 
+*Explanation:*
+Two major causes:
+1. **Clock Skew:** The scheduler's host clock and the database server's clock differ by several seconds.
+2. **Transaction Commit Invisibility:** A row created at 01:59:59 might not be committed until 02:00:02 due to a long transaction. When the job fires at 02:00:00, that row is invisible. In the next run at 03:00:00, the row is older than 1 hour and skipped forever.
+**The Fix:** Use a **Watermark / High-Water Tracking Table**. Rather than using floating time windows (`NOW() - INTERVAL`), store the exact primary key or timestamp of the last processed record (`last_processed_id`). Each batch queries from `WHERE id > last_processed_id ORDER BY id ASC LIMIT 1000`.
 </details>
 
-## Cumulative review
-
-Closed-book. Don't reopen modules 00-03 while attempting these — the point is
-to find out what actually stuck.
-
-1. A `POST /orders` endpoint charges a card, reserves inventory, makes a
-   shipping label, and emails the customer — currently all inside the request
-   handler, and it's timing out under load. Redesign it end to end: what
-   returns to the client immediately, how the four steps are wired so a
-   failure at step 2 doesn't run steps 3-4, and how the client learns the
-   final outcome. Name the specific primitives.
-2. Your email task is enqueued with `send_email(user_id)` inside the handler
-   and "sometimes blocks the request for 3 seconds." What's the bug, and what
-   is the one-character-ish fix?
-3. A payment task is configured with `autoretry_for=(Exception,)` and no
-   idempotency guard. Give two distinct ways this corrupts data, and fix both.
-4. Explain why passing `datetime.now()` as a task argument fails under the
-   default serializer, and why passing a `User` ORM object is a bad idea even
-   if it *could* serialize.
-5. You have a chain `charge | reserve | label | notify` and want `notify` to
-   receive only `order_id`, not the label's return value. Which signature form
-   do you use, and what error appears if you use the wrong one?
-6. A nightly backup runs on two Beat replicas and you're getting two backups.
-   Give the single-instance answer and the belt-and-suspenders lock answer,
-   and explain the time-window lock key.
-7. Distinguish transient from permanent failures with one example each, and
-   explain what `autoretry_for` should and shouldn't contain.
-8. Your third-party API caps you at 10 req/s and you run 5 workers. Why does
-   `rate_limit="10/s"` on the task not hold the cap, and what does?
-9. A scheduled cleanup task and a scheduled digest task both "sometimes run
-   twice." For each, say whether a double run is harmful and what makes it
-   safe.
-
-<details>
-<summary>Show answers</summary>
-
-1. The handler validates, writes the order row, enqueues a Celery **chain**
-   `charge.s(order_id) | reserve.s() | label.s() | notify.s()`, and returns
-   `202 Accepted` with the chain's task id immediately. Because it's a chain,
-   a raise in `reserve` stops the pipeline — `label`/`notify` never run. The
-   client learns the outcome by polling a `GET /orders/{task_id}` endpoint
-   backed by `AsyncResult` (needs a result backend), or by a webhook/websocket
-   push (later modules).
-2. It calls the task function *directly* (synchronously in the web process)
-   instead of enqueuing it, so the request waits for the send. Fix: `.delay()`
-   — `send_email.delay(user_id)`.
-3. (a) A `4xx`/validation error gets retried forever-ish because
-   `autoretry_for=(Exception,)` retries permanent failures too — wasted work
-   and delayed failure. (b) With no idempotency guard, a retry after a partial
-   success (or an at-least-once redelivery) charges the card twice. Fix:
-   restrict `autoretry_for` to transient exception types, and add an
-   idempotency key / unique-constraint guard so a re-run charges once.
-4. The default JSON serializer has no encoding for `datetime`, so it raises an
-   encode error — pass an ISO string or epoch int instead. A `User` object is
-   a bad idea even if serializable because the task may run seconds later; you
-   want the *fresh* row fetched by id at execution time, not a stale snapshot,
-   and the object may carry a live session that can't cross process
-   boundaries.
-5. Use an immutable signature: `notify.si(order_id)`. With `notify.s()` the
-   upstream (label) result is prepended as an extra first argument, producing a
-   `TypeError`/wrong-number-of-arguments failure.
-6. Single-instance: run exactly one Beat process (availability comes from a
-   supervisor restarting it, not from a second copy). Lock: the backup task
-   does `SET lock:backup:{today} NX EX 3600` and only the winner runs;
-   duplicates no-op. The window key (`{today}`) scopes exclusion to *this*
-   occurrence so it doesn't block tomorrow's run.
-7. Transient: a timeout / `503` / connection reset — may succeed on retry.
-   Permanent: a `400`/validation/`404` — fails identically every time.
-   `autoretry_for` should contain only the transient exception types and never
-   a blanket `Exception` (which would retry permanent errors too).
-8. `rate_limit` is per-worker, so 5 workers allow ~50 req/s — the cap is
-   blown. A shared Redis token bucket that every worker draws a token from
-   before calling (retrying when empty) holds a true global 10/s.
-9. Cleanup: a double run is harmless because deleting already-deleted rows is a
-   no-op — it's naturally idempotent. Digest: a double run is harmful (users
-   get two emails); make it safe with a per-user-per-week uniqueness guard
-   plus a run-level window lock so at most one send happens per user per week.
-
-</details>
-
-## Further reading & sources
-
-- [Celery: Periodic Tasks (Beat)](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html) - defining `beat_schedule`, `crontab`, and running a single Beat process.
-- [Celery: crontab schedules](https://docs.celeryq.dev/en/stable/reference/celery.schedules.html#celery.schedules.crontab) - the full field reference for cron-style entries.
-- [APScheduler documentation](https://apscheduler.readthedocs.io/en/3.x/userguide.html) - triggers, `misfire_grace_time`, `coalesce`, `max_instances`, and persistent job stores.
-- [Redis: SET with NX and EX](https://redis.io/docs/latest/commands/set/) - the atomic primitive behind the time-window distributed lock.
-- [Redis: Distributed locks with Redlock](https://redis.io/docs/latest/develop/use/patterns/distributed-locks/) - the reasoning and caveats for locks that guarantee single execution.
+---
 
 ## Next
 

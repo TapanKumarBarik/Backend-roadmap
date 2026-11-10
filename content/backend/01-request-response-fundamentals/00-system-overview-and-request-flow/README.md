@@ -94,16 +94,39 @@ trip, in order, before your backend function runs:
 The same journey, drawn with where the milliseconds actually go — notice
 how little of the total is your handler:
 
-```
-  browser        DNS         TCP          TLS         internet      LB/proxy     your code
- (parse URL)   resolve     handshake    handshake      transit      dispatch     runs
-     │            │            │            │             │            │            │
-     ▼            ▼            ▼            ▼             ▼            ▼            ▼
- ┌───────┐   ┌────────┐   ┌────────┐   ┌────────┐   ┌─────────┐  ┌────────┐   ┌────────┐
- │  ~0ms │──►│ ~20ms  │──►│  1 RTT │──►│ 1-2 RTT│──►│  ~40ms  │─►│  ~2ms  │──►│  ~2ms  │
- └───────┘   └────────┘   └────────┘   └────────┘   └─────────┘  └────────┘   └────────┘
-  step 1       step 2       step 3       step 4       step 6      step 7       step 8
-                └──────── setup + transit: the bulk of the 250ms ───────┘      └─ handler ─┘
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Client (Browser / Mobile)
+    participant DNS as DNS Resolver (8.8.8.8)
+    participant Edge as Edge CDN / Anycast IP
+    participant ALB as Cloud Load Balancer (TLS Termination)
+    participant App as Backend Service (Go / Node / Python)
+    participant DB as Database / Cache
+
+    User->>DNS: Step 1 & 2: Resolve api.example.com (A/AAAA)
+    DNS-->>User: Cached IP: 93.184.216.34 (TTL 300s)
+
+    Note over User,Edge: Step 3: TCP 3-Way Handshake (1 RTT ~40ms)
+    User->>Edge: SYN
+    Edge-->>User: SYN-ACK
+    User->>Edge: ACK
+
+    Note over User,Edge: Step 4: TLS 1.3 Handshake (1 RTT ~40ms)
+    User->>Edge: ClientHello + Key Share
+    Edge-->>User: ServerHello + Certificate + Finished
+
+    Note over User,App: Step 5-7: HTTP Request over Encrypted Tunnel
+    User->>Edge: GET /users (Headers: Host, Authorization)
+    Edge->>ALB: Routed via Cloud Backbone (~2ms)
+    ALB->>App: Forward plain HTTP + X-Forwarded-For (~1ms)
+
+    Note over App,DB: Step 8: Execution (~2-5ms)
+    App->>DB: Query User Record (Pool checkout)
+    DB-->>App: Rows returned
+    App-->>ALB: HTTP 200 OK + JSON Body
+    ALB-->>Edge: Streamed Response
+    Edge-->>User: Step 9: Rendered in Browser
 ```
 
 The reader who internalizes this list stops being surprised by latency
@@ -213,6 +236,133 @@ server's one-glance summary — `2xx` success, `3xx` redirect, `4xx` "you
 messed up," `5xx` "I messed up." Modules 01 and 05 make this precise;
 for now, just hold the shape: *status + headers + body*, mirroring the
 request's *method/path + headers + body*.
+
+## Production War Story: The 502 Bad Gateway Race Condition
+
+### The Incident
+During a flash-sale traffic spike on an e-commerce platform, the API gateway fronted by an AWS Application Load Balancer (ALB) began logging sporadic `502 Bad Gateway` errors on 1.2% of customer checkout requests. The backend services reported healthy CPU and memory utilization, database query latencies were sub-10ms, and application error logs showed zero unhandled exceptions.
+
+### The Root Cause
+A critical Keep-Alive idle timeout mismatch between the reverse proxy and the backend application server:
+1. The **Load Balancer (AWS ALB)** maintained an **idle connection timeout** of **60 seconds**.
+2. The **Node.js application server** was configured with the default `keepAliveTimeout` of **5 seconds** (or 60 seconds matching the ALB).
+3. **The Race Condition:** At second 59.9, the load balancer selected an existing persistent TCP socket from its pool to dispatch an incoming checkout request. Simultaneously, the Node.js backend reached its 60-second idle timer and initiated connection teardown by transmitting a TCP `FIN` packet.
+4. The request packets crossed paths with the `FIN` packet in transit. When the backend received the HTTP request on a closing socket, the OS kernel replied with a TCP `RST` (Reset). The load balancer received the `RST` instead of an HTTP response, immediately aborted the client's request, and served a `502 Bad Gateway`.
+
+```
+Load Balancer (ALB)                     Backend Server (Node/Go/Python)
+     │                                           │
+     │ ──── Reuses idle connection (59.9s) ────► │ (Idle timer expires at 60.0s)
+     │                                           │ ──── Sends TCP FIN ────►
+     │ ◄─── Packets cross on the wire ───────────│
+     │                                           │
+     │ ──── Incoming HTTP GET /checkout ───────► │ ──── Kernel sends TCP RST ──►
+     │ ◄─── Receives TCP RST ────────────────────│
+     │
+     ▼ (Aborts request)
+Returns 502 Bad Gateway to User
+```
+
+### The Rule of Thumb for Production
+> [!IMPORTANT]
+> **The Upstream/Backend Timeout Rule:** Your backend application's Keep-Alive timeout must **always be strictly greater** than the upstream reverse proxy's idle timeout.
+
+* **Upstream Reverse Proxy (AWS ALB / Cloudflare / Nginx):** `idle_timeout = 60s`
+* **Backend Application Server:** `keepAliveTimeout = 65s` (plus `headersTimeout = 66s` in Node.js)
+
+---
+
+### Production Multi-Language Patterns: Hardened HTTP Server Config
+
+Real-world production services must configure explicit socket timeouts and accurately parse proxy headers (`X-Forwarded-For`, `X-Forwarded-Proto`):
+
+#### Go (`net/http`)
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+		// Accurately extract real client IP behind reverse proxy / load balancer
+		clientIP := r.Header.Get("X-Forwarded-For")
+		if clientIP != "" {
+			// First IP in comma-separated list is the original client
+			clientIP = strings.TrimSpace(strings.Split(clientIP, ",")[0])
+		} else {
+			clientIP = r.RemoteAddr
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok","client_ip":"` + clientIP + `"}`))
+	})
+
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,  // Max time to read request headers and body
+		WriteTimeout: 10 * time.Second, // Max time to write response
+		IdleTimeout:  120 * time.Second, // Must be strictly > load balancer idle timeout (60s)
+	}
+
+	log.Println("Server running on :8080...")
+	log.Fatal(server.ListenAndServe())
+}
+```
+
+#### Node.js / TypeScript
+```typescript
+import http from 'node:http';
+
+const server = http.createServer((req, res) => {
+  // Extract real client IP from reverse proxy
+  const forwarded = req.headers['x-forwarded-for'];
+  const clientIP = typeof forwarded === 'string' 
+    ? forwarded.split(',')[0].trim() 
+    : req.socket.remoteAddress;
+
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', client_ip: clientIP }));
+});
+
+// CRITICAL: Prevent 502 race conditions behind Cloud Load Balancers
+server.keepAliveTimeout = 65_000;  // Must be > ALB 60s idle timeout
+server.headersTimeout = 66_000;    // Must be > keepAliveTimeout
+
+server.listen(8080, () => {
+  console.log('Server listening on port 8080');
+});
+```
+
+#### Python (FastAPI / Uvicorn)
+```python
+from fastapi import FastAPI, Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+app = FastAPI()
+
+# Trust reverse proxy X-Forwarded-For headers
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+
+@app.get("/users")
+async def get_users(request: Request):
+    # request.client.host is automatically populated from X-Forwarded-For
+    return {
+        "status": "ok",
+        "client_ip": request.client.host,
+        "is_secure": request.url.is_secure
+    }
+
+# Run with keepalive higher than upstream load balancer:
+# uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 65
+```
 
 ## Command reference
 

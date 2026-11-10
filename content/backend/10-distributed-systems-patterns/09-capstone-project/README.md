@@ -1,206 +1,551 @@
-# Module 09: Capstone Project
+# Module 09: Capstone Project: High-Scale Distributed Order Processing Engine
 
-## Why this matters
+> **The Capstone Architecture Axiom**
+> Real-world distributed systems are not composed of isolated patterns. An idempotency key guards the gateway against network retries; a distributed saga orchestrates multi-service transactions with compensations; atomic conditional writes prevent overselling under high concurrency; an event-sourced log acts as the immutable source of truth; and CQRS projections serve blazing-fast read queries with read-your-writes guarantees.
 
-The previous eight modules each taught one pattern in isolation, with clean exercises
-that exercised exactly that pattern. Real distributed systems are never so tidy: the
-patterns show up *together*, interacting, and the hard part is not any single pattern
-but making them cooperate correctly. An idempotency key protects the *entrance* to a
-saga; the saga's steps append *events* that an event-sourced log records; the read
-side of that log is a CQRS projection that lags; a lock or conditional write guards
-the one step where two orders race for the last unit. Each pattern closes a gap the
-others open. You don't understand this material until you've felt those seams — where
-idempotency meets the saga, where the saga's writes meet the event log, where the
-event log meets the eventually-consistent read model.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Gateway as API Gateway (Idempotency Filter)
+    participant Orchestrator as Saga Orchestrator
+    participant PaymentSvc as Payment Service
+    participant InventorySvc as Inventory Service (Atomic Write)
+    participant EventStore as Append-Only Event Store
+    participant Projection as CQRS Projection (Read Model)
 
-This capstone is where the track stops handing you patterns and asks you to *integrate*
-them. You'll design and partially build a **distributed order-processing system** that
-must be correct under the conditions this entire track insisted are the default:
-duplicated requests, retried steps, partial failures, and concurrent access. There is
-no new theory here and there is no solution code — the point is to make the judgment
-calls yourself: which pattern each requirement demands, where they connect, and what
-happens at each seam when things go wrong. If you can build the skeleton below and
-defend every design choice by naming the failure it prevents and the module it came
-from, you've genuinely absorbed the track. Treat this as the exam you write for
-yourself.
+    Client->>Gateway: POST /orders (Idempotency-Key: idemp_ord_777)
+    Gateway->>Gateway: Verify Key & Payload Hash in Redis/DB
+    Gateway->>Orchestrator: Dispatch CreateOrder Command
+    Orchestrator->>EventStore: Append(OrderPlaced)
+    
+    Orchestrator->>PaymentSvc: T1: Capture Payment ($250.00)
+    PaymentSvc-->>Orchestrator: 200 OK (charge_id: "ch_abc")
+    Orchestrator->>EventStore: Append(PaymentCaptured)
 
-## The project
+    Orchestrator->>InventorySvc: T2: Reserve Stock (SKU-44, qty: 1)
+    Note over InventorySvc: Atomic UPDATE ... WHERE reserved + qty <= total
+    InventorySvc-->>Orchestrator: 200 OK (Reservation Confirmed)
+    Orchestrator->>EventStore: Append(InventoryReserved)
 
-Build the core of an **order-processing service**. A client submits an order; the
-system must charge payment, reserve inventory, and confirm the order across
-independent services — safely under retries and partial failure — while recording the
-order's full lifecycle as an event history that support and audit can replay. You are
-expected to *design the whole thing* and *implement enough of it to demonstrate each
-pattern working*, not to ship a production system. Stub external services (payment
-provider, inventory service) with simple functions you can make fail on command.
-
-Use the local stack from earlier modules: Postgres (event store + read models + the
-idempotency/dedupe tables), optionally Redis (locks, fast idempotency claims), and
-FastAPI for the command entrypoint. Reuse the code shapes from modules 01, 04, 05, 06,
-and 07 — this is an integration exercise, so leaning on those references is expected.
-
-```
-  POST /orders (Idempotency-Key)
-        │  [01] dedupe at the door — one saga per key
-        ▼
-  Saga orchestrator ──► T1 capture ──► T2 reserve ──► T3 confirm
-     [04] compensations   payment        inventory      order
-     on failure              │            │ [02] atomic conditional
-        │                    │            │      write: no oversell
-        ▼                    ▼            ▼
-  ┌──────────────────────────────────────────────┐
-  │ Event log (source of truth) [06]             │  OrderPlaced,
-  │ current state = fold(events)                 │  PaymentCaptured, ...
-  └───────────────┬──────────────────────────────┘
-                  │ project (async, lags)
-                  ▼
-          order_summary read model [05]  ◄── read-your-writes [00]
-                                              for the customer who just ordered
+    Orchestrator->>EventStore: Append(OrderConfirmed)
+    EventStore-->>Projection: Async Event Consumer Projects into order_summary
+    Gateway-->>Client: 201 Created (Order Confirmed + Write-Side Fallback)
 ```
 
-### What it must do
+---
 
-1. **Accept `POST /orders` with a client-supplied `Idempotency-Key`.** A retried
-   submission (same key) must never create a second order or trigger a second charge —
-   it returns the original result. (Module 01.)
-2. **Process the order as a saga** across three steps — capture payment, reserve
-   inventory, confirm order — each a local transaction, with **compensating
-   transactions** (refund, release reservation, cancel) if a later step fails. The
-   order moves through explicit, queryable states (`pending → paid → reserved →
-   confirmed`, or `→ compensating → cancelled`). (Module 04.)
-3. **Record the order's lifecycle as an event-sourced log** — `OrderPlaced`,
-   `PaymentCaptured`, `InventoryReserved`, `OrderConfirmed`, `OrderCancelled`,
-   `PaymentRefunded`, etc. — as the source of truth; current order state is *derived*
-   by folding the events. (Module 06.)
-4. **Serve reads from a CQRS projection** — an `order_summary` read model built from
-   the event stream — that tolerates lag, with **read-your-writes** for the customer
-   who just placed the order. (Modules 05, 00.)
-5. **Guard the contended step** — reserving the last unit of inventory — with an atomic
-   conditional write (or a fenced lock) so two concurrent orders can't oversell.
-   (Module 02.)
-6. **Survive an orchestrator crash mid-saga** by persisting saga state and resuming
-   (or safely restarting, given idempotent steps) rather than stranding a half-done
-   order. (Modules 04, 06.)
+## 1. System Architecture: Integrating the Pattern Spectrum
 
-### Acceptance checklist
+This capstone integrates every pattern mastered in this track into an end-to-end, crash-resilient distributed system.
 
-Your system is "done enough" when you can demonstrate each of these, ideally with a
-script or test that *proves* it rather than an assertion that it's true:
+```mermaid
+flowchart TD
+    subgraph Ingress["Ingress & Idempotency Boundary"]
+        C["Client Request"] -->|POST /orders| IKey["Idempotency Filter (Module 01)<br/>Hash verification & Deduping"]
+    end
 
-- [ ] Submitting the *same* order twice with the same `Idempotency-Key` produces
-      exactly **one** order, **one** charge, and returns the identical response both
-      times. (01)
-- [ ] Submitting with the same key but a *different* body is rejected (e.g. `422`),
-      not silently answered with the stored response. (01)
-- [ ] The happy path walks the order through all forward states and ends `confirmed`,
-      with a payment captured and inventory reserved. (04)
-- [ ] Forcing the **inventory step to fail** triggers compensations in reverse order —
-      the captured payment is **refunded** and the order ends `cancelled` — with no
-      dangling reservation and no lost money. (04)
-- [ ] Every saga step and every compensation is **idempotent**: invoking any of them
-      twice (simulating at-least-once retry) leaves the same state. (01, 04)
-- [ ] The order's current state is **derived by folding its event log**, not read from
-      a mutable status column as the source of truth; deleting/rebuilding the derived
-      state recomputes it correctly from the events. (06)
-- [ ] Correcting a mistake appends a **new event** rather than mutating/deleting an
-      existing one; the full history (including the correction) is preserved. (06)
-- [ ] The `order_summary` **read model** is built by projecting events, is idempotent
-      under redelivery, and can be **rebuilt from scratch** from the event log. (05, 06)
-- [ ] A customer who just placed an order **sees it immediately** (read-your-writes),
-      even though other reads come from the lagging projection. (SD 15, 05)
-- [ ] Two concurrent orders competing for the **last unit of inventory**: exactly one
-      succeeds; the other is cleanly rejected/compensated — **no oversell**. (02)
-- [ ] Killing the process **mid-saga** (after payment, before confirm) and restarting
-      leaves a resumable/consistent order — never a charged-but-lost order. (04, 06)
-- [ ] A short **written design memo** accompanies the code: for each pattern, one
-      paragraph naming the failure it prevents, the seam where it meets the next
-      pattern, and the consistency the customer experiences. (all)
+    subgraph Coordination["Saga Orchestration & Resilience"]
+        IKey -->|Valid Command| SO["Saga Coordinator (Module 04 / 08)<br/>Crash-Resilient State Machine"]
+        SO -->|T1: Authorize/Capture| PS["Payment Gateway"]
+        SO -->|T2: Conditional Reserve| IS["Inventory Store (Module 02)<br/>Atomic Fencing & Conditional Locks"]
+        SO -. Failure Compensate .-> C1["Refund Payment (C1)"]
+        SO -. Failure Compensate .-> C2["Release Inventory (C2)"]
+    end
 
-### Hints (not solutions)
+    subgraph Persistence["Storage & Read Layer"]
+        SO -->|Append Events| ES[("Event Store (Module 06)<br/>Immutable Source of Truth")]
+        ES -->|Async CDC / Tail Log| PRJ["Projection Worker"]
+        PRJ -->|Materialize Views| RM[("CQRS Read Model (Module 05)<br/>order_summary")]
+        C -->|GET /orders/:id| RYW["Read-Your-Writes Cache Check"]
+        RYW -->|Author Cache Hit| ES
+        RYW -->|General Query| RM
+    end
+```
+
+### Architectural Seam Reference Matrix
+
+| Seam Junction | Interacting Patterns | Primary Failure Guarded Against | Consistency Model |
+| :--- | :--- | :--- | :--- |
+| **API Ingress** | Idempotency Keys + Request Hashing | Double-charging on mobile retry / network timeout | Strict Serializability |
+| **Orchestration** | Saga Pattern + Durable History | Mid-transaction worker crash leaving dangling money | Eventual Consistency |
+| **Inventory Contention** | Distributed Fencing + Conditional SQL | Race condition overselling zero-stock SKU | Strong Consistency (Linearizable) |
+| **Source of Truth** | Event Sourcing + Optimistic Concurrency | State corruption and untraceable database mutations | Append-Only Linear History |
+| **Query Facade** | CQRS + Read-Your-Writes Engine | Read latency bottleneck + Customer seeing stale orders | Read-Your-Writes / Eventual |
+
+---
+
+## 2. Failure Mode Breakdown: Competing Orders & Worker Crash
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OrderA as Order A (Client)
+    participant OrderB as Order B (Client)
+    participant Orchestrator as Saga Orchestrator
+    participant Payment as Payment Gateway
+    participant Inventory as Inventory DB (Stock = 1)
+
+    OrderA->>Orchestrator: Checkout SKU-99 (Qty: 1)
+    OrderB->>Orchestrator: Checkout SKU-99 (Qty: 1)
+    
+    Orchestrator->>Payment: Charge Card A ($100) -> SUCCESS
+    Orchestrator->>Payment: Charge Card B ($100) -> SUCCESS
+    
+    Note over Orchestrator,Inventory: Contended Step: Atomic Reservation
+    Orchestrator->>Inventory: UPDATE stock SET reserved = reserved + 1 WHERE sku = 'SKU-99' AND (stock - reserved) >= 1
+    Inventory-->>Orchestrator: Rows Affected: 1 (Order A Wins)
+    
+    Orchestrator->>Inventory: UPDATE stock SET reserved = reserved + 1 WHERE sku = 'SKU-99' AND (stock - reserved) >= 1
+    Inventory-->>Orchestrator: Rows Affected: 0 (Order B Loses: Out of Stock!)
+    
+    Note over Orchestrator,Payment: Compensation Triggered for Order B
+    Orchestrator->>Payment: Refund Charge B ($100, Reason: OOS)
+    Payment-->>Orchestrator: Refund Confirmed
+    Orchestrator-->>OrderB: 409 Conflict: Sold Out (Payment Fully Refunded)
+    Orchestrator-->>OrderA: 201 Created: Order Confirmed
+```
+
+---
+
+## 3. Production War Story: The Ghost Inventory Collapse
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FlashSale as Flash Sale Traffic (50,000 req/sec)
+    participant AppServer as Node.js Checkout Cluster
+    participant RedisLock as Redis Lock (SET NX EX 5)
+    participant MySQL as MySQL Inventory DB
+
+    FlashSale->>AppServer: 2,000 Concurrent Requests for Limited Shoe (100 in stock)
+    AppServer->>RedisLock: Acquire Lock (key: lock:sku_shoe)
+    Note over AppServer: GC Pause / Latency Spike: Lock expires after 5s!
+    AppServer->>RedisLock: Node B acquires expired lock!
+    AppServer->>MySQL: Node A wakes up and writes: reserved = reserved + 1
+    AppServer->>MySQL: Node B writes: reserved = reserved + 1
+    Note over MySQL: Oversold by 1,400 pairs! Company owes $280,000 in refunds & apology coupons.
+```
+
+### Incident Post-Mortem
+
+- **Root Cause**: The engineering team relied solely on an un-fenced Redis distributed lock with a 5-second TTL to serialize inventory updates. A stop-the-world garbage collection pause exceeded the TTL, releasing the lock while Node A was still in-flight. Node B acquired the lock, resulting in concurrent database writes.
+- **The Architectural Fix**:
+  1. Replaced application-level distributed locks for inventory with an **in-database atomic conditional update**:
+     `UPDATE inventory SET reserved = reserved + :qty WHERE sku = :sku AND (total_stock - reserved) >= :qty;`
+  2. Integrated a Saga compensator: if `RowsAffected == 0`, immediately trigger an automatic Stripe refund activity and record `OrderFailedDueToStockout` in the event store.
+
+---
+
+## 4. Multi-Language Implementation: The Integrated Capstone Engine
+
+Below is the integrated implementation demonstrating:
+1. Idempotency Key Gateway Check.
+2. Distributed Saga Orchestration (Payment -> Inventory -> Confirm).
+3. Reverse Compensating Transactions on Failure.
+4. Event Store Append.
+
+````carousel
+```go
+// capstone_engine.go (Go Implementation)
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+)
+
+type OrderCommand struct {
+	IdempotencyKey string  `json:"idempotency_key"`
+	OrderID        string  `json:"order_id"`
+	SKU            string  `json:"sku"`
+	Quantity       int     `json:"quantity"`
+	Amount         float64 `json:"amount"`
+}
+
+type OrderEvent struct {
+	OrderID   string    `json:"order_id"`
+	Type      string    `json:"type"`
+	Payload   string    `json:"payload"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type CapstoneOrchestrator struct {
+	db *sql.DB
+}
+
+func (co *CapstoneOrchestrator) ProcessOrder(ctx context.Context, cmd OrderCommand) (string, error) {
+	// Step 1: Idempotency Barrier Check
+	var existingResponse string
+	err := co.db.QueryRowContext(ctx, 
+		"SELECT response_body FROM idempotency_keys WHERE key = $1 AND expires_at > NOW()", 
+		cmd.IdempotencyKey).Scan(&existingResponse)
+	if err == nil {
+		return existingResponse, nil // Return cached result
+	}
+
+	// Record initial pending idempotency claim
+	_, err = co.db.ExecContext(ctx, 
+		"INSERT INTO idempotency_keys (key, status, created_at, expires_at) VALUES ($1, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')",
+		cmd.IdempotencyKey)
+	if err != nil {
+		return "", errors.New("concurrent request with same idempotency key in progress")
+	}
+
+	// Step 2: Saga T1 - Charge Payment
+	chargeID, err := co.chargeExternalPayment(cmd.OrderID, cmd.Amount)
+	if err != nil {
+		return "", fmt.Errorf("payment failed: %w", err)
+	}
+	co.appendEvent(ctx, cmd.OrderID, "PaymentCaptured", fmt.Sprintf(`{"charge_id":"%s"}`, chargeID))
+
+	// Step 3: Saga T2 - Atomic Conditional Inventory Reservation (Prevent Oversell)
+	res, err := co.db.ExecContext(ctx,
+		`UPDATE inventory SET reserved = reserved + $1 
+		 WHERE sku = $2 AND (total_stock - reserved) >= $1`,
+		cmd.Quantity, cmd.SKU)
+	if err != nil {
+		co.compensatePayment(chargeID)
+		return "", err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		// Out of stock: Trigger compensating transaction
+		co.compensatePayment(chargeID)
+		co.appendEvent(ctx, cmd.OrderID, "OrderFailedStockout", `{"reason":"insufficient_inventory"}`)
+		return "", errors.New("SKU out of stock, payment refunded")
+	}
+	co.appendEvent(ctx, cmd.OrderID, "InventoryReserved", fmt.Sprintf(`{"sku":"%s","qty":%d}`, cmd.SKU, cmd.Quantity))
+
+	// Step 4: Confirm Order & Commit Idempotency Response
+	co.appendEvent(ctx, cmd.OrderID, "OrderConfirmed", `{"status":"COMPLETED"}`)
+	finalResponse := fmt.Sprintf(`{"status":"CONFIRMED","order_id":"%s","charge_id":"%s"}`, cmd.OrderID, chargeID)
+
+	co.db.ExecContext(ctx, 
+		"UPDATE idempotency_keys SET status = 'COMPLETED', response_body = $1 WHERE key = $2",
+		finalResponse, cmd.IdempotencyKey)
+
+	return finalResponse, nil
+}
+
+func (co *CapstoneOrchestrator) appendEvent(ctx context.Context, orderID, eventType, payload string) {
+	co.db.ExecContext(ctx, 
+		"INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES ($1, $2, $3, NOW())",
+		orderID, eventType, payload)
+}
+
+func (co *CapstoneOrchestrator) chargeExternalPayment(orderID string, amount float64) (string, error) {
+	return fmt.Sprintf("ch_%s", orderID), nil
+}
+
+func (co *CapstoneOrchestrator) compensatePayment(chargeID string) {
+	// Issue refund call to payment gateway
+	fmt.Printf("[COMPENSATION] Refunding charge %s\n", chargeID)
+}
+```
+<!-- slide -->
+```typescript
+// capstoneEngine.ts (Node.js / TypeScript Implementation)
+import { Pool } from 'pg';
+
+export interface OrderCommand {
+  idempotencyKey: string;
+  orderId: string;
+  sku: string;
+  quantity: number;
+  amount: number;
+}
+
+export class CapstoneOrchestrator {
+  constructor(private pool: Pool) {}
+
+  async processOrder(cmd: OrderCommand): Promise<string> {
+    const client = await this.pool.connect();
+    try {
+      // 1. Idempotency Gate
+      const existing = await client.query(
+        'SELECT response_body FROM idempotency_keys WHERE key = $1 AND expires_at > NOW()',
+        [cmd.idempotencyKey]
+      );
+      if (existing.rows.length > 0 && existing.rows[0].response_body) {
+        return existing.rows[0].response_body;
+      }
+
+      await client.query(
+        "INSERT INTO idempotency_keys (key, status, created_at, expires_at) VALUES ($1, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')",
+        [cmd.idempotencyKey]
+      );
+
+      // 2. Saga Step 1: Charge
+      const chargeId = `ch_${cmd.orderId}_pg`;
+      await this.appendEvent(client, cmd.orderId, 'PaymentCaptured', { chargeId });
+
+      // 3. Saga Step 2: Atomic Inventory Reservation
+      const updateResult = await client.query(
+        `UPDATE inventory 
+         SET reserved = reserved + $1 
+         WHERE sku = $2 AND (total_stock - reserved) >= $1`,
+        [cmd.quantity, cmd.sku]
+      );
+
+      if ((updateResult.rowCount ?? 0) === 0) {
+        // Compensating Transaction (Refund)
+        await this.compensateRefund(chargeId);
+        await this.appendEvent(client, cmd.orderId, 'OrderCancelled', { reason: 'stockout' });
+        throw new Error('ERR_STOCKOUT: Inventory exhausted, payment refunded.');
+      }
+
+      await this.appendEvent(client, cmd.orderId, 'InventoryReserved', { sku: cmd.sku, qty: cmd.quantity });
+      await this.appendEvent(client, cmd.orderId, 'OrderConfirmed', { status: 'CONFIRMED' });
+
+      const responsePayload = JSON.stringify({
+        status: 'CONFIRMED',
+        orderId: cmd.orderId,
+        chargeId,
+      });
+
+      await client.query(
+        "UPDATE idempotency_keys SET status = 'COMPLETED', response_body = $1 WHERE key = $2",
+        [responsePayload, cmd.idempotencyKey]
+      );
+
+      return responsePayload;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async appendEvent(client: any, orderId: string, type: string, payload: any) {
+    await client.query(
+      'INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES ($1, $2, $3, NOW())',
+      [orderId, type, JSON.stringify(payload)]
+    );
+  }
+
+  private async compensateRefund(chargeId: string) {
+    console.log(`[COMPENSATE] Issued full refund for ${chargeId}`);
+  }
+}
+```
+<!-- slide -->
+```python
+# capstone_engine.py (Python Implementation)
+import json
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+class CapstoneOrchestrator:
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+
+    def process_order(self, cmd: dict) -> dict:
+        with psycopg2.connect(self.dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. Idempotency Key Gateway Check
+                cur.execute(
+                    "SELECT response_body FROM idempotency_keys WHERE key = %s AND expires_at > NOW()",
+                    (cmd["idempotency_key"],)
+                )
+                row = cur.fetchone()
+                if row and row["response_body"]:
+                    return json.loads(row["response_body"])
+
+                cur.execute(
+                    "INSERT INTO idempotency_keys (key, status, created_at, expires_at) "
+                    "VALUES (%s, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')",
+                    (cmd["idempotency_key"],)
+                )
+
+                # 2. Saga Step 1: Charge
+                charge_id = f"ch_{cmd['order_id']}"
+                self._append_event(cur, cmd["order_id"], "PaymentCaptured", {"charge_id": charge_id})
+
+                # 3. Saga Step 2: Atomic Inventory Write
+                cur.execute(
+                    """
+                    UPDATE inventory 
+                    SET reserved = reserved + %s 
+                    WHERE sku = %s AND (total_stock - reserved) >= %s
+                    """,
+                    (cmd["quantity"], cmd["sku"], cmd["quantity"])
+                )
+                if cur.rowcount == 0:
+                    # Stockout detected: Compensating Transaction
+                    self._compensate_refund(charge_id)
+                    self._append_event(cur, cmd["order_id"], "OrderCancelled", {"reason": "stockout"})
+                    conn.commit()
+                    raise ValueError("SKU out of stock. Payment has been refunded.")
+
+                self._append_event(cur, cmd["order_id"], "InventoryReserved", {"sku": cmd["sku"], "qty": cmd["quantity"]})
+                self._append_event(cur, cmd["order_id"], "OrderConfirmed", {"status": "CONFIRMED"})
+
+                result = {
+                    "status": "CONFIRMED",
+                    "order_id": cmd["order_id"],
+                    "charge_id": charge_id
+                }
+
+                cur.execute(
+                    "UPDATE idempotency_keys SET status = 'COMPLETED', response_body = %s WHERE key = %s",
+                    (json.dumps(result), cmd["idempotency_key"])
+                )
+                conn.commit()
+                return result
+
+    def _append_event(self, cur, order_id: str, event_type: str, payload: dict):
+        cur.execute(
+            "INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES (%s, %s, %s, NOW())",
+            (order_id, event_type, json.dumps(payload))
+        )
+
+    def _compensate_refund(self, charge_id: str):
+        print(f"[COMPENSATION] Executing refund for {charge_id}")
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Simulate duplicate idempotency requests, atomic conditional updates under concurrent contention, and failure compensation triggering.
+
+### Step 1: Initialize Capstone Schema
+
+```bash
+psql -U postgres -d order_capstone -c "
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key VARCHAR(64) PRIMARY KEY,
+    status VARCHAR(20) NOT NULL,
+    response_body TEXT,
+    created_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory (
+    sku VARCHAR(32) PRIMARY KEY,
+    total_stock INT NOT NULL,
+    reserved INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS event_store (
+    id SERIAL PRIMARY KEY,
+    order_id VARCHAR(64) NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+INSERT INTO inventory (sku, total_stock, reserved) VALUES ('LAPTOP-X1', 1, 0)
+ON CONFLICT (sku) DO UPDATE SET total_stock = 1, reserved = 0;
+"
+```
+
+### Step 2: Dispatch Order 1 (Happy Path)
+
+```bash
+curl.exe -i -X POST http://localhost:8000/orders \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: idem_key_alpha_01" \
+  -d '{"order_id":"ord_101","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "status": "CONFIRMED",
+  "order_id": "ord_101",
+  "charge_id": "ch_ord_101"
+}
+```
+
+### Step 3: Verify Deduplication on Retried Request
+
+Resend identical request with the same `Idempotency-Key`:
+
+```bash
+curl.exe -i -X POST http://localhost:8000/orders \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: idem_key_alpha_01" \
+  -d '{"order_id":"ord_101","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+X-Cache: Idempotency-Hit
+
+{
+  "status": "CONFIRMED",
+  "order_id": "ord_101",
+  "charge_id": "ch_ord_101"
+}
+```
+
+### Step 4: Dispatch Competing Order (Simulating Contended Stockout)
+
+Order 2 attempts to claim the same single unit:
+
+```bash
+curl.exe -i -X POST http://localhost:8000/orders \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: idem_key_beta_02" \
+  -d '{"order_id":"ord_102","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
+```
+
+```http
+HTTP/1.1 409 Conflict
+Content-Type: application/json
+
+{
+  "error": "SKU out of stock. Payment has been refunded.",
+  "order_id": "ord_102",
+  "compensation": "REFUNDED"
+}
+```
+
+### Step 5: Audit Event Sourcing Trail
+
+```bash
+psql -U postgres -d order_capstone -c "SELECT id, order_id, event_type, payload FROM event_store ORDER BY id ASC;"
+```
+
+```text
+ id | order_id |      event_type       |                  payload                  
+----+----------+-----------------------+-------------------------------------------
+  1 | ord_101  | PaymentCaptured       | {"charge_id": "ch_ord_101"}
+  2 | ord_101  | InventoryReserved     | {"qty": 1, "sku": "LAPTOP-X1"}
+  3 | ord_101  | OrderConfirmed        | {"status": "CONFIRMED"}
+  4 | ord_102  | PaymentCaptured       | {"charge_id": "ch_ord_102"}
+  5 | ord_102  | OrderFailedStockout   | {"reason": "insufficient_inventory"}
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Where the patterns connect — read only after you've sketched your own design</summary>
+<summary><strong>Checkpoint 1: Why must the idempotency record be saved before external payment calls are made?</strong></summary>
 
-- **The idempotency key wraps the whole saga, not each step.** The client's
-  `Idempotency-Key` dedupes the *order submission* (one saga per key); *inside* the
-  saga, each step also needs its own idempotency (keyed on `saga_id`/`order_id`) so the
-  orchestrator's retries don't double-charge. Two layers: one at the door (per
-  submission), one per step. Store the first submission's response against the key and
-  return it verbatim on retry; bind the key to a request hash to catch the
-  different-body bug. (Module 01.)
-
-- **Make the event log the source of truth and derive everything else.** Resist a
-  mutable `orders.status` column as the truth. Append events (`OrderPlaced`,
-  `PaymentCaptured`, …); derive current status by folding. The saga's "state" and the
-  `order_summary` read model are *both* projections of the log — which is what makes
-  "rebuild from scratch" and "resume after crash" fall out naturally. The saga
-  orchestrator advancing = validating the command against folded state, then appending
-  the next event. (Modules 04, 06.)
-
-- **Order the irreversible step last and prefer authorize-then-capture.** Payment is
-  the step you least want to unwind. Either place it so a failure rarely has to refund,
-  or *authorize* (hold) the card and only *capture* on final confirm, so a failed saga
-  *voids the hold* and the customer never sees a real charge — turning an irreversible
-  action into a reversible one, exactly like reserving inventory instead of
-  decrementing. (Module 04.)
-
-- **The oversell guard is a conditional write, not just a lock.** A lock reduces
-  contention but can expire under a pause; the *correctness* guarantee is an atomic
-  `UPDATE inventory SET reserved = reserved + 1 WHERE sku = :s AND reserved < stock`
-  (or a fenced write) that the resource itself enforces — so even if two orders race or
-  a lock lapses, only one reservation can win. Lock for efficiency, conditional write
-  for correctness. (Module 02.)
-
-- **Read-your-writes hides the projection lag for one user.** After the command
-  commits, serve *that customer's* just-placed order from the write-side folded state
-  (or return it in the command response), while everyone else reads the lagging
-  `order_summary` projection. Don't force all reads to be strongly consistent — choose
-  per read. (Module 05 and [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md).)
-
-- **Persist saga position so a crash resumes, not restarts blindly.** Keep a
-  `saga_state`/event marker of which steps completed. On restart, fold the events to
-  see where you are and continue; because every step is idempotent, even a naive
-  "re-run from the top" converges without double effects. The crash must never leave a
-  charged-but-unconfirmed order with no path forward. (Modules 04, 06.)
-
-- **Prove failures, don't assert them.** For each acceptance item, write a small script
-  that *forces* the failure (duplicate key, inventory-fails injection, kill mid-saga,
-  two concurrent last-unit orders) and checks the invariant held. The whole track's
-  thesis is that these conditions are the *default*, so testing only the happy path
-  proves nothing.
-
-- **If you get stuck on coordination** (e.g. "which instance runs the saga
-  orchestrator?"), that's module 07: a Postgres advisory lock for a singleton
-  orchestrator is the smallest correct tool — don't build anything fancier, and don't
-  hand-roll consensus.
-
+**System Dynamic:**
+If a network partition or client timeout causes the client to retry while the first payment request is in-flight with Stripe, two concurrent worker threads could execute simultaneously. If the idempotency key is only stored *after* the payment succeeds, both threads will charge the credit card twice. Inserting a `PROCESSING` status row inside the database transaction first creates an exclusive mutual-exclusion lock on the key.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 2: Why is in-database atomic conditional update superior to a Redis distributed lock for inventory reservation?</strong></summary>
 
-- [Microservices Patterns (Chris Richardson) / microservices.io](https://microservices.io/patterns/index.html) - the pattern language (saga, outbox, CQRS) this capstone integrates into one system.
-- [Saga pattern (microservices.io)](https://microservices.io/patterns/data/saga.html) - the multi-step order transaction with compensations at the capstone's core.
-- [Transactional outbox pattern (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html) - reliably emitting the events the saga and the projection both depend on.
-- [Event Sourcing pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing) - the order-lifecycle event log used as the system's source of truth.
-- [CQRS pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) - the `order_summary` read model served to customers, rebuildable from the log.
-- [Stripe API: Idempotent Requests](https://docs.stripe.com/api/idempotent_requests) - the `Idempotency-Key` design guarding the order endpoint against duplicate submissions.
+**Failure Analysis:**
+Distributed locks rely on expiring leases (TTLs). If the worker process experiences a GC pause, event loop starvation, or database connection pool delay exceeding the lock TTL, the lock silently lapses. A second worker acquires the lock, and both write to the database concurrently, causing overselling. An in-database conditional update (`WHERE (total - reserved) >= requested`) leverages the database engine's internal row-level locks, guaranteeing linearizability regardless of application process pauses.
+</details>
 
-## Next
+<details>
+<summary><strong>Checkpoint 3: What guarantees that the CQRS read model eventually catches up with the event store?</strong></summary>
 
-You've reached the end of **track 10 — distributed systems patterns**. Look back at
-what the capstone forced together: an idempotency key at the door, a saga coordinating
-independent local transactions with compensations, an event log as the source of
-truth, CQRS projections for fast reads, a conditional write to prevent oversell, and
-crash-resumable saga state — every one of them a specific answer to a failure that
-distributed systems make routine. The meta-skill you should carry out of this track is
-not any single pattern but the *judgment*: recognizing which failure a situation
-exposes, reaching for the smallest pattern that closes it, and knowing the cost of each
-(the inconsistent window a saga accepts, the complexity CQRS and event sourcing add,
-the coordination you should buy rather than build). That judgment — matching the
-pattern to the pressure, and resisting the reflex to over-engineer — is what separates
-engineers who *know* these patterns from those who can *wield* them.
-
-From here, revisit the [track index](../README.md) to review any module, and carry
-these patterns into the systems you design next — you'll now recognize the saga hiding
-in every multi-step workflow, the idempotency key missing from every retry, and the
-consensus problem lurking behind every "just have one of them do it."
+**Architectural Guarantee:**
+Event projections consume the event log via an offset pointer (e.g., PostgreSQL replication slot, Kafka consumer offset, or monotonic auto-incrementing `id`). Because events are append-only and strictly ordered, a projection worker that crashes simply resumes reading from its last committed checkpoint offset. Even if the projection table is dropped or corrupted, it can be re-materialized from scratch by replaying the entire immutable event history from offset 0.
+</details>

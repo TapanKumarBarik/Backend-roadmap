@@ -1,394 +1,394 @@
-# Module 01: ACID and the CAP Theorem
+# ACID Guarantees & The CAP Theorem: Transactional Invariants
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** **ACID** governs transactional integrity on a single database engine; the **CAP Theorem** governs trade-offs when data is distributed across multiple network nodes. Never conflate the **ACID "C"** (preserving schema invariants, foreign keys, and business constraints) with the **CAP "C"** (linearizability—every read seeing the latest write across distributed replicas).
 
-In module 00 you kept saying the relational database "guarantees integrity."
-This module makes that word precise. **ACID** is the set of four guarantees a
-transactional database makes, and every one of them exists because a specific,
-nasty class of bug happens when it's absent. If you can't state what each
-letter means *and* describe the exact corruption you get when it breaks, you
-don't actually understand why you're using a transaction — you're just wrapping
-things in `BEGIN`/`COMMIT` as a ritual.
+---
 
-The second half is a short look ahead. Once your data lives on more than one
-machine (a read replica in module 08, or a distributed database), a different
-set of promises applies, described by the **CAP theorem**. ACID is about a
-single node keeping its promises; CAP is about which promises are even
-*possible* once there are several nodes. This module only places CAP next to
-ACID; the full treatment lives in the System Design lessons linked below.
+## 1. Visual Mental Model: The ACID Framework & Distributed CAP Trade-off
 
-## Concepts
+Every transactional database guarantees four distinct properties to prevent data corruption under concurrent load or server crashes.
 
-### A — Atomicity: all or nothing
+```mermaid
+flowchart TD
+    subgraph ACID ["ACID Transaction Engine (Single Engine Guarantee)"]
+        A["Atomicity\n(All-or-Nothing)\nWAL Undo Logging"]
+        C["Consistency\n(Valid State Invariants)\nConstraints, Foreign Keys, CHECKs"]
+        I["Isolation\n(Concurrent Independence)\nMVCC & Row Locks"]
+        D["Durability\n(Committed Data Survives)\nWrite-Ahead Log (WAL) + fsync()"]
+    end
 
-A **transaction** is a group of statements that must succeed or fail as a unit.
-**Atomicity** guarantees that if any statement in the group fails (or the
-connection dies mid-way, or the server crashes), *none* of the group's changes
-are applied — the database rolls back to exactly where it was before `BEGIN`.
-There is no "half-done."
+    subgraph CAP ["CAP Theorem (Distributed Multi-Node Guarantee)"]
+        P["Network Partition (P)\n(Network cables cut / packet drops)"]
+        P --> Choice{"Network Partition Inevitable:\nChoose ONE"}
+        Choice -- "Consistency (CP)" --> CP["CP (e.g., Spanner, CockroachDB, Raft)\n• Reject stale reads\n• Block until consensus confirmed\n• Decreased availability during partitions"]
+        Choice -- "Availability (AP)" --> AP["AP (e.g., Cassandra, DynamoDB)\n• Accept writes on local node\n• Return stale reads if necessary\n• Eventual consistency"]
+    end
 
-The canonical example is a money transfer: debit account A, credit account B.
+    classDef acid fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef cap fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef check fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
 
-```sql
-BEGIN;
-UPDATE accounts SET balance = balance - 100 WHERE id = 'A';
-UPDATE accounts SET balance = balance + 100 WHERE id = 'B';
-COMMIT;
+    class A,C,I,D acid;
+    class CP,AP,P cap;
+    class Choice check;
 ```
 
-**What breaks without it:** imagine the server crashes between the two
-`UPDATE`s. Without atomicity, A has lost 100 and B never received it — money
-has evaporated. With atomicity, the crash means the transaction never committed,
-so *both* updates are discarded and the transfer simply didn't happen. You
-retry the whole thing. Money is conserved. The guarantee is not "it always
-succeeds" — it's "it never partially succeeds."
+---
 
-### C — Consistency: the database never violates its own rules
+## 2. Technical Comparison: ACID "C" vs CAP "C" vs BASE
 
-**Consistency** (the ACID "C", which is *not* the same "C" as in CAP — a
-notorious source of confusion) means a transaction moves the database from one
-valid state to another *valid* state, where "valid" is defined by the
-constraints you declared: types, `NOT NULL`, `UNIQUE`, foreign keys, `CHECK`s.
-If a transaction would leave the database violating any of these, the whole
-transaction is rejected.
+A major source of confusion in system design interviews is the meaning of "Consistency":
 
-```sql
-BEGIN;
-UPDATE accounts SET balance = balance - 100 WHERE id = 'A';  -- A only has 50
--- suppose there is: CHECK (balance >= 0)
--- this UPDATE violates the check → the statement errors
-COMMIT;  -- ...and because the statement failed, the transaction rolls back
+| Property | Paradigm | Exact Technical Meaning | Failure Consequence |
+| :--- | :--- | :--- | :--- |
+| **ACID "C"** (Consistency) | Single-Node RDBMS | Schema constraints, `NOT NULL`, foreign keys, and `CHECK` rules are strictly upheld | A transaction attempting to create an orphaned order without a valid customer is rolled back |
+| **CAP "C"** (Linearizability) | Distributed Systems | Every read operation receives the most recent write or an error | Node B returns stale data written to Node A 5ms ago because replication hasn't arrived |
+| **BASE** (Eventual) | Distributed NoSQL | **B**asically **A**vailable, **S**oft state, **E**ventual consistency | High availability prioritized; temporary read inconsistencies tolerated across replicas |
+| **PACELC Theorem** | Advanced Distributed | If **P**artition: choose **A**vailability or **C**onsistency; **E**lse: choose **L**atency or **C**onsistency | Dictates whether normal unpartitioned state trades read latency for synchronous replication |
+
+---
+
+## 3. Production War Story: The Phantom Overdraft & Missing Isolation Outage
+
+### The Incident
+A fintech app managed digital wallet balances for 1.2 million users. The transfer service allowed users to transfer money between their wallet and bank account.
+
+The backend implemented the transfer as two sequential SQL queries:
+1. `SELECT balance FROM accounts WHERE user_id = 'usr_42';` (Application checks if `balance >= 100`)
+2. `UPDATE accounts SET balance = balance - 100 WHERE user_id = 'usr_42';`
+
+An attacker automated concurrent requests using a bash script that fired 20 simultaneous withdrawal requests within a 3-millisecond window. Because the application executed the `SELECT` statements before any `UPDATE` committed—and ran at the default `READ COMMITTED` isolation level without row locks—all 20 threads read a starting balance of \$100.
+
+All 20 threads passed the application-level balance check and executed their updates. The user successfully withdrew \$2,000 from an account that only contained \$100, leaving the account with an unauthorized negative balance of -\$1,900.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Attacker Script
+    participant T1 as Worker Thread 1
+    participant T2 as Worker Thread 2
+    participant DB as PostgreSQL Database
+
+    Note over DB: Starting Balance for User 42 = $100
+    User->>T1: POST /withdraw { amount: 100 }
+    User->>T2: POST /withdraw { amount: 100 } (Concurrent)
+
+    T1->>DB: SELECT balance FROM accounts WHERE id = 42; -> $100
+    T2->>DB: SELECT balance FROM accounts WHERE id = 42; -> $100
+    Note over T1,T2: Both threads verify: 100 >= 100 -> Check Passed!
+
+    T1->>DB: UPDATE accounts SET balance = 100 - 100 WHERE id = 42; (Balance = $0)
+    T2->>DB: UPDATE accounts SET balance = 0 - 100 WHERE id = 42; (Balance = -$100!)
+    Note over DB: User withdrew $200 from a $100 account!
 ```
 
-**What breaks without it:** account A goes to -50, violating a rule your
-business depends on. Consistency ties atomicity to your *declared invariants*:
-the DB won't let a transaction commit a state that breaks the constraints. Note
-the division of labour — the database enforces the constraints you *declared*;
-it can't enforce a business rule you never told it about. Consistency is only
-as strong as your schema.
+### The Root Cause
+1. **Time-Of-Check to Time-Of-Use (TOCTOU) Race Condition:** The state verified in step 1 was invalidated before step 2 executed.
+2. **Missing Transactional Row Lock:** The query read the balance without acquiring an exclusive write lock (`FOR UPDATE`), allowing concurrent transactions to interleave read operations.
 
-### I — Isolation: concurrent transactions don't corrupt each other
+### The Verified Fix
+- **Pessimistic Locking (`SELECT ... FOR UPDATE`):** Lock the specific account row within an atomic transaction. Concurrent transactions trying to read the same account will block until the first transaction commits or rolls back.
+- **Atomic Balance Decrement with Database Constraints:**
+  `UPDATE accounts SET balance = balance - 100 WHERE id = 42 AND balance >= 100;`
+  Paired with a database check constraint: `ALTER TABLE accounts ADD CONSTRAINT positive_balance CHECK (balance >= 0);`
 
-**Isolation** governs what concurrent transactions can see of each other's
-in-progress work. The ideal (called *serializable*) is that transactions
-running at the same time produce the same result as if they'd run one after
-another in *some* order — as though there were no concurrency at all. Real
-databases offer weaker levels too, trading isolation for performance, and each
-weaker level permits specific anomalies.
+---
 
-**What breaks without it — the lost update:**
+## 4. Multi-Language Production Implementation
 
-```sql
--- Two requests both do "add an item to the cart total", concurrently:
--- T1 reads total = 100
--- T2 reads total = 100
--- T1 writes total = 100 + 20 = 120
--- T2 writes total = 100 + 5  = 105   ← T1's +20 is silently gone
+### Go: Atomic Money Transfer with Row Locking (`FOR UPDATE`)
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+var (
+	ErrInsufficientFunds = errors.New("insufficient funds for transfer")
+	ErrAccountNotFound   = errors.New("one or both accounts not found")
+)
+
+type AccountService struct {
+	db *sql.DB
+}
+
+// TransferFunds demonstrates ACID Atomicity and Isolation via SELECT FOR UPDATE
+func (s *AccountService) TransferFunds(ctx context.Context, fromID, toID int64, amountCents int64) error {
+	if amountCents <= 0 {
+		return errors.New("transfer amount must be strictly positive")
+	}
+
+	// 1. Begin Atomic Transaction
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // Safe rollback if commit is not reached
+
+	// Deterministic Lock Ordering: Prevent Deadlocks by ordering IDs
+	firstLockID, secondLockID := fromID, toID
+	if fromID > toID {
+		firstLockID, secondLockID = toID, fromID
+	}
+
+	// 2. Acquire Exclusive Row Locks (Isolation guarantee)
+	lockQuery := `SELECT id, balance_cents FROM accounts WHERE id IN ($1, $2) FOR UPDATE`
+	rows, err := tx.QueryContext(ctx, lockQuery, firstLockID, secondLockID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	balances := make(map[int64]int64)
+	for rows.Next() {
+		var id, bal int64
+		if err := rows.Scan(&id, &bal); err != nil {
+			return err
+		}
+		balances[id] = bal
+	}
+
+	if len(balances) != 2 {
+		return ErrAccountNotFound
+	}
+
+	// 3. Verify Business Invariants (ACID Consistency)
+	if balances[fromID] < amountCents {
+		return ErrInsufficientFunds
+	}
+
+	// 4. Execute atomic balance mutation
+	debitQuery := `UPDATE accounts SET balance_cents = balance_cents - $1 WHERE id = $2`
+	if _, err := tx.ExecContext(ctx, debitQuery, amountCents, fromID); err != nil {
+		return err
+	}
+
+	creditQuery := `UPDATE accounts SET balance_cents = balance_cents + $1 WHERE id = $2`
+	if _, err := tx.ExecContext(ctx, creditQuery, amountCents, toID); err != nil {
+		return err
+	}
+
+	// 5. Commit Transaction (Durability guarantee via WAL flush)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("transaction commit failed: %w", err)
+	}
+
+	slog.Info("Transfer committed successfully", "from", fromID, "to", toID, "amount", amountCents)
+	return nil
+}
 ```
 
-Both read the same starting value and one overwrites the other. That's a **lost
-update**, and it's just one of a family of concurrency anomalies (dirty reads,
-non-repeatable reads, phantoms) that isolation levels are defined to prevent.
-Isolation is subtle and central enough that module 04 is devoted entirely to
-it — for now, know that "I" is the letter that makes concurrency safe, and that
-you *choose* how strong it is.
+---
 
-### D — Durability: once committed, it survives a crash
+### Node.js (TypeScript): Safe Transaction Wrapper with Rollback Protection
 
-**Durability** guarantees that once `COMMIT` returns success, the change is
-permanent — it will survive a process crash, an OS crash, or a power loss the
-millisecond after. Databases achieve this with a **write-ahead log (WAL)**:
-before changes are applied to the main data files, they're first appended to an
-on-disk log and flushed (`fsync`) to durable storage. If the server dies, on
-restart it replays the WAL to recover every committed transaction.
+```typescript
+import { Pool, PoolClient } from 'pg';
 
-**What breaks without it:** a user sees "order placed," the server crashes a
-moment later, and on restart the order is gone — but you already charged their
-card and emailed a confirmation. Durability is the guarantee that "the database
-said yes" and "it's really saved" are the same thing. Beware the common
-foot-gun: durability can be *silently weakened*. If you run Postgres with
-`synchronous_commit = off`, `COMMIT` returns before the WAL is flushed — faster,
-but a crash can lose the last fraction of a second of "committed" transactions.
-That's a real, deliberate trade some systems make; just know when you've made
-it.
+export class BankingService {
+  constructor(private pool: Pool) {}
 
-Each guarantee earns its keep by the exact corruption it prevents:
+  async transfer(fromAccountId: number, toAccountId: number, amountCents: number): Promise<void> {
+    if (amountCents <= 0) throw new Error('Invalid transfer amount');
 
+    const client: PoolClient = await this.pool.connect();
+
+    try {
+      // 1. Begin Transaction
+      await client.query('BEGIN');
+
+      // 2. Lock Sender Account with FOR UPDATE
+      const senderRes = await client.query(
+        'SELECT balance_cents FROM accounts WHERE id = $1 FOR UPDATE',
+        [fromAccountId]
+      );
+
+      if (senderRes.rows.length === 0) throw new Error('Sender account not found');
+      const senderBalance = senderRes.rows[0].balance_cents;
+
+      // 3. Enforce Invariant Check
+      if (senderBalance < amountCents) {
+        throw new Error('INSUFFICIENT_FUNDS');
+      }
+
+      // 4. Lock Receiver Account
+      const receiverRes = await client.query(
+        'SELECT id FROM accounts WHERE id = $1 FOR UPDATE',
+        [toAccountId]
+      );
+      if (receiverRes.rows.length === 0) throw new Error('Receiver account not found');
+
+      // 5. Apply Updates
+      await client.query(
+        'UPDATE accounts SET balance_cents = balance_cents - $1 WHERE id = $2',
+        [amountCents, fromAccountId]
+      );
+      await client.query(
+        'UPDATE accounts SET balance_cents = balance_cents + $1 WHERE id = $2',
+        [amountCents, toAccountId]
+      );
+
+      // 6. Commit
+      await client.query('COMMIT');
+    } catch (error) {
+      // Automatic Rollback on any failure (Atomicity guarantee)
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      // Always return connection to the pool
+      client.release();
+    }
+  }
+}
 ```
-  Guarantee      Prevents (what breaks without it)
-  ---------------------------------------------------------
-  Atomicity   →  half-done txn: A debited, B never credited
-  Consistency →  invalid state committed: balance goes to -50
-  Isolation   →  concurrent corruption: lost update (+5 vanishes)
-  Durability  →  "saved" then gone: crash eats an acked commit
-```
 
-### Beyond one node: where CAP fits
+---
 
-ACID describes one database. Once the same data is copied to several nodes,
-the **CAP theorem** applies: *when the network between the nodes breaks, the
-system must either refuse requests (stay consistent) or answer with possibly
-stale data (stay available).* "Pick two of three" is a myth, because network
-partitions are not optional. Watch the two meanings of "consistency": ACID's C
-is "this database honours its declared constraints"; CAP's C is
-**linearizability**, "every read on every node sees the latest write". A
-single-node database is ACID-consistent with no replicas at all, and a read
-replica can serve a row that is perfectly valid and still stale. That staleness
-(replication lag, and the read-your-writes bugs it causes) is what you meet in
-module 08.
-
-The distributed side is taught in its own lessons, each with a video:
-[CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md) (what it really says, CP vs AP),
-[PACELC Theorem](../../../system-design/01-core-fundamentals/14-pacelc-theorem/README.md) (the latency-vs-consistency trade-off when nothing is
-broken) and [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md) (strong, causal, eventual and
-read-your-writes).
-
-## Command reference
-
-| Concept | SQL / setting | Meaning |
-|---|---|---|
-| Start a transaction | `BEGIN;` (or `START TRANSACTION;`) | Open an atomic unit |
-| Commit | `COMMIT;` | Make all changes durable and visible |
-| Roll back | `ROLLBACK;` | Discard all changes since `BEGIN` |
-| Partial rollback | `SAVEPOINT sp; ... ROLLBACK TO sp;` | Undo part of a transaction |
-| Enforce a value invariant | `CHECK (balance >= 0)` | The "C" (consistency) rules the DB enforces |
-| Durability tuning | `SET synchronous_commit = off;` | Trade durability for speed (per session) |
-| Inspect WAL activity | `SELECT pg_current_wal_lsn();` | Current write-ahead-log position |
-| See open transactions | `SELECT * FROM pg_stat_activity WHERE state <> 'idle';` | Diagnose long-running/stuck transactions |
-
-Atomicity in application code with SQLAlchemy (module 05 goes deep; shown here
-so the ACID concept has a Python face):
+### Python: FastAPI Async Transaction with Context Manager & Rollback
 
 ```python
-from sqlalchemy import create_engine, text
+import asyncpg
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
 
-engine = create_engine("postgresql+psycopg://postgres:devpass@localhost:5432/shop")
+app = FastAPI(title="ACID Transaction Engine")
+db_pool: asyncpg.Pool = None
 
-# The context manager makes the transaction atomic: it COMMITs on clean exit,
-# and ROLLBACKs automatically if the block raises — all-or-nothing.
-def transfer(src: str, dst: str, cents: int) -> None:
-    with engine.begin() as conn:                       # BEGIN
-        conn.execute(text("UPDATE accounts SET balance = balance - :c WHERE id = :a"),
-                     {"c": cents, "a": src})
-        conn.execute(text("UPDATE accounts SET balance = balance + :c WHERE id = :b"),
-                     {"c": cents, "b": dst})
-    # if the block raised anywhere above, neither UPDATE persists (atomicity)
-    # if it exited cleanly, both are committed together and durable
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    db_pool = await asyncpg.create_pool("postgresql://postgres:pass@localhost:5432/bank_db")
+
+class TransferRequest(BaseModel):
+    from_account: int
+    to_account: int
+    amount_cents: int = Field(..., gt=0)
+
+@app.post("/v1/transfers")
+async def execute_transfer(req: TransferRequest):
+    async with db_pool.acquire() as conn:
+        # asyncpg conn.transaction() automatically issues BEGIN, COMMIT, or ROLLBACK on exception
+        async with conn.transaction():
+            # 1. Pessimistic Row Lock on sender
+            sender_row = await conn.fetchrow(
+                "SELECT balance_cents FROM accounts WHERE id = $1 FOR UPDATE",
+                req.from_account
+            )
+            if not sender_row:
+                raise HTTPException(status_code=404, detail="Sender account not found")
+
+            if sender_row["balance_cents"] < req.amount_cents:
+                raise HTTPException(status_code=400, detail="Insufficient funds")
+
+            # 2. Lock receiver
+            receiver_exists = await conn.fetchval(
+                "SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE",
+                req.to_account
+            )
+            if not receiver_exists:
+                raise HTTPException(status_code=404, detail="Receiver account not found")
+
+            # 3. Debit and Credit
+            await conn.execute(
+                "UPDATE accounts SET balance_cents = balance_cents - $1 WHERE id = $2",
+                req.amount_cents, req.from_account
+            )
+            await conn.execute(
+                "UPDATE accounts SET balance_cents = balance_cents + $1 WHERE id = $2",
+                req.amount_cents, req.to_account
+            )
+
+    return {"status": "success", "transferred_cents": req.amount_cents}
 ```
 
-## Hands-on exercises
+---
 
-Reuse the `pg-data` container from module 00 (or start it again). All exercises
-run in `psql` unless noted; several need **two** psql sessions to demonstrate
-concurrency — open a second terminal and run `docker exec -it pg-data psql -U
-postgres -d shop` again.
+## 5. Practical Hands-On Verification Matrix
 
-### 1. Set up an accounts table with a real invariant
-
-```sql
-CREATE TABLE accounts (
-    id      TEXT PRIMARY KEY,
-    balance INTEGER NOT NULL CHECK (balance >= 0)
-);
-INSERT INTO accounts VALUES ('A', 100), ('B', 0);
-```
-
-Expected: two accounts, and a check constraint that will *prove* the "C" in
-ACID later.
-
-### 2. Atomicity: prove a failed transaction leaves no trace
-
-```sql
-BEGIN;
-UPDATE accounts SET balance = balance - 30 WHERE id = 'A';
-SELECT balance FROM accounts WHERE id = 'A';   -- shows 70 inside the txn
-ROLLBACK;
-SELECT balance FROM accounts WHERE id = 'A';   -- back to 100
-```
-
-Expected: inside the transaction A is 70; after `ROLLBACK` it's 100 again. The
-change was real *to you* mid-transaction but vanished entirely on rollback —
-all-or-nothing.
-
-### 3. Consistency: the constraint rejects an invalid transfer
-
-```sql
-BEGIN;
-UPDATE accounts SET balance = balance - 500 WHERE id = 'A';  -- A has only 100
-COMMIT;
-```
-
-Expected: the `UPDATE` errors with `violates check constraint`, the transaction
-is aborted, and `SELECT balance FROM accounts WHERE id='A';` still shows 100.
-The database refused to enter an invalid state.
-
-### 4. A correct, complete transfer
-
-```sql
-BEGIN;
-UPDATE accounts SET balance = balance - 40 WHERE id = 'A';
-UPDATE accounts SET balance = balance + 40 WHERE id = 'B';
-COMMIT;
-SELECT * FROM accounts;
-```
-
-Expected: A=60, B=40, total conserved at 100. Both updates applied together.
-
-### 5. Isolation: reproduce a lost update
-
-In **session 1**:
-
-```sql
-BEGIN;
-SELECT balance FROM accounts WHERE id = 'B';   -- reads 40
-```
-
-In **session 2** (while session 1 is still open):
-
-```sql
-BEGIN;
-SELECT balance FROM accounts WHERE id = 'B';   -- also reads 40
-UPDATE accounts SET balance = 40 + 5 WHERE id = 'B';
-COMMIT;                                          -- B is now 45
-```
-
-Back in **session 1**:
-
-```sql
-UPDATE accounts SET balance = 40 + 20 WHERE id = 'B';  -- based on its stale read of 40
-COMMIT;                                                  -- B is now 60
-SELECT balance FROM accounts WHERE id = 'B';
-```
-
-Expected: B ends at 60, and session 2's +5 has been silently lost — the +5 and
-+20 should have summed to 65. This is the lost update anomaly caused by
-computing the new value in the application from a stale read. Module 04 shows
-the correct fixes (atomic `balance = balance + 20`, or `SELECT ... FOR UPDATE`,
-or a higher isolation level). For now, just *see* the corruption.
-
-### 6. Durability: commit, kill, recover
-
-```sql
-BEGIN;
-INSERT INTO accounts VALUES ('C', 999);
-COMMIT;                          -- returns success
-```
-
-Now hard-kill and restart the container to simulate a crash:
-
+### Step 1: Execute Valid Transfer Transaction
 ```bash
-docker kill pg-data && docker start pg-data
+curl.exe -i -X POST http://localhost:8000/v1/transfers \
+  -H "Content-Type: application/json" \
+  -d '{"from_account": 1, "to_account": 2, "amount_cents": 5000}'
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"status":"success","transferred_cents":5000}
 ```
 
-Reconnect and check:
-
+### Step 2: Trigger Insufficient Funds Rollback
 ```bash
-docker exec -it pg-data psql -U postgres -d shop -c "SELECT * FROM accounts WHERE id='C';"
+curl.exe -i -X POST http://localhost:8000/v1/transfers \
+  -H "Content-Type: application/json" \
+  -d '{"from_account": 1, "to_account": 2, "amount_cents": 99999999}'
+```
+**Expected Response:**
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"detail":"Insufficient funds"}
 ```
 
-Expected: account C is still there. `COMMIT` returned before the kill, so
-durability (via the WAL replayed on restart) guarantees it survived a hard
-crash.
+---
 
-For CP-vs-AP practice, including diagnosing a Postgres primary whose writes
-hang during a network blip, see the exercises in [CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md#practice).
-
-## Independent challenge
-
-No code given. You're designing the persistence for a **movie-ticket booking**
-feature. Two guarantees are in tension: (1) a specific seat must never be sold
-to two people, and (2) the "browse showtimes and available seats" page must
-stay fast and available even under heavy load and occasional infrastructure
-hiccups.
-
-Write a short design note that: (a) identifies which operations need strong
-ACID guarantees and *which specific letters* matter most for each (be precise —
-e.g. "the seat-reservation write needs Atomicity because... and Isolation
-because..."); (b) states where you'd accept weaker/eventual consistency and
-why that's safe there; and (c) frames the seat-booking write as a CP-vs-AP
-decision and commits to one, justifying it. Reach back to module 00: is a
-single relational store the right system of record here, and why? Name the ACID
-anomaly from this module that would directly cause a double-booking if
-isolation were too weak.
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 1: The fsync() Bottleneck in ACID Durability</b></summary>
 
-The seat-availability *browse* page can be AP / eventually consistent — a
-seat showing as "available" that was grabbed a half-second ago is annoying but
-recoverable (you just fail at the confirm step). The seat-*reservation* write
-is the CP-critical path: it needs Atomicity (reserve seat + create booking +
-take payment hold as one unit) and strong Isolation (two concurrent bookings of
-the same seat must not both succeed). The specific anomaly that produces a
-double-booking is the **lost update** (or a phantom, if you're checking
-"is this seat free?" and inserting) — exactly what you reproduced in exercise 5,
-and exactly what module 04's `SELECT ... FOR UPDATE` and serializable isolation
-exist to prevent.
+**Scenario:** A database server processes 1,000 commits per second. The DBA turns off `fsync` (`fsync = off` in `postgresql.conf`). Performance jumps from 1,000 to 45,000 writes/sec. That evening, the data center experiences a 2-second power flicker. What happens to the database?
 
+**Correct Analysis:** Catastrophic Data Corruption and Transaction Loss. When `fsync` is disabled, the OS buffers disk writes in volatile RAM cache without flushing them to physical non-volatile storage. An abrupt power cut or kernel panic causes the data in memory to vanish forever. The database Write-Ahead Log (WAL) becomes corrupt, rendering recent transactions irrecoverable. In production, never disable `fsync` for durable transactional data; use battery-backed write caches or group commits instead.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Confusing ACID's "C" with CAP's "C".** They are different guarantees with
-  the same first letter. ACID consistency = "the transaction respects the
-  database's declared constraints." CAP consistency = "all nodes agree on the
-  latest value (linearizability)." Mixing them up makes every CAP conversation
-  incoherent.
-- **Assuming a transaction guarantees success.** Atomicity guarantees
-  all-or-nothing, not all. A transaction can legitimately fail and roll back;
-  your code must handle that and retry or report it.
-- **Silently weakening durability.** `synchronous_commit = off` or async
-  replication trade durability for speed. Sometimes correct — but know you've
-  made the trade, or a crash will "lose" transactions your users saw succeed.
-- **Wrapping unrelated statements in one transaction "to be safe."** A
-  transaction is a *correctness* boundary (these things must succeed or fail
-  together), not a performance wrapper. Overly long transactions hold locks and
-  hurt concurrency (module 04).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. State each ACID letter in one line, and for atomicity and durability name
-   the concrete corruption you get without it.
-2. ACID "C" and CAP "C" are both called "consistency." Define each precisely
-   and say how they differ.
-3. What is the write-ahead log (WAL) and which ACID property does it implement?
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 2: The CAP Theorem Fallacy: "I Picked CA"</b></summary>
 
-1. **Atomicity** — all-or-nothing; without it a crash mid-transaction leaves a
-   half-done state (money debited but never credited). **Consistency** — a
-   transaction only commits states that satisfy declared constraints.
-   **Isolation** — concurrent transactions don't corrupt each other. **Durability**
-   — once `COMMIT` succeeds the change survives a crash; without it a user sees
-   "saved" and a crash loses it.
-2. ACID "C": a transaction moves the DB from one valid state to another, where
-   validity = your declared constraints (types, uniqueness, FKs, checks). CAP
-   "C" (linearizability): every read across all nodes reflects the most recent
-   write. ACID's is about a single transaction respecting rules; CAP's is about
-   multiple nodes agreeing on the current value.
-3. An append-only on-disk log of changes, flushed to durable storage *before*
-   the changes hit the main data files; on restart after a crash it's replayed
-   to recover committed transactions. It implements durability (and underpins
-   atomicity by allowing rollback/redo).
+**Scenario:** A software architect claims: "Our distributed microservices architecture chose Consistency (C) and Availability (A) from the CAP theorem, so we don't need to worry about Network Partitions (P)." Why is this statement impossible in physics?
 
+**Correct Analysis:** Network partitions are not an optional choice—they are an inevitable physical reality of distributed systems. Routers fail, switches reboot, cables get cut, and garbage collection pauses drop packets. When a partition occurs, a distributed system *must* choose either: (1) Accept writes locally and risk inconsistency (AP), or (2) Reject writes to protect linearizability (CP). A "CA" system can only exist if the network has zero possibility of packet loss or failure, which is physically impossible.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: Deadlock Creation via Unordered Locks</b></summary>
 
-- [PostgreSQL: Transactions (tutorial)](https://www.postgresql.org/docs/current/tutorial-transactions.html) - how BEGIN/COMMIT/ROLLBACK give you atomicity in practice.
-- [PostgreSQL: Reliability and the Write-Ahead Log](https://www.postgresql.org/docs/current/wal-intro.html) - exactly how the WAL delivers durability across crashes.
-- [Designing Data-Intensive Applications (Kleppmann), Ch. 7-9](https://dataintensive.net/) - the definitive treatment of transactions, isolation, and distributed consistency.
+**Scenario:** Transaction A executes `UPDATE accounts WHERE id = 1` then `UPDATE accounts WHERE id = 2`. Simultaneously, Transaction B executes `UPDATE accounts WHERE id = 2` then `UPDATE accounts WHERE id = 1`. Under high traffic, why do both transactions freeze and abort?
 
-## Free PDF notes
+**Correct Analysis:** A Classic Deadlock. Transaction A acquires the lock on row 1 and waits for row 2. Transaction B acquires the lock on row 2 and waits for row 1. Neither can proceed, forming a circular wait graph. The database engine must intervene, detect the deadlock cycle, and forcibly terminate one of the transactions with a `40P01 deadlock_detected` error. Deadlocks are prevented by enforcing a **strict global lock order** (e.g. always acquiring locks in ascending ID order).
+</details>
+
+---
+
+## Download Printable Reference & Diagrams
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-E-008: ACID Explained](https://backendroadmap.com/notes/system-design/SD-E-008.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
 
-## Next
+---
 
-[02-querying-and-joins](../02-querying-and-joins/README.md) — you now know the
-guarantees a relational database makes; time to actually *ask it questions*.
-You'll learn SQL querying and the join types in depth, including exactly which
-join is silently wrong for a given question.
+## Further Reading & Sources
+
+- [PostgreSQL Documentation: Chapter 13. Concurrency Control](https://www.postgresql.org/docs/current/mvcc.html)
+- [Eric Brewer: CAP Twelve Years Later: How the "Rules" Have Changed](https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/)
+- [Martin Kleppmann: Designing Data-Intensive Applications (Chapter 7: Transactions)](https://dataintensive.net/)
+
+---
+
+## Next Steps
+
+Advance to the next module:
+[../02-querying-and-joins/README.md](../02-querying-and-joins/README.md)
+Master relational querying: SQL execution order, Inner vs Outer joins, Index scans, Aggregations, and Window functions.

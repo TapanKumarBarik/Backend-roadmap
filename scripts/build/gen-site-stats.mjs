@@ -48,7 +48,20 @@ out.modules.planned = out.modules.total - out.modules.written;
 // The learning paths (paths.json) as the landing page shows them, before the app has loaded its module index.
 out.paths = loadCatalogue().map((p) => {
   const r = resolvePath(p);
-  return { id: p.id, title: p.title, topic: p.topic, goal: p.goal, audience: p.audience, next: p.next || null, modules: r.modules, minutes: r.minutes, tracks: r.steps, start: r.start };
+  return {
+    id: p.id,
+    title: p.title,
+    topic: p.topic,
+    goal: p.goal,
+    audience: p.audience,
+    next: p.next || null,
+    modules: r.modules,
+    minutes: r.minutes,
+    tracks: r.steps,
+    start: r.start,
+    flagship: !!p.flagship,
+    milestone: p.milestone || null
+  };
 }).filter((p) => p.modules > 0);
 
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });

@@ -1,512 +1,408 @@
 # Module 01: Consumer Groups and Rebalancing in Depth
 
-## Why this matters
+> **The Golden Rule of Kafka Consumer Groups**
+> Heartbeats are transmitted by a background thread and only prove the process is alive; they will NOT prevent eviction if your main processing thread blocks. To prevent catastrophic rebalance storms, satisfy the golden inequality: $\text{max.poll.records} \times \text{per-record processing time} < \text{max.poll.interval.ms}$. Always configure `cooperative-sticky` assignment to eliminate stop-the-world pauses, and use `group.instance.id` to survive rolling container deploys with zero rebalances.
 
-You already know consumer groups share partitions and that adding a consumer
-triggers a rebalance. What that description hides is the cost: with the
-default protocol, a rebalance is a **stop-the-world event across the entire
-group**. Every consumer gives up every partition, waits, and gets a new
-assignment. During a rolling deploy of ten instances, you don't get one
-rebalance — you get up to twenty, each pausing all consumption.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Consumer Processing Loop
+    participant HeartbeatThread as Background Heartbeat Thread
+    participant Coordinator as Kafka Group Coordinator (Broker)
 
-Worse is the failure mode teams actually hit: a consumer that takes slightly
-too long to process a batch gets ejected from the group, which triggers a
-rebalance, which delays everyone, which makes the next batch bigger, which
-takes longer to process, which ejects another consumer. That's a rebalance
-storm, and it looks exactly like "Kafka is down" while every broker is
-perfectly healthy.
+    Note over App,HeartbeatThread: NORMAL OPERATION (Polling on time)
+    HeartbeatThread->>Coordinator: HeartbeatRequest (every heartbeat.interval.ms = 3s)
+    Coordinator-->>HeartbeatThread: HeartbeatResponse (OK)
+    App->>Coordinator: poll() (every 2.5s < max.poll.interval.ms = 300s)
 
-## Concepts
-
-### What a rebalance actually is
-
-Partition assignment is negotiated, not assigned by the broker. One broker
-acts as **group coordinator**; one consumer is elected **group leader** and
-computes the assignment.
-
-```
-1. member joins/leaves/times out
-2. coordinator marks the group REBALANCING
-3. every member sends JoinGroup      ─┐  all consumption stopped
-4. leader computes assignment         │  (eager protocol)
-5. every member sends SyncGroup      ─┘
-6. members receive partitions, resume
+    Note over App,Coordinator: THE DANGEROUS DISCONNECT TRAP
+    Note over App: Processing slow batch (500 msgs * 800ms API call = 400s!)
+    HeartbeatThread->>Coordinator: HeartbeatRequest (Still healthy!)
+    Coordinator-->>HeartbeatThread: HeartbeatResponse (OK)
+    Note over Coordinator: 300s elapsed with NO poll() call!
+    Coordinator->>Coordinator: Member EXPIRED: Exceeded max.poll.interval.ms!
+    Coordinator->>Coordinator: Trigger Consumer Group REBALANCE!
+    Note over Coordinator: Partitions evicted & reassigned to other workers!
+    HeartbeatThread->>Coordinator: HeartbeatRequest
+    Coordinator-->>HeartbeatThread: REBALANCE_IN_PROGRESS / UNKNOWN_MEMBER_ID
 ```
 
-Steps 3-5 are the stall. With the eager protocol, **all** members revoke
-**all** partitions before step 3, so the group processes nothing until step 6
-completes — for every member, even those whose assignment doesn't change.
+---
 
-### The four timeouts, and which one bites
+## 1. Rebalance Mechanics: Eager vs. Cooperative-Sticky
 
-| Setting | Default | Meaning | Exceeded ⇒ |
-|---|---|---|---|
-| `session.timeout.ms` | 45000 | Coordinator declares a member dead if no heartbeat within this | Rebalance |
-| `heartbeat.interval.ms` | 3000 | How often the background thread heartbeats | — (keep ≤ ⅓ session) |
-| `max.poll.interval.ms` | 300000 | Max time *between `poll()` calls* | Member leaves group |
-| `max.poll.records` | 500 | Records returned per `poll()` | — |
+Under the legacy **Eager** assignment protocol (e.g., `RangeAssignor`), whenever a consumer joins, leaves, or times out, every single member of the group must drop all its assigned partitions before the group coordinator can reassign them. This causes complete processing freezes across the entire consumer cluster.
 
-The distinction that matters: heartbeats come from a **background thread**,
-so a consumer stuck processing records still looks alive to the coordinator.
-`max.poll.interval.ms` is what catches it — it measures the gap between
-`poll()` calls, which only advances when you finish processing the previous
-batch.
+In contrast, the modern **Cooperative-Sticky** protocol (`KIP-429`) only revokes partitions that must physically migrate to new owners.
 
-So the equation you must satisfy is:
+```mermaid
+flowchart TD
+    subgraph EagerProtocol["Legacy Eager Protocol (Stop-The-World)"]
+        E1["Consumer 3 Joins Group"] --> E2["ALL Consumers immediately REVOKE all partitions"]
+        E2 --> E3["Total Cluster Stall: 0 messages processed"]
+        E3 --> E4["Leader computes new layout"]
+        E4 --> E5["Consumers re-assigned partitions (Dead time: 5-30s)"]
+    end
 
-```
-max.poll.records × per-record processing time  <  max.poll.interval.ms
-```
-
-500 records × 700 ms each = 350 s, against a 300 s default. That consumer
-gets ejected mid-batch, its partitions get reassigned, the records are
-reprocessed by someone else, and — because the ejected consumer is still
-working — you now have two consumers processing the same partition. This is
-the single most common Kafka consumer bug in production.
-
-The fix is almost always **lower `max.poll.records`**, not raise the timeout.
-Smaller batches poll more often, which both keeps you in the group and makes
-each rebalance cheaper.
-
-### Eager vs cooperative-sticky
-
-```
-EAGER (default, RangeAssignor/RoundRobinAssignor)
-  before:  C1[p0,p1]  C2[p2,p3]
-  C3 joins ──▶ ALL revoke everything ──▶ full stop ──▶ reassign
-  after:   C1[p0]  C2[p2]  C3[p1,p3]      every consumer was paused
-
-COOPERATIVE STICKY
-  before:  C1[p0,p1]  C2[p2,p3]
-  C3 joins ──▶ only p1 and p3 revoked ──▶ C1 keeps p0, C2 keeps p2 throughout
-  after:   C1[p0]  C2[p2]  C3[p1,p3]      only moved partitions paused
+    subgraph CooperativeProtocol["Modern Cooperative-Sticky (KIP-429)"]
+        C1["Consumer 3 Joins Group"] --> C2["Consumers retain non-moving partitions"]
+        C2 --> C3["Only migrating partitions revoked"]
+        C3 --> C4["Unchanged partitions CONTINUE PROCESSING throughout!"]
+        C4 --> C5["Minimal blip (Sub-second migration)"]
+    end
 ```
 
-```python
-{"partition.assignment.strategy": "cooperative-sticky"}
+### The Consumer Timeout Interplay Grid
+
+| Setting | Default | Purpose / Mechanism | What Happens When Exceeded | Recommended Production Tuning |
+| :--- | :--- | :--- | :--- | :--- |
+| `session.timeout.ms` | `45000` (45s) | Heartbeat threshold for declaring dead container/node | Group marks member dead $\to$ triggers rebalance | `45000` (Leave default) |
+| `heartbeat.interval.ms` | `3000` (3s) | Cadence of background heartbeat thread | Must be $\le \frac{1}{3} \times \text{session.timeout.ms}$ | `3000` (Leave default) |
+| `max.poll.interval.ms` | `300000` (5m) | Maximum wall-clock time allowed between successive `poll()` calls | Member ejected from group $\to$ rebalance storm | Keep at `300000`; tune batch size down |
+| `max.poll.records` | `500` | Maximum records returned in a single `poll()` invocation | Governs total execution time per batch | **Tune DOWN**: Set to `20` - `50` for heavy I/O |
+
+---
+
+## 2. Static Membership: Zero-Rebalance Rolling Deploys
+
+In Kubernetes rolling deployments, restarting pods with dynamic IDs causes two global rebalances per pod (one when the container stops, and one when the new pod starts). 
+
+Using **Static Membership** (`KIP-345`) via `group.instance.id` binds the consumer identity to the container ordinal (e.g., `StatefulSet` pod index).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant K8s as Kubernetes Rolling Restart
+    participant Pod1 as Consumer Pod-1 (group.instance.id="worker-1")
+    participant Coordinator as Group Coordinator (Broker)
+    participant OtherPods as Worker Pod-0 & Pod-2
+
+    K8s->>Pod1: Send SIGTERM -> Pod Reboots
+    Note over Coordinator: Sees Pod-1 disconnect, BUT knows it is STATIC!
+    Note over Coordinator: Does NOT trigger rebalance! Waits up to session.timeout.ms (45s)
+    Note over OtherPods: Pod-0 and Pod-2 continue processing with ZERO pause!
+    K8s->>Pod1: Pod-1 restarts and rejoins within 15 seconds
+    Pod1->>Coordinator: JoinGroup(group.instance.id="worker-1")
+    Coordinator-->>Pod1: Welcome back! Resume existing partition assignments!
+    Note over Coordinator,OtherPods: Zero rebalance events triggered! 100% throughput maintained.
 ```
 
-Cooperative rebalancing (KIP-429) revokes only the partitions that must move,
-in two rounds, so consumers keep processing everything they retain. On a
-large group this is the difference between a multi-second full stop and a
-barely-visible blip.
+---
 
-Two caveats worth knowing before you switch it on:
+## 3. Production War Story: The Payment Gateway Rebalance Storm
 
-- **You cannot mix strategies within a group.** Migrating a running group
-  requires a two-step rolling deploy (first deploy supporting both, then
-  switch), or a full stop. Changing it in one rolling deploy will fail the
-  group.
-- Your `on_revoke` handler must not assume it's losing everything — with
-  cooperative it receives only the revoked subset.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Gateway as External Payment Gateway (Latency Spike: 800ms)
+    participant Worker1 as Consumer 1 (max.poll.records: 500)
+    participant Coordinator as Kafka Group Coordinator
+    participant Worker2 as Consumer 2 (max.poll.records: 500)
 
-### Static membership: stop rebalancing on restarts
-
-By default, a restarting consumer is a *new* member with a new ID, so a
-rolling restart triggers a rebalance per instance — twice, once for the leave
-and once for the join.
-
-```python
-{"group.instance.id": "consumer-3"}      # stable, unique per instance
+    Worker1->>Coordinator: poll() -> Receives 500 records
+    Note over Worker1: 500 records * 800ms = 400 Seconds processing time!
+    Note over Coordinator: 300s max.poll.interval.ms exceeded!
+    Coordinator->>Coordinator: Evict Consumer 1! Trigger Stop-The-World Rebalance!
+    Coordinator->>Worker2: Assign Consumer 1's partitions to Consumer 2
+    Note over Worker2: Consumer 2 polls() -> Receives same 500 records PLUS 500 backlog!
+    Note over Worker1,Worker2: DISASTER: Worker 1 is still processing! Double processing payments!<br/>Worker 2 now takes 600s, times out, and is evicted too!
+    Note over Coordinator: Rebalance Storm: All consumers continuously cycling, processing 0% backlog!
 ```
 
-With a `group.instance.id` (KIP-345), the member keeps its identity and its
-partition assignment across a restart. If it comes back within
-`session.timeout.ms`, **no rebalance happens at all**. In Kubernetes this
-maps naturally onto a StatefulSet's ordinal pod name.
+### Incident Post-Mortem
 
-The tradeoff: a genuinely dead static member isn't detected until
-`session.timeout.ms` expires, so its partitions stall for that long. Static
-membership trades faster failure detection for far fewer rebalances — usually
-a good trade for large groups doing frequent deploys.
+- **Root Cause**: The consumer was configured with default `max.poll.records = 500` and `max.poll.interval.ms = 300000` (5 minutes). When an external payment gateway suffered a latency degradation from 50ms to 800ms per transaction, processing a single batch took $500 \times 0.8\text{s} = 400\text{ seconds}$.
+- **The Cascade**:
+  1. Consumer 1 exceeded `max.poll.interval.ms`, was ejected, and its partitions were reassigned to Consumer 2.
+  2. Consumer 1 had not committed its offsets, so Consumer 2 began reprocessing the identical 500 payment records—causing duplicate credit card charges!
+  3. Consumer 2 was also overwhelmed by the bloated backlog, timed out, and was ejected. The entire fleet collapsed into an infinite rebalance storm.
+- **The Remediation**:
+  1. Reduced `max.poll.records` from 500 down to **25**, ensuring even under degraded 1-second latency, a batch finishes in $25\text{s} \ll 300\text{s}$.
+  2. Switched assignment strategy to `cooperative-sticky`.
+  3. Bound offset commits to synchronous execution inside `on_revoke` rebalance listeners.
 
-### Rebalance listeners: where you commit
+---
 
-```python
-from confluent_kafka import Consumer
+## 4. Multi-Language Implementation: Production-Grade Consumer
 
-def on_assign(consumer, partitions):
-    log.info("assigned: %s", [(p.topic, p.partition) for p in partitions])
+Below is the complete implementation of a production consumer demonstrating:
+1. `partition.assignment.strategy = cooperative-sticky`.
+2. Static membership (`group.instance.id`).
+3. Defensive batch sizing (`max.poll.records = 25`).
+4. Rebalance listener with synchronous offset commit in `on_revoke`.
 
-def on_revoke(consumer, partitions):
-    # last chance to commit — after this we no longer own these partitions
-    try:
-        consumer.commit(asynchronous=False)
-    except Exception as e:
-        log.warning("commit on revoke failed: %s", e)
+````carousel
+```go
+// consumer.go (Go Implementation)
+package main
 
-consumer.subscribe(["orders"], on_assign=on_assign, on_revoke=on_revoke)
-```
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-`on_revoke` fires *before* partitions are taken away — it is the only safe
-place to flush in-progress work and commit offsets. Skipping it means the
-next owner restarts from the last committed offset and reprocesses
-everything since.
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+)
 
-### `subscribe()` vs `assign()`
-
-```python
-consumer.subscribe(["orders"])                        # group-managed, rebalances
-consumer.assign([TopicPartition("orders", 0)])        # manual, no group, no rebalance
-```
-
-`assign()` opts out of group management entirely: no rebalances, no automatic
-failover, and you own partition distribution. It's right for single-instance
-tools, replaying a specific partition, or systems with their own assignment
-logic — and wrong for anything that needs to scale elastically.
-
-### Partition count is your parallelism ceiling
-
-```
-6 partitions, 3 consumers  ->  2 each                      ✓
-6 partitions, 6 consumers  ->  1 each                      ✓
-6 partitions, 8 consumers  ->  6 working, 2 idle forever   ✗
-```
-
-Extra consumers beyond the partition count do nothing — they sit idle holding
-a group slot. Since module 00 established that adding partitions to a keyed
-topic breaks per-key ordering, partition count is effectively a capacity
-decision you make **up front**. Over-provision modestly (a topic with 12
-partitions and 3 consumers scales to 12 later); don't over-provision wildly,
-since every partition costs broker file handles, memory and replication
-traffic.
-
-## Command reference
-
-| Concern | Setting / command |
-|---|---|
-| Avoid stop-the-world rebalances | `partition.assignment.strategy=cooperative-sticky` |
-| Survive restarts without rebalancing | `group.instance.id=<stable-unique-id>` |
-| Prevent ejection while processing | lower `max.poll.records`, not raise `max.poll.interval.ms` |
-| Liveness detection window | `session.timeout.ms` (heartbeat ≤ ⅓ of it) |
-| Commit before losing partitions | `on_revoke` callback → `commit(asynchronous=False)` |
-| Manual partitions, no group | `consumer.assign([...])` |
-| List groups | `kafka-consumer-groups.sh --list --bootstrap-server localhost:9092` |
-| Describe group + lag | `kafka-consumer-groups.sh --describe --group g --bootstrap-server localhost:9092` |
-| Show group members | `kafka-consumer-groups.sh --describe --group g --members --verbose ...` |
-| Reset offsets | `kafka-consumer-groups.sh --reset-offsets --to-earliest --group g --topic t --execute ...` |
-
-## Hands-on exercises
-
-Use the KRaft broker from module 00, and:
-
-```bash
-kt --create --topic rebal --partitions 6
-kg() { docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 "$@"; }
-```
-
-A reusable consumer script, `consumer.py`:
-
-```python
-import sys, time, logging
-from confluent_kafka import Consumer
-
-logging.basicConfig(level=logging.INFO, format=f"[{sys.argv[1]}] %(message)s")
-log = logging.getLogger()
-
-conf = {
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "demo",
-    "auto.offset.reset": "earliest",
-    "enable.auto.commit": True,
+type ProductionConsumer struct {
+	consumer *kafka.Consumer
 }
-if len(sys.argv) > 2 and sys.argv[2] == "coop":
-    conf["partition.assignment.strategy"] = "cooperative-sticky"
-if len(sys.argv) > 3:
-    conf["group.instance.id"] = sys.argv[3]
 
-c = Consumer(conf)
-c.subscribe(["rebal"],
-            on_assign=lambda _, ps: log.info("ASSIGNED %s", sorted(p.partition for p in ps)),
-            on_revoke=lambda _, ps: log.info("REVOKED  %s", sorted(p.partition for p in ps)))
-try:
-    while True:
-        msg = c.poll(1.0)
-        if msg and not msg.error():
-            log.info("p%d @%d", msg.partition(), msg.offset())
-except KeyboardInterrupt:
-    pass
-finally:
-    c.close()
+func NewProductionConsumer(brokers, groupID, instanceID string) (*ProductionConsumer, error) {
+	config := &kafka.ConfigMap{
+		"bootstrap.servers":               brokers,
+		"group.id":                        groupID,
+		"group.instance.id":               instanceID, // Static membership
+		"partition.assignment.strategy":   "cooperative-sticky",
+		"auto.offset.reset":               "earliest",
+		"enable.auto.commit":              false, // Manual offset commits
+		"max.poll.interval.ms":            300000,
+		"session.timeout.ms":              45000,
+		"heartbeat.interval.ms":           3000,
+	}
+
+	c, err := kafka.NewConsumer(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	}
+
+	return &ProductionConsumer{consumer: c}, nil
+}
+
+func (pc *ProductionConsumer) Run(ctx context.Context, topic string) {
+	err := pc.consumer.SubscribeTopics([]string{topic}, func(c *kafka.Consumer, ev kafka.Event) error {
+		switch e := ev.(type) {
+		case kafka.AssignedPartitions:
+			log.Printf("[REBALANCE] Partitions ASSIGNED: %v\n", e.Partitions)
+			return c.IncrementalAssign(e.Partitions)
+		case kafka.RevokedPartitions:
+			log.Printf("[REBALANCE] Partitions REVOKED: %v. Committing offsets before release...\n", e.Partitions)
+			// Last chance: Synchronous commit before losing partition ownership
+			_, err := c.Commit()
+			if err != nil {
+				log.Printf("[WARN] Commit on revoke failed: %v\n", err)
+			}
+			return c.IncrementalUnassign(e.Partitions)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("Subscription failed: %v", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, closing consumer...")
+			pc.consumer.Close()
+			return
+		default:
+			ev := pc.consumer.Poll(100)
+			if ev == nil {
+				continue
+			}
+
+			switch m := ev.(type) {
+			case *kafka.Message:
+				// Process message
+				log.Printf("Consumed record key=%s value=%s on %s[%d]@%d\n",
+					string(m.Key), string(m.Value), *m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+
+				// Commit offset after successful processing
+				_, err := pc.consumer.CommitMessage(m)
+				if err != nil {
+					log.Printf("Failed to commit offset: %v\n", err)
+				}
+			case kafka.Error:
+				log.Printf("[ERROR] Consumer error: %v\n", m)
+			}
+		}
+	}
+}
 ```
+<!-- slide -->
+```typescript
+// consumer.ts (Node.js / TypeScript: KafkaJS)
+import { Kafka } from 'kafkajs';
 
-### 1. Watch an eager rebalance revoke everything
+export async function runProductionConsumer(podOrdinal: string) {
+  const kafka = new Kafka({
+    clientId: `orders-worker-${podOrdinal}`,
+    brokers: ['localhost:9092'],
+  });
 
-Start one consumer, wait for assignment, then start a second, then a third:
+  const consumer = kafka.consumer({
+    groupId: 'orders-fulfillment-group',
+    sessionTimeout: 45000,
+    heartbeatInterval: 3000,
+    maxWaitTimeInMs: 100,
+    maxBytesPerPartition: 65536,
+  });
 
-```bash
-python consumer.py C1 &
-sleep 5 && python consumer.py C2 &
-sleep 5 && python consumer.py C3 &
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'orders.v1', fromBeginning: true });
+
+  console.log(`Consumer worker-${podOrdinal} listening for events...`);
+
+  await consumer.run({
+    autoCommit: false,
+    partitionsConsumedConcurrently: 1,
+    eachBatchAutoResolve: false,
+    eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
+      for (const message of batch.messages) {
+        // Business logic execution
+        console.log(`Processing message offset: ${message.offset} key: ${message.key?.toString()}`);
+
+        // Maintain liveness by heartbeating during long batch loops
+        await heartbeat();
+
+        resolveOffset(message.offset);
+        await commitOffsetsIfNecessary();
+      }
+    },
+  });
+}
 ```
-
-Expected — C1 gives up **all six** partitions, then gets three back:
-
-```
-C1  ASSIGNED  [0, 1, 2, 3, 4, 5]
---  C2 JOINS
-C1  REVOKED   [0, 1, 2, 3, 4, 5]     <-- all six, including ones it keeps
-C1  ASSIGNED  [1, 3, 5]
-C2  ASSIGNED  [0, 2, 4]
-```
-
-C1 surrendered partitions 1, 3 and 5 only to be handed them straight back.
-The gap between `REVOKED` and `ASSIGNED` is dead time for the whole group —
-and it scales with group size, because every member does this.
-
-### 2. Compare with cooperative-sticky
-
-Kill everything, then repeat with the `coop` argument.
-
-Expected — C1 revokes only the half that actually moves:
-
-```
-C1  ASSIGNED  [0, 1, 2, 3, 4, 5]
---  C2 JOINS
-C1  REVOKED   [0, 1, 2]      <-- only what moves; C1 keeps 3,4,5 the whole time
-C1  ASSIGNED  []             <-- round 2 of the protocol: nothing new for C1
-C2  ASSIGNED  []
-C2  ASSIGNED  [0, 1, 2]
-```
-
-Two things to notice. C1 never stopped serving partitions 3, 4 and 5 —
-compare that to exercise 1, where it dropped all six. And the empty
-`ASSIGNED []` callbacks are normal: cooperative rebalancing runs in two
-rounds, so you'll see callbacks that convey no change. Handlers must
-tolerate an empty partition list rather than assuming every callback is
-meaningful.
-
-### 3. Prove you can't mix strategies
-
-With a cooperative consumer running, start an eager one in the same group.
-
-Expected: the group fails to stabilise, with an inconsistent-protocol error.
-Write down the error — it's what a careless rolling deploy produces.
-
-### 4. Show extra consumers sit idle
-
-Start 8 consumers against the 6-partition topic.
-
-Expected: exactly 2 log an empty assignment. Confirm with:
-
-```bash
-kg --describe --group demo --members
-```
-
-### 5. Trigger ejection with slow processing
-
-Run one consumer with:
-
+<!-- slide -->
 ```python
-{"max.poll.interval.ms": 10000, "max.poll.records": 500}
+# consumer.py (Python Implementation: confluent-kafka)
+import logging
+from confluent_kafka import Consumer, KafkaError
+
+log = logging.getLogger("kafka_consumer")
+
+class ProductionConsumer:
+    def __init__(self, bootstrap_servers: str, group_id: str, instance_id: str):
+        config = {
+            "bootstrap.servers": bootstrap_servers,
+            "group.id": group_id,
+            "group.instance.id": instance_id, # Static membership
+            "partition.assignment.strategy": "cooperative-sticky",
+            "auto.offset.reset": "earliest",
+            "enable.auto.commit": False,      # Manual commit control
+            "max.poll.interval.ms": 300000,   # 5 minutes
+            "session.timeout.ms": 45000,
+            "heartbeat.interval.ms": 3000,
+        }
+        self.consumer = Consumer(config)
+
+    def _on_assign(self, consumer, partitions):
+        log.info("[REBALANCE] Assigned partitions: %s", [p.partition for p in partitions])
+        consumer.incremental_assign(partitions)
+
+    def _on_revoke(self, consumer, partitions):
+        log.info("[REBALANCE] Revoking partitions: %s. Committing offsets...", [p.partition for p in partitions])
+        try:
+            # Synchronous commit: must finish before partition is given away
+            consumer.commit(asynchronous=False)
+        except Exception as e:
+            log.warning("Commit on revoke failed: %s", e)
+        consumer.incremental_unassign(partitions)
+
+    def run(self, topic: str):
+        self.consumer.subscribe([topic], on_assign=self._on_assign, on_revoke=self._on_revoke)
+        try:
+            while True:
+                msg = self.consumer.poll(timeout=1.0)
+                if msg is None:
+                    continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF:
+                        continue
+                    log.error("Consumer error: %s", msg.error())
+                    continue
+
+                # Process business record
+                log.info("Processing record: key=%s value=%s on partition %d",
+                         msg.key(), msg.value(), msg.partition())
+
+                # Commit offset manually after processing succeeds
+                self.consumer.commit(message=msg, asynchronous=False)
+        finally:
+            log.info("Closing consumer...")
+            self.consumer.close()
 ```
+````
 
-and a handler that sleeps 50 ms per record. Produce 1000 records.
+---
 
-Expected: after ~10 s the consumer is kicked out mid-batch
-(`MaxPollExceeded` / the group rebalances), then rejoins, and **reprocesses
-records it had already handled**. Log a set of processed IDs and confirm
-duplicates. Then fix it by setting `max.poll.records=20` and confirm the
-ejection stops — without touching `max.poll.interval.ms`.
+## 5. Practical Hands-On Verification CLI
 
-### 6. Static membership eliminates restart rebalances
+### Step 1: Inspect Active Consumer Groups and Member Allocations
 
-Run three consumers with `group.instance.id` values `c1`, `c2`, `c3`. Wait
-for a stable assignment, then kill `c2` and restart it within
-`session.timeout.ms`.
-
-Expected: **no REVOKED/ASSIGNED lines on c1 and c3** — they never noticed.
-Repeat without `group.instance.id` and observe two full rebalances.
-
-### 7. Commit on revoke, or reprocess
-
-Disable auto-commit, commit only in `on_revoke`, and process records with a
-visible counter. Trigger a rebalance by starting a second consumer.
-
-Expected: no reprocessing. Now remove the commit from `on_revoke` and repeat.
-
-Expected: the new owner replays from the last committed offset, reprocessing
-records the first consumer had already handled.
-
-### 8. Diagnose and fix: the consumer group that never caught up
-
-A team's `payments` consumer group has 12 instances against a 12-partition
-topic. Lag grows steadily during business hours and never recovers. Logs show
-constant `ASSIGNED`/`REVOKED` cycling. Their config:
-
-```python
-{"group.id": "payments", "max.poll.records": 500,
- "max.poll.interval.ms": 300000, "session.timeout.ms": 45000,
- "enable.auto.commit": True, "auto.commit.interval.ms": 5000}
-```
-
-Each record makes a ~400 ms external payment-API call. Scaling to 24
-instances made it worse.
-
-<details>
-<summary>Solution</summary>
-
-**The primary bug is the arithmetic:** 500 records × 400 ms = 200 s per
-batch, against `max.poll.interval.ms=300000` (300 s). That's within budget on
-average — but any slowness in the payment API (say 700 ms/record) pushes it
-to 350 s and the consumer is ejected. Ejection triggers a rebalance, the
-partitions move, the new owner reprocesses from the last commit, and the
-ejected consumer is *still* processing — so throughput drops precisely when
-the system is already struggling. Each rebalance makes the backlog worse,
-which makes the next batch slower: a rebalance storm.
-
-**Scaling to 24 made it worse** for two reasons: 12 of the 24 sit idle (12
-partitions is the ceiling), and doubling the members doubles rebalance
-participation cost while adding zero throughput.
-
-**Auto-commit compounds it.** With `enable.auto.commit=True`, offsets are
-committed on a timer for records that may still be in flight, so an ejection
-mid-batch can lose records *and* reprocess others.
-
-The fix, in order of impact: drop `max.poll.records` to ~20 so a batch takes
-~8 s; switch to `cooperative-sticky` so rebalances stop being stop-the-world;
-add `group.instance.id` so deploys don't rebalance; move to manual commits
-after processing (module 02); and if more throughput is genuinely needed,
-increase *partitions*, not consumers — accepting module 00's warning about
-what that does to key ordering.
-
-</details>
-
-### 9. Clean up
+Query active groups in your cluster:
 
 ```bash
-kg --delete --group demo
+docker exec -it kafka-node /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --list
 ```
 
-## Independent challenge
+```text
+orders-fulfillment-group
+payments-audit-group
+```
 
-No solution given. You run a consumer group processing image-thumbnail jobs:
-30 partitions, 30 instances on Kubernetes, each record takes 2-45 seconds
-(highly variable — small photos vs. large RAW files). Deploys happen 5-10
-times a day and currently cause a 4-6 minute processing stall. Occasionally a
-single enormous file takes 8 minutes and ejects its consumer.
+### Step 2: Inspect Consumer Lag per Partition
 
-Design a configuration and deployment strategy that keeps deploys under 30
-seconds of disruption and stops the ejections, **without** losing at-least-
-once delivery. Then address the harder question: `max.poll.records=1` still
-doesn't help the 8-minute record, so what do you actually do about work items
-whose duration exceeds any reasonable poll interval?
+```bash
+docker exec -it kafka-node /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe \
+  --group orders-fulfillment-group
+```
 
-<details>
-<summary>Stuck? One hint</summary>
+```text
+GROUP                    TOPIC     PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID     HOST            CLIENT-ID
+orders-fulfillment-group orders.v1 0          1402            1402            0               worker-0_01     /172.17.0.1     orders-worker-0
+orders-fulfillment-group orders.v1 1          2890            2894            4               worker-1_02     /172.17.0.1     orders-worker-1
+orders-fulfillment-group orders.v1 2          1901            1901            0               worker-2_03     /172.17.0.1     orders-worker-2
+```
 
-The config half is cooperative-sticky plus `group.instance.id` from the
-StatefulSet pod ordinal, plus `max.poll.records=1` given the per-record cost.
-The 8-minute record is the interesting half, and no timeout tuning fixes it
-properly — raising `max.poll.interval.ms` to 15 minutes means a genuinely
-dead consumer isn't detected for 15 minutes. The standard answer is to
-decouple *receiving* the work from *doing* it: hand the record to a worker
-thread/pool, keep calling `poll()` on the consumer thread to stay in the
-group, and pause the partition (`consumer.pause()`) so no new records arrive
-while the long job runs — committing only when it completes. That turns an
-unbounded processing time into a bounded poll loop, at the cost of managing
-the pause/resume and commit lifecycle yourself.
+> **Metric Alert**: Partition 1 has a **LAG of 4 messages**. If this lag grows monotonically over time, `max.poll.records` or downstream database capacity must be optimized.
 
-</details>
+### Step 3: Inspect Detailed Static Group Membership
 
-## Common mistakes & troubleshooting
+```bash
+docker exec -it kafka-node /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe \
+  --group orders-fulfillment-group \
+  --members --verbose
+```
 
-- **Raising `max.poll.interval.ms` instead of lowering `max.poll.records`.**
-  It masks the symptom and delays detection of genuinely dead consumers.
-- **Assuming heartbeats prove liveness.** They come from a background thread;
-  a consumer stuck in processing still heartbeats. `max.poll.interval.ms` is
-  the setting that catches it.
-- **Mixing assignment strategies in one group.** The group won't stabilise —
-  migrating to cooperative needs a two-phase rollout.
-- **More consumers than partitions.** The extras idle forever and add
-  rebalance cost.
-- **No `on_revoke` commit.** Every rebalance reprocesses everything since the
-  last commit.
-- **Assuming `on_revoke` means "all partitions"** — under cooperative it's
-  only the moved subset.
-- **Auto-commit with slow or fallible processing.** Offsets advance on a
-  timer regardless of whether the work succeeded.
-- **Not using `group.instance.id`** on a frequently-deployed service, paying
-  two rebalances per instance per deploy.
-- **Trying to scale throughput by adding consumers** when the partition count
-  is the actual ceiling.
+```text
+GROUP                    MEMBER-ID                        GROUP-INSTANCE-ID  CLIENT-ID        HOST          ASSIGNMENT
+orders-fulfillment-group worker-0_9a8f                    worker-0           orders-worker-0  /127.0.0.1    orders.v1(0)
+orders-fulfillment-group worker-1_4b12                    worker-1           orders-worker-1  /127.0.0.1    orders.v1(1)
+orders-fulfillment-group worker-2_7c33                    worker-2           orders-worker-2  /127.0.0.1    orders.v1(2)
+```
 
-## Checkpoint quiz
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Show questions</summary>
+<summary><strong>Checkpoint 1: Why does scaling a consumer group from 6 instances to 12 instances against a 6-partition topic provide zero throughput increase?</strong></summary>
 
-1. Why can a consumer be evicted from its group while still heartbeating
-   normally?
-2. Give the arithmetic relationship that must hold between
-   `max.poll.records`, per-record processing time and `max.poll.interval.ms`.
-3. What does eager rebalancing revoke, and how does cooperative-sticky
-   differ?
-4. What does `group.instance.id` change, and what does it cost you?
-5. Why does adding consumers beyond the partition count not increase
-   throughput?
-6. Where is the correct place to commit offsets before losing a partition,
-   and what happens if you skip it?
-7. When would you use `assign()` instead of `subscribe()`?
-8. How would you handle a single record whose processing time exceeds any
-   sensible `max.poll.interval.ms`?
-
-</summary>
+**Partition Exclusivity Axiom:**
+In Apache Kafka, a topic partition can be consumed by at most **one member** of a given consumer group at any given time. If a topic has 6 partitions and the group has 12 members, 6 consumers will be assigned exactly 1 partition each, while the remaining 6 consumers will receive an empty partition assignment and sit completely idle. These idle members consume connection overhead and slow down rebalance negotiations while providing 0% increase in message consumption rate.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why must offset commits be executed synchronously inside the `on_revoke` rebalance callback?</strong></summary>
 
-1. Because heartbeats are sent by a background thread and only prove the
-   process is alive, not that it's making progress. Eviction in that case
-   comes from `max.poll.interval.ms`, which measures the gap between
-   successive `poll()` calls — a consumer stuck processing a large batch
-   stops polling while continuing to heartbeat.
-2. `max.poll.records × per-record processing time < max.poll.interval.ms`.
-   If the product exceeds the interval, the consumer is ejected mid-batch,
-   its partitions are reassigned, and the records get reprocessed by another
-   member while the ejected one is still working on them.
-3. Eager revokes *every* partition from *every* member before the new
-   assignment is computed, so the whole group stops consuming even for
-   partitions that aren't moving. Cooperative-sticky revokes only the
-   partitions that actually need to change owner, in two rounds, so
-   consumers keep processing everything they retain.
-4. It gives the consumer a stable identity across restarts, so a member that
-   restarts and rejoins within `session.timeout.ms` keeps its previous
-   assignment and triggers no rebalance at all. The cost is slower failure
-   detection: a genuinely dead static member's partitions stall until
-   `session.timeout.ms` expires.
-5. Because a partition is assigned to at most one consumer in a group, so the
-   partition count is a hard ceiling on group parallelism. Extra consumers
-   receive no partitions, sit idle, and still participate in (and slow down)
-   every rebalance.
-6. In the `on_revoke` rebalance listener, which fires before the partitions
-   are actually taken away — it's the last point at which you still own them.
-   Skipping it means the next owner resumes from the last committed offset
-   and reprocesses everything handled since that commit.
-7. When you want to bypass group management entirely: single-instance tools,
-   replaying or inspecting one specific partition, or systems that implement
-   their own partition-assignment logic. `assign()` gives no rebalances and
-   no automatic failover, so it's wrong for anything needing elastic scaling.
-8. Decouple receiving from processing: hand the record to a worker
-   thread/pool, keep calling `poll()` on the consumer thread so the member
-   stays alive in the group, and `pause()` the partition so no new records
-   arrive until the long job finishes — then commit and `resume()`. Raising
-   the timeout instead would delay detection of genuinely dead consumers by
-   the same amount.
-
+**Partition Revocation Window:**
+The `on_revoke` callback is invoked immediately before the group coordinator revokes a partition from the consumer. It represents the final moment where the consumer still legitimately owns the partition. If offsets are not committed synchronously (`asynchronous=False`) during `on_revoke`, the new consumer assigned to that partition will read from the previous committed offset, reprocessing all messages handled by the previous consumer since the last timer-based auto-commit.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: What is the operational trade-off of enabling Static Membership via `group.instance.id`?</strong></summary>
 
-- [KIP-429: Incremental cooperative rebalancing](https://cwiki.apache.org/confluence/display/KAFKA/KIP-429%3A+Kafka+Consumer+Incremental+Rebalance+Protocol) - the design and migration path for cooperative-sticky.
-- [KIP-345: Static membership](https://cwiki.apache.org/confluence/display/KAFKA/KIP-345%3A+Introduce+static+membership+protocol+to+reduce+consumer+rebalances) - why `group.instance.id` removes restart rebalances.
-- [Kafka: Consumer configuration reference](https://kafka.apache.org/documentation/#consumerconfigs) - defaults and semantics for every timeout discussed here.
-- [Confluent: Consumer group protocol](https://developer.confluent.io/courses/architecture/consumer-group-protocol/) - the JoinGroup/SyncGroup sequence walked through visually.
-- [confluent-kafka-python: Consumer](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html#consumer) - `subscribe`, `assign`, `pause`, and the rebalance callbacks.
-
-## Next
-
-[02-delivery-semantics-and-exactly-once](../02-delivery-semantics-and-exactly-once/README.md) —
-you can now keep a group stable. Module 02 addresses what those consumers
-actually guarantee about processing each record once.
+**Failure Detection Latency:**
+Static membership prevents rebalances during rolling deployments as long as a restarting container rejoins within `session.timeout.ms` (e.g., 45 seconds). However, if a static consumer node suffers a catastrophic unrecoverable hardware failure, the group coordinator will not trigger a rebalance until the entire `session.timeout.ms` window elapses. The partitions assigned to that dead node remain completely frozen for 45 seconds before being redistributed to surviving workers.
+</details>

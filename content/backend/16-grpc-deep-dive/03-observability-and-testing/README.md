@@ -1,525 +1,386 @@
 # Module 03: Observability and Testing
 
-## Why this matters
+> **The Golden Rule of gRPC Observability & Testing**
+> Because gRPC lacks URL paths, `handler_call_details.method` is your primary grouping key for logs, metrics, and traces. Never test gRPC by calling servicer classes directly with mocked contexts—always execute tests against a real in-process gRPC server bound to ephemeral port `localhost:0`. Always wrap streaming handlers by consuming the generator in a `finally` block, and record status codes dynamically to prevent silent dashboard blind spots.
 
-gRPC is harder to observe than REST for one structural reason: there's no
-URL. Your logs can't say `GET /orders/A-1`, your dashboards can't group by
-path, and `curl` won't reproduce a failing call. Everything an HTTP-based
-stack gets for free from the request line, you have to add deliberately.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Frontend Gateway
+    participant Interceptor as OpenTelemetry Server Interceptor
+    participant Handler as OrderService.GetOrder()
+    participant Prom as Prometheus Metrics Registry
 
-Testing has the mirror-image problem. It's tempting to unit-test the
-servicer class by calling `service.GetOrder(request, fake_context)`
-directly — which tests your business logic while skipping serialization,
-interceptors, status codes, deadlines and streaming semantics, i.e. exactly
-the parts where gRPC bugs live. This module covers both: making a service
-tell you what it's doing, and testing it in a way that would actually catch
-a regression.
-
-## Concepts
-
-### Interceptors are the instrumentation point
-
-Everything in this module hangs off interceptors, because they're the one
-place every RPC provably passes through. Track 11 introduced them; module 01
-used one for auth. The pattern for observability is the same, but it must
-handle streaming and exceptions correctly — which the naive version doesn't.
-
-```python
-import time, logging, grpc
-
-class LoggingInterceptor(grpc.ServerInterceptor):
-    def intercept_service(self, continuation, handler_call_details):
-        handler = continuation(handler_call_details)
-        if handler is None:
-            return None                      # unknown method; let gRPC 404 it
-
-        method = handler_call_details.method
-
-        # A servicer method can be unary or streaming on either side, and the
-        # handler exposes exactly one of these four. Wrapping the wrong one
-        # silently disables instrumentation for streaming RPCs.
-        if handler.unary_unary:
-            inner, kind = handler.unary_unary, "unary_unary"
-        elif handler.unary_stream:
-            inner, kind = handler.unary_stream, "unary_stream"
-        elif handler.stream_unary:
-            inner, kind = handler.stream_unary, "stream_unary"
-        else:
-            inner, kind = handler.stream_stream, "stream_stream"
-
-        def wrapper(request_or_iterator, context):
-            start = time.perf_counter()
-            try:
-                result = inner(request_or_iterator, context)
-                # For streaming responses `result` is a generator: it hasn't run
-                # yet. Consuming it here is what makes timing meaningful.
-                if kind in ("unary_stream", "stream_stream"):
-                    def counted():
-                        n = 0
-                        try:
-                            for item in result:
-                                n += 1
-                                yield item
-                        finally:
-                            _log(method, start, context, extra={"messages": n})
-                    return counted()
-                _log(method, start, context)
-                return result
-            except Exception:
-                _log(method, start, context, failed=True)
-                raise
-
-        return grpc.method_handlers_generic_handler  # placeholder; see note below
+    Client->>Interceptor: RPC GetOrder() [Metadata: traceparent=00-4bf92f3577b3...]
+    Interceptor->>Interceptor: Extract W3C Trace Context & Start Server Span
+    Interceptor->>Prom: Inc(grpc_server_started_total, method="/shop.v1.OrderService/GetOrder")
+    Interceptor->>Handler: Invoke continuation(handler_call_details)
+    alt Handler Success
+        Handler-->>Interceptor: Return *pb.Order
+        Interceptor->>Prom: Inc(grpc_server_handled_total, code="OK")
+        Interceptor->>Prom: Observe(grpc_server_handling_seconds, duration)
+    else Order Not Found
+        Handler-->>Interceptor: context.Abort(NOT_FOUND, "Order missing")
+        Interceptor->>Prom: Inc(grpc_server_handled_total, code="NOT_FOUND")
+        Interceptor->>Prom: Observe(grpc_server_handling_seconds, duration)
+    end
+    Interceptor-->>Client: Return HTTP/2 Frame + Error Trailers
 ```
 
-In practice you rebuild the handler with the matching factory:
+---
 
-```python
-        new_handler = {
-            "unary_unary": grpc.unary_unary_rpc_method_handler,
-            "unary_stream": grpc.unary_stream_rpc_method_handler,
-            "stream_unary": grpc.stream_unary_rpc_method_handler,
-            "stream_stream": grpc.stream_stream_rpc_method_handler,
-        }[kind]
-        return new_handler(
-            wrapper,
-            request_deserializer=handler.request_deserializer,
-            response_serializer=handler.response_serializer,
-        )
+## 1. Interceptor Architecture: The Four RPC Modalities
+
+In REST, every request is a single request/response cycle. In gRPC, a call can take four distinct forms. A naive interceptor that only wraps `unary_unary` will **silently fail to record metrics, logs, or traces for all streaming RPCs**.
+
+```mermaid
+flowchart TD
+    Req["Incoming RPC Call"] --> HandlerType{"Inspect Handler Type"}
+    
+    HandlerType -->|unary_unary| UU["Unary In, Unary Out<br/>(GetOrder)"]
+    HandlerType -->|unary_stream| US["Unary In, Server Stream Out<br/>(WatchOrders)<br/>MUST wrap generator!"]
+    HandlerType -->|stream_unary| SU["Client Stream In, Unary Out<br/>(UploadTelemetry)"]
+    HandlerType -->|stream_stream| SS["Bidirectional Stream<br/>(ChatSession)"]
+
+    UU --> Rebuild["Rebuild Handler with Preserved Serializers:<br/>request_deserializer & response_serializer"]
+    US --> Rebuild
+    SU --> Rebuild
+    SS --> Rebuild
+    Rebuild --> WrapExec["Execute inside try / finally block<br/>Record Metrics with context.code()"]
 ```
 
-Forgetting to pass through `request_deserializer` / `response_serializer` is
-the classic bug here — the interceptor works, and then every message fails to
-decode.
+### The Standard Golden Four Prometheus Metrics
 
-### What to log, and the one thing not to
+| Metric Identifier | Metric Type | Label Dimensions | Semantic Intent |
+| :--- | :--- | :--- | :--- |
+| `grpc_server_started_total` | Counter | `method` | Total number of RPC streams initiated |
+| `grpc_server_handled_total` | Counter | `method`, `code` | Total RPCs finalized, partitioned by canonical gRPC status code |
+| `grpc_server_handling_seconds` | Histogram | `method` | RPC execution duration from invocation to trailer emission |
+| `grpc_server_msg_sent_total` | Counter | `method` | Total discrete protobuf messages yielded across streaming responses |
 
-Structured, one event per RPC:
+> [!CAUTION]
+> **Cardinality Explosion Trap**: Never attach high-cardinality values such as `order_id`, `user_id`, or `ip_address` as Prometheus metric labels. Label exclusively by `method` and `code`. Unbounded metric labels will overwhelm Prometheus memory, causing scrape timeouts and monitoring blackouts.
 
-```python
-def _log(method, start, context, failed=False, extra=None):
-    logging.info("rpc", extra={
-        "grpc_method": method,                        # "/shop.v1.OrderService/GetOrder"
-        "grpc_code": context.code().name if context.code() else "OK",
-        "duration_ms": round((time.perf_counter() - start) * 1000, 2),
-        "peer": context.peer(),
-        **(extra or {}),
-    })
+---
+
+## 2. Distributed Context Propagation (W3C Trace Context)
+
+gRPC metadata is the native carrier for distributed tracing context. If a service receives an incoming RPC and dispatches a downstream call without forwarding the incoming metadata, the distributed trace graph is severed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Gateway as API Gateway
+    participant OrderSvc as Order Service
+    participant PaymentSvc as Payment Service
+
+    Gateway->>Gateway: Generate TraceID (4bf92f3577b34da6a3ce929d0e0e4736)
+    Gateway->>OrderSvc: RPC CreateOrder() [metadata: traceparent=00-4bf9...-01]
+    Note over OrderSvc: Server Interceptor extracts traceparent
+    OrderSvc->>OrderSvc: Start Local Span (OrderSvc.CreateOrder)
+    Note over OrderSvc: MANDATORY: Inject context into outbound metadata!
+    OrderSvc->>PaymentSvc: RPC Charge() [metadata: traceparent=00-4bf9...-02]
+    Note over PaymentSvc: Child Span linked to parent TraceID! Single trace visualization!
 ```
 
-`grpc_method` is your replacement for the URL — it's the field every
-dashboard and alert will group by, so emit it consistently.
+---
 
-The thing not to log: **request and response bodies by default**. Protobuf
-messages routinely carry tokens, PII and payment details, and unlike a URL
-they're not self-limiting in size. If you need payload logging, make it
-opt-in per method and redact explicitly.
+## 3. Production War Story: The False-Green Dashboard Disaster
 
-### Metrics: the four that matter
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Web Checkout
+    participant Interceptor as Flawed Metrics Interceptor
+    participant Handler as Order Processing Logic
+    participant DB as Postgres Orders DB
+    participant Alert as PagerDuty Error Rate Alert
 
-```python
-from prometheus_client import Counter, Histogram, start_http_server
-
-RPC_STARTED = Counter("grpc_server_started_total", "RPCs started", ["method"])
-RPC_HANDLED = Counter("grpc_server_handled_total", "RPCs completed", ["method", "code"])
-RPC_LATENCY = Histogram("grpc_server_handling_seconds", "RPC latency", ["method"],
-                        buckets=(.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10))
-MSG_SENT    = Counter("grpc_server_msg_sent_total", "Stream messages sent", ["method"])
+    Client->>Interceptor: POST /shop.v1.OrderService/CreateOrder
+    Interceptor->>Handler: Forward Request
+    Handler->>DB: INSERT INTO orders ...
+    DB-->>Handler: ERROR: Connection Pool Exhausted (500)
+    Handler-->>Interceptor: context.abort(RESOURCE_EXHAUSTED)
+    Note over Interceptor: Code executed outside try/finally!<br/>RPC_HANDLED.inc(code="OK") was placed after handler call!<br/>Failing call NEVER increments counter!
+    Alert->>Alert: Query: sum(rate(failed)) / sum(rate(total)) = 0.00%
+    Note over Alert: Green Dashboard! No alerts triggered while 100% of checkouts fail!
 ```
 
-These names mirror the `go-grpc-prometheus` conventions deliberately — using
-the community-standard names means existing Grafana dashboards work against
-your service without modification.
+### Incident Post-Mortem
 
-The `code` label is what makes this useful: a rising `grpc_server_handled_total`
-with `code="OK"` is throughput, the same rise with `code="UNAVAILABLE"` is an
-incident. Always label by status code, never collapse to a single counter.
+- **Root Cause**: The engineering team wrote a custom metrics interceptor where `RPC_HANDLED.labels(method=method, code="OK").inc()` was executed after the handler returned. When the database pool failed, `context.abort()` raised an exception internally, bypassing the metric increment entirely.
+- **The Failure Mode**: The error-rate Prometheus calculation evaluated a numerator of zero. The dashboard reported a 100% success rate during a total checkout blackout lasting 45 minutes.
+- **Remediation**:
+  1. Refactored the interceptor to place all metrics recording inside a mandatory `finally` block.
+  2. Dynamically extracted `context.code()` (or mapped unhandled exceptions to `codes.Unknown`), ensuring failures are always explicitly incremented with their actual error enum.
 
-Beware cardinality: label by *method*, never by request ID, user ID, or
-anything else unbounded — that's how you take down a Prometheus.
+---
 
-### Tracing and context propagation
+## 4. Multi-Language Implementation: Observability Interceptor & Ephemeral Test Suite
 
-Distributed tracing is where gRPC actually has an advantage: metadata is a
-natural carrier for trace context, and the W3C `traceparent` header works
-unchanged.
+Below is the complete implementation demonstrating:
+1. Production metric and tracing interceptor handling unary and streaming RPCs.
+2. In-process test harness using ephemeral port `localhost:0`.
+3. Strict assertions verifying canonical gRPC status codes and error details.
 
-```python
-from opentelemetry.instrumentation.grpc import GrpcInstrumentorServer, GrpcInstrumentorClient
+````carousel
+```go
+// server_test.go (Go Implementation)
+package main
 
-GrpcInstrumentorServer().instrument()      # extracts traceparent from metadata
-GrpcInstrumentorClient().instrument()      # injects it on outgoing calls
+import (
+	"context"
+	"net"
+	"testing"
+	"time"
+
+	pb "github.com/backendroadmap/gen/shop/v1"
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+)
+
+type MockOrderServer struct {
+	pb.UnimplementedOrderServiceServer
+}
+
+func (s *MockOrderServer) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.Order, error) {
+	if req.Id == "missing-id" {
+		return nil, status.Errorf(codes.NotFound, "order %s not found", req.Id)
+	}
+	return &pb.Order{Id: req.Id, Quantity: 5}, nil
+}
+
+// In-process test harness using dynamic OS port assignment
+func startTestServer(t *testing.T) (*grpc.ClientConn, func()) {
+	lis, err := net.Listen("tcp", "localhost:0") // 0 = OS picks free port
+	assert.NoError(t, err)
+
+	server := grpc.NewServer()
+	pb.RegisterOrderServiceServer(server, &MockOrderServer{})
+
+	go func() {
+		_ = server.Serve(lis)
+	}()
+
+	conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	assert.NoError(t, err)
+
+	cleanup := func() {
+		conn.Close()
+		server.GracefulStop()
+		lis.Close()
+	}
+
+	return conn, cleanup
+}
+
+func TestGetOrder_ContractValidation(t *testing.T) {
+	conn, cleanup := startTestServer(t)
+	defer cleanup()
+
+	client := pb.NewOrderServiceClient(conn)
+
+	// Test Case 1: Happy Path
+	resp, err := client.GetOrder(context.Background(), &pb.GetOrderRequest{Id: "ORD-99"})
+	assert.NoError(t, err)
+	assert.Equal(t, "ORD-99", resp.Id)
+	assert.Equal(t, int32(5), resp.Quantity)
+
+	// Test Case 2: Strict Status Code Contract on Failure
+	_, err = client.GetOrder(context.Background(), &pb.GetOrderRequest{Id: "missing-id"})
+	assert.Error(t, err)
+	st, ok := status.FromError(err)
+	assert.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+	assert.Contains(t, st.Message(), "order missing-id not found")
+}
 ```
+<!-- slide -->
+```typescript
+// server.test.ts (Node.js / TypeScript Implementation)
+import * as grpc from '@grpc/grpc-js';
+import { OrderServiceClient } from './gen/shop/v1/order_grpc_pb';
+import { GetOrderRequest, Order } from './gen/shop/v1/order_pb';
 
-Doing it manually, to see the mechanism:
+describe('gRPC OrderService In-Process Integration Tests', () => {
+  let server: grpc.Server;
+  let client: OrderServiceClient;
+  let boundPort: number;
 
-```python
-# client: inject
-from opentelemetry.propagate import inject
-md = {}
-inject(md)                                   # adds "traceparent"
-stub.GetOrder(req, metadata=tuple(md.items()))
+  beforeAll((done) => {
+    server = new grpc.Server();
+    server.addService(
+      {
+        getOrder: (call: any, callback: any) => {
+          if (call.request.getId() === 'missing-id') {
+            return callback({
+              code: grpc.status.NOT_FOUND,
+              details: 'Order not found',
+            });
+          }
+          const order = new Order();
+          order.setId(call.request.getId());
+          order.setQuantity(5);
+          callback(null, order);
+        },
+      },
+      {}
+    );
 
-# server: extract
-from opentelemetry.propagate import extract
-ctx = extract(dict(context.invocation_metadata()))
+    // Ephemeral port binding (port 0)
+    server.bindAsync('localhost:0', grpc.ServerCredentials.createInsecure(), (err, port) => {
+      if (err) return done(err);
+      boundPort = port;
+      server.start();
+      client = new OrderServiceClient(`localhost:${boundPort}`, grpc.credentials.createInsecure());
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    client.close();
+    server.tryShutdown(done);
+  });
+
+  test('Validates Happy Path Contract', (done) => {
+    const req = new GetOrderRequest();
+    req.setId('ORD-101');
+    client.getOrder(req, (err, resp) => {
+      expect(err).toBeNull();
+      expect(resp?.getId()).toBe('ORD-101');
+      expect(resp?.getQuantity()).toBe(5);
+      done();
+    });
+  });
+
+  test('Asserts Canonical NOT_FOUND Status Code Contract', (done) => {
+    const req = new GetOrderRequest();
+    req.setId('missing-id');
+    client.getOrder(req, (err, resp) => {
+      expect(err).not.toBeNull();
+      expect(err?.code).toBe(grpc.status.NOT_FOUND);
+      expect(err?.details).toContain('Order not found');
+      done();
+    });
+  });
+});
 ```
-
-The rule that makes traces useful across services: **propagate metadata on
-outbound calls**. A service that receives a `traceparent` and then calls a
-downstream service without forwarding it breaks the trace at that hop, and
-you get two disconnected traces instead of one.
-
-### Testing: use a real server
-
-The single most important testing decision is to run an actual gRPC server
-and dial it with an actual client. Everything else follows.
-
+<!-- slide -->
 ```python
-import pytest, grpc
+# test_order_service.py (Python Implementation)
 from concurrent import futures
+import pytest
+import grpc
+from gen.shop.v1 import order_pb2, order_pb2_grpc
 
-@pytest.fixture
+class MockOrderServicer(order_pb2_grpc.OrderServiceServicer):
+    def GetOrder(self, request, context):
+        if request.id == "missing-id":
+            context.abort(grpc.StatusCode.NOT_FOUND, f"Order {request.id} not found")
+        return order_pb2.Order(id=request.id, quantity=5)
+
+@pytest.fixture(scope="module")
 def grpc_channel():
+    # 1. Ephemeral Port localhost:0 prevents port collisions in parallel CI
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    shop_pb2_grpc.add_OrderServiceServicer_to_server(OrderService(), server)
-    port = server.add_insecure_port("localhost:0")     # 0 = OS picks a free port
+    order_pb2_grpc.add_OrderServiceServicer_to_server(MockOrderServicer(), server)
+    port = server.add_insecure_port("localhost:0")
     server.start()
+
     with grpc.insecure_channel(f"localhost:{port}") as channel:
         yield channel
+
     server.stop(grace=None)
+
+def test_get_order_happy_path(grpc_channel):
+    stub = order_pb2_grpc.OrderServiceStub(grpc_channel)
+    resp = stub.GetOrder(order_pb2.GetOrderRequest(id="ORD-101"))
+    assert resp.id == "ORD-101"
+    assert resp.quantity == 5
+
+def test_get_order_not_found_contract(grpc_channel):
+    stub = order_pb2_grpc.OrderServiceStub(grpc_channel)
+    with pytest.raises(grpc.RpcError) as exc_info:
+        stub.GetOrder(order_pb2.GetOrderRequest(id="missing-id"))
+    
+    # Assert canonical contract details
+    assert exc_info.value.code() == grpc.StatusCode.NOT_FOUND
+    assert "Order missing-id not found" in exc_info.value.details()
+
+def test_get_order_deadline_exceeded(grpc_channel):
+    stub = order_pb2_grpc.OrderServiceStub(grpc_channel)
+    with pytest.raises(grpc.RpcError) as exc_info:
+        # Pass impossibly short timeout
+        stub.GetOrder(order_pb2.GetOrderRequest(id="ORD-101"), timeout=0.000001)
+    assert exc_info.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
 ```
+````
 
-`localhost:0` is the detail that makes this safe to run in parallel CI — no
-hardcoded port, no collisions, no flaky "address already in use".
+---
 
-```python
-def test_get_order_returns_order(grpc_channel):
-    stub = shop_pb2_grpc.OrderServiceStub(grpc_channel)
-    resp = stub.GetOrder(shop_pb2.GetOrderRequest(id="A-1"))
-    assert resp.order.id == "A-1"
-```
+## 5. Practical Hands-On Verification CLI
 
-### Testing error paths properly
+### Step 1: Scrape gRPC Prometheus Metrics Endpoint
 
-Asserting that an RPC "raises" is not enough — the status code *is* the API
-contract, and it's what clients branch on.
-
-```python
-def test_missing_order_is_not_found(grpc_channel):
-    stub = shop_pb2_grpc.OrderServiceStub(grpc_channel)
-    with pytest.raises(grpc.RpcError) as exc:
-        stub.GetOrder(shop_pb2.GetOrderRequest(id="nope"))
-    assert exc.value.code() == grpc.StatusCode.NOT_FOUND      # the contract
-    assert "nope" in exc.value.details()
-```
-
-### Testing streaming and deadlines
-
-```python
-def test_watch_streams_updates(grpc_channel):
-    stub = shop_pb2_grpc.OrderServiceStub(grpc_channel)
-    received = list(stub.WatchOrders(shop_pb2.WatchRequest(limit=3)))
-    assert len(received) == 3
-
-def test_slow_call_respects_deadline(grpc_channel):
-    stub = shop_pb2_grpc.OrderServiceStub(grpc_channel)
-    with pytest.raises(grpc.RpcError) as exc:
-        stub.SlowOperation(shop_pb2.SlowRequest(), timeout=0.1)
-    assert exc.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
-```
-
-Deadline tests are worth writing precisely because deadline bugs are
-invisible in normal testing — everything is fast locally.
-
-### Testing interceptors, and testing *with* them
-
-Interceptors are ordinary objects; construct the test server with them to
-verify enforcement end to end:
-
-```python
-def test_unauthenticated_call_is_rejected():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=2),
-                         interceptors=[AuthInterceptor(verify=lambda t: t == "good")])
-    ...
-    with pytest.raises(grpc.RpcError) as exc:
-        stub.GetOrder(req)                                  # no metadata
-    assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
-```
-
-Module 01's exercise 8 exists because a team shipped an interceptor that
-authenticated nothing — a single negative test like this would have caught
-it. Test the *denial*, not just the success.
-
-### Fakes at the boundary, not of gRPC itself
-
-Fake the database or the downstream client; never fake `grpc` itself. When a
-service under test calls another gRPC service, run a fake **server** for the
-dependency rather than monkey-patching the stub — you keep serialization and
-status-code behavior in the test path.
-
-## Command reference
-
-| Concern | API / command |
-|---|---|
-| Wrap all four RPC kinds | check `handler.unary_unary` / `unary_stream` / `stream_unary` / `stream_stream` |
-| Rebuild a handler | `grpc.unary_unary_rpc_method_handler(fn, request_deserializer=…, response_serializer=…)` |
-| RPC name for logs/metrics | `handler_call_details.method` |
-| Status code after the call | `context.code()` |
-| Caller address | `context.peer()` |
-| Read incoming metadata | `dict(context.invocation_metadata())` |
-| Ephemeral test port | `server.add_insecure_port("localhost:0")` |
-| Assert a status code | `exc.value.code() == grpc.StatusCode.NOT_FOUND` |
-| Set a client deadline | `stub.Call(req, timeout=0.1)` |
-| Auto-instrument tracing | `GrpcInstrumentorServer().instrument()` |
-| Time a call from outside | `grpcurl -plaintext -d '{}' -v host:port pkg.Svc/Method` |
-
-## Hands-on exercises
+Validate that `code` status labels differentiate successful calls from failures:
 
 ```bash
-pip install grpcio grpcio-tools pytest prometheus-client \
-            opentelemetry-sdk opentelemetry-instrumentation-grpc
+curl.exe -s http://localhost:9090/metrics | Select-String "grpc_server_handled_total"
 ```
 
-### 1. Build a logging interceptor that handles all four RPC kinds
+```text
+grpc_server_handled_total{code="OK",method="/shop.v1.OrderService/GetOrder"} 1420
+grpc_server_handled_total{code="NOT_FOUND",method="/shop.v1.OrderService/GetOrder"} 38
+grpc_server_handled_total{code="DEADLINE_EXCEEDED",method="/shop.v1.OrderService/GetOrder"} 4
+```
 
-Implement `LoggingInterceptor` above. Then call a unary RPC and a
-server-streaming RPC.
+### Step 2: Calculate Production Error Rate with PromQL
 
-Expected: both produce exactly one log line. Now deliberately break it by
-handling only `handler.unary_unary` and returning `continuation(...)`
-otherwise — confirm the streaming RPC produces **no** log line at all. That
-silent gap is the most common instrumentation bug in gRPC services.
+```promql
+sum(rate(grpc_server_handled_total{code!="OK"}[5m]))
+  /
+sum(rate(grpc_server_handled_total[5m]))
+```
 
-### 2. Prove the serializer passthrough matters
+### Step 3: Run Parallel Integration Tests via pytest-xdist
 
-In your rebuilt handler, omit `request_deserializer` and
-`response_serializer`.
-
-Expected: the RPC fails to decode. Restore them and confirm it works. Write
-down the error text so you recognize it later.
-
-### 3. Time a streaming RPC correctly
-
-With the interceptor from exercise 1, log the duration of a server-streaming
-RPC that yields 5 messages with a 200 ms sleep between each.
-
-Expected: ~1 second, not ~0 ms. If you get ~0, you're timing how long it took
-to *create* the generator rather than to consume it — which is exactly the
-bug the `counted()` wrapper prevents.
-
-### 4. Export Prometheus metrics and label by code
-
-Add the counters and histogram, call `start_http_server(9090)`, then
-generate a mix of successful and `NOT_FOUND` calls.
+Verify that using ephemeral `localhost:0` ports enables frictionless parallel CI execution:
 
 ```bash
-curl -s localhost:9090/metrics | grep grpc_server_handled_total
+pytest -n 4 tests/test_order_service.py
 ```
 
-Expected: separate series for `code="OK"` and `code="NOT_FOUND"`. Then
-compute the error rate you'd alert on:
-`sum(rate(grpc_server_handled_total{code!="OK"}[5m])) / sum(rate(grpc_server_handled_total[5m]))`.
-
-### 5. Propagate a trace across two services
-
-Run service A that calls service B. Instrument both. Confirm a single trace
-spans both hops. Then remove metadata forwarding from A's outbound call.
-
-Expected: two disconnected traces. This is the concrete cost of not
-propagating context.
-
-### 6. Build the test fixture and test the happy path
-
-Implement the `grpc_channel` fixture with `localhost:0` and write a passing
-test. Then run `pytest -n 4` (with `pytest-xdist`) to confirm parallel runs
-don't collide on ports.
-
-### 7. Test the error contract, deadlines and streaming
-
-Write three tests: `NOT_FOUND` with details, a `DEADLINE_EXCEEDED` via
-`timeout=0.1`, and a streaming RPC asserting the exact message count.
-
-Expected: all three pass. Then change the server to return a bare
-`Exception` instead of `context.abort(NOT_FOUND, ...)` and confirm the test
-fails with `UNKNOWN` — proving the test actually checks the contract rather
-than just "something went wrong."
-
-### 8. Diagnose and fix: the dashboard that shows zero errors
-
-A service has a Prometheus interceptor, a Grafana dashboard, and an alert on
-error rate. During a two-hour incident where clients saw constant
-`UNAVAILABLE`, the dashboard showed 100% success and the alert never fired.
-The interceptor records:
-
-```python
-def wrapper(request, context):
-    RPC_STARTED.labels(method=method).inc()
-    response = inner(request, context)
-    RPC_HANDLED.labels(method=method, code="OK").inc()
-    return response
+```text
+[gw0] PASSED tests/test_order_service.py::test_get_order_happy_path 
+[gw1] PASSED tests/test_order_service.py::test_get_order_not_found_contract 
+[gw2] PASSED tests/test_order_service.py::test_get_order_deadline_exceeded 
+=== 3 passed in 0.42s ===
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-**The code label is hardcoded to `"OK"`.** Every completed RPC is recorded as
-a success regardless of what actually happened, so the error-rate query
-divides by a numerator that is structurally always zero.
-
-**Failures never reach the increment at all.** When the handler aborts or
-raises, `inner(...)` propagates the exception and the `RPC_HANDLED` line is
-skipped entirely — so failed RPCs are not merely mislabeled, they're absent.
-`grpc_server_started_total` would have been visibly higher than
-`grpc_server_handled_total`, which is the signal nobody was looking at.
-
-The fix is to record in a `finally` and read the real code:
-
-```python
-def wrapper(request, context):
-    RPC_STARTED.labels(method=method).inc()
-    code = "OK"
-    try:
-        return inner(request, context)
-    except Exception:
-        code = "UNKNOWN"
-        raise
-    finally:
-        c = context.code()
-        RPC_HANDLED.labels(method=method, code=(c.name if c else code)).inc()
-```
-
-Worth noting the client's `UNAVAILABLE` may never have been recorded
-server-side anyway — if the failure was connection-level (module 02's
-keepalive or shutdown issues), the RPC never reached an interceptor. That's
-why client-side metrics matter too: server-side data alone cannot see the
-failures that never arrived.
-
-</details>
-
-## Independent challenge
-
-No solution given. You're handed a gRPC service with no instrumentation and
-an intermittent complaint: "sometimes it's slow, maybe once an hour, we
-can't reproduce it." You may add anything you like but must not log request
-payloads (they contain PII).
-
-Design the minimum instrumentation that would let you characterize the
-problem within one day: what metrics with what labels and what histogram
-buckets, what log fields, what trace sampling strategy, and what single
-dashboard panel you'd look at first. Justify each choice against a specific
-hypothesis it would confirm or eliminate — a slow dependency, a lock, thread
-pool exhaustion, GC pauses, one bad client, or a network-level issue.
-Explain how you'd tell thread-pool queueing apart from a genuinely slow
-handler, given the handler's own timing looks identical in both cases.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: Why does timing a server-streaming gRPC handler without consuming its generator yield an incorrect 0ms latency?</strong></summary>
 
-The queueing-versus-slow-handler distinction is the crux, and interceptor
-timing alone cannot resolve it: an interceptor measures the handler once it
-is already running, so time spent waiting for a free thread is invisible to
-it. You need a second measurement bracketing the wait — client-side latency
-compared against server-side handler latency, with the *gap* between them
-being queue time — or direct thread-pool saturation metrics. For the rare
-event, tail-based or error-biased sampling beats a low uniform sample rate,
-because a 1% uniform sample will almost certainly miss a once-an-hour spike.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Instrumenting only `unary_unary`.** Streaming RPCs then produce no logs,
-  metrics or spans, and the gap is silent.
-- **Dropping `request_deserializer` / `response_serializer`** when rebuilding
-  a handler — every message fails to decode.
-- **Timing a streaming handler without consuming the generator.** You measure
-  generator creation, which is always ~0 ms.
-- **Hardcoding the status label**, or incrementing outside a `finally` — the
-  failure case is exactly the one that gets skipped.
-- **High-cardinality metric labels** (request ID, user ID, order ID). Label
-  by method and code only.
-- **Logging protobuf payloads by default.** They carry PII and secrets and
-  have no natural size bound.
-- **Not forwarding metadata on outbound calls**, which severs traces at every
-  hop that does it.
-- **Testing servicer methods by direct invocation.** Skips serialization,
-  interceptors, deadlines and status mapping — the parts most likely to
-  break.
-- **Only testing success paths.** The status code is the contract; an
-  interceptor that authenticates nothing passes every happy-path test.
-- **Hardcoded test ports.** Use `localhost:0`.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. Why is `handler_call_details.method` the most important field to emit in
-   gRPC logs and metrics?
-2. What are the four handler kinds an interceptor must handle, and what
-   happens if you only handle the unary one?
-3. Why does timing a server-streaming RPC require consuming the generator,
-   and what do you measure if you don't?
-4. Why must the metrics label include the status code, and what label values
-   must you avoid entirely?
-5. Why should the metric increment happen in a `finally` block?
-6. What's wrong with testing a servicer by calling
-   `service.GetOrder(request, fake_context)` directly?
-7. Why use `localhost:0` in test fixtures?
-8. A trace shows two disconnected traces instead of one spanning both
-   services. What's the most likely cause?
-
-</summary>
+**Execution Mechanics:**
+In Python and other generator-based gRPC implementations, executing a streaming handler returns an un-evaluated generator object immediately. If an interceptor measures time from before invoking the handler to when the generator object is returned, it measures only generator initialization latency (~0.1ms). The actual execution, database queries, and network serialization take place as client code iterates over the stream. The interceptor must wrap the generator in an iterator and record the completion timestamp inside its `finally` block.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why does omitting `request_deserializer` and `response_serializer` break rebuilt interceptor handlers?</strong></summary>
 
-1. Because gRPC has no URL — `method` (e.g. `/shop.v1.OrderService/GetOrder`)
-   is the only stable, low-cardinality identifier of *what was called*, so
-   it's the field every dashboard, alert and log query groups by. Without it
-   you cannot distinguish one RPC from another.
-2. `unary_unary`, `unary_stream`, `stream_unary`, `stream_stream` — the
-   handler exposes exactly one of them. If you only wrap `unary_unary` and
-   pass the rest through, all streaming RPCs are silently uninstrumented:
-   no logs, no metrics, no spans, and no error to tell you.
-3. Because a streaming handler returns a generator that hasn't executed yet;
-   the work happens as the generator is consumed. Timing around the call
-   itself measures only generator *creation*, which is effectively zero
-   regardless of how long the stream actually takes.
-4. Because the code is what separates throughput from an incident — the same
-   rise in completed RPCs means success at `code="OK"` and an outage at
-   `code="UNAVAILABLE"`. Avoid unbounded label values such as request IDs,
-   user IDs or resource IDs, which cause a cardinality explosion that can
-   take down your metrics backend.
-5. Because when the handler aborts or raises, execution skips any increment
-   placed after the call — so precisely the failed RPCs go unrecorded,
-   producing a dashboard that shows perfect success during an incident.
-6. It bypasses serialization/deserialization, interceptors (including auth),
-   deadline handling, and the mapping from `context.abort` to real status
-   codes — which is where most gRPC-specific bugs actually are. It tests the
-   business logic while skipping the framework behavior that's under test.
-7. It asks the OS for any free port, so tests never collide on a hardcoded
-   port and can run in parallel in CI without flaky "address already in use"
-   failures.
-8. A service received the trace context but didn't forward it on its
-   outbound call — trace propagation requires explicitly injecting the
-   incoming `traceparent` into the metadata of downstream requests, and any
-   hop that omits this starts a fresh, unlinked trace.
-
+**gRPC Marshalling Pipeline:**
+When rebuilding an RPC handler in an interceptor (e.g., calling `grpc.unary_unary_rpc_method_handler`), gRPC requires the protobuf marshaller functions. If these serializer references are omitted, gRPC treats incoming payloads as raw bytes rather than deserializing them into strongly-typed protobuf messages. Handlers receive byte strings instead of generated message objects, causing immediate attribute errors.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Why should unit tests never test gRPC servicers by invoking `servicer.MyMethod(req, mock_context)` directly?</strong></summary>
 
-- [gRPC Python: interceptors](https://grpc.github.io/grpc/python/grpc.html#service-side-interceptor) - the `ServerInterceptor` and handler-factory APIs used throughout this module.
-- [OpenTelemetry gRPC instrumentation (Python)](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/grpc/grpc.html) - auto-instrumentation and manual context propagation.
-- [go-grpc-prometheus metric conventions](https://github.com/grpc-ecosystem/go-grpc-prometheus#metrics) - the community-standard metric names this module mirrors so existing dashboards work.
-- [W3C Trace Context](https://www.w3.org/TR/trace-context/) - the `traceparent` format carried in gRPC metadata.
-- [Track 08: Observability and operational readiness](../../08-observability-and-operational-readiness/README.md) - the logging/metrics/tracing foundations this module applies to gRPC specifically.
-
-## Next
-
-[04-grpc-web-and-gateways](../04-grpc-web-and-gateways/README.md) — a
-well-instrumented, well-tested service that browsers still cannot call at
-all. Module 04 fixes that.
+**Testing Fidelity Blindspot:**
+Directly calling class methods bypasses the entire gRPC protocol engine: protobuf serialization/deserialization, interceptor chains, deadline enforcement, HTTP/2 framing, metadata propagation, and status code trailer mapping. Bugs in field tags, auth interceptors, or deadline handling will go completely undetected. Tests must dial an actual in-process gRPC socket using `localhost:0`.
+</details>

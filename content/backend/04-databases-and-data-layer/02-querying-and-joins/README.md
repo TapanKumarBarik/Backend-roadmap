@@ -1,553 +1,363 @@
-# Module 02: Querying and Joins
+# Querying and Joins: Relational Algebra & Query Execution Order
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** SQL is written declaratively, but executed procedurally. Always understand the **Logical Query Processing Order** (`FROM` $\rightarrow$ `JOIN` $\rightarrow$ `WHERE` $\rightarrow$ `GROUP BY` $\rightarrow$ `HAVING` $\rightarrow$ `SELECT` $\rightarrow$ `ORDER BY` $\rightarrow$ `LIMIT`). Never put right-table filters in the `WHERE` clause of a `LEFT JOIN` unless you intend to convert it into an `INNER JOIN`, and always watch for **row multiplication** distorting aggregates.
 
-The single feature that justifies a relational database over a pile of
-key-value lookups is the **join**: the ability to combine rows from multiple
-tables on the fly, at query time, without pre-stitching them. In module 00 you
-saw one line — `JOIN customers ON ...` — do work that a document or key-value
-store makes you do by hand in application code. This module is where joins stop
-being magic.
+---
 
-Joins are also where correctness quietly goes wrong. Every join type produces a
-*different* result set, and picking the wrong one doesn't throw an error — it
-returns a plausible-looking answer that's subtly incorrect. Use an `INNER JOIN`
-where you needed a `LEFT JOIN` and customers with zero orders silently vanish
-from your "customers and their order counts" report. Nobody notices until
-finance asks why the numbers don't add up. Beyond join *type*, there's the
-question of join *versus* the alternatives — subqueries and CTEs often express
-the same intent, sometimes more clearly and sometimes much faster. Getting
-fluent here is the difference between fighting your data and asking it precise
-questions. This is the module you'll lean on hardest in day-to-day backend
-work.
+## 1. Visual Mental Model: The Logical SQL Execution Pipeline
 
-## Concepts
+The database engine processes SQL clauses in a strict mathematical sequence that differs fundamentally from how the query is written:
 
-### The shape of a SELECT, and the order it really runs
+```mermaid
+flowchart TD
+    Step1["1. FROM & JOIN\nIdentify source tables & apply ON conditions\n(Computes Cartesian product filtered by ON)"] --> Step2["2. WHERE\nFilter rows prior to aggregation\n(Aliases from SELECT not visible yet)"]
+    Step2 --> Step3["3. GROUP BY\nCollapse individual rows into summary buckets"]
+    Step3 --> Step4["4. HAVING\nFilter groups using aggregate functions (e.g. COUNT > 5)"]
+    Step4 --> Step5["5. SELECT & Window Functions\nEvaluate expressions, column projections, and aliases"]
+    Step5 --> Step6["6. DISTINCT\nEliminate duplicate row sets"]
+    Step6 --> Step7["7. ORDER BY\nSort resulting rows (SELECT aliases ARE visible here)"]
+    Step7 --> Step8["8. LIMIT / OFFSET\nSlice final pagination window"]
 
-A query is written in one order and *executed* in another. Knowing the
-execution order explains a lot of confusing behaviour:
+    classDef stage fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef final fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
 
-```sql
-SELECT   c.name, count(o.id) AS orders        -- 5. SELECT (compute output columns)
-FROM     customers c                           -- 1. FROM  (choose/join tables)
-JOIN     orders o ON o.customer_id = c.id      -- 1. (join is part of FROM)
-WHERE    c.created_at > '2026-01-01'           -- 2. WHERE (filter rows, pre-grouping)
-GROUP BY c.name                                -- 3. GROUP BY (collapse into groups)
-HAVING   count(o.id) > 2                        -- 4. HAVING (filter groups)
-ORDER BY orders DESC                            -- 6. ORDER BY
-LIMIT    10;                                     -- 7. LIMIT
+    class Step1,Step2,Step3,Step4,Step5,Step6,Step7 stage;
+    class Step8 final;
 ```
 
-The practical payoffs of the execution order: (1) `WHERE` filters individual
-rows *before* grouping and cannot reference aggregate functions — that's what
-`HAVING` is for (it filters *after* grouping). (2) You can't use a `SELECT`
-alias like `orders` in `WHERE` (the alias doesn't exist yet at step 2) but you
-*can* in `ORDER BY` (step 6, after `SELECT`). (3) An aggregate like `count()`
-only makes sense once rows are grouped.
+---
 
-### What a join actually is: a filtered cross product
+## 2. Relational Join Taxonomy & Behavior
 
-Under the hood, a join conceptually pairs every row of the left table with
-every row of the right table (the **cross product**), then keeps only the pairs
-where the `ON` condition is true. That mental model explains both the results
-and the classic bug of **row multiplication**: if one customer matches three
-orders, that customer's row appears three times in the output — once per
-matching order. If you then `sum(order_total)` you get the right answer, but if
-you `sum(customer.credit_limit)` you've triple-counted the credit limit. Joins
-change the *grain* (the "one row means one what?") of your result, and you must
-track that grain.
-
-### The five join types, and when each is wrong
-
-Given `customers` (some have orders, some don't) and `orders` (all reference a
-real customer here, but imagine some pointed at deleted customers):
-
-**`INNER JOIN`** — keep only rows that match on *both* sides. Customers with no
-orders disappear; orders with no matching customer disappear.
-
-```sql
-SELECT c.name, o.id
-FROM   customers c
-INNER JOIN orders o ON o.customer_id = c.id;
--- A customer who never ordered is simply absent from this result.
 ```
-*Wrong when:* you asked "list every customer and how many orders they have" —
-inner join drops the zero-order customers and understates your customer count.
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Relational Join Types                           │
+├─────────────────────┬──────────────────────────────────────────────────┤
+│ Join Type           │ Behavior & Result Grain                          │
+├─────────────────────┼──────────────────────────────────────────────────┤
+│ INNER JOIN          │ Returns only rows with a match in BOTH tables    │
+│ LEFT (OUTER) JOIN   │ Returns ALL rows from left, nulls for missing    │
+│ RIGHT (OUTER) JOIN  │ Returns ALL rows from right, nulls for missing   │
+│ FULL (OUTER) JOIN   │ Returns all rows from both tables, with nulls    │
+│ CROSS JOIN          │ Unconditional Cartesian product (L * R rows)     │
+│ LATERAL JOIN        │ Subquery evaluated per left row (correlated loop)│
+└─────────────────────┴──────────────────────────────────────────────────┘
+```
 
-**`LEFT [OUTER] JOIN`** — keep *all* rows from the left table; for left rows
-with no right match, the right-side columns come back `NULL`.
+### The Critical Trap: `ON` vs `WHERE` in a `LEFT JOIN`
 
 ```sql
-SELECT c.name, count(o.id) AS order_count
-FROM   customers c
+-- TRAP: Moving right-table condition into WHERE converts LEFT JOIN into INNER JOIN!
+SELECT c.name, o.id, o.status
+FROM customers c
 LEFT JOIN orders o ON o.customer_id = c.id
-GROUP BY c.name;
--- Zero-order customers appear with order_count = 0. This is the correct
--- query for "every customer and their order count".
-```
-*Wrong when:* you actually only wanted customers who *have* ordered — then the
-`NULL` rows are noise and you wanted an inner join. Also a classic trap: putting
-a condition on the right table in `WHERE` instead of `ON` silently turns a left
-join back into an inner join (see exercise 8).
+WHERE o.status = 'COMPLETED';  -- BUG: Eliminates customers with ZERO orders!
 
-**`RIGHT [OUTER] JOIN`** — the mirror image: keep all rows from the *right*
-table. Rarely used in practice, because you can always rewrite it as a `LEFT
-JOIN` by swapping the table order, and left joins read more naturally. Seeing a
-`RIGHT JOIN` in real code is usually a smell that the query grew awkwardly.
-
-**`FULL [OUTER] JOIN`** — keep all rows from *both* sides; unmatched rows on
-either side get `NULL`s for the other side's columns. Useful for reconciliation:
-"show me everything in A, everything in B, and where they line up." E.g.
-comparing two snapshots to find rows present in one but not the other.
-
-**`CROSS JOIN`** — the raw cross product with no `ON` condition: every left row
-paired with every right row. Deliberately used to generate combinations (every
-product × every warehouse, to build an inventory grid). *Accidentally* produced
-when you forget a join condition — which is how a query that should return
-1,000 rows returns 1,000,000 and hangs. If a join result is suspiciously huge,
-suspect an accidental cross join (a missing or wrong `ON`).
-
-Which rows survive, as sets (L = left/customers, R = right/orders):
-
-```
-  INNER          LEFT           RIGHT          FULL
-   L   R          L   R          L   R          L   R
-  ( (███) )      (███(███) )    ( (███)███)    (███(███)███)
-   only the      all L +        all R +        all L + all R,
-   matches       matched R      matched L      matched where they line up
-                 (unmatched R-cols = NULL, and vice-versa)
+-- CORRECT: Keep filter in the ON clause to preserve customers without completed orders
+SELECT c.name, o.id, o.status
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'COMPLETED';
 ```
 
-### Subqueries vs joins vs CTEs — three ways to say similar things
+---
 
-Often you can express the same question three ways. They're not always
-interchangeable in performance, but they're a vocabulary you must have.
+## 3. Production War Story: The Row Multiplication Billing Disaster
 
-```
-  "customers with a big order" — same intent, three shapes:
-
-  Subquery   SELECT * FROM customers
-             WHERE id IN ( ─────────────┐  nested set, filter the outer rows
-                           SELECT ... )─┘
-
-  Join       customers ──┐
-                          ├─► matched rows ─► GROUP BY   pull columns from both
-             orders ─────┘
-
-  CTE        WITH big_orders AS ( ... )  ─► name a stage, then query it
-             SELECT ... FROM customers JOIN big_orders ...   reads top-down
-```
-
-
-**Subquery** (a query nested inside another). Handy for "filter by a set" or
-"compute a scalar":
+### The Incident
+A SaaS accounting platform generated end-of-month invoice summaries for corporate clients. A backend developer wrote a query to compute total billable subscription revenue and total hours of customer support usage:
 
 ```sql
--- customers who have at least one order over 1000 cents
-SELECT * FROM customers
-WHERE id IN (SELECT customer_id FROM orders WHERE total_cents > 1000);
+SELECT 
+    c.id, 
+    c.name, 
+    SUM(s.monthly_price_cents) AS total_subscription_revenue,
+    SUM(t.logged_hours) AS total_support_hours
+FROM customers c
+LEFT JOIN subscriptions s ON s.customer_id = c.id
+LEFT JOIN support_tickets t ON t.customer_id = c.id
+GROUP BY c.id, c.name;
 ```
 
-A **correlated** subquery references the outer row and runs (conceptually) once
-per outer row — powerful but a common performance trap when it hides an N+1
-pattern inside SQL:
+A customer had 3 active subscriptions and 4 support tickets. 
+1. Joining `subscriptions` produced 3 rows.
+2. Joining `support_tickets` multiplied those 3 rows by 4 tickets, resulting in **12 rows** for that single customer!
+3. `SUM(monthly_price_cents)` summed the subscription prices 4 times instead of once.
+4. `SUM(logged_hours)` summed the ticket hours 3 times instead of once.
+5. Invoices were sent to 1,400 customers overbilling them by \$1,200,000, triggering an emergency weekend billing freeze.
 
-```sql
-SELECT c.name,
-       (SELECT count(*) FROM orders o WHERE o.customer_id = c.id) AS order_count
-FROM   customers c;
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Backend Reporting Query
+    participant DB as Postgres Engine
+
+    Note over DB: Customer 1 has 3 Subscriptions ($100 each) and 4 Tickets (2h each)
+    Dev->>DB: Execute naive double LEFT JOIN query
+    Note over DB: Join 1: 1 Customer x 3 Subscriptions = 3 intermediate rows<br/>Join 2: 3 rows x 4 Tickets = 12 Cartesian rows!
+    Note over DB: SUM(monthly_price) evaluates over 12 rows -> $1,200!<br/>Actual subscription cost was $300!
+    DB-->>Dev: Overbilled by 400%!
 ```
 
-**Join** — usually the right tool when you need *columns* from both tables, and
-often the planner's most optimizable form:
+### The Root Cause
+**Row Multiplication across Independent One-to-Many Relationships:** Joining multiple child tables (`1:N` subscriptions and `1:N` tickets) creates a Cartesian product between the children, corrupting sum aggregates.
 
+### The Verified Fix
+- **Aggregate in Separate Common Table Expressions (CTEs):** Pre-aggregate each child table before joining:
 ```sql
-SELECT c.name, count(o.id) AS order_count
-FROM   customers c LEFT JOIN orders o ON o.customer_id = c.id
-GROUP  BY c.name;
-```
-
-**CTE (Common Table Expression)** — a `WITH` clause naming a subquery, so you
-can reference it by name and build a query in readable stages:
-
-```sql
-WITH big_orders AS (
-    SELECT customer_id, count(*) AS n
-    FROM   orders
-    WHERE  total_cents > 1000
-    GROUP  BY customer_id
+WITH sub_totals AS (
+    SELECT customer_id, SUM(monthly_price_cents) AS total_subscription_revenue
+    FROM subscriptions
+    GROUP BY customer_id
+),
+ticket_totals AS (
+    SELECT customer_id, SUM(logged_hours) AS total_support_hours
+    FROM support_tickets
+    GROUP BY customer_id
 )
-SELECT c.name, b.n
-FROM   customers c
-JOIN   big_orders b ON b.customer_id = c.id;
+SELECT 
+    c.id, 
+    c.name, 
+    COALESCE(s.total_subscription_revenue, 0) AS total_revenue,
+    COALESCE(t.total_support_hours, 0) AS total_hours
+FROM customers c
+LEFT JOIN sub_totals s ON s.customer_id = c.id
+LEFT JOIN ticket_totals t ON t.customer_id = c.id;
 ```
 
-CTEs shine for readability and for **recursive** queries (walking a tree/graph,
-e.g. an org chart or category hierarchy — `WITH RECURSIVE`). A historical note
-worth knowing: in older Postgres (before 12) CTEs were an **optimization fence**
-— the planner always materialized them, which could be slower than an
-equivalent subquery. Postgres 12+ can inline non-recursive CTEs, so the gap
-mostly closed, but you may still see `MATERIALIZED` / `NOT MATERIALIZED` hints
-used to control it.
+---
 
-### Aggregation and NULL — the two things that trip everyone
+## 4. Multi-Language Production Implementation
 
-Two behaviours cause more wrong query results than anything else:
+### Go: Advanced Query with CTE Pre-Aggregation
 
-- **`NULL` is not a value; it's "unknown."** `NULL = NULL` is *not* true — it's
-  `NULL`. So `WHERE x = NULL` never matches anything; you must write `WHERE x IS
-  NULL`. And `count(column)` skips `NULL`s while `count(*)` counts rows
-  regardless — which is exactly why `LEFT JOIN ... count(o.id)` correctly gives
-  0 for a customer with no orders (the `NULL` order id isn't counted) rather
-  than 1.
-- **`GROUP BY` requires discipline.** Every column in `SELECT` that isn't inside
-  an aggregate must appear in `GROUP BY` (Postgres enforces this and errors
-  otherwise — a good thing; some databases silently pick a random value). Filter
-  rows with `WHERE` (before grouping) and filter groups with `HAVING` (after).
+```go
+package main
 
-## Command reference
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
 
-| Clause / operator | Purpose | Example |
-|---|---|---|
-| `INNER JOIN ... ON` | Rows matching on both sides | `FROM a JOIN b ON b.a_id = a.id` |
-| `LEFT JOIN ... ON` | All left rows; NULLs for unmatched right | `FROM a LEFT JOIN b ON ...` |
-| `RIGHT JOIN ... ON` | All right rows (prefer rewriting as LEFT) | `FROM a RIGHT JOIN b ON ...` |
-| `FULL JOIN ... ON` | All rows from both; NULLs for unmatched | reconciliation |
-| `CROSS JOIN` | Cartesian product (all combinations) | `FROM products CROSS JOIN warehouses` |
-| `WHERE` | Filter individual rows before grouping | `WHERE total_cents > 100` |
-| `GROUP BY` | Collapse rows into groups | `GROUP BY customer_id` |
-| `HAVING` | Filter groups after aggregation | `HAVING count(*) > 2` |
-| `count(*)` / `count(col)` | Count rows / count non-NULL values | see NULL note above |
-| `sum/avg/min/max` | Aggregate over a group | `sum(total_cents)` |
-| `x IS NULL` / `IS NOT NULL` | Correct NULL test (never `= NULL`) | `WHERE deleted_at IS NULL` |
-| `WITH name AS (...)` | Common table expression | see CTE example |
-| `EXISTS (subquery)` | True if subquery returns any row | `WHERE EXISTS (SELECT 1 FROM ...)` |
-| `IN (subquery)` | Membership test against a set | `WHERE id IN (SELECT ...)` |
-| `COALESCE(a, b)` | First non-NULL (great after LEFT JOIN) | `COALESCE(order_count, 0)` |
+	_ "github.com/lib/pq"
+)
 
-Running a query from Python with SQLAlchemy Core (results as rows):
+type CustomerBillingSummary struct {
+	CustomerID      int64  `json:"customer_id"`
+	CustomerName    string `json:"customer_name"`
+	RevenueCents    int64  `json:"revenue_cents"`
+	SupportHours    int64  `json:"support_hours"`
+}
+
+type BillingRepository struct {
+	db *sql.DB
+}
+
+// GetBillingSummaries uses CTEs to prevent row multiplication bugs
+func (r *BillingRepository) GetBillingSummaries(ctx context.Context, tenantID string) ([]CustomerBillingSummary, error) {
+	query := `
+		WITH sub_totals AS (
+			SELECT customer_id, SUM(monthly_price_cents) AS total_revenue
+			FROM subscriptions
+			WHERE tenant_id = $1
+			GROUP BY customer_id
+		),
+		ticket_totals AS (
+			SELECT customer_id, SUM(logged_hours) AS total_hours
+			FROM support_tickets
+			WHERE tenant_id = $1
+			GROUP BY customer_id
+		)
+		SELECT 
+			c.id, 
+			c.name, 
+			COALESCE(s.total_revenue, 0) AS revenue_cents,
+			COALESCE(t.total_hours, 0) AS support_hours
+		FROM customers c
+		LEFT JOIN sub_totals s ON s.customer_id = c.id
+		LEFT JOIN ticket_totals t ON t.customer_id = c.id
+		WHERE c.tenant_id = $1
+		ORDER BY revenue_cents DESC
+		LIMIT 50;
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []CustomerBillingSummary
+	for rows.Next() {
+		var s CustomerBillingSummary
+		if err := rows.Scan(&s.CustomerID, &s.CustomerName, &s.RevenueCents, &s.SupportHours); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+
+	return summaries, nil
+}
+```
+
+---
+
+### Node.js (TypeScript): Window Functions & Subquery Joins
+
+```typescript
+import { Pool } from 'pg';
+
+export interface TopSpender {
+  customerId: number;
+  customerName: string;
+  orderTotalCents: number;
+  rank: number;
+}
+
+export class AnalyticsService {
+  constructor(private pool: Pool) {}
+
+  // Demonstrates Window Function: DENSE_RANK() OVER (ORDER BY ...)
+  async getTopSpendersByQuarter(tenantId: string): Promise<TopSpender[]> {
+    const query = `
+      SELECT 
+        c.id AS "customerId",
+        c.name AS "customerName",
+        SUM(o.total_cents) AS "orderTotalCents",
+        DENSE_RANK() OVER (ORDER BY SUM(o.total_cents) DESC) AS "rank"
+      FROM customers c
+      JOIN orders o ON o.customer_id = c.id
+      WHERE c.tenant_id = $1 AND o.status = 'COMPLETED'
+      GROUP BY c.id, c.name
+      LIMIT 10;
+    `;
+
+    const result = await this.pool.query(query, [tenantId]);
+    return result.rows;
+  }
+}
+```
+
+---
+
+### Python: FastAPI Correlated Lateral Join
 
 ```python
-from sqlalchemy import create_engine, text
-engine = create_engine("postgresql+psycopg://postgres:devpass@localhost:5432/shop")
+import asyncpg
+from typing import List
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-with engine.connect() as conn:
-    rows = conn.execute(text("""
-        SELECT c.name, count(o.id) AS order_count
-        FROM   customers c
-        LEFT JOIN orders o ON o.customer_id = c.id
-        GROUP  BY c.name
-        ORDER  BY order_count DESC
-    """)).all()
-    for name, order_count in rows:
-        print(name, order_count)
+app = FastAPI(title="Relational Query Engine")
+db_pool: asyncpg.Pool = None
+
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    db_pool = await asyncpg.create_pool("postgresql://postgres:pass@localhost:5432/app_db")
+
+class CustomerRecentOrder(BaseModel):
+    customer_id: int
+    customer_name: str
+    latest_order_id: int
+    latest_order_cents: int
+
+@app.get("/v1/customers/latest-orders", response_model=List[CustomerRecentOrder])
+async def get_latest_orders_per_customer():
+    # LATERAL JOIN allows subquery to reference outer table row (c.id) for Top-N per group
+    query = """
+        SELECT 
+            c.id AS customer_id,
+            c.name AS customer_name,
+            latest.id AS latest_order_id,
+            latest.total_cents AS latest_order_cents
+        FROM customers c
+        LEFT JOIN LATERAL (
+            SELECT id, total_cents 
+            FROM orders o 
+            WHERE o.customer_id = c.id 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        ) latest ON true
+        LIMIT 20;
+    """
+    async with db_pool.acquire() as conn:
+        records = await conn.fetch(query)
+        return [dict(r) for r in records]
 ```
 
-## Hands-on exercises
+---
 
-Reuse the `pg-data` container. Start from a clean, richer dataset so the join
-differences are visible.
+## 5. Practical Hands-On Verification Matrix
 
-### 1. Seed a dataset with deliberate gaps
+### Step 1: Run Correlated Aggregation Query
+```bash
+curl.exe -i http://localhost:8000/v1/customers/latest-orders
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-```sql
-DROP TABLE IF EXISTS orders, customers CASCADE;
-CREATE TABLE customers (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE orders (
-    id BIGSERIAL PRIMARY KEY,
-    customer_id BIGINT REFERENCES customers(id),
-    total_cents INTEGER NOT NULL
-);
-INSERT INTO customers (name) VALUES ('Ada'), ('Grace'), ('Linus'), ('Zoe');
--- Ada (1) has 3 orders, Grace (2) has 1, Linus (3) and Zoe (4) have NONE
-INSERT INTO orders (customer_id, total_cents) VALUES
-  (1, 500), (1, 1500), (1, 300), (2, 2000);
+[
+  {
+    "customer_id": 1,
+    "customer_name": "Globex Corp",
+    "latest_order_id": 9812,
+    "latest_order_cents": 45000
+  }
+]
 ```
 
-Expected: 4 customers, 4 orders, and importantly two customers with zero
-orders. That gap is what makes inner vs left visible.
+---
 
-### 2. INNER JOIN — see who disappears
-
-```sql
-SELECT c.name, o.total_cents
-FROM   customers c
-INNER JOIN orders o ON o.customer_id = c.id
-ORDER BY c.name;
-```
-
-Expected: rows for Ada (3 of them) and Grace (1). **Linus and Zoe are absent** —
-they have no orders, so the inner join drops them. Note Ada appears 3 times:
-the grain is now "one row per order," not "per customer."
-
-### 3. LEFT JOIN — keep everyone
-
-```sql
-SELECT c.name, o.total_cents
-FROM   customers c
-LEFT JOIN orders o ON o.customer_id = c.id
-ORDER BY c.name;
-```
-
-Expected: Ada (3 rows), Grace (1), and now **Linus and Zoe each appear once
-with `total_cents` = NULL**. The left join preserved the zero-order customers.
-
-### 4. The correct "customers and their order counts" report
-
-```sql
-SELECT c.name,
-       count(o.id)              AS order_count,
-       COALESCE(sum(o.total_cents), 0) AS total_spent
-FROM   customers c
-LEFT JOIN orders o ON o.customer_id = c.id
-GROUP  BY c.name
-ORDER  BY total_spent DESC;
-```
-
-Expected: Ada 3 / 2300, Grace 1 / 2000, Linus 0 / 0, Zoe 0 / 0. Notice
-`count(o.id)` correctly yields 0 (not 1) for Linus/Zoe because it ignores the
-NULL, and `COALESCE` turns the NULL sum into 0. Re-run it with `INNER JOIN` and
-watch Linus and Zoe vanish — the exact bug this module warns about.
-
-### 5. HAVING vs WHERE
-
-```sql
--- WHERE filters rows (pre-group); HAVING filters groups (post-aggregate)
-SELECT c.name, count(o.id) AS n
-FROM   customers c
-LEFT JOIN orders o ON o.customer_id = c.id
-WHERE  o.total_cents >= 500 OR o.total_cents IS NULL  -- keep the NULL (no-order) rows
-GROUP  BY c.name
-HAVING count(o.id) >= 2;
-```
-
-Expected: only Ada (she has ≥2 orders of ≥500). Try moving the `HAVING`
-condition into `WHERE` — Postgres errors, because `count()` can't be used in
-`WHERE`. That error *is* the execution-order lesson.
-
-### 6. Three ways to answer one question
-
-Write "customers who have at least one order over 1000 cents" as (a) a subquery
-with `IN`, (b) a join with `DISTINCT`, and (c) an `EXISTS` subquery. Confirm all
-three return the same customers (Ada and Grace).
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>One solution set</summary>
+<summary><b>Checkpoint 1: The WHERE vs HAVING Filter Execution Trap</b></summary>
 
-```sql
--- (a) IN subquery
-SELECT * FROM customers
-WHERE id IN (SELECT customer_id FROM orders WHERE total_cents > 1000);
+**Scenario:** A developer writes:
+`SELECT category, COUNT(*) FROM products WHERE COUNT(*) > 10 GROUP BY category;`
+PostgreSQL rejects the query with: `ERROR: aggregate functions are not allowed in WHERE`. Why?
 
--- (b) join + DISTINCT
-SELECT DISTINCT c.* FROM customers c
-JOIN orders o ON o.customer_id = c.id AND o.total_cents > 1000;
-
--- (c) EXISTS (often the planner's favourite for "does any match exist")
-SELECT * FROM customers c
-WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.total_cents > 1000);
-```
-
+**Correct Analysis:** Under the Logical Query Execution Order, `WHERE` executes in Step 2, *before* rows are collapsed into groups in Step 3. At Step 2, `COUNT(*)` does not exist because grouping has not yet occurred. The aggregate filter must be placed in the `HAVING` clause (`HAVING COUNT(*) > 10`), which executes in Step 4 *after* grouping.
 </details>
-
-### 7. A CTE that reads in stages
-
-```sql
-WITH per_customer AS (
-    SELECT customer_id, count(*) AS n, sum(total_cents) AS spent
-    FROM   orders
-    GROUP  BY customer_id
-)
-SELECT c.name, pc.n, pc.spent
-FROM   customers c
-JOIN   per_customer pc ON pc.customer_id = c.id
-ORDER  BY pc.spent DESC;
-```
-
-Expected: Ada and Grace with their counts/totals (Linus/Zoe absent because the
-CTE only contains customers who appear in `orders`, and we used an inner join).
-Note how the CTE names the "orders rolled up per customer" idea so the final
-query reads cleanly.
-
-### 8. Diagnose and fix: the LEFT JOIN that isn't
-
-A colleague wants "every customer, plus their orders over 1000 cents (customers
-with none should still show, with NULLs)." They wrote:
-
-```sql
-SELECT c.name, o.total_cents
-FROM   customers c
-LEFT JOIN orders o ON o.customer_id = c.id
-WHERE  o.total_cents > 1000;
-```
-
-They're confused: Linus and Zoe (zero orders) have disappeared, and so has one
-of Ada's rows. Explain what went wrong and fix it.
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 2: The Cartesian Product Memory Exhaustion</b></summary>
 
-The `WHERE o.total_cents > 1000` runs *after* the left join and filters out
-every row where `o.total_cents` is NULL — which is exactly the "no matching
-order" rows the left join was supposed to preserve. So the left join silently
-collapses back into an inner join, and Ada's sub-1000 order is dropped too. The
-rule: **conditions on the right (optional) table of a left join belong in the
-`ON` clause, not `WHERE`.** Fix:
+**Scenario:** A developer executes: `SELECT * FROM users, orders;` omitting the `ON users.id = orders.user_id` join condition. If `users` has 50,000 rows and `orders` has 200,000 rows, what happens to the database?
 
-```sql
-SELECT c.name, o.total_cents
-FROM   customers c
-LEFT JOIN orders o
-       ON o.customer_id = c.id AND o.total_cents > 1000;
-```
-
-Now the extra condition restricts *which orders match* during the join, but
-non-matching customers are still kept with NULLs. This is one of the most
-common real SQL bugs.
-
+**Correct Analysis:** An accidental `CROSS JOIN` (Cartesian Product) produces:
+$$50,000 \times 200,000 = 10,000,000,000 \text{ rows}$$
+Evaluating 10 billion rows causes massive disk spilling to `pgsql_tmp`, saturating disk I/O, exhausting temporary tablespace storage, and locking worker processes until the query times out or the server crashes from out-of-memory.
 </details>
-
-### 9. Diagnose and fix: the accidental cross join
-
-```sql
--- intended: each order with its customer's name
-SELECT c.name, o.id, o.total_cents
-FROM   customers c, orders o;      -- old-style comma join, no condition!
-```
-
-Run it and count the rows.
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 3: The NULL Comparison Trap in NOT IN Subqueries</b></summary>
 
-The comma-style `FROM customers, orders` with no `WHERE`/`ON` condition is a
-**cross join**: every customer paired with every order (4 × 4 = 16 rows here,
-but millions on real tables — a query that hangs). The fix is to add the join
-condition, and prefer explicit `JOIN ... ON` syntax which makes a forgotten
-condition a visible mistake:
+**Scenario:** An application queries: `SELECT * FROM customers WHERE id NOT IN (SELECT customer_id FROM blacklisted_users)`. If a single row in `blacklisted_users` has `customer_id IS NULL`, the entire query returns 0 rows, even though valid customers exist. Why?
 
-```sql
-SELECT c.name, o.id, o.total_cents
-FROM   customers c
-JOIN   orders o ON o.customer_id = c.id;
-```
-
-Whenever a result set is astronomically larger than expected, suspect a missing
-join condition producing a cross product.
-
+**Correct Analysis:** Three-Valued Logic in SQL (TRUE, FALSE, UNKNOWN). In SQL, `id NOT IN (1, 2, NULL)` is mathematically equivalent to:
+$$\text{id} \ne 1 \text{ AND } \text{id} \ne 2 \text{ AND } \text{id} \ne \text{NULL}$$
+Because any equality comparison with `NULL` yields `UNKNOWN`, the boolean `AND` chain evaluates to `UNKNOWN` or `FALSE` for every single row. To prevent this bug, either filter out nulls (`WHERE customer_id IS NOT NULL`) or use `NOT EXISTS (SELECT 1 FROM blacklisted_users b WHERE b.customer_id = customers.id)`.
 </details>
 
-## Independent challenge
+---
 
-No SQL given. Add a third table `products (id, name, price_cents)` and a
-join table `order_items (order_id, product_id, quantity)` linking orders to
-products (a many-to-many). Seed a handful of rows, then write queries answering:
-(1) every product and the total quantity ever sold of it, *including products
-that have never sold* (they must appear with 0); (2) the single highest-spending
-customer and how much they spent, computed across `order_items` (watch the join
-grain — you're now joining three tables and it's easy to multiply rows); and (3)
-using a CTE, revenue per customer, then only the customers whose revenue is
-above the average customer revenue.
+## Further Reading & Sources
 
-Reach back to module 00: `order_items` is the classic relational answer to a
-many-to-many relationship that a document store would model by embedding — note
-which integrity guarantee the two foreign keys on `order_items` give you.
+- [PostgreSQL Documentation: Chapter 7. Queries (Table Expressions & Joins)](https://www.postgresql.org/docs/current/queries-table-expressions.html)
+- [Use The Index, Luke: SQL Joins and Performance](https://use-the-index-luke.com/)
+- [Modern SQL: LATERAL Joins & Window Functions](https://modern-sql.com/)
 
-<details>
-<summary>Hint</summary>
+---
 
-For (1), the "must appear with 0" requirement means the *products* table is the
-one you can't drop rows from — `LEFT JOIN` from `products` to `order_items` and
-`count`/`sum` the quantity, wrapping the sum in `COALESCE(..., 0)`. For (2),
-because you join `customers → orders → order_items`, each order row multiplies
-by its number of items — so aggregate `sum(oi.quantity * p.price_cents)` at the
-right grain and `GROUP BY` the customer. For (3) compute per-customer revenue in
-a CTE, then in the outer query compare each to `(SELECT avg(revenue) FROM
-the_cte)` — a subquery over your own CTE.
+## Next Steps
 
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Using `INNER JOIN` when the question includes "all X even with no Y."** The
-  zero-match rows silently disappear and your counts are wrong. "Every customer
-  and their order count" needs a `LEFT JOIN`.
-- **Filtering the outer table of a LEFT JOIN in `WHERE`.** It turns the left
-  join back into an inner join by dropping the NULL rows. Put conditions on the
-  optional table in the `ON` clause.
-- **Forgetting the join condition.** A comma join or a missing `ON` produces a
-  cross product — a result exploding to rows_left × rows_right. Suspect this
-  whenever a result set is impossibly large.
-- **Ignoring join grain when aggregating.** After a join, one entity may occupy
-  many rows; `sum`ming a per-entity value (like a credit limit) then
-  double/triple counts. Know what "one row" means at each stage.
-- **`WHERE x = NULL`.** Never matches. Use `IS NULL` / `IS NOT NULL`. NULL is
-  "unknown," not a comparable value.
-- **`count(column)` vs `count(*)` confusion.** `count(col)` skips NULLs (usually
-  what you want after a LEFT JOIN); `count(*)` counts rows regardless.
-- **Putting an aggregate in `WHERE`.** Aggregates don't exist until after
-  grouping — use `HAVING`. The error message is the execution-order lesson.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Give the logical execution order of `SELECT, FROM, WHERE, GROUP BY, HAVING,
-   ORDER BY, LIMIT`, and use it to explain why you can't reference a `SELECT`
-   alias in `WHERE` but can in `ORDER BY`.
-2. You want "every customer and how many orders they have, including customers
-   with zero." Which join, and what happens with the wrong one?
-3. What's the difference between `WHERE` and `HAVING`?
-4. Explain "join grain" and how a join can make a `sum()` double-count.
-5. Why does `LEFT JOIN ... count(o.id)` correctly give 0 for a customer with no
-   orders, rather than 1? (Two concepts combine here.)
-6. Name a case where a `CROSS JOIN` is intentional and a case where it's an
-   accident, and how you'd notice the accident.
-7. When would you reach for a CTE over a subquery, and what changed about CTE
-   performance in modern Postgres?
-
-<details>
-<summary>Answers</summary>
-
-1. Order: `FROM`(+joins) → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` →
-   `ORDER BY` → `LIMIT`. A `SELECT` alias is created at the `SELECT` step, which
-   runs *after* `WHERE`, so the alias doesn't exist yet in `WHERE`; `ORDER BY`
-   runs *after* `SELECT`, so the alias does exist there.
-2. `LEFT JOIN` (customers on the left). With an `INNER JOIN`, customers who have
-   no orders are dropped entirely, understating your customer list and counts.
-3. `WHERE` filters individual rows before grouping and can't use aggregates;
-   `HAVING` filters whole groups after aggregation and can use aggregates like
-   `count(*)`.
-4. Join grain is "what does one output row represent." After joining customers
-   to orders, one customer occupies as many rows as they have orders; summing a
-   per-customer value (e.g. credit limit) then counts it once per order,
-   multiplying it.
-5. Two things combine: a `LEFT JOIN` keeps the no-order customer with NULL
-   order columns, and `count(o.id)` ignores NULLs — so it counts zero real order
-   ids. `count(*)` would wrongly return 1 by counting the placeholder row.
-6. Intentional: generating all combinations, e.g. every product × every
-   warehouse to build an inventory grid. Accidental: a forgotten `ON`/`WHERE`
-   condition. You notice it because the row count is roughly rows_left ×
-   rows_right — vastly larger than expected.
-7. Reach for a CTE for readability (naming intermediate stages) or for recursive
-   queries (`WITH RECURSIVE`). In older Postgres (<12) CTEs were an optimization
-   fence (always materialized, sometimes slower); Postgres 12+ can inline
-   non-recursive CTEs, so the performance gap with subqueries largely closed.
-
-</details>
-
-## Further reading & sources
-
-- [PostgreSQL: Joins Between Tables (tutorial)](https://www.postgresql.org/docs/current/tutorial-join.html) - the official walk-through of inner and outer joins.
-- [PostgreSQL: Table Expressions - Joined Tables](https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-JOIN) - the precise semantics of every join type and the ON-vs-WHERE distinction.
-- [PostgreSQL: WITH Queries (Common Table Expressions)](https://www.postgresql.org/docs/current/queries-with.html) - CTEs, recursion, and the MATERIALIZED / NOT MATERIALIZED hints.
-- [PostgreSQL: Aggregate Functions](https://www.postgresql.org/docs/current/functions-aggregate.html) - how count/sum/avg behave, including their treatment of NULL.
-- [Modern SQL: NULL confusion (Markus Winand)](https://modern-sql.com/concept/null) - why NULL is "unknown," not a value, and how it silently breaks comparisons.
-
-## Next
-
-[03-schema-design-and-indexing](../03-schema-design-and-indexing/README.md) —
-you can now ask precise questions of your data; next you'll learn to *design*
-the tables those questions run against (normalization, keys) and how indexes
-make the right queries fast — and the wrong indexes make writes slow.
+Advance to the next module:
+[../03-schema-design-and-indexing/README.md](../03-schema-design-and-indexing/README.md)
+Explore database normalization (1NF through 3NF), B-Tree vs Hash vs GIN indexes, composite index column ordering rules, and covering indexes.

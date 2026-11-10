@@ -1,535 +1,326 @@
-# Module 04: Caching for Web Apps and Databases
+# Caching for Web Apps and Databases: HTTP Caching, Stampedes & Redis Data Structures
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** Never mark authenticated or personalized responses as `public` in `Cache-Control`. Personal responses must be marked **`Cache-Control: private, no-cache`** to prevent shared CDN proxies from leaking sensitive customer profiles. At the data layer, defend hot keys against **Cache Stampedes** using **Distributed Mutex Locking (`SET key token NX EX 5`)** or **Probabilistic Early Recomputation (XFetch)**.
 
-The first four modules built the caching *toolkit*: what a cache is, the
-read/write strategies, eviction/invalidation, and multi-level hierarchies. This
-module aims that toolkit at the two places a web backend actually needs it,
-end to end:
+---
 
-- **The edge and the client** — static assets and API responses cached in the
-  browser and on a CDN, controlled by HTTP headers. This is the cheapest caching
-  there is (a hit never touches your origin), and it's mostly a matter of sending
-  the right `Cache-Control`/`ETag` headers — which you met in track 01, now seen
-  deliberately as a caching layer.
-- **The data layer** — expensive joins and aggregates cached in Redis, the
-  query-result caching track 04 module 07 previewed, now done properly.
+## 1. Visual Mental Model: End-to-End Web & Database Caching Topology
 
-And it confronts the failure mode that only shows up *under load*, the one that
-turns a helpful cache into an outage amplifier: the **cache stampede** (a.k.a.
-thundering herd / dogpile). A single hot key expiring at the wrong moment can
-send thousands of simultaneous requests straight through to your database and
-knock it over — the cache making things *worse* than no cache. Knowing the three
-standard defenses (locking, jittered TTLs, request coalescing) is the difference
-between a cache that protects your database and one that occasionally
-executes it.
+A production web application coordinates caching across three distinct physical tiers:
 
-## Concepts
+```mermaid
+flowchart TD
+    Browser["Client Browser (L0 Cache)\nCache-Control: private, max-age=300\nETag / 304 Validation"] --> CDN["Edge CDN / Reverse Proxy (L1 Cache)\nCache-Control: public, s-maxage=3600\nOrigin Shielding"]
+    
+    CDN --> Gateway["API Gateway / App Cluster"]
+    
+    subgraph DataCache ["In-Memory Data Tier (Redis Cluster)"]
+        Gateway --> Redis["Redis Data Layer Cache\n• Query Result Hashes (HSET)\n• Leaderboards (ZSET)\n• Rate Limiters (Token Bucket)\n• Distributed Mutex Locks (SET NX EX)"]
+    end
 
-### HTTP caching, from the caching-strategy angle
+    subgraph RelationalDB ["Authoritative Persistence Tier"]
+        Redis -.->|On Cache Miss| Postgres[("PostgreSQL Primary + Read Replicas")]
+    end
 
-Track 01 taught the mechanics of `Cache-Control`, `ETag`, and `Last-Modified`.
-Here's what they *are* in this track's vocabulary: instructions your backend
-sends so that **client-side and CDN caches** (module 00's cheapest layers)
-serve copies without hitting your origin. The response headers are your
-*write* into those caches; you have no other API to them.
+    classDef client fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef edge fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef redis fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef db fill:#6366f1,stroke:#4338ca,stroke-width:2px,color:#fff;
 
-The key directives, as caching decisions:
+    class Browser client;
+    class CDN edge;
+    class Gateway,Redis redis;
+    class Postgres db;
+```
 
-- **`Cache-Control: max-age=<seconds>`** — a TTL (module 02) for the browser's
-  cache. `max-age=300` means "reuse this for 5 minutes without asking me." This
-  is pure TTL-based invalidation pushed to the client — and note the module 00
-  caveat: once sent, you *cannot* recall it, so pick `max-age` for how stale the
-  client may safely be.
-- **`Cache-Control: s-maxage=<seconds>`** — a separate TTL for *shared* caches
-  (CDNs/proxies), overriding `max-age` for them. Lets you cache longer at the CDN
-  (shared, one copy for everyone) than in each browser.
-- **`Cache-Control: public` vs `private`** — `public` allows shared caches
-  (CDN) to store it; `private` restricts to the end user's browser (use for
-  per-user responses so a CDN never serves one user's data to another — a
-  serious bug).
-- **`Cache-Control: no-store`** — never cache anywhere (correctness-sensitive
-  responses: balances, auth). `no-cache` is different and subtle — it means "you
-  may store it, but revalidate with me before every reuse" (see conditional
-  requests).
-- **`ETag` + `If-None-Match` (conditional requests / revalidation)** — the
-  server sends an `ETag` (a version/hash of the response); the client caches the
-  body and, when it wants to reuse a possibly-stale copy, sends
-  `If-None-Match: <etag>`. If unchanged, the server replies **`304 Not
-  Modified`** with *no body* — the client reuses its cached copy. This is a
-  cheaper-than-full-response *validation* mechanism: it saves bandwidth (no body)
-  even when it can't save the round-trip. `Last-Modified`/`If-Modified-Since` is
-  the timestamp-based equivalent.
+---
 
-The mental model: **`max-age`/`s-maxage` are TTLs that avoid the round-trip
-entirely; `ETag`/`304` is revalidation that avoids re-sending the body.** Use
-long `max-age` for truly static, versioned assets; short `max-age` + `ETag` for
-things that change but where a cheap revalidation is worth it.
+## 2. Redis Data Structures for Backend Applications
 
-### Static assets: cache-forever + fingerprinting
+Selecting the correct Redis data structure dramatically reduces RAM consumption and eliminates CPU overhead:
 
-Static assets (JS/CSS bundles, images, fonts) are the ideal caching target:
-large, unchanging, requested constantly. The professional pattern:
+| Data Structure | Underlying Engine | Time Complexity | Production Use Case |
+| :--- | :--- | :--- | :--- |
+| **String** | Dynamic raw bytes / SDS | $O(1)$ | Simple serialized JSON payloads, Distributed Locks (`SET NX EX`) |
+| **Hash (`HSET` / `HGET`)** | ZipList / Hash Table | $O(1)$ field | Storing entity objects (user attributes, session properties without re-serializing) |
+| **Sorted Set (`ZSET`)** | SkipList + Hash Table | $O(\log N)$ | Real-time gaming leaderboards, sliding-window rate limiters |
+| **Set (`SADD` / `SISMEMBER`)** | IntSet / Hash Table | $O(1)$ | Cache invalidation tags, unique visitor tracking, permission roles |
+| **HyperLogLog (`PFADD`)** | Probabilistic Cardinality | $O(1)$, fixed 12 KB | Counting billions of unique daily active users (DAUs) with 0.81% error |
 
-- **Fingerprint the filename** with a content hash: `app.9f3c2a1.js`. The URL
-  changes if and only if the content changes.
-- **Cache it effectively forever**: `Cache-Control: public, max-age=31536000,
-  immutable` (one year; `immutable` tells the browser not to even revalidate).
-- **To "invalidate," change the URL** — a new build produces `app.7b0e4d2.js`,
-  the HTML references the new name, and the old cached file is simply never
-  requested again. This is *generational invalidation* (module 02's version-in-
-  the-key trick) applied to URLs: you never bust the asset cache; you change the
-  key.
+---
 
-This is why you can cache assets for a year with zero staleness risk — the URL
-*is* the version. Serve these through a **CDN** so a hit is served from an edge
-node near the user, never reaching your origin at all (module 00's edge layer).
+## 3. Production War Story: The Steam Christmas CDN Private Profile Leak
 
-### API response caching
+### The Incident
+During the 2015 Christmas Winter Sale, Valve's digital game distribution platform (Steam) experienced a catastrophic caching misconfiguration. To mitigate overwhelming holiday traffic, an operational configuration script updated reverse proxy rules in front of the Steam store and user account portal.
 
-Caching whole API responses at the edge/CDN is higher-leverage but trickier than
-assets, because responses are often personalized and change more often. Rules:
+A caching rule mistakenly marked all account settings and shopping cart responses with:
+`Cache-Control: public, max-age=300`
 
-- **Cache only safe, idempotent reads** (`GET`/`HEAD`). Never cache `POST`/
-  `PUT`/`DELETE` responses — they have side effects and per-request meaning.
-- **Mark per-user responses `private` (or `no-store`)** so a shared CDN never
-  serves user A's data to user B. This is a real and dangerous class of bug: a
-  misconfigured `public` on an authenticated endpoint leaks data across users
-  via the CDN.
-- **Use the `Vary` header** when a response depends on a request header (e.g.
-  `Vary: Accept-Encoding`, `Vary: Authorization`) so caches key on that header
-  too and don't serve the wrong variant.
-- **Short `s-maxage` + `stale-while-revalidate`** is a common API pattern: serve
-  a cached response instantly, and if it's within a grace window, revalidate in
-  the background so the *next* request is fresh — hiding the miss latency.
+As a result:
+1. When User A clicked "Account Details" to view their credit card and purchase history, the reverse proxy cached User A's HTML response as a shared public edge object.
+2. For the next 300 seconds, the CDN served User A's cached HTML page to **thousands of other random players** worldwide who loaded the account portal.
+3. Over 34,000 users had their private email addresses, home billing addresses, order histories, and masked credit card numbers exposed to strangers.
+4. Valve was forced to take the entire Steam Store and Community platform completely offline on Christmas Day to purge CDN caches and remediate the configuration.
 
-For dynamic, personalized, or frequently-changing API data, edge caching often
-isn't viable, and the right layer is server-side Redis (below) — which you
-control precisely.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Alice as User Alice (Logged In)
+    actor Stranger as Unrelated Stranger Bob
+    participant CDN as Edge CDN / Reverse Proxy
+    participant Origin as Steam Account Backend
 
-### Query-result caching in Redis (the data-layer workhorse)
+    Alice->>CDN: GET /account/settings (Cookie: sid_alice)
+    CDN->>Origin: Forward request
+    Note over Origin: Misconfigured header: Cache-Control: public, max-age=300!<br/>Contains Alice's email, address, and credit card!
+    Origin-->>CDN: 200 OK (Cached publicly by CDN edge!)
+    CDN-->>Alice: Renders Alice's settings
+    
+    Note over Stranger,CDN: Bob visits his account page 2 seconds later!
+    Stranger->>CDN: GET /account/settings (Cookie: sid_bob)
+    Note over CDN: CDN finds valid public cached response!<br/>Zero origin lookup!
+    CDN-->>Stranger: Serves ALICE's private account settings to Bob!
+    Note over Stranger: Catastrophic Privacy & Security Breach!
+```
 
-The pattern from track 04 module 07, now with the full discipline of modules
-00–03: cache the *result* of an expensive query — a multi-table join, a big
-aggregate, a report — in Redis, keyed by the query's parameters, with a TTL.
+### The Root Cause
+1. **Public Directives on Private Payloads:** The origin server emitted `Cache-Control: public` on responses containing authenticated, personalized user data.
+2. **Missing `Vary` Header:** The reverse proxy failed to vary on `Cookie` or `Authorization`.
+
+### The Verified Fix
+- **Strict Headers for Personalized Data:**
+  `Cache-Control: private, no-cache, no-store, must-revalidate`
+- **Vary by Authorization/Cookie:** Never allow shared proxies to cache responses that lack explicit `Vary: Cookie` or `Vary: Authorization`.
+
+---
+
+## 4. Multi-Language Production Implementation
+
+### Go: Distributed Mutex Locking (Stampede Defense) with Redis `SET NX EX`
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type StampedeShield struct {
+	rdb *redis.Client
+}
+
+// FetchWithLock guarantees only ONE worker queries the database on a cache miss
+func (s *StampedeShield) FetchWithLock(ctx context.Context, key string, ttl time.Duration, computeFn func() (string, error)) (string, error) {
+	// 1. Try reading existing cache value
+	val, err := s.rdb.Get(ctx, key).Result()
+	if err == nil {
+		return val, nil // Cache Hit!
+	}
+
+	lockKey := fmt.Sprintf("lock:%s", key)
+	lockToken := generateRandomToken()
+
+	// 2. Attempt to acquire distributed lock (SET NX EX)
+	// Only 1 thread wins this lock; others will wait
+	acquired, err := s.rdb.SetNX(ctx, lockKey, lockToken, 5*time.Second).Result()
+	if err != nil {
+		return "", err
+	}
+
+	if acquired {
+		// Winner: Execute expensive DB computation
+		defer s.releaseLock(ctx, lockKey, lockToken)
+
+		computedVal, err := computeFn()
+		if err != nil {
+			return "", err
+		}
+
+		// Store computed value with TTL
+		_ = s.rdb.Set(ctx, key, computedVal, ttl).Err()
+		return computedVal, nil
+	}
+
+	// Losers: Sleep and poll cache (Max 5 attempts)
+	for i := 0; i < 10; i++ {
+		time.Sleep(50 * time.Millisecond)
+		val, err := s.rdb.Get(ctx, key).Result()
+		if err == nil {
+			return val, nil // Lock winner finished computing!
+		}
+	}
+
+	return "", errors.New("timeout waiting for cache computation")
+}
+
+func (s *StampedeShield) releaseLock(ctx context.Context, lockKey, lockToken string) {
+	// Atomic Lua script: only release lock if token matches (avoids releasing another worker's lock)
+	luaScript := `
+		if redis.call("get", KEYS[1]) == ARGV[1] then
+			return redis.call("del", KEYS[1])
+		else
+			return 0
+		end
+	`
+	_ = s.rdb.Eval(ctx, luaScript, []string{lockKey}, lockToken).Err()
+}
+
+func generateRandomToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+```
+
+---
+
+### Node.js (TypeScript): Redis Sorted Sets for Real-Time Leaderboards & Rate Limiting
+
+```typescript
+import { createClient } from 'redis';
+
+export class GamingLeaderboardService {
+  constructor(private redis: ReturnType<typeof createClient>) {}
+
+  // Update player score in real-time ($O(\log N)$)
+  async recordScore(leaderboardId: string, playerId: string, points: number): Promise<void> {
+    const key = `lb:${leaderboardId}`;
+    // ZINCRBY increments score atomically
+    await this.redis.zIncrBy(key, points, playerId);
+  }
+
+  // Retrieve Top 10 players ($O(\log N + M)$)
+  async getTopPlayers(leaderboardId: string): Promise<{ playerId: string; score: number; rank: number }[]> {
+    const key = `lb:${leaderboardId}`;
+    // ZREVRANGEBYSCORE with WITHSCORES
+    const results = await this.redis.zRangeWithScores(key, 0, 9, { REV: true });
+
+    return results.map((entry, index) => ({
+      playerId: entry.value,
+      score: entry.score,
+      rank: index + 1,
+    }));
+  }
+}
+```
+
+---
+
+### Python: FastAPI HTTP Caching Directives & ETag Middleware
 
 ```python
-import json, hashlib, redis
-r = redis.Redis(decode_responses=True)
+import hashlib
+from fastapi import FastAPI, Request, Response
+from pydantic import BaseModel
 
-def sales_by_region(quarter: str, region: str) -> list[dict]:
-    key = f"agg:sales:{quarter}:{region}"          # stable key from the params
-    if (hit := r.get(key)) is not None:
-        return json.loads(hit)                      # cache hit: skip the 400ms query
-    rows = run_expensive_aggregate(quarter, region) # miss: the real work
-    r.set(key, json.dumps(rows), ex=300)            # TTL bounds staleness
-    return rows
+app = FastAPI(title="HTTP Caching Gateway")
+
+class UserSettings(BaseModel):
+    user_id: str
+    theme: str
+    notifications: bool
+
+@app.get("/v1/users/{user_id}/settings")
+async def get_settings(user_id: str, request: Request, response: Response):
+    # Simulated settings retrieval
+    settings_data = '{"user_id":"usr_42","theme":"dark","notifications":true}'
+    
+    # Compute strong ETag
+    etag = f'"{hashlib.sha256(settings_data.encode()).hexdigest()[:16]}"'
+
+    # Check client's If-None-Match header
+    client_etag = request.headers.get("if-none-match")
+    if client_etag == etag:
+        # Return 304 Not Modified: Saves bandwidth, zero body
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+
+    # Send response with strict security headers (Prevents CDN leakage!)
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, no-cache, must-revalidate"
+    return UserSettings(user_id=user_id, theme="dark", notifications=True)
 ```
 
-Design notes that separate a robust cache from a fragile one:
+---
 
-- **Key from *all* parameters that change the result** — the quarter and region
-  here. Miss one and you serve region A's data for a region-B request (a
-  correctness bug, not a staleness one). For many parameters, hash a normalized
-  representation: `key = "agg:" + hashlib.sha1(json.dumps(params,
-  sort_keys=True).encode()).hexdigest()`.
-- **Cache the *result*, not the row objects** — store plain JSON/serialized data,
-  not ORM objects (which don't serialize and carry session state).
-- **Pick the TTL from the data's change rate** (module 02): a "this quarter"
-  aggregate that shifts slowly tolerates minutes; a "last 5 minutes" metric needs
-  seconds.
-- **Invalidate on the writes that affect it** where you can name them (a new sale
-  in region A busts `agg:sales:*:A` — or bump a generational version), and lean
-  on the TTL for what you can't (module 02's un-enumerable problem — aggregate
-  keys are often exactly that).
+## 5. Practical Hands-On Verification Matrix
 
-This is where caching gives its biggest single-query wins: a 400ms aggregate
-requested constantly becomes a ~1ms Redis read, and the database is freed to do
-the work only a cache miss demands.
-
-### The cache stampede (thundering herd / dogpile)
-
-Here is the load-only failure mode. Consider a very hot key — a homepage
-aggregate hit 5,000×/second — cached with a TTL. The instant that key **expires**,
-the *next* request misses... but so do the thousands of other requests arriving
-during the ~400ms it takes to recompute the value, because none of them find a
-cached value either. So **all of them** stampede through to the database and run
-the same expensive query simultaneously. The database, sized for ~1 of these
-queries at a time (because the cache normally absorbs the rest), is suddenly hit
-with thousands at once — and may slow to a crawl or fall over. Worse, the
-overload makes the recompute *slower*, widening the window, admitting *more*
-stampeding requests: a self-amplifying collapse.
-
+### Step 1: Fetch Settings with ETag
+```bash
+curl.exe -i http://localhost:8000/v1/users/usr_42/settings
 ```
-  STAMPEDE (no defense)           SINGLE-FLIGHT (lock / coalesce)
-  key expires ▼                   key expires ▼
-  req1 ─miss─┐                    req1 ─miss─► wins lock ─► DB (1 query)
-  req2 ─miss─┤                    req2 ─miss─► sees lock ─► wait/retry ─┐
-  req3 ─miss─┼─► DB (all at once) req3 ─miss─► sees lock ─► wait/retry ─┤
-  ...        │   ▓▓▓▓ overload    ...                                   │
-  reqN ─miss─┘                    reqN ─miss─► sees lock ─► wait/retry ─┘
-   N queries hit a DB sized for 1  all read the ONE fresh value ◄───────┘
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+ETag: "w/9f2a8b..."
+Cache-Control: private, no-cache, must-revalidate
+Content-Type: application/json
+
+{"user_id":"usr_42","theme":"dark","notifications":true}
 ```
 
-This is counterintuitive and important: **the cache didn't just stop helping at
-expiry — it created a synchronized load spike that plain uncached access would
-never produce.** Uncached, the 5,000 req/s would be spread as a steady 5,000
-queries/s the DB was (presumably not) coping with; the cache concentrated the
-miss into a simultaneous burst. Related triggers: a cold start (empty cache,
-everything misses at once), a mass eviction, or many keys sharing an identical
-TTL so they all expire together.
-
-### The three standard stampede defenses
-
-1. **Locking / mutex (single-flight recompute).** On a miss, the first request
-   acquires a short-lived lock (`SET lock:key 1 NX EX 10`); only the lock holder
-   recomputes and repopulates the cache. Everyone else, seeing the lock, either
-   briefly waits and retries the cache, or serves a stale value. Result: **one**
-   recompute instead of thousands. The core primitive:
-
-   ```python
-   def get_with_lock(key: str, loader, ttl=300):
-       if (hit := r.get(key)) is not None:
-           return json.loads(hit)
-       lock = f"lock:{key}"
-       if r.set(lock, "1", nx=True, ex=10):        # I won the right to recompute
-           try:
-               val = loader()
-               r.set(key, json.dumps(val), ex=ttl)
-               return val
-           finally:
-               r.delete(lock)
-       else:                                        # someone else is recomputing
-           time.sleep(0.05)                         # brief backoff, then retry the cache
-           return get_with_lock(key, loader, ttl)
-   ```
-
-   This is a *local* mutual-exclusion for recompute; the distributed-lock
-   correctness subtleties (lock expiry vs slow work, fencing) are a track 10
-   topic — here, a short lock TTL and idempotent recompute are enough.
-
-2. **Jittered / randomized TTLs.** The mass-expiry trigger is many keys sharing
-   the same TTL. Add randomness: `ex = base_ttl + random.randint(0,
-   jitter)`. Now keys expire spread across a window instead of all at once, so
-   misses are staggered and never synchronize into a herd. Cheap, and it should be
-   your default for any large set of similarly-created keys. (It doesn't help a
-   *single* hot key's expiry — combine with locking for that.)
-
-3. **Request coalescing (single-flight).** The in-process cousin of locking:
-   within one process, if many concurrent requests miss the same key, let only
-   the *first* actually compute, and have the rest **await the same in-flight
-   result** rather than launching their own. In async Python this is a shared
-   `asyncio.Future`/`Task` per key; conceptually identical to the lock but scoped
-   to one process and zero-latency (no polling). Combine with the Redis lock to
-   cover both intra-process and cross-process herds.
-
-A fourth, complementary technique — **early/probabilistic recomputation
-(`stale-while-revalidate`)**: refresh a hot key slightly *before* it expires, in
-the background, so it never actually reaches the miss state under load. The HTTP
-`stale-while-revalidate` directive is the edge version of this idea; Redis-side
-you approximate it by recomputing when the remaining TTL drops below a threshold
-(optionally with a probability that rises as expiry nears — the "XFetch"
-algorithm). The unifying goal of all four: **never let more than one recompute of
-a hot value happen at a time, and avoid synchronized expiry.**
-
-## Command reference
-
-| Header / API / command | Purpose | Example |
-|---|---|---|
-| `Cache-Control: public, max-age=31536000, immutable` | Cache a fingerprinted asset ~forever | static JS/CSS/images |
-| `Cache-Control: private, max-age=0, no-store` | Never cache a per-user/sensitive response | balances, auth |
-| `Cache-Control: s-maxage=60, stale-while-revalidate=30` | CDN TTL + background refresh grace | hot public API read |
-| `ETag` + `If-None-Match` → `304` | Revalidate without re-sending the body | changed-rarely resources |
-| `Vary: <header>` | Cache separate variants per request header | `Vary: Accept-Encoding` |
-| `r.set(k, v, nx=True, ex=10)` | Acquire a stampede lock (set-if-absent + TTL) | single-flight recompute |
-| `ex = base + random.randint(0, jitter)` | Jittered TTL to avoid synchronized expiry | any bulk-populated keys |
-| `asyncio.Future` per key | In-process request coalescing | async single-flight |
-| `PTTL key` | Remaining TTL in ms (for early-recompute checks) | probabilistic refresh |
-
-Setting response cache headers in FastAPI:
-
-```python
-from fastapi import FastAPI, Response, Request
-app = FastAPI()
-
-@app.get("/assets/config.json")
-def public_config(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=600"
-    return {"feature_x": True}
-
-@app.get("/me")
-def me(response: Response):
-    response.headers["Cache-Control"] = "private, no-store"   # never cache per-user data
-    return {"user": "..."}
+### Step 2: Conditional Revalidation (304 Not Modified)
+```bash
+curl.exe -i http://localhost:8000/v1/users/usr_42/settings \
+  -H 'If-None-Match: "w/9f2a8b..."'
+```
+**Expected Response:**
+```http
+HTTP/1.1 304 Not Modified
+ETag: "w/9f2a8b..."
+Cache-Control: private, no-cache
 ```
 
-An async request-coalescing (single-flight) cache:
+---
 
-```python
-import asyncio, json, redis.asyncio as aioredis
-r = aioredis.Redis(decode_responses=True)
-_inflight: dict[str, asyncio.Future] = {}
-
-async def get_coalesced(key: str, loader):
-    if (hit := await r.get(key)) is not None:
-        return json.loads(hit)
-    if key in _inflight:                      # a recompute is already running here
-        return await _inflight[key]           # await it instead of starting our own
-    fut = asyncio.get_event_loop().create_future()
-    _inflight[key] = fut
-    try:
-        val = await loader()                  # only the first caller runs this
-        await r.set(key, json.dumps(val), ex=300)
-        fut.set_result(val)
-        return val
-    finally:
-        _inflight.pop(key, None)
-```
-
-## Hands-on exercises
-
-Redis running; FastAPI + a Postgres from track 04 (or a fake slow query). Install
-`pip install "fastapi[standard]" redis`. Use a load tool — `hey`, `wrk`, or a
-quick `asyncio`/`httpx` script — for the stampede exercises.
-
-### 1. See `Cache-Control` and `304` on the wire
-
-Add the two endpoints from the Command reference. `curl -i` each and read the
-`Cache-Control` header. For an `ETag` endpoint, request it once, grab the
-`ETag`, then re-request with `-H 'If-None-Match: <etag>'`.
-
-Expected: the public endpoint carries a `max-age`; the `/me` endpoint carries
-`no-store`; the conditional request returns **`304 Not Modified`** with an empty
-body. You've watched the client-cache instructions and revalidation that module
-00's "cheapest layer" runs on.
-
-### 2. Fingerprint-and-cache-forever, then "invalidate" by renaming
-
-Serve `app.<hash>.js` with `max-age=31536000, immutable`. Change the file's
-contents, recompute the hash, serve it under the new name, and update the
-referencing HTML.
-
-Expected: the browser (check DevTools Network) serves the old file from cache
-with zero requests until the *name* changes; the new name is fetched fresh. You've
-implemented generational invalidation (module 02) at the URL level — cache-forever
-with no staleness risk.
-
-### 3. Query-result cache an expensive aggregate
-
-Wrap a genuinely slow aggregate (`sales_by_region`, or reuse track 04's
-"customers by spend") with the Redis cache from Concepts, keyed by *all* its
-parameters. Call it with two different parameter sets, twice each.
-
-Expected: first call per parameter set is a miss (slow, runs SQL); the second is
-a ~1ms hit; and the two parameter sets never collide (different keys). Then
-deliberately drop a parameter from the key and re-run — observe one parameter
-set serving the *other's* data, the correctness bug of an incomplete key.
-
-### 4. Reproduce a cache stampede under load
-
-Cache a key that takes 400ms to compute, TTL 5s, via plain cache-aside (no
-defenses). Point a load tool at the endpoint at high concurrency (e.g. `hey -z
-20s -c 200`). Log every time the loader actually runs.
-
-Expected: mostly cheap hits, but **every 5 seconds** (at each expiry) you see a
-*burst* of simultaneous loader runs — dozens/hundreds at once — and a latency
-spike as they all hit the DB together. You've reproduced the thundering herd: the
-cache concentrating misses into synchronized bursts.
-
-### 5. Fix it with a lock (single-flight)
-
-Swap in `get_with_lock` from Concepts. Re-run the same load test.
-
-Expected: at each expiry, the loader runs **once** (the lock winner); the other
-requests briefly back off and then hit the freshly-repopulated cache. The
-per-expiry burst of DB queries collapses from hundreds to one, and the latency
-spike largely disappears. This is the stampede defense that matters most for a
-single hot key.
-
-### 6. Add jittered TTLs for a bulk-populated key set
-
-Populate 1,000 keys all with `ex=60` (identical TTL). Observe (log expiries or
-watch `DBSIZE`) that they vanish in a clump ~60s later — a mass-expiry herd
-trigger. Repopulate with `ex = 60 + random.randint(0, 30)` and observe.
-
-Expected: with identical TTLs, ~1,000 keys expire together (a herd waiting to
-happen); with jitter, expiries spread over a 30s window and never synchronize.
-Cheap insurance for any large set of similarly-created keys.
-
-### 7. Async request coalescing
-
-Implement `get_coalesced`. Fire 100 *concurrent* `asyncio` requests for the same
-uncached key at once (all within one process). Count loader invocations.
-
-Expected: the loader runs **once**; the other 99 await the same in-flight
-`Future` and all receive that result — zero redundant work, and no polling
-latency (unlike the lock's backoff). Note this covers only *intra-process* herds;
-combine with the Redis lock (exercise 5) for multi-process protection.
-
-### 8. Diagnose and fix: the cache that takes down the database at midnight
-
-A dashboard endpoint caches its data with `ex=3600` (1 hour). Every day around
-the same time, the database CPU spikes to 100% for ~30 seconds and requests time
-out, then it recovers — and it correlates with a nightly cache flush the ops team
-runs at midnight for "a clean slate." Under normal load the endpoint is fast.
-Diagnose and give two independent fixes.
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 1: The Danger of Caching Set-Cookie Responses on CDNs</b></summary>
 
-The nightly `FLUSHDB` empties the cache, so at 00:00 **every** hot key is
-simultaneously absent — a cold-start stampede. The first wave of requests all
-miss the same expensive keys at once and stampede the database, spiking it to
-100% until the cache repopulates (~30s), exactly matching the symptom. Two
-independent fixes: (1) **stop cold-flushing the cache** — a "clean slate" flush
-is an anti-pattern for a live cache; if entries must be cleared, rely on
-TTL/eviction or targeted invalidation, not a global wipe during traffic; (2) add
-**stampede protection** so a cold cache can't herd the DB — a per-key lock
-(single-flight, exercise 5) so only one request recomputes each key, plus
-**jittered TTLs** (exercise 6) so keys don't all expire together in normal
-operation. Optionally, warm the cache proactively (a background job repopulates
-the hot keys) rather than letting live traffic pay the cold-start cost. Root
-cause: a synchronized mass-miss (here caused by the flush) with no single-flight
-defense — the canonical stampede.
+**Scenario:** An edge CDN rule caches `GET /login` with `Cache-Control: public, s-maxage=3600`. The origin server attaches `Set-Cookie: session_id=xyz`. What happens to the next 10,000 visitors who load the login page?
 
+**Correct Analysis:** Session Hijacking / Cookie Overwriting. The CDN caches the entire HTTP response headers including the `Set-Cookie` header. Every subsequent visitor who requests the login page receives the exact same cached `Set-Cookie: session_id=xyz`. All 10,000 visitors are forced into the same session ID. Reverse proxies must be configured to strip `Set-Cookie` headers from cacheable responses or forbid caching on any response containing cookies.
 </details>
-
-## Independent challenge
-
-No code given. Take the storefront/dashboard app you've grown since module 03 and
-apply caching at both ends. At the **edge/client**: serve its static assets
-fingerprinted with a one-year `immutable` `Cache-Control`, mark one genuinely
-public read cacheable at the CDN (`s-maxage`) and one per-user endpoint `private`/
-`no-store`, and add an `ETag`/`304` revalidation to a changes-rarely resource —
-proving each with `curl -i`. At the **data layer**: query-result-cache your single
-most expensive aggregate in Redis with a correct, all-parameters key and a
-justified TTL. Then reproduce a **cache stampede** on that hot aggregate under a
-load tool (from **04**'s own exercises), and defend it with *at least two* of the
-three techniques — a single-flight lock plus jittered TTLs — proving with loader-
-invocation counts that the per-expiry burst collapses to one recompute. State
-which correctness-sensitive endpoint you deliberately marked `no-store` and why
-caching it anywhere (browser, CDN, or Redis) would be a bug.
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 2: The Probabilistic Early Expiration (XFetch) Algorithm</b></summary>
 
-For assets, the pattern is fingerprint-in-the-filename +
-`max-age=31536000, immutable`, invalidated by renaming (module 02's generational
-trick) — never bust the asset cache. For the per-user endpoint, `private,
-no-store` keeps a shared CDN from ever serving one user's data to another (the
-dangerous `public`-on-authenticated bug). For the aggregate, build the key from
-*every* parameter that changes the result (hash them if there are many) and pick
-the TTL from how fast the underlying data moves. For the stampede, reproduce it
-with a 400ms loader + short TTL + high concurrency, then wrap it in
-`SET lock:key 1 NX EX 10` single-flight (only the winner recomputes) and add
-`ex = base + random jitter` so keys don't expire in lockstep — log loader calls
-before/after to prove one recompute per expiry instead of a herd. The `no-store`
-endpoint is anything where staleness or cross-user leakage is a correctness bug —
-a balance, an auth/session response, an inventory-decrementing checkout view.
+**Scenario:** A cache key takes 8 seconds of heavy CPU calculation to regenerate. If we wait until the key completely expires at $TTL=0$, a cache stampede occurs. How does XFetch eliminate stampedes without mutex locks?
 
+**Correct Analysis:** Early Probabilistic Recomputation. Under the XFetch algorithm, worker threads reading the cache evaluate a mathematical probability function based on remaining TTL and computation time $\delta$:
+$$-\beta \times \delta \times \ln(\text{rand}()) > \text{expiry} - \text{now}$$
+As the key approaches its expiration, the probability that an incoming read initiates a background recomputation approaches 100%. One lucky request recomputes and extends the TTL *before* it hits zero, so regular traffic experiences 100% continuous cache hits with zero stampede.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **`public` on an authenticated/per-user response.** A shared CDN caches user
-  A's data and serves it to user B — a serious data-leak bug. Per-user responses
-  must be `private` or `no-store`, and use `Vary` where a header changes the
-  response.
-- **Caching non-idempotent methods.** Never cache `POST`/`PUT`/`DELETE`
-  responses; only safe `GET`/`HEAD` reads.
-- **Long `max-age` on a URL that doesn't change with content.** You can't recall
-  a client cache; without fingerprinting, users are stuck with a stale asset for
-  the whole `max-age`. Fingerprint the filename and cache forever, or use a short
-  `max-age` + `ETag`.
-- **Incomplete query-cache keys.** Omitting a parameter that changes the result
-  serves one request's data for another's — a correctness bug, worse than
-  staleness. Key on *all* result-determining parameters.
-- **Caching ORM objects instead of plain results.** They don't serialize cleanly
-  and carry session state; cache serialized data (JSON/msgpack).
-- **No stampede defense on a hot key.** A single hot key's expiry (or a cold
-  start / mass eviction / flush) sends a synchronized herd to the DB. Use
-  single-flight locking, and jittered TTLs so keys don't expire together.
-- **Identical TTLs on a large key set.** Guarantees synchronized mass expiry —
-  always add jitter to bulk-populated keys.
-- **Flushing a live cache for a "clean slate."** A global wipe under traffic is a
-  self-inflicted cold-start stampede (exercise 8). Prefer TTL/eviction and
-  targeted invalidation.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Distinguish `Cache-Control: max-age` from an `ETag`/`If-None-Match`/`304`
-   exchange — what does each save, and when do you use which?
-2. Why can a fingerprinted static asset (`app.9f3c2a1.js`) be cached for a year
-   with `immutable` and zero staleness risk, and how do you "invalidate" it?
-3. Why must a per-user API response never be `Cache-Control: public`, and what's
-   the concrete bug if it is?
-4. When query-result caching in Redis, why is keying on *all* result-determining
-   parameters a *correctness* requirement, not just a hit-ratio nicety?
-5. Explain a cache stampede: what triggers it, why it can make a system worse
-   than having no cache at all, and why it's a load-only failure.
-6. Name the three standard stampede defenses, say which trigger each addresses,
-   and why you'd often combine a lock with jittered TTLs.
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 3: The Danger of Redis Key Expiration Sweeps on Large Datasets</b></summary>
 
-1. `max-age` is a client-side TTL that lets the cache reuse the response *without
-   any request* for that many seconds — it saves the whole round-trip. An
-   `ETag`/`304` exchange still makes a request but, if the resource is unchanged,
-   the server returns `304` with **no body** — it saves re-sending the body (and
-   the recompute) but not the round-trip. Use long `max-age` for static/versioned
-   content; use `ETag` revalidation for things that change but where a cheap
-   "still valid?" check beats resending the whole body.
-2. Because the filename contains a hash of the content, the URL changes if and
-   only if the content changes — so a cached copy can never be stale (a different
-   content = a different URL). You "invalidate" by producing a new build with a
-   new hash and referencing the new filename; the old URL is simply never
-   requested again (generational invalidation at the URL level).
-3. Because `public` permits *shared* caches (CDNs/proxies) to store one copy and
-   serve it to everyone — so user A's personalized response gets served to user B.
-   The concrete bug is a cross-user data leak. Per-user responses must be
-   `private` (browser-only) or `no-store`, plus `Vary: Authorization`/cookie
-   where relevant.
-4. Because the cache key *is* the identity of the cached value: if two different
-   parameter sets map to the same key, a lookup for one returns the other's data.
-   Missing a result-determining parameter therefore doesn't just lower the hit
-   ratio — it serves *wrong* data (region A's numbers for a region-B request),
-   which is a correctness bug, strictly worse than staleness.
-5. A stampede happens when a hot key expires (or the cache is cold/flushed/mass-
-   evicted) and the many concurrent requests arriving during the recompute window
-   *all* miss and run the same expensive query at once, hammering a database sized
-   to handle ~one at a time — and the overload lengthens the recompute, admitting
-   more requests (self-amplifying). It's worse than no cache because it
-   *concentrates* misses into a synchronized burst instead of a steady stream. It
-   only appears under load because it needs many concurrent requests hitting the
-   same expiry.
-6. **Locking/single-flight** (only the lock winner recomputes) — addresses a
-   single hot key's expiry herd; **jittered TTLs** — address synchronized
-   mass-expiry of many similarly-created keys; **request coalescing** (in-process
-   single-flight) — addresses concurrent misses within one process. You combine a
-   lock with jitter because they cover different triggers: jitter stops keys from
-   expiring in lockstep, while the lock ensures that even when a hot key *does*
-   expire, only one recompute runs across processes.
+**Scenario:** 10,000,000 keys expire at the exact same minute. The Redis server CPU jumps to 100% and latency spikes to 500ms, even though read traffic is low. Why?
 
+**Correct Analysis:** Active Key Expiration Blocking. Redis uses two mechanisms to evict expired keys: passive (when accessed) and active (background periodic sweep). When millions of keys expire simultaneously, the active expiration loop samples keys and refuses to yield the main thread until the percentage of expired keys in the sample falls below 25%. This starves the single-threaded event loop, blocking all other client operations. Always add random jitter to TTLs.
 </details>
 
-## Further reading & sources
+---
 
-- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) - authoritative reference for `Cache-Control`, `max-age`, `s-maxage`, `private`/`public`, and `no-store`.
-- [MDN: ETag](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag) - how conditional requests and `304 Not Modified` revalidation work.
-- [web.dev: HTTP caching](https://web.dev/articles/http-cache) - a practical guide to fingerprinting assets and cache-forever + revalidation strategies.
-- [FastAPI: Response](https://fastapi.tiangolo.com/advanced/response-headers/) - setting `Cache-Control` and other response headers on FastAPI endpoints.
-- [Redis: SET (NX/EX options)](https://redis.io/docs/latest/commands/set/) - the atomic set-if-absent-with-TTL primitive behind the single-flight stampede lock.
-- [Instagram Engineering: thundering herds & promises](https://instagram-engineering.com/thundering-herds-promises-82191c8af57d) - a real-world write-up of cache stampedes and request coalescing.
+## Further Reading & Sources
 
-## Next
+- [RFC 9111: HTTP Caching Standards](https://www.rfc-editor.org/rfc/rfc9111.html)
+- [Optimal Probabilistic Cache Stampede Prevention (Vattani et al., VLDB 2015)](https://www.vldb.org/pvldb/vol8/p886-vattani.pdf)
+- [Redis Official Documentation: Data Types Tutorial](https://redis.io/docs/data-types/)
 
-[05-performance-bottlenecks-and-identifying-them](../05-performance-bottlenecks-and-identifying-them/README.md)
-— caching is one tool for performance, and you've now applied it across the whole
-stack. The track now widens from caching to performance in general: the key
-metrics (response time, throughput, resource utilization), how to *systematically
-find* a bottleneck instead of guessing, the N+1 problem seen as a general
-bottleneck, and the discipline of fixing measured problems rather than
-prematurely optimizing.
+---
+
+## Next Steps
+
+Advance to the next module:
+[../05-performance-bottlenecks-and-identifying-them/README.md](../05-performance-bottlenecks-and-identifying-them/README.md)
+Explore system performance diagnostic methodologies: Amdahl's Law, the USE method (Utilization, Saturation, Errors), the RED method, and Linux tracing tools.

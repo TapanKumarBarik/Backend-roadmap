@@ -1,569 +1,318 @@
-# Module 08: Replication and Sharding
+# Replication and Sharding: Read Replicas & Horizontal Partitioning
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** Replicas scale **reads**; sharding scales **writes and storage**. In asynchronous leader-follower replication, replicas always experience replication lag. To guarantee a user never sees stale data after an update, enforce **Read-Your-Own-Writes (RYOW)** consistency: route reads to the primary database for 5–10 seconds after any write operation.
 
-Every module so far assumed one database. One box, one source of truth, all your
-data. That's the right default and it scales much further than people think — a
-single well-tuned Postgres on modern hardware handles enormous workloads. But
-eventually one node isn't enough, for one of two distinct reasons: you can't
-serve enough *reads* (traffic outgrows one machine's capacity), or you can't
-*fit or write* enough data (one machine's disk/write-throughput is the ceiling).
-**Replication** solves the first; **sharding** solves the second. They're
-different tools for different problems, and confusing them — or reaching for
-either before you need it — is a classic way to add enormous complexity for no
-benefit.
+---
 
-This is where the CAP theorem from module 01 stops being abstract. The moment
-you add a read replica, you've introduced a *second copy* of the data that can
-be *behind* the primary — **replication lag** — which is a small, deliberate dose
-of the inconsistency CAP warned you about, and it produces real bugs ("I just
-saved it, why isn't it there?"). Sharding is heavier still: it breaks the single
-things you've relied on for eight modules — joins, transactions, unique keys —
-across machine boundaries, and those losses are the whole reason "just shard it"
-is rarely the right first answer. The senior skill this module builds is
-knowing *which* problem you actually have, choosing the lightest tool that
-solves it, and being honest about the guarantees you give up. Much of this
-directly feeds the distributed-systems track (10) later.
+## 1. Visual Mental Model: Read/Write Split & Read-Your-Own-Writes (RYOW)
 
-## Concepts
+In read-heavy architectures, writes route to the primary while read queries load-balance across replicas. The RYOW router pins the specific mutating user to the primary briefly to eliminate stale read anomalies.
 
-### Replication: read replicas and why they exist
+```mermaid
+flowchart TD
+    Client["Client Request"] --> Router{"Read / Write Router"}
+    
+    Router -- "Write (POST, PUT, DELETE)" --> Primary[("PostgreSQL Primary (Leader)\n• Accepts all writes\n• Emits WAL Stream")]
+    
+    Primary -->|"Async WAL Stream\n(Replication Lag: ~50ms)"| Replica1[("Read Replica 1")]
+    Primary -->|"Async WAL Stream"| Replica2[("Read Replica 2")]
+    
+    Router -- "Read (GET)" --> CheckPin{"User recently wrote?\n(Cookie/Header: last_write_ts < 5s)"}
+    
+    CheckPin -- "Yes (Pin to Primary)" --> Primary
+    CheckPin -- "No (Safe for Stale Read)" --> ReplicaPool{"Load Balancer\n(Round Robin)"}
+    
+    ReplicaPool --> Replica1
+    ReplicaPool --> Replica2
 
-**Replication** keeps one or more copies (**replicas** / **standbys**) of your
-database in sync with the **primary** (a.k.a. leader/master). The primary takes
-all writes and streams its changes (via the WAL from module 01) to the replicas,
-which apply them to stay current. The classic use is **read scaling**: point
-writes at the primary and spread read-only queries across replicas, so a
-read-heavy app (most are) can serve far more read traffic than one node could.
-Replicas also provide **high availability** — if the primary dies, a replica can
-be *promoted* to become the new primary (**failover**) — and a place to run heavy
-analytics without hurting production traffic.
+    classDef primary fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef replica fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef check fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
 
-```
-                 writes            reads
-   app ──────────▶ PRIMARY ◀ ─ ─ ─ ─ ─ ─ ─ ┐
-                     │  streams WAL          │ (read-only)
-          ┌──────────┼──────────┐            │
-          ▼          ▼          ▼            │
-       replica    replica    replica ◀───────┘
+    class Primary primary;
+    class Replica1,Replica2 replica;
+    class Router,CheckPin,ReplicaPool check;
 ```
 
-Crucially, replication does **not** help write scaling — every write still goes
-through the single primary. If your bottleneck is writes, replicas don't help;
-that's what sharding is for.
+---
 
-### Replication lag — the inconsistency you just bought
+## 2. Horizontal Scaling Architecture Comparison: Replication vs Sharding
 
-Because replicas apply the primary's changes *after* the primary commits them,
-a replica is always at least slightly behind — usually milliseconds, but seconds
-or more under load or slow networks. This gap is **replication lag**, and it
-creates a specific, common, confusing bug:
+| Dimension | Read Replication | Horizontal Database Sharding |
+| :--- | :--- | :--- |
+| **Problem Solved** | Read query volume exceeds primary CPU capacity | Total data size exceeds disk space, or write volume exceeds 1 node I/O |
+| **Write Scalability** | **Zero:** All writes must funnel through the single primary | **Linear:** Writes split across $N$ independent primary shards |
+| **Data Distribution** | Every node holds 100% of the entire dataset | Each shard holds a disjoint subset ($1/N$) of the data |
+| **Query Complexity** | Normal SQL joins, transactions, and foreign keys work unchanged | Cross-shard joins are disabled; distributed transactions require 2PC or Sagas |
+| **Failover / HA** | Promote a replica to become new primary in $<30\text{s}$ | Each shard requires its own replica set for high availability |
+| **Operational Overhead** | Low to moderate | High: Requires consistent hashing, rebalancing, and shard routing proxy |
 
-```
-1. user POSTs a new comment  → written to PRIMARY, committed
-2. app immediately redirects to the comments page
-3. that read is served by a REPLICA that hasn't received the write yet
-4. user sees their own comment MISSING → "the save didn't work!" (it did)
-```
+---
 
-This is a **read-your-own-writes** violation (see
-[Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md), now concrete). Standard mitigations: **route reads that must reflect a user's
-own recent write to the primary** (e.g. right after a write, or for that user
-for a few seconds); accept eventual consistency where it's harmless (a public
-feed being 200ms stale hurts nobody); or use tooling that waits for a replica to
-catch up to a known WAL position before reading. The design rule: **decide, per
-read, whether it can tolerate lag** — most can, a few can't, and mixing that up
-is the bug.
+## 3. Production War Story: The Replication Lag Stale Profile Bug
 
-### Synchronous vs asynchronous replication
+### The Incident
+A social networking platform with 5,000,000 daily active users enabled read replicas to offload 90% of database traffic. 
 
-*How* the primary waits for replicas defines a direct CAP/durability trade
-(module 01):
+A user updated their account bio and avatar image:
+1. `POST /v1/profile` executed an `UPDATE users SET bio = ...` on the primary database $\rightarrow$ Committed successfully.
+2. The user's browser immediately redirected to `GET /v1/profile` to render the updated page.
+3. The load balancer routed the `GET` request to `replica-03`.
+4. Because the primary was under a burst of batch analytics writes, `replica-03` had a **1.4-second replication lag**.
+5. The replica returned the *old* bio and old avatar image.
+6. Believing their save had failed, the user frantically re-typed their changes and submitted the form four more times, filing a critical bug report: *"Profile updates are completely broken."*
 
-- **Asynchronous (the common default):** the primary commits and acknowledges
-  the client *without* waiting for any replica to confirm. Fast writes, no write
-  latency penalty — but if the primary dies before a replica received the last
-  transactions, those acknowledged writes are **lost** on failover (the new
-  primary never had them). This is an availability/latency-favouring (AP-leaning)
-  choice.
-- **Synchronous:** the primary waits for at least one replica to confirm it has
-  the transaction before acknowledging the client. **No acknowledged write is
-  lost** on failover — but every write now pays the round-trip latency to a
-  replica, and (as diagnosed in the
-  [CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md#practice) practice) if the required
-  replica is unreachable, **writes block**. This is a consistency/durability-
-  favouring (CP-leaning) choice.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant API as API Server (Router)
+    participant Primary as PostgreSQL Primary
+    participant Replica as Read Replica (Lag: 1.4s)
 
-Real systems tune this per need — e.g. synchronous to one nearby replica for
-durability, asynchronous to distant ones for read scaling. The point is it's a
-*dial*, and where you set it is a deliberate trade between write latency,
-durability, and availability during failures.
-
-### Sharding: horizontal partitioning across machines
-
-When a single primary can't hold the data or absorb the write rate, you
-**shard**: split the data *horizontally* across multiple independent databases
-(**shards**), each holding a *subset of the rows* and taking its own writes. This
-is the only approach here that scales *writes*, because writes now spread across
-many primaries. (Contrast **vertical partitioning** — splitting *columns* or
-*tables* across databases — and note "shard" always means splitting rows.)
-
-The core decision is the **shard key**: the column whose value decides which
-shard a row lives on. Every row's home is a function of its shard key, and every
-query ideally includes it so you know which shard to hit. Three common
-strategies:
-
-- **Range-based:** shard by ranges of the key (users A–H on shard 1, I–P on
-  shard 2, …; or by date). Simple, and range queries on the key stay on one
-  shard — but prone to **hot spots** (if today's date is one shard, all current
-  writes hammer it; if names cluster, one shard is overloaded).
-- **Hash-based:** shard by `hash(key) % N`. Spreads load evenly (no hot spots),
-  which is its big win — but range queries scatter across all shards, and
-  changing `N` (adding a shard) reshuffles almost everything unless you use
-  **consistent hashing** to minimize movement.
-- **Directory-based:** a lookup table/service maps each key to its shard.
-  Maximum flexibility (rebalance by editing the map, put a whale tenant on its
-  own shard) — but the directory is an extra hop and a potential single point of
-  failure that must itself be highly available.
-
-```
-  Splitting rows across shards by the shard key (e.g. customer_id):
-
-  Range          Hash                       Directory
-  A–H │ ┌──┐     hash(key) % 3              ┌──────────────┐
-  I–P │ │s1│      0 → ┌──┐                  │ key → shard  │ lookup map
-  Q–Z │ └──┘      1 → │s1│  (even spread)   │  17 → s2     │
-        ┌──┐      2 → └──┘                  │  42 → s1     │──► s1 s2 s3
-        │s2│  ... range queries stay on     └──────────────┘
-        └──┘      one shard, hash scatters   flexible, but map is an extra hop
-   simple, but    them; even load, no        + must be highly available
-   hot spots      hot spots
+    User->>API: 1. POST /v1/profile {"bio": "Senior Backend Engineer"}
+    API->>Primary: UPDATE users SET bio = 'Senior Backend Engineer'
+    Primary-->>API: 200 OK (Committed to Primary WAL)
+    API-->>User: 200 OK (Redirecting to profile page...)
+    
+    User->>API: 2. GET /v1/profile (Immediately within 50ms)
+    Note over API: Router routes GET to read replica pool!
+    API->>Replica: SELECT bio FROM users WHERE id = 42;
+    Note over Replica: Replica WAL stream is 1,400ms BEHIND Primary!<br/>Replica still has old row: bio = "Junior Developer"!
+    Replica-->>API: bio = "Junior Developer"
+    API-->>User: 200 OK (Renders old stale bio!)
+    Note over User: User assumes application is broken!
 ```
 
-A closely related pattern is **partitioning within a single Postgres**
-(declarative partitioning: one logical table split into partitions by range/
-hash/list on one node) — it helps manageability and some query performance, but
-it is *not* sharding: it's still one machine, so it doesn't scale writes or
-capacity beyond that box. Don't conflate the two.
+### The Root Cause
+1. **Unconditional Read Routing:** The API router routed all `GET` requests to replicas without tracking whether the current user had just performed a write.
+2. **Replication Lag Invisibility:** The application lacked Read-Your-Own-Writes (RYOW) session stickiness.
 
-### The problems sharding introduces
+### The Verified Fix
+- **Read-Your-Own-Writes Session Pinning:** When a user executes a write operation, set an `HttpOnly` cookie or Redis timestamp: `last_write_at = now()`.
+- **Router Logic:** For any read request arriving from that user within the next **5 seconds**, route the query directly to the **Primary** database. All other unmutated reads continue hitting the read replicas.
 
-Sharding breaks the guarantees you've leaned on all track. This is why it's a
-last resort, not a first move:
+---
 
-- **Cross-shard joins die.** A join between two tables works only if both rows
-  live on the same shard. Join across shards and the database can't do it — you
-  gather partial results from each shard and stitch them in application code
-  (slow, complex), or you deliberately **co-locate** related data on the same
-  shard by sharding both on the same key (e.g. shard orders *and* their line
-  items by `customer_id` so a customer's whole graph is on one shard).
-- **Cross-shard transactions die.** ACID is per-shard; a transaction spanning
-  shards needs distributed-transaction machinery (two-phase commit — slow and
-  fragile) or a **saga** (a sequence of local transactions with compensating
-  undo steps — track 10). Atomicity across shards is no longer free.
-- **Global uniqueness and auto-increment break.** A `BIGSERIAL` per shard
-  collides across shards. You need shard-aware id generation — UUIDs, or schemes
-  like Snowflake ids that embed a shard/worker id (module 00's note on UUIDs for
-  distributed id generation pays off here).
-- **Rebalancing is hard.** Adding a shard means moving data while live, and
-  choosing a shard key you *can't easily change* later is a long-term commitment
-  (pick a bad one and every query becomes a scatter-gather).
-- **Operational surface explodes.** N databases to back up, monitor, migrate
-  (every Alembic migration now runs N times), and fail over.
+## 4. Multi-Language Production Implementation
 
-### When you actually need it — and when a bigger box is simpler
+### Go: Context-Aware Dual Database Router (Primary vs Replica)
 
-The honest guidance, in order:
+```go
+package main
 
-1. **First, optimize the single node** — the indexing (module 03), query tuning
-   and pooling (module 07) you already learned. Most "we need to scale the
-   database" situations are actually "we have an unindexed query / an N+1 / no
-   pool."
-2. **Then scale vertically** — a bigger machine (more CPU, RAM, faster disk).
-   Boring, cheap relative to engineer-months, and buys a lot of headroom. Never
-   underestimate how far one big Postgres goes.
-3. **Then add read replicas** — if the bottleneck is *reads*. Cheap, low-risk,
-   keeps one source of truth for writes.
-4. **Then consider caching** (track 05) — offload repeated reads entirely.
-5. **Only then shard** — and only if the bottleneck is genuinely *write
-   throughput or data volume* that a single primary can't hold, accepting the
-   lost joins/transactions/uniqueness. Sharding is the tool you reach for when
-   you've exhausted the cheaper options and have measured evidence that a single
-   write node is the wall.
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
 
-The trap to avoid: sharding *pre-emptively* ("we might be huge someday") buys
-you all of sharding's costs immediately for a scale you don't have and may never
-reach. Build for the scale you have plus a reasonable margin, and keep the shard
-key decision in mind so a future shard is *possible*, without paying for it now.
+	_ "github.com/lib/pq"
+)
 
-## Command reference
+type DBCluster struct {
+	Primary  *sql.DB
+	Replicas []*sql.DB
+	nextIdx  uint64
+}
 
-Setting up streaming replication is an operational task (mostly config, not
-SQL); this reference is oriented to *observing* replication and *reasoning* about
-the concepts, which is what a backend engineer touches.
+type RouterContextKey struct{}
 
-| Command / setting | Purpose |
-|---|---|
-| `SELECT pg_is_in_recovery();` | `t` on a replica, `f` on the primary — "am I a replica?" |
-| `SELECT * FROM pg_stat_replication;` | On primary: connected replicas and their lag positions |
-| `SELECT pg_current_wal_lsn();` | Primary's current WAL position |
-| `SELECT pg_last_wal_replay_lsn();` | Replica's replayed WAL position (compare for lag) |
-| `SELECT now() - pg_last_xact_replay_timestamp();` | Replica's lag as a time interval |
-| `wal_level = replica` | Primary config enabling replication |
-| `synchronous_standby_names = '...'` | Which standbys must confirm (sync replication) |
-| `synchronous_commit = on/off/remote_apply` | Durability/sync trade dial |
-| `primary_conninfo` | Replica config: how to reach the primary |
-| `pg_promote()` | Promote a replica to primary (failover) |
+func (c *DBCluster) GetReader(ctx context.Context) *sql.DB {
+	// If context has ForcePrimary flag (from recent write), return Primary
+	if force, ok := ctx.Value(RouterContextKey{}).(bool); ok && force {
+		return c.Primary
+	}
 
-Routing reads to a replica in application code (the primary/replica split your
-data layer owns — module 06):
+	// Otherwise, round-robin load balance across replicas
+	if len(c.Replicas) == 0 {
+		return c.Primary
+	}
+	idx := c.nextIdx % uint64(len(c.Replicas))
+	c.nextIdx++
+	return c.Replicas[idx]
+}
+
+func (c *DBCluster) GetWriter() *sql.DB {
+	return c.Primary
+}
+
+// RYOWMiddleware detects recent writes via cookie and pins reader to Primary
+func RYOWMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forcePrimary := false
+
+		if cookie, err := r.Cookie("last_write_ts"); err == nil {
+			var writeTime int64
+			_, _ = fmt.Sscanf(cookie.Value, "%d", &writeTime)
+			// Pin to primary for 5 seconds after write
+			if time.Now().Unix()-writeTime < 5 {
+				forcePrimary = true
+			}
+		}
+
+		ctx := context.WithValue(r.Context(), RouterContextKey{}, forcePrimary)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+```
+
+---
+
+### Node.js (TypeScript): Primary/Replica Query Routing with RYOW Cookie
+
+```typescript
+import { Pool } from 'pg';
+import { Request, Response, NextFunction } from 'express';
+
+const primaryPool = new Pool({ connectionString: process.env.PRIMARY_DB_URL });
+const replicaPool = new Pool({ connectionString: process.env.REPLICA_DB_URL });
+
+export class ClusteredDB {
+  static getClient(req: Request) {
+    const lastWrite = req.cookies?.['last_write'];
+    const now = Date.now();
+
+    // If client wrote within the last 5,000ms, read from PRIMARY to prevent stale reads
+    if (lastWrite && now - parseInt(lastWrite, 10) < 5000) {
+      return primaryPool;
+    }
+
+    // Otherwise, route to Read Replica
+    return req.method === 'GET' ? replicaPool : primaryPool;
+  }
+}
+
+// Write Handler: Updates Primary and sets RYOW cookie
+export async function updateProfileHandler(req: Request, res: Response) {
+  const { userId, bio } = req.body;
+
+  await primaryPool.query('UPDATE users SET bio = $1 WHERE id = $2', [bio, userId]);
+
+  // Set 5-second RYOW cookie
+  res.cookie('last_write', Date.now().toString(), {
+    maxAge: 5000,
+    httpOnly: true,
+    sameSite: 'lax',
+  });
+
+  res.json({ status: 'updated' });
+}
+```
+
+---
+
+### Python: FastAPI Native Postgres Declarative Table Partitioning
 
 ```python
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import asyncpg
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-primary = create_engine("postgresql+psycopg://.../shop")            # writes + read-your-writes
-replica = create_engine("postgresql+psycopg://.../shop?target_session_attrs=read-only")
+app = FastAPI(title="Partitioned Storage API")
+db_pool: asyncpg.Pool = None
 
-WriteSession = sessionmaker(primary)
-ReadSession  = sessionmaker(replica)
+@app.on_event("startup")
+async def startup():
+    global db_pool
+    db_pool = await asyncpg.create_pool("postgresql://postgres:pass@localhost:5432/events_db")
+    
+    # Declarative Range Partitioning by Year
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id BIGSERIAL,
+                created_at TIMESTAMPTZ NOT NULL,
+                tenant_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                PRIMARY KEY (id, created_at)
+            ) PARTITION BY RANGE (created_at);
 
-# The repository chooses the source per operation:
-def place_order(...):            # a WRITE → primary
-    with WriteSession() as s: ...
+            -- Sub-partition for 2026
+            CREATE TABLE IF NOT EXISTS audit_logs_2026 PARTITION OF audit_logs
+                FOR VALUES FROM ('2026-01-01 00:00:00') TO ('2027-01-01 00:00:00');
+        """)
 
-def list_public_feed(...):       # a lag-tolerant READ → replica
-    with ReadSession() as s: ...
-
-def get_my_just_saved_order(...):# read-your-writes → must go to PRIMARY
-    with WriteSession() as s: ...  # deliberately the primary to avoid lag
+@app.get("/v1/audit-logs")
+async def get_logs(start_date: str, end_date: str):
+    # PostgreSQL performs Partition Pruning: Scans ONLY audit_logs_2026!
+    query = """
+        SELECT id, tenant_id, action, created_at 
+        FROM audit_logs 
+        WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz
+        LIMIT 50;
+    """
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(query, start_date, end_date)
+        return [dict(r) for r in rows]
 ```
 
-Conceptually choosing a shard from a key (what a directory/hash router does):
+---
 
-```python
-# hash-based routing across 4 shards
-SHARDS = {0: engine0, 1: engine1, 2: engine2, 3: engine3}
+## 5. Practical Hands-On Verification Matrix
 
-def shard_for(customer_id: int):
-    return SHARDS[hash(customer_id) % len(SHARDS)]
-
-# a query MUST carry the shard key to be routed; a query without it
-# (e.g. "find order by order_id" when sharded by customer_id) has to
-# scatter-gather across ALL shards — the cost of a bad shard-key/query fit.
-```
-
-## Hands-on exercises
-
-You'll run a **real primary + replica** pair with Docker Compose to see
-replication and lag first-hand, then reason through sharding on paper (standing
-up a true sharded cluster is out of scope, but the routing logic is testable).
-
-### 1. Stand up a primary + streaming replica with Docker Compose
-
-Create `docker-compose.yml`:
-
-```yaml
-services:
-  primary:
-    image: postgres:16
-    environment:
-      POSTGRES_PASSWORD: devpass
-      POSTGRES_DB: shop
-    command: >
-      postgres -c wal_level=replica -c max_wal_senders=5
-               -c hot_standby=on
-    ports: ["5432:5432"]
-
-  replica:
-    image: postgres:16
-    environment:
-      PGPASSWORD: devpass
-    ports: ["5433:5432"]
-    depends_on: [primary]
-    # On first start, base-backup from the primary, then stream.
-    entrypoint: >
-      bash -c '
-      until pg_isready -h primary -U postgres; do sleep 1; done;
-      rm -rf /var/lib/postgresql/data/*;
-      pg_basebackup -h primary -U postgres -D /var/lib/postgresql/data -R -X stream -c fast;
-      chmod 0700 /var/lib/postgresql/data;
-      exec gosu postgres postgres'
-```
-
-```bash
-docker compose up -d
-```
-
-Expected: two containers. (This is a teaching setup — the replica bootstraps
-itself from the primary; give it a few seconds. If the replica errors on auth,
-add a trust/`pg_hba` entry or a replication user; the exact hardening is
-operational detail beyond the concept.)
-
-### 2. Confirm who is primary and who is replica
-
-```bash
-docker compose exec primary psql -U postgres -d shop -c "SELECT pg_is_in_recovery();"  # f
-docker compose exec replica psql -U postgres -d shop -c "SELECT pg_is_in_recovery();"  # t
-```
-
-Expected: primary returns `f` (false — not in recovery), replica returns `t`. The
-replica is permanently in "recovery" mode, continuously replaying the primary's
-WAL.
-
-### 3. Watch a write propagate
-
-On the **primary**:
-
+### Step 1: Query Partitioned Table with Pruning Verification
+Execute inside `psql` to verify partition pruning:
 ```sql
-CREATE TABLE notes (id BIGSERIAL PRIMARY KEY, body TEXT, at TIMESTAMPTZ DEFAULT now());
-INSERT INTO notes (body) VALUES ('hello from primary');
+EXPLAIN SELECT * FROM audit_logs WHERE created_at >= '2026-06-01' AND created_at < '2026-07-01';
 ```
-
-On the **replica** (a second later):
-
-```bash
-docker compose exec replica psql -U postgres -d shop -c "SELECT * FROM notes;"
+**Expected Output:**
+```text
+Append  (cost=0.00..25.88 rows=12 width=48)
+  ->  Seq Scan on audit_logs_2026 audit_logs_1  (cost=0.00..25.88 rows=12 width=48)
+        Filter: ((created_at >= '2026-06-01 00:00:00+00'::timestamptz) AND (created_at < '2026-07-01 00:00:00+00'::timestamptz))
 ```
+*(Notice that other year partitions are completely excluded from the query plan!)*
 
-Expected: the row appears on the replica — replication is working. Now try to
-*write* to the replica:
+---
 
-```bash
-docker compose exec replica psql -U postgres -d shop -c "INSERT INTO notes (body) VALUES ('nope');"
-```
-
-Expected: `ERROR: cannot execute INSERT in a read-only transaction`. Replicas
-are read-only by design — all writes must go through the primary.
-
-### 4. Measure replication lag
-
-On the **replica**:
-
-```sql
-SELECT now() - pg_last_xact_replay_timestamp() AS lag;
-```
-
-On the **primary**, inspect replicas:
-
-```sql
-SELECT client_addr, state, sent_lsn, replay_lsn,
-       sent_lsn - replay_lsn AS bytes_behind
-FROM   pg_stat_replication;
-```
-
-Expected: a tiny lag (milliseconds) when idle. Now generate write load on the
-primary (a big `INSERT ... generate_series(...)`) and re-check — watch
-`bytes_behind` grow and shrink as the replica catches up. This *is* replication
-lag, the thing that causes read-your-writes bugs.
-
-### 5. Reproduce a read-your-writes anomaly (conceptually + timing)
-
-While a heavy write load runs on the primary (keeping the replica lagging),
-insert a distinctive row on the primary and *immediately* query for it on the
-replica in a tight loop:
-
-```bash
-docker compose exec primary psql -U postgres -d shop -c "INSERT INTO notes (body) VALUES ('find-me-now');"
-docker compose exec replica psql -U postgres -d shop -c "SELECT count(*) FROM notes WHERE body='find-me-now';"
-```
-
-Expected: under lag, the replica may return `0` for a moment before the row
-arrives — the exact "I saved it but can't see it" bug. Re-run against the
-*primary* and it's always there. This is why read-your-writes reads must be
-routed to the primary.
-
-### 6. Route reads deliberately in application code
-
-Using the primary/replica SQLAlchemy setup from the command reference (primary
-on 5432, replica on 5433), write two functions: `recent_public_notes()` reading
-from the replica, and `my_note_just_created(id)` reading from the primary.
-Justify in a comment why each chose its source.
-
-Expected: both work; the design decision (lag-tolerant → replica, read-your-
-writes → primary) is explicit in code. This is the data-layer responsibility
-from module 06 extended to replica routing.
-
-### 7. Implement and test a shard router
-
-No cluster needed — test the routing logic. Implement `shard_for(customer_id)`
-(hash-based, 4 shards) and a `range_shard_for(customer_id)` (ranges). Feed 10,000
-sequential ids through each and print how many land on each shard.
-
-Expected: hash-based spreads them ~evenly (~2,500 each); a naive range scheme on
-sequential ids piles recent ids onto the last shard (hot spot). You've just
-demonstrated *why* hash beats range for even load and *why* range risks hot
-spots — the core shard-strategy trade-off, measured.
-
-### 8. Diagnose and fix: "we added replicas and it didn't help"
-
-A team's app is slow. Writes (order placement) are timing out under load. They
-added three read replicas and split reads to them, but write latency didn't
-improve at all, and now users occasionally report seeing stale data right after
-saving. Diagnose both problems and prescribe the right fixes.
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 1: The Cascading Failure of Read Replica Lag</b></summary>
 
-Problem 1 — replicas didn't help writes: **replication scales reads, not
-writes.** Every write still goes through the single primary, so adding read
-replicas does nothing for a write-throughput bottleneck. The right diagnosis
-path is first to check whether the write path is actually primary-bound
-(unindexed writes, lock contention from module 04, an undersized pool from
-module 07, or slow synchronous replication) — cheap fixes first. If, after
-tuning, the *single primary's write capacity* is genuinely the wall (data volume
-or raw write rate exceeds one machine), the tool is **sharding** to spread writes
-across multiple primaries — accepting the loss of cross-shard joins/transactions
-and choosing a shard key like `customer_id`.
+**Scenario:** A company's primary database processes 2,000 writes/sec. A read replica falls 45 seconds behind due to a long-running reporting query on the replica. The application load balancer continues sending user read traffic to that lagging replica. What happens?
 
-Problem 2 — stale-after-save: that's **replication lag** causing a read-your-
-writes violation, introduced the moment they started serving reads from
-replicas. Fix by routing reads that must reflect a user's own recent write
-(e.g. the confirmation page right after saving) to the **primary**, while
-lag-tolerant reads stay on replicas. Both problems trace to the same root:
-replication was applied as if it were a general "scale the database" button, when
-it specifically scales lag-tolerant reads and nothing else.
-
+**Correct Analysis:** Users experience severe state desynchronization (e.g. balance transfers, comments, and profile edits appear to have disappeared). More dangerously, if the replica is placed in an automatic health check group, health checkers monitoring replication delay (`EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp())`) must remove the lagging replica from the active pool. If the replica is evicted, all read load slams into remaining replicas, potentially triggering a cascading replica collapse.
 </details>
-
-## Independent challenge
-
-No code given. You run the library-lending app from earlier modules, and it's
-grown to serve a national network of libraries. Write a scaling design note that
-proceeds *in the correct order of escalation* from this module: for a stated
-bottleneck, name the lightest tool that solves it and why you'd try it before
-the heavier ones. Cover: (1) the catalogue-browse and "my loans" pages are
-read-heavy and slow — propose replicas and specify exactly which reads may go to
-a replica and which must hit the primary (read-your-writes), justifying each;
-(2) the loans table has grown so large that a single primary can no longer
-absorb the checkout *write* rate during back-to-school season — decide whether to
-shard, pick a shard key, and state which two things you rely on today (name them)
-that would break once sharded and how you'd cope; (3) explicitly argue the case
-for *not* sharding yet — what cheaper steps (from modules 03, 07, and this one)
-you'd exhaust first, and what measured signal would finally justify sharding.
-Reach back to module 01: name the exact consistency property you trade away by
-introducing replicas, and to module 06: which layer owns the primary/replica and
-shard routing, and why it must not leak upward.
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 2: The Choice of Shard Key in High-Scale Architectures</b></summary>
 
-The escalation ladder is the spine of the answer: optimize the single node
-(indexes/EXPLAIN/N+1/pool) → bigger box → read replicas → caching → shard, in
-that order, each justified by a measured signal. For (1), catalogue browse is
-lag-tolerant (replica); the "did my checkout succeed / here are my current
-loans right after borrowing" read is read-your-writes and must hit the primary.
-For (2), shard on something that co-locates a query's data — sharding loans by
-`library_id` (or `member_id`) keeps a library's/member's loans together and
-avoids scatter-gather, and the things that break are cross-shard joins (loans↔
-members across shards) and cross-shard transactions plus global `BIGSERIAL` ids.
-For (3), the honest signal for sharding is specifically *write* throughput or
-data volume that a single tuned, vertically-scaled primary genuinely cannot
-hold — not read latency (replicas/caching) and not slow queries (indexing). The
-routing lives in the data-access/repository layer (module 06) so services never
-know which physical node answered.
+**Scenario:** An architect shards an e-commerce database on `created_at` (Range Sharding by month). Within 3 weeks, Shard 1 (current month) is operating at 100% CPU and disk utilization while older shards are 99% idle. What design flaw caused this?
 
+**Correct Analysis:** Hotspotting / Uneven Shard Distribution. Range sharding on monotonically increasing timestamps causes 100% of current writes and reads to target the single shard handling the current date. Shard keys should have high cardinality and even distribution—such as **Hash Sharding on `customer_id` or `tenant_id` (`hash(tenant_id) % num_shards`)**—so write traffic is uniformly spread across all physical shards.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Using replication to scale writes.** Replicas scale *reads* only; every
-  write still goes through the single primary. A write bottleneck needs tuning
-  first, then sharding — not replicas.
-- **Ignoring replication lag.** The moment you read from a replica you can serve
-  stale data. Route read-your-writes reads to the primary; only send
-  lag-tolerant reads to replicas.
-- **Assuming asynchronous replication is lossless.** On failover, transactions
-  the primary acknowledged but hadn't yet streamed are lost. Use synchronous
-  replication (accepting write latency / possible write-blocking) where losing
-  acknowledged writes is unacceptable.
-- **Confusing partitioning with sharding.** Declarative partitioning within one
-  Postgres helps manageability but is still one machine — it doesn't scale writes
-  or capacity beyond that box. Sharding means multiple independent databases.
-- **Sharding pre-emptively.** You pay all of sharding's costs (lost joins,
-  transactions, uniqueness; N× operations) immediately for scale you don't have.
-  Exhaust single-node tuning, vertical scaling, replicas, and caching first.
-- **Choosing a bad shard key.** A key that doesn't appear in your common queries
-  forces scatter-gather across all shards; one that clusters load creates hot
-  spots. Pick a key that co-locates related data and spreads load evenly, and
-  remember it's very hard to change later.
-- **Forgetting id generation breaks under sharding.** Per-shard `BIGSERIAL`
-  collides across shards. Plan for UUIDs or shard-aware ids *before* sharding.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What problem does replication solve, what problem does it *not* solve, and
-   what solves that other problem?
-2. What is replication lag, what specific user-visible bug does it cause, and
-   what's the standard fix?
-3. Contrast synchronous and asynchronous replication in terms of write latency,
-   durability on failover, and behaviour during a partition (tie it to CAP).
-4. What is a shard key, and compare range-based vs hash-based sharding
-   (one advantage and one drawback each).
-5. Name three guarantees you've relied on this whole track that sharding breaks,
-   and one coping strategy for each.
-6. Give the correct order of escalation for "the database can't keep up," and
-   state the specific signal that finally justifies sharding.
-7. Which layer of your application owns primary/replica and shard routing, and
-   why must that decision not leak into the business or presentation layers?
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 3: The Danger of Asynchronous Failover (Data Loss)</b></summary>
 
-1. Replication solves read scaling (and high availability): spread read-only
-   queries across replicas of the primary. It does *not* solve write scaling —
-   every write still goes through the single primary. Sharding solves write
-   scaling / data-volume by splitting rows across multiple independent primaries.
-2. Replication lag is the delay before a replica has applied a change the
-   primary already committed. It causes read-your-writes violations — a user
-   sees their just-saved data missing because the read hit a not-yet-caught-up
-   replica. Fix: route read-your-writes reads to the primary; only lag-tolerant
-   reads go to replicas.
-3. Async: primary acknowledges without waiting for a replica — low write latency,
-   but acknowledged writes can be lost on failover; availability/latency-favouring
-   (AP-leaning). Sync: primary waits for a replica to confirm — no acknowledged
-   write lost on failover, but higher write latency and writes block if the
-   required replica is unreachable during a partition; consistency/durability-
-   favouring (CP-leaning).
-4. The shard key is the column whose value decides which shard a row lives on.
-   Range-based: keeps range queries on one shard and is simple, but risks hot
-   spots. Hash-based: spreads load evenly (no hot spots), but scatters range
-   queries across all shards and makes adding shards disruptive (mitigated by
-   consistent hashing).
-5. Cross-shard joins (cope: co-locate related data on the same shard by sharding
-   on the same key, or stitch in app code); cross-shard transactions/atomicity
-   (cope: sagas or two-phase commit); global uniqueness / auto-increment ids
-   (cope: UUIDs or shard-aware id schemes like Snowflake).
-6. Optimize the single node (indexing, query tuning, pooling) → scale vertically
-   (bigger box) → add read replicas (if reads are the bottleneck) → add caching →
-   shard (last). The signal that justifies sharding specifically: measured *write*
-   throughput or data volume that a single tuned, vertically-scaled primary
-   cannot hold — not read latency and not slow individual queries.
-7. The data-access (repository) layer owns it. If it leaked upward, business and
-   presentation code would depend on physical topology (which node/shard answered),
-   destroying testability and the freedom to change replication/sharding without
-   touching business logic — the separation-of-concerns rule from module 06.
+**Scenario:** A primary database server experiences a sudden hardware power failure. Automated orchestrator promotes the closest read replica to become the new primary. After promotion, it is discovered that 1.2 seconds of committed payments are missing. Why?
 
+**Correct Analysis:** Asynchronous Replication Lag. In asynchronous replication, the primary commits transactions locally to its own Write-Ahead Log (WAL) and sends a success confirmation to the client *before* the WAL records are confirmed received by the replicas. If the primary crashes before WAL segments are transmitted over the network, those transactions are lost forever upon replica promotion. Zero-data-loss failover requires **Synchronous Replication (`synchronous_commit = on`)** with at least one standby replica.
 </details>
 
-## Further reading & sources
+---
 
-- [PostgreSQL: High Availability, Load Balancing, and Replication](https://www.postgresql.org/docs/current/high-availability.html) - the official overview of streaming replication, standbys, and failover.
-- [PostgreSQL: Monitoring pg_stat_replication](https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-REPLICATION-VIEW) - how to observe replica state and replication lag.
-- [PostgreSQL: Table Partitioning](https://www.postgresql.org/docs/current/ddl-partitioning.html) - declarative partitioning within one node, and why it is not sharding.
-- [Designing Data-Intensive Applications (Kleppmann), Ch. 5-6](https://dataintensive.net/) - the definitive treatment of replication and partitioning/sharding trade-offs.
-- [Citus: Distributed PostgreSQL / sharding](https://docs.citusdata.com/en/stable/sharding/data_modeling.html) - shard keys, co-location, and distributed query patterns in practice.
-- [Instagram Engineering: Sharding & IDs](https://instagram-engineering.com/sharding-ids-at-instagram-1cf5a71e5a5c) - a real-world account of shard-aware id generation.
-
-## Free PDF notes
+## Download Printable Reference & Diagrams
 
 Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-019: Leader-Follower Replication](https://backendroadmap.com/notes/system-design/SD-E-019.pdf), [SD-E-020: Read Replicas & Replication Lag](https://backendroadmap.com/notes/system-design/SD-E-020.pdf), [SD-E-021: Multi-Leader & Leaderless Replication](https://backendroadmap.com/notes/system-design/SD-E-021.pdf), [SD-E-022: Database Sharding Fundamentals](https://backendroadmap.com/notes/system-design/SD-E-022.pdf), [SD-E-023: Range vs Hash Partitioning](https://backendroadmap.com/notes/system-design/SD-E-023.pdf), [SD-E-024: Rebalancing & Hot Partitions](https://backendroadmap.com/notes/system-design/SD-E-024.pdf), [SD-E-025: Secondary Indexes in Partitioned Data](https://backendroadmap.com/notes/system-design/SD-E-025.pdf), [SD-E-026: Postgres Table Partitioning](https://backendroadmap.com/notes/system-design/SD-E-026.pdf), [SD-E-027: Distributed ID Generation](https://backendroadmap.com/notes/system-design/SD-E-027.pdf), [SD-E-032: Distributed SQL Explained](https://backendroadmap.com/notes/system-design/SD-E-032.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
 
-## Next
+---
 
-[09-olap-and-data-warehousing](../09-olap-and-data-warehousing/README.md) —
-everything so far assumed one workload: transactional (OLTP). Now the other
-half: why analytics/reporting queries don't belong on the same database, and
-how a columnar warehouse answers them differently.
+## Further Reading & Sources
+
+- [PostgreSQL Documentation: Chapter 27. High Availability, Load Balancing, and Replication](https://www.postgresql.org/docs/current/high-availability.html)
+- [PostgreSQL Documentation: Table Partitioning](https://www.postgresql.org/docs/current/ddl-partitioning.html)
+- [Martin Kleppmann: Designing Data-Intensive Applications (Chapter 5: Replication & Chapter 6: Partitioning)](https://dataintensive.net/)
+
+---
+
+## Next Steps
+
+Advance to the next module:
+[../09-olap-and-data-warehousing/README.md](../09-olap-and-data-warehousing/README.md)
+Explore transactional vs analytical systems: OLTP vs OLAP, Columnar storage (Parquet, ClickHouse, BigQuery), and Change Data Capture (CDC with Debezium).

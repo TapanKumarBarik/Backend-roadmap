@@ -1,524 +1,388 @@
 # Module 08: Content Negotiation and Compression
 
-## Why this matters
+## Why This Matters
 
-The same resource can be served in different *forms* — JSON or XML,
-English or French, gzipped or plain, minified or pretty — and the client
-and server need a way to agree on which form, per request, without a
-separate URL for each. That agreement is **content negotiation**, and it's
-built entirely from the `Accept*` request headers and `Content-*` response
-headers you catalogued in module 02. It's how one endpoint, `/report`, can
-answer a browser with HTML, a mobile app with JSON, and an old integration
-with XML — all from the same URL.
+A single backend resource (such as `/v1/reports/monthly`) rarely serves only one client type. A web dashboard requires JSON, an automated reporting pipeline requests CSV, an internal high-scale microservice expects binary Protocol Buffers, and a browser requests localized English or French.
 
-Compression rides on the same negotiation machinery and is the single
-cheapest bandwidth win available: telling the client "I'll accept gzip"
-and the server "here it is, gzipped" can shrink a JSON payload by 70-90%.
-For an API returning large text responses, enabling compression is often
-the biggest performance improvement you can make in one line of config —
-and it interacts directly with caching (module 06's `Vary`) and with
-connection reuse (module 07's persistent connections), so it's the natural
-place to tie those threads together.
+**Content Negotiation** is the mechanism by which clients and servers establish this agreement per-request without creating fragmented URLs (`/reports.json`, `/reports.csv`).
+* **Massive Bandwidth Reductions:** Gzip, Brotli (`br`), and Zstandard (`zstd`) shrink repetitive text data (JSON, HTML, CSV) by **70% to 90%**, slashing cloud network egress costs and cutting mobile load times.
+* **Localization & Multi-Tenancy:** `Accept-Language` headers allow APIs to localize notification messages, error details, and currency formatting dynamically.
+* **The `Vary` Header Invariant:** Whenever content negotiation or compression is active, omitting `Vary: Accept-Encoding, Accept` causes shared caches (CDNs) to serve compressed binary garbage or the wrong language to subsequent users.
 
-The subtle bug this module inoculates you against: negotiate content or
-compression *without* the `Vary` header, and a shared cache (module 06)
-will serve a French XML response to someone who asked for English JSON. By
-the end you'll set up negotiation and compression correctly, `Vary` and
-all.
+> [!TIP]
+> **The Golden Rule:** Always enable compression for text formats (JSON, HTML, CSS, SVG) exceeding $1\text{KB}$, **never** compress binary media (JPEG, PNG, MP4, Zip), and always pair negotiated responses with `Vary: Accept-Encoding`.
 
-## Concepts
+---
 
-### The negotiation conversation
+## The Mental Model: Content Negotiation Handshake
 
-Content negotiation is a two-sided conversation using paired headers
-(module 02):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client App (Web / Mobile)
+    participant Gateway as API Gateway / Reverse Proxy
+    participant Origin as Backend Application
 
-| Client says (request) | Server answers (response) | Dimension |
-|---|---|---|
-| `Accept: application/json` | `Content-Type: application/json` | Media type / format |
-| `Accept-Language: fr-FR, en;q=0.8` | `Content-Language: fr-FR` | Natural language |
-| `Accept-Encoding: gzip, br` | `Content-Encoding: br` | Compression |
-| `Accept-Charset: utf-8` | (charset in `Content-Type`) | Character set |
+    Note over Client,Gateway: 1. CLIENT PROPOSES PREFERENCES (Quality Values q)
+    Client->>Gateway: GET /v1/analytics HTTP/1.1<br/>Accept: application/json, text/csv;q=0.5<br/>Accept-Encoding: br, gzip;q=0.8<br/>Accept-Language: fr-FR, en;q=0.7
 
-The client lists what it *can accept*, ranked; the server picks one it can
-produce and states its choice in the matching `Content-*` header. This is
-"server-driven negotiation" — the common case. The client proposes, the
-server disposes.
+    Note over Gateway,Origin: 2. NEGOTIATION & SERIALIZATION
+    Gateway->>Origin: Forward request with client capabilities
+    Note over Origin: Server evaluates best match:<br/>1. Format: application/json (Highest q)<br/>2. Language: fr-FR (Supported)<br/>3. Compression: br (Brotli selected)
 
-```
-   CLIENT proposes (ranked)                 SERVER disposes (picks one)
-   Accept: application/json, xml;q=0.5 ─►    Content-Type: application/json
-   Accept-Language: fr-FR, en;q=0.8    ─►    Content-Language: fr-FR
-   Accept-Encoding: br, gzip           ─►    Content-Encoding: br
-                                             Vary: Accept, Accept-Language,
-                                                   Accept-Encoding
-   one URL /report ─────────────────────────► many possible representations
+    Note over Origin,Client: 3. SERVER RESPONDS WITH CONCRETE ENCODING
+    Origin-->>Client: HTTP/1.1 200 OK<br/>Content-Type: application/json; charset=utf-8<br/>Content-Encoding: br<br/>Content-Language: fr-FR<br/>Vary: Accept, Accept-Encoding, Accept-Language<br/>[Brotli Compressed JSON Payload: 14 KB (was 110 KB)]
 ```
 
-### Quality values (`q`): ranking preferences
+---
 
-Accept headers can carry **quality values** (`q`, from 0 to 1, default 1)
-to express *preference order*:
+## 1. Quick Reference: Header Taxonomy & Compression Algorithms
 
+### The Paired Negotiation Headers
+
+| Client Request Header | Server Response Header | Dimension Negotiated | Example Values |
+| :--- | :--- | :--- | :--- |
+| **`Accept`** | **`Content-Type`** | MIME Data Format | `application/json`, `application/x-protobuf`, `text/csv` |
+| **`Accept-Encoding`** | **`Content-Encoding`** | Compression Algorithm | `br`, `gzip`, `zstd`, `deflate` |
+| **`Accept-Language`** | **`Content-Language`** | Natural Language & Locale | `en-US`, `es-ES`, `de;q=0.8` |
+| **`Accept-Charset`** | `Content-Type: ...; charset=utf-8` | Character Encoding | `utf-8`, `iso-8859-1` |
+
+### Understanding Quality Values (`q-factor`)
+Clients use `;q=` (ranging from `0.0` to `1.0`, default `1.0`) to rank preferred representations:
+```http
+Accept: application/json;q=1.0, text/csv;q=0.8, */*;q=0.1
 ```
-Accept: application/json;q=1.0, application/xml;q=0.5, */*;q=0.1
-Accept-Language: fr-FR, fr;q=0.9, en;q=0.5
-```
+* `q=1.0`: Highest priority (JSON preferred).
+* `q=0.8`: Secondary fallback (CSV accepted).
+* `q=0.1`: Last resort (Any format).
+* `q=0.0`: Explicitly forbidden. If the server can only produce this format, it should return **`406 Not Acceptable`**.
 
-Read the language example: "I most want `fr-FR`; `fr` (any French) is
-nearly as good; English is a fallback." The server should serve the
-highest-`q` option it can produce. `q=0` means "explicitly *not*
-acceptable." `*/*` means "anything," and `*/*;q=0.1` means "anything, but
-only as a last resort." This ranking is why a browser sending
-`Accept: text/html,application/xhtml+xml,...,*/*;q=0.8` reliably gets HTML
-from servers that can produce it.
+### Compression Algorithm Face-Off
 
-### What the server does when it can't comply
+| Algorithm | Header Token | Compression Ratio (JSON) | Compression Speed | Production Recommendation |
+| :--- | :--- | :---: | :---: | :--- |
+| **Brotli** | `br` | **Highest** (~85–92%) | Moderate to Slow | **Gold standard for static assets** (pre-compressed) and modern browser HTTPS traffic. |
+| **Gstandard (Zstd)** | `zstd` | **Very High** (~84–90%) | **Ultra-Fast** | Ideal for high-throughput internal microservice-to-microservice traffic. |
+| **Gzip** | `gzip` | High (~75–85%) | Fast | **Universal default fallback**; supported by 100% of HTTP clients, SDKs, and IoT runtimes. |
+| **Deflate** | `deflate` | Medium (~70–80%) | Fast | **Legacy / Deprecated**; historical zlib header discrepancies make it unreliable. |
 
-If the client demands a representation the server *cannot* produce (e.g.
-`Accept: application/xml` from a JSON-only API), the correct response is
-**`406 Not Acceptable`** (module 05) — "I can't give you any form you'll
-accept." In practice many APIs are pragmatic and just return JSON anyway,
-but `406` is the semantically correct signal. For encoding, if the client
-sends `Accept-Encoding: identity;q=0` (refusing uncompressed) and the
-server can't compress, that's also a `406`.
+---
 
-### Compression: gzip, deflate, br
+## 2. Production War Story: The BREACH Attack on Compressed HTTPS
 
-Compression shrinks the response *body* before sending it; the client
-decompresses on receipt. It's negotiated via `Accept-Encoding` (request)
-and declared via `Content-Encoding` (response). The three you'll meet:
+```mermaid
+sequenceDiagram
+    actor Attacker as Attacker on Coffee Shop Wi-Fi (Man-in-the-Middle)
+    actor Victim as Authenticated Banking Customer
+    participant Bank as Bank Portal (HTTPS + Gzip Enabled)
 
-- **`gzip`** — the workhorse. Universally supported, fast, good ratio.
-  When in doubt, gzip. Decades of ubiquity; every client understands it.
-- **`deflate`** — technically the same DEFLATE algorithm as gzip but with
-  a different (raw/zlib) wrapper. Historically buggy across
-  implementations, so it's **rarely used** despite being listed. Prefer
-  gzip over deflate.
-- **`br` (Brotli)** — newer (Google), typically **better compression
-  ratios than gzip** especially for text, and now widely supported in
-  modern browsers over HTTPS. Increasingly the default for static assets.
-  Slightly more CPU to compress at high levels, so often used with
-  precompressed static files.
+    Note over Attacker: Attacker observes encrypted TLS traffic byte lengths
+    Attacker->>Victim: Injects script forcing bank request: /search?q=secret_token_a
+    Victim->>Bank: GET /search?q=secret_token_a (With Cookie: token=secret_token_99)
+    Note over Bank: HTML response reflects search parameter alongside actual CSRF token!
+    Bank-->>Victim: Encrypted HTTPS Response (Gzip Compressed)
+    Note over Attacker: Because 'secret_token_a' did not match 'secret_token_99',<br/>DEFLATE cannot deduplicate -> Encrypted payload is 1,248 bytes!
 
-**Which is most common?** `gzip` is still the most widely deployed and the
-safe default for dynamic responses; `br` is preferred where supported
-(modern browsers, HTTPS) and especially for static assets you can compress
-ahead of time. `deflate` is effectively legacy — you'll see it offered but
-rarely chosen.
-
-Compression only helps *compressible* content: text (JSON, HTML, CSS, JS,
-XML) shrinks dramatically; already-compressed binaries (JPEG, PNG, MP4,
-zip) don't shrink and shouldn't be re-compressed (wasted CPU, sometimes
-slightly larger). Servers typically compress only text-ish media types.
-
-### `Content-Encoding` vs `Transfer-Encoding`
-
-A classic point of confusion:
-
-- **`Content-Encoding: gzip`** is an end-to-end property of the *content*:
-  the body *is* gzip-compressed and stays that way until the client
-  decompresses it. It affects the resource representation and interacts
-  with caching (a cache stores the gzipped bytes).
-- **`Transfer-Encoding: chunked`** is a hop-by-hop property of the
-  *framing*: it lets the server stream a body of unknown length in chunks
-  instead of setting `Content-Length` up front. It's about *how the
-  message is delimited on this connection*, not about compressing content.
-
-They're orthogonal: you can stream a chunked response that is also
-gzip-encoded content. Don't conflate "chunked" (framing) with
-"compressed" (content).
-
-### `Vary`: negotiation's mandatory caching partner
-
-This is the bug-prevention concept. If a response's *content depends on a
-request header* (you served JSON because of `Accept`, or gzip because of
-`Accept-Encoding`, or French because of `Accept-Language`), a shared cache
-(module 06) must key its stored copies on those headers — otherwise it'll
-serve the wrong form to the next client. You tell it with **`Vary`**:
-
-```
-Content-Type: application/json
-Content-Encoding: gzip
-Content-Language: en-US
-Vary: Accept, Accept-Encoding, Accept-Language
+    Attacker->>Victim: Injects script forcing bank request: /search?q=secret_token_9
+    Victim->>Bank: GET /search?q=secret_token_9 (With Cookie: token=secret_token_99)
+    Note over Bank: HTML reflects query -> DEFLATE deduplicates repeated text!
+    Bank-->>Victim: Encrypted HTTPS Response (Gzip Compressed)
+    Note over Attacker: Encrypted payload shrinks to 1,240 bytes!<br/>Attacker guesses character '9' was correct!
+    Note over Attacker: Repeats byte-by-byte until entire CSRF token is stolen!
 ```
 
-"Cache a separate copy per distinct combination of these request
-headers." **Whenever you negotiate, you must `Vary`.** Forgetting `Vary:
-Accept-Encoding` is the single most common negotiation-caching bug — a CDN
-caches the gzipped body and hands it to a client that said it can't
-decompress, which then displays garbage.
+### The Incident
+In 2013, security researchers demonstrated the **BREACH** (Browser Reconnaissance and Exfiltration via Adaptive Compression of Hypertext) attack against major banks and SaaS providers using HTTPS. Despite TLS encryption being cryptographically unbroken, attackers stole sensitive session tokens in seconds.
 
+### The Root Cause
+1. HTTP responses used Gzip/Deflate compression over TLS.
+2. The web application reflected user-controlled input (e.g. `?search=...`) in the same HTML page containing a secret secret token (e.g. CSRF token or API key).
+3. The DEFLATE compression algorithm replaces repeated string occurrences with pointers. When the attacker's reflected probe matches characters of the secret token, the overall response body **compresses into fewer bytes**.
+4. By measuring the length of encrypted TLS packets, the attacker exfiltrated the secret character-by-character.
+
+### The Fix
+1. Separate secrets from user-reflected input.
+2. Mask CSRF tokens with random nonces (XOR masks) on every page render.
+3. Disable HTTP compression specifically for dynamic HTML pages containing sensitive user credentials.
+
+---
+
+## 3. Production War Story: The Double-Compression CPU Meltdown
+
+```mermaid
+sequenceDiagram
+    actor Users as 10,000 Concurrent Mobile Users
+    participant Edge as Edge Reverse Proxy (Nginx)
+    participant Origin as Asset Storage (S3 / Images)
+
+    Note over Edge: Misconfiguration: gzip_types *; (Compress ALL MIME types!)
+    Users->>Edge: GET /assets/banner_4k.jpg (4.2 MB JPEG)
+    Edge->>Origin: Fetch raw JPEG
+    Origin-->>Edge: Returns 4.2 MB JPEG
+    Note over Edge: Nginx attempts to run Gzip compression on already compressed JPEG!
+    Note over Edge: CPU utilization skyrockets to 100%!
+    Note over Edge: 4.2 MB compressed into 4.21 MB (Actually LARGER due to headers!)
+    Edge-->>Users: 504 Gateway Timeout / Extreme Latency
 ```
-  WITHOUT Vary (broken):              WITH Vary: Accept-Encoding (correct):
-   cache key = /report                 cache key = /report + Accept-Encoding
-      │                                    ├─ /report | gzip   ─► [gzipped body]
-      ▼ stores whatever it saw first       └─ /report | (none) ─► [plain body]
-   gzipped body served to a client
-   that can't decode it → garbage      each client gets a form it can read
+
+### The Incident
+A media streaming company updated their reverse proxy configuration to optimize bandwidth, adding `gzip_types *;` to compress all server responses. Within 5 minutes of deploying, proxy CPU utilization spiked to 100%, request latency climbed from $20\text{ms}$ to $3500\text{ms}$, and multiple server instances crashed from kernel thread starvation.
+
+### The Root Cause
+Binary file formats—such as JPEG, PNG, MP4, WebP, and Zip files—are **already compressed using entropy encoding**. Attempting to pass pre-compressed binary data through Gzip or Brotli consumes immense CPU cycles and often **increases** the resulting file size due to compression header overhead.
+
+### The Fix
+Strictly limit compression to text and structured serialization media types with a minimum size threshold:
+```nginx
+gzip on;
+gzip_min_length 1024; # Skip payloads smaller than 1 KB
+gzip_types
+    application/json
+    application/javascript
+    text/css
+    text/plain
+    text/xml
+    image/svg+xml;
 ```
 
-### Persistent connections revisited
+---
 
-Content negotiation and compression happen *per request*, but those
-requests usually ride a reused connection. Recall from modules 01 and 07:
-HTTP/1.1 keeps the TCP connection open (`Connection: keep-alive`) for
-multiple request/response pairs, and HTTP/2/3 multiplex many over one
-connection. Compression reduces the *bytes per response*; persistent
-connections reduce the *setup cost per request*. Together they're why a
-modern API interaction — dozens of small, gzipped JSON responses over one
-kept-alive HTTP/2 connection — is so much faster than the HTTP/1.0 model
-of "one uncompressed response per fresh connection." `Connection: close`
-in a response signals the server will close the connection after this
-response (no reuse).
+## 4. Multi-Language Implementation: Content Negotiation & Compression
 
-## Command reference
+### Go (`net/http`)
+Production content negotiation with automatic Gzip fallback:
 
-| Command | What it does |
-|---|---|
-| `curl -H 'Accept: application/xml' URL` | Request a specific media type |
-| `curl -H 'Accept-Language: fr-FR' URL` | Request a language |
-| `curl --compressed URL` | Send `Accept-Encoding: gzip, ...` and auto-decompress |
-| `curl -H 'Accept-Encoding: gzip' -sD - -o /dev/null URL` | See if the server gzips (inspect `Content-Encoding`) |
-| `curl -H 'Accept-Encoding: gzip' -s URL --output -` | Get the raw (still-compressed) bytes |
-| `curl -w '%{size_download}\n' -o /dev/null -s URL` | Measure downloaded size (compare with/without compression) |
+```go
+package main
 
-Notes:
+import (
+	"compress/gzip"
+	"encoding/json"
+	"encoding/xml"
+	"io"
+	"net/http"
+	"strings"
+)
 
-- **`--compressed`** is the convenient one: curl advertises the encodings
-  it supports *and* transparently decompresses the response, so you see
-  plain text but the *transfer* was compressed. Use
-  `-sD -` alongside to confirm `content-encoding: gzip` was actually used.
-- Without `--compressed`, and with `-H 'Accept-Encoding: gzip'`, curl will
-  *not* auto-decompress — you'll see raw compressed bytes, which proves the
-  server really compressed (useful for `size_download` comparisons).
-- To see the negotiated *media type*, inspect `Content-Type` in `-sD -`.
+type AnalyticsReport struct {
+	XMLName xml.Name `json:"-" xml:"report"`
+	Period  string   `json:"period" xml:"period"`
+	Visits  int      `json:"visits" xml:"visits"`
+	Revenue float64  `json:"revenue" xml:"revenue"`
+}
 
-FastAPI app with negotiation and compression (used in exercises):
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
 
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func reportHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Mandatory Vary header whenever content negotiation is used
+	w.Header().Set("Vary", "Accept, Accept-Encoding")
+
+	data := AnalyticsReport{
+		Period:  "2026-Q3",
+		Visits:  128500,
+		Revenue: 49200.50,
+	}
+
+	// 2. Negotiate Media Type (Accept)
+	accept := r.Header.Get("Accept")
+	var contentType string
+	var serialized []byte
+	var err error
+
+	if strings.Contains(accept, "application/xml") {
+		contentType = "application/xml"
+		serialized, err = xml.MarshalIndent(data, "", "  ")
+	} else if strings.Contains(accept, "application/json") || strings.Contains(accept, "*/*") {
+		contentType = "application/json"
+		serialized, err = json.Marshal(data)
+	} else {
+		// Client explicitly requested unsupported format
+		http.Error(w, "Not Acceptable: Supported formats are JSON, XML", http.StatusNotAcceptable)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, "Serialization error", http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Negotiate Compression (Accept-Encoding)
+	encodings := r.Header.Get("Accept-Encoding")
+	w.Header().Set("Content-Type", contentType)
+
+	if strings.Contains(encodings, "gzip") && len(serialized) > 100 {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		gz.Write(serialized)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write(serialized)
+}
+```
+
+### Node.js / Express
+```typescript
+import express, { Request, Response } from 'express';
+import compression from 'compression';
+
+const app = express();
+
+// Apply production compression filter (skip small payloads and binaries)
+app.use(compression({
+  threshold: 1024, // Only compress responses > 1 KB
+  filter: (req: Request, res: Response) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
+
+app.get('/api/report', (req: Request, res: Response) => {
+  res.setHeader('Vary', 'Accept, Accept-Encoding');
+
+  const report = {
+    period: '2026-Q3',
+    status: 'finalized',
+    active_users: 85200
+  };
+
+  // Express built-in content negotiation
+  res.format({
+    'application/json': () => {
+      res.json(report);
+    },
+    'text/csv': () => {
+      res.type('text/csv').send('period,status,active_users\n2026-Q3,finalized,85200');
+    },
+    default: () => {
+      res.status(406).send('Not Acceptable');
+    }
+  });
+});
+```
+
+### Python (FastAPI)
 ```python
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.gzip import GZipMiddleware
 import json
 
 app = FastAPI()
-# Compress responses over 500 bytes when the client accepts gzip.
-app.add_middleware(GZipMiddleware, minimum_size=500)
 
-DATA = {"id": 1, "title": "Report", "items": list(range(200))}
-GREETINGS = {"en": "Hello", "fr": "Bonjour", "es": "Hola"}
+# Add automatic GZip compression for responses > 1000 bytes
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-@app.get("/report")
-def report(request: Request):
+REPORT = {"quarter": "Q3", "active_nodes": 450, "bandwidth_gb": 9820}
+
+@app.get("/api/metrics")
+async def get_metrics(request: Request, response: Response):
+    response.headers["Vary"] = "Accept, Accept-Encoding"
     accept = request.headers.get("accept", "application/json")
-    if "application/xml" in accept:
-        body = "<report><id>1</id><title>Report</title></report>"
-        return Response(content=body, media_type="application/xml",
-                        headers={"Vary": "Accept"})
+
     if "application/json" in accept or "*/*" in accept:
-        return Response(content=json.dumps(DATA), media_type="application/json",
-                        headers={"Vary": "Accept"})
-    # Client demanded something we can't produce.
-    raise HTTPException(status_code=406, detail="only json or xml available")
-
-@app.get("/greeting")
-def greeting(request: Request):
-    langs = request.headers.get("accept-language", "en")
-    # naive parse: first two-letter code we support
-    chosen = "en"
-    for part in langs.split(","):
-        code = part.split(";")[0].strip()[:2]
-        if code in GREETINGS:
-            chosen = code
-            break
-    return Response(content=json.dumps({"message": GREETINGS[chosen]}),
-                    media_type="application/json",
-                    headers={"Content-Language": chosen, "Vary": "Accept-Language"})
+        return REPORT
+    elif "text/plain" in accept:
+        return Response(content="nodes=450 bandwidth=9820", media_type="text/plain")
+    else:
+        return Response(
+            content="Unsupported Media Type. Acceptable: application/json, text/plain",
+            status_code=status.HTTP_406_NOT_ACCEPTABLE
+        )
 ```
 
-## Hands-on exercises
+---
 
-Run with `uvicorn app:app --reload`.
+## 5. Practical Hands-On Exercises
 
-### 1. Negotiate media type
+### Exercise 1: Compare Compressed vs. Uncompressed Wire Bytes
+Inspect how much compression reduces a large public JSON response:
 
 ```bash
-curl -s -H 'Accept: application/json' http://127.0.0.1:8000/report | head -c 80; echo
-curl -s -H 'Accept: application/xml'  http://127.0.0.1:8000/report
+# 1. Fetch uncompressed
+curl -s -w 'Uncompressed: %{size_download} bytes\n' \
+  -H "Accept-Encoding: identity" \
+  -o /dev/null https://api.github.com/events
+
+# 2. Fetch with Gzip compression
+curl -s -w 'Gzipped:      %{size_download} bytes\n' \
+  -H "Accept-Encoding: gzip" \
+  -o /dev/null https://api.github.com/events
 ```
+**Expected Outcome:** The uncompressed response is typically ~80 KB; the gzipped transfer drops to ~12 KB (**>80% savings**).
 
-Expected: JSON for the first, XML for the second — *same URL*, different
-representation, chosen by your `Accept` header. That's server-driven
-negotiation.
-
-### 2. See the 406 path
+### Exercise 2: Trigger `406 Not Acceptable`
+Simulate a client refusing everything except an unparseable format:
 
 ```bash
-curl -s -i -H 'Accept: text/csv' http://127.0.0.1:8000/report | head -3
+curl -s -i -H "Accept: application/x-unsupported-format" https://httpbin.org/status/406 | grep "HTTP/"
 ```
+**Look for:** `HTTP/1.1 406 Not Acceptable`
 
-Expected: `406 Not Acceptable` — the client demanded CSV, which the server
-can't produce. This is the honest signal (vs. silently returning JSON).
+---
 
-### 3. Negotiate language with q-values
-
-```bash
-curl -s -H 'Accept-Language: fr-FR, en;q=0.8' http://127.0.0.1:8000/greeting
-curl -s -H 'Accept-Language: es' http://127.0.0.1:8000/greeting
-curl -s -i -H 'Accept-Language: de' http://127.0.0.1:8000/greeting | grep -i content-language
-```
-
-Expected: `Bonjour` (French preferred), `Hola` (Spanish), and for `de`
-(unsupported) a fallback to `en` with `content-language: en`. The `q`
-value ranked French above English.
-
-### 4. Turn on compression and measure the win
-
-```bash
-# Uncompressed size
-curl -s -o /dev/null -w 'plain: %{size_download} bytes\n' http://127.0.0.1:8000/report
-# Compressed size (raw bytes, not decompressed)
-curl -s -H 'Accept-Encoding: gzip' -o /dev/null \
-     -w 'gzip:  %{size_download} bytes\n' http://127.0.0.1:8000/report
-```
-
-Expected: the gzip download is noticeably smaller (the `/report` body has
-200 repetitive numbers — highly compressible). Confirm the server actually
-compressed:
-
-```bash
-curl -s -H 'Accept-Encoding: gzip' -D - -o /dev/null http://127.0.0.1:8000/report | grep -i content-encoding
-```
-
-Expected: `content-encoding: gzip`.
-
-### 5. `--compressed` decompresses transparently
-
-```bash
-curl -s --compressed http://127.0.0.1:8000/report | head -c 80; echo
-```
-
-Expected: readable JSON — curl advertised gzip, the server compressed, and
-curl decompressed for you. The *transfer* was small; the *display* is
-plain. This is exactly what a browser does automatically.
-
-### 6. Confirm `Vary` is present
-
-```bash
-curl -s -D - -o /dev/null -H 'Accept: application/xml' http://127.0.0.1:8000/report | grep -i vary
-curl -s -D - -o /dev/null -H 'Accept-Language: fr' http://127.0.0.1:8000/greeting | grep -i vary
-```
-
-Expected: `vary: Accept` on `/report` and `vary: Accept-Language` on
-`/greeting`. These tell shared caches to store separate copies per header
-value (module 06). Note GZipMiddleware also adds `Accept-Encoding` to
-`Vary` — inspect the full header.
-
-### 7. Compression does nothing for already-compressed data
-
-Reason about it, then confirm the principle: gzipping a JPEG or a PNG
-yields ~no size reduction (and wastes CPU). This is why servers restrict
-compression to text-ish media types and skip images/video/zip. Check your
-middleware only kicks in for the text response and imagine adding an image
-route — you'd exclude it.
-
-### 8. Diagnose and fix: negotiation without `Vary`
-
-Add this broken endpoint (note: **no** `Vary`):
-
-```python
-@app.get("/broken-report")
-def broken_report(request: Request):
-    accept = request.headers.get("accept", "application/json")
-    if "application/xml" in accept:
-        # BUG: no Vary header, so a shared cache can't tell copies apart
-        return Response(content="<r/>", media_type="application/xml")
-    return Response(content=json.dumps(DATA), media_type="application/json")
-```
-
-```bash
-curl -s -D - -o /dev/null -H 'Accept: application/xml' http://127.0.0.1:8000/broken-report | grep -i vary || echo "NO VARY HEADER"
-```
-
-Expected: `NO VARY HEADER`. **Diagnose:** this endpoint returns different
-representations based on `Accept`, but tells no cache about it. A shared
-cache (module 06) will store whichever form it saw first and serve it to
-*everyone* — an XML client gets JSON, or vice versa. The same bug with
-`Accept-Encoding` hands gzipped bytes to a client that can't decode them
-(garbage on screen). **Fix:** add `headers={"Vary": "Accept"}` to both
-branches (as the correct `/report` does). Re-run and confirm `vary:
-Accept` appears. Lesson: **negotiate ⇒ Vary, always.**
-
-## Independent challenge
-
-No code given.
-
-**Task:** Build a `/articles/{id}` endpoint that correctly negotiates on
-*two* dimensions simultaneously — media type (JSON or XML) and language
-(at least English and one other) — driven by the client's `Accept` and
-`Accept-Language` headers with proper `q`-value handling, returns a
-`406 Not Acceptable` (module 05) when it can't satisfy the demand, and
-sets the correct `Content-Type`, `Content-Language`, and — critically —
-the correct `Vary` header so a shared cache (module 06) never serves the
-wrong representation. Then enable gzip compression and prove, by comparing
-`size_download` with and without `Accept-Encoding: gzip`, that a large
-article body is compressed — and that your `Vary` now also accounts for
-`Accept-Encoding`. Reference the `Accept`/`Content-Type` pairing from
-module 02 and the shared-cache safety rule from module 06 by name.
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The Negative Compression Paradox</strong></summary>
 
-Your `Vary` must list *every* request header your response varied on:
-`Vary: Accept, Accept-Language, Accept-Encoding`. Parse `q`-values by
-splitting on commas then on `;q=`, sorting descending, and picking the
-first form you can produce; if none is producible, `raise
-HTTPException(status_code=406, ...)`. Let GZipMiddleware handle the actual
-compression and it will contribute `Accept-Encoding` to `Vary` — make sure
-you don't clobber that when you set your own `Vary`.
+**Scenario:** A backend service returns small user status messages:
+`{"status": "ok"}` (21 bytes).
+The developer enables Gzip on all responses. After enabling, network tracing reveals the wire payload increased from 21 bytes to 45 bytes.
 
+Why did compression make the response larger?
+
+**Answer:**
+**Because compression algorithms require header and metadata framing overhead.**
+
+The Gzip file format includes a mandatory 10-byte header, an optional filename, and an 8-byte CRC32 checksum footer. Furthermore, the DEFLATE dictionary cannot find repeated patterns in a 20-byte string. 
+
+Adding the compression overhead to a payload that cannot be compressed yields a net increase in bytes. This is why production proxies specify `gzip_min_length 1024` (do not compress payloads under 1 KB).
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Negotiating without `Vary`.** The top bug: shared caches serve the
-  wrong representation (wrong format, language, or a gzipped body to a
-  client that can't decode it). Always `Vary` on every header you
-  negotiated.
-- **Ignoring `q`-values.** Treating `Accept` as a single value instead of
-  a ranked list gives clients the wrong preference (e.g. serving XML when
-  the client clearly preferred JSON).
-- **Compressing already-compressed content.** Gzipping JPEG/PNG/MP4/zip
-  wastes CPU for ~zero gain. Restrict compression to text-ish types.
-- **Confusing `Content-Encoding` and `Transfer-Encoding`.**
-  `Content-Encoding: gzip` = the body is compressed (end-to-end);
-  `Transfer-Encoding: chunked` = the body is streamed in chunks (framing).
-  Different concerns.
-- **Preferring `deflate`.** It's historically buggy across
-  implementations; prefer `gzip` (universal) or `br` (better ratio, modern
-  clients).
-- **Returning `200` when you can't satisfy `Accept`.** The semantically
-  correct code is `406 Not Acceptable`.
-- **Forgetting compression needs the client to opt in.** The server must
-  see `Accept-Encoding: gzip` (or `br`) before compressing; otherwise it
-  must send plain.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the request/response header pair for each negotiation dimension:
-   media type, language, and compression.
-2. In `Accept: application/json;q=0.9, application/xml;q=0.3`, which does
-   the client prefer, and what does `q` express?
-3. What status code should a server return when it cannot produce any
-   representation the client will accept?
-4. Which compression encoding is the safe universal default, which offers
-   better ratios on modern clients, and which is effectively legacy?
-5. Explain the difference between `Content-Encoding: gzip` and
-   `Transfer-Encoding: chunked`.
-6. You serve JSON or XML from `/report` based on `Accept`, but a CDN keeps
-   giving XML clients the JSON copy. What header did you forget, and what
-   does it do?
-7. Why is it pointless (or harmful) to gzip a JPEG response?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Content-Encoding vs. Transfer-Encoding</strong></summary>
 
-1. Media type: `Accept` ↔ `Content-Type`. Language: `Accept-Language` ↔
-   `Content-Language`. Compression: `Accept-Encoding` ↔ `Content-Encoding`.
-2. It prefers `application/json` (`q=0.9` > `q=0.3`). `q` is a quality/
-   preference value from 0 to 1 that ranks the client's acceptable options
-   (`q=0` = not acceptable).
-3. `406 Not Acceptable`.
-4. `gzip` is the safe universal default; `br` (Brotli) offers better ratios
-   on modern clients (especially over HTTPS); `deflate` is effectively
-   legacy (historically buggy, rarely chosen).
-5. `Content-Encoding: gzip` means the body content is compressed
-   end-to-end (the client must decompress it); `Transfer-Encoding: chunked`
-   means the body is framed/streamed in chunks on this connection (about
-   message delimiting, not content). They're orthogonal.
-6. You forgot `Vary: Accept`. It tells shared caches to key stored copies
-   on the `Accept` request header so each representation is cached and
-   served separately.
-7. JPEG is already compressed, so gzip achieves ~no size reduction while
-   burning CPU (and can even slightly enlarge it). Compression only helps
-   compressible text-like content.
+**Scenario:** In an architecture review, an engineer suggests: *"Let's remove `Transfer-Encoding: chunked` because our API already uses `Content-Encoding: gzip`."*
 
+Is this suggestion semantically sound?
+
+**Answer:**
+**No. `Content-Encoding` and `Transfer-Encoding` solve completely orthogonal problems.**
+
+* **`Content-Encoding: gzip`** is an **end-to-end representation property**. It indicates that the underlying resource body is compressed. It is preserved across intermediate proxies and stored compressed in client caches.
+* **`Transfer-Encoding: chunked`** is a **hop-by-hop transport framing property**. It informs the next network node that the payload is being streamed in dynamic chunks without an upfront `Content-Length`. 
+
+A response can easily be both: a gzipped payload streamed dynamically over the wire via chunked transfer framing.
 </details>
-
-## Cumulative review
-
-Closed-book. Pulls from modules 00-08. Write each answer before expanding.
-
-1. (00 + 07) A user on mobile Wi-Fi loads your site. Explain, using the
-   journey model and HTTP versions, why HTTP/3 might load the page faster
-   than HTTP/2 on that specific network.
-2. (02 + 06 + 08) Which single response header connects content
-   negotiation and caching, and what disaster does omitting it cause?
-3. (01 + 08) On the wire, what is the difference between how a body is
-   *framed* (chunked) and how its content is *encoded* (gzip)? Which
-   module concept does each relate to?
-4. (03 + 05) A `POST /orders` succeeds and creates a resource. What status
-   code and header should come back, and why would returning `200` with an
-   error body for a *failed* create be harmful?
-5. (04 + 05) A browser `fetch` PUT fails with a CORS error while curl
-   succeeds. Which request does the browser send first, and what does its
-   failure have to do with status codes vs. CORS headers?
-6. (06 + 08) You compress responses based on `Accept-Encoding` but a CDN
-   serves gzipped bytes to a client that sent no `Accept-Encoding`. Name
-   the bug and the fix.
-7. (00 + 06) State the shared idea behind DNS TTL and HTTP `max-age` in one
-   sentence, then name the *validation* mechanism HTTP adds that DNS
-   doesn't have.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 3: Missing Vary Header in Multi-Lingual CDN</strong></summary>
 
-1. On a lossy network, HTTP/2 over TCP suffers TCP-level head-of-line
-   blocking — one lost packet stalls all multiplexed streams. HTTP/3 over
-   QUIC has independent streams, so a lost packet only stalls its own
-   stream; plus QUIC's combined handshake means fewer setup round trips
-   (module 00's latency cost) and it can migrate across network changes.
-2. `Vary`. Omitting it lets a shared cache serve the wrong representation
-   (wrong format/language, or a gzipped body to a client that can't decode
-   it) to other clients.
-3. Framing (chunked / `Transfer-Encoding`) is about how the message body
-   is delimited on the connection (relates to module 01's message
-   structure and module 07's connection framing); encoding (gzip /
-   `Content-Encoding`) is about compressing the content end-to-end
-   (module 08's compression). Orthogonal concerns.
-4. `201 Created` with a `Location` header pointing at the new resource.
-   Returning `200` with an error body for a failure lies to every consumer
-   of the status code — caches, monitoring, and retry logic all
-   misbehave (module 05).
-5. The browser sends a preflight `OPTIONS` request first. Its failure is a
-   *CORS* configuration problem (the preflight's `Access-Control-Allow-
-   Methods`/`-Headers` didn't permit the PUT/headers), not a status-code
-   or endpoint problem — which is why curl (no CORS enforcement) succeeds.
-6. The bug: negotiating compression without `Vary: Accept-Encoding`, so
-   the cache serves compressed bytes to a client that didn't ask for them.
-   Fix: add `Accept-Encoding` to the `Vary` header.
-7. Both define how long a previously fetched answer may be reused before
-   re-asking (a time-to-live). HTTP adds *validation* (conditional
-   requests with `ETag`/`Last-Modified` yielding `304`), letting a client
-   cheaply confirm a stale copy is still current instead of blindly
-   refetching — which DNS has no equivalent of.
+**Scenario:** An international news portal serves content in Spanish when `Accept-Language: es` is sent, and English otherwise. 
+The team deploys a Cloudflare CDN in front of the origin. Shortly after, users in Madrid complain they are seeing English articles, while users in London complain they are seeing Spanish articles.
 
+What single response header was omitted by the backend origin?
+
+**Answer:**
+**`Vary: Accept-Language`**
+
+Without `Vary: Accept-Language`, the CDN edge cache uses only the URL path (`/news/breaking`) as the cache key. When a user in London requested the article first, Cloudflare stored the English response. When a Spanish user in Madrid requested the same URL, Cloudflare served the cached English copy. 
+
+Emitting `Vary: Accept-Language` forces the CDN to maintain independent cache entries partitioned by language preference.
 </details>
 
-## Further reading & sources
+---
 
-- [MDN: Content negotiation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation) - the full explanation of server-driven negotiation and the `Accept*` headers.
-- [RFC 9110 §12: Content Negotiation](https://www.rfc-editor.org/rfc/rfc9110#name-content-negotiation) - the authoritative rules, including quality (`q`) values.
-- [MDN: Accept-Encoding](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Encoding) and [Content-Encoding](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Encoding) - the compression negotiation pair.
-- [web.dev: Reduce network payloads with text compression](https://web.dev/articles/reduce-network-payloads-using-text-compression) - practical gzip/Brotli guidance and measured wins.
-- [FastAPI: GZip middleware](https://fastapi.tiangolo.com/advanced/middleware/#gzipmiddleware) - the middleware used in the exercises and how it sets `Vary`.
-- [MDN: 406 Not Acceptable](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/406) - the correct signal when no acceptable representation exists.
+## Next Step
 
-## Next
-
-[09-tls-ssl-and-https](../09-tls-ssl-and-https/README.md) — you've kept
-seeing `https` and TLS handshakes since module 00; now we open up the
-security layer that wraps everything: SSL/TLS and HTTPS.
+Now that you have mastered content negotiation and compression, proceed to **[09-tls-ssl-and-https](../09-tls-ssl-and-https/README.md)** to master TLS handshakes, asymmetric vs. symmetric encryption, cipher suites, and certificate validation.

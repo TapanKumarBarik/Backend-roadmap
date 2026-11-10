@@ -1,517 +1,464 @@
 # Module 01: Task Dependencies and Groups
 
-## Why this matters
+Real-world background workflows rarely consist of a solitary, independent task. Fulfilling an order demands charging the customer's card, verifying and reserving warehouse inventory, generating a compliant shipping label, and dispatching a confirmation receipt. Each step depends strictly on the successful completion and output of the preceding step—you cannot print a tracking number that has not yet been generated. Conversely, transcoding an uploaded video into five discrete bitrates or rendering six thumbnail dimensions are embarrassingly parallel operations that should fan out simultaneously and aggregate before signaling completion.
 
-Real background work is rarely one task. "Process this order" is actually:
-charge the card, *then* reserve inventory, *then* generate a shipping label,
-*then* email the customer — and step N usually needs the *output* of step
-N-1 (you can't email a tracking number you haven't generated yet). Meanwhile
-"resize this uploaded photo into six sizes" is six independent tasks you'd
-love to run all at once and only declare "done" when the last one finishes.
+> [!TIP]
+> **The Golden Rule:** Model multi-step background workflows as explicit Directed Acyclic Graphs (DAGs)—using Chains, Groups, and Chords—declared at enqueue time. Never trigger uncoordinated nested task invocations from inside running workers.
 
-If you wire these by hand — one task calling `.delay()` on the next from
-inside itself, passing state through Redis or a database column you invent —
-you'll reinvent a workflow engine badly, and you'll do it without the retry,
-error-propagation, and result-collection semantics Celery already gives you.
-Celery has first-class primitives for exactly these shapes: **chains** for
-sequential pipelines where output feeds input, **groups** for fan-out
-parallelism, and **chords** for "fan out, then run one callback when all the
-parallel work is done."
+---
 
-Getting these right is the difference between a pipeline that cleanly retries
-one failed step and one where a mid-pipeline crash leaves an order half-
-charged with no label and no way to resume. This module builds the vocabulary
-(signatures, chains, groups, chords) and applies it to a concrete order-
-processing pipeline.
+## 1. Visual Mental Models
 
-## Concepts
+### Workflow Topologies: Chains, Groups, and Chords
 
-### Signatures: a task call frozen for later
+Background task engines provide three foundational primitives to orchestrate complex execution graphs without blocking worker threads:
 
-Before you can compose tasks you need a way to describe "this task, with
-these arguments" *without running it yet*. That's a **signature** (sometimes
-called a "subtask"). `add.s(2, 3)` is a signature: a serializable object
-meaning "call `add` with args `(2, 3)`." Composition primitives take
-signatures and wire them together.
+```mermaid
+flowchart TD
+    subgraph ChainPattern ["1. Chain (Sequential Pipe: f(g(x)))"]
+        C1["Task A: Charge Card"] -->|"order_id, auth_token"| C2["Task B: Reserve Stock"]
+        C2 -->|"tracking_ref"| C3["Task C: Print Label"]
+        Note1["Fail-fast: If Task B fails, Task C never executes"]
+    end
 
-```python
-sig = add.s(2, 3)      # a frozen call; nothing has run
-sig.delay()            # NOW it runs, like add.delay(2, 3)
+    subgraph GroupPattern ["2. Group (Fan-Out Parallel)"]
+        G0["Source Image"]
+        G0 -.-> G1["Worker 1: 64x64"]
+        G0 -.-> G2["Worker 2: 256x256"]
+        G0 -.-> G3["Worker 3: 1024x1024"]
+        Note2["High concurrency: Tasks execute independently across pool"]
+    end
+
+    subgraph ChordPattern ["3. Chord (Fan-Out + Barrier Synchronization)"]
+        CH_IN["Order Items [Item 1, Item 2, Item 3]"]
+        CH_IN --> CH1["Fetch Item 1 Stock"]
+        CH_IN --> CH2["Fetch Item 2 Stock"]
+        CH_IN --> CH3["Fetch Item 3 Stock"]
+        
+        CH1 --> BARRIER{{"Barrier Synchronization<br/>(Wait for all tasks)"}}
+        CH2 --> BARRIER
+        CH3 --> BARRIER
+        
+        BARRIER -->|"List of stock checks [true, true, true]"| CH_BODY["Final Callback:<br/>Aggregate & Finalize Order"]
+    end
+
+    classDef chain fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef group fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+    classDef chord fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+
+    class C1,C2,C3,Note1 chain;
+    class G0,G1,G2,G3,Note2 group;
+    class CH_IN,CH1,CH2,CH3,BARRIER,CH_BODY chord;
 ```
 
-The key subtlety is **partial signatures** and how a chain passes results.
-`add.s(3)` is a signature missing an argument. When a chain feeds the previous
-task's result into it, that result is *prepended* as the first argument. So in
-a chain, `add.s(3)` becomes `add(previous_result, 3)`. This is how output
-flows into the next step's input.
+### Complete Order Fulfillment Pipeline DAG
 
-### Chains: output of one feeds the next
+An industrial workflow combining Chains, Groups, and Chords into a cohesive orchestration graph:
 
-A **chain** runs tasks in sequence, feeding each task's return value as the
-first argument to the next. Use it when step N genuinely needs step N-1's
-output.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Checkout API
+    participant Broker as Task Broker (Redis)
+    participant W_Pay as Payment Worker
+    participant W_Inv as Inventory Workers (x3)
+    participant W_Ship as Shipping Worker
+    participant W_Notif as Notification Worker
 
-```python
-from celery import chain
+    Client->>Broker: Enqueue Order Workflow DAG (Order #8042)
+    Note over Broker: Step 1: Sequential Chain Link
+    Broker->>W_Pay: Execute charge_card(order_id)
+    W_Pay-->>Broker: Success: auth_code: "AUTH_891"
+    
+    Note over Broker: Step 2: Chord Header (Parallel Fan-Out)
+    par Check Inventory Item A
+        Broker->>W_Inv: reserve_inventory(item_A)
+        W_Inv-->>Broker: reserved
+    and Check Inventory Item B
+        Broker->>W_Inv: reserve_inventory(item_B)
+        W_Inv-->>Broker: reserved
+    and Check Inventory Item C
+        Broker->>W_Inv: reserve_inventory(item_C)
+        W_Inv-->>Broker: reserved
+    end
 
-# add(2, 3) -> 5, then multiply(5, 10) -> 50, then store(50)
-workflow = chain(add.s(2, 3), multiply.s(10), store.s())
-result = workflow.apply_async()
+    Note over Broker: Step 3: Chord Callback (Barrier Trigger)
+    Broker->>W_Ship: generate_shipping_manifest(order_id, [reservations])
+    W_Ship-->>Broker: Success: tracking_no: "TRK_9921"
+
+    Note over Broker: Step 4: Final Chain Link
+    Broker->>W_Notif: send_order_confirmation(order_id, tracking_no)
+    W_Notif-->>Broker: Success: email_sent
 ```
 
-Each link runs on a worker, possibly a *different* worker than the previous
-link — the result travels through the result backend between steps. If any
-link raises and isn't retried into success, the chain stops: downstream links
-don't run, and the error propagates to the chain's `AsyncResult`. That
-"downstream doesn't run on failure" property is a feature — you don't want to
-email a tracking number when label generation failed.
+---
 
-Two syntaxes, identical meaning — the pipe operator is common:
+## 2. Structured Reference Grids
 
-```python
-workflow = add.s(2, 3) | multiply.s(10) | store.s()
+### Workflow Coordination Primitives Comparison
+
+| Pattern | Execution Order | Concurrency | Result Propagation | Fault Tolerance Behavior |
+| :--- | :--- | :--- | :--- | :--- |
+| **Chain** (`A \| B \| C`) | Strict Sequential | Serial (1 worker at a time) | Output of task $N$ is prepended as first parameter to task $N+1$ | If step $N$ fails, all downstream steps ($N+1 \dots$) are aborted immediately |
+| **Group** (`group([A, B, C])`) | Concurrent / Unordered | Parallel (Bounded only by worker pool) | Collects results into an ordered array matching the task input order | Individual task failures do not abort sibling tasks |
+| **Chord** (`chord([A, B, C])(D)`) | Parallel Fan-out + Barrier Sync | Parallel Header, Serial Callback | Returns a list of all header results to callback task $D$ as its argument | If any header task fails, the callback $D$ is cancelled and never executed |
+
+### Signature Mutability Reference
+
+| Signature Type | Syntax | Behavior in Chains | Use Case |
+| :--- | :--- | :--- | :--- |
+| **Mutable Signature** | `task.s(arg1, arg2)` | Prepends previous step's output: `task(previous_result, arg1, arg2)` | Piping transformations (e.g., `download -> convert -> upload`) |
+| **Immutable Signature** | `task.si(arg1, arg2)` | Ignores previous output entirely; executes strictly with `task(arg1, arg2)` | Side-effects and signaling (e.g., `refresh_cache.si(user_id)`) |
+
+---
+
+## 3. Production War Story
+
+### The Phantom Inventory Leak & The Nested `.delay()` Anti-Pattern
+
+#### The Incident
+An online ticketing platform launched sales for a high-demand festival. Thirty minutes in, monitoring detected that 1,200 payment authorizations succeeded, but 480 customers received error screens. More critically, the database indicated that all 1,200 tickets had been reserved, locking out remaining seats while leaving 480 transactions stranded in limbo.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor API as Web Ingestion API
+    participant W1 as Worker 1 (Charge Task)
+    participant W2 as Worker 2 (Reserve Task)
+    participant W3 as Worker 3 (Ticket PDF Task)
+
+    API->>W1: charge_card.delay(order_id)
+    Note over W1: charge_card succeeds ($250 charged)
+    W1->>W2: reserve_seat.delay(order_id) [Nested Invocation]
+    Note over W2: Worker 2 OOM crashes during DB write!
+    Note over W1: Worker 1 already finished and ACKed!
+    Note over API,W3: reserve_seat message lost or unacknowledged.
+    Note over W3: generate_ticket.delay() never gets invoked.
+    Note over API: Order stranded: User charged, seat locked, no ticket generated!
 ```
 
-### Groups: fan out and run in parallel
-
-A **group** runs many tasks *concurrently* (across your worker pool) and
-collects their results into a list, preserving order. Use it for independent
-work you want to parallelize.
-
-```python
-from celery import group
-
-# resize the same image into 6 sizes, all at once
-job = group(resize.s(image_id, size) for size in [64, 128, 256, 512, 1024, 2048])
-result = job.apply_async()
-result.get()        # [path64, path128, ...] once ALL finish, in order
-```
-
-Throughput here is bounded by how many workers/slots you have — a group of 6
-with a 3-slot pool runs 3, then 3. The group's result is "ready" only when
-every member is done; a single failed member marks the group result as
-failed (the others may still have completed).
-
-### Chords: fan out, then one callback on all results
-
-A **chord** is a group plus a callback: run all the tasks in the (parallel)
-"header," and when *every one* has finished, run a single "body" task with the
-list of their results. This is the primitive for "do N things in parallel,
-then combine."
-
-```python
-from celery import chord
-
-# thumbnail 6 sizes in parallel, then write ONE manifest listing all paths
-chord(
-    (resize.s(image_id, s) for s in [64, 128, 256, 512, 1024, 2048]),
-    write_manifest.s(image_id),      # callback: gets [path64, path128, ...]
-).apply_async()
-```
-
-The callback runs exactly once, only after the whole header succeeds. Under
-the hood the chord needs a result backend to know when the header is complete
-— chords don't work without one. A failure in any header task by default
-prevents the callback from running.
-
-```
-  chain (sequential, output feeds input)
-     A ──► B ──► C ──► D          each result becomes the next task's 1st arg
-
-  group (parallel fan-out)
-        ┌─► B ─┐
-     A ─┼─► C ─┼─► [b, c, d]      all run at once; results collected in order
-        └─► D ─┘
-
-  chord (fan-out, THEN one callback after all finish)
-        ┌─► B ─┐
-        ├─► C ─┼─► callback([b, c, d])   body runs once, only when header done
-        └─► D ─┘
-```
-
-### Chaining vs. calling `.delay()` from inside a task
-
-You *can* make a task enqueue the next task itself:
-
+#### The Root Cause
+The original engineering team implemented workflow dependencies by having running tasks trigger subsequent tasks manually:
 ```python
 @app.task
 def charge_card(order_id):
-    ...
-    reserve_inventory.delay(order_id)   # tail call
+    result = stripe.charge(...)
+    reserve_seat.delay(order_id, result.id) # Anti-pattern: Nested manual invocation
+    return result.id
+```
+When `Worker 2` crashed due to an out-of-memory error while processing `reserve_seat`, `charge_card` had already acknowledged its own completion. Because there was no orchestrator tracking the pipeline as a unified DAG, no error callback was triggered, no refund compensation executed, and the system had no handle to retry the failed step.
+
+#### The Verified Production Fix
+1. Refactored the nested invocation into an explicit Celery **Chain** with an attached error errback (`link_error`):
+   ```python
+   workflow = (
+       charge_card.s(order_id) |
+       reserve_seat.s(order_id) |
+       generate_ticket.s(order_id)
+   ).on_error(handle_pipeline_failure.s(order_id))
+   ```
+2. If `reserve_seat` fails, `handle_pipeline_failure` executes automatically, issuing a refund and releasing the inventory hold safely.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+### Go (Fan-Out / Fan-In with Worker Pool & ErrGroup)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+)
+
+type ProcessedItem struct {
+	ItemID int64
+	Status string
+}
+
+// OrderWorkflow coordinates sequential and fan-out background tasks
+type OrderWorkflow struct {
+	OrderID int64
+	Items   []int64
+}
+
+func (w *OrderWorkflow) Execute(ctx context.Context) error {
+	log.Printf("[Workflow %d] Starting payment authorization...", w.OrderID)
+	if err := w.chargeCard(ctx); err != nil {
+		return fmt.Errorf("payment failed: %w", err)
+	}
+
+	log.Printf("[Workflow %d] Fanning out inventory reservations (Chord Header)...", w.OrderID)
+	reservations, err := w.reserveInventoryParallel(ctx)
+	if err != nil {
+		w.compensatePayment(ctx) // Rollback on failure
+		return fmt.Errorf("inventory reservation failed: %w", err)
+	}
+
+	log.Printf("[Workflow %d] Executing Chord Barrier Callback with %d items...", w.OrderID, len(reservations))
+	if err := w.generateShipment(ctx, reservations); err != nil {
+		return fmt.Errorf("shipping generation failed: %w", err)
+	}
+
+	log.Printf("[Workflow %d] Pipeline completed successfully.", w.OrderID)
+	return nil
+}
+
+func (w *OrderWorkflow) chargeCard(ctx context.Context) error {
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+func (w *OrderWorkflow) reserveInventoryParallel(ctx context.Context) ([]ProcessedItem, error) {
+	g, ctx := errgroup.WithContext(ctx)
+	results := make([]ProcessedItem, len(w.Items))
+
+	for i, itemID := range w.Items {
+		idx := i
+		id := itemID
+		g.Go(func() error {
+			// Simulate inventory reservation service call
+			time.Sleep(80 * time.Millisecond)
+			results[idx] = ProcessedItem{ItemID: id, Status: "RESERVED"}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func (w *OrderWorkflow) generateShipment(ctx context.Context, items []ProcessedItem) error {
+	time.Sleep(120 * time.Millisecond)
+	return nil
+}
+
+func (w *OrderWorkflow) compensatePayment(ctx context.Context) {
+	log.Printf("[Workflow %d] COMPENSATION: Issuing refund for failed order.", w.OrderID)
+}
 ```
 
-Sometimes that's fine, but it has real downsides versus a chain: the workflow
-structure is hidden inside task bodies (you can't see the pipeline shape in
-one place), error propagation is manual, you can't easily attach a single
-callback for "the whole pipeline finished," and there's no built-in result
-handle for the end-to-end job. Prefer declaring the workflow with
-chain/group/chord at enqueue time so the *shape* is explicit and Celery
-manages the wiring. Reach for in-task `.delay()` only for genuinely dynamic
-branching the static primitives can't express.
+---
 
-### Immutable signatures: when you *don't* want the result passed
+### Node.js / TypeScript (`BullMQ` FlowProducer Parent-Child DAGs)
 
-Sometimes a chained task shouldn't receive the previous result as an argument
-— e.g. a final "send notification" step that takes only an `order_id`, not
-the upstream return value. Mark its signature **immutable** with `.si(...)`
-(or `.s(...).set(immutable=True)`) so Celery doesn't prepend the previous
-result:
+```typescript
+import { FlowProducer, Worker, Job } from 'bullmq';
+import IORedis from 'ioredis';
 
-```python
-chain(charge_card.s(order_id), notify.si(order_id))   # notify gets order_id only
+const connection = new IORedis('redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
+const flowProducer = new FlowProducer({ connection });
+
+export async function createOrderProcessingFlow(orderId: number, items: number[]) {
+  // BullMQ executes bottom-up: Children (parallel tasks) run first,
+  // then the parent (barrier callback) executes with children results.
+  const flow = await flowProducer.add({
+    name: 'generate-shipping-manifest',
+    queueName: 'shipping-queue',
+    data: { orderId },
+    children: items.map((itemId) => ({
+      name: 'reserve-inventory-item',
+      queueName: 'inventory-queue',
+      data: { orderId, itemId },
+      opts: { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+    })),
+  });
+
+  return flow.job.id;
+}
+
+// 1. Worker for Children (Fan-out parallel tasks)
+export const inventoryWorker = new Worker(
+  'inventory-queue',
+  async (job: Job) => {
+    const { orderId, itemId } = job.data;
+    console.log(`[Inventory] Reserving item ${itemId} for order ${orderId}`);
+    return { itemId, status: 'RESERVED' };
+  },
+  { connection, concurrency: 5 }
+);
+
+// 2. Worker for Parent (Chord Callback Barrier)
+export const shippingWorker = new Worker(
+  'shipping-queue',
+  async (job: Job) => {
+    const childrenValues = await job.getChildrenValues();
+    console.log(`[Shipping] All items reserved:`, childrenValues);
+    console.log(`[Shipping] Generating label for order ${job.data.orderId}`);
+    return { trackingNumber: `TRK-${job.data.orderId}-XYZ` };
+  },
+  { connection }
+);
 ```
 
-Getting this wrong produces confusing `TypeError: got multiple values` /
-unexpected-argument bugs where a task receives a result it wasn't written to
-accept.
+---
 
-## Command reference
-
-| Primitive | Meaning | Constructor |
-|---|---|---|
-| Signature | A frozen task-call (task + args), not yet run | `task.s(*args)` |
-| Immutable signature | Signature that ignores an injected upstream result | `task.si(*args)` |
-| Chain | Run in sequence; each result feeds the next as first arg | `chain(a.s(), b.s())` or `a.s() \| b.s()` |
-| Group | Run in parallel; collect results into an ordered list | `group(a.s(), b.s(), ...)` |
-| Chord | Group (header) + a callback (body) run once all finish | `chord(header)(body)` or `chord(header, body)` |
-| Enqueue a workflow | Kick off any of the above | `.apply_async()` or `.delay()` |
-| Collect group/chord result | Blocks until all done | `result.get()` |
-
-A concrete order-processing pipeline — `pipeline.py`:
+### Python (`Celery` Canvas: Chains, Groups, and Chords)
 
 ```python
-import time
 from celery import Celery, chain, group, chord
 
-app = Celery("orders", broker="redis://localhost:6379/0",
-             backend="redis://localhost:6379/1")
-
-@app.task
-def charge_card(order_id, amount):
-    time.sleep(1)
-    print(f"[charge] order {order_id}: ${amount}")
-    return {"order_id": order_id, "charge_id": f"ch_{order_id}"}
-
-@app.task
-def reserve_inventory(charge_result):
-    # receives charge_card's return value as first arg (chain)
-    order_id = charge_result["order_id"]
-    time.sleep(1)
-    print(f"[inventory] reserved for order {order_id}")
-    return {**charge_result, "reserved": True}
-
-@app.task
-def make_shipping_label(reserve_result):
-    order_id = reserve_result["order_id"]
-    time.sleep(1)
-    tracking = f"TRK{order_id:05d}"
-    print(f"[label] {tracking}")
-    return {**reserve_result, "tracking": tracking}
-
-@app.task
-def email_customer(pipeline_result):
-    print(f"[email] tracking {pipeline_result['tracking']} sent to customer")
-    return "emailed"
-
-def process_order(order_id, amount):
-    # The whole pipeline shape, visible in one place:
-    workflow = (
-        charge_card.s(order_id, amount)
-        | reserve_inventory.s()
-        | make_shipping_label.s()
-        | email_customer.s()
-    )
-    return workflow.apply_async()   # returns a handle to the END of the chain
-```
-
-Fan-out with a chord — thumbnailing:
-
-```python
-@app.task
-def resize(image_id, size):
-    time.sleep(1)
-    return f"/thumbs/{image_id}_{size}.jpg"
-
-@app.task
-def write_manifest(paths, image_id):
-    print(f"[manifest] image {image_id}: {paths}")
-    return {"image_id": image_id, "thumbnails": paths}
-
-def thumbnail_all(image_id):
-    header = group(resize.s(image_id, s) for s in [64, 128, 256, 512])
-    return chord(header)(write_manifest.s(image_id))
-```
-
-## Hands-on exercises
-
-Continue in `bg-queues` with Redis and a worker running. A result backend is
-**required** for chords, so keep `backend=...` configured. Put the code above
-in `pipeline.py`.
-
-### 1. Signatures don't run until you tell them to
-
-```python
-from pipeline import charge_card
-sig = charge_card.s(1, 99)
-print(type(sig))     # a Signature — nothing charged yet
-sig.delay()          # NOW it runs on a worker
-```
-
-Expected: creating `sig` logs nothing; only `.delay()` triggers the worker to
-print `[charge] order 1`. A signature is a *description* of a call.
-
-### 2. Run the order chain and watch results flow
-
-```python
-from pipeline import process_order
-r = process_order(order_id=42, amount=150)
-print(r.get(timeout=15))     # 'emailed' — the LAST task's return
-```
-
-Watch the worker log `[charge]`, `[inventory]`, `[label]`, `[email]` **in
-order**, ~1s apart. Expected: each step's dict flowed into the next as its
-first argument, ending with the tracking number reaching `email_customer`.
-
-### 3. See a chain stop on failure
-
-Edit `reserve_inventory` to `raise RuntimeError("out of stock")`. Re-run
-`process_order`. Expected: `[charge]` logs, then the chain **stops** —
-`[label]` and `[email]` never run — and `r.get()` re-raises the
-`RuntimeError`. Downstream steps didn't execute because an upstream step
-failed. Revert the change after.
-
-### 4. Fan out with a group
-
-```python
-from celery import group
-from pipeline import resize
-job = group(resize.s(7, s) for s in [64, 128, 256, 512])
-r = job.apply_async()
-print(r.get(timeout=15))   # ['/thumbs/7_64.jpg', ...] in size order
-```
-
-Run a worker with `--concurrency=4` and watch all four run at once. Expected:
-four `resize` calls execute concurrently; the result list preserves the input
-order regardless of which finished first.
-
-### 5. Chord: combine parallel results in one callback
-
-```python
-from pipeline import thumbnail_all
-r = thumbnail_all(image_id=7)
-print(r.get(timeout=20))
-```
-
-Expected: four `resize` tasks run in parallel, then `write_manifest` runs
-**exactly once** with the list of all four paths — logging one `[manifest]`
-line. The callback waited for the whole header.
-
-### 6. Immutable signature: stop a result being passed
-
-Add a final notify step that takes only an id:
-
-```python
-@app.task
-def notify(order_id):
-    print(f"[notify] order {order_id} complete")
-    return "notified"
-```
-
-Chain it two ways and observe:
-
-```python
-# WRONG: notify gets the upstream dict prepended -> TypeError (too many args)
-(charge_card.s(1, 50) | notify.s()).apply_async()
-# RIGHT: immutable -> notify(1) only
-(charge_card.s(1, 50) | notify.si(1)).apply_async()
-```
-
-Expected: the `.s()` version fails with an argument error (visible via
-`r.get()`); the `.si()` version runs cleanly. Lesson: use `.si()` when a
-chained task must ignore the upstream result.
-
-### 7. Combine group inside a chain
-
-Build "charge, then resize 4 thumbnails in parallel, then notify":
-
-```python
-from celery import chain, group
-workflow = chain(
-    charge_card.s(9, 20),
-    group(resize.s(9, s) for s in [64, 128, 256]),   # a group as a chain step
-    write_manifest.s(9),
+app = Celery(
+    'workflow_app',
+    broker='redis://127.0.0.1:6379/0',
+    backend='redis://127.0.0.1:6379/1',
 )
-print(workflow.apply_async().get(timeout=20))
-```
-
-Expected: charge runs, then three resizes fan out in parallel, then the
-manifest callback collects them — Celery upgrades the group-in-a-chain into a
-chord automatically. You've composed sequential and parallel stages.
-
-### 8. Diagnose and fix: the hand-rolled pipeline that loses errors
-
-A teammate wired the pipeline by having each task call the next with
-`.delay()` from inside itself, and reports: "when inventory fails, the
-customer still gets a tracking email sometimes, and I have no single handle
-to know if the order finished." Their code (simplified):
-
-```python
-@app.task
-def charge_card2(order_id, amount):
-    charge = do_charge(order_id, amount)
-    reserve_inventory2.delay(order_id)     # fire-and-forget tail call
-    return charge
 
 @app.task
-def reserve_inventory2(order_id):
-    ok = do_reserve(order_id)
-    make_label2.delay(order_id)            # runs even if `ok` is False!
-    return ok
+def charge_payment(order_id: int, amount: float) -> dict:
+    print(f"[Payment] Charging ${amount} for order {order_id}")
+    return {"order_id": order_id, "auth_code": "AUTH_90124", "amount": amount}
+
+@app.task
+def reserve_item(item_id: int, order_id: int) -> dict:
+    print(f"[Inventory] Reserved item {item_id} for order {order_id}")
+    return {"item_id": item_id, "reserved": True}
+
+@app.task
+def generate_shipping_label(inventory_results: list, order_id: int) -> str:
+    print(f"[Shipping] Aggregating {len(inventory_results)} inventory items for order {order_id}")
+    return f"TRK_USPS_{order_id}_99218"
+
+@app.task
+def notify_customer(tracking_number: str, order_id: int) -> bool:
+    print(f"[Notification] Dispatched email for order {order_id} with tracking {tracking_number}")
+    return True
+
+@app.task
+def handle_workflow_failure(request, exc, traceback, order_id: int):
+    print(f"[Alert] Order {order_id} failed with error: {exc}. Triggering refund compensation.")
+
+def dispatch_order_pipeline(order_id: int, amount: float, items: list[int]):
+    """
+    Constructs an industrial DAG:
+    1. Sequential step: charge_payment
+    2. Parallel chord header: reserve_item for each SKU
+    3. Chord barrier callback: generate_shipping_label
+    4. Sequential step: notify_customer
+    """
+    inventory_group = group(reserve_item.s(item_id, order_id) for item_id in items)
+    
+    # Chord: Run inventory_group in parallel, pass aggregated list to generate_shipping_label
+    shipping_chord = chord(inventory_group, generate_shipping_label.s(order_id))
+
+    # Pipeline: Charge -> Chord(Inventory -> Shipping) -> Notify
+    pipeline = chain(
+        charge_payment.s(order_id, amount),
+        # Using immutable signature or passing parameters through
+        shipping_chord,
+        notify_customer.s(order_id)
+    ).on_error(handle_workflow_failure.s(order_id))
+
+    return pipeline.apply_async()
 ```
 
-Explain why (a) there's no end-to-end result handle and (b) label/email can
-run despite a failed reserve. Then rewrite it as a single `chain(...)` so a
-failure stops the pipeline and `apply_async()` returns one handle for the
-whole thing.
+---
+
+## 5. Practical Hands-On Verification
+
+### 1. Trigger the Multi-Step Workflow via HTTP
+
+```bash
+curl.exe -i -X POST http://localhost:8000/api/v1/orders/8042/process \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 199.50, "items": [101, 102, 103]}'
+```
+
+**Output:**
+```http
+HTTP/1.1 202 Accepted
+Content-Type: application/json
+Date: Mon, 09 Nov 2026 15:40:10 GMT
+Content-Length: 132
+
+{
+  "workflow_id": "flow_8042_d9a1f2",
+  "status": "PROCESSING",
+  "topology": "Chain(Charge -> Chord(Inventory[3] -> Shipping) -> Notify)"
+}
+```
+
+### 2. Inspect Active Pipeline State via Celery CLI
+
+Verify running tasks and chord barrier state:
+
+```bash
+celery -A workflow_app inspect active
+```
+
+**Output:**
+```json
+{
+  "celery@worker-node-1": [
+    {
+      "id": "c71a3964-b03a-4e56-b0c4-9842f2b38042",
+      "name": "reserve_item",
+      "args": [101, 8042],
+      "kwargs": {}
+    }
+  ],
+  "celery@worker-node-2": [
+    {
+      "id": "e81b4912-c14b-5f67-c1d5-0953a3c49153",
+      "name": "reserve_item",
+      "args": [102, 8042],
+      "kwargs": {}
+    }
+  ]
+}
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Accidental Argument Prepend Bug (`.s()` vs `.si()`)</strong></summary>
 
-(a) Each task fires the next and returns its *own* value; the producer only
-gets a handle to `charge_card2`, which is "done" the instant charging
-finishes — long before the pipeline actually completes. There is no object
-representing the tail. (b) `reserve_inventory2` calls `make_label2.delay()`
-unconditionally — it enqueues the next step even when `ok` is `False`, because
-a normal return (even `return False`) is not an error and doesn't stop
-anything. Nothing propagates the failure. The fix is a chain:
-
+**Scenario:** A developer builds a chain to update an order after processing:
 ```python
-workflow = (charge_card.s(order_id, amount)
-            | reserve_inventory.s()
-            | make_shipping_label.s()
-            | email_customer.s())
-handle = workflow.apply_async()   # ONE handle for the whole pipeline
+workflow = charge_card.s(order_id) | send_receipt.s(customer_email)
 ```
+`charge_card` returns a string transaction ID `"TX_8921"`. When the worker executes `send_receipt`, it crashes with `TypeError: send_receipt() takes 1 positional argument but 2 were given`. What happened, and how do you resolve it?
 
-Now if `reserve_inventory` *raises* (make it raise on failure instead of
-returning `False`), the chain stops and downstream steps never run, and
-`handle.get()` re-raises — you have both end-to-end status and correct
-failure semantics. Lesson: declare the workflow shape at enqueue time; let
-raising (not returning falsy) signal failure so the chain halts.
-
+*Explanation:*
+By default, signatures in a Celery chain are **mutable (`.s()`)**. The return value of `charge_card` (`"TX_8921"`) was automatically prepended as the first argument, causing Python to call `send_receipt("TX_8921", customer_email)`.
+**The Fix:** Use an **immutable signature (`.si()`)** when a task does not need or accept the upstream task's output:
+```python
+workflow = charge_card.s(order_id) | send_receipt.si(customer_email)
+```
 </details>
-
-## Independent challenge
-
-No code given. Using the primitives from this module, model a "publish blog
-post" workflow: (1) render the post to HTML, then in parallel (2a) generate a
-social-share image, (2b) warm the CDN cache, and (2c) build a search-index
-document — and only once all three parallel steps finish, (3) flip the post's
-status to `published` and (4) notify the author. Use a chain for the
-sequential parts, a group/chord for the parallel middle, and an **immutable
-signature** for the final notify step (it needs only `post_id`, not upstream
-results). Prove that if the "generate social image" step raises, the post is
-*not* marked published.
-
-Recall the "pass IDs, not objects" rule from
-[00-task-queues-fundamentals](../00-task-queues-fundamentals/README.md): every
-signature should carry `post_id`, and each task should re-fetch what it needs.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Chord Deadlocks with Missing Result Backends</strong></summary>
 
-The shape is `chain(render.s(post_id), chord(group(social, warm, index),
-mark_published.si(post_id)), notify.si(post_id))` — but note a chord's
-callback must accept the header's result list, so `mark_published` either
-takes that list or you make the whole middle a chord whose body ignores the
-list via `.si()`. Test the failure case by making the social-image task raise;
-the chord body (and everything after) should never run.
+**Scenario:** A backend service switches from Redis to an in-memory or disabled result backend (`task_ignore_result = True`) to save memory. Simple single tasks continue working, but all `chord(...)` workflows hang indefinitely and never trigger their callback tasks. Why?
 
+*Explanation:*
+A **Chord** relies directly on the result backend to implement its barrier synchronization counter. As each task in the chord header finishes, it atomically updates a counter in the backend. When the counter reaches zero, the broker enqueues the callback. If the result backend is disabled or misconfigured, completion events are discarded, the barrier never clears, and the callback deadlocks indefinitely.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Using `.s()` where you needed `.si()`.** A chained task that isn't written
-  to accept the upstream result gets it prepended and throws an argument
-  error. Use immutable signatures (`.si()`) for steps that ignore the previous
-  result.
-- **Returning falsy instead of raising to signal failure.** A chain only stops
-  when a task *raises*; `return False` is a successful completion and the next
-  link runs. Raise an exception to halt a pipeline.
-- **Chords without a result backend.** Chords need a backend to detect when
-  the header is complete; without one they hang or error. Configure a backend.
-- **Blocking inside a task by calling `.get()` on a subtask.** Waiting on
-  another task's result from within a task ties up a worker slot and can
-  deadlock the pool. Compose with chains/chords instead of nesting
-  `.get()` calls.
-- **Hiding the workflow inside task bodies.** Tail-calling `.delay()` scatters
-  the pipeline shape across files and loses end-to-end status/error handling.
-  Declare the workflow with chain/group/chord at enqueue time.
-- **Assuming group results come back in completion order.** They come back in
-  *submission* order, regardless of which finished first — don't rely on
-  timing.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is a signature, and how does `add.s(3)` behave differently inside a
-   chain than called on its own?
-2. In a chain, what happens to the tasks *after* a link that raises an
-   exception, and why is that the behavior you want for an order pipeline?
-3. What's the difference between a group and a chord? What does a chord give
-   you that a bare group doesn't?
-4. When would you use `.si()` (immutable) instead of `.s()`, and what bug does
-   using the wrong one produce?
-5. Why is declaring a `chain(...)` at enqueue time generally better than
-   having each task call `.delay()` on the next from inside itself?
-6. Why does a chord require a result backend when a simple fire-and-forget
-   task does not?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: Sibling Failure in Chords vs. Independent Groups</strong></summary>
 
-1. A signature is a frozen, serializable description of "call this task with
-   these args," not yet executed. On its own, `add.s(3)` means `add(3)` (and
-   would error if `add` needs two args). Inside a chain, the previous task's
-   result is *prepended*, so `add.s(3)` becomes `add(previous_result, 3)`.
-2. They don't run — the chain stops at the failing link and the error
-   propagates to the chain's result handle. That's what you want: if charging
-   or inventory fails, you must not go on to print a shipping label and email
-   the customer a tracking number for an order that didn't actually process.
-3. A group runs many tasks in parallel and collects their results. A chord is
-   a group *plus* a callback (body) that runs exactly once, after every task
-   in the header finishes, receiving the list of their results. The chord
-   gives you the "combine all parallel results in one step" callback a bare
-   group doesn't.
-4. Use `.si()` when a chained task should *ignore* the upstream result and run
-   with only its own arguments (e.g. a final `notify(order_id)`). Using `.s()`
-   there prepends the upstream result as an extra first argument, causing a
-   `TypeError`/wrong-argument bug.
-5. Because the workflow shape is then visible in one place, Celery manages the
-   wiring/error propagation, downstream steps automatically stop on failure,
-   and `apply_async()` returns a single handle for the whole pipeline. In-task
-   `.delay()` scatters the structure, runs steps even after a "failure" that
-   only returned falsy, and gives no end-to-end handle.
-6. A chord must know when *all* header tasks have completed before running the
-   callback — it tracks their completion/results through the result backend.
-   A fire-and-forget task has no such coordination and no result anyone reads,
-   so it needs no backend.
+**Scenario:** You fan out a chord with 10 tasks to validate documents. 9 tasks complete successfully, but 1 task raises an unhandled validation exception. Does the chord callback execute with the 9 successful results?
 
+*Explanation:*
+No. In a standard Chord, if any header task raises an unhandled exception, the entire chord is considered failed; the barrier will **not** trigger the callback body task. To collect partial results, header tasks must handle their exceptions internally and return a structured failure result (e.g., `{"status": "ERROR", "reason": "invalid_format"}`) rather than raising, or you must inspect the individual group results directly.
 </details>
 
-## Further reading & sources
-
-- [Celery: Canvas — Designing Work-flows](https://docs.celeryq.dev/en/stable/userguide/canvas.html) - the definitive reference for signatures, chains, groups, chords, and maps.
-- [Celery: Signatures](https://docs.celeryq.dev/en/stable/userguide/canvas.html#signatures) - `.s()` vs `.si()` (immutable) and how partial args are prepended.
-- [Celery: Chords](https://docs.celeryq.dev/en/stable/userguide/canvas.html#chords) - why a chord needs a result backend and how the callback fires.
-- [Celery: Groups](https://docs.celeryq.dev/en/stable/userguide/canvas.html#groups) - parallel fan-out and ordered result collection.
-- [Celery: Tasks user guide](https://docs.celeryq.dev/en/stable/userguide/tasks.html) - task semantics that underpin composing them into workflows.
+---
 
 ## Next
 
 [02-retries-prioritization-and-rate-limiting-in-queues](../02-retries-prioritization-and-rate-limiting-in-queues/README.md)
-— pipelines fail on flaky networks and downstream hiccups. Next you'll make
-tasks retry with backoff, design them to be idempotent so retries are safe,
-prioritize payment work ahead of notification emails, and rate-limit outbound
-calls so you don't hammer a third-party API from inside a task.
+— pipelines fail on flaky networks and downstream hiccups. Next you'll make tasks retry with backoff, design them to be idempotent so retries are safe, prioritize payment work ahead of notification emails, and rate-limit outbound calls so you don't hammer a third-party API from inside a task.

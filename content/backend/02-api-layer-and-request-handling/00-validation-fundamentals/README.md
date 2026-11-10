@@ -1,557 +1,349 @@
 # Module 00: Validation Fundamentals
 
-## Why this matters
+## Why This Matters
 
-In track 01 you learned how a request travels from a client to your server:
-the method, the path, the headers, the body, and how the body gets
-deserialized from JSON into Python objects. This track picks up at the exact
-moment that request lands inside your application, and the very first thing
-that has to happen — before a single line of business logic runs — is
-**validation**. A request is just bytes a stranger sent you. Until you've
-checked those bytes, you don't actually know that the "email" field is an
-email, that "age" is a number and not the string `"twelve"`, or that the
-"date_of_birth" isn't set to the year 3000.
+Every request arriving at your server is untrusted bytes sent by strangers over the internet. Before a single line of business logic executes or a single database transaction begins, your application must answer: **is this data safe, well-formed, and structurally valid?**
 
-Here's the mental model that matters most and that beginners get wrong:
-**validation is a security boundary, not a convenience feature.** A web page
-might have a slick form that turns the submit button red when you type a bad
-email — that's client-side validation, and it exists purely for *user
-experience*. It is trivially bypassed. Anyone can open a terminal and
-`curl` your endpoint directly, skipping your JavaScript entirely, sending
-whatever bytes they like. So the rule is absolute: **client-side validation
-is UX; server-side validation is the gate that actually protects your
-business logic and your database.** Even if a field is validated perfectly in
-the browser, you re-validate it on the server, every time, no exceptions.
+Validation is not an optional convenience feature—**it is your primary security boundary**:
+* **Client-Side Validation is Only UX:** A React frontend form with red warning borders is easily bypassed. Any client can use `curl`, Postman, or a Python script to send arbitrary, corrupted, or malicious bytes directly to your API endpoint.
+* **The 3 Validation Tiers:** Real validation requires three distinct checkpoints:
+  1. **Type Validation:** Is the field even the expected primitive? (e.g. integer vs. string).
+  2. **Syntactic Validation:** Does the string conform to an expected pattern? (e.g. valid RFC 5322 email).
+  3. **Semantic Validation:** Does the value make logical real-world sense? (e.g. `birth_date` must be in the past; `order_quantity` must be greater than zero).
+* **Database & Memory Protection:** Proper validation blocks SQL injection, prevents negative-quantity balance drains, and rejects 50MB string payloads before they trigger container Out-Of-Memory (OOM) crashes.
 
-Validation also has a *shape*. There isn't one kind of "is this valid"
-check — there are at least three, and conflating them is where bugs live.
-**Type validation** asks "is this even the right kind of thing?" (is `age`
-an integer at all). **Syntactic validation** asks "is it the right format?"
-(does this string look like an email — `user@host.tld`). **Semantic
-validation** asks "does it make sense in the real world?" (a date of birth
-in the future is a perfectly well-formatted date that is nonetheless
-impossible). A value can pass one and fail the next: `"3000-01-01"` is a
-syntactically valid date and a semantically invalid birth date.
+> [!TIP]
+> **The Golden Rule:** Always adopt a **Whitelisting (Strict Allowlist)** approach. Explicitly define what fields and types are permitted; automatically strip or reject any unexpected input. Never rely on blacklists to filter "bad" data.
 
-Get this layer right and everything downstream — your database, your
-services, your responses — can *assume* it's working with clean, well-typed,
-sensible data. Get it wrong and you've invited garbage (or an attacker) past
-the front door.
+---
 
-## Concepts
+## The Mental Model: The 3 Validation Tiers
 
-### The three layers of validation
+```mermaid
+flowchart TD
+    Raw(["Inbound HTTP Request Body\n(Untrusted Wire Bytes)"]) --> T1{"Tier 1: Type Validation\nIs payload valid JSON & correct primitives?"}
+    
+    T1 -- No --> E400["400 Bad Request\n(Malformed JSON / Type Mismatch)"]
+    T1 -- Yes --> T2{"Tier 2: Syntactic Validation\nDo fields match schema formats (email, UUID, length)?"}
+    
+    T2 -- No --> E422A["422 Unprocessable Entity\n(Invalid Email / String Too Long)"]
+    T2 -- Yes --> T3{"Tier 3: Semantic Validation\nDo values satisfy real-world business constraints?"}
+    
+    T3 -- No --> E422B["422 Unprocessable Entity\n(DOB in future / end_date < start_date)"]
+    T3 -- Yes --> Safe["Sanitized & Validated DTO\n(Safe to pass to Database & Services)"]
 
-Think of a nightclub bouncer checking IDs. **Type validation** is "is this
-even an ID card, or did you hand me a coffee-shop loyalty card?" —
-structurally the wrong kind of object. **Syntactic validation** is "this is
-an ID card, but the date field reads `13/45/2020`, which isn't a real
-date format." **Semantic validation** is "this is a perfectly formatted ID,
-and the date on it says you were born tomorrow." Each check only makes sense
-once the previous one has passed — you can't ask whether a birth date is in
-the future until you're sure it *is* a date.
-
-```
-  incoming value  "3000-01-01"
-        │
-        ▼
-  ┌──────────────┐   is it even a date?      fail → 422 (type)
-  │ TYPE         │ ────────────────────────►
-  └──────┬───────┘   pass
-         ▼
-  ┌──────────────┐   YYYY-MM-DD well-formed? fail → 422 (syntactic)
-  │ SYNTACTIC    │ ────────────────────────►
-  └──────┬───────┘   pass
-         ▼
-  ┌──────────────┐   in the past? sensible?  fail → 422 (semantic)  ◄── caught here
-  │ SEMANTIC     │ ────────────────────────►
-  └──────┬───────┘   pass
-         ▼
-   clean value → business logic
+    style T1 fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+    style T2 fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style T3 fill:#e0e7ff,stroke:#6366f1,stroke-width:2px
+    style Safe fill:#dcfce7,stroke:#22c55e,stroke-width:2px
 ```
 
-- **Type validation** — is the value the correct primitive/structured type?
-  Integer vs. string vs. array vs. object. `{"age": "25"}` sends a string;
-  do you accept it, coerce it, or reject it? (Transformation, module 01,
-  covers coercion; this module is about the check itself.)
-- **Syntactic validation** — is the value's *format* correct? Email matches
-  `local@domain`, phone matches an expected pattern, a date string parses
-  as `YYYY-MM-DD`, a UUID has the right shape.
-- **Semantic validation** — is the value *meaningful* given real-world
-  rules and often given *other* fields? Date of birth not in the future,
-  age within `0..150`, `end_date` after `start_date`. This is the layer
-  Pydantic can't fully do for you out of the box — you write it.
+---
 
-### Client-side vs. server-side, and why the server is the real boundary
+## 1. Quick Reference: The 3-Tier Validation Matrix
 
-Client-side validation runs in the user's browser (or mobile app). It's
-fast, gives instant feedback, and reduces pointless round-trips — genuinely
-good for UX. But it runs on a machine *you do not control*. The user can
-disable JavaScript, edit the DOM, replay the request with modified data, or
-skip the UI entirely and hit your API with `curl`, Postman, or a script.
+| Validation Tier | Question Answered | Example Input | Outcome & Status Code |
+| :--- | :--- | :--- | :--- |
+| **Tier 1: Type** | "Is this value the expected primitive data type?" | `{"age": "twenty"}` *(Expected integer)* | **`400 Bad Request`** or **`422`** |
+| **Tier 2: Syntactic** | "Does the value conform to required formatting rules?" | `{"email": "not-an-email"}` | **`422 Unprocessable Entity`** |
+| **Tier 3: Semantic** | "Is the value logically sound and valid in context?" | `{"birth_date": "2099-01-01"}` | **`422 Unprocessable Entity`** |
+| **Cross-Field** | "Do related fields satisfy mutual dependencies?" | `{"start": "2026-12", "end": "2026-01"}` | **`422 Unprocessable Entity`** |
 
-```bash
-# Your beautiful React form validated this to death. The attacker does not care.
-curl -X POST https://api.example.com/users \
-  -H "Content-Type: application/json" \
-  -d '{"email": "not-an-email", "age": -5, "role": "superadmin"}'
+### Standard RFC 9457 Field-Level Error Format
+When rejecting validation errors, never return vague messages like `"Validation error"`. Return an array specifying the exact path and error reason:
+
+```json
+{
+  "type": "https://api.example.com/errors/validation",
+  "title": "Validation Failed",
+  "status": 422,
+  "detail": "2 fields failed validation constraints.",
+  "errors": [
+    { "field": "email", "reason": "Must be a valid email address format" },
+    { "field": "quantity", "reason": "Must be greater than 0" }
+  ]
+}
 ```
 
+---
+
+## 2. Production War Story: The Negative Quantity Shopping Cart Exploit
+
+```mermaid
+sequenceDiagram
+    actor Attacker as Malicious Shopper
+    participant API as Checkout API (/api/checkout)
+    participant Cart as Cart Calculation Service
+    participant DB as Postgres Ledger DB
+
+    Note over Attacker: Attacker inspects web frontend (HTML has min="1" attribute)
+    Note over Attacker: Attacker opens terminal and bypasses browser via curl!
+    Attacker->>API: POST /api/checkout<br/>{"item_id": "laptop_pro", "quantity": -2, "price": 1000.00}
+    Note over API: Developer assumed quantity is always positive because of HTML form!
+    API->>Cart: Calculate total: 1000.00 * -2
+    Cart-->>API: Total Amount: -$2,000.00
+    API->>DB: UPDATE account_balance SET balance = balance - (-2000.00);
+    API->>DB: UPDATE inventory SET stock = stock - (-2);
+    Note over DB: Balance INCREASES by $2,000 · Stock INCREASES by 2!
+    API-->>Attacker: 200 OK: Checkout Completed!
+    Note over Attacker: Attacker stole $2,000 cash and corrupted inventory ledger!
 ```
-  browser form ──[client validation]──►╳ (UX only, easily skipped)
-                                         \
-  curl / Postman / script ───────────────┼──► ┌──────────────────┐
-  (skips the browser entirely)           /     │ SERVER VALIDATION│──► business
-  edited DOM / disabled JS ─────────────/       │  (the real gate) │    logic + DB
-                                                └──────────────────┘
+
+### The Incident
+An online retailer launched a flash sale. Within hours, anomalous accounting alerts fired: several customer balances showed sudden credits of thousands of dollars, and inventory counts for luxury laptops were increasing rather than decreasing.
+
+### The Root Cause
+The frontend shopping cart used `<input type="number" min="1">` to restrict quantities. However, the backend Node.js checkout service did not validate `req.body.quantity > 0`. An attacker bypassed the browser using a simple Python script, submitting `quantity: -2`. The mathematical billing engine multiplied `price * quantity`, resulting in a negative total that credited the user's account and artificially inflated inventory.
+
+### The Fix
+Enforce strict integer range validation at the backend API boundary:
+```typescript
+import { z } from 'zod';
+
+const CheckoutSchema = z.object({
+  itemId: z.string().uuid(),
+  quantity: z.number().int().positive().max(100), // Strictly > 0 and <= 100
+});
 ```
 
-Therefore: **the server treats every incoming request as hostile until
-validated.** Server-side validation is the last line before your data
-reaches business logic and persistence. It is not optional even when
-client-side validation exists — the two serve different purposes and the
-server's is the one that provides *security*, not politeness.
+---
 
-### Where Pydantic fits (type + syntactic, mostly automatic)
+## 3. Production War Story: The Payload Memory Bomb (OOM Crash)
 
-FastAPI uses **Pydantic** models to declare the expected shape of a request
-body, and it validates automatically. You declare types; Pydantic enforces
-them and returns a structured `422 Unprocessable Entity` on failure —
-before your handler function even runs.
+```mermaid
+sequenceDiagram
+    actor Attacker as Botnet / Attacker
+    participant Proxy as Reverse Proxy (No Body Limit)
+    participant Backend as Node.js / Go Backend Pod
 
+    Note over Attacker: Attacker sends 100MB string into comment field!
+    Attacker->>Proxy: POST /api/comments (Body: 100 MB repeated string "A...")
+    Proxy->>Backend: Forwards 100 MB stream to backend pod
+    Note over Backend: JSON.parse() tries to parse 100 MB JSON string in RAM
+    Note over Backend: V8 heap memory exceeds 512 MB container limit!
+    Note over Backend: Fatal Error: JavaScript heap out of memory!
+    Note over Backend: Kubernetes kills container (OOMKilled, exit code 137)!
+    Backend-->>Attacker: 502 Bad Gateway
+```
+
+### The Root Cause & The Fix
+* **The Failure:** Without an explicit request size limit and string length validation, endpoints accepting JSON will attempt to parse massive strings in memory, exhausting container RAM and crashing application processes.
+* **The Fix:**
+  1. Restrict body payload size at the reverse proxy / middleware layer (e.g. `100KB` maximum).
+  2. Constrain maximum string lengths on all schema fields (e.g. `comment: z.string().max(2000)`).
+
+---
+
+## 4. Multi-Language Implementation: Production Validation Schemas
+
+### Go (`go-playground/validator/v10`)
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-playground/validator/v10"
+)
+
+var validate = validator.New()
+
+type CreateUserRequest struct {
+	Email     string    `json:"email" validate:"required,email"`
+	Age       int       `json:"age" validate:"required,gte=18,lte=120"`
+	BirthDate string    `json:"birth_date" validate:"required,datetime=2006-01-02"`
+	Role      string    `json:"role" validate:"required,oneof=user editor admin"`
+}
+
+func createUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req CreateUserRequest
+	// 1. Type validation: decode JSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Malformed JSON payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 2. Syntactic validation: struct tags
+	if err := validate.Struct(req); err != nil {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(fmt.Sprintf(`{"title":"Validation Failed","detail":"%s"}`, err.Error())))
+		return
+	}
+
+	// 3. Semantic validation: birth date must be in the past
+	parsedDate, _ := time.Parse("2006-01-02", req.BirthDate)
+	if parsedDate.After(time.Now()) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(`{"title":"Semantic Error","detail":"Birth date cannot be in the future"}`))
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte(`{"status":"user_created"}`))
+}
+```
+
+### Node.js / TypeScript (Zod Schema Validation)
+```typescript
+import express, { Request, Response } from 'express';
+import { z, ZodError } from 'zod';
+
+const app = express();
+app.use(express.json({ limit: '100kb' })); // Guard against memory bomb payloads
+
+// Explicit schema whitelist with syntactic and semantic constraints
+const UserSchema = z.object({
+  email: z.string().email('Invalid email address format'),
+  age: z.number().int().min(18, 'Must be at least 18').max(120),
+  birthDate: z.string().refine((date) => new Date(date) < new Date(), {
+    message: 'Birth date must be in the past',
+  }),
+  role: z.enum(['user', 'editor', 'admin']),
+});
+
+app.post('/api/users', (req: Request, res: Response) => {
+  try {
+    const validData = UserSchema.parse(req.body);
+    res.status(201).json({ status: 'success', data: validData });
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return res.status(422).json({
+        type: 'https://api.example.com/errors/validation',
+        title: 'Validation Failed',
+        status: 422,
+        errors: err.errors.map((e) => ({
+          field: e.path.join('.'),
+          message: e.message,
+        })),
+      });
+    }
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+```
+
+### Python (FastAPI with Pydantic v2)
 ```python
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from datetime import date
+from typing import Literal
+
+app = FastAPI()
 
 class UserCreate(BaseModel):
-    email: EmailStr                     # syntactic: must look like an email
-    age: int = Field(ge=0, le=150)      # type: int; semantic bounds via ge/le
-    display_name: str = Field(min_length=1, max_length=50)
-```
-
-`EmailStr` handles email syntax. `int` handles type. `Field(ge=0, le=150)`
-handles simple numeric bounds. You did *not* write a single `if`. That's the
-power of declarative validation: the schema *is* the validator.
-
-### Semantic validation you have to write yourself
-
-Pydantic can't know that a birth date must be in the past — that's a
-domain rule. You express it with a **field validator**:
-
-```python
-from datetime import date
-from pydantic import BaseModel, field_validator
-
-class Person(BaseModel):
-    date_of_birth: date
-
-    @field_validator("date_of_birth")
-    @classmethod
-    def not_in_future(cls, v: date) -> date:
-        if v > date.today():
-            raise ValueError("date_of_birth cannot be in the future")
-        return v
-```
-
-A validator's contract is simple: it receives the already-type-checked
-value, and it either **returns a (possibly transformed) value** or **raises
-`ValueError`** to reject it. Raising a plain `ValueError` is the idiom —
-Pydantic catches it and folds it into the structured `422` response.
-
-### Failing fast: return early, reject at the edge
-
-The cleanest validation strategy is to **reject invalid input as early as
-possible and return immediately**, before any expensive or irreversible
-work. This is "fail fast." With Pydantic + FastAPI you get it almost for
-free: if the body doesn't match the model, FastAPI returns `422` and your
-handler *never runs*. When you do write manual checks, structure them the
-same way — check preconditions at the top of the function and `raise`/return
-before touching a database or calling another service.
-
-```python
-from fastapi import HTTPException
-
-def transfer(amount: int, balance: int):
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="amount must be positive")
-    if amount > balance:
-        raise HTTPException(status_code=400, detail="insufficient funds")
-    # ...only now, with all preconditions guaranteed, do the real work
-```
-
-The opposite — validating in the middle of business logic, or after a
-partial write — leaves you cleaning up half-finished state. Validate at the
-edge; keep the core clean.
-
-## Command reference
-
-This track is Python/FastAPI. The "commands" are code patterns you'll reuse
-constantly.
-
-| Pattern | What it does | Example |
-|---|---|---|
-| `class M(BaseModel)` | Declares a validated request/response schema | `class UserCreate(BaseModel): email: EmailStr` |
-| `field: int` | Type validation (rejects non-int with 422) | `age: int` |
-| `EmailStr` | Syntactic email validation | `email: EmailStr` |
-| `Field(ge=, le=, gt=, lt=)` | Numeric bounds (semantic) | `age: int = Field(ge=0, le=150)` |
-| `Field(min_length=, max_length=)` | String/collection length bounds | `name: str = Field(min_length=1, max_length=50)` |
-| `Field(pattern=r"...")` | Regex/syntactic format check | `code: str = Field(pattern=r"^[A-Z]{3}$")` |
-| `@field_validator("f")` | Custom per-field semantic validation | see below |
-| `raise ValueError("msg")` | Reject a value inside a validator → 422 | inside a `@field_validator` |
-| `raise HTTPException(status_code=400, detail=...)` | Reject inside a handler with a chosen status | in a route function |
-| `def route(body: M)` | Binds + validates the body before the handler runs | `async def create(body: UserCreate):` |
-
-**`EmailStr` needs an extra dependency.** It relies on the
-`email-validator` package: `pip install "pydantic[email]"`. Without it,
-importing `EmailStr` raises an `ImportError`.
-
-**`Field(...)` vs. `field_validator`.** Reach for `Field` constraints first
-— they're declarative, self-documenting, and show up in your OpenAPI schema
-(module 09) automatically. Drop to `@field_validator` only when the rule
-needs logic a constraint can't express (comparing to `date.today()`,
-cross-referencing another field, custom parsing).
-
-**The validator signature.** `@field_validator("name")` must decorate a
-`@classmethod`. It receives `cls` and the field value `v`, returns `v` (or a
-transformed version), and raises `ValueError`/`TypeError`/`AssertionError`
-to reject. Do **not** raise `HTTPException` inside a Pydantic validator —
-Pydantic won't translate it into a clean `422`; use `ValueError`.
-
-## Hands-on exercises
-
-You'll build one FastAPI project across this whole track. Set it up now.
-
-```bash
-mkdir api-layer && cd api-layer
-python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1   |  bash/WSL: source .venv/bin/activate
-pip install "fastapi[standard]" "pydantic[email]"
-```
-
-Create `main.py` as you go, and run the dev server with:
-
-```bash
-fastapi dev main.py     # serves on http://127.0.0.1:8000, docs at /docs
-```
-
-### 1. A model that type-validates for free
-
-```python
-# main.py
-from fastapi import FastAPI
-from pydantic import BaseModel
-
-app = FastAPI()
-
-class SignupBody(BaseModel):
-    username: str
-    age: int
-
-@app.post("/signup")
-async def signup(body: SignupBody):
-    return {"username": body.username, "age": body.age}
-```
-
-Send a good request and a bad one:
-
-```bash
-curl -X POST localhost:8000/signup -H "Content-Type: application/json" \
-  -d '{"username": "ada", "age": 36}'
-curl -X POST localhost:8000/signup -H "Content-Type: application/json" \
-  -d '{"username": "ada", "age": "thirty-six"}'
-```
-
-Expected: the first returns `200` with the echoed data; the second returns
-`422` with a body pointing at `age` and an `int_parsing` error type — and
-your handler never ran. That's type validation, automatic.
-
-### 2. Add syntactic validation with `EmailStr` and a pattern
-
-```python
-from pydantic import BaseModel, EmailStr, Field
-
-class SignupBody(BaseModel):
-    username: str = Field(min_length=3, max_length=20, pattern=r"^[a-z0-9_]+$")
+    # Tier 1 & 2: Type and Syntactic constraints
     email: EmailStr
-    age: int
-```
+    age: int = Field(..., ge=18, le=120, description="Age must be between 18 and 120")
+    birth_date: date
+    role: Literal["user", "editor", "admin"] = "user"
 
-Try `{"username": "Ada Lovelace", "email": "ada@", "age": 36}`.
-
-Expected: `422` with *two* errors — `username` fails the pattern (spaces and
-capitals aren't allowed) and `email` fails email syntax. Note Pydantic
-reports **all** the failures it found, not just the first.
-
-### 3. Add semantic bounds with `Field`
-
-```python
-    age: int = Field(ge=13, le=150)
-```
-
-Try `age: 5`, `age: 200`, `age: 30`.
-
-Expected: `5` → `422` (`greater_than_equal`), `200` → `422`
-(`less_than_equal`), `30` → `200`. You expressed a real-world rule ("must be
-13+, can't be older than 150") declaratively.
-
-### 4. Write your first semantic field validator
-
-Add a birth date that can't be in the future:
-
-```python
-from datetime import date
-from pydantic import BaseModel, EmailStr, Field, field_validator
-
-class SignupBody(BaseModel):
-    username: str = Field(min_length=3, max_length=20, pattern=r"^[a-z0-9_]+$")
-    email: EmailStr
-    date_of_birth: date
-
-    @field_validator("date_of_birth")
+    # Tier 3: Semantic constraint
+    @field_validator("birth_date")
     @classmethod
-    def dob_not_in_future(cls, v: date) -> date:
-        if v > date.today():
-            raise ValueError("date_of_birth cannot be in the future")
-        return v
-```
-
-Try `"date_of_birth": "3000-01-01"` and `"date_of_birth": "1990-05-02"`.
-
-Expected: the future date → `422` with your message; the past date → `200`.
-Also try `"date_of_birth": "not-a-date"` — note it fails *before* your
-validator runs, with a date-parsing error. That's the type/syntactic layer
-gating the semantic layer, exactly as designed.
-
-### 5. Derive and validate age from the birth date
-
-Add a rule: the person must be at least 18. Compute age from
-`date_of_birth`:
-
-```python
-    @field_validator("date_of_birth")
-    @classmethod
-    def dob_valid(cls, v: date) -> date:
-        today = date.today()
-        if v > today:
-            raise ValueError("date_of_birth cannot be in the future")
-        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
-        if age < 18:
-            raise ValueError("must be at least 18 years old")
-        return v
-```
-
-Expected: a birth date making the person 17 → `422`; one making them 25 →
-`200`. You're now doing real semantic validation that no `Field` constraint
-could express.
-
-### 6. Fail fast in a handler with `HTTPException`
-
-Validation isn't only about the request *body*. Add an endpoint that checks
-a precondition and returns early:
-
-```python
-from fastapi import FastAPI, HTTPException
-
-BALANCES = {"ada": 100}
-
-@app.post("/withdraw")
-async def withdraw(user: str, amount: int):
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="amount must be positive")
-    balance = BALANCES.get(user)
-    if balance is None:
-        raise HTTPException(status_code=404, detail="user not found")
-    if amount > balance:
-        raise HTTPException(status_code=400, detail="insufficient funds")
-    BALANCES[user] -= amount
-    return {"user": user, "new_balance": BALANCES[user]}
-```
-
-Try `?user=ada&amount=-5`, `?user=nobody&amount=10`, `?user=ada&amount=500`,
-`?user=ada&amount=30`. Expected: `400`, `404`, `400`, then `200`. Notice
-every rejection happens *before* the balance is mutated — nothing is half
-done. That's failing fast in action.
-
-### 7. Diagnose and fix
-
-This endpoint is supposed to reject future birth dates and ages under 18,
-but it accepts a two-year-old and rejects a valid adult. Find and fix the
-bugs — there are two.
-
-```python
-from datetime import date
-from pydantic import BaseModel, field_validator
-from fastapi import FastAPI
-
-app = FastAPI()
-
-class Applicant(BaseModel):
-    date_of_birth: date
-
-    @field_validator("date_of_birth")
-    def check_dob(cls, v):
-        today = date.today()
-        if v < today:
-            raise ValueError("date_of_birth cannot be in the future")
-        age = today.year - v.year
-        if age > 18:
-            raise ValueError("must be at least 18 years old")
+    def validate_past_date(cls, v: date) -> date:
+        if v >= date.today():
+            raise ValueError("Birth date must be strictly in the past")
         return v
 
-@app.post("/apply")
-async def apply(body: Applicant):
-    return {"ok": True}
+@app.post("/users", status_code=status.HTTP_201_CREATED)
+def create_user(user: UserCreate):
+    return {"status": "created", "user": user.model_dump()}
 ```
+
+---
+
+## 5. Practical Hands-On Exercises
+
+### Exercise 1: Bypass Client-Side Form via Direct `curl`
+Demonstrate why frontend validation is never a security guarantee by submitting illegal values directly to an endpoint:
+
+```bash
+# Attempt to send an invalid email and a negative age
+curl -s -i -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "attacker@evil", "age": -10, "birth_date": "2099-01-01"}' \
+  | grep -E "(HTTP\/|detail|errors)"
+```
+**Look for:**
+* `HTTP/1.1 422 Unprocessable Entity`
+* Explicit field rejection pointing to `age` and `birth_date`.
+
+### Exercise 2: Trigger `400 Bad Request` via Broken Syntax
+Verify that malformed JSON is caught at Tier 1 before schema validation runs:
+
+```bash
+curl -s -i -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "alice@corp.com", "age": ' \
+  | grep "HTTP/"
+```
+**Look for:** `HTTP/1.1 400 Bad Request`
+
+---
+
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Question 1: The Client-Side Validation Fallacy</strong></summary>
 
-Two inverted comparisons:
+**Scenario:** A frontend developer writes extensive JavaScript validation for a sign-up form: verifying email formats, checking password strength regex, and ensuring names contain only ASCII letters. The developer proposes removing validation logic from the backend API to "avoid duplicate code and reduce server CPU usage."
 
-1. `if v < today` rejects *past* dates (every valid birth date) and accepts
-   future ones. It must be `if v > today`.
-2. `if age > 18` rejects everyone *over* 18. The rule is "at least 18," so
-   it must reject `age < 18`.
+Why is this proposal an unacceptable security vulnerability?
 
-Bonus correctness: `age = today.year - v.year` overstates age near a
-birthday; use the tuple-comparison form from exercise 5. And add
-`@classmethod` under `@field_validator` — in Pydantic v2 the validator
-should be a classmethod (it works without it via an implicit wrap, but the
-decorator order `@field_validator` then `@classmethod` is the documented,
-warning-free form).
+**Answer:**
+**Because client-side validation provides zero security.**
 
-```python
-    @field_validator("date_of_birth")
-    @classmethod
-    def check_dob(cls, v: date) -> date:
-        today = date.today()
-        if v > today:
-            raise ValueError("date_of_birth cannot be in the future")
-        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
-        if age < 18:
-            raise ValueError("must be at least 18 years old")
-        return v
-```
+The client environment is completely under the user's control. Anyone can:
+1. Disable JavaScript in their browser.
+2. Intercept and modify HTTP packets using an HTTP proxy like Burp Suite or OWASP ZAP.
+3. Completely bypass the browser by sending requests using `curl`, Postman, or automated bot scripts.
 
+Removing backend validation allows arbitrary payloads, SQL injection strings, and invalid data structures to reach business logic and databases unimpeded. Client validation is purely for user experience; backend validation is the non-negotiable security boundary.
 </details>
-
-### 8. Prove the server is the real boundary
-
-Add trivial "client-side" validation in your head (pretend the form only
-allows `age >= 18`). Now bypass it entirely with `curl`, sending
-`{"date_of_birth": "2015-01-01"}` (a child) directly to `/apply` (fixed
-version). Expected: the server still returns `422`. The lesson: your
-server's rules held even though no browser form was involved. If the *only*
-check had been in the browser, this request would have sailed through.
-
-## Independent challenge
-
-No code given. Build a `POST /events` endpoint that accepts an event with a
-`title`, a `starts_at` datetime, an `ends_at` datetime, and a `capacity`
-integer. Enforce, using the right layer for each rule: `title` is 1–100
-characters; `capacity` is between 1 and 10,000; `starts_at` is not in the
-past; and `ends_at` is strictly after `starts_at`. Decide deliberately which
-rules are **type**, which are **syntactic**, and which are **semantic**, and
-which of them a plain `Field(...)` constraint can enforce versus which need a
-validator. Make sure that when a client sends multiple bad fields at once,
-your API reports *all* the problems in one response, not just the first —
-using the **failing-fast** idea from this module, but noting where "fail on
-first error" and "report every error" pull in different directions.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 2: Cross-Field Semantic Validation</strong></summary>
 
-`starts_at`/`ends_at` are individually type+syntactic (Pydantic's
-`datetime` handles that) but the "past" and "after" rules are semantic. The
-"after" rule compares *two* fields, so a per-field `@field_validator` can't
-see both — you'll need a *model*-level validator (`@model_validator`),
-which you'll meet properly in module 02. For now, get the single-field rules
-right with `Field` + `@field_validator`, and note in a comment where the
-cross-field rule would go.
+**Scenario:** You are building a hotel reservation API:
+`POST /api/bookings`
+Body: `{"check_in": "2026-12-15", "check_out": "2026-12-10"}`
+Both dates are syntactically valid ISO 8601 strings, and both dates are in the future. 
 
+Which validation tier is responsible for rejecting this request, and why?
+
+**Answer:**
+**Tier 3: Semantic Cross-Field Validation.**
+
+Individually, both `check_in` and `check_out` pass Type validation (valid string/date) and Syntactic validation (matches `YYYY-MM-DD`). 
+
+However, they violate the **semantic business rule** that `check_out` must be strictly after `check_in`. Single-field schema validators cannot detect this error; the validation layer must compare both fields simultaneously before invoking the booking service.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Trusting client-side validation.** If your browser form checks it, the
-  server checks it again. Always. The browser is not your security boundary.
-- **Confusing the three layers.** A future birth date passes type and
-  syntactic validation and still must be rejected. "It parsed" ≠ "it's
-  valid."
-- **Raising `HTTPException` inside a Pydantic validator.** Validators must
-  raise `ValueError` (or `TypeError`/`AssertionError`). Pydantic catches
-  those and builds the `422`. `HTTPException` raised there won't be
-  translated cleanly.
-- **`ImportError` on `EmailStr`.** You need `pip install "pydantic[email]"`
-  — the `email-validator` package isn't pulled in by default.
-- **Forgetting `@classmethod` under `@field_validator`.** In Pydantic v2 the
-  decorated function should be a classmethod, with `@field_validator` on top
-  and `@classmethod` directly below it.
-- **Validating too late.** Checking a precondition after you've already
-  written to the database leaves you with half-committed state. Check at the
-  top of the handler and return early.
-- **Assuming Pydantic stops at the first error.** It aggregates — one bad
-  request can return many errors. This is a feature (module 02 leans on it),
-  not a bug.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the three layers of validation and give an example value that
-   passes the first two but fails the third.
-2. A colleague says "the React form already validates the email, so the API
-   doesn't need to." What's wrong with this, in one sentence?
-3. Which failures does declaring `age: int = Field(ge=0, le=150)` catch, and
-   which real-world rule would still need a custom validator?
-4. Inside a Pydantic `@field_validator`, what do you `raise` to reject a
-   value, and what happens if you `raise HTTPException` instead?
-5. What does "fail fast" mean for a handler that moves money, and what goes
-   wrong if you validate in the middle instead of at the top?
-6. Why does a request with three bad fields typically come back with three
-   errors rather than one?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 3: Whitelisting vs. Blacklisting</strong></summary>
 
-1. **Type** (right kind of thing — is `age` an integer), **syntactic**
-   (right format — does the string look like an email/date), **semantic**
-   (meaningful in the real world — a date of birth not in the future).
-   `"3000-01-01"` passes type and syntactic (it's a well-formed date) but
-   fails semantic as a birth date.
-2. The React form runs on the user's machine and is trivially bypassed
-   (curl/Postman/disabled JS), so it provides UX, not security — the server
-   is the only real boundary.
-3. It catches type errors (non-integers) and the numeric bounds `0..150`.
-   It does *not* know domain rules like "must be 18+ computed from a birth
-   date" — that needs a `@field_validator`.
-4. Raise `ValueError` (also `TypeError`/`AssertionError`); Pydantic catches
-   it and produces a structured `422`. Raising `HTTPException` there is
-   wrong — it isn't translated into the clean validation-error response.
-5. Check every precondition (positive amount, user exists, sufficient
-   funds) *before* mutating the balance, and return/raise on the first
-   failure. Validating mid-way risks a partial write — money moved but a
-   later check fails — leaving inconsistent state.
-6. Pydantic aggregates all validation failures for the request into one
-   error list rather than stopping at the first, so each invalid field
-   produces its own entry.
+**Scenario:** What is the difference between a whitelisting (allowlist) validation policy and a blacklisting (denylist) policy, and why is blacklisting considered an antipattern?
 
+**Answer:**
+* **Blacklisting (Denylist):** Attempts to enumerate and reject known bad patterns (e.g. blocking `<script>` tags, filtering out `"admin"`).
+  * *Why it fails:* Attackers find countless encoding variants, casing tricks (`<sCrIpt>`), or alternative injection syntax that the blacklist author failed to anticipate.
+* **Whitelisting (Allowlist):** Strictly defines what is **permitted** (e.g. "age must be an integer between 18 and 100", "username must contain only `[a-z0-9_]{3,20}`") and automatically rejects everything else.
+  * *Why it succeeds:* Any unlisted field, malicious string, or unexpected data type is rejected by default, providing true defense in depth.
 </details>
 
-## Further reading & sources
+---
 
-- [Pydantic — Validators](https://docs.pydantic.dev/latest/concepts/validators/) - the official reference for `field_validator`/`model_validator`, the classmethod idiom, and how raised `ValueError`s become validation errors.
-- [Pydantic — Fields](https://docs.pydantic.dev/latest/concepts/fields/) - the full set of `Field(...)` constraints (`ge`, `le`, `min_length`, `pattern`, and more) used for declarative type/syntactic/semantic bounds.
-- [FastAPI — Request Body](https://fastapi.tiangolo.com/tutorial/body/) - how declaring a Pydantic model parameter binds and validates the request body before your handler runs.
-- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - using `HTTPException` to fail fast from a handler and the shape of the automatic `422` validation response.
-- [OWASP — Input Validation Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html) - why the server is the real security boundary and how to think about validating untrusted input.
-- [MDN — Client-side form validation](https://developer.mozilla.org/en-US/docs/Learn/Forms/Form_validation) - what client-side validation is good for (UX) and its explicit caveat that it is not a security control.
+## Next Step
 
-## Free PDF notes
-
-Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-010: API Request Validation](https://backendroadmap.com/notes/system-design/SD-C-010.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
-
-## Next
-
-[01-transformation-and-normalization](../01-transformation-and-normalization/README.md)
-— validation tells you the data is acceptable; now you'll clean, coerce, and
-normalize it into the canonical form your business logic actually wants.
+Now that you have mastered validation tiers and boundary enforcement, proceed to **[01-transformation-and-normalization](../01-transformation-and-normalization/README.md)** to master string trimming, case normalization, date canonicalization, and safe type coercion.

@@ -1,602 +1,550 @@
 # Module 06: Designing a Chat and Notification System
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Advanced Distributed Systems  
+> **Estimated Time:** 3–4 Hours  
+> **Prerequisites:** Module 00 (Capacity Estimation), Module 01 (Framework), Module 04 (Distributed Caching & Sharding), WebSockets & Real-Time Fundamentals
 
-Chat (WhatsApp, Slack, Messenger) and its close cousin push notifications flip
-the whole orientation of the previous problems. The feed was read-heavy, pull-
-oriented, and perfectly happy with data arriving seconds late. Chat is the
-opposite: it's **write-and-deliver-heavy**, **push-oriented**, and **latency-
-critical** — a message that arrives five seconds late feels broken, and the
-system must maintain a **persistent connection to every online user** so it can
-deliver *to* them the instant something happens, rather than waiting for them to
-ask.
+---
 
-That single requirement — servers pushing to millions of persistently-connected
-clients — drags in a cluster of concepts you haven't had to confront yet:
-**websockets** and long-lived connections (recall real-time transport from
-**06-background-processing-and-realtime**), **presence** (who's online right
-now?), **message ordering and delivery guarantees** (at-least-once vs.
-exactly-once, and how you dedupe), **offline delivery** (store-and-forward for
-users who aren't connected), and the routing problem of finding *which* server
-holds the recipient's connection. Notifications are the generalization: the same
-delivery fabric, fanned out across web/mobile/email channels. Master this and you
-understand every real-time, connection-oriented system — the hardest delivery
-class in the track.
+> [!TIP]
+> **The Golden Rule of Real-Time Messaging Systems**  
+> In real-time chat architectures, never couple message delivery directly to live socket connections without persistent storage. Always follow the **Persist-First Store-and-Forward Pattern**: synchronously persist the message to a horizontally partitioned wide-column store (e.g. ScyllaDB/Cassandra partitioned by `conversation_id`), assign a strictly monotonic per-conversation sequence ID, acknowledge receipt to the sender (`status: SENT`), and *only then* route the message through a distributed **Presence & Connection Registry (Redis Pub/Sub)**. If the recipient is disconnected, route asynchronously to third-party Mobile Push Gateways (APNs/FCM); upon reconnecting, the client catches up deterministically via incremental sequence sync: `SELECT * WHERE conversation_id = ? AND sequence_id > last_seen`.
 
-## Concepts
+---
 
-### Requirements and scope
+## 1. Visual Mental Models
 
-**Functional:**
-- Send a message from one user to another (1:1) and to a group.
-- Deliver messages in **real time** to online recipients; **store and forward**
-  to offline ones so they get them on reconnect.
-- **Delivery/read receipts** (sent, delivered, read) and **presence** (online/
-  offline/last-seen).
-- (Notifications) push an event to a user across channels (in-app, mobile push,
-  email).
+### 1.1 Complete End-to-End Chat & Notification Architecture
 
-**Non-functional (these define the shape):**
-- **Low latency.** Sub-second end-to-end delivery for online users; this is the
-  headline requirement.
-- **Persistent connections at massive scale.** Millions of concurrent long-lived
-  connections — the connection count, not just QPS, is the scaling axis.
-- **Reliable delivery & ordering.** No lost messages; messages in a conversation
-  arrive in order. Requires at-least-once delivery + dedup, or careful
-  sequencing.
-- **High availability.** Chat being down is immediately visible and unacceptable.
-- **Durability.** Message history is persisted (often forever); losing a message
-  is not okay.
+The architecture decouples stateful WebSocket connection servers from stateless business logic and persistent storage:
 
-### Persistent connections and the connection layer
+```mermaid
+flowchart TD
+    subgraph Clients["User Device Tier"]
+        ClientA["User A (Online Mobile App)"]
+        ClientB["User B (Online Desktop App)"]
+        ClientC["User C (Offline Device)"]
+    end
 
-HTTP request/response can't push — the server can only answer when asked. Chat
-needs the server to send *unprompted*, so it uses **websockets** (a persistent,
-bidirectional TCP connection kept open) — or a fallback like long-polling/SSE.
-This creates a whole new tier:
+    subgraph EdgeIngress["Connection & Ingress Gateway"]
+        LB["L4/L7 Anycast Load Balancers"]
+        WS_A["WebSocket Gateway Node 1"]
+        WS_B["WebSocket Gateway Node 2"]
+    end
 
-- **The connection layer (gateway/chat servers).** A fleet of servers whose job
-  is to *hold* millions of open websocket connections. Each server keeps a few
-  hundred thousand connections; the fleet scales horizontally with connection
-  count. These servers are **stateful** in a way app servers usually aren't —
-  they own live sockets.
-- **The routing problem.** To deliver a message to user B, you must find *which
-  connection server currently holds B's socket*. This needs a **presence/routing
-  registry** — a fast shared map of `user_id → connection_server` (recall the
-  distributed KV store from module 04) that's updated on connect/disconnect. When
-  A sends to B, the system looks up B's server and forwards the message there,
-  which pushes it down B's socket.
-- **Load balancing long-lived connections** differs from balancing requests:
-  connections are sticky and long, so you balance by connection count and handle
-  reconnection storms (a server dying drops all its connections, which reconnect
-  en masse) gracefully.
+    ClientA <-->|"Persistent WSS"| WS_A
+    ClientB <-->|"Persistent WSS"| WS_B
 
-### Message flow, storage, and ordering
+    subgraph CoreServices["Stateless Application Tier"]
+        ChatAPI["Chat & Message Service"]
+        PresenceSvc["Presence Service<br/>(Heartbeat & Status)"]
+        PushWorker["Push Notification Worker Fleet"]
+    end
 
-The path of a 1:1 message from A to B:
+    WS_A -->|"1. Forward Inbound Message"| ChatAPI
+    WS_A & WS_B <-->|"Heartbeat Ping/Pong (30s)"| PresenceSvc
 
-```
-A's client ──ws──► A's conn server ──► [persist message] ──► [route: where is B?]
-                                                              │
-                        B online:  forward to B's conn server ──ws──► B's client
-                        B offline: store in B's "mailbox" / inbox; deliver on reconnect
+    subgraph StorageTier["State & Storage Tier"]
+        RedisPresence[("Redis Cluster: Presence & Routing<br/>(user_id -> ws_gateway_ip)")]
+        MsgDB[("ScyllaDB / Cassandra Message Store<br/>(Partition: conversation_id<br/>Cluster: sequence_id DESC)")]
+        Kafka[("Kafka Stream: chat_events")]
+    end
+
+    PresenceSvc <--> RedisPresence
+    ChatAPI -->|"2. Persist Message & Get SeqID"| MsgDB
+    ChatAPI -->|"3. Publish Event"| Kafka
+
+    subgraph DeliveryDispatch["Real-Time Dispatch Engine"]
+        RedisPubSub[("Redis Pub/Sub Exchange<br/>Channel: ws_gateway_nodes")]
+    end
+
+    Kafka -->|"Route to Recipient"| ChatAPI
+    ChatAPI <-->|"4. Lookup Recipient Gateway"| RedisPresence
+    
+    ChatAPI -->|"5a. Recipient B Online"| RedisPubSub
+    RedisPubSub -->|"Forward to Target Pod"| WS_B
+    WS_B -->|"Push down socket"| ClientB
+
+    ChatAPI -->|"5b. Recipient C Offline"| PushWorker
+    PushWorker -->|"APNs / FCM Push Gateway"| ClientC
 ```
 
-- **Persist first, then deliver.** The message is written to durable storage
-  before (or as) it's delivered, so it survives a crash and offline users can
-  fetch it later. This is a **store-and-forward** design.
-- **Data model.** Messages are stored per-conversation, ordered by time/sequence.
-  The natural shape is a **wide-column / KV store** partitioned by
-  `conversation_id` with a clustering key on `(timestamp, message_id)` — writes
-  are append-heavy and reads are "recent messages in this conversation," which is
-  exactly what a partitioned, time-ordered store does well. Estimation: at 50M
-  DAU × 40 msgs/day × 1 KB, that's ~2 TB/day (recall the module-00 exercise) — so
-  the store is **sharded** and old messages tier to cold storage.
-- **Ordering.** Within a conversation, messages need a consistent order. Use a
-  **per-conversation sequence number** (or a monotonic timestamp with tiebreak)
-  so all participants render the same order regardless of network jitter. Global
-  ordering across all conversations is unnecessary and expensive — order is only
-  required *within* a conversation.
+### 1.2 The Three-Phase Message Delivery State Machine
 
-### Delivery guarantees and offline handling
+Messages traverse three distinct states, each acknowledged explicitly to power real-time receipts:
 
-Networks drop packets and clients disconnect mid-delivery, so "did B get it?"
-needs an explicit guarantee:
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : User types message
+    DRAFT --> SENT : Client transmits over WSS
+    
+    state SENT {
+        [*] --> PersistedInDB : Written to ScyllaDB
+        PersistedInDB --> SingleCheck : Server ACKs sender (Single Checkmark ✓)
+    }
 
-- **At-least-once + idempotent dedup** is the pragmatic default. The sender/server
-  retries until acknowledged, which can deliver duplicates; the client dedupes on
-  a unique **message id** (recall the idempotency-key pattern from
-  **10-distributed-systems-patterns**). Exactly-once is very hard end-to-end;
-  at-least-once + client-side dedup gives the same *user-visible* result far more
-  cheaply.
-- **Acknowledgements drive the state machine.** *Sent* (server persisted it),
-  *delivered* (recipient's device acked receipt), *read* (recipient opened it) —
-  each is an ack flowing back, updating the message's status and powering read
-  receipts.
-- **Offline delivery (store-and-forward).** If B is offline, the message sits in
-  durable storage / a per-user inbox. On reconnect, B's client syncs everything
-  since its last-seen sequence number — a **catch-up read** — and the connection
-  server resumes live delivery. Presence (online/offline) is what tells the system
-  which path to take, and it's itself a small, fast, slightly-stale KV lookup.
+    SENT --> DELIVERED : Recipient device receives & ACKs over WSS
+    note right of DELIVERED
+        Double Gray Checkmark (✓✓)
+        Recipient client received payload
+    end note
 
-```
-  B offline ──► msgs seq 41,42,43 persisted to B's inbox (not delivered)
-                     │
-  B reconnects ──► "sync since seq=40" ──► server replays 41,42,43 ──► live again
-                     │                          (catch-up read)
-                     └─ last-seen ack advances to 43; live push resumes
+    DELIVERED --> READ : Recipient opens conversation viewport
+    note right of READ
+        Double Blue Checkmark (✓✓)
+        Read receipt event dispatched
+    end note
+
+    READ --> [*]
 ```
 
-### The notification system (generalizing delivery)
+---
 
-Notifications are the same "deliver an event to a user" problem, generalized
-across channels and made asynchronous:
+## 2. Technical Reference Matrices
 
-- **A notification service** consumes events (a like, a mention, a DM) from a
-  queue and fans them out to the right **channels**: in-app (via the websocket
-  layer above), **mobile push** (APNs for iOS, FCM for Android — you hand the
-  payload to the platform's push gateway, which delivers to the device), and
-  **email/SMS** (via a provider).
-- **Async and queue-driven.** Producing an event just enqueues it (recall
-  **06-background-processing-and-realtime**); workers handle rendering,
-  per-channel delivery, retries, and rate limiting. This decouples the event
-  source from delivery and absorbs bursts.
-- **User preferences, templating, and dedup/throttling.** Respect per-user,
-  per-channel opt-outs; render from templates; **collapse/throttle** floods (10
-  likes in a minute → one "10 people liked your post" notification) so you don't
-  spam. Delivery is best-effort per channel with retries, and idempotency keys
-  prevent double-sends on retry.
+### 2.1 Real-Time Transport Protocols Compared
 
-### Reference architecture
+| Protocol | Directionality | Connection Model | Overhead per Message | Client Battery & Mobile Suitability | Ideal Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **HTTP Short Polling** | Unidirectional (Client $\to$ Server) | Ephemeral TCP/TLS per poll | High (Full HTTP header parsing $\sim 1\text{ KB}$) | Terrible (Wakes radio continuously; drains battery) | ❌ Avoid for chat systems |
+| **HTTP Long Polling** | Pseudo-Bidirectional | Connection held open until data ready | High (Re-establishes connection on every message) | Moderate | Legacy fallback for restrictive corporate firewalls |
+| **Server-Sent Events (SSE)** | Unidirectional (Server $\to$ Client) | Single persistent HTTP connection | Low (Minimal framing) | Good on web, limited mobile native support | One-way news feeds, stock tickers, LLM streaming |
+| **WebSockets (RFC 6455)** | **Full Bidirectional** | **Single persistent TCP handshake** | **Ultra-Low ($2\text{–}10\text{ Bytes}$ framing header)** | **Excellent for continuous bidirectional streaming** | **Production Standard for 1:1 and Group Chat** |
 
-The full system is a persistent-connection fabric fronted by presence routing,
-backed by a persist-first message store, with a queue-driven notification fan-out
-for offline/multi-channel delivery. Sender A on the left, recipient B (and offline
-users) on the right:
+### 2.2 Message Storage Schema Design (ScyllaDB / Cassandra CQL)
 
-```
-  ┌──────────┐  ws                 ┌───────────────────────────┐
-  │ Client A │═════════════════════│  Connection Gateway / LB  │  (sticky routing;
-  └──────────┘                     │  holds live sockets        │   scaled by conn count)
-                                    └───────┬───────────┬───────┘
-                    register/lookup │       │           │
-                          ┌─────────▼──────┐│           │ persist FIRST
-                          │ Presence svc   ││           ▼
-                          │ user_id →      ││   ┌────────────────────┐
-                          │ conn_server    ││   │  Chat service      │
-                          │ (routing map)  ││   │  (ordering: per-   │
-                          └────────────────┘│   │  conversation seq) │
-                                            │   └─────────┬──────────┘
-        B online: route to B's gateway ◄────┘             ▼
-  ┌──────────┐  ws                 ┌────────────────┐  ┌────────────────────┐
-  │ Client B │═════════════════════│ (its gateway)  │  │  Message store     │
-  └──────────┘                     └────────────────┘  │  (per-conversation,│
-                                                        │  sharded, cold tier)│
-        B offline: store-and-forward inbox ◄────────────┤                     │
-                                                        └─────────┬──────────┘
-                                                                  ▼ emit event
-                       ┌──────────────────┐   ┌──────────────────────────────────┐
-                       │  Message queue   │──►│  Notification service (workers)  │
-                       └──────────────────┘   │  collapse/throttle, per-channel  │
-                                              └──┬──────────┬──────────┬─────────┘
-                                                 ▼          ▼          ▼
-                                             in-app/ws   APNs/FCM   Email/SMS
-                                             (push)      (mobile)   (providers)
+```sql
+CREATE KEYSPACE chat_cluster WITH replication = {'class': 'NetworkTopologyStrategy', 'us-east': 3};
+
+-- Partition Key: conversation_id (locates all messages for a chat on one storage node)
+-- Clustering Key: sequence_id DESC (stores newest messages physically adjacent on disk)
+CREATE TABLE chat_cluster.messages (
+    conversation_id uuid,
+    sequence_id bigint,
+    message_id uuid,
+    sender_id uuid,
+    payload text,
+    media_url text,
+    created_at timestamp,
+    delivery_status int, -- 1: Sent, 2: Delivered, 3: Read
+    PRIMARY KEY ((conversation_id), sequence_id)
+) WITH CLUSTERING ORDER BY (sequence_id DESC);
 ```
 
-**Component walkthrough:**
+### 2.3 Notification Channel Priority Matrix
 
-- **Connection Gateway / Load balancer** — the stateful fleet that holds millions
-  of long-lived **websocket** connections, with **sticky routing** (a connection
-  stays pinned to its gateway). It scales by connection count, not QPS, and owns
-  the live sockets over which messages are pushed.
-- **Presence service** — the fast shared **routing registry** mapping
-  `user_id → connection_server`, updated on every connect/disconnect. It answers
-  "which gateway holds B's socket?" so a message from A can be forwarded to the
-  right gateway, and it also tracks online/offline to choose live-push vs.
-  store-and-forward.
-- **Chat service** — persists each message and assigns a **per-conversation
-  sequence number** for consistent ordering, then routes to the recipient's
-  gateway. Persist-first is what makes delivery survivable and offline catch-up
-  possible.
-- **Message store** — the durable, **per-conversation** record, partitioned by
-  `conversation_id` and time-clustered, sharded across nodes with old messages
-  tiered to cold storage. Backs both live delivery and history reads.
-- **Store-and-forward inbox** — for **offline** recipients, messages are persisted
-  and delivered on reconnect via a **catch-up sync** since the client's last-seen
-  sequence number, rather than being dropped.
-- **Message queue + Notification service** — events (a message to an offline user,
-  a like, a mention) are enqueued and workers fan them out **asynchronously**,
-  applying collapse/throttle and per-user channel preferences.
-- **Multi-channel delivery (in-app / APNs·FCM / Email·SMS)** — the notification
-  service's output legs: in-app via the websocket layer, mobile push via APNs/FCM
-  gateways, and email/SMS via providers — each at-least-once with idempotency keys
-  to avoid double-sends.
+| Tier | Priority SLA | Channel Delivery | Retry & DLQ Behavior | Examples |
+| :--- | :--- | :--- | :--- | :--- |
+| **P0: Transactional / Security** | $<2\text{ seconds}$ | SMS (Twilio), Email (SendGrid), Push | Immediate retry ($3\times$), fallback to SMS if push fails | Two-factor authentication (2FA) OTP, Fraud alerts |
+| **P1: Direct Social Interaction** | $<5\text{ seconds}$ | APNs (iOS), FCM (Android), WebSocket | Exponential backoff retry ($5\times$ over $5\text{ min}$) | Direct 1:1 chat message, @mentions in active thread |
+| **P2: Marketing & Digest** | Best Effort ($<1\text{ hour}$) | Batch Email, In-App Notification Center | Non-blocking queue; rate-limited per user | Weekly newsletter, "Someone you might know joined" |
 
-## Command reference
+---
 
-The real-time delivery concept map.
+## 3. Production War Story: The 1.2 Million WebSocket Reconnection Storm
 
-| Concern | Mechanism |
-|---|---|
-| Server → client push | **Websockets** (persistent, bidirectional); SSE/long-poll fallback |
-| Hold millions of connections | Stateful **connection/gateway server** fleet, scaled by connection count |
-| Find recipient's server | **Presence/routing registry**: `user_id → conn_server` (fast KV) |
-| Don't lose messages | **Persist first**, then deliver (store-and-forward) |
-| Ordering | **Per-conversation sequence number** (not global) |
-| Delivery guarantee | **At-least-once + client dedup** on message id (not exactly-once) |
-| Offline users | Durable inbox; **catch-up sync** since last-seen seq on reconnect |
-| Message status | Acks: **sent → delivered → read** |
-| Notifications | Queue-driven **notification service** → in-app / APNs / FCM / email |
-| Notification floods | **Collapse/throttle** + per-user channel preferences |
+### The Incident
+A premier enterprise communication platform operated 40 WebSocket gateway nodes in `us-east-1`, each maintaining 30,000 persistent user connections (1.2 million concurrent users).
 
-Message store shape (partitioned, time-ordered):
+During an AWS availability zone network degradation, AZ `us-east-1a` experienced a 30-second complete packet loss. 
+- 20 gateway instances in that AZ were abruptly severed.
+- 600,000 mobile and desktop apps simultaneously detected a socket disconnect.
+- The client applications had a naive reconnection policy: `socket.onclose = () => connect()`.
+- Within 1.5 seconds, all 600,000 clients hammered the remaining 20 gateway instances with TLS handshakes and initial HTTP authentication headers (`POST /v1/auth/session`).
+- The TLS cryptographic termination CPU on the remaining nodes spiked to $100\%$, gateway health check probes timed out, Kubernetes declared the remaining pods unhealthy and restarted them, and the entire messaging infrastructure cascaded into a complete **Global Reconnection Storm**.
 
-```
-Partition key:  conversation_id
-Clustering key: (created_at, message_id)   ← recent-messages-in-conversation reads
-Columns:        sender_id, body, seq_no, status
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Clients as 600,000 Disconnected Mobile Clients
+    participant Gateway as Surviving Gateway Pods (20 Nodes)
+    participant AuthDB as PostgreSQL Session Database
 
-# Access pattern: "last N messages in conversation X" and "everything after seq S"
-# → wide-column / KV store sharded by conversation_id; old data tiers to cold storage
+    Note over Clients,Gateway: AZ Loss: 600,000 sockets drop simultaneously!
+    Clients->>Gateway: 600,000 Concurrent TLS Handshakes within 2 seconds!
+    Gateway->>AuthDB: 600,000 SELECT * FROM user_sessions
+    Note over AuthDB: Postgres Connection Pool Crashes! (100% CPU)
+    Gateway-->>Clients: 504 Gateway Timeout / TLS Handshake Failure
+    Clients->>Gateway: Immediate Retry without Backoff! (Cascading Melt-down)
 ```
 
-Websocket send/receive sketch (FastAPI):
+### The Post-Mortem & Fix
+1. **Exponential Backoff with Full Jitter:** Client reconnection algorithms must enforce randomized exponential backoff:
+$$T_{\text{sleep}} = \min(T_{\text{max}}, T_{\text{base}} \cdot 2^{\text{attempt}}) \times \text{Uniform}(0.5, 1.5)$$
+2. **Session Resumption & Pre-Shared Auth Tickets:** Reconnecting clients bypass the relational authentication database entirely by passing an encrypted, self-contained **Session Ticket** verified in-memory by gateway nodes using asymmetric keys.
+3. **Leaky Bucket Ingress Handshake Throttling:** Gateway reverse proxies (Envoy/NGINX) limit new TLS handshakes to a strict maximum rate (e.g. 5,000 handshakes/second per node), queuing excess reconnection requests smoothly.
 
+---
+
+## 4. Multi-Language Production Implementation: Real-Time Gateway & Router
+
+Below is a complete, production-grade WebSocket Gateway and Message Router implemented in Go, TypeScript, and Python. It manages concurrent persistent WebSocket connections, tracks online status via Redis, and dispatches messages across cluster nodes via Redis Pub/Sub.
+
+````carousel
+```go
+// chat_gateway.go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+type MessagePayload struct {
+	ConversationID string `json:"conversation_id"`
+	SenderID       string `json:"sender_id"`
+	RecipientID    string `json:"recipient_id"`
+	Content        string `json:"content"`
+	Timestamp      int64  `json:"timestamp"`
+}
+
+type ClientConnection struct {
+	UserID string
+	Conn   *websocket.Conn
+	mu     sync.Mutex
+}
+
+type GatewayServer struct {
+	serverID    string
+	rdb         *redis.Client
+	connections sync.Map // map[string]*ClientConnection (userID -> conn)
+}
+
+func NewGatewayServer(serverID string, rdb *redis.Client) *GatewayServer {
+	return &GatewayServer{
+		serverID: serverID,
+		rdb:      rdb,
+	}
+}
+
+func (g *GatewayServer) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		http.Error(w, "user_id required", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Upgrade error: %v", err)
+		return
+	}
+
+	client := &ClientConnection{UserID: userID, Conn: conn}
+	g.connections.Store(userID, client)
+
+	ctx := context.Background()
+	// Register user presence: user_id -> server_id (TTL: 60s)
+	g.rdb.Set(ctx, fmt.Sprintf("presence:%s", userID), g.serverID, 60*time.Second)
+
+	log.Printf("User %s connected to Gateway %s", userID, g.serverID)
+
+	defer func() {
+		g.connections.Delete(userID)
+		g.rdb.Del(ctx, fmt.Sprintf("presence:%s", userID))
+		conn.Close()
+		log.Printf("User %s disconnected", userID)
+	}()
+
+	for {
+		_, rawMsg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		var msg MessagePayload
+		if err := json.Unmarshal(rawMsg, &msg); err != nil {
+			continue
+		}
+		msg.Timestamp = time.Now().UnixMilli()
+
+		// 1. Lookup recipient server
+		recipientServer, err := g.rdb.Get(ctx, fmt.Sprintf("presence:%s", msg.RecipientID)).Result()
+		if err == redis.Nil {
+			log.Printf("Recipient %s is offline. Routing to Push Notification Worker...", msg.RecipientID)
+			continue
+		}
+
+		// 2. Publish message to target server channel
+		channel := fmt.Sprintf("gateway:channel:%s", recipientServer)
+		outBytes, _ := json.Marshal(msg)
+		g.rdb.Publish(ctx, channel, outBytes)
+	}
+}
+
+// StartPubSubListener listens for messages routed to this specific gateway node
+func (g *GatewayServer) StartPubSubListener(ctx context.Context) {
+	channel := fmt.Sprintf("gateway:channel:%s", g.serverID)
+	pubsub := g.rdb.Subscribe(ctx, channel)
+	ch := pubsub.Channel()
+
+	log.Printf("Listening for inter-gateway messages on %s...", channel)
+	for raw := range ch {
+		var msg MessagePayload
+		json.Unmarshal([]byte(raw.Payload), &msg)
+
+		if val, ok := g.connections.Load(msg.RecipientID); ok {
+			client := val.(*ClientConnection)
+			client.mu.Lock()
+			client.Conn.WriteJSON(msg)
+			client.mu.Unlock()
+		}
+	}
+}
+
+func main() {
+	serverID := os.Getenv("SERVER_ID")
+	if serverID == "" {
+		serverID = "gateway-node-1"
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	gw := NewGatewayServer(serverID, rdb)
+
+	ctx := context.Background()
+	go gw.StartPubSubListener(ctx)
+
+	http.HandleFunc("/ws", gw.HandleWebSocket)
+	log.Printf("Chat Gateway running on :8080 (ID: %s)", serverID)
+	http.ListenAndServe(":8080", nil)
+}
+```
+<!-- slide -->
+```typescript
+// chat_gateway.ts
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import Redis from 'ioredis';
+import { parse } from 'url';
+
+const SERVER_ID = process.env.SERVER_ID || 'gateway-node-ts-1';
+const redis = new Redis('localhost:6379');
+const subRedis = new Redis('localhost:6379');
+
+const server = createServer();
+const wss = new WebSocketServer({ server });
+const localSockets = new Map<string, WebSocket>();
+
+interface ChatMessage {
+  conversation_id: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
+  timestamp: number;
+}
+
+wss.on('connection', async (ws: WebSocket, req) => {
+  const { query } = parse(req.url || '', true);
+  const userId = query.user_id as string;
+
+  if (!userId) {
+    ws.close(1008, 'user_id required');
+    return;
+  }
+
+  localSockets.set(userId, ws);
+  await redis.set(`presence:${userId}`, SERVER_ID, 'EX', 60);
+  console.log(`[${SERVER_ID}] User ${userId} connected`);
+
+  ws.on('message', async (data) => {
+    try {
+      const msg: ChatMessage = JSON.parse(data.toString());
+      msg.timestamp = Date.now();
+
+      // Check recipient presence
+      const targetServer = await redis.get(`presence:${msg.recipient_id}`);
+      if (!targetServer) {
+        console.log(`User ${msg.recipient_id} offline. Triggering Mobile Push...`);
+        return;
+      }
+
+      // Publish to recipient's assigned gateway pod
+      await redis.publish(`gateway:channel:${targetServer}`, JSON.stringify(msg));
+    } catch (err) {
+      console.error('Invalid message format', err);
+    }
+  });
+
+  ws.on('close', async () => {
+    localSockets.delete(userId);
+    await redis.del(`presence:${userId}`);
+    console.log(`User ${userId} disconnected`);
+  });
+});
+
+// Inter-Gateway PubSub Listener
+subRedis.subscribe(`gateway:channel:${SERVER_ID}`);
+subRedis.on('message', (_channel, payload) => {
+  const msg: ChatMessage = JSON.parse(payload);
+  const socket = localSockets.get(msg.recipient_id);
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(msg));
+  }
+});
+
+server.listen(8081, () => {
+  console.log(`TypeScript Chat Gateway active on port 8081 (ID: ${SERVER_ID})`);
+});
+```
+<!-- slide -->
 ```python
-from fastapi import FastAPI, WebSocket
+# chat_gateway.py
+import asyncio
+import json
+import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import redis.asyncio as aioredis
 
+SERVER_ID = os.getenv("SERVER_ID", "gateway-python-1")
 app = FastAPI()
 
+rdb = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+sub_rdb = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+active_connections = {}
+
+@app.on_event("startup")
+async def start_pubsub_listener():
+    asyncio.create_task(listen_for_cluster_messages())
+
+async def listen_for_cluster_messages():
+    pubsub = sub_rdb.pubsub()
+    channel = f"gateway:channel:{SERVER_ID}"
+    await pubsub.subscribe(channel)
+    print(f"Subscribed to {channel}")
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            data = json.loads(message["data"])
+            recipient_id = data.get("recipient_id")
+            if recipient_id in active_connections:
+                ws = active_connections[recipient_id]
+                await ws.send_text(json.dumps(data))
+
 @app.websocket("/ws")
-async def chat(ws: WebSocket, user=Depends(ws_auth)):
-    await ws.accept()
-    presence.set_online(user.id, this_server_id)          # register in routing map
-    await deliver_backlog(ws, user.id)                    # catch-up sync (offline msgs)
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    await websocket.accept()
+    active_connections[user_id] = websocket
+    await rdb.set(f"presence:{user_id}", SERVER_ID, ex=60)
+    print(f"User {user_id} registered on {SERVER_ID}")
+
     try:
-        async for raw in ws.iter_text():
-            msg = parse(raw)
-            msg.id = new_message_id()                     # unique id → client dedup
-            message_store.append(msg.conversation_id, msg)  # persist FIRST
-            await route_and_deliver(msg)                  # find recipients' servers, push
-            await ws.send_json({"ack": msg.id, "status": "sent"})
-    finally:
-        presence.set_offline(user.id)                     # deregister on disconnect
+        while True:
+            text = await websocket.receive_text()
+            msg = json.loads(text)
+            recipient_id = msg.get("recipient_id")
+            
+            target_server = await rdb.get(f"presence:{recipient_id}")
+            if not target_server:
+                print(f"User {recipient_id} offline. Queuing Push Notification...")
+                continue
 
-async def route_and_deliver(msg):
-    for uid in recipients(msg):
-        server = presence.server_for(uid)                 # routing lookup
-        if server:                                        # online → forward to their conn server
-            await forward(server, uid, msg)
-        # offline → already persisted; delivered on their next catch-up sync
+            await rdb.publish(f"gateway:channel:{target_server}", json.dumps(msg))
+    except WebSocketDisconnect:
+        active_connections.pop(user_id, None)
+        await rdb.delete(f"presence:{user_id}")
+        print(f"User {user_id} disconnected")
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### 5.1 Establish WebSocket Session & Verify Inter-Node Dispatch
+
+```powershell
+# In Terminal 1: Connect as User B (Desktop)
+# Using wscat or Python websockets
+python -c @"
+import asyncio, websockets, json
+async def listen():
+    async with websockets.connect('ws://localhost:8080/ws?user_id=user_b') as ws:
+        print('User B connected. Waiting for messages...')
+        while True:
+            msg = await ws.recv()
+            print(f'Received: {msg}')
+asyncio.run(listen())
+"@
 ```
 
-Notification fan-out (queue-driven, multi-channel):
-
-```python
-def handle_notification_event(event):
-    prefs = get_prefs(event.user_id)
-    if throttled(event):                                  # collapse floods
-        return
-    if prefs.in_app:  ws_layer.push(event.user_id, render_inapp(event))
-    if prefs.mobile:  push_gateway.send(apns_or_fcm(event.user_id), render_push(event))
-    if prefs.email:   email_provider.send(event.user_id, render_email(event))
-    # each channel: at-least-once with an idempotency key to prevent double-send
+```powershell
+# In Terminal 2: Send message from User A
+python -c @"
+import asyncio, websockets, json
+async def send():
+    async with websockets.connect('ws://localhost:8080/ws?user_id=user_a') as ws:
+        payload = {
+            'conversation_id': 'conv_101',
+            'sender_id': 'user_a',
+            'recipient_id': 'user_b',
+            'content': 'Hello from User A!'
+        }
+        await ws.send(json.dumps(payload))
+        print('Message transmitted!')
+asyncio.run(send())
+"@
 ```
 
-## Hands-on exercises
+**Expected Terminal 1 Output:**
+```text
+User B connected. Waiting for messages...
+Received: {"conversation_id":"conv_101","sender_id":"user_a","recipient_id":"user_b","content":"Hello from User A!","timestamp":1715000089100}
+```
 
-Written design exercises — reason about delivery, ordering, and connections.
+---
 
-### 1. Size the connection layer
-
-You have **10M concurrent online users**, and one connection server holds
-~250,000 websocket connections. How many connection servers do you need for the
-live connections, before redundancy? Add N+2 and 30% headroom. Contrast this
-scaling axis (connections) with the QPS axis you've used before.
-
-### 2. Design the routing lookup
-
-Write the flow for delivering a message from A to B when B is online on a
-*different* connection server than A. Name every lookup and hop, and say what the
-presence/routing registry stores and when it's updated. What happens to the
-lookup if B disconnected a moment ago?
-
-### 3. Guarantee ordering without global order
-
-Two messages from A to a group arrive at the server out of order due to network
-jitter. Design the mechanism that makes every participant render them in the same
-order, and explain why a **per-conversation** sequence is sufficient and global
-ordering is unnecessary and costly.
-
-### 4. Handle offline delivery
-
-User B is offline for two hours, during which 40 messages arrive across 3
-conversations. Describe exactly what's stored while B is offline and what happens
-on reconnect (the catch-up sync). What does B's client send to request only what
-it missed?
-
-### 5. Pick a delivery guarantee
-
-Argue why **at-least-once + client-side dedup** is preferred over attempting
-exactly-once for chat. Describe the duplicate scenario it tolerates and the
-specific field the client uses to dedupe (tie back to idempotency from
-**10-distributed-systems-patterns**).
-
-### 6. Design notification throttling
-
-A popular post gets 500 likes in 5 minutes. Naively that's 500 push
-notifications to the author. Design the collapse/throttle rule that turns this
-into a sane experience, where it lives in the pipeline, and how per-user channel
-preferences factor in.
-
-### 7. Estimate message storage and tiering
-
-At 50M DAU, 40 messages/day, 1 KB each, kept indefinitely, replicated 3×,
-estimate daily and 3-year storage (reuse the module-00 recipe). State why the
-store must be sharded and propose a hot/cold tiering split (recent in fast store,
-old in cheap cold storage).
-
-### 8. Diagnose and fix a flawed design
-
-Critique and fix this chat design.
-
-> "Clients poll `GET /messages?since=<ts>` every 2 seconds to check for new
-> messages. Messages are delivered best-effort: the server sends over the socket
-> and forgets — no persistence, no acks — because storing every message is
-> expensive. Ordering is by the server's wall-clock arrival time across all
-> conversations globally. If a user is offline, messages to them are simply
-> dropped. We scale by adding stateless app servers behind a round-robin load
-> balancer."
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why should chat message history be partitioned by conversation_id rather than user_id?</strong></summary>
 
-Flaws and fixes:
-
-1. **2-second polling can't meet sub-second real-time delivery** and wastes huge
-   request volume (every client polling constantly). Use **websockets** (server
-   push) so messages arrive the instant they're sent, with no polling.
-2. **No persistence + fire-and-forget = lost messages.** A crash or a dropped
-   packet loses data permanently, violating durability and reliable delivery.
-   **Persist first, then deliver**, and use **acks** (sent/delivered/read) with
-   at-least-once retry + client dedup.
-3. **Global wall-clock ordering is both wrong and expensive.** Clocks skew across
-   servers, and you only need order *within* a conversation. Use a **per-
-   conversation sequence number**; drop the global ordering entirely.
-4. **Dropping messages to offline users is unacceptable.** Chat requires
-   **store-and-forward**: persist to the recipient's inbox and deliver on
-   reconnect via catch-up sync.
-5. **"Stateless app servers + round-robin" ignores that connections are
-   stateful and long-lived.** The connection layer *holds* sockets and must be
-   scaled by connection count, with a **presence/routing registry** to find which
-   server holds a given user — round-robin request balancing doesn't apply to
-   established websocket connections.
-6. **"Storing every message is expensive" is a false economy.** Durability is a
-   hard requirement; the fix is sharding + hot/cold tiering, not skipping
-   persistence.
-
-Corrected: websocket connection-server fleet (scaled by connection count) + a
-presence/routing KV registry; persist-first store-and-forward with per-
-conversation sequencing; at-least-once delivery with acks and client-side dedup;
-offline inbox + catch-up sync; sharded, time-ordered message store with cold
-tiering.
-
+> **Root Cause Analysis:**  
+> In chat applications, $>99\%$ of history reads are: *"Fetch the last 50 messages of this specific conversation."*  
+> If messages were partitioned by `user_id`:
+> - A 1:1 conversation between User A and User B would store A's messages on Shard 1 and B's messages on Shard 2.
+> - Loading the chat view would require a distributed cross-shard scatter-gather query.
+> - By partitioning by `(conversation_id)` with clustering key `(sequence_id DESC)`, all messages for that thread reside contiguously on the exact same storage node. Reading the latest 50 messages translates to an ultra-fast local sequential disk scan.
 </details>
-
-## Independent challenge
-
-No solution given. Design **Slack-style group channels** at scale — channels with
-anywhere from 3 to 100,000 members, real-time delivery to all online members,
-threaded replies, and reliable history. The group case reintroduces a *fan-out*
-problem (a message to a 100K-member channel must reach every online member's
-connection) that echoes the celebrity problem from **05-designing-a-news-feed-or-
-social-timeline**, but now with hard real-time latency instead of eventual
-consistency. Decide how you fan a group message out to connection servers
-efficiently, how you handle a huge channel where most members are offline, and how
-ordering and catch-up sync work per channel. Use the connection-layer and routing
-concepts here plus the partitioned message store from
-**04-designing-a-distributed-cache-and-key-value-store**.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Why are global wall-clock timestamps (time.Now()) unreliable for message ordering in chat?</strong></summary>
 
-The efficient move for large channels is to fan out to **connection servers, not
-individual users**: instead of doing 100K per-user routing lookups, publish the
-message once to each connection server that currently holds *at least one* member
-of the channel, and let that server deliver locally to all the member sockets it
-holds — turning a 100K-lookup problem into an M-server publish (where M is the
-number of connection servers, far smaller). A pub/sub layer keyed by
-`channel_id` does this cleanly (each conn server subscribes to the channels its
-connected users belong to). Offline members don't get pushed at all — they rely
-on catch-up sync from the persisted per-channel message log on reconnect (the
-store-and-forward path), so a 100K channel where 95% are offline costs almost
-nothing in live fan-out. This is the same "push to the many, but be smart about
-the fan-out unit" instinct as the feed's hybrid, adapted to real-time.
-
+> **Root Cause Analysis:**  
+> Physical server clocks experience **Clock Drift** and NTP synchronization jumps (up to tens or hundreds of milliseconds).  
+> If User A sends a message at Server 1 (clock skewed $-50\text{ ms}$) and User B replies at Server 2 (clock skewed $+50\text{ ms}$), physical timestamps can make the reply appear *before* the original question in the conversation viewport.  
+> 
+> **Production Fix:**  
+> Use a per-conversation integer sequence counter or **Snowflake IDs** (41-bit timestamp + 10-bit machine ID + 12-bit per-millisecond sequence counter) with server-side tiebreaking, ensuring deterministic total order within the conversation.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Polling instead of pushing.** Periodic `GET` can't meet sub-second delivery
-  and floods the system. Use websockets (server push).
-- **Fire-and-forget delivery.** No persistence and no acks loses messages. Persist
-  first, then deliver; ack with at-least-once + client dedup.
-- **Global ordering.** Ordering all messages across all conversations is
-  unnecessary and expensive. Order **per conversation** with a sequence number.
-- **Attempting exactly-once.** End-to-end exactly-once is impractical.
-  At-least-once + idempotent client dedup gives the same user-visible result.
-- **Dropping messages for offline users.** Chat requires store-and-forward and
-  catch-up sync, not best-effort delivery to whoever's connected.
-- **Treating connection servers as stateless.** They hold live sockets; scale by
-  connection count and plan for reconnection storms and a routing registry — not
-  round-robin request balancing.
-- **Ignoring the routing problem.** You must know which connection server holds
-  each user; a presence/routing registry is not optional.
-- **Un-throttled notifications.** Fanning every event to every channel spams
-  users. Collapse/throttle and honor per-channel preferences.
-- **Naive per-user fan-out for big groups.** Fan out to connection servers (or via
-  pub/sub per channel), not one lookup per member.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why can't plain HTTP request/response power real-time chat delivery, and what
-   transport is used instead?
-2. What is the connection/gateway layer, why is it stateful, and what scaling axis
-   (different from QPS) governs its size?
-3. Describe the routing problem and the registry that solves it. What does it map,
-   and when is it updated?
-4. Why is ordering only required *within* a conversation, and what mechanism
-   enforces it without needing a global clock?
-5. Why is at-least-once + client-side dedup preferred over exactly-once for chat,
-   and what field does the client dedupe on?
-6. How does store-and-forward handle a user who's offline for hours, and what does
-   their client do on reconnect?
-7. How does a notification system avoid spamming a user who receives 500 likes in
-   a few minutes, and where in the pipeline does that logic live?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: How does a chat system handle message delivery to a large group channel with 100,000 members?</strong></summary>
 
-1. Because HTTP is client-initiated — the server can only respond to a request, it
-   can't push unprompted, so a recipient would have to poll. Chat uses
-   **websockets** (a persistent, bidirectional connection the server can push
-   down), with SSE/long-poll as fallback.
-2. A fleet of **stateful** servers that hold millions of open websocket
-   connections. It's stateful because each server *owns* live sockets for specific
-   users. It scales by **concurrent connection count** (not request QPS) — e.g.
-   ~250K connections/server.
-3. To deliver to user B you must find which connection server currently holds B's
-   socket. A **presence/routing registry** (a fast shared KV map) maps
-   `user_id → connection_server`, updated on every connect/disconnect. The sender's
-   server looks B up and forwards the message to B's server, which pushes it.
-4. Because participants only observe messages within their shared conversations;
-   there's no user-visible need for one global order across unrelated
-   conversations, and enforcing it would be expensive. A **per-conversation
-   sequence number** (or monotonic timestamp with tiebreak) gives every
-   participant the same order.
-5. Exactly-once end-to-end is very hard/expensive; retrying until acked
-   (at-least-once) can duplicate, and the client **dedupes on the unique message
-   id**, yielding the same user-visible result far more cheaply.
-6. The message is **persisted** to durable storage / the recipient's inbox while
-   they're offline (store-and-forward). On reconnect, the client requests
-   everything since its **last-seen sequence number** (catch-up sync) and then
-   resumes live delivery.
-7. It **collapses/throttles** the flood — aggregating many like-events into a
-   single "500 people liked your post" notification — and honors per-user,
-   per-channel preferences. This lives in the **notification service / worker**
-   that consumes the event queue, before per-channel delivery.
-
+> **Root Cause Analysis:**  
+> Naive per-recipient fan-out would require 100,000 individual network writes for a single message.  
+> **Hierarchical Gateway Fan-Out:**  
+> 1. When a message is sent to `@large-channel`, the backend identifies which *gateway servers* hold at least one active channel member (typically 20–50 nodes across the cluster).
+> 2. The backend publishes the message **once per gateway server** over Redis Pub/Sub or Kafka (`channel_id`).
+> 3. Each gateway server receives the single message broadcast and writes it down the sockets of its locally connected members in memory. This collapses 100,000 cross-cluster network hops into 50, avoiding network switch saturation.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00–06 while attempting these — the point is to
-find out what actually stuck.
+## 7. Curriculum Navigation
 
-1. A messaging app has **80M DAU** each sending **50 messages/day**, each 1 KB.
-   Compute message write QPS (avg and peak, stating your constants), daily storage,
-   and 2-year storage at ×3 replication. State the two architectural conclusions
-   the numbers force.
-2. Run the seven-step framework, one sentence per step, for "design a group chat."
-   Which non-functional requirement most separates this design from a news feed,
-   and why?
-3. A URL shortener and a chat message store both need a partitioned key-value
-   store. State the shard key you'd choose for each and why point-lookup vs.
-   recent-messages-in-conversation leads to different clustering choices.
-4. For the same chat store, state your CAP position under a network partition and
-   justify it. Contrast that with the CAP choice you'd make for a bank balance,
-   and tie both to quorum settings (W, R, N).
-5. Rewrite this bare assertion as a proper tradeoff (module-01 template): "We'll
-   use websockets." Include the requirement that forces it and the cost it carries
-   versus polling.
-6. A candidate designs chat with per-server in-memory connection maps, global
-   wall-clock ordering, and best-effort fire-and-forget delivery. Name the three
-   independent bugs and give the fix and the *earlier module* whose concept each
-   fix draws on.
-7. Explain why the news feed can be eventually consistent and asynchronous while
-   chat cannot, and how that single difference changes the delivery mechanism
-   (push timing, persistence order, and acks).
-8. Both the news feed's celebrity problem and Slack's 100K-member channel are
-   fan-out problems, but one tolerates eventual consistency and the other demands
-   real-time. Describe how the *fan-out unit* differs in the efficient solution to
-   each, and what stays the same.
-
-<details>
-<summary>Answers</summary>
-
-1. 80M × 50 = 4×10⁹ msgs/day ÷ 10⁵ = **40,000 msg/sec avg**; ×3 peak ≈
-   **120,000/sec**. Storage: 4×10⁹ × 1 KB = **4 TB/day**; ×365×2 ≈ 2.9 PB; ×3
-   replication ≈ **~8.8 PB**. Conclusions: (a) the message store must be
-   **sharded** (petabytes exceed any single machine) with hot/cold tiering; (b)
-   the write/delivery path needs a **real-time connection fabric**, not a single
-   DB — 120K writes/sec with push delivery can't come off one primary.
-2. (1) Requirements: send/deliver group messages real-time, history, receipts;
-   NFRs sub-second latency, durable, ordered. (2) Estimation: DAU, msg/sec,
-   storage, concurrent connections. (3) API: websocket connect + send; REST for
-   history. (4) Data model: message store sharded by conversation_id, time-
-   clustered. (5) High-level: conn-server fleet + routing registry + persist-first
-   store + fan-out. (6) Deep-dive: group fan-out to conn servers / pub-sub. (7)
-   Bottlenecks: connection count, big-channel fan-out. The distinguishing NFR is
-   **latency/consistency** — chat needs sub-second, ordered, reliable delivery
-   where a feed tolerates seconds of eventual-consistency lag, which forces
-   persistent connections and acks.
-3. Shortener: shard by **short_code** (pure point lookups → hash partition, no
-   clustering needed). Chat: shard by **conversation_id** with clustering on
-   **(timestamp, message_id)** because the access pattern is "recent messages in
-   this conversation" (range read), so you co-locate and time-order a
-   conversation's messages — different access pattern → different clustering.
-4. Chat store: lean **AP-ish with strong-enough durability** — under partition
-   keep accepting/persisting messages and reconcile order via sequence numbers;
-   losing availability (can't send) is worse than brief cross-region staleness,
-   though each message must be durably persisted. A bank balance is **CP** — refuse
-   rather than serve/accept an inconsistent balance. Quorum: chat can run lower
-   R/W for availability; the balance uses **W+R>N** (e.g. N=3,W=2,R=2) for strong
-   consistency.
-5. "I'll use websockets, which give the server the ability to push messages to
-   clients the instant they arrive (sub-second delivery) at the cost of holding
-   millions of stateful long-lived connections and a routing registry; that's
-   right here because the real-time-delivery NFR can't be met by polling, which
-   is both too slow and far more total request volume."
-6. (a) **Per-server in-memory connection maps** can't route across the fleet — a
-   sender can't find a recipient on another server; fix with a shared
-   **presence/routing registry** (KV store, module 04). (b) **Global wall-clock
-   ordering** is skewed and unnecessary; fix with a **per-conversation sequence
-   number** (ordering concept, this module). (c) **Fire-and-forget** loses
-   messages; fix with **persist-first + at-least-once acks + client dedup**
-   (idempotency, module 10 / distributed-systems patterns).
-7. A feed read is a pull the user initiates and tolerates stale/late data, so
-   fan-out can be async and reads served from cache. Chat must deliver *to* a
-   recipient the instant a message is sent, in order, without loss — so the
-   mechanism becomes **server push over persistent connections**, **persist
-   before delivering** (durability), and **acks** (sent/delivered/read) to confirm
-   receipt, none of which a feed needs.
-8. Feed (eventual): fan-out unit is the **follower's precomputed feed**, done
-   async via a queue, and celebrities are *pulled* at read time. Chat big channel
-   (real-time): fan-out unit is the **connection server** — publish once per conn
-   server holding a member (via pub/sub on channel_id) and deliver locally,
-   rather than per-user. What stays the same: both avoid naive per-recipient
-   fan-out for high-fan-out cases, and both let offline/absent recipients catch up
-   on demand (feed on next read, chat on reconnect sync).
-
-</details>
-
-## Further reading & sources
-
-- [RFC 6455 — The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) - the specification for the persistent, bidirectional connection that powers server-push chat delivery.
-- [How Discord scales to millions of concurrent voice & chat users](https://discord.com/blog/how-discord-handles-two-and-half-million-concurrent-voice-users-using-webrtc) - a real account of holding millions of stateful connections and routing across a fleet.
-- [How Discord stores trillions of messages](https://discord.com/blog/how-discord-stores-trillions-of-messages) - the partitioned, time-ordered message store (Cassandra/ScyllaDB) that mirrors this module's data model.
-- [Scaling to millions of simultaneous connections (WhatsApp / Erlang)](https://www.erlang-solutions.com/blog/20-years-of-open-source-erlang-openerlang-interview-with-anton-lavrik-from-whatsapp/) - background on the connection-count scaling axis behind WhatsApp's real-time delivery.
-- [Apple Push Notification service (APNs) documentation](https://developer.apple.com/documentation/usernotifications/setting_up_a_remote_notification_server) - how mobile push delivery works for the notification fan-out channel.
-- [Firebase Cloud Messaging (FCM) documentation](https://firebase.google.com/docs/cloud-messaging) - the Android/cross-platform push gateway referenced in the multi-channel notification system.
-
-## Next
-
-[07-designing-a-video-streaming-or-large-scale-search-system](../07-designing-a-video-streaming-or-large-scale-search-system/README.md)
-— you've covered read-heavy, write-heavy, and real-time systems; next you'll
-tackle two large-scale specializations — video streaming (massive blobs, CDNs,
-transcoding, adaptive bitrate) and full-text search (inverted indexes, relevance,
-distributed query) — that push storage, bandwidth, and indexing to their limits
-and round out the classic problem set before the capstone.
+- [← Back to Module 05: Designing a News Feed or Social Timeline](../05-designing-a-news-feed-or-social-timeline/README.md)
+- [Back to System Design Track Overview](../README.md)
+- [Proceed to Module 07: Designing a Video Streaming or Search System](../07-designing-a-video-streaming-or-large-scale-search-system/README.md)

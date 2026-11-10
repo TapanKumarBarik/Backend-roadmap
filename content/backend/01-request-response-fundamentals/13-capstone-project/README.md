@@ -1,197 +1,288 @@
-# Module 13: Capstone Project
+# Module 13: Capstone Project — Production HTTP Engine
 
-## Why this matters
+## Why This Matters
 
-Every module in this track taught one facet of the request/response cycle
-in isolation — the journey (00), raw messages (01), headers (02), methods
-(03), CORS (04), status codes (05), caching (06), versions (07),
-negotiation and compression (08), TLS (09), routing (10), and versioning
-plus serialization (11). Real backend work never uses these one at a time.
-A single endpoint returns the right status code *and* honest headers *and*
-a cache strategy *and* the negotiated format *and* a versioned route — all
-at once, correctly, or it's broken.
+Every module in this step taught a distinct facet of the HTTP request-response cycle in isolation:
+* **The Wire & Headers:** TCP socket framing (00, 01) and the 5 header families (02).
+* **Semantics & Security:** Safe vs. idempotent verbs (03), cross-origin browser sandboxing (04), and TLS 1.3 encryption (09).
+* **Performance & Scale:** Multi-tier caching and 304 validation (06), HTTP/2 binary framing (07), Gzip/Brotli compression (08), and CDN edge architecture (12).
+* **Application Architecture:** Trie-based routing (10), API versioning, and DTO serialization (11).
 
-This capstone forces the synthesis. You'll build a small service *close to
-the metal* — using Python's `http.server` (or raw `socket`) rather than a
-full framework — precisely so you can't hide behind a framework's magic.
-FastAPI would set `Content-Type`, `Content-Length`, and status lines for
-you; here you write them yourself, which is the whole point. When you can
-hand-assemble a correct HTTP response with the right status line, honest
-representation headers, a working `ETag`/`Cache-Control` strategy, a
-content-negotiated body, and a versioned route that can emit *both* JSON
-and protobuf, you have genuinely internalized this track rather than
-memorized it.
+In production engineering, you never encounter these concepts in isolation. A single production request must negotiate content, validate conditional ETags, enforce strict CORS policies, route on versioned prefixes, and return machine-readable RFC 9457 errors simultaneously.
 
-There is no solution code here. That's deliberate: the struggle to
-assemble the pieces yourself, hitting the exact bugs the modules warned
-about (a wrong `Content-Length` that hangs the connection, a missing
-`Vary` that poisons a cache, a `200` where a `304` belonged), is where the
-learning consolidates.
+> [!TIP]
+> **The Golden Rule:** High-level frameworks (FastAPI, NestJS, Spring Boot) hide HTTP mechanisms behind layers of abstraction. Building this capstone close to the metal ensures that when an automated production gateway starts failing with `502 Bad Gateway` or silent connection hangs, you can diagnose the root cause immediately.
 
-## The project
+---
 
-Build **a raw-HTTP-aware "catalog" service in Python** using `http.server`
-(subclass `BaseHTTPRequestHandler`) or the `socket` module directly — *not*
-FastAPI/Flask/Starlette. It serves a small catalog of products and must
-demonstrate correct, hand-written behavior across the whole track.
+## The Architecture Blueprint
 
-### Functional requirements
+```mermaid
+flowchart TD
+    Client(["Client Request (curl / Browser)"]) --> TLS["1. TLS Termination & Protocol Negotiation\n(ALPN: h2, http/1.1)"]
+    TLS --> Preflight{"2. Is Request an OPTIONS Preflight?"}
+    
+    Preflight -- Yes --> CORS["Emit CORS Headers:\nAccess-Control-Allow-Origin\nAccess-Control-Allow-Methods\nAccess-Control-Max-Age: 86400\n-> Return 204 No Content"]
+    Preflight -- No --> Router["3. Radix Router & Version Dispatch\n(/v1/products vs /v2/products)"]
+    
+    Router -- No Route Match --> C404["Return 404 Not Found\n(RFC 9457 Problem Details)"]
+    Router -- Method Not Allowed --> C405["Return 405 Method Not Allowed\n+ Allow: GET, POST"]
+    Router -- Matched Route --> Auth["4. Method & Security Validation"]
 
-1. **Versioned routing (modules 10, 11).**
-   - `GET /v1/products` and `GET /v1/products/{id}` — a v1 shape.
-   - `GET /v2/products/{id}` — a v2 shape with at least one *breaking*
-     change from v1 (rename/restructure a field, change a type), and a
-     64-bit id serialized *safely* (module 11's string-id lesson).
-   - Route dispatch is yours to implement: parse the method and path, match
-     static vs. dynamic (`{id}`) segments, and get the specificity/order
-     right (module 10) — a request to a static route must not be swallowed
-     by the dynamic one.
+    Auth --> ETagCheck{"5. Conditional Request Check\n(If-None-Match == Current ETag?)"}
+    ETagCheck -- Match --> C304["Return 304 Not Modified\n(0 Body Bytes · Refresh Cache-Control)"]
+    ETagCheck -- No Match --> Serialize["6. DTO Serialization\n(Accept: application/json vs Protobuf)"]
+    
+    Serialize -- Unsupported Accept --> C406["Return 406 Not Acceptable"]
+    Serialize -- Serialized Body --> Compress{"7. Accept-Encoding: gzip?"}
+    
+    Compress -- Yes --> Gzip["Compress Payload with Gzip\n+ Content-Encoding: gzip"]
+    Compress -- No --> Raw["Raw Wire Body"]
+    
+    Gzip --> Final["8. Set Final Headers & Flush Wire:\nContent-Type, Content-Length\nCache-Control, Vary, Security Headers\n-> 200 OK"]
+    Raw --> Final
+```
 
-2. **Correct status codes (module 05), hand-written.**
-   - `200` for a found product; `404` for a missing one; `405` (with an
-     `Allow` header) when the path matches but the method doesn't; `400`
-     for a malformed request body on writes; `422`-style rejection for a
-     well-formed-but-invalid body; `406` when the client demands a format
-     you can't produce.
-   - Write the status line yourself (`HTTP/1.1 200 OK`) — no framework
-     doing it for you.
+---
 
-3. **Honest headers, including a real caching strategy (modules 02, 06).**
-   - Every response has an accurate `Content-Type` and a correct
-     `Content-Length` (compute it from the actual body bytes — a mismatch
-     will hang or truncate, module 01).
-   - Product responses carry a `Cache-Control` (a sensible `max-age`) and
-     an `ETag` derived from the product's content.
-   - Support **conditional requests**: if the client sends
-     `If-None-Match` matching the current `ETag`, return **`304 Not
-     Modified`** with no body (module 06). Per-user or non-cacheable
-     responses (if you add any) must use `private`/`no-store`.
+## 1. Capstone Requirements Matrix
 
-4. **Content negotiation + compression (module 08).**
-   - Honor `Accept`: serve JSON by default; if the client accepts your
-     binary type, serve protobuf (see requirement 5). If it demands
-     something you can't produce, `406`.
-   - Honor `Accept-Encoding: gzip` by gzip-compressing text responses and
-     setting `Content-Encoding: gzip` (only when the client accepts it).
-   - Set **`Vary`** on every negotiated response listing every request
-     header you varied on (`Accept`, `Accept-Encoding`) — or a shared cache
-     will serve the wrong representation (module 06/08).
+Your capstone project requires building a **Catalog & Inventory Service** without high-level framework abstraction (using Python's `http.server`, Go's `net/http`, or Node's `http` module):
 
-5. **JSON *and* binary (protobuf) serialization (module 11).**
-   - Define a `.proto` schema for a product, compile it (`protoc
-     --python_out=...`), and serve a protobuf-encoded body when the client
-     sends `Accept: application/x-protobuf` (or your chosen media type),
-     with the correct `Content-Type`.
-   - Serve JSON otherwise. The *same* product resource, two serializations,
-     chosen by negotiation — and observe/compare the byte sizes of each.
-   - Validate incoming write payloads before trusting them (module 11's
-     "validate before you deserialize").
+| Requirement Pillar | Concrete Production Specification |
+| :--- | :--- |
+| **1. Versioned Routing** | • `/v1/products` and `/v1/products/{id}` (Legacy combined name field).<br>• `/v2/products/{id}` (Breaking change: separated `first_name`/`last_name` and 64-bit string ID).<br>• Static paths (`/v1/products/featured`) must **not** be shadowed by dynamic `{id}`. |
+| **2. Status Code Fidelity** | • `200 OK` on standard retrieval.<br>• `201 Created` with `Location: /v1/products/{id}` on product creation.<br>• `204 No Content` on successful deletion.<br>• `304 Not Modified` on valid `If-None-Match`.<br>• `400 Bad Request` on unparseable JSON.<br>• `405 Method Not Allowed` with `Allow` header on invalid verbs.<br>• `406 Not Acceptable` if client rejects available formats.<br>• `422 Unprocessable Entity` when price is negative or title is empty. |
+| **3. Caching & Validation** | • Every product response must carry `Cache-Control: public, max-age=60`.<br>• SHA-256 derived `ETag` header attached to every response.<br>• Full conditional validation: sending `If-None-Match: <etag>` must return **`304 Not Modified` with 0 body bytes**. |
+| **4. Content Negotiation & Compression** | • Read `Accept`: Serve JSON by default; serve binary Protocol Buffers if requested.<br>• Read `Accept-Encoding`: If `gzip` is present, compress the response and attach `Content-Encoding: gzip`.<br>• Attach `Vary: Accept, Accept-Encoding` on all negotiated responses. |
+| **5. CORS & Browser Hardening** | • Intercept `OPTIONS` and return `204 No Content` with `Access-Control-Allow-*` and `Access-Control-Max-Age: 86400`.<br>• Attach defense headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security`. |
 
-6. **Security headers (module 02).**
-   - Set at least three appropriate response security headers
-     (`X-Content-Type-Options: nosniff`, etc.). If you serve over TLS
-     (optional stretch, module 09), add HSTS.
+---
 
-### Stretch goals (optional)
+## 2. Production War Story: The Content-Length Desync Hang
 
-- Serve it over **HTTPS** with a self-signed cert (module 09) and add
-  `Strict-Transport-Security`; observe the handshake with `openssl
-  s_client`.
-- Add a **deprecation** signal to `/v1` (`Deprecation`/`Sunset` headers,
-  module 11).
-- Add proper **CORS** handling (module 04): answer a preflight `OPTIONS`
-  with the right `Access-Control-*` headers, and reject a disallowed
-  origin.
-- Add **`Transfer-Encoding: chunked`** streaming for a large listing
-  instead of buffering (module 08), and contrast it with `Content-Length`.
+```mermaid
+sequenceDiagram
+    actor Client as Mobile Client App
+    participant Server as Custom Hand-Written HTTP Server
 
-### Acceptance checklist
+    Note over Client: Client executes GET /v1/products/1
+    Client->>Server: GET /v1/products/1 HTTP/1.1
+    Note over Server: Server calculates length using string length instead of byte count!<br/>String has multi-byte Unicode emojis: "Rocket 🚀" (9 characters, but 12 bytes!)<br/>Server declares: Content-Length: 100
+    Note over Server: Server flushes actual payload (which is only 85 bytes long)
+    Server-->>Client: HTTP/1.1 200 OK [Content-Length: 100]<br/>Body: [Flushes 85 bytes and stops]
+    Note over Client: Client socket buffer received 85 bytes...<br/>Client WAITS for remaining 15 bytes forever!
+    Note over Client: Socket times out after 30 seconds -> 504 Gateway Timeout!
+```
 
-Verify each with `curl` (and `openssl`/`protoc` where relevant). You should
-be able to demonstrate *all* of these:
+### The Incident
+During a migration to a lightweight microservice, developers manually wrote raw HTTP response framing. When the API began returning localized Japanese and accented customer names, mobile clients started hanging indefinitely on 25% of all requests, eventually failing with `504 Gateway Timeout`.
 
-- [ ] `curl -s http://localhost:PORT/v1/products/1` returns the v1 shape
-      with `200`, correct `Content-Type: application/json`, a
-      `Content-Length` that matches the body's byte count, a
-      `Cache-Control`, and an `ETag`.
-- [ ] `curl -s http://localhost:PORT/v2/products/1` returns the v2
-      (breaking-change) shape, with the 64-bit id as a string.
-- [ ] Re-requesting with `If-None-Match: "<the etag>"` returns `304` and
-      an empty body.
-- [ ] Changing a product (or a different product) yields a *different*
-      `ETag`, and the conditional request then returns `200` with the new
-      body.
-- [ ] `curl -s -w '%{http_code}' http://localhost:PORT/v1/products/999`
-      returns `404`.
-- [ ] `curl -X DELETE http://localhost:PORT/v1/products/1` returns `405`
-      with an `Allow` header (assuming you didn't implement delete).
-- [ ] A request to a static route that overlaps the dynamic one resolves to
-      the correct handler (specificity/order correct — module 10).
-- [ ] `curl -H 'Accept: application/x-protobuf' .../v2/products/1` returns
-      a protobuf body with the matching `Content-Type`; the default returns
-      JSON. Both carry `Vary: Accept`.
-- [ ] `curl -H 'Accept-Encoding: gzip' -sD - -o /dev/null .../v1/products`
-      shows `Content-Encoding: gzip` and `Vary` includes `Accept-Encoding`;
-      the gzipped `size_download` is smaller than the plain one.
-- [ ] `curl -H 'Accept: text/csv' ...` (a format you don't produce)
-      returns `406`.
-- [ ] A malformed JSON write returns a parse-level `400`; a
-      well-formed-but-invalid write returns a `422`-style rejection.
-- [ ] At least three security headers appear on responses.
-- [ ] (If attempted) HTTPS handshake succeeds and HSTS is present;
-      preflight `OPTIONS` returns correct `Access-Control-*` headers.
+### The Root Cause
+The developers calculated the `Content-Length` header using language string length functions (e.g. `len(str)` in Python 2 or `str.length` in JavaScript), which return **character counts** rather than **raw binary byte counts**. 
 
-### Hints
+Because UTF-8 characters and emojis consume 2 to 4 bytes each, the declared `Content-Length` did not match the actual byte count transmitted over the TCP socket. The client browser's TCP buffer held the socket open, waiting for the missing bytes that never arrived until the connection timed out.
 
-- **Start with the raw response writer.** Write one function that, given a
-  status code, headers dict, and body bytes, emits a correct HTTP response:
-  status line, headers (including a `Content-Length` computed from
-  `len(body)`), the blank line, then the body. Get *this* right first
-  (module 01) — everything else is building on it. Test it with a raw
-  `socket` or `BaseHTTPRequestHandler.wfile.write`.
-- **Dispatch is a small matcher.** Split the path on `/`, match the version
-  prefix, then match `products` and an optional `{id}`. Check static routes
-  before treating a segment as a dynamic id (module 10's order lesson).
-- **ETag = hash of the serialized content.** `'"' +
-  hashlib.sha256(body_bytes).hexdigest()[:16] + '"'`. Compare the client's
-  `If-None-Match` against it; equal ⇒ `304` (module 06).
-- **Negotiation is just reading headers and branching.** Parse `Accept` and
-  `Accept-Encoding`; pick a body format and encoding; set the matching
-  `Content-Type`/`Content-Encoding` and the `Vary` header (module 08). Do
-  the gzip with the stdlib `gzip` module.
-- **protobuf:** write a tiny `product.proto` (`message Product { int64 id =
-  1; string name = 2; ... }`), run `protoc --python_out=.
-  product.proto`, import the generated module, populate a `Product`, and
-  `SerializeToString()` for the body. `Content-Type:
-  application/x-protobuf`.
-- **Content-Length is load-bearing.** Compute it from the *final* body
-  bytes — *after* gzip/protobuf encoding, not before. A mismatch is the
-  module 01 hang-or-truncate bug; if a response hangs, suspect this first.
-- **Test the failure modes deliberately.** Send the wrong `Accept`, a stale
-  `If-None-Match`, a `DELETE` on a read-only route, a malformed body — the
-  acceptance checklist *is* your test suite.
-- **Compare sizes.** Use `curl -w '%{size_download}'` to see JSON vs.
-  protobuf vs. gzipped-JSON byte counts — the module 08/11 tradeoff, made
-  concrete on your own data.
+### The Fix
+Always calculate `Content-Length` from the encoded **byte slice / Buffer**:
+```go
+// In Go:
+payloadBytes := []byte(jsonString)
+w.Header().Set("Content-Length", strconv.Itoa(len(payloadBytes))) // Byte count, not runes!
+```
 
-When every box on the acceptance checklist is checked and you can *explain*
-which module each behavior came from, you've completed track 01. You can
-now read a raw HTTP exchange, reason about every header, choose correct
-status codes, design a cache strategy, negotiate formats, and version an
-evolving API — the vocabulary every remaining backend track assumes.
+---
 
-## Further reading & sources
+## 3. Reference Implementation: Core Engine Skeletons
 
-- [Python docs: http.server](https://docs.python.org/3/library/http.server.html) - `BaseHTTPRequestHandler`, the raw handler you subclass for this project.
-- [Python docs: socket](https://docs.python.org/3/library/socket.html) and [gzip](https://docs.python.org/3/library/gzip.html) - the lower-level transport and the compression you set by hand.
-- [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110) and [RFC 9111: HTTP Caching](https://www.rfc-editor.org/rfc/rfc9111) - the specs to check your hand-written status codes, headers, and `ETag`/`304` behavior against.
-- [Protocol Buffers: Python tutorial](https://protobuf.dev/getting-started/pythontutorial/) - compiling a `.proto` and using `SerializeToString()` for the binary body.
-- [MDN: HTTP messages](https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages) - the message anatomy your raw response writer must reproduce exactly, including `Content-Length`.
+### Go (`net/http`) Engine Skeleton
+```go
+package main
 
-## Next
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+)
 
-Track 02 builds directly on this: [../../02-api-layer-and-request-handling/README.md](../../02-api-layer-and-request-handling/README.md)
-— you'll take everything here and design a properly validated,
-middleware-chained, OpenAPI-documented RESTful API on top of a real
-framework, now that you understand exactly what that framework is doing for
-you underneath.
+type Product struct {
+	ID    string  `json:"id"`
+	Title string  `json:"title"`
+	Price float64 `json:"price"`
+}
+
+var database = map[string]Product{
+	"1": {ID: "1", Title: "Mechanical Keyboard", Price: 149.99},
+}
+
+func catalogHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Enforce CORS Preflight
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// 2. Security Defense Kit
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Vary", "Accept, Accept-Encoding")
+
+	// 3. Extract Path Parameter: /v1/products/{id}
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) != 3 || pathParts[0] != "v1" || pathParts[1] != "products" {
+		http.Error(w, `{"error":"Not Found"}`, http.StatusNotFound)
+		return
+	}
+	productID := pathParts[2]
+
+	product, exists := database[productID]
+	if !exists {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"type":"not_found","title":"Product Not Found","status":404}`))
+		return
+	}
+
+	// 4. Serialize to JSON
+	rawJSON, _ := json.Marshal(product)
+
+	// 5. Generate Cryptographic ETag
+	hash := sha256.Sum256(rawJSON)
+	etag := `"` + hex.EncodeToString(hash[:8]) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "public, max-age=60")
+
+	// 6. Conditional Revalidation (304 Not Modified)
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return // Return immediately with 0 body bytes
+	}
+
+	// 7. Dynamic Gzip Compression
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+
+		var gzBuf bytes.Buffer
+		gz := gzip.NewWriter(&gzBuf)
+		gz.Write(rawJSON)
+		gz.Close()
+
+		w.Header().Set("Content-Length", strconv.Itoa(gzBuf.Len()))
+		w.Write(gzBuf.Bytes())
+		return
+	}
+
+	// Uncompressed fallback
+	w.Header().Set("Content-Length", strconv.Itoa(len(rawJSON)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(rawJSON)
+}
+
+func main() {
+	http.HandleFunc("/v1/products/", catalogHandler)
+	fmt.Println("Capstone Engine listening on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+```
+
+---
+
+## 4. Automated Verification Test Suite
+
+Run this complete test matrix against your running service to verify all requirements:
+
+```bash
+#!/usr/bin/env bash
+BASE_URL="http://localhost:8080"
+echo "=== RUNNING CAPSTONE VERIFICATION MATRIX ==="
+
+# Test 1: Standard Retrieval (200 OK + Headers)
+echo -n "Test 1: Standard Retrieval -> "
+curl -s -i "$BASE_URL/v1/products/1" | grep -q "200 OK" && echo "PASS" || echo "FAIL"
+
+# Test 2: Conditional Validation (304 Not Modified)
+echo -n "Test 2: ETag Revalidation -> "
+ETAG=$(curl -s -D - -o /dev/null "$BASE_URL/v1/products/1" | grep -i etag | tr -d '\r' | awk '{print $2}')
+curl -s -i -H "If-None-Match: $ETAG" "$BASE_URL/v1/products/1" | grep -q "304 Not Modified" && echo "PASS" || echo "FAIL"
+
+# Test 3: Not Found Resource (404)
+echo -n "Test 3: Missing Resource 404 -> "
+curl -s -o /dev/null -w "%{http_code}\n" "$BASE_URL/v1/products/999" | grep -q "404" && echo "PASS" || echo "FAIL"
+
+# Test 4: Gzip Compression & Vary
+echo -n "Test 4: Gzip & Vary Header -> "
+curl -s -D - -o /dev/null -H "Accept-Encoding: gzip" "$BASE_URL/v1/products/1" | grep -qi "content-encoding: gzip" && echo "PASS" || echo "FAIL"
+
+# Test 5: CORS Preflight
+echo -n "Test 5: CORS Preflight Handshake -> "
+curl -s -o /dev/null -w "%{http_code}\n" -X OPTIONS -H "Origin: https://app.example.com" "$BASE_URL/v1/products/1" | grep -q "204" && echo "PASS" || echo "FAIL"
+
+echo "=== VERIFICATION COMPLETE ==="
+```
+
+---
+
+## 5. Operational Validation Checkpoint
+
+<details>
+<summary><strong>Question 1: The ETag vs. 304 Body Zero-Byte Invariant</strong></summary>
+
+**Scenario:** A developer writes a custom `304 Not Modified` handler:
+```python
+if client_etag == current_etag:
+    return Response(content=json_data, status_code=304)
+```
+Why does returning content inside a `304` response violate the HTTP specification and damage network performance?
+
+**Answer:**
+According to RFC 9110 §15.4.5, a `304 Not Modified` response **must never contain a message body**. 
+
+The entire purpose of conditional validation is to save network bandwidth by informing the client: *"Your local cached representation is byte-for-byte identical to the current server state; reuse your local copy."* 
+
+Sending body bytes inside a `304` wastes network bandwidth and confuses client HTTP parsers, which expect the connection to terminate immediately after the header block.
+</details>
+
+<details>
+<summary><strong>Question 2: Content-Length vs. Transfer-Encoding: Chunked</strong></summary>
+
+**Scenario:** Can an HTTP response send both `Content-Length: 1024` and `Transfer-Encoding: chunked` simultaneously?
+
+**Answer:**
+**No. RFC 9112 strictly forbids sending both headers together.**
+
+* `Content-Length` informs the receiver of the **exact fixed byte length** of the body.
+* `Transfer-Encoding: chunked` informs the receiver that the body is being **streamed in dynamic, variable-length chunks** terminated by a zero-length chunk (`0\r\n\r\n`).
+
+If both headers are present, modern HTTP clients and reverse proxies will reject the response as a potential HTTP Request Smuggling attack or ignore `Content-Length` entirely.
+</details>
+
+<details>
+<summary><strong>Question 3: Postel's Law in Capstone Design</strong></summary>
+
+**Scenario:** How does your capstone service demonstrate Postel's Law (*The Robustness Principle*)?
+
+**Answer:**
+1. **Conservative in what you send:** The service produces strictly compliant, deterministic HTTP responses: explicit `Content-Type: application/json; charset=utf-8`, accurate `Content-Length` calculated from binary byte counts, RFC 9457 structured error details, explicit `Cache-Control` directives, and security sandboxing headers.
+2. **Liberal in what you accept:** The service tolerates case-insensitive header names, parses optional whitespace in `Accept` headers, tolerates missing trailing slashes, and ignores unneeded query parameters without crashing.
+</details>
+
+---
+
+## Graduation & Next Track
+
+Congratulations! You have successfully mastered and synthesized the complete **Request-Response Fundamentals** step.
+
+Proceed to **[Track 02: RESTful API Design & Advanced Architecture](../../02-rest-apis/README.md)** to build high-scale, production-ready distributed API systems.

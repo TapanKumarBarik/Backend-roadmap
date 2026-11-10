@@ -1,558 +1,431 @@
 # Module 02: Retries, Prioritization, and Rate Limiting in Queues
 
-## Why this matters
+Background workers interact with real-world infrastructure that experiences latency spikes, temporary packet drops, third-party maintenance windows, and rate limits. In a synchronous request-response cycle, downstream failure immediately converts to an HTTP error returned to the client. In a background task queue, the worker must manage recovery autonomously. Naive strategies—either immediately crashing and abandoning the job, or retrying in an unthrottled tight loop—destroy backend reliability. The former causes silent, irrecoverable data loss; the latter unleashes self-inflicted Distributed Denial of Service (DDoS) retry storms that permanently collapse recovering dependencies.
 
-Background tasks talk to things that fail: payment gateways time out, SMTP
-servers hiccup, third-party APIs return `503` under load. In the request-
-response cycle a failure just becomes an error the user sees and retries by
-hand. In a queue, *the task itself* has to decide what to do when its
-downstream dependency misbehaves — and the naive answers ("crash" or "retry
-forever, instantly") are both wrong. Crash and the work is silently lost;
-retry instantly in a tight loop and you turn a brief blip into a self-inflicted
-denial-of-service against a service that's already struggling.
+> [!TIP]
+> **The Golden Rule:** Every background task MUST be strictly idempotent, retry exclusively on transient errors using Jittered Exponential Backoff, route through separated priority queues, and terminate into an observable Dead-Letter Queue (DLQ).
 
-The right answer has three parts, and this module is about all three.
-**Retry with backoff** so transient failures recover automatically without
-hammering. **Idempotent task design** so that retrying (or the at-least-once
-delivery a broker gives you) can't double-charge a card or send two emails.
-And **prioritization + rate limiting** so that when the queue backs up,
-payment tasks jump ahead of newsletter emails, and your outbound calls to a
-partner API stay under the 10-requests-per-second cap they'll ban you for
-exceeding.
+---
 
-These are the properties that separate a toy queue from one you'd trust with
-money. A task that isn't idempotent is a bug waiting for its first retry; a
-retry policy without backoff is an outage amplifier.
+## 1. Visual Mental Models
 
-## Concepts
+### Thundering Herd Retry Storm vs. Jittered Exponential Backoff
 
-### At-least-once delivery means your task *will* run twice eventually
+When a downstream database or payment gateway suffers a 2-second blip, unjittered retries synchronize thousands of workers, slamming the dependency on the exact same second:
 
-A broker guarantees at-least-once delivery, not exactly-once. If a worker
-pulls a task, does the work, but crashes (or its network drops) *before*
-acknowledging the message, the broker re-delivers it to another worker — which
-runs it again. Add explicit retries on top and "runs more than once" goes from
-rare to routine. You cannot make delivery exactly-once at the infrastructure
-level in general; instead you make the *effect* exactly-once by designing the
-task so running it twice is harmless. That's idempotency, and it's the
-non-negotiable foundation everything else in this module sits on.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Workers as 500 Background Workers
+    participant Gateway as Payment Gateway (Struggling Dependency)
 
-### Idempotent task design
+    Note over Workers,Gateway: Anti-Pattern: Immediate / Fixed Interval Retry Storm
+    Workers->>Gateway: POST /v1/charges (500 simultaneous requests)
+    Gateway-->>Workers: 503 Service Unavailable / Timeout
+    Note over Workers: All 500 workers wait exactly 1000ms...
+    Workers->>Gateway: RETRY 1 (500 simultaneous requests slam gateway!)
+    Gateway-->>Workers: 503 Service Unavailable (Crash!)
+    Note over Workers: All 500 workers wait exactly 1000ms...
+    Workers->>Gateway: RETRY 2 (500 requests slam again - Total Outage!)
 
-A task is **idempotent** if running it N times has the same effect as running
-it once. Concretely, before performing a side effect, check whether it's
-already been done, keyed by something stable:
-
-- **Charging a card:** pass an idempotency key (e.g. `order_id` or a generated
-  UUID stored with the order) to the payment gateway. Stripe and others
-  dedupe on it server-side — a retried charge with the same key returns the
-  *original* charge instead of making a second one.
-- **Sending an email:** record `sent_email(order_id, "receipt")` in a table
-  with a unique constraint; the task checks/inserts first and skips if the row
-  exists.
-- **Updating a row:** prefer "set status = shipped" (idempotent) over
-  "increment attempts by 1" (not idempotent) where you can, or guard the
-  increment with a condition.
-
-The pattern is always: **derive a stable key, check if the effect already
-happened, and make the check-and-act atomic** (a unique constraint or
-conditional update, not a read-then-write race). A task that does a bare
-`balance -= amount` is a landmine — one redelivery and the customer is charged
-twice.
-
-```
-  charge(order=42, key="order-42")   1st delivery ─► key unseen ─► CHARGE $150
-  charge(order=42, key="order-42")   redelivery   ─► key seen   ─► skip, return
-                                                                   original result
-  Same key twice  ==  one side effect. Without the key:
-  charge / charge ─────────────────────────────► $150 + $150 = double charge
+    Note over Workers,Gateway: Production Pattern: Decorrelated Jittered Exponential Backoff
+    Workers->>Gateway: POST /v1/charges (500 requests)
+    Gateway-->>Workers: 503 Service Unavailable
+    Note over Workers: Backoff = Base * 2^attempt + Random Jitter<br/>Worker 1 waits 820ms, Worker 2 waits 1410ms, Worker 3 waits 2100ms...
+    Workers->>Gateway: Retries spread evenly over time (Smooth curve)
+    Gateway-->>Workers: 200 OK (Recovers successfully without thundering herd)
 ```
 
-### Automatic retries with exponential backoff
+### Multi-Priority Queue Draining Architecture
 
-Celery tasks retry by re-enqueuing themselves. The modern, declarative way is
-`autoretry_for` plus backoff options on the decorator:
+Avoid mixing latency-critical transactions (e.g., checkout card charges) with high-volume, latency-tolerant batch work (e.g., promotional newsletters). Route them to dedicated queues with weighted worker allocation:
 
-```python
-@app.task(
-    autoretry_for=(requests.RequestException,),  # retry only on these
-    max_retries=5,
-    retry_backoff=True,        # 1s, 2s, 4s, 8s... exponential
-    retry_backoff_max=60,      # cap the delay
-    retry_jitter=True,         # randomize so retries don't sync up (thundering herd)
-)
-def call_partner_api(order_id):
-    ...
+```mermaid
+flowchart TD
+    subgraph Producers ["Task Producers"]
+        P_Pay["Checkout Service"]
+        P_Sys["Password Reset"]
+        P_Bulk["Marketing Service"]
+    end
+
+    subgraph BrokerQueues ["Multi-Priority Message Queues"]
+        Q_HIGH[("Queue: critical / high<br/>SLA: < 500ms latency")]
+        Q_DEF[("Queue: default<br/>SLA: < 10s latency")]
+        Q_LOW[("Queue: bulk / low<br/>SLA: < 2h latency")]
+        Q_DLQ[("Dead-Letter Queue (DLQ)<br/>Exhausted retries")]
+    end
+
+    subgraph Workers ["Worker Pool Allocation"]
+        W_DEDICATED["Critical Workers<br/>(Only consumes high)"]
+        W_SHARED_1["General Worker 1<br/>(Weighted high > default > low)"]
+        W_SHARED_2["General Worker 2<br/>(Weighted high > default > low)"]
+        W_BATCH["Batch Worker<br/>(Consumes low queue)"]
+    end
+
+    P_Pay -->|Priority 1| Q_HIGH
+    P_Sys -->|Priority 1| Q_HIGH
+    P_Bulk -->|Priority 3| Q_LOW
+
+    Q_HIGH --> W_DEDICATED
+    Q_HIGH --> W_SHARED_1
+    Q_DEF --> W_SHARED_1
+    Q_DEF --> W_SHARED_2
+    Q_LOW --> W_BATCH
+
+    W_SHARED_1 -. "Max retries exceeded" .-> Q_DLQ
+    W_SHARED_2 -. "Max retries exceeded" .-> Q_DLQ
+
+    classDef high fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    classDef def fill:#fff3e0,stroke:#ef6c00,stroke-width:2px;
+    classDef low fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef dlq fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+
+    class Q_HIGH,W_DEDICATED high;
+    class Q_DEF,W_SHARED_1,W_SHARED_2 def;
+    class Q_LOW,W_BATCH low;
+    class Q_DLQ dlq;
 ```
 
-**Exponential backoff** doubles the delay between attempts so a struggling
-service gets breathing room instead of a retry storm. **Jitter** randomizes
-the delay so that a thousand tasks that all failed at the same instant don't
-all retry at the same instant (the "thundering herd" that keeps the service
-down). **`max_retries`** bounds the attempts so a permanently-broken
-dependency doesn't retry forever.
+---
 
+## 2. Structured Reference Grids
+
+### Failure Classification & Retry Decision Matrix
+
+| Failure Type | Examples | HTTP Codes | Action | Policy |
+| :--- | :--- | :--- | :--- | :--- |
+| **Transient Network** | Connect timeout, TCP reset, DNS blip | N/A, `504` | **Retry** | Exponential backoff + full jitter, max 5 attempts |
+| **Downstream Overload** | Rate limit exceeded, service unavailable | `429`, `503` | **Retry** | Respect `Retry-After` header if present; backoff with jitter |
+| **Permanent Semantic** | Invalid payload, schema validation error | `400`, `422` | **Do Not Retry** | Send directly to Dead-Letter Queue / Alert telemetry |
+| **Authentication / Authz** | Expired API key, invalid secret | `401`, `403` | **Do Not Retry** | Escalate alert; retries will not resolve configuration error |
+| **Missing Resource** | Entity deleted, target ID not found | `404` | **Do Not Retry** | Mark job as terminal failure; drop or archive |
+
+### Backoff & Jitter Formulas
+
+| Jitter Algorithm | Formula | Characteristics |
+| :--- | :--- | :--- |
+| **No Jitter (Dangerous)** | $t = \min(\text{cap}, \text{base} \cdot 2^{\text{attempt}})$ | High collision probability; produces severe periodic thundering herds |
+| **Full Jitter (Recommended)** | $t = \text{random}(0, \min(\text{cap}, \text{base} \cdot 2^{\text{attempt}}))$ | Maximizes delay spread; drastically reduces downstream contention |
+| **Decorrelated Jitter** | $t = \min(\text{cap}, \text{random}(\text{base}, t_{\text{prev}} \cdot 3))$ | Excellent queue draining balance; avoids extreme spikes or stalls |
+
+---
+
+## 3. Production War Story
+
+### The $420,000 Double-Billing Storm
+
+#### The Incident
+At 09:15 AM on a Monday, an e-commerce subscription engine triggered renewal billings for 80,000 users. The upstream payment gateway experienced a 30-second degradation where connection read sockets hung. The task queue worker pool, configured with eager automatic retries without backoff or idempotency protections, retried every failed call up to 4 times. By 09:45 AM, 14,000 customers had been charged between 2 and 4 times, deducting over $420,000 in duplicate charges and incurring catastrophic merchant chargeback penalties.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Worker as Billing Worker
+    participant DB as Postgres Orders
+    participant Stripe as Stripe Gateway
+
+    Worker->>DB: Read subscription $50 due
+    Worker->>Stripe: POST /v1/charges (No Idempotency-Key)
+    Note over Stripe: Stripe charges card successfully ($50), but TCP ACK drops!
+    Note over Worker: Read timeout after 10s!
+    Note over Worker: Anti-pattern: Non-idempotent immediate retry!
+    Worker->>Stripe: RETRY 1: POST /v1/charges (No Idempotency-Key)
+    Note over Stripe: Stripe treats as brand new charge! Charges $50 again!
+    Worker->>Stripe: RETRY 2: POST /v1/charges (No Idempotency-Key)
+    Note over Stripe: Charges $50 again ($150 total for 1 invoice!)
 ```
-  attempt:   1      2         3               4                     5   (max_retries)
-  try ──✗    │      │         │               │                     │
-  wait:      └─1s─► └──2s───► └────4s──────► └──────8s──────────► └── give up
-             (each delay doubles; jitter nudges each ± a little so 1000 failed
-              tasks don't all retry on the same tick — the thundering herd)
-```
 
-Two failure categories deserve different handling: **transient** (timeout,
-`503`, connection reset) — retry; **permanent** (`400 bad request`, `404`,
-validation error) — do *not* retry, because it'll fail identically every time.
-List only transient exception types in `autoretry_for`, and for the manual
-form, don't call `self.retry()` on permanent errors.
+#### The Root Cause
+1. **Lack of Idempotency Keys:** The worker submitted raw payment requests without attaching an immutable `Idempotency-Key: sub_<id>_<billing_cycle>`.
+2. **Read Timeout Misinterpretation:** A network timeout means the request *might* have reached the server and executed. Treating timeouts as "not executed" without verification is fatal in financial workflows.
+3. **No Backoff or Rate Limiting:** The worker pool retried immediately, overwhelming both the database and payment provider.
 
-The manual form gives you full control:
-
-```python
-@app.task(bind=True, max_retries=5)
-def charge(self, order_id):
-    try:
-        do_charge(order_id)
-    except PaymentTimeout as exc:
-        # retry with computed backoff; raises MaxRetriesExceeded when exhausted
-        raise self.retry(exc=exc, countdown=2 ** self.request.retries)
-```
-
-### Dead-letter handling: where exhausted tasks go
-
-When retries are exhausted the task fails for good. Don't let that failure
-vanish. Use `on_failure` (or an error callback / a dedicated failure task) to
-record the permanently-failed task somewhere a human or a sweeper job can see
-it — a "dead-letter" table or queue. Silent terminal failure is how "we
-thought the emails were sending" happens.
-
-```python
-@app.task(bind=True, max_retries=3)
-def charge(self, order_id):
-    ...
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        record_dead_letter("charge", args, str(exc))   # visible, replayable
-```
-
-### Prioritization: important work jumps the line
-
-When the queue backs up, not all tasks are equal — a payment capture should
-run before a "here's our weekly newsletter" email. Two common approaches:
-
-1. **Separate queues + dedicated workers.** Route payments to a `high` queue
-   and emails to a `low` queue, then run workers that consume `high` first (or
-   dedicate more workers to it). This is the most robust and predictable
-   approach.
-
+#### The Verified Production Fix
+1. Every payment task derives a deterministic idempotency key and persists it before network dispatch:
    ```python
-   charge.apply_async(args=[order_id], queue="high")
-   send_newsletter.apply_async(args=[user_id], queue="low")
-   # worker consuming high-priority first:
-   #   celery -A tasks worker -Q high,low
+   idempotency_key = f"charge_{subscription_id}_{billing_period}"
+   stripe.Charge.create(..., idempotency_key=idempotency_key)
    ```
+2. Re-runs with the same key return the original charge result rather than creating a duplicate.
+3. Configured exponential backoff with full jitter and capped maximum retries to 3 before dispatching to an incident dead-letter table.
 
-2. **Broker priority levels.** With RabbitMQ (and, with caveats, Redis) you
-   can set a numeric `priority` on `apply_async`. This is coarser and
-   broker-dependent; separate queues are usually clearer.
+---
 
-The important mental model: priority only matters *when there's a backlog*. An
-empty queue runs everything immediately regardless. Prioritization is a
-policy for scarcity.
+## 4. Multi-Language Production Implementations
 
-### Rate limiting outbound calls from a task
+### Go (`hibiken/asynq` Weighted Priority + Custom Backoff)
 
-A partner API caps you at, say, 10 requests/second; exceed it and you get
-`429`s or a ban. Two layers:
+```go
+package main
 
-- **Celery's per-task `rate_limit`** throttles how often a worker *starts* a
-  given task: `@app.task(rate_limit="10/s")`. This is per-worker and a decent
-  first line, but with N workers the effective rate is roughly N × the limit —
-  so it's not a hard global cap.
-- **A shared token bucket in Redis** for a true global limit across all
-  workers. The task acquires a token before making the call; if none is
-  available it retries with backoff. This is the reliable way to hold a
-  cluster-wide ceiling.
+import (
+	"context"
+	"crypto/rand"
+	"fmt"
+	"log"
+	"math/big"
+	"time"
 
-Pair rate limiting with retries: when you *do* hit a `429`, respect the
-`Retry-After` header the server sends by retrying after that many seconds
-rather than your default backoff.
+	"github.com/hibiken/asynq"
+)
 
-## Command reference
+const (
+	QueueCritical = "critical"
+	QueueDefault  = "default"
+	QueueLow      = "low"
+)
 
-| Concern | Mechanism | Example |
-|---|---|---|
-| Auto-retry on transient errors | `autoretry_for=(...)` | `@app.task(autoretry_for=(TimeoutError,))` |
-| Exponential backoff | `retry_backoff=True` | `retry_backoff=True, retry_backoff_max=60` |
-| Randomize retry timing | `retry_jitter=True` | avoids thundering herd |
-| Cap attempts | `max_retries=N` | `max_retries=5` |
-| Manual retry | `self.retry(exc=, countdown=)` | needs `bind=True` |
-| Handle terminal failure | `on_failure` / error callback | write a dead-letter record |
-| Route to a queue | `apply_async(queue="high")` | + `celery worker -Q high,low` |
-| Per-task throttle | `rate_limit="10/s"` | per-worker, not global |
-| Global rate limit | Redis token bucket | true cluster-wide cap |
-| Respect server backoff | read `Retry-After` on `429` | `self.retry(countdown=retry_after)` |
+// Custom Jittered Exponential Backoff
+func CustomRetryDelay(n int, e error, t *asynq.Task) time.Duration {
+	base := 1 * time.Second
+	capDelay := 60 * time.Second
+	maxDelay := base * (1 << uint(n)) // 1s, 2s, 4s, 8s...
+	if maxDelay > capDelay {
+		maxDelay = capDelay
+	}
 
-An idempotent, retrying, rate-limited payment task — `payments.py`:
+	// Full Jitter: random between 0 and maxDelay
+	nBig, _ := rand.Int(rand.Reader, big.NewInt(maxDelay.Nanoseconds()))
+	return time.Duration(nBig.Int64())
+}
+
+func RunPriorityWorker() {
+	srv := asynq.NewServer(
+		asynq.RedisClientOpt{Addr: "127.0.0.1:6379"},
+		asynq.Config{
+			Concurrency: 20,
+			// Weighted round-robin queue consumption
+			Queues: map[string]int{
+				QueueCritical: 6, // 60% compute
+				QueueDefault:  3, // 30% compute
+				QueueLow:      1, // 10% compute
+			},
+			RetryDelayFunc: CustomRetryDelay,
+		},
+	)
+
+	mux := asynq.NewServeMux()
+	mux.HandleFunc("payment:charge", func(ctx context.Context, t *asynq.Task) error {
+		idempotencyKey := t.ResultWriter().TaskID()
+		log.Printf("[Worker] Processing charge with IdempotencyKey: %s", idempotencyKey)
+
+		// Simulate transient downstream 503
+		if time.Now().Unix()%2 == 0 {
+			return fmt.Errorf("transient downstream timeout: retryable")
+		}
+
+		log.Printf("[Worker] Charge succeeded safely.")
+		return nil
+	})
+
+	if err := srv.Run(mux); err != nil {
+		log.Fatalf("asynq server error: %v", err)
+	}
+}
+```
+
+---
+
+### Node.js / TypeScript (`BullMQ` Priority + Custom Jitter Backoff)
+
+```typescript
+import { Queue, Worker, Job } from 'bullmq';
+import IORedis from 'ioredis';
+
+const connection = new IORedis('redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
+
+export const paymentQueue = new Queue('payment-processing', {
+  connection,
+  defaultJobOptions: {
+    attempts: 4,
+    backoff: {
+      type: 'customJitter',
+    },
+    removeOnFail: false, // Retain failed jobs for DLQ inspection
+  },
+});
+
+export const paymentWorker = new Worker(
+  'payment-processing',
+  async (job: Job) => {
+    const { orderId, amount, idempotencyKey } = job.data;
+    console.log(`[Worker] Attempt ${job.attemptsMade + 1} for Order ${orderId}`);
+
+    // Call payment gateway with idempotency key
+    if (job.attemptsMade < 2) {
+      throw new Error('E_GATEWAY_TIMEOUT: Transient HTTP 504 from payment gateway');
+    }
+
+    console.log(`[Worker] Payment captured for Order ${orderId} (${idempotencyKey})`);
+    return { status: 'SETTLED', orderId };
+  },
+  {
+    connection,
+    concurrency: 10,
+    settings: {
+      backoffStrategies: {
+        // Full Jitter exponential backoff: random(0, min(cap, base * 2^attempts))
+        customJitter(attemptsMade: number) {
+          const base = 1000; // 1s
+          const maxDelay = Math.min(30000, base * Math.pow(2, attemptsMade));
+          return Math.floor(Math.random() * maxDelay);
+        },
+      },
+    },
+  }
+);
+
+paymentWorker.on('failed', (job, err) => {
+  if (job && job.attemptsMade >= (job.opts.attempts || 1)) {
+    console.error(`[DLQ ALERT] Job ${job.id} exhausted all retries! Reason: ${err.message}`);
+    // Push metadata to dead-letter storage
+  }
+});
+```
+
+---
+
+### Python (`Celery` Autoretry + Priority Routing + Jitter)
 
 ```python
-import time, requests
+import random
 from celery import Celery
+from celery.exceptions import MaxRetriesExceededError
+import requests
 
-app = Celery("pay", broker="redis://localhost:6379/0",
-             backend="redis://localhost:6379/1")
+app = Celery(
+    'resilient_tasks',
+    broker='redis://127.0.0.1:6379/0',
+    backend='redis://127.0.0.1:6379/1',
+)
+
+app.conf.update(
+    task_routes={
+        'tasks.process_payment': {'queue': 'high_priority'},
+        'tasks.send_newsletter': {'queue': 'low_priority'},
+    },
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+)
 
 @app.task(
     bind=True,
-    autoretry_for=(requests.RequestException,),
-    max_retries=5,
-    retry_backoff=True,
-    retry_backoff_max=60,
-    retry_jitter=True,
-    rate_limit="10/s",
+    name='tasks.process_payment',
+    autoretry_for=(requests.exceptions.RequestException, TimeoutError),
+    retry_kwargs={'max_retries': 4},
+    retry_backoff=True,          # Celery implements exponential backoff
+    retry_backoff_max=30,        # Max delay cap in seconds
+    retry_jitter=True,           # Adds full jitter to defeat thundering herds
 )
-def charge_card(self, order_id, amount):
-    # 1. IDEMPOTENCY: skip if this order was already charged.
-    if already_charged(order_id):
-        return {"order_id": order_id, "status": "already_charged"}
-
-    # 2. Use an idempotency key so a retry that reaches the gateway
-    #    doesn't create a second charge.
-    resp = requests.post(
-        "https://api.gateway.example/charges",
-        json={"amount": amount},
-        headers={"Idempotency-Key": f"order-{order_id}"},
-        timeout=5,
-    )
-    if resp.status_code == 429:
-        # respect the server's backoff instruction
-        retry_after = int(resp.headers.get("Retry-After", "2"))
-        raise self.retry(countdown=retry_after)
-    if 400 <= resp.status_code < 500 and resp.status_code != 429:
-        # permanent client error: do NOT retry, fail loudly
-        raise ValueError(f"permanent charge error {resp.status_code}")
-    resp.raise_for_status()   # 5xx -> RequestException -> autoretry
-
-    mark_charged(order_id, resp.json()["charge_id"])   # atomic write
-    return {"order_id": order_id, "status": "charged"}
-
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        record_dead_letter("charge_card", args, str(exc))
+def process_payment(self, order_id: int, amount_cents: int, idempotency_key: str):
+    print(f"[{self.request.id}] Attempt {self.request.retries + 1}: Charging Order {order_id}")
+    
+    # Header contains idempotency key for safe retries
+    headers = {"Idempotency-Key": idempotency_key}
+    
+    try:
+        response = requests.post(
+            "https://api.paymentgateway.internal/v1/charge",
+            json={"order_id": order_id, "amount": amount_cents},
+            headers=headers,
+            timeout=5.0
+        )
+        response.raise_for_status()
+        return response.json()
+    except (requests.exceptions.HTTPError) as err:
+        # Non-retryable permanent 4xx errors should never be retried
+        if 400 <= err.response.status_code < 500 and err.response.status_code != 429:
+            print(f"[Terminal Failure] Order {order_id} rejected with {err.response.status_code}. Not retrying.")
+            raise
+        raise
 ```
 
-A global token-bucket rate limiter in Redis:
+---
 
-```python
-import time
+## 5. Practical Hands-On Verification
 
-# Refill-on-read token bucket. Returns True if a token was granted.
-_BUCKET = """
-local tokens = tonumber(redis.call('get', KEYS[1]) or ARGV[1])
-if tokens > 0 then
-  redis.call('set', KEYS[1], tokens - 1)
-  return 1
-end
-return 0
-"""
-
-def acquire_token(redis, key, capacity):
-    return bool(redis.eval(_BUCKET, 1, key, capacity))
-# a separate scheduled task (module 03) refills the bucket each second
-```
-
-## Hands-on exercises
-
-Continue in `bg-queues`. `pip install requests`. Keep a worker and Redis
-running.
-
-### 1. Make a task retry and watch the backoff
-
-```python
-@app.task(bind=True, max_retries=3, retry_backoff=True, retry_jitter=False)
-def flaky(self):
-    import random
-    if random.random() < 0.7:
-        raise self.retry(exc=RuntimeError("transient"))
-    return "ok"
-```
-
-Enqueue it repeatedly and watch the worker log. Expected: on failure it
-re-enqueues with growing delays (~1s, 2s, 4s); after 3 retries it raises
-`MaxRetriesExceeded`. Note the delay doubling — that's backoff.
-
-### 2. Prove non-idempotency bites on retry
-
-Write a deliberately-broken "charge":
-
-```python
-_balance = {"acct": 100}
-@app.task(bind=True, max_retries=2)
-def bad_charge(self, amount):
-    _balance["acct"] -= amount        # side effect BEFORE the risky part
-    do_risky_thing()                  # sometimes raises -> retry
-```
-
-Force `do_risky_thing` to raise once then succeed. Expected: the balance is
-debited on *every* attempt, so a single logical charge deducts the amount
-multiple times. This is the double-charge bug in miniature.
-
-### 3. Fix it: make the charge idempotent
-
-Rewrite so the side effect happens once, guarded by a key:
-
-```python
-_charged = set()
-@app.task(bind=True, max_retries=2)
-def good_charge(self, order_id, amount):
-    if order_id in _charged:          # already done? skip.
-        return "already_charged"
-    do_risky_thing()                  # do the risky part FIRST
-    _charged.add(order_id)            # commit the effect only on success
-    _balance["acct"] -= amount
-    return "charged"
-```
-
-Expected: no matter how many retries, `order_id` is charged exactly once. (In
-production the guard is a unique DB constraint / gateway idempotency key, not
-an in-memory set — but the shape is identical.)
-
-### 4. Distinguish transient from permanent failures
-
-```python
-@app.task(autoretry_for=(ConnectionError,), max_retries=3)
-def call_api(kind):
-    if kind == "transient":
-        raise ConnectionError("timeout")     # retried
-    if kind == "permanent":
-        raise ValueError("bad input")        # NOT retried
-    return "ok"
-```
-
-Enqueue both. Expected: `transient` retries 3 times then gives up;
-`permanent` fails immediately with no retries (it's not in `autoretry_for`).
-Lesson: never retry an error that will fail identically every time.
-
-### 5. Two queues, priority by dedicated worker
-
-Route work to `high` and `low`:
-
-```python
-charge_card.apply_async(args=[1, 50], queue="high")
-send_newsletter.apply_async(args=[7], queue="low")
-```
-
-Start a worker that prefers high:
+### 1. Enqueue High vs. Low Priority Tasks
 
 ```bash
-celery -A tasks worker -Q high,low --concurrency=1 --loglevel=info
+# High priority payment task
+curl.exe -i -X POST http://localhost:8000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"task": "process_payment", "queue": "high_priority", "order_id": 9012, "idempotency_key": "idem_9012_v1"}'
 ```
 
-Flood the `low` queue with 20 tasks, then enqueue one `high`. Expected: with a
-single-slot worker consuming `high,low`, the high-priority task is picked up
-ahead of the pending low ones (Celery drains listed queues with high first on
-each fetch). Contrast with a worker started `-Q low,high`.
-
-### 6. Per-task rate limit
-
-```python
-@app.task(rate_limit="2/s")
-def limited():
-    print(time.time())
+```bash
+# Low priority bulk email task
+curl.exe -i -X POST http://localhost:8000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"task": "send_newsletter", "queue": "low_priority", "campaign_id": 401}'
 ```
 
-Enqueue 10 at once against a single worker. Expected: the worker starts them
-at ~2 per second (watch the timestamps ~0.5s apart), not all at once — Celery
-throttles task *starts*. Note this is per-worker: two workers would run ~4/s.
+### 2. Verify Dead-Letter Queue (DLQ) State
 
-### 7. Global rate limit with a Redis token bucket
+When a task exceeds `max_retries`, inspect the dead-letter queue via Redis CLI:
 
-Implement `acquire_token` from the reference. Seed the bucket
-(`redis-cli SET api_tokens 5`). In a task, call `acquire_token`; if it returns
-`False`, `self.retry(countdown=1)`. Enqueue 20 tasks. Expected: only 5 proceed
-immediately; the rest retry until tokens are available — a hard global cap
-regardless of worker count. (You'll automate refilling in module 03.)
-
-### 8. Respect `Retry-After` on a 429
-
-Simulate a server returning `429` with `Retry-After: 3`:
-
-```python
-@app.task(bind=True, max_retries=5)
-def polite(self, attempt=0):
-    if attempt < 2:
-        raise self.retry(countdown=3, kwargs={"attempt": attempt + 1})
-    return "done"
+```bash
+redis-cli LLEN dlq:payment-processing
+redis-cli LINDEX dlq:payment-processing 0
 ```
 
-Expected: retries space out by exactly 3s (the server-dictated delay), not
-your default backoff. Lesson: when a server tells you how long to wait, obey
-it rather than guessing.
-
-### 9. Diagnose and fix: the task that silently fails and never retries
-
-A payment task "sometimes just doesn't happen" with nothing in the logs and
-no retry. The code:
-
-```python
-@app.task
-def capture(order_id):
-    try:
-        gateway.capture(order_id)     # can raise TimeoutError
-    except Exception:
-        pass                          # swallow everything
+**Output:**
+```json
+{
+  "task_id": "tsk_018b29c",
+  "queue": "high_priority",
+  "failed_at": "2026-11-09T15:45:00Z",
+  "attempts": 4,
+  "error": "Gateway timeout: HTTP 504 Gateway Timeout after 4 attempts",
+  "payload": {"order_id": 9012, "idempotency_key": "idem_9012_v1"}
+}
 ```
 
-Explain the two bugs: (1) it has no retry configured, and (2) it *swallows*
-the exception, so even the built-in failure recording never fires — the task
-returns "successfully" having done nothing. Fix it: add
-`autoretry_for=(TimeoutError,)` with backoff and `max_retries`, stop
-swallowing (let transient errors propagate so Celery retries; re-raise
-permanent ones), and add an `on_failure` that writes a dead-letter record so
-an exhausted task is *visible*.
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Local `rate_limit="10/s"` Multi-Worker Trap</strong></summary>
 
+**Scenario:** An external vendor enforces a strict global quota: *10 requests per second across your entire account; exceeding it results in a 24-hour IP ban*. You configure Celery with `@app.task(rate_limit="10/s")` and scale your Kubernetes deployment to 10 worker pods. Within minutes, the vendor bans your IP for sending 95 requests per second. What went wrong?
+
+*Explanation:*
+Task framework rate limiters (such as Celery's built-in `rate_limit` directive) are almost always **per-worker process**, not global. 10 worker pods running with a local `10/s` rate limit permit an aggregate throughput of $10 \times 10 = 100\text{ req/sec}$.
+**The Fix:** Enforce a centralized, global distributed rate limiter using a shared Redis token bucket or sliding window algorithm with atomic Lua scripts that every worker must query before executing the call.
+</details>
+
+<details>
+<summary><strong>Checkpoint 2: The Silent Data Loss of Swallowing Exceptions (`except: pass`)</strong></summary>
+
+**Scenario:** A developer attempts to prevent tasks from failing by wrapping the network call in a broad catch block:
 ```python
-@app.task(bind=True, autoretry_for=(TimeoutError,), max_retries=5,
-          retry_backoff=True, retry_jitter=True)
-def capture(self, order_id):
-    if already_captured(order_id):        # idempotency guard
-        return "already"
-    try:
-        result = gateway.capture(order_id, idempotency_key=f"cap-{order_id}")
-    except PermanentError as exc:
-        # don't retry something that'll always fail; fail loudly
-        raise exc
-    mark_captured(order_id, result.id)
-    return "captured"
-
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        record_dead_letter("capture", args, str(exc))   # visible + replayable
+try:
+    deliver_webhook(url, payload)
+except Exception:
+    pass
 ```
+Why does this guarantee silent data loss in production?
 
-The `except: pass` was hiding failures *and* preventing retries — Celery only
-retries/records failures it actually sees. Never blanket-swallow in a task;
-let transient errors propagate to trigger retry, re-raise permanent ones, and
-route exhausted tasks to a dead-letter sink. Add the idempotency guard so the
-now-enabled retries can't double-capture.
-
+*Explanation:*
+Task brokers track job failure through uncaught exceptions or explicit failure signals. By swallowing all exceptions:
+1. The framework believes the task succeeded and immediately sends an `ACK` to remove the message from the broker.
+2. Automatic retries are never triggered.
+3. Dead-Letter Queues (DLQs) and telemetry metrics receive zero signal that delivery failed.
+**The Rule:** Catch only specific exceptions you know how to compensate for. Re-raise transient exceptions so the worker framework can execute exponential backoff and record telemetry.
 </details>
-
-## Independent challenge
-
-No code given. Build an "outbound SMS" task that calls a flaky third-party SMS
-API capped at 5 requests/second globally. Requirements: retry transient errors
-(timeouts, `5xx`) with exponential backoff and jitter but never retry a `400`
-(bad phone number); hold the 5/s cap across *any* number of workers; make the
-task idempotent so a redelivery never sends the same message twice (dedupe by
-a `message_id` you pass in); and ensure a message that exhausts its retries
-lands somewhere a human can see and replay it. Prove the global cap by
-enqueuing 50 messages against 3 workers and confirming the send rate stays
-around 5/s.
-
-Reuse the idempotency guard shape from exercise 3, the transient-vs-permanent
-split from exercise 4, and the Redis token bucket from exercise 7. The "pass
-IDs, not objects" rule from
-[00-task-queues-fundamentals](../00-task-queues-fundamentals/README.md) is what
-makes your `message_id` dedupe key work.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 3: The At-Least-Once Delivery Double Execution Reality</strong></summary>
 
-The global cap can't come from Celery's per-task `rate_limit` (that's
-per-worker, so 3 workers = ~15/s). Use the Redis token-bucket
-`acquire_token` and `self.retry(countdown=1)` when no token is free, plus a
-scheduled refill (foreshadowing module 03). Dedupe with a Redis `SET
-sms:{message_id} NX` or a unique DB constraint checked before sending.
+**Scenario:** A worker pulls an inventory decrement task, executes `UPDATE inventory SET stock = stock - 1 WHERE sku = 'MACBOOK'`, and successfully writes to PostgreSQL. A network partition occurs before the worker can transmit the `ACK` frame back to RabbitMQ. What happens when the visibility timeout expires?
 
+*Explanation:*
+Because the broker never received the acknowledgment, it assumes the worker died and places the message back into the queue. A second worker pulls the same message and executes the decrement SQL a second time, erroneously decrementing 2 units of stock for 1 purchase.
+**The Fix:** Tasks must use deterministic idempotency guarantees—such as checking an `order_fulfillment` ledger table or using a conditional check `UPDATE inventory SET stock = stock - 1, processed_tasks = array_append(processed_tasks, task_id) WHERE sku = 'MACBOOK' AND NOT (task_id = ANY(processed_tasks))`.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Non-idempotent tasks.** The default assumption must be "this runs more
-  than once." Any task with a side effect (charge, email, insert) needs a
-  stable key and a check-before-act guard, or a retry/redelivery corrupts
-  data.
-- **Retrying permanent errors.** Retrying a `400`/validation error just burns
-  attempts and delays the inevitable failure. Only retry transient errors;
-  list them explicitly in `autoretry_for`.
-- **Retries without backoff/jitter.** Instant, synchronized retries turn a
-  brief downstream blip into a retry storm that keeps it down. Always
-  exponential backoff + jitter.
-- **Swallowing exceptions inside tasks.** `except: pass` hides failures *and*
-  disables retries and failure recording — the task looks successful having
-  done nothing. Let transient errors propagate; re-raise permanent ones.
-- **Treating per-task `rate_limit` as a global cap.** It's per-worker; N
-  workers multiply it. Use a shared Redis token bucket for a true cluster-wide
-  limit.
-- **Priority with no backlog.** Prioritization only reorders a *queue*; if
-  workers are idle, everything runs immediately and priority is moot. It's a
-  scarcity policy, and it needs dedicated-queue routing to be reliable.
-- **Terminal failures that vanish.** A task that exhausts retries with no
-  `on_failure`/dead-letter handling disappears silently. Always route
-  exhausted tasks somewhere visible and replayable.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why can't a broker give you exactly-once execution, and what property must
-   your task have as a result?
-2. What are the two distinct things exponential backoff and jitter each solve?
-3. How do you decide whether a given failure should be retried? Give an
-   example of each category.
-4. Your `rate_limit="10/s"` task runs on 4 workers. What's the real outbound
-   rate, and how do you enforce a true global 10/s?
-5. A payment task swallows all exceptions with `except: pass`. Name the two
-   separate things that go wrong as a result.
-6. When does task prioritization actually change anything, and what's the most
-   reliable way to implement it in Celery?
-7. Where should a task go when it has exhausted all its retries, and why does
-   it matter?
-
-<details>
-<summary>Answers</summary>
-
-1. Because a worker can do the work and then crash before acknowledging the
-   message, so the broker re-delivers it — delivery is at-least-once. As a
-   result the task must be idempotent: running it N times has the same effect
-   as running it once.
-2. Exponential backoff gives a struggling downstream service increasing
-   breathing room instead of a tight retry loop. Jitter randomizes the timing
-   so many tasks that failed simultaneously don't all retry at the same
-   instant (thundering herd), which would re-overload the service.
-3. Retry *transient* failures (timeout, connection reset, `503`) — they may
-   succeed next time. Don't retry *permanent* failures (`400` bad request,
-   `404`, validation error) — they'll fail identically every attempt. List
-   only transient exception types in `autoretry_for`.
-4. About 40/s — `rate_limit` is per-worker, so 4 workers each allow 10/s.
-   Enforce a true global cap with a shared token bucket in Redis that every
-   worker draws from before making the call, retrying when no token is free.
-5. (1) The exception never propagates, so Celery never retries — a transient
-   failure becomes permanent silent data loss. (2) Failure recording
-   (`on_failure`/dead-letter) never fires, so the failure is invisible; the
-   task appears to succeed having done nothing.
-6. Only when there's a backlog — priority reorders a non-empty queue; with
-   idle workers everything runs immediately. The most reliable implementation
-   is separate queues (`high`/`low`) with workers that consume the
-   high-priority queue first (`-Q high,low`).
-7. To a visible, replayable dead-letter sink (a table or dedicated queue) via
-   `on_failure` or an error callback. It matters because a terminal failure
-   with no such handling vanishes silently — you find out only when a customer
-   complains that the thing never happened.
-
-</details>
-
-## Further reading & sources
-
-- [Celery: Retrying tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html#retrying) - `autoretry_for`, `retry_backoff`, `retry_jitter`, and `max_retries`.
-- [Celery: Task options & rate limits](https://docs.celeryq.dev/en/stable/userguide/tasks.html#Task.rate_limit) - the per-worker `rate_limit` and why it isn't a global cap.
-- [Celery: Routing Tasks](https://docs.celeryq.dev/en/stable/userguide/routing.html) - separate queues and `-Q high,low` worker routing for prioritization.
-- [Stripe: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) - how an idempotency key makes a retried charge return the original result.
-- [AWS: Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) - the canonical write-up on backoff and jitter defeating retry storms.
-- [RabbitMQ: Dead Letter Exchanges](https://www.rabbitmq.com/docs/dlx) - broker-level dead-lettering for tasks that exhaust their retries.
-- [Rate Limiting and Abuse Prevention](../../09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md) - the inbound side: rate-limiting algorithms protecting your own API from abuse.
-- [Designing a Rate Limiter](../../14-system-design-interview-practice/03-designing-a-rate-limiter/README.md) - designing a distributed rate limiter end to end, as a system-design interview problem.
+---
 
 ## Free PDF notes
 

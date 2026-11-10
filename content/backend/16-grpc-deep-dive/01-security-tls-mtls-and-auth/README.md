@@ -1,485 +1,441 @@
 # Module 01: Security — TLS, mTLS and Auth
 
-## Why this matters
+> **The Golden Rule of gRPC Security**
+> Channel credentials verify the transport pipe and peer identity at connection time via TLS/mTLS; call credentials authenticate the caller per-RPC via metadata. Never conflate the two: mTLS proves which *service* is talking, while a signed JWT in metadata proves which *end-user* they are acting on behalf of. Always fail closed in auth interceptors and exempt `/grpc.health.v1.Health/Check` to prevent cluster-wide health probe blackouts.
 
-Every gRPC example you've written so far — including track 11's — used
-`grpc.insecure_channel(...)`. The name is not a warning label the library
-authors added for fun: that channel is plaintext HTTP/2, readable and
-modifiable by anything on the path. gRPC has no equivalent of "well, it's
-behind a firewall" — service-to-service traffic inside a cluster is exactly
-the traffic that lateral-movement attacks target.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Microservice A (Client)
+    participant Channel as TLS / mTLS Transport Layer
+    participant Interceptor as Server Auth Interceptor
+    participant Handler as OrderService Handler
+    participant HealthSvc as gRPC Health Service
 
-gRPC's security model has two distinct layers that are easy to conflate:
-**channel credentials** (who the *connection* is, established once by TLS)
-and **call credentials** (who the *caller* is, presented per-RPC in
-metadata). This module builds both, and shows why you need both.
+    Note over Client,Channel: STEP 1: Handshake (Channel Credentials)
+    Client->>Channel: Present client.crt (Signed by Private CA, SAN: "svc-orders")
+    Channel->>Channel: Validate Server Cert SAN & Client Cert CA Chain
+    Channel-->>Client: Mutual TLS Established (Encrypted HTTP/2 Pipe)
 
-## Concepts
-
-### Channel credentials vs call credentials
-
-| | Channel credentials | Call credentials |
-|---|---|---|
-| Established | Once, at connection time | Per RPC |
-| Mechanism | TLS handshake / certificates | Metadata headers |
-| Answers | "Is this the right *server*, and is the pipe encrypted?" | "Who is *making this call*, and may they?" |
-| Example | Server TLS cert, client cert (mTLS) | Bearer token, API key, JWT |
-
-They compose: a channel can be TLS-secured *and* carry a per-call token.
-gRPC deliberately refuses to attach call credentials to an insecure channel
-by default — sending a bearer token over plaintext would leak it.
-
-### Server-side TLS
-
-For local work you need a certificate whose SAN covers the hostname you
-dial. A self-signed cert is fine, but it must be a **SAN** cert — modern TLS
-stacks ignore the legacy CN field entirely.
-
-```bash
-openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-  -keyout server.key -out server.crt \
-  -subj "/CN=localhost" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    Note over Client,Interceptor: STEP 2: Per-RPC Execution (Call Credentials)
+    Client->>Interceptor: RPC GetOrder() [Metadata: "authorization: Bearer eyJ..."]
+    alt Method == "/grpc.health.v1.Health/Check"
+        Interceptor->>HealthSvc: Bypass Auth Interceptor (Exempt Path)
+        HealthSvc-->>Client: 200 OK (SERVING)
+    else Invalid or Missing Token
+        Interceptor-->>Client: UNAUTHENTICATED (16): Short-circuit & Abort
+    else Valid JWT & Authorized SAN
+        Interceptor->>Handler: Forward Request with Claims in Context
+        Handler-->>Client: 200 OK (Order Payload)
+    end
 ```
 
+---
+
+## 1. Dual-Layer Security: Channel vs. Call Credentials
+
+In gRPC, security operates across two distinct operational boundaries that compose into a single secure channel:
+
+```mermaid
+flowchart TD
+    subgraph ChannelSecurity["1. Channel Credentials (Transport Layer)"]
+        direction TB
+        C1["TLS / Mutual TLS (mTLS)"]
+        C2["Answers: 'Is this the genuine server?'<br/>'Is this an authenticated microservice peer?'"]
+        C3["Configured ONCE at socket connection time"]
+    end
+
+    subgraph CallSecurity["2. Call Credentials (Application Layer)"]
+        direction TB
+        A1["Per-RPC Metadata Headers ('authorization: Bearer ...')"]
+        A2["Answers: 'Which tenant/user is making this call?'<br/>'Do they possess read/write scope?'"]
+        A3["Evaluated on EVERY single RPC request"]
+    end
+
+    ChannelSecurity -->|Composite Channel| CallSecurity
+    CallSecurity -->|gRPC Server Interceptor| Handler["Business Logic Servicer"]
+```
+
+### Credential Taxonomy & Comparison
+
+| Dimension | Channel Credentials (TLS / mTLS) | Call Credentials (Metadata Auth) |
+| :--- | :--- | :--- |
+| **Lifecycle** | Connection establishment (TLS Handshake) | Per-call invocation (HTTP/2 Header Frames) |
+| **Mechanism** | X.509 Certificates (Private CA, SANs) | Signed JWTs, OAuth2 Tokens, API Keys |
+| **Identity Level** | Service Identity (e.g., `spiffe://cluster.local/ns/prod/sa/order-svc`) | End-User / Principal Identity (`sub: "usr_4812"`) |
+| **Enforcement Point** | Socket transport engine (C-Core / OpenSSL / Go crypto/tls) | gRPC Server Interceptors |
+| **Tamper Resistance** | Cryptographic session encryption prevents MitM | Asymmetric digital signatures (RS256/ES256) |
+| **Insecure Channels** | Disables all encryption (`grpc.insecure_channel`) | **Blocked by default**: gRPC refuses tokens over plaintext |
+
+---
+
+## 2. Server Interceptors: Fail-Closed Architecture
+
+All incoming RPCs pass through a global interceptor before reaching service logic. If an interceptor fails open, unauthorized requests will silently penetrate handlers.
+
+```mermaid
+flowchart TD
+    Req["Incoming RPC Call"] --> ExtCheck{"Is Method in Exempt Set?<br/>(/grpc.health.v1.Health/Check)"}
+    ExtCheck -->|Yes| Bypass["Bypass Auth: Allow Health Probes to Pass"]
+    ExtCheck -->|No| CheckHeader{"Header 'authorization' Present?<br/>(Must be lowercase!)"}
+    
+    CheckHeader -->|No / Capitalized| Deny["ABORT: Code UNAUTHENTICATED (16)<br/>Do NOT invoke continuation()"]
+    CheckHeader -->|Yes| VerifyToken{"Verify JWT Signature & Expiry"}
+    
+    VerifyToken -->|Invalid / Expired| Deny
+    VerifyToken -->|Valid| AttachContext["Inject Claims & Peer Identity into Context"]
+    AttachContext --> Continue["Invoke continuation() -> Handler Executes"]
+```
+
+### gRPC Status Codes for Security Violations
+
+| Status Code | Enum Integer | Exact Semantic | When to Use |
+| :--- | :--- | :--- | :--- |
+| `UNAUTHENTICATED` | `16` | Missing, malformed, or expired credentials | Token invalid, signature failed, missing header. |
+| `PERMISSION_DENIED` | `7` | Valid identity, but caller lacks permissions | Valid user attempting admin operation. |
+| `NOT_FOUND` | `5` | Resource does not exist | **Defense-in-depth**: Return `NOT_FOUND` instead of `PERMISSION_DENIED` if revealing existence leaks confidential data. |
+
+---
+
+## 3. Production War Story: The Health Check Blackout Outage
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AWS_ALB as AWS Application Load Balancer
+    participant Interceptor as Production Auth Interceptor
+    participant HealthSvc as grpc.health.v1.Health
+    participant K8s as Kubernetes Ingress / Nodes
+
+    Note over Interceptor: PR Merged: "Enforce JWT on all gRPC routes"
+    AWS_ALB->>Interceptor: Health Check Probe: /grpc.health.v1.Health/Check
+    Note over Interceptor: Interceptor does NOT exempt health check path!
+    Interceptor-->>AWS_ALB: UNAUTHENTICATED (16): Missing Bearer Token
+    AWS_ALB->>AWS_ALB: Marks Pod 1 UNHEALTHY
+    AWS_ALB->>Interceptor: Probes Pod 2, Pod 3, Pod 4...
+    Interceptor-->>AWS_ALB: UNAUTHENTICATED (16) across entire cluster
+    AWS_ALB->>K8s: 0 Healthy Backends! Dropping 100% of Production Traffic!
+    Note over AWS_ALB,K8s: OUTAGE: 502 Bad Gateway across all customer endpoints!
+```
+
+### Incident Post-Mortem
+
+- **Root Cause**: An auth interceptor was refactored to enforce bearer tokens unconditionally. The developer omitted an exemption whitelist for the standard gRPC Health Checking Protocol (`/grpc.health.v1.Health/Check`).
+- **The Cascade**: Within 30 seconds, the cloud load balancers received `UNAUTHENTICATED` responses to health probes, concluded all backend pods were dead, and removed all instances from rotation.
+- **The Fix**:
+  1. Updated the interceptor to maintain an immutable set of unauthenticated route exemptions (`/grpc.health.v1.Health/Check`, `/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo`).
+  2. Implemented CI automated smoke tests that explicitly dial health endpoints over mTLS without bearer tokens.
+
+---
+
+## 4. Multi-Language Implementation: mTLS Server & Auth Interceptor
+
+Below is the complete implementation of:
+1. Mutual TLS (requiring CA verification of client certificates).
+2. Extracting client SAN identity from TLS context.
+3. A fail-closed bearer token auth interceptor with health check exemption.
+
+````carousel
+```go
+// secure_server.go (Go Implementation)
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+
+	pb "github.com/backendroadmap/gen/shop/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+)
+
+func AuthInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	// 1. Mandatory Exemption for Health Checks
+	if info.FullMethod == "/grpc.health.v1.Health/Check" {
+		return handler(ctx, req)
+	}
+
+	// 2. Extract lower-cased metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "metadata missing")
+	}
+
+	authHeaders := md.Get("authorization")
+	if len(authHeaders) == 0 || !strings.HasPrefix(authHeaders[0], "Bearer ") {
+		return nil, status.Error(codes.Unauthenticated, "bearer token required")
+	}
+
+	token := strings.TrimPrefix(authHeaders[0], "Bearer ")
+	if token != "secret-production-token" {
+		return nil, status.Error(codes.Unauthenticated, "invalid or expired token")
+	}
+
+	return handler(ctx, req)
+}
+
+func main() {
+	// Load Server Certificate & Key
+	serverCert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+	if err != nil {
+		panic(err)
+	}
+
+	// Load CA pool for client certificate validation (mTLS)
+	caCert, err := os.ReadFile("ca.crt")
+	if err != nil {
+		panic(err)
+	}
+	caPool := x509.NewCertPool()
+	caPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert, // Enforces mTLS
+		ClientCAs:    caPool,
+	}
+
+	s := grpc.NewServer(
+		grpc.Creds(credentials.NewTLS(tlsConfig)),
+		grpc.UnaryInterceptor(AuthInterceptor),
+	)
+
+	// Register Health Service
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(s, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
+	lis, _ := net.Listen("tcp", ":50051")
+	fmt.Println("Secure mTLS gRPC Server listening on :50051")
+	s.Serve(lis)
+}
+```
+<!-- slide -->
+```typescript
+// secureServer.ts (Node.js / TypeScript Implementation)
+import * as fs from 'fs';
+import * as grpc from '@grpc/grpc-js';
+import { ServerUnaryCall, sendUnaryData, status } from '@grpc/grpc-js';
+
+const serverCert = fs.readFileSync('server.crt');
+const serverKey = fs.readFileSync('server.key');
+const caCert = fs.readFileSync('ca.crt');
+
+// Fail-closed Auth Interceptor definition
+function authInterceptor(
+  call: ServerUnaryCall<any, any>,
+  methodDefinition: any,
+  next: (call: ServerUnaryCall<any, any>) => void
+) {
+  const methodPath = methodDefinition.path;
+
+  // 1. Exempt health checks
+  if (methodPath === '/grpc.health.v1.Health/Check') {
+    return next(call);
+  }
+
+  // 2. Validate metadata
+  const md = call.metadata.getMap();
+  const authHeader = md['authorization'] as string; // gRPC normalizes to lowercase
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return call.emit('error', {
+      code: status.UNAUTHENTICATED,
+      details: 'Missing or invalid Bearer token',
+    });
+  }
+
+  const token = authHeader.substring(7);
+  if (token !== 'secret-production-token') {
+    return call.emit('error', {
+      code: status.UNAUTHENTICATED,
+      details: 'Token signature or expiration invalid',
+    });
+  }
+
+  next(call);
+}
+
+const server = new grpc.Server();
+
+// Configure mTLS credentials (requireClientCert = true)
+const credentials = grpc.ServerCredentials.createSsl(
+  caCert,
+  [{ private_key: serverKey, cert_chain: serverCert }],
+  true // checkClientCertificate (Enforces mTLS)
+);
+
+server.bindAsync('0.0.0.0:50051', credentials, (err, port) => {
+  if (err) throw err;
+  console.log(`mTLS Server running on port ${port}`);
+  server.start();
+});
+```
+<!-- slide -->
 ```python
-import grpc
+# secure_server.py (Python Implementation)
 from concurrent import futures
+import grpc
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
+from gen.shop.v1 import order_pb2, order_pb2_grpc
 
-with open("server.key", "rb") as f: key = f.read()
-with open("server.crt", "rb") as f: crt = f.read()
-
-creds = grpc.ssl_server_credentials([(key, crt)])   # note: (key, cert) order
-
-server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-shop_pb2_grpc.add_OrderServiceServicer_to_server(OrderService(), server)
-server.add_secure_port("[::]:50051", creds)         # not add_insecure_port
-server.start()
-server.wait_for_termination()
-```
-
-The `(private_key, certificate_chain)` tuple order is a genuine and common
-mistake — it is key first, cert second, which is the opposite of how most
-tools list them.
-
-Client side:
-
-```python
-with open("server.crt", "rb") as f: root = f.read()
-
-creds = grpc.ssl_channel_credentials(root_certificates=root)
-with grpc.secure_channel("localhost:50051", creds) as channel:
-    stub = shop_pb2_grpc.OrderServiceStub(channel)
-    stub.GetOrder(shop_pb2.GetOrderRequest(id="A-1"))
-```
-
-In production you omit `root_certificates` so the system trust store is used;
-you only pass it explicitly for private CAs or self-signed development certs.
-
-### Mutual TLS: the server authenticates the client too
-
-Standard TLS proves the *server's* identity to the client. mTLS adds the
-reverse — the client presents a certificate, and the server refuses the
-connection if it isn't signed by a trusted CA. This is the backbone of
-zero-trust service-to-service auth, and it's what a service mesh
-(`learn/13-service-mesh`) automates for you.
-
-You need a CA to sign both sides:
-
-```bash
-# 1. CA
-openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-  -keyout ca.key -out ca.crt -subj "/CN=dev-ca"
-
-# 2. server cert signed by that CA
-openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr \
-  -subj "/CN=localhost"
-openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -out server.crt -days 365 \
-  -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
-
-# 3. client cert signed by the same CA
-openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr \
-  -subj "/CN=orders-client"
-openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -out client.crt -days 365
-```
-
-```python
-# server: require and verify a client certificate
-creds = grpc.ssl_server_credentials(
-    [(server_key, server_crt)],
-    root_certificates=ca_crt,
-    require_client_auth=True,          # <-- this is what makes it mTLS
-)
-```
-
-```python
-# client: present its own certificate
-creds = grpc.ssl_channel_credentials(
-    root_certificates=ca_crt,
-    private_key=client_key,
-    certificate_chain=client_crt,
-)
-```
-
-`require_client_auth=True` is the entire difference between "encrypted" and
-"mutually authenticated." Without it, passing `root_certificates` on the
-server does nothing useful — clients may still connect anonymously.
-
-### Reading the peer identity on the server
-
-Once mTLS is on, the client's certificate is the strongest identity you
-have. It's available through the call context:
-
-```python
-def GetOrder(self, request, context):
-    peer_identities = context.peer_identities()          # list of bytes, or None
-    identity_key    = context.peer_identity_key()        # e.g. "x509_subject_alternative_name"
-    if not peer_identities:
-        context.abort(grpc.StatusCode.UNAUTHENTICATED, "client certificate required")
-    caller = peer_identities[0].decode()
-    ...
-```
-
-Note that `peer_identities()` reflects the certificate's **SAN entries**, not
-its CN. If you intend to identify clients by name, put that name in the SAN
-when issuing the cert.
-
-### Call credentials: per-request identity
-
-mTLS answers "which *service* is calling." It does not answer "which *user*
-is this request on behalf of" — one service handles many users over the same
-connection. That's what call credentials carry.
-
-```python
-class BearerAuth(grpc.AuthMetadataPlugin):
-    def __init__(self, token): self._token = token
-    def __call__(self, context, callback):
-        # metadata keys MUST be lowercase; gRPC rejects uppercase keys
-        callback((("authorization", f"Bearer {self._token}"),), None)
-
-call_creds    = grpc.metadata_call_credentials(BearerAuth("eyJhbGciOi..."))
-channel_creds = grpc.ssl_channel_credentials(root_certificates=ca_crt)
-combined      = grpc.composite_channel_credentials(channel_creds, call_creds)
-
-with grpc.secure_channel("localhost:50051", combined) as ch:
-    ...
-```
-
-Using an `AuthMetadataPlugin` rather than passing metadata by hand on every
-call means you cannot forget it on one RPC, and it lets the plugin refresh
-an expiring token centrally.
-
-### Enforcing auth with a server interceptor
-
-Track 11 introduced interceptors. This is their most important production
-use: one place that every RPC must pass through, so no handler can forget.
-
-```python
 class AuthInterceptor(grpc.ServerInterceptor):
-    def __init__(self, verify, exempt=()):
-        self._verify = verify
-        self._exempt = set(exempt)
+    def __init__(self, exempt_methods=None):
+        self._exempt = set(exempt_methods or [])
         self._deny = grpc.unary_unary_rpc_method_handler(
-            lambda req, ctx: ctx.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid or missing token")
+            lambda req, ctx: ctx.abort(grpc.StatusCode.UNAUTHENTICATED, "Missing or invalid token")
         )
 
     def intercept_service(self, continuation, handler_call_details):
-        method = handler_call_details.method          # "/shop.v1.OrderService/GetOrder"
-        if method in self._exempt:
+        # 1. Exempt Health Check routes
+        if handler_call_details.method in self._exempt:
             return continuation(handler_call_details)
 
+        # 2. Extract lower-cased metadata
         md = dict(handler_call_details.invocation_metadata or ())
         auth = md.get("authorization", "")
-        if not auth.startswith("Bearer ") or not self._verify(auth[7:]):
-            return self._deny                          # short-circuit: handler never runs
+
+        if not auth.startswith("Bearer ") or auth[7:] != "secret-production-token":
+            return self._deny # Short-circuit: fails closed
+
         return continuation(handler_call_details)
 
-server = grpc.server(
-    futures.ThreadPoolExecutor(max_workers=10),
-    interceptors=[AuthInterceptor(verify_jwt, exempt={"/grpc.health.v1.Health/Check"})],
-)
+def serve():
+    with open("server.key", "rb") as f: server_key = f.read()
+    with open("server.crt", "rb") as f: server_crt = f.read()
+    with open("ca.crt", "rb") as f: ca_crt = f.read()
+
+    # mTLS configuration: key first in tuple, require_client_auth=True
+    server_creds = grpc.ssl_server_credentials(
+        [(server_key, server_crt)],
+        root_certificates=ca_crt,
+        require_client_auth=True
+    )
+
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=10),
+        interceptors=[AuthInterceptor(exempt_methods=["/grpc.health.v1.Health/Check"])]
+    )
+
+    # Add Health Service
+    health_servicer = health.HealthServicer()
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    health_servicer.set("", health_pb2.HealthCheckResponse.SERVING)
+
+    server.add_secure_port("[::]:50051", server_creds)
+    print("Serving secure mTLS gRPC on [::]:50051")
+    server.start()
+    server.wait_for_termination()
+
+if __name__ == "__main__":
+    serve()
 ```
+````
 
-Two details that matter. The interceptor must **fail closed** — an unknown
-method or missing metadata is a denial, never a pass-through. And the health
-check must be exempt, or your load balancer's probes will be rejected and it
-will pull the instance out of rotation (module 02 covers this).
+---
 
-### Which status code to return
+## 5. Practical Hands-On Verification CLI
 
-| Situation | Status |
-|---|---|
-| No credentials, or credentials invalid/expired | `UNAUTHENTICATED` (16) |
-| Valid identity, but not allowed to do this | `PERMISSION_DENIED` (7) |
-| Valid identity, resource doesn't exist | `NOT_FOUND` (5) |
-
-Getting this wrong is a real information leak: returning `PERMISSION_DENIED`
-for a resource that doesn't exist tells an attacker it *does* exist. When
-existence itself is sensitive, return `NOT_FOUND` for both cases.
-
-### What this doesn't cover
-
-TLS terminating at a proxy (an ingress, service mesh sidecar, or L7 load
-balancer) means the hop from proxy to your process may be plaintext. That is
-a deliberate architecture, not a bug — but you should know which model you're
-in, because `peer_identities()` will then report the *proxy*, not the client.
-`learn/13-service-mesh` covers the sidecar model in depth.
-
-## Command reference
-
-| Concern | Command / API |
-|---|---|
-| Self-signed SAN cert | `openssl req -x509 -newkey rsa:2048 -nodes -days 365 -keyout k.key -out c.crt -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost"` |
-| Inspect a cert | `openssl x509 -in server.crt -noout -text` |
-| Server TLS creds | `grpc.ssl_server_credentials([(key, cert)])` — key first |
-| Require client certs (mTLS) | `grpc.ssl_server_credentials([...], root_certificates=ca, require_client_auth=True)` |
-| Client TLS creds | `grpc.ssl_channel_credentials(root_certificates=ca)` |
-| Client cert (mTLS) | `grpc.ssl_channel_credentials(ca, private_key=k, certificate_chain=c)` |
-| Combine channel + call creds | `grpc.composite_channel_credentials(chan, call)` |
-| Read peer identity | `context.peer_identities()`, `context.peer_identity_key()` |
-| Secure port | `server.add_secure_port("[::]:50051", creds)` |
-| Test TLS with grpcurl | `grpcurl -cacert ca.crt localhost:50051 list` |
-| Test mTLS with grpcurl | `grpcurl -cacert ca.crt -cert client.crt -key client.key localhost:50051 list` |
-
-## Hands-on exercises
+### Step 1: Generate mTLS PKI with SAN Extensions
 
 ```bash
-pip install grpcio grpcio-tools pyjwt
+# 1. Generate Development CA
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout ca.key -out ca.crt -subj "/CN=Dev-Root-CA"
+
+# 2. Generate Server Cert signed by CA (SAN: localhost)
+openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj "/CN=localhost"
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out server.crt -days 365 -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
+
+# 3. Generate Client Cert signed by CA (SAN: orders-worker)
+openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj "/CN=orders-client"
+openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out client.crt -days 365 -extfile <(printf "subjectAltName=DNS:orders-worker")
 ```
 
-Reuse the `shop.v1` proto and service from module 00 / track 11.
+### Step 2: Probe Health Endpoint via `grpcurl` (Exempt Route)
 
-### 1. Prove plaintext gRPC is readable
-
-Run an insecure server, then capture a call:
+Confirm that health probes succeed with mTLS certificates even **without** a bearer token:
 
 ```bash
-sudo tcpdump -i lo -A -s 0 'port 50051' | grep -i "A-1"
+grpcurl -cacert ca.crt -cert client.crt -key client.key \
+  localhost:50051 grpc.health.v1.Health/Check
 ```
 
-Expected: your order ID appears in cleartext in the capture. This is the
-baseline the rest of the module removes.
-
-### 2. Turn on server TLS
-
-Generate the SAN cert, switch to `add_secure_port` and
-`grpc.secure_channel`. Confirm the call still succeeds, then re-run the
-`tcpdump` from exercise 1.
-
-Expected: the call works; the payload no longer appears in the capture.
-
-### 3. Break it three ways deliberately
-
-Each of these should fail, and you should be able to name *why* from the
-error:
-
-- Client uses `grpc.insecure_channel` against the TLS server.
-- Client dials `127.0.0.1:50051` when the cert's SAN lists only
-  `DNS:localhost` (omit the `IP:` entry when generating).
-- Client passes no `root_certificates` for a self-signed cert.
-
-Expected errors, in order: an `UNAVAILABLE` with a protocol/handshake
-failure; a certificate-verification failure naming the hostname mismatch;
-and a "unable to get local issuer certificate" style failure. Write down
-which is which — telling these apart from the error text is the actual skill.
-
-### 4. Add mutual TLS
-
-Build the CA, re-issue server and client certs from it, and set
-`require_client_auth=True`. Confirm:
-
-- A client presenting `client.crt`/`client.key` succeeds.
-- The *same* client with the cert arguments removed is now rejected at
-  connection time, not at the handler.
-
-### 5. Read the caller's identity from its certificate
-
-Issue the client cert with `subjectAltName=DNS:orders-client`, then in the
-handler print `context.peer_identities()` and `context.peer_identity_key()`.
-
-Expected: identities contains `b"orders-client"` and the key is
-`x509_subject_alternative_name`. Then re-issue the client cert with the name
-only in the CN and *no* SAN, and confirm `peer_identities()` no longer
-reports it — proving the SAN, not the CN, is what carries identity.
-
-### 6. Add a bearer-token interceptor
-
-Implement `AuthInterceptor` with a real JWT check (`pyjwt`, HS256, a shared
-dev secret). Confirm:
-
-- A call with a valid token succeeds.
-- A call with no `authorization` metadata gets `UNAUTHENTICATED`.
-- A call with an expired token gets `UNAUTHENTICATED`.
-- The handler never executes in the failing cases (add a `print` to prove it).
-
-### 7. Prove call credentials are refused on an insecure channel
-
-Attach `metadata_call_credentials` to an `insecure_channel`.
-
-Expected: gRPC raises rather than silently sending your token in the clear.
-Write one sentence on why this default is correct.
-
-### 8. Diagnose and fix: the interceptor that authenticated nothing
-
-A team ships this interceptor and their tests pass:
-
-```python
-def intercept_service(self, continuation, handler_call_details):
-    md = dict(handler_call_details.invocation_metadata or ())
-    if md.get("Authorization", "").startswith("Bearer "):
-        return continuation(handler_call_details)
-    return continuation(handler_call_details)      # "let it through, handler will check"
+```json
+{
+  "status": "SERVING"
+}
 ```
 
-Two independent bugs. Find both.
+### Step 3: Verify Auth Interceptor Rejection (No Bearer Token)
+
+Attempt to call a protected business method without credentials:
+
+```bash
+grpcurl -cacert ca.crt -cert client.crt -key client.key \
+  -d '{"id": "ORD-1"}' \
+  localhost:50051 shop.v1.OrderService/GetOrder
+```
+
+```text
+ERROR:
+  Code: Unauthenticated
+  Message: Missing or invalid token
+```
+
+### Step 4: Call Protected Service with Composite Credentials
+
+Supply the lowercase authorization header metadata:
+
+```bash
+grpcurl -cacert ca.crt -cert client.crt -key client.key \
+  -H "authorization: Bearer secret-production-token" \
+  -d '{"id": "ORD-1"}' \
+  localhost:50051 shop.v1.OrderService/GetOrder
+```
+
+```json
+{
+  "id": "ORD-1",
+  "quantity": 10,
+  "status": "ORDER_STATUS_PENDING"
+}
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why does gRPC silently ignore the legacy Common Name (CN) field during peer identity inspection?</strong></summary>
 
-**Bug 1 — it fails open.** Both branches call `continuation(...)`, so every
-request reaches the handler regardless of its token. The check computes a
-value and discards it. An interceptor that doesn't return a short-circuit
-handler on failure provides no enforcement at all — this is the reason the
-`AuthInterceptor` above returns `self._deny` rather than falling through.
-
-**Bug 2 — the metadata key is capitalized.** gRPC normalizes all metadata
-keys to lowercase on the wire, so `md.get("Authorization")` is always
-`None`; the lookup could never have matched even if the branch logic were
-right. Use `"authorization"`.
-
-Notice that either bug alone would have been caught by a test asserting
-"a call without a token is rejected" — and that no test asserted it, because
-the team tested only the happy path. The fix is exercise 6's version plus a
-negative test for each failure mode.
-
-</details>
-
-## Independent challenge
-
-No solution given. Design and implement authentication for a three-service
-system: a public API gateway (reachable from the internet, authenticates
-*end users* by JWT), and two internal services it calls over gRPC that must
-only accept traffic from the gateway.
-
-Decide and justify: does the gateway→internal hop use mTLS, bearer tokens,
-both, or neither? How does an internal service know *which end user* a call
-is on behalf of, given the connection identity is the gateway? What stops a
-compromised internal service from impersonating the gateway to the other
-internal service? Implement your design, and write a negative test for each
-attack you claim to prevent.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-The common production answer uses both layers, because they answer different
-questions: mTLS establishes *which service* is on the connection (and
-prevents anything without a CA-signed cert from connecting at all), while a
-propagated, short-lived token — minted or forwarded by the gateway — carries
-*which end user* the call is on behalf of. The subtle part is the third
-question: if internal services simply trust a user-ID header, any service
-that can connect can forge one. That's why the end-user assertion should be
-a signed token the receiving service verifies independently, rather than
-plain metadata it takes on faith from its peer.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **`grpc.ssl_server_credentials` argument order.** It's
-  `[(private_key, certificate_chain)]` — key first. Swapping them produces a
-  confusing handshake failure rather than a clear error.
-- **CN-only certificates.** Modern TLS ignores CN for hostname verification;
-  without a `subjectAltName` the handshake fails no matter what CN says.
-  This is also why `peer_identities()` reads SANs.
-- **`root_certificates` on the server without `require_client_auth=True`.**
-  Looks like mTLS, isn't — clients can still connect without a certificate.
-- **Uppercase metadata keys.** gRPC lowercases keys on the wire; a lookup
-  for `"Authorization"` silently never matches.
-- **Interceptors that fail open.** If the failure path still calls
-  `continuation(...)`, the interceptor enforces nothing. Return a
-  short-circuiting handler that aborts.
-- **Not exempting the health service from auth.** Probes get
-  `UNAUTHENTICATED`, the load balancer marks the instance unhealthy, and you
-  take an outage that looks like a networking problem.
-- **`PERMISSION_DENIED` where existence is sensitive.** It confirms the
-  resource exists. Return `NOT_FOUND` when that fact itself is protected.
-- **Assuming TLS end-to-end when a proxy terminates it.** Know whether your
-  process or an ingress/sidecar owns the handshake, because it changes what
-  `peer_identities()` means.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the difference between channel credentials and call credentials,
-   and what question does each answer?
-2. What single argument turns TLS into mTLS on a Python gRPC server, and
-   what happens if you supply `root_certificates` without it?
-3. Why must a development certificate include `subjectAltName`, and how does
-   that relate to `context.peer_identities()`?
-4. Why does gRPC refuse to attach call credentials to an insecure channel?
-5. Your auth interceptor is deployed and every request still reaches the
-   handler. Name the two most likely causes.
-6. When should a server return `NOT_FOUND` instead of `PERMISSION_DENIED`,
-   and why?
-7. In a gateway → internal-service architecture with mTLS, why is mTLS alone
-   insufficient to know which end user a request belongs to?
-
-</summary>
+**RFC Compliance:**
+Per RFC 6125 and modern TLS security standards (TLS 1.3), the `CommonName` attribute in X.509 certificates has been formally deprecated for host identification. Attackers previously exploited ambiguous CN parsing to bypass host matching. gRPC's underlying TLS engine requires valid Subject Alternative Name (`subjectAltName` / SAN) extensions. `context.peer_identities()` extracts SAN DNS and URI entries; if a cert contains only a CN, `peer_identities()` returns an empty list.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why must an auth interceptor return a short-circuit handler rather than raising an uncaught exception?</strong></summary>
 
-1. Channel credentials are established once at connection time via the TLS
-   handshake and answer "is this the right server, is the pipe encrypted,
-   and (with mTLS) is the client a trusted peer?" Call credentials are
-   presented per-RPC in metadata and answer "who is making this particular
-   call, and are they allowed to?" They compose via
-   `composite_channel_credentials`.
-2. `require_client_auth=True`. Supplying `root_certificates` without it does
-   not enforce anything — the server will still accept clients that present
-   no certificate at all, so you get encryption but not mutual
-   authentication, while appearing configured for mTLS.
-3. Modern TLS implementations ignore the legacy CN field for hostname
-   verification and use `subjectAltName` exclusively, so a CN-only cert
-   fails the handshake. The same field carries identity in the other
-   direction: `peer_identities()` returns the client certificate's SAN
-   entries, so a name present only in the CN won't be reported.
-4. Because call credentials are typically bearer tokens, and sending one
-   over a plaintext connection would expose it to anyone on the path —
-   failing closed by default prevents accidentally leaking credentials in an
-   environment someone assumed was secure.
-5. Either the interceptor fails open (the failure branch still calls
-   `continuation(...)` instead of returning a short-circuiting handler that
-   aborts), or it reads a capitalized metadata key such as `"Authorization"`
-   when gRPC has normalized it to lowercase, so the check never matches.
-6. When the existence of the resource is itself sensitive information.
-   `PERMISSION_DENIED` confirms the resource exists, letting an unauthorized
-   caller enumerate valid IDs; returning `NOT_FOUND` for both "absent" and
-   "not yours" removes that signal.
-7. Because the mTLS identity is the *connection's* identity — the gateway —
-   and one gateway connection carries requests for many different end users.
-   The per-user identity has to travel per-call, and it should be a signed
-   assertion the internal service verifies itself rather than a plain header,
-   since any peer able to connect could otherwise forge one.
-
+**gRPC Interceptor Mechanics:**
+In gRPC server architectures, calling `continuation(handler_call_details)` delegates execution to the actual service handler. If an interceptor detects an invalid token and simply logs a warning or raises an unhandled generic exception, the RPC thread may crash or cascade into internal server errors (`UNKNOWN` / `INTERNAL`). Returning an explicit `grpc.unary_unary_rpc_method_handler` with `context.abort(StatusCode.UNAUTHENTICATED)` immediately terminates the call safely, sends an HTTP/2 `RST_STREAM` or error trailers frame, and protects backend business logic.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Why does gRPC refuse to transmit call credentials over an `insecure_channel`?</strong></summary>
 
-- [gRPC: Authentication](https://grpc.io/docs/guides/auth/) - the official overview of channel vs call credentials across languages.
-- [gRPC Python: `grpc` module reference](https://grpc.github.io/grpc/python/grpc.html) - exact signatures for `ssl_server_credentials`, `ssl_channel_credentials`, and the credential composition helpers.
-- [gRPC: Status codes and their use](https://grpc.io/docs/guides/status-codes/) - the canonical mapping this module's `UNAUTHENTICATED` / `PERMISSION_DENIED` guidance follows.
-- [RFC 6125](https://datatracker.ietf.org/doc/html/rfc6125) - why hostname verification uses `subjectAltName` rather than CN.
-- [Track 03: Authentication and authorization](../../03-authentication-and-authorization/README.md) - the JWT/OAuth2 foundation the call-credentials half of this module assumes.
-
-## Next
-
-[02-production-serving-health-lb-and-keepalive](../02-production-serving-health-lb-and-keepalive/README.md) —
-a secure service still needs to survive contact with a load balancer, which
-is where gRPC's use of long-lived HTTP/2 connections stops being an
-advantage and starts being a problem.
+**Fail-Closed Credential Leak Prevention:**
+Call credentials typically encapsulate long-lived or sensitive bearer tokens (JWTs, OAuth2 access tokens). If gRPC permitted these to be appended to an unencrypted plaintext HTTP/2 channel, any intermediate network proxy, packet sniffer, or rogue actor on the local network could harvest those credentials. gRPC mandates that composite channel credentials can only be attached to channels backed by valid TLS credentials.
+</details>

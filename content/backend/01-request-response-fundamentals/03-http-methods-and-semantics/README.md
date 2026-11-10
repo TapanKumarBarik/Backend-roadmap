@@ -1,507 +1,453 @@
 # Module 03: HTTP Methods and Semantics
 
-## Why this matters
+## Why This Matters
 
-The method is the verb of an HTTP request — the single token at the start
-of the request line (module 01) that declares *what you want done* to the
-resource named by the path. `GET /users` means "give me users."
-`DELETE /users/42` means "remove user 42." It reads like plain English,
-and that's exactly the trap: because the words are familiar, engineers
-assume the *semantics* are obvious and skip the two properties that
-actually matter — **safety** and **idempotency**. Those two properties
-are why a browser will happily retry a `GET` but warns you before
-resubmitting a `POST`, why a proxy may cache one method and never another,
-and why a flaky network can silently create three users from what you
-thought was one request.
+The HTTP method is the verb of a web request. While the URL identifies *which* resource you are targeting (`/orders/42`), **the method specifies *what* you intend to do to it**:
+* **Safety:** Declares whether an operation is strictly read-only and safe for search engine crawlers, browsers, and CDNs to prefetch or retry automatically.
+* **Idempotency:** Dictates whether repeating the identical request $N$ times leaves the system in the exact same state as running it once—the cornerstone of building reliable microservices over unreliable networks.
+* **Predictable Contracts:** Distinguishes between wholesale entity replacement (`PUT`), surgical partial edits (`PATCH`), and new entity allocation (`POST`).
 
-Getting methods right is what separates an API that behaves predictably
-under retries, caches, and concurrent clients from one that corrupts data
-the first time a mobile client's connection blips mid-request. This is
-also the bedrock of REST (track 02) and of routing (module 10, where the
-same path with different methods maps to different handlers). Nail the
-semantics here and "RESTful design" later becomes mostly common sense.
+> [!TIP]
+> **The Golden Rule:** Never mutate state on a `GET` request, and never expose a billing, creation, or checkout `POST` endpoint without an `Idempotency-Key` mechanism.
 
-## Concepts
+---
 
-### The methods and what each is for
+## The Mental Model: Safety vs. Idempotency
 
-- **`GET`** — retrieve a representation of a resource. Read-only. No body
-  should influence the server. `GET /users`, `GET /users/42`.
-- **`POST`** — submit data to be processed, typically *creating* a new
-  subordinate resource or triggering an action. `POST /users` with a JSON
-  body creates a user. POST is the catch-all "do something with this
-  payload" method.
-- **`PUT`** — *replace* the resource at a known URL entirely with the
-  supplied representation (or create it there if it doesn't exist). `PUT
-  /users/42` with a full user object replaces user 42 wholesale.
-- **`PATCH`** — *partially* modify a resource; the body describes the
-  changes, not the whole new state. `PATCH /users/42` with
-  `{"email": "new@x.com"}` changes only the email.
-- **`DELETE`** — remove the resource. `DELETE /users/42`.
-- **`HEAD`** — like `GET` but the server returns only headers, no body
-  (module 02). For cheap existence/metadata checks.
-- **`OPTIONS`** — ask what the server permits for a resource; also the
-  method browsers use for CORS preflight (module 04).
+```mermaid
+flowchart TD
+    subgraph SAFE["SAFE METHODS (Read-Only)"]
+        direction TB
+        S1["GET / HEAD / OPTIONS"]
+        S1 -->|Safe & Idempotent| SR["Server state NEVER changes\nSafe for auto-retries, prefetching & aggressive caching"]
+    end
 
-The pair that trips people is **PUT vs. POST vs. PATCH**: PUT replaces the
-*entire* resource at a *specific, client-known* URL; POST creates
-something *new* whose URL the *server* decides (returned in `Location`);
-PATCH edits *part* of an existing resource. If you send a full object to
-`PUT /users/42`, user 42 becomes exactly that object — any field you omit
-is erased. That "omitted = erased" behavior is the classic PUT surprise.
+    subgraph UNSAFE_IDEMPOTENT["UNSAFE BUT IDEMPOTENT (State Mutates, but Deterministic)"]
+        direction TB
+        UI1["PUT / DELETE"]
+        UI1 -->|Executing 1x == Executing 100x| UIR["PUT /users/42: State is identical whether sent once or 10 times\nDELETE /users/42: Target remains deleted"]
+    end
 
-### Safety: does it change anything?
+    subgraph NON_IDEMPOTENT["NON-IDEMPOTENT (Side Effects Accumulate)"]
+        direction TB
+        NI1["POST / PATCH (Relative)"]
+        NI1 -->|Each execution adds side effects| NIR["POST /payments: Executing 3 times charges the user 3 times!\nRequires Idempotency-Key deduplication"]
+    end
 
-A method is **safe** if it is not *intended* to change server state — it's
-a pure read. `GET`, `HEAD`, and `OPTIONS` are safe. `POST`, `PUT`,
-`PATCH`, `DELETE` are unsafe (they mutate).
-
-Safety is a *contract*, not a guarantee about your code: a `GET` handler
-*can* technically write to a database, but if it does, you've violated the
-contract and everything that relies on it (caches, prefetchers, crawlers,
-retry logic) can now corrupt your data. Search engines and browsers
-freely issue `GET`s to prefetch links — if your `GET /delete-account?id=42`
-actually deletes accounts, a crawler will delete accounts. Safe methods
-must be genuinely side-effect-free.
-
-### Idempotency: does doing it twice equal doing it once?
-
-A method is **idempotent** if making the request N times has the same
-effect on server state as making it once. This is about the *end state*,
-not the response bytes.
-
-- **`GET`, `HEAD`, `OPTIONS`** — idempotent (and safe): reading twice
-  leaves the world unchanged.
-- **`PUT`** — idempotent: `PUT /users/42` with the same body twice leaves
-  user 42 in exactly the same final state as doing it once.
-- **`DELETE`** — idempotent: deleting user 42 twice leaves user 42 gone.
-  (The *second* response may be `404`, but the *state* — "42 is gone" — is
-  identical. Idempotency is about state, not status code.)
-- **`POST`** — **not** idempotent: `POST /users` twice creates *two*
-  users. This is why browsers warn "resubmit form?" on refresh after a
-  POST.
-- **`PATCH`** — **not guaranteed** idempotent: it depends on the patch.
-  `PATCH {"email": "x"}` is idempotent (same result twice), but
-  `PATCH {"visits": "+1"}`-style relative changes are not.
-
-Why this matters concretely: networks fail *after* the server acted but
-*before* the response arrived. A client that retries on timeout will
-re-send the request. If the method is idempotent, the retry is safe — the
-end state is correct. If it's `POST`, the retry may double-create. This is
-the root of the "I clicked once but got charged twice" class of bugs, and
-the reason real systems add **idempotency keys** (a client-supplied unique
-header the server uses to deduplicate retried POSTs — you'll build toward
-this idea in later tracks).
-
-### The safety/idempotency matrix
-
-| Method | Safe? | Idempotent? | Typical use |
-|---|---|---|---|
-| GET | Yes | Yes | Read a resource |
-| HEAD | Yes | Yes | Read headers only |
-| OPTIONS | Yes | Yes | Discover allowed methods / CORS preflight |
-| PUT | No | Yes | Replace a resource at a known URL |
-| DELETE | No | Yes | Remove a resource |
-| PATCH | No | Not necessarily | Partially update a resource |
-| POST | No | No | Create / trigger a process |
-
-Memorize this table. Almost every "should this be PUT or POST?" and "is it
-safe to retry?" question is answered by reading a row. The same facts as a
-2×2 grid — safe implies idempotent, but not the reverse:
-
-```
-                      IDEMPOTENT                    NOT IDEMPOTENT
-                ┌───────────────────────┬───────────────────────┐
-      SAFE      │  GET   HEAD  OPTIONS  │       (empty —         │
-   (read-only)  │  reading never mutates│   safe ⇒ idempotent)   │
-                ├───────────────────────┼───────────────────────┤
-     UNSAFE     │  PUT      DELETE      │  POST                  │
-    (mutates)   │  retry = same state   │  PATCH (usually)       │
-                │                       │  retry may double-act  │
-                └───────────────────────┴───────────────────────┘
+    SAFE -.->|Never Mutate| UNSAFE_IDEMPOTENT
+    UNSAFE_IDEMPOTENT -.->|Deduplicate Retries| NON_IDEMPOTENT
 ```
 
-Anything in the right-hand "not idempotent" column is unsafe to blindly
-retry — that column is where idempotency keys earn their keep.
+### The Safety & Idempotency Decision Matrix
 
-### Request bodies and methods
+| Method | Safe? | Idempotent? | Request Body? | Typical Success Status | Core Responsibility |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **`GET`** | **Yes** | **Yes** | No | `200 OK` | Retrieve resource representation without side effects. |
+| **`HEAD`** | **Yes** | **Yes** | No | `200 OK` | Fetch exact headers as `GET`, omitting the body (existence & freshness check). |
+| **`OPTIONS`** | **Yes** | **Yes** | No | `204 No Content` / `200 OK` | Query server capabilities and allowed verbs (CORS preflight). |
+| **`PUT`** | No | **Yes** | **Yes** | `200 OK` / `204 No Content` | **Wholesale replacement** of resource at client-specified URL. |
+| **`DELETE`** | No | **Yes** | Rare | `204 No Content` / `200 OK` | Purge resource; consecutive calls leave state unchanged. |
+| **`PATCH`** | No | **Conditional** | **Yes** | `200 OK` | **Surgical update** of specific fields; delta modification. |
+| **`POST`** | No | **No** | **Yes** | `201 Created` | Subordinate resource creation, processing, or non-idempotent action. |
 
-`GET` and `HEAD` requests conventionally have *no* body — many servers,
-proxies, and caches ignore or reject a body on a GET, and it breaks
-caching (the body isn't part of the cache key). If you need to send
-complex data to *read* something, that's still debated (some APIs abuse
-POST for search); the pragmatic rule: don't put a body on GET. `POST`,
-`PUT`, `PATCH` carry bodies. `DELETE` usually has no body.
+---
 
-### Method + status code pairings (a preview)
+## 1. Quick Reference: PUT vs. POST vs. PATCH
 
-Methods have conventional response codes (module 05 makes these precise):
+The single most common source of confusion in REST API design is distinguishing between these three mutation verbs:
 
-- `GET` success → `200 OK` with the body.
-- `POST` that creates → `201 Created` with a `Location` header pointing at
-  the new resource.
-- `PUT`/`PATCH` success → `200 OK` (with body) or `204 No Content`.
-- `DELETE` success → `204 No Content` (nothing left to return).
-- Any method on a missing resource → `404 Not Found`.
-- A method the resource doesn't support → `405 Method Not Allowed`, with
-  an `Allow` header listing what *is* supported.
+```
+PUT /users/42                           POST /users                             PATCH /users/42
+┌─────────────────────────────┐        ┌─────────────────────────────┐        ┌─────────────────────────────┐
+│ Replace ENTIRE Resource     │        │ Create NEW Subordinate      │        │ Partial / Delta Update      │
+├─────────────────────────────┤        ├─────────────────────────────┤        ├─────────────────────────────┤
+│ Sent: {"name": "Alice"}     │        │ Sent: {"name": "Bob"}       │        │ Sent: {"status": "active"}  │
+│ Existing: {name, email, age}│        │ Target: Collection /users   │        │ Existing: {name, email, age}│
+│ Result: email & age ERASED! │        │ Result: Creates /users/43   │        │ Result: Only status updated!│
+│ Idempotent: YES             │        │ Idempotent: NO              │        │ Idempotent: Usually YES     │
+└─────────────────────────────┘        └─────────────────────────────┘        └─────────────────────────────┘
+```
 
-## Command reference
+### The Key Distinctions
+1. **URI Allocation:**
+   * In `PUT /users/42`, the **client** decides the exact URI of the resource.
+   * In `POST /users`, the **server** decides the URI (e.g. assigning UUID/ID `43`) and announces it via the `Location: /users/43` header.
+2. **Wholesale vs. Partial (The "Omitted Field" Trap):**
+   * If you send `PUT /users/42` with only `{"name": "Alice"}`, any existing fields like `"email"` or `"roles"` **must be wiped clean** according to HTTP semantics.
+   * If you want to alter only the `"email"` without disturbing other fields, use `PATCH /users/42`.
 
-| Command | What it does |
-|---|---|
-| `curl URL` | A `GET` (the default) |
-| `curl -I URL` | A `HEAD` request |
-| `curl -X OPTIONS -i URL` | An `OPTIONS` request; check the `Allow` header |
-| `curl -X POST -H 'Content-Type: application/json' -d '{...}' URL` | Create via POST |
-| `curl -X PUT -H 'Content-Type: application/json' -d '{...}' URL` | Replace via PUT |
-| `curl -X PATCH -H 'Content-Type: application/json' -d '{...}' URL` | Partial update |
-| `curl -X DELETE URL` | Delete |
-| `curl -i URL` | Include the response status line + headers in output |
+---
 
-Notes:
+## 2. Production War Story: The Accidental Deletion Web Accelerator Outage
 
-- **`-X <METHOD>`** overrides the method. Without it, curl uses `GET`, or
-  `POST` if you pass `-d`.
-- **`-d '<data>'`** sends a request body (and defaults the method to POST
-  and `Content-Type` to `application/x-www-form-urlencoded` unless you set
-  it — always add `-H 'Content-Type: application/json'` for JSON).
-- **`-i`** prints the response's status line and headers before the body —
-  essential for seeing `201`/`204`/`405` and the `Location`/`Allow`
-  headers.
-- **`-X OPTIONS`** with `-i` reveals the `Allow` header on well-behaved
-  servers: the list of methods that resource supports.
+```mermaid
+sequenceDiagram
+    actor Crawler as Google Web Accelerator / Browser Prefetcher
+    participant Gateway as Reverse Proxy / Cloudflare
+    participant App as Backend Web App
+    participant DB as Production Database
 
-A FastAPI app exposing all the methods (used in exercises):
+    Note over Crawler: Crawler aggressively prefetches all <a> tags to speed up page loads
+    Crawler->>Gateway: GET /admin/delete-user?id=1092 HTTP/1.1
+    Gateway->>App: Forward GET /admin/delete-user?id=1092
+    Note over App: Developer implemented deletion on GET for convenience!
+    App->>DB: DELETE FROM users WHERE id = 1092;
+    DB-->>App: OK (Row Deleted)
+    App-->>Gateway: HTTP/1.1 200 OK (User Deleted)
+    Gateway-->>Crawler: HTTP/1.1 200 OK
+    Note over Crawler,DB: Disaster: Within 10 minutes, crawler wiped 15,000 active customer accounts!
+```
 
+### The Incident
+In 2005, shortly after Google released the Google Web Accelerator (a browser plugin that prefetched web links in the background to accelerate browsing), multiple corporate intranets and discussion boards suffered catastrophic data loss. Moderators reported that thousands of accounts, threads, and databases were mysteriously deleted in minutes without any human clicking "Confirm".
+
+### The Root Cause
+Developers had created administrative action links in HTML:
+```html
+<a href="/admin/users/delete?id=42">Delete User</a>
+```
+Because HTML links emit `GET` requests, the developers coded the backend route to execute database mutations on `GET`. Google Web Accelerator followed the HTTP specification (RFC 9110), which guarantees that **`GET` is a safe, read-only method**. The crawler crawled every link on the page to cache the response, inadvertently triggering mass deletions.
+
+### The Fix
+1. **Strictly enforce Safe Method semantics:** Never trigger database writes, deletions, or external state changes in `GET` or `HEAD` handlers.
+2. Require destructive actions to use `POST` or `DELETE` with CSRF protection:
+```html
+<form method="POST" action="/admin/users/42/delete">
+  <input type="hidden" name="_csrf" value="...">
+  <button type="submit">Delete User</button>
+</form>
+```
+
+---
+
+## 3. Production War Story: The Double-Charge Timeout Disaster
+
+```mermaid
+sequenceDiagram
+    actor Mobile as Mobile App Client
+    participant API as Payment Gateway API
+    participant Ledger as Bank / Stripe / DB
+
+    Mobile->>API: 1. POST /v1/charges ($50.00)
+    API->>Ledger: 2. Debit card $50.00
+    Ledger-->>API: 3. Success (Transaction #9910)
+    Note over API,Mobile: Network drop! Cell tower handoff drops TCP connection
+    Note over Mobile: Client experiences socket timeout after 5000ms
+    Mobile->>API: 4. RETRY: POST /v1/charges ($50.00)
+    API->>Ledger: 5. Debit card $50.00 AGAIN!
+    Ledger-->>API: 6. Success (Transaction #9911)
+    API-->>Mobile: 201 Created (Transaction #9911)
+    Note over Mobile: Customer was billed $100 instead of $50!
+```
+
+### The Solution: The `Idempotency-Key` Pattern
+Because `POST` is not idempotent, network timeouts leave clients in an ambiguous state: **did the server fail before charging, or did the response drop after charging?**
+By attaching a client-generated UUID in the `Idempotency-Key` header:
+```http
+POST /v1/charges HTTP/1.1
+Host: api.stripe.com
+Idempotency-Key: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+Content-Type: application/json
+
+{"amount": 5000, "currency": "usd"}
+```
+The server checks Redis/Postgres for the key. If seen, it returns the cached original response without re-executing the payment.
+
+---
+
+## 4. Multi-Language Implementation: Idempotency & Safe Routing
+
+### Go (`net/http`)
+Production implementation of safe methods, `405 Method Not Allowed`, and an in-memory Idempotency Cache:
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"sync"
+)
+
+type OrderRequest struct {
+	Item   string  `json:"item"`
+	Amount float64 `json:"amount"`
+}
+
+type OrderResponse struct {
+	ID     string  `json:"id"`
+	Status string  `json:"status"`
+	Item   string  `json:"item"`
+	Amount float64 `json:"amount"`
+}
+
+var (
+	idempotencyStore = make(map[string]OrderResponse)
+	storeMu          sync.Mutex
+)
+
+func ordersHandler(w http.ResponseWriter, r *http.Request) {
+	// 1. Guard Supported Methods (Return 405 Method Not Allowed with Allow header)
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 2. GET is safe and idempotent
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`[{"id":"ord_1","item":"MacBook","amount":1999.00}]`))
+		return
+	}
+
+	// 3. POST: Enforce Idempotency-Key for write operations
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		http.Error(w, "Missing mandatory 'Idempotency-Key' header", http.StatusBadRequest)
+		return
+	}
+
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
+	// Check if this exact request was already processed
+	if cachedResp, exists := idempotencyStore[idempotencyKey]; exists {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache-Lookup", "HIT-IDEMPOTENT")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(cachedResp)
+		return
+	}
+
+	// Process new order
+	var req OrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	orderID := fmt.Sprintf("ord_%d", len(idempotencyStore)+100)
+	resp := OrderResponse{
+		ID:     orderID,
+		Status: "confirmed",
+		Item:   req.Item,
+		Amount: req.Amount,
+	}
+
+	idempotencyStore[idempotencyKey] = resp
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", "/orders/"+orderID)
+	w.WriteHeader(http.StatusCreated) // 201 Created for new resource
+	json.NewEncoder(w).Encode(resp)
+}
+
+func main() {
+	http.HandleFunc("/orders", ordersHandler)
+	http.ListenAndServe(":8080", nil)
+}
+```
+
+### Node.js / Express
+```typescript
+import express, { Request, Response, NextFunction } from 'express';
+
+const app = express();
+app.use(express.json());
+
+const idempotencyCache = new Map<string, { status: number; body: any }>();
+
+// Idempotency Middleware for mutating routes
+function idempotencyMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (req.method !== 'POST') return next();
+
+  const key = req.headers['idempotency-key'] as string;
+  if (!key) {
+    return res.status(400).json({ error: "Missing required 'Idempotency-Key' header" });
+  }
+
+  if (idempotencyCache.has(key)) {
+    const cached = idempotencyCache.get(key)!;
+    res.setHeader('X-Cache-Lookup', 'HIT-IDEMPOTENT');
+    return res.status(cached.status).json(cached.body);
+  }
+
+  // Intercept response to store in cache
+  const originalJson = res.json.bind(res);
+  res.json = (body: any) => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      idempotencyCache.set(key, { status: res.statusCode, body });
+    }
+    return originalJson(body);
+  };
+
+  next();
+}
+
+app.post('/api/orders', idempotencyMiddleware, (req: Request, res: Response) => {
+  const newOrderId = `ord_${Date.now()}`;
+  const order = { id: newOrderId, ...req.body, status: 'processed' };
+
+  res.setHeader('Location', `/api/orders/${newOrderId}`);
+  res.status(201).json(order);
+});
+
+// Explicit 405 Method Not Allowed handler
+app.all('/api/orders', (req: Request, res: Response) => {
+  res.setHeader('Allow', 'GET, POST');
+  res.status(405).json({ error: `Method ${req.method} not allowed on /api/orders` });
+});
+```
+
+### Python (FastAPI)
 ```python
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, Header, HTTPException, Response, status
+from pydantic import BaseModel
+from typing import Dict, Optional
+import uuid
 
 app = FastAPI()
-USERS = {1: {"id": 1, "name": "Ada", "email": "ada@x.com"}}
-_next_id = 2
 
-@app.get("/users")
-def list_users():
-    return list(USERS.values())
+class OrderInput(BaseModel):
+    item: str
+    price: float
 
-@app.get("/users/{uid}")
-def get_user(uid: int):
-    if uid not in USERS:
-        raise HTTPException(status_code=404, detail="not found")
-    return USERS[uid]
+orders_db: Dict[str, dict] = {}
+idempotency_table: Dict[str, dict] = {}
 
-@app.post("/users", status_code=status.HTTP_201_CREATED)
-def create_user(user: dict, response: Response):
-    global _next_id
-    uid = _next_id
-    _next_id += 1
-    USERS[uid] = {"id": uid, **user}
-    response.headers["Location"] = f"/users/{uid}"
-    return USERS[uid]
+@app.post("/orders", status_code=status.HTTP_201_CREATED)
+def create_order(
+    order: OrderInput,
+    response: Response,
+    idempotency_key: Optional[str] = Header(None)
+):
+    if not idempotency_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Header 'Idempotency-Key' is required for order creation"
+        )
 
-@app.put("/users/{uid}")
-def replace_user(uid: int, user: dict):
-    USERS[uid] = {"id": uid, **user}     # full replace
-    return USERS[uid]
+    # Return cached response if idempotency key exists
+    if idempotency_key in idempotency_table:
+        response.headers["X-Cache-Lookup"] = "HIT-IDEMPOTENT"
+        return idempotency_table[idempotency_key]
 
-@app.patch("/users/{uid}")
-def update_user(uid: int, changes: dict):
-    if uid not in USERS:
-        raise HTTPException(status_code=404, detail="not found")
-    USERS[uid].update(changes)           # partial
-    return USERS[uid]
+    order_id = f"ord_{uuid.uuid4().hex[:8]}"
+    created_order = {
+        "id": order_id,
+        "item": order.item,
+        "price": order.price,
+        "status": "confirmed"
+    }
 
-@app.delete("/users/{uid}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(uid: int):
-    USERS.pop(uid, None)
+    orders_db[order_id] = created_order
+    idempotency_table[idempotency_key] = created_order
+
+    response.headers["Location"] = f"/orders/{order_id}"
+    return created_order
+
+@app.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(order_id: str):
+    # Idempotent deletion: popping non-existent key leaves system in same deleted state
+    orders_db.pop(order_id, None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 ```
 
-## Hands-on exercises
+---
 
-Run the app above with `uvicorn app:app --reload`.
+## 5. Practical Hands-On Exercises
 
-### 1. GET is safe and idempotent
-
-```bash
-curl -s http://127.0.0.1:8000/users
-curl -s http://127.0.0.1:8000/users
-```
-
-Expected: identical output both times, and the user list is unchanged.
-Reading twice changed nothing — safe and idempotent.
-
-### 2. POST is not idempotent — prove it
+### Exercise 1: Witness PUT "Wholesale Wipeout" vs. PATCH
+Run these commands against a test endpoint or your local server to observe the destructive nature of `PUT`:
 
 ```bash
-curl -s -i -X POST -H 'Content-Type: application/json' \
-     -d '{"name": "Lin", "email": "lin@x.com"}' http://127.0.0.1:8000/users
-curl -s -i -X POST -H 'Content-Type: application/json' \
-     -d '{"name": "Lin", "email": "lin@x.com"}' http://127.0.0.1:8000/users
-curl -s http://127.0.0.1:8000/users
+# 1. Inspect existing resource
+curl -s https://jsonplaceholder.typicode.com/posts/1
+
+# 2. Issue a PUT updating ONLY the title
+curl -s -X PUT -H "Content-Type: application/json" \
+  -d '{"title": "Only Title Provided"}' \
+  https://jsonplaceholder.typicode.com/posts/1
+
+# Observe: The returned object lacks "body" and "userId" because PUT wiped unmentioned fields!
+
+# 3. Issue a PATCH updating ONLY the title
+curl -s -X PATCH -H "Content-Type: application/json" \
+  -d '{"title": "Only Title Provided"}' \
+  https://jsonplaceholder.typicode.com/posts/1
+
+# Observe: The returned object preserves "body" and "userId", editing only the title!
 ```
 
-Expected: each POST returns `201 Created` with a **different** `Location`
-(`/users/2`, then `/users/3`), and the final list has *two* Lins. Same
-request, sent twice, created two resources — the definition of
-non-idempotent.
-
-### 3. PUT is idempotent — prove it
+### Exercise 2: Verify `405 Method Not Allowed` & the `Allow` Header
+Verify that well-behaved HTTP servers inform the client which verbs are supported:
 
 ```bash
-curl -s -X PUT -H 'Content-Type: application/json' \
-     -d '{"name": "Ada Lovelace", "email": "ada@x.com"}' http://127.0.0.1:8000/users/1
-curl -s -X PUT -H 'Content-Type: application/json' \
-     -d '{"name": "Ada Lovelace", "email": "ada@x.com"}' http://127.0.0.1:8000/users/1
-curl -s http://127.0.0.1:8000/users/1
+# Attempt to send DELETE to the root of GitHub's API
+curl -s -i -X DELETE https://api.github.com/ | grep -E "(HTTP\/|Allow:)"
 ```
+**Look for:**
+* Status `405 Method Not Allowed`
+* Header `Allow: GET, POST, HEAD, OPTIONS`
 
-Expected: after both PUTs, user 1 is in exactly the same state as after
-one. Sending it twice = sending it once.
+---
 
-### 4. Watch PUT erase an omitted field
-
-```bash
-curl -s http://127.0.0.1:8000/users/1          # has name AND email
-curl -s -X PUT -H 'Content-Type: application/json' \
-     -d '{"name": "Ada Only"}' http://127.0.0.1:8000/users/1
-curl -s http://127.0.0.1:8000/users/1          # email is GONE
-```
-
-Expected: the second GET shows user 1 with `name` but **no** `email` —
-PUT replaced the *whole* resource, and you omitted `email`, so it was
-erased. This is the #1 PUT gotcha.
-
-### 5. PATCH changes only what you send
-
-```bash
-curl -s -X PATCH -H 'Content-Type: application/json' \
-     -d '{"email": "ada@newdomain.com"}' http://127.0.0.1:8000/users/1
-curl -s http://127.0.0.1:8000/users/1
-```
-
-Expected: `email` updated, `name` untouched. Contrast with exercise 4:
-PATCH is surgical, PUT is wholesale.
-
-### 6. DELETE is idempotent (state-wise)
-
-```bash
-curl -s -i -X DELETE http://127.0.0.1:8000/users/1
-curl -s -i -X DELETE http://127.0.0.1:8000/users/1
-curl -s -i http://127.0.0.1:8000/users/1
-```
-
-Expected: first DELETE → `204 No Content`; second DELETE → still `204`
-(this app deletes idempotently); the GET → `404`. Whether the second
-DELETE returns `204` or `404`, the *state* ("user 1 is gone") is the same
-both times — that's idempotency.
-
-### 7. OPTIONS and the 405 path
-
-```bash
-curl -s -i -X OPTIONS http://127.0.0.1:8000/users
-```
-
-Now try a method the route doesn't define, e.g. DELETE on the collection:
-
-```bash
-curl -s -i -X DELETE http://127.0.0.1:8000/users
-```
-
-Expected: the `DELETE /users` returns `405 Method Not Allowed` (there's no
-collection-level delete handler) — and a well-behaved response includes an
-`Allow` header listing the methods that *are* supported (`GET, POST`).
-`405` means "the resource exists but not with that verb," distinct from
-`404` ("no such resource").
-
-### 8. Diagnose and fix: a dangerous "safe" method
-
-Here's a broken endpoint. Add it and see the problem:
-
-```python
-# BUG: a GET that mutates state
-DELETED = []
-
-@app.get("/users/{uid}/delete")
-def delete_via_get(uid: int):
-    USERS.pop(uid, None)
-    DELETED.append(uid)
-    return {"deleted": uid}
-```
-
-```bash
-curl -s http://127.0.0.1:8000/users/2/delete
-curl -s http://127.0.0.1:8000/users
-```
-
-Expected: the GET *deleted* a user. **Diagnose:** this violates safety —
-a `GET` must not change state. Any prefetcher, crawler, browser
-link-preview, or accidental retry will silently delete users. This is a
-real historical bug class (a web accelerator once deleted a company's
-content by prefetching "delete" links). **Fix:** make deletion a
-`DELETE` on `/users/{uid}` (as the app already does) and remove the GET
-variant. Re-verify that reads never mutate. Lesson: the *method* is a
-contract with every intermediary on the internet — honor safety.
-
-### 9. Idempotency under a simulated retry
-
-Reason and test: a client sends `POST /users`, the server creates the
-user, but the response is lost, so the client retries. Simulate by just
-running the POST twice (exercise 2). Now imagine the endpoint were `PUT
-/users/lin` instead (client-chosen ID). Run a PUT to a fixed ID twice.
-
-Expected understanding: the POST retry double-created (bad under retry);
-the PUT retry did not. This is *why* payment and "create order" endpoints
-either use PUT with a client-generated ID or add an idempotency key to a
-POST — to make retries safe.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Design (and implement in FastAPI) a `/notes` API where creating
-a note is *safe to retry* even though creation is conceptually a POST-like
-operation. The client must be able to send the same "create this note"
-request twice — because its network blipped and it retried — and end up
-with exactly **one** note, not two. Prove it: send the identical create
-request twice and show the collection contains a single note, then send a
-genuinely different create and show it adds a second. You may not rely on
-the server guessing "these look similar"; the client must give you
-something to deduplicate on. Reference the idempotency property from this
-module and the `Location`/`201` conventions by name.
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The Safe Method Violation</strong></summary>
 
-Either (a) let the client choose the note's ID and use `PUT /notes/{id}`
-(idempotent by construction), or (b) keep `POST /notes` but require the
-client to send an `Idempotency-Key` header; store which keys you've seen
-and, on a repeat key, return the *already-created* note instead of making
-a new one. Both turn a non-idempotent create into a retry-safe one.
+**Scenario:** An engineering team notices that email unsubscribe links look like:
+`https://api.newsletter.com/unsubscribe?user_id=8192`
+When Microsoft Outlook's automated spam scanner previews inbound email links, thousands of users are unsubscribed without ever opening the email.
 
+What HTTP design error occurred, and what is the standard fix?
+
+**Answer:**
+The endpoint violated **Safety Semantics** by executing a state mutation (database update) on a `GET` request. 
+
+RFC 9110 specifies that `GET` is safe and read-only. Automated bots, virus scanners, and web crawlers are permitted to pre-fetch any `GET` URL without warning. The fix is to make the email link lead to a landing page with a confirmation button that submits a `POST` request (`POST /subscriptions/unsubscribe`), or require an explicit confirmation token.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Using GET for actions that mutate.** Breaks safety; crawlers,
-  prefetchers, and retries will trigger the side effect. Use POST/PUT/
-  PATCH/DELETE.
-- **Confusing PUT and PATCH.** PUT replaces the whole resource (omitted
-  fields vanish); PATCH edits part of it. Choosing PUT when you meant
-  PATCH silently deletes data.
-- **Assuming POST is retry-safe.** It isn't idempotent — retries
-  double-create. Add an idempotency key or use PUT with a client-chosen ID
-  for retry safety.
-- **Returning 200 with no `Location` after a create.** A create should be
-  `201 Created` with `Location` pointing at the new resource so the client
-  knows its URL.
-- **Confusing 404 and 405.** `404` = no such resource; `405` = resource
-  exists but not for that method (include an `Allow` header).
-- **Putting a body on GET.** Many intermediaries ignore or reject it, and
-  it breaks caching. Don't.
-- **Thinking idempotency is about the response.** It's about *server
-  state* after N calls. A second DELETE returning `404` is still
-  idempotent because the state ("gone") is unchanged.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Define "safe" and "idempotent" and give one method that is both, one
-   that is idempotent but not safe, and one that is neither.
-2. You `PUT /users/42` a body with only `{"name": "X"}`, but user 42 also
-   had an email. What happens to the email, and why?
-3. A mobile client sends `POST /orders`, times out, and retries. What can
-   go wrong, and name two ways to make this safe.
-4. What's the difference between a `404` and a `405` response, and what
-   header should accompany a `405`?
-5. Is `DELETE` idempotent even though the second call might return `404`?
-   Explain in terms of *state*.
-6. Why is it dangerous to implement account deletion as
-   `GET /account/delete`?
-7. When creating a resource, what status code and what header should the
-   server return, and what does that header contain?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Idempotency Under Network Partitions</strong></summary>
 
-1. Safe = not intended to change server state; idempotent = N calls have
-   the same effect as one call. Both: `GET` (also HEAD/OPTIONS).
-   Idempotent but not safe: `PUT` (or `DELETE`). Neither: `POST`.
-2. The email is erased. PUT replaces the *entire* resource with the body
-   you sent; any field you omit is gone. (PATCH would have preserved it.)
-3. The retry may create a second order (POST isn't idempotent). Fixes: use
-   `PUT` with a client-chosen order ID, or require an `Idempotency-Key`
-   header the server deduplicates on.
-4. `404` = the resource doesn't exist; `405` = it exists but doesn't
-   support that method. A `405` should include an `Allow` header listing
-   the supported methods.
-5. Yes. Idempotency is about the resulting *state*, not the status code.
-   After one DELETE or ten, user 42 is gone — same state. The `404` on the
-   second call just reports "already gone."
-6. `GET` must be safe, but this one mutates. Crawlers, browser
-   link-prefetch, and accidental retries all issue GETs freely, so they'd
-   silently delete accounts.
-7. `201 Created`, with a `Location` header containing the URL of the newly
-   created resource.
+**Scenario:** A client submits `DELETE /items/99`. The server finds item 99, deletes it from Postgres, and returns `204 No Content`. 
 
+Due to a temporary Wi-Fi blip, the client never receives the packet and times out after 3 seconds. The client's retry engine re-sends `DELETE /items/99`. This time, the server returns `404 Not Found`.
+
+Did the server violate HTTP idempotency guarantees?
+
+**Answer:**
+**No.** Idempotency is defined by the **resulting server state**, not the HTTP status code. 
+
+Before the first request, item 99 existed. After the first request, item 99 was gone. After the second (retried) request, item 99 was still gone. Because $N$ requests left the server state identical to 1 request, the method is strictly idempotent.
 </details>
-
-## Cumulative review
-
-Closed-book. These pull from modules 00-03. Write each answer before
-expanding.
-
-1. (00 + 01) Trace what happens between typing `https://api.example.com/users`
-   and your route handler running, then name which single line of the raw
-   HTTP request tells the server *which method and path* you want.
-2. (01 + 02) In a raw HTTP request, what separates headers from the body,
-   and which header category does `Content-Type` belong to?
-3. (02 + 03) A `POST /users` returns `201`. Which response header tells the
-   client the new resource's URL, and which header *category* is it?
-4. (00 + 03) Why does statelessness (module 01) combined with idempotency
-   (module 03) make it safe for a load balancer to retry a `GET` against a
-   different backend?
-5. (02 + 03) You see `Allow: GET, POST` on a `405` response to
-   `DELETE /users`. Explain what happened and what the header is telling
-   you.
-6. (00 + 06 preview) DNS TTL and HTTP `Cache-Control: max-age` share a
-   core idea. State it in one sentence.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 3: Choosing Between PUT and POST</strong></summary>
 
-1. Browser parses the URL → DNS resolves the host to an IP → TCP handshake
-   → TLS handshake → HTTP request sent → routed through LB/proxy → your
-   handler runs. The **request line** (`GET /users HTTP/1.1`) carries the
-   method and path.
-2. A blank line (`\r\n\r\n`) separates headers from body. `Content-Type`
-   is a *representation* header (it describes the body).
-3. The `Location` header carries the new resource's URL; it's a *response*
-   header.
-4. Because no backend holds session state (stateless) and a `GET` is
-   idempotent+safe, any backend can serve the retry with the same result
-   and no side effects — so retrying elsewhere is harmless.
-5. `DELETE` isn't supported on the `/users` collection, so the server
-   returned `405 Method Not Allowed`; the `Allow` header lists the methods
-   that *are* supported there (`GET`, `POST`).
-6. Both specify "how long may I reuse a previously fetched answer before I
-   must ask again" — a time-to-live on cached data.
+**Scenario:** You are architecting an IoT sensor ingest pipeline. 10,000 temperature sensors report readings every 10 seconds. Network connectivity in the field is unstable, causing frequent request timeouts and automatic retries.
 
+Should the ingest endpoint be designed as:
+Option A: `POST /readings`
+Option B: `PUT /devices/{device_id}/readings/{timestamp}`
+
+Why?
+
+**Answer:**
+**Option B (`PUT`) is vastly superior for unstable networks.**
+
+Because `PUT` is idempotent and uses a client-known URI (`{device_id}/readings/{timestamp}`), if a sensor experiences a timeout and retries the upload 5 times, it will simply overwrite the reading with the exact same data without creating duplicates. 
+
+Option A (`POST /readings`) is non-idempotent; every retry would insert duplicate rows into the database unless complex idempotency-key deduplication tables are maintained.
 </details>
 
-## Further reading & sources
+---
 
-- [MDN: HTTP request methods](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods) - the per-method reference with safe/idempotent/cacheable annotations.
-- [RFC 9110 §9: Methods](https://www.rfc-editor.org/rfc/rfc9110#name-methods) - the authoritative definitions, including the formal safe and idempotent properties.
-- [MDN: Safe (HTTP methods)](https://developer.mozilla.org/en-US/docs/Glossary/Safe/HTTP) and [Idempotent](https://developer.mozilla.org/en-US/docs/Glossary/Idempotent) - concise glossary entries for the two properties this module hinges on.
-- [MDN: 405 Method Not Allowed](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405) - the status and its `Allow` header, from exercise 7.
-- [Stripe: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) - a real-world idempotency-key design for making POST retries safe.
+## Next Step
 
-## Next
-
-[04-cors-and-preflight-requests](../04-cors-and-preflight-requests/README.md)
-— now that you know methods and the `Origin` header, we can explain why
-browsers sometimes send a mysterious extra `OPTIONS` request before the
-real one.
+Now that you have mastered HTTP method semantics and idempotency, proceed to **[04-cors-and-preflight-requests](../04-cors-and-preflight-requests/README.md)** to understand cross-origin browser security, preflight `OPTIONS` handshakes, and credential rules.

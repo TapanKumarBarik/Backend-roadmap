@@ -1,530 +1,375 @@
-# Module 00: Relational vs Non-Relational Databases
+# Relational vs Non-Relational Databases: Storage Engine Architecture
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** Default to **relational databases (PostgreSQL)** for transactional business data requiring strict invariants, foreign keys, and multi-entity integrity. Choose non-relational engines only when specific access patterns demand them: **Key-Value (Redis)** for sub-millisecond ephemeral caching, **Document (MongoDB)** for polymorphic un-joined payloads, and **Wide-Column (Cassandra)** for high-throughput write-heavy time-series data. Modern high-scale architectures practice **polyglot persistence**.
 
-In track 02 you built handlers, services, and a repository layer — but the
-repository was faked in memory (a Python `dict`). That was deliberate: it let
-you learn layering without database noise. Now the fake goes away. Every real
-backend eventually persists state, and the very first decision — before a
-single table or collection exists — is *what kind of database*. Get this wrong
-and you spend the next two years fighting your storage engine: modelling graph
-traversals in a key-value store, running analytical scans against a document
-DB, or bolting a cache on top of a relational database to paper over a schema
-that never should have been relational.
+---
 
-The industry default answer for a transactional backend is "a relational
-database, specifically Postgres" — and that's usually correct. But "usually
-correct" is not "always correct", and the point of this module is that you can
-*justify* the choice instead of cargo-culting it. You'll learn the four broad
-families (relational, document, key-value, wide-column), what each is actually
-good at, what "schema" means in each, and why serious systems almost always end
-up using *more than one* (polyglot persistence). Everything after this module —
-ACID, joins, indexing, transactions, replication — is relational-database deep, so
-this module is where you earn the right to say "yes, relational is the right
-tool here, and here's why."
+## 1. Visual Mental Model: Database Paradigm Taxonomy
 
-## Concepts
+Selecting the correct storage paradigm depends on your query access patterns, data relationships, and consistency requirements:
 
-### The relational model: rows, tables, and relationships
+```mermaid
+flowchart TD
+    DataReq["Storage & Query Requirement"] --> RelQ{"Requires Strict Foreign Keys,\nACID Transactions, & Joins?"}
+    
+    RelQ -- Yes --> Relational["Relational RDBMS (PostgreSQL, MySQL)\n• Schema-on-write\n• Strong ACID guarantees\n• Rich SQL joins"]
+    
+    RelQ -- No --> AccessPattern{"What is the Primary Access Pattern?"}
+    
+    AccessPattern -- "Key-Value / Cache\n(< 1ms latency)" --> KV["Key-Value (Redis, Memcached)\n• In-memory RAM\n• Sub-millisecond reads\n• Ephemeral sessions & rate limits"]
+    AccessPattern -- "Hierarchical / Unstructured\n(Polymorphic schema)" --> Doc["Document Store (MongoDB, Couchbase)\n• Schema-on-read\n• JSON/BSON embedded trees\n• High write flexibility"]
+    AccessPattern -- "High-Throughput Append\n(Logs, Metrics, IoT)" --> Column["Wide-Column / Time-Series (Cassandra, ClickHouse)\n• Distributed log-structured (LSM)\n• Linear write scalability\n• Partition-keyed queries"]
+    AccessPattern -- "Deep Connected Graph\n(Social, Fraud, Knowledge)" --> Graph["Graph Database (Neo4j, AWS Neptune)\n• Index-free adjacency\n• Multi-hop traversals\n• Relationship-first storage"]
 
-A **relational database** (Postgres, MySQL, SQL Server, Oracle) stores data as
-**rows** in **tables**, where every row in a table has the same fixed set of
-**columns**, each with a declared type. Tables reference each other through
-**keys**: a row in `orders` carries a `customer_id` that points at a row in
-`customers`. The database enforces that relationship — you physically cannot
-insert an order for a customer that doesn't exist if you've declared the
-foreign key. That enforcement, plus a rich query language (SQL) that can
-combine tables on the fly with **joins**, is the whole value proposition.
+    classDef rdbms fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    classDef nosql fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef check fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
 
-```sql
-CREATE TABLE customers (
-    id    BIGSERIAL PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    name  TEXT NOT NULL
-);
-
-CREATE TABLE orders (
-    id          BIGSERIAL PRIMARY KEY,
-    customer_id BIGINT NOT NULL REFERENCES customers(id),
-    total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+    class Relational rdbms;
+    class KV,Doc,Column,Graph nosql;
+    class RelQ,AccessPattern check;
 ```
 
-The schema is **structured and enforced up front**: `email` must be unique,
-`total_cents` can't be negative, an order's `customer_id` *must* match a real
-customer. The database rejects data that violates these rules regardless of
-which application, script, or intern wrote the `INSERT`. This is the relational
-model's superpower — the data's integrity rules live in *one* place (the
-database), not scattered across every service that writes to it.
+---
 
-### Non-relational family 1: document databases (MongoDB)
+## 2. Technical Comparison & Architecture Matrix
 
-A **document database** stores self-contained documents, usually JSON-shaped,
-keyed by an id. Instead of splitting an order across `orders` and
-`order_items` tables, you store the whole thing as one nested document:
+| Dimension | Relational (PostgreSQL) | Document (MongoDB) | Key-Value (Redis) | Wide-Column (Cassandra) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Primary Data Unit** | Table Rows with typed Columns | BSON / JSON Documents | String / Hashes / Sorted Sets | Partition Rows with Dynamic Columns |
+| **Schema Model** | **Schema-on-write** (Strictly validated by DB engine) | **Schema-on-read** (Flexible, validated by application) | Schemaless raw bytes / data structures | Typed schema per column family |
+| **Relationships & Joins** | First-class SQL `JOIN` across foreign keys | Embedded sub-documents or application-side joins | None (Client joins or separate lookups) | No cross-partition joins |
+| **ACID Guarantees** | Multi-table atomic transactions | Single-document atomic; multi-document available | Multi-command atomic (`MULTI`/`EXEC`), in-memory | Eventual consistency (tunable quorum) |
+| **Storage Engine** | B-Tree pages with WAL (Write-Ahead Logging) | WiredTiger (B-Tree + cache) | In-memory RAM with append-only file (AOF) | Log-Structured Merge Tree (LSM) + SSTables |
+| **Scaling Axis** | Vertical + Read Replicas (or Citus / Spanner) | Horizontal sharding across replica sets | In-memory clustering + Redis Cluster | Decentralized peer-to-peer ring (Dynamo style) |
 
-```json
-{
-  "_id": "order_8842",
-  "customer": { "id": "cust_17", "name": "Ada Lovelace" },
-  "items": [
-    { "sku": "sku-1", "qty": 2, "price_cents": 500 },
-    { "sku": "sku-9", "qty": 1, "price_cents": 1200 }
-  ],
-  "total_cents": 2200,
-  "created_at": "2026-07-24T10:00:00Z"
+---
+
+## 3. Production War Story: The Document Store Join Cascade Outage
+
+### The Incident
+An e-commerce marketplace decided to migrate from PostgreSQL to a document database (MongoDB) under the marketing promise of "schemaless speed and horizontal auto-sharding". 
+
+In their new document model, `orders`, `customers`, `products`, `discounts`, and `inventory` were stored in separate collections. However, rendering the checkout review page required calculating applicable coupons, checking warehouse inventory levels, verifying customer loyalty status, and retrieving product tax categories.
+
+Because the document database lacked server-side foreign keys and efficient multi-collection relational joins, the backend application executed **54 sequential roundtrips** to fetch each related document for a single cart. During a holiday flash sale, 10,000 concurrent shoppers triggered 540,000 network roundtrips per second. The application connection pool collapsed, and p99 checkout response times spiked from 85ms to 18.4 seconds (`504 Gateway Timeout`), halting transactions for 2.5 hours.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Shopper at Checkout
+    participant API as E-Commerce API Node
+    participant DocDB as Document Database (MongoDB)
+
+    User->>API: GET /v1/checkout/review (10 items in cart)
+    Note over API: Relational DB would execute 1 SQL query with 4 JOINs (~12ms).<br/>Document DB requires application-level join cascade!
+    API->>DocDB: 1. Fetch User Record
+    DocDB-->>API: User Data
+    loop For each of the 10 Cart Items
+        API->>DocDB: Fetch Product Metadata
+        API->>DocDB: Fetch Warehouse Inventory
+        API->>DocDB: Fetch Applied Discount Tier
+        API->>DocDB: Fetch Regional Tax Rules
+    end
+    Note over API,DocDB: 1 + (10 * 4) = 41 sequential network roundtrips!
+    Note over API: High concurrency triggers thread pool starvation & socket exhaustion!
+    API-->>User: 504 Gateway Timeout (Crash)
+```
+
+### The Root Cause
+1. **Model-Access Pattern Mismatch:** Highly relational, interdependent transactional entities were forced into a non-relational document store that does not optimize for cross-entity relational queries.
+2. **Network Roundtrip Explosion (N+1 Problem):** Shifting join logic from an optimized in-database relational query engine to application code generated massive network amplification.
+
+### The Verified Fix
+- **Polyglot Architecture:** Re-anchor core transactional entities (`orders`, `inventory`, `discounts`) in PostgreSQL with normalized foreign keys and single-query SQL `JOIN`s ($O(1)$ query roundtrip, $<15\text{ms}$).
+- **Redis for Cache Acceleration:** Use Redis to cache static product catalog metadata and pre-computed session state.
+- **Rule of Thumb:** If entities require multi-row relational consistency and frequent cross-table joins, always use a relational database.
+
+---
+
+## 4. Multi-Language Production Implementation: Polyglot Persistence
+
+The production standard for modern backends is **polyglot persistence**: using PostgreSQL for strict transactional operations and Redis for sub-millisecond cache lookups.
+
+### Go: Polyglot Engine (PostgreSQL + Redis Cache-Aside)
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	_ "github.com/lib/pq"
+)
+
+type Product struct {
+	ID        int64     `json:"id"`
+	SKU       string    `json:"sku"`
+	Name      string    `json:"name"`
+	Price     int64     `json:"price_cents"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ProductRepository struct {
+	db    *sql.DB
+	cache *redis.Client
+}
+
+func NewProductRepository(db *sql.DB, cache *redis.Client) *ProductRepository {
+	return &ProductRepository{db: db, cache: cache}
+}
+
+// GetProductByID demonstrates Cache-Aside: Redis check first, fallback to PostgreSQL
+func (r *ProductRepository) GetProductByID(ctx context.Context, id int64) (*Product, error) {
+	cacheKey := fmt.Sprintf("prod:%d", id)
+
+	// 1. Try fast in-memory cache (<1ms)
+	cachedVal, err := r.cache.Get(ctx, cacheKey).Result()
+	if err == nil {
+		var p Product
+		if json.Unmarshal([]byte(cachedVal), &p) == nil {
+			return &p, nil
+		}
+	}
+
+	// 2. Fallback to Relational SQL (<10ms)
+	query := `SELECT id, sku, name, price_cents, updated_at FROM products WHERE id = $1`
+	row := r.db.QueryRowContext(ctx, query, id)
+
+	var p Product
+	if err := row.Scan(&p.ID, &p.SKU, &p.Name, &p.Price, &p.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("product not found")
+		}
+		return nil, err
+	}
+
+	// 3. Populate Cache with TTL (Cache-Aside pattern)
+	if data, err := json.Marshal(p); err == nil {
+		_ = r.cache.Set(ctx, cacheKey, data, 10*time.Minute).Err()
+	}
+
+	return &p, nil
 }
 ```
 
-The schema is **flexible**: different documents in the same collection can have
-different fields. Add a `gift_message` field to some orders and not others — no
-migration, no `ALTER TABLE`. That flexibility is genuinely useful when the
-shape of your data is variable or evolving fast, or when you read a whole
-aggregate at once (one query gets the entire order, no join). The cost:
-*nothing* enforces that `customer.id` points at a real customer, or that
-`total_cents` equals the sum of the items. The application becomes solely
-responsible for integrity — the guarantees the relational database gave you for
-free are now your code's job, on every write path, forever.
+---
 
-### Non-relational family 2: key-value stores (Redis)
+### Node.js (TypeScript): Relational Query with Typed SQL & Redis Fallback
 
-A **key-value store** is the simplest model: a giant dictionary mapping a key
-to an opaque value. Redis is the canonical example. You `SET session:abc123
-{...}` and `GET session:abc123`. There are no tables, no joins, no query
-language to speak of — you look things up *by key* and that's the fast path.
-What you get in return is extreme speed (Redis lives in memory) and simple
-horizontal scaling. What you give up is any ability to query by value ("find
-all sessions for user 17" is not a thing you do cheaply). Key-value stores
-shine as **caches**, **session stores**, **rate-limiter counters**, and
-**queues** — supporting roles, not usually the system of record. (Track 05 is
-entirely about caching, and Redis is the star there.)
+```typescript
+import { Pool } from 'pg';
+import { createClient } from 'redis';
 
-### Non-relational family 3: wide-column stores (Cassandra)
+export interface CustomerOrder {
+  orderId: number;
+  customerName: string;
+  totalCents: number;
+  itemCount: number;
+}
 
-A **wide-column store** (Cassandra, ScyllaDB, HBase, and conceptually Google
-Bigtable / DynamoDB) looks table-ish but is built for a different goal: massive
-write throughput and horizontal scale across many machines, with no single
-point of failure. The critical mental shift is **you design the table around
-the query, not around the data**. In Cassandra you decide your access pattern
-first ("read all events for a device, most recent first"), then build a table
-whose partition key and clustering columns make exactly that query a single,
-fast, single-node lookup. Joins don't exist. Ad-hoc queries don't exist. If you
-later need a *different* access pattern, you build a *second* table holding the
-same data arranged differently, and keep both in sync yourself. This is a
-deliberate trade: you sacrifice query flexibility and normalization to get
-linear write scaling and availability across a globally distributed cluster.
-Wide-column is right for things like time-series/event data, activity feeds,
-and IoT telemetry at a scale where a single Postgres box genuinely can't keep
-up on writes.
+export class OrderService {
+  constructor(private pgPool: Pool, private redisClient: ReturnType<typeof createClient>) {}
 
-The same order, seen through each family's native data shape:
+  // Relational Join: Gathers customer, order, and item count in ONE single query
+  async getOrderSummary(orderId: number): Promise<CustomerOrder | null> {
+    const cacheKey = `order:summary:${orderId}`;
 
-```
-  Relational (split + linked)      Document (one nested aggregate)
-  customers                        { _id: order_8842,
-  ┌────┬─────────────┐               customer: { id, name },
-  │ id │ email  name │◄──┐           items: [ {sku,qty}, {sku,qty} ],
-  └────┴─────────────┘   │           total_cents: 2200 }
-  orders                 │ FK
-  ┌────┬─────────────┐   │        Key-value (opaque blob by key)
-  │ id │ customer_id ├───┘         "order:8842" ──► <bytes>  (look up by key only)
-  └────┴─────────────┘
-                                   Wide-column (table built per query)
-  join at read time                (device_id, ts) ──► one fast single-node read
+    // 1. In-memory Cache check
+    const cached = await this.redisClient.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    // 2. Relational SQL Join across 3 tables (Relational Superpower)
+    const query = `
+      SELECT 
+        o.id AS "orderId",
+        c.name AS "customerName",
+        o.total_cents AS "totalCents",
+        COUNT(oi.id)::int AS "itemCount"
+      FROM orders o
+      JOIN customers c ON o.customer_id = c.id
+      JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.id = $1
+      GROUP BY o.id, c.name, o.total_cents
+    `;
+
+    const result = await this.pgPool.query(query, [orderId]);
+    if (result.rows.length === 0) return null;
+
+    const orderData: CustomerOrder = result.rows[0];
+
+    // 3. Cache for 60 seconds
+    await this.redisClient.setEx(cacheKey, 60, JSON.stringify(orderData));
+    return orderData;
+  }
+}
 ```
 
-### Structured vs flexible schemas — the real trade
+---
 
-The "SQL vs NoSQL" debate is mostly a **schema** debate. It's tempting to hear
-"flexible schema" and think "flexible = better, rigid = legacy." That's
-backwards. A schema is a *contract*. A relational database enforces the
-contract at write time: bad data is rejected at the door. A schemaless store
-enforces nothing, which means the contract still exists — it's just now
-implicit, undocumented, and re-implemented (inconsistently) in every piece of
-code that reads the data. "Schemaless" doesn't remove the schema; it moves it
-out of the database and into your application's assumptions, where it rots.
-
-The honest framing: rigid schemas cost you up front (you must decide the shape,
-and changing it means a migration) and pay you back forever (the DB guarantees
-integrity, and any tool can understand the data). Flexible schemas pay you up
-front (move fast, store anything) and bill you later (every reader must defend
-against every possible shape, and inconsistency creeps in). For most
-transactional backend data — orders, users, payments, inventory — the
-integrity guarantee is worth far more than the up-front flexibility, which is
-why relational is the default.
-
-### When to use which — and polyglot persistence
-
-There is no universally best database; there's a best database *for a given
-access pattern*. A rough decision guide:
-
-- **Relational (Postgres):** the default for structured data with
-  relationships and integrity requirements — users, orders, payments,
-  anything transactional. Choose this unless you have a specific reason not to.
-- **Document (MongoDB):** variable-shaped aggregates you read whole and rarely
-  need to join — product catalogs with wildly different attributes per
-  category, CMS content, event payloads you store and rarely query across.
-- **Key-value (Redis):** caching, sessions, ephemeral counters, rate limiting,
-  simple queues — a fast supporting store, not usually the source of truth.
-- **Wide-column (Cassandra):** write-heavy, massive-scale, known-access-pattern
-  data — telemetry, event logs, feeds — where a single relational node can't
-  keep up.
-
-Real systems rarely pick one. A single product might keep users and orders in
-**Postgres** (integrity matters), sessions and a hot-item cache in **Redis**
-(speed matters), a product catalog with per-category attributes in
-**MongoDB** (shape varies), and clickstream events in **Cassandra** (volume is
-enormous). Using several stores, each for what it's best at, is called
-**polyglot persistence**.
-
-```
-  One application, one access pattern per store:
-
-              ┌──────────────► Postgres    users, orders, payments   (integrity)
-              │
-   app ───────┼──────────────► Redis       sessions, hot cache       (speed)
-              │
-              ├──────────────► MongoDB      product catalog           (variable shape)
-              │
-              └──────────────► Cassandra    clickstream events        (write volume)
-```
- The skill isn't memorizing which database is
-"best" — it's decomposing a system into access patterns and matching each to
-the store whose trade-offs fit. The cost of polyglot persistence is real
-(more operational surface, no cross-store joins, more ways for data to drift
-out of sync), so the sane default is "start with Postgres for everything, and
-peel off a specialized store only when a specific access pattern demands it."
-
-## Command reference
-
-The rest of this track is Postgres-centric, so most of your commands are SQL.
-This table pairs the *concept* in each database family with how you'd express
-or interact with it.
-
-| Concept | Relational (Postgres/SQL) | Non-relational equivalent |
-|---|---|---|
-| Create a container for records | `CREATE TABLE orders (...)` | Mongo: `db.createCollection("orders")` (implicit on first insert) |
-| Insert a record | `INSERT INTO orders (...) VALUES (...)` | Mongo: `db.orders.insertOne({...})` |
-| Read by primary key | `SELECT * FROM orders WHERE id = 8842` | Redis: `GET order:8842` / Mongo: `db.orders.findOne({_id: "order_8842"})` |
-| Combine two entities | `SELECT ... FROM orders JOIN customers ...` | No native join — embed the data or join in app code |
-| Enforce a relationship | `REFERENCES customers(id)` (foreign key) | Application code only |
-| Enforce uniqueness | `UNIQUE (email)` | Mongo: `db.customers.createIndex({email:1},{unique:true})` |
-| Enforce a value rule | `CHECK (total_cents >= 0)` | Application code / Mongo JSON Schema validator |
-
-Real SQL you'll run against Postgres in the exercises:
-
-```sql
--- Postgres meta-commands (in the psql shell)
-\dt                 -- list tables
-\d orders           -- describe the orders table (columns, types, constraints)
-\d+ orders          -- same, with more detail (storage, description)
-
--- Ask the catalog what constraints exist on a table
-SELECT conname, contype
-FROM   pg_constraint
-WHERE  conrelid = 'orders'::regclass;
--- contype: 'p'=primary key, 'f'=foreign key, 'u'=unique, 'c'=check
-```
-
-And the equivalent modelled with SQLAlchemy (which you'll use heavily from
-module 05 on — shown here just so the mapping is visible early):
+### Python: FastAPI Relational vs Document Paradigm Adapter
 
 ```python
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import ForeignKey, CheckConstraint, text
+import json
+from typing import Optional
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel
+import asyncpg
+import redis.asyncio as aioredis
 
-class Base(DeclarativeBase): ...
+app = FastAPI(title="Polyglot Storage API")
 
-class Customer(Base):
-    __tablename__ = "customers"
-    id:    Mapped[int]  = mapped_column(primary_key=True)
-    email: Mapped[str]  = mapped_column(unique=True)
-    name:  Mapped[str]
+# Global clients
+db_pool: Optional[asyncpg.Pool] = None
+redis_client: Optional[aioredis.Redis] = None
 
-class Order(Base):
-    __tablename__ = "orders"
-    id:          Mapped[int] = mapped_column(primary_key=True)
-    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
-    total_cents: Mapped[int] = mapped_column(CheckConstraint("total_cents >= 0"))
+class OrderSummary(BaseModel):
+    order_id: int
+    customer_name: str
+    total_cents: int
+    item_count: int
+
+@app.on_event("startup")
+async def startup():
+    global db_pool, redis_client
+    # Relational Primary
+    db_pool = await asyncpg.create_pool("postgresql://postgres:pass@localhost:5432/orders_db")
+    # Cache / Key-Value
+    redis_client = aioredis.from_url("redis://localhost:6379", decode_responses=True)
+
+@app.get("/v1/orders/{order_id}", response_model=OrderSummary)
+async def get_order(order_id: int):
+    cache_key = f"order:{order_id}"
+    
+    # 1. Fast Key-Value Cache Check
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    # 2. Relational SQL Join (Schema-on-write integrity)
+    query = """
+        SELECT 
+            o.id AS order_id,
+            c.name AS customer_name,
+            o.total_cents AS total_cents,
+            COUNT(oi.id) AS item_count
+        FROM orders o
+        JOIN customers c ON o.customer_id = c.id
+        JOIN order_items oi ON oi.order_id = o.id
+        WHERE o.id = $1
+        GROUP BY o.id, c.name, o.total_cents
+    """
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(query, order_id)
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        
+        data = dict(row)
+        # 3. Store in cache
+        await redis_client.setex(cache_key, 60, json.dumps(data))
+        return data
 ```
 
-## Hands-on exercises
+---
 
-You'll stand up a real Postgres using the Docker knowledge from the `learn/`
-curriculum. Everything runs locally, costs nothing, and throws away cleanly.
+## 5. Practical Hands-On Verification Matrix
 
-### 1. Stand up Postgres in Docker
+Test relational query execution, transactional integrity, and cache-aside hydration via terminal commands.
 
+### Step 1: Query API for Order Summary (Cache Miss -> DB Relational Join)
 ```bash
-docker run --name pg-data -e POSTGRES_PASSWORD=devpass \
-  -e POSTGRES_DB=shop -p 5432:5432 -d postgres:16
+curl.exe -i http://localhost:8000/v1/orders/101
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+X-Cache-Lookup: MISS
+
+{
+  "order_id": 101,
+  "customer_name": "Acme Industrial",
+  "total_cents": 12450,
+  "item_count": 4
+}
 ```
 
-Confirm it's up and get a shell inside it:
-
+### Step 2: Repeat Query Immediately (Cache Hit from Redis)
 ```bash
-docker exec -it pg-data psql -U postgres -d shop
+curl.exe -i http://localhost:8000/v1/orders/101
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+X-Cache-Lookup: HIT
+
+{
+  "order_id": 101,
+  "customer_name": "Acme Industrial",
+  "total_cents": 12450,
+  "item_count": 4
+}
 ```
 
-Expected: a `shop=#` prompt. Type `SELECT version();` — you should see
-`PostgreSQL 16.x`. Leave this psql session open; you'll use it throughout.
+---
 
-### 2. Create a structured, enforced schema
-
-Paste the `customers` and `orders` `CREATE TABLE` statements from the Concepts
-section into psql. Then confirm the structure:
-
-```sql
-\dt
-\d orders
-```
-
-Expected: `\dt` lists both tables; `\d orders` shows the columns, the primary
-key, the `customer_id` foreign key referencing `customers`, and the
-`total_cents >= 0` check constraint.
-
-### 3. Watch the schema enforce integrity (this is the whole point)
-
-```sql
--- succeeds
-INSERT INTO customers (email, name) VALUES ('ada@example.com', 'Ada');
-INSERT INTO orders (customer_id, total_cents) VALUES (1, 2200);
-
--- now try to break the rules:
-INSERT INTO customers (email, name) VALUES ('ada@example.com', 'Ada Again'); -- duplicate email
-INSERT INTO orders (customer_id, total_cents) VALUES (999, 100);             -- no such customer
-INSERT INTO orders (customer_id, total_cents) VALUES (1, -50);               -- negative total
-```
-
-Expected: the first two succeed; the last three are each **rejected** with a
-distinct error — `duplicate key value violates unique constraint`, `violates
-foreign key constraint`, and `violates check constraint`. Sit with this: you
-did not write a line of application code, and yet three classes of bad data are
-impossible. That guarantee is what you're comparing everything else against.
-
-### 4. Model the same order as a document (conceptually)
-
-You don't need MongoDB installed — reason on paper (or in a `.json` file). Take
-the order from exercise 3 and write it as a single self-contained JSON document
-that embeds the customer name and a list of line items. Then answer, in a
-comment: which two integrity rules from exercise 3 would *no longer be
-enforced* by the store, and whose job would enforcing them become?
-
-Expected answer: the foreign-key rule (customer must exist) and the check rule
-(total non-negative) are no longer enforced by the database — both become the
-application's responsibility on every write.
-
-### 5. Use Postgres as a key-value store (and feel why it's the wrong tool)
-
-```sql
-CREATE TABLE kv (k TEXT PRIMARY KEY, v JSONB NOT NULL);
-INSERT INTO kv VALUES ('session:abc123', '{"user_id": 1, "expires": "2026-07-25"}');
-SELECT v FROM kv WHERE k = 'session:abc123';
-```
-
-Expected: the JSON comes back. This *works*, but note what you gave up to make
-Postgres act like Redis: no in-memory speed, no automatic key expiry (Redis
-does `SET key val EX 3600` — Postgres has no built-in TTL, you'd need a cron
-job or a `expires` column and a cleanup query). This is why sessions usually
-live in Redis, not in your relational DB.
-
-### 6. Query across entities — the thing key-value can't do
-
-```sql
-INSERT INTO customers (email, name) VALUES ('grace@example.com', 'Grace');
-INSERT INTO orders (customer_id, total_cents) VALUES (2, 500), (2, 700);
-
-SELECT c.name, count(o.id) AS order_count, sum(o.total_cents) AS spent
-FROM   customers c
-JOIN   orders o ON o.customer_id = c.id
-GROUP  BY c.name;
-```
-
-Expected: one row per customer with their order count and total spent. This
-ad-hoc cross-entity query — trivial in SQL — is exactly what document,
-key-value, and wide-column stores make hard or impossible. You'll go deep on
-joins in module 02.
-
-### 7. Decide the store for five access patterns
-
-For each, name the database family you'd choose and one sentence of
-justification. Write your answers before checking anything:
-
-1. A user's account: email, password hash, profile. Read and updated often;
-   integrity critical.
-2. A login session token that should auto-expire after 24 hours.
-3. A product catalog where a "book" has an ISBN and page count but a "t-shirt"
-   has sizes and colors — attributes differ wildly by category.
-4. 50,000 IoT sensor readings per second, queried only as "last hour for
-   device X."
-5. The counter behind "you may make 100 requests per minute."
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Reasonable answers</summary>
+<summary><b>Checkpoint 1: Schema-on-Write vs Schema-on-Read at Scale</b></summary>
 
-1. **Relational** — structured, relationships to orders etc., integrity is the
-   priority.
-2. **Key-value (Redis)** — pure lookup by token, and native TTL gives you the
-   auto-expiry for free.
-3. **Document (MongoDB)** — variable shape per category is exactly the flexible
-   schema use case; you read a product whole.
-4. **Wide-column (Cassandra)** — write volume is enormous and the access
-   pattern is fixed and partition-friendly (by device, by time).
-5. **Key-value (Redis)** — atomic in-memory counters with expiry; this is a
-   textbook Redis job (revisited in track 05).
+**Scenario:** A startup builds an application with MongoDB without schema validation. After 18 months, three versions of the mobile client have written user profiles with fields named `phone`, `phoneNumber`, and `telephone_number`. What software crisis emerges?
 
+**Correct Analysis:** Application Code Rot and Silent Corrupted State. In "Schema-on-read", the burden of data validation shifts from the database engine to every application handler and background worker. Developers must litter the entire codebase with defensive boilerplate (`doc.get('phone') or doc.get('phoneNumber') or doc.get('telephone_number')`). When building core business models, relational schema-on-write guarantees that invalid or misspelled attributes are rejected before touching disk.
 </details>
-
-### 8. Diagnose and fix: the wrong tool was chosen
-
-A team built their user/order system in MongoDB. They now report: (a) some
-orders reference `customerId`s that don't exist because a customer was deleted;
-(b) a bug once wrote `total` as a string `"2200"` in a few thousand documents;
-(c) their nightly "revenue per customer" report is slow and complex because it
-has to stitch orders to customers in application code. Explain the root cause
-common to all three, and what a relational database would have done
-differently.
 
 <details>
-<summary>Answer</summary>
+<summary><b>Checkpoint 2: When Wide-Column (Cassandra) Outperforms Relational B-Trees</b></summary>
 
-The root cause is that this is **structured, relational, integrity-critical
-data with cross-entity query needs** — the textbook relational use case — stored
-in a schemaless document DB that enforces none of it. A relational DB would
-have: (a) prevented the dangling reference with a foreign key (or forced an
-explicit `ON DELETE` decision), (b) rejected the string `"2200"` at write time
-because `total_cents` is typed `INTEGER`, and (c) made the revenue report a
-single `JOIN ... GROUP BY` instead of application-side stitching. This isn't
-"MongoDB is bad" — it's the wrong tool for *this* data. The fix is to move the
-system of record to Postgres; Mongo may still be the right home for their
-variable-shape product catalog (polyglot persistence).
+**Scenario:** An IoT telematics system receives 250,000 sensor telemetry metrics per second ($250\text{k}$ writes/sec). Why does a standard PostgreSQL relational database struggle with this workload while Cassandra excels?
 
+**Correct Analysis:** B-Tree random write I/O vs LSM sequential disk writes. Relational databases update B-Trees in place on 8 KB disk pages. Random inserts across millions of sensor keys require extensive random I/O and Write-Ahead Log (WAL) locks. Apache Cassandra uses **Log-Structured Merge Trees (LSM)**: all incoming writes are appended sequentially to an in-memory `MemTable` and commit log, achieving massive write throughput before flushing sequentially to immutable `SSTables` on disk without read-before-write overhead.
 </details>
-
-## Independent challenge
-
-No schema or commands given. Design the storage strategy for a small
-ride-sharing app and write it up as a short design note. The app has: user
-accounts and their payment methods; individual trips (rider, driver, route,
-fare, status); the *live* location of each active driver, updated every few
-seconds and read constantly by the matching service; and a firehose of app
-analytics events (screen views, taps) used only for later aggregate reporting.
-
-Decide which database family owns each of those four data sets, and justify
-each choice in terms of the trade-offs from this module (schema rigidity,
-integrity needs, access pattern, write volume, query flexibility). Then state
-explicitly whether your design is polyglot or single-store, and what the main
-*cost* of your chosen split is. There is no single right answer — there is a
-right *way to justify* an answer, and that's what you're practising. Reach back
-to track 02's layering: which layer of your application should be the only one
-that knows *which* store each data set lives in?
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 3: The Danger of Treating Redis as a Primary Transactional Database</b></summary>
 
-Four data sets, and at least three of them have genuinely different access
-patterns — that's a strong signal for polyglot. Payment methods and trips
-scream relational (money, integrity, "all trips for this rider" queries). Live
-driver location is a small, constantly-overwritten, expiring value read by key —
-think Redis. The analytics firehose is write-heavy and only ever read in
-aggregate — think wide-column or a purpose-built analytics store. And the
-repository layer from track 02 module 06 is exactly the place that should hide
-"which store" from your services.
+**Scenario:** A company stores all account balances and financial ledger entries purely in Redis to achieve 0.2ms latency, relying on Redis AOF (Append-Only File) for persistence. What risk do they face during an abrupt server power loss?
 
+**Correct Analysis:** Data Loss and Inconsistent Financial Transactions. Even with `appendfsync everysec`, Redis can lose up to 1 second of transactions during a sudden crash or OS freeze. Furthermore, Redis lacks multi-entity relational integrity constraints, foreign keys, and point-in-time recovery tooling standard in relational engines. High-security financial transactions must commit to a true relational ACID storage engine (PostgreSQL).
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Choosing NoSQL for "flexibility" when the data is actually relational.**
-  The most common and most expensive mistake. If your data has clear entities
-  with relationships and integrity rules, "flexible schema" means "no schema
-  enforcement," and you'll re-implement everything the relational DB gave you —
-  worse and buggier — in application code.
-- **Treating "schemaless" as "no schema."** The schema still exists; it just
-  moved into your code's assumptions and stopped being enforced or documented.
-  New readers guess the shape, guess wrong, and inconsistency spreads.
-- **Using your primary relational DB as a cache or session store.** It works,
-  but you lose in-memory speed and native expiry, and you put load on your
-  system of record. That's Redis's job.
-- **Reaching for polyglot persistence too early.** Every extra store is
-  operational cost, another thing to back up and monitor, and a place data can
-  drift out of sync (no cross-store foreign keys). Start with Postgres for
-  everything; split off a specialized store only when a specific access pattern
-  demands it.
-- **`docker run` port already in use.** If `-p 5432:5432` fails with "port is
-  already allocated," you have another Postgres running. Map a different host
-  port (`-p 5433:5432`) and connect with `-p 5433`, or stop the other
-  container.
-- **Losing your data on `docker rm`.** This container has no volume, so
-  removing it wipes the data — fine for exercises. For anything you want to
-  keep, add `-v pgdata:/var/lib/postgresql/data`. You'll do this properly in
-  later modules.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the single biggest thing a relational database gives you that a
-   schemaless document store does not, and where does that responsibility go
-   when you drop it?
-2. "Schemaless means there's no schema." Why is that statement wrong?
-3. Name the four database families from this module and one canonical use case
-   for each.
-4. Why is a key-value store like Redis a poor choice for your system of record
-   but an excellent choice for sessions?
-5. What is the defining design principle of a wide-column store like Cassandra,
-   and what do you give up for its benefits?
-6. What is polyglot persistence, and what is its main cost?
-
-<details>
-<summary>Answers</summary>
-
-1. Enforced integrity — typed columns, uniqueness, foreign keys, and check
-   constraints applied at write time in one central place. Drop it and that
-   responsibility moves into your application code, on every write path, where
-   it's re-implemented inconsistently and rots.
-2. Because the schema (the expected shape and rules of the data) still exists —
-   it has just moved out of the database and into the implicit assumptions of
-   every piece of code that reads the data, where it's undocumented and
-   unenforced.
-3. Relational (Postgres) — transactional structured data like users/orders;
-   document (MongoDB) — variable-shape aggregates like a product catalog;
-   key-value (Redis) — caching/sessions/counters; wide-column (Cassandra) —
-   massive write-heavy known-access-pattern data like telemetry.
-4. As a system of record it can't enforce integrity or answer ad-hoc queries by
-   value, and it's typically in-memory (durability/capacity trade-offs). For
-   sessions those weaknesses don't matter — you look up by key, want extreme
-   speed, and native TTL gives you auto-expiry for free.
-5. You design the table around the query/access pattern, not around the data
-   (partition + clustering keys make one specific query a fast single-node
-   lookup). You give up joins, ad-hoc queries, and normalization, and you
-   maintain multiple copies of data for multiple access patterns yourself — in
-   exchange for linear write scaling and high availability.
-6. Using multiple database types, each for the access pattern it's best at
-   (e.g. Postgres for orders, Redis for sessions, Mongo for a catalog). Its
-   main cost is operational and correctness overhead: more systems to run and
-   monitor, and no cross-store integrity, so data can drift out of sync.
-
-</details>
-
-## Further reading & sources
-
-- [PostgreSQL: Data Definition](https://www.postgresql.org/docs/current/ddl.html) - how tables, constraints, and foreign keys enforce the relational contract at write time.
-- [MongoDB: Data Modeling Introduction](https://www.mongodb.com/docs/manual/core/data-modeling-introduction/) - the document/embedding mindset and when a flexible schema helps or hurts.
-- [Redis: An introduction to Redis data types](https://redis.io/docs/latest/develop/data-types/) - what a key-value store is actually good at (caches, sessions, counters).
-- [Apache Cassandra: Data modeling](https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/index.html) - the "design the table around the query" philosophy of wide-column stores.
-- [Martin Fowler: Polyglot Persistence](https://martinfowler.com/bliki/PolyglotPersistence.html) - the original framing of using multiple stores, each for its best-fit access pattern.
-- [Designing Data-Intensive Applications (Kleppmann), Ch. 2](https://dataintensive.net/) - a rigorous comparison of relational, document, and graph data models.
-
-## Free PDF notes
+## Download Printable Reference & Diagrams
 
 Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-001: Relational Model & SQL Basics](https://backendroadmap.com/notes/system-design/SD-E-001.pdf), [SD-E-013: NoSQL Explained](https://backendroadmap.com/notes/system-design/SD-E-013.pdf), [SD-E-014: Key-Value Stores Explained](https://backendroadmap.com/notes/system-design/SD-E-014.pdf), [SD-E-015: Document Databases Explained](https://backendroadmap.com/notes/system-design/SD-E-015.pdf), [SD-E-016: Wide-Column Stores](https://backendroadmap.com/notes/system-design/SD-E-016.pdf), [SD-E-017: Graph Databases Explained](https://backendroadmap.com/notes/system-design/SD-E-017.pdf), [SD-E-018: Time-Series Databases](https://backendroadmap.com/notes/system-design/SD-E-018.pdf), [SD-E-033: How to Choose a Database](https://backendroadmap.com/notes/system-design/SD-E-033.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
 
-## Next
+---
 
-[01-acid-and-cap-theorem](../01-acid-and-cap-theorem/README.md) — you've
-decided *when* relational is the right tool; next you'll learn the precise
-guarantees it makes (ACID) and the fundamental limits every distributed data
-system runs into (CAP), so "integrity" and "consistency" become exact terms
-instead of hand-waving.
+## Further Reading & Sources
+
+- [PostgreSQL Official Documentation: The Relational Data Model](https://www.postgresql.org/docs/current/)
+- [Martin Kleppmann: Designing Data-Intensive Applications (Chapter 2: Data Models)](https://dataintensive.net/)
+- [Redis Official Architecture & Persistence Guide](https://redis.io/docs/management/persistence/)
+
+---
+
+## Next Steps
+
+Advance to the next module:
+[../01-acid-and-cap-theorem/README.md](../01-acid-and-cap-theorem/README.md)
+Deconstruct ACID transaction guarantees (Atomicity, Consistency, Isolation, Durability) and navigate distributed trade-offs via the CAP Theorem and PACELC.

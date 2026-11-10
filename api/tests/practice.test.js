@@ -316,3 +316,37 @@ test('deleting an account removes the feedback it gave and the feedback on its s
   await call(ada, 'DELETE', '/account');
   assert.deepEqual(rows('SELECT * FROM peer_reviews'), [], 'feedback on a deleted solution goes with it');
 });
+
+test('daily architectural incident challenge: hides answers before attempt, evaluates diagnosis, and increments streak with shields', async () => {
+  const anon = await call(null, 'GET', '/practice/daily-incident');
+  assert.equal(anon.status, 200);
+  assert.equal(anon.json.completed, false);
+  assert.ok(anon.json.incident.title);
+  assert.ok(anon.json.incident.scenario);
+  assert.ok(anon.json.incident.logs);
+  assert.equal(anon.json.incident.correctOption, undefined, 'correctOption must not be leaked');
+  assert.equal(anon.json.incident.postMortem, undefined, 'postMortem must not be leaked');
+
+  const anonAttempt = await call(null, 'POST', '/practice/daily-incident/attempt', {
+    incidentId: anon.json.incident.id,
+    selectedOption: 2
+  });
+  assert.equal(anonAttempt.status, 200);
+  assert.equal(anonAttempt.json.anonymous, true);
+  assert.ok('isCorrect' in anonAttempt.json);
+  assert.ok(anonAttempt.json.postMortem);
+
+  const res = await call(ada, 'POST', '/practice/daily-incident/attempt', {
+    incidentId: anon.json.incident.id,
+    selectedOption: 2
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.streak.current, 1);
+  assert.equal(res.json.streak.shields, 1);
+
+  const completed = await call(ada, 'GET', `/practice/daily-incident?id=${anon.json.incident.id}`);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.json.completed, true);
+  assert.equal(completed.json.userAttempt.selectedOption, 2);
+  assert.ok(completed.json.incident.postMortem);
+});

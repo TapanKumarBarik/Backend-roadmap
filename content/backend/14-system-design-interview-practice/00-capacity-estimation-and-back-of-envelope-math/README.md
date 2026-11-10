@@ -1,479 +1,471 @@
-# Module 00: Capacity Estimation and Back-of-Envelope Math
+# Module 00: Capacity Estimation and Back-of-the-Envelope Math
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate to Advanced  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Basic arithmetic, understanding of client-server architecture, latency concepts
 
-Every system-design answer is secretly a *sizing* argument. "We'll cache it"
-means nothing until you can say *how much* — 10 GB fits in one Redis node's
-memory, 10 TB does not and forces you to shard. "We'll just query the database"
-is fine at 100 writes/second and a disaster at 100,000. The entire reason
-interviewers ask you to estimate capacity up front is that the numbers *decide
-the architecture*: they tell you whether one machine is enough or you need a
-fleet, whether data fits in RAM or must live on disk, whether a single region
-works or you're forced into geo-distribution. Skip the math and every later
-decision is a guess.
+---
 
-The good news is that nobody expects precision. This is **back-of-envelope**
-estimation — you want the right *order of magnitude*, the right power of ten, not
-a spreadsheet. Is peak QPS in the hundreds, the thousands, or the millions? Is
-five-year storage measured in gigabytes, terabytes, or petabytes? Getting that
-power of ten right is the difference between a design that holds up and one that
-falls apart the moment the interviewer probes it. This module gives you the
-handful of numbers worth memorizing, a repeatable estimation recipe (users →
-requests → bandwidth → storage → memory), and enough practice that you can do it
-out loud, on a whiteboard, without a calculator.
+> [!TIP]
+> **The Golden Rule of Capacity Estimation**  
+> Every architectural decision is secretly a sizing argument. Never begin drawing boxes or selecting databases in a system design interview until you have computed the orders of magnitude for peak QPS, network bandwidth, storage growth, and memory cache footprints. Anchor your math on three immutable constants: **$10^5$ seconds/day ($86,400\text{ s}$)**, **$2^{10} \approx 10^3$ (KB $\to$ MB $\to$ GB $\to$ TB $\to$ PB)**, and the **Latency Ladder (RAM $\sim 100\text{ ns}$, SSD $\sim 100\ \mu\text{s}$, Disk $\sim 10\text{ ms}$, Network WAN $\sim 100\text{ ms}$)**. Always size compute fleets for $N+2$ failure redundancy at a maximum $60\%$ target CPU utilization.
 
-## Concepts
+---
 
-### The estimation recipe: from users to infrastructure
+## 1. Visual Mental Models
 
-Almost every capacity estimate follows the same chain, and doing it in this
-fixed order keeps you from skipping a step under pressure:
+### 1.1 The End-to-End Estimation Funnel
 
-1. **Users → actions.** Start from a given user count (DAU — daily active users)
-   and an assumed action rate. "200M DAU, each posts 2 tweets/day" → 400M
-   writes/day.
-2. **Actions/day → average QPS.** Divide by the seconds in a day. The number to
-   memorize: **~100,000 seconds/day** (86,400, round to 10⁵). So 400M/day ÷ 10⁵
-   ≈ **4,000 writes/second average**.
-3. **Average → peak QPS.** Real traffic is bursty; multiply average by a **peak
-   factor** of 2–10× (use ~3× unless told otherwise). 4,000 × 3 ≈ **12,000
-   writes/second peak**.
-4. **Reads vs. writes.** Most systems are read-heavy. Apply a **read:write
-   ratio** (100:1 for a social feed, 10:1 for many apps). 4,000 writes → 400,000
-   reads/second average.
-5. **QPS → bandwidth.** Multiply request rate by average payload size.
-6. **Data/day → storage over N years.** Multiply per-item size by item rate by
-   the retention window, then add a replication factor.
-7. **Hot set → memory.** Estimate what fraction of data is "hot" (often via the
-   80/20 rule) to size your cache.
+Capacity estimation is a deterministic funnel that translates a single business metric (Daily Active Users — DAU) into hardware infrastructure requirements:
 
-Every one of those steps is a single multiply or divide. The skill is doing them
-in order and not dropping a factor of ten. Visually, the recipe is a funnel that
-turns one input number (DAU) into every infrastructure sizing you need:
+```mermaid
+flowchart TD
+    DAU["Daily Active Users (DAU)"] -->|"× Actions per User per Day"| ActionsDay["Total Actions / Day"]
+    ActionsDay -->|"÷ 10^5 (Seconds / Day)"| AvgQPS["Average Write QPS"]
+    AvgQPS -->|"× Peak Factor (2× to 5×)"| PeakWriteQPS["Peak Write QPS"]
+    
+    AvgQPS -->|"× Read:Write Ratio (e.g. 10:1 or 100:1)"| AvgReadQPS["Average Read QPS"]
+    AvgReadQPS -->|"× Peak Factor"| PeakReadQPS["Peak Read QPS"]
 
-```
-   DAU ──× actions/user──► actions/day
-                               │ ÷ 10^5 (sec/day)
-                               ▼
-                          avg QPS ──× peak factor──► peak QPS
-                               │                        │
-                     × read:write                × payload size
-                               ▼                        ▼
-                          read QPS                  bandwidth
-                               │
-        × item_size × retention × replication ──► storage
-        × 0.2 (hot set) ──────────────────────► cache/memory
+    PeakWriteQPS & PeakReadQPS -->|"× Payload Bytes"| Bandwidth["Ingress & Egress Bandwidth<br/>(MB/s, Gbps)"]
+    
+    ActionsDay -->|"× Record Size × Retention Days × Replication Factor (3×)"| Storage["Raw & Replicated Disk Storage<br/>(TB / PB over 5 Years)"]
+    
+    AvgReadQPS -->|"× 80/20 Pareto Rule (20% of Daily Volume)"| CacheRAM["Distributed Memory Cache<br/>(Redis / Memcached RAM Size)"]
+    
+    PeakReadQPS & PeakWriteQPS -->|"÷ Target RPS per Server (at 60% CPU) + N+2"| ServerFleet["Compute Fleet Sizing<br/>(Worker Instances Required)"]
 ```
 
-### The numbers worth memorizing
+### 1.2 The Latency Ladder Spectrum
 
-You can't estimate if you have to derive every constant. Memorize this short
-list; everything else you compute from it.
+Relative execution costs dictate whether a request path can hit disk, network, or must remain strictly in-memory:
 
-- **Seconds in a day ≈ 86,400 ≈ 10⁵** (the single most useful one).
-- **Powers of two → data sizes:** 2¹⁰ = 1 thousand (KB), 2²⁰ = 1 million (MB),
-  2³⁰ = 1 billion (GB), 2⁴⁰ = 1 trillion (TB), 2⁵⁰ = PB. Each step is ~×1000.
-- **Typical payload sizes:** a short text record (tweet, chat message) ~ hundreds
-  of bytes to ~1 KB; a JSON API response ~ 1–10 KB; a photo ~ 200 KB–1 MB; a
-  minute of video ~ tens of MB.
-- **Char = 1 byte** (ASCII/UTF-8 common case); a UUID ~ 16 bytes raw, 36 as a
-  string; a timestamp ~ 8 bytes; a 64-bit id ~ 8 bytes.
-- **One commodity server**, ballpark: tens of thousands of simple requests/sec if
-  CPU-bound and cached; a single SQL database comfortably does *thousands* of
-  writes/sec, not hundreds of thousands.
-- **Latency ladder (Jeff Dean's numbers, rounded):** L1/L2 cache ~ 1 ns, main
-  memory ~ 100 ns, SSD random read ~ 100 µs (100,000 ns), rotational disk seek ~
-  10 ms, same-datacenter round trip ~ 0.5 ms, cross-continent round trip ~ 100+
-  ms. The load-bearing takeaways: **memory is ~1000× faster than SSD, SSD is
-  ~100× faster than a disk seek, and a network hop across the world costs more
-  than a million memory accesses.**
-
-### Estimating storage and bandwidth
-
-Storage is a rate times a retention window. Write down the per-item size, the
-items-per-second (or per-day), the retention period, and the replication factor,
-then multiply:
-
-```
-storage = item_size × item_rate × retention_window × replication_factor
+```mermaid
+timeline
+    title System Latency Spectrum (Logarithmic Scale)
+    1 ns : CPU L1 Cache Reference (0.5 ns)
+         : CPU Branch Mispredict (5 ns)
+         : CPU L2 Cache Reference (7 ns)
+    100 ns : Mutex Lock / Unlock (25 ns)
+           : Main Memory (RAM) Access (~100 ns)
+    100000 ns (100 us) : SSD NVMe Random Read (~100 us)
+                       : Datacenter LAN Round-Trip (~500 us)
+    10000000 ns (10 ms) : Rotational HDD Disk Seek (~10 ms)
+                        : Cross-Continent WAN Round-Trip (CA to NY ~100 ms)
+                        : Transatlantic Packet (US to EU ~150 ms)
 ```
 
-Worked example — a URL shortener storing 100M new URLs/day, each row ~500 bytes,
-kept 5 years, replicated 3×:
+---
 
-```
-per day    = 100M × 500 B          = 5 × 10^10 B  = 50 GB/day
-per 5 yr   = 50 GB × 365 × 5       ≈ 91 TB
-replicated = 91 TB × 3             ≈ 274 TB  → call it ~300 TB
-```
+## 2. Capacity Reference Matrix & System Constants
 
-Bandwidth is QPS times payload:
+### 2.1 Universal Estimation Constants
 
-```
-bandwidth = qps × avg_payload_size
-```
+| Constant | Exact Value | Interview Approximation | Application |
+| :--- | :--- | :--- | :--- |
+| **Seconds per Day** | $86,400\text{ s}$ | $10^5\text{ s}$ ($100,000\text{ s}$) | Convert Daily Volume $\to$ Average QPS ($\text{Daily Volume} / 10^5$) |
+| **Seconds per Month** | $2,592,000\text{ s}$ | $2.5 \times 10^6\text{ s}$ | Convert Monthly Volume $\to$ QPS |
+| **Kilobyte (KB)** | $1,024\text{ B} = 2^{10}\text{ B}$ | $10^3\text{ B}$ ($1,000\text{ B}$) | Text messages, metadata rows, small payloads |
+| **Megabyte (MB)** | $1,048,576\text{ B} = 2^{20}\text{ B}$ | $10^6\text{ B}$ ($1,000,000\text{ B}$) | Photos, document files, audio clips |
+| **Gigabyte (GB)** | $1,073,741,824\text{ B} = 2^{30}\text{ B}$ | $10^9\text{ B}$ ($1,000,000,000\text{ B}$) | Video files, memory node RAM capacity |
+| **Terabyte (TB)** | $2^{40}\text{ B}$ | $10^{12}\text{ B}$ | Disk storage arrays, database shards |
+| **Petabyte (PB)** | $2^{50}\text{ B}$ | $10^{15}\text{ B}$ | Multi-year warehouse storage, media lakes |
 
-If that same shortener serves 400K redirects/sec at ~500 bytes each: 400,000 ×
-500 B = 2 × 10⁸ B/s = **200 MB/s ≈ 1.6 Gbps** of egress. That single number tells
-you whether one server's NIC can cope (no) and that you need a CDN or load-
-balanced fleet.
+### 2.2 Throughput & Server Sizing Benchmark Rule-of-Thumb
 
-### Estimating QPS, servers, and memory
+| Component | Standard Safe Throughput per Node | Bottleneck Limit | Mitigation Strategy |
+| :--- | :--- | :--- | :--- |
+| **Stateless Web API (Go/Node/Java)** | $1,000 - 5,000\text{ RPS}$ per 4-vCPU node | CPU Context Switching, Connection Limits | Scale out horizontally behind L4/L7 Load Balancers |
+| **Single Redis Node (In-Memory)** | $50,000 - 100,000\text{ QPS}$ | Single-thread event loop CPU saturation | Redis Cluster sharding, client-side caching |
+| **PostgreSQL / MySQL (Relational)** | $1,000 - 4,000\text{ writes/sec}$ | Disk fsync, WAL I/O, B-Tree lock contention | Read replicas, horizontal sharding, connection poolers |
+| **Cassandra / ScyllaDB (LSM Tree)** | $10,000 - 30,000\text{ writes/sec}$ per node | Sequential write to Memtable + CommitLog | Token range distribution, adding storage nodes |
+| **Kafka Broker (Streaming Log)** | $100\text{ MB/s} - 200\text{ MB/s}$ Ingress | NIC bandwidth, Page Cache thrashing | Co-partitioning, batching (`linger.ms`), zero-copy send |
 
-Turn a peak QPS into a server count by dividing by *what one server can handle*:
+---
 
-```
-servers ≈ peak_qps / per_server_capacity   (then add headroom + redundancy)
-```
+## 3. Production War Story: The 10× Black Friday Storage Outage
 
-If peak read QPS is 400,000 and one cache-backed app server does ~20,000
-req/sec, you need ~20 servers for load — round *up*, add redundancy (N+2), and
-you're provisioning ~24. Never provision for exactly peak: leave headroom for
-growth, deploys, and failures.
+### The Incident
+An international retail platform prepared for Black Friday by calculating database storage based on order payloads:
+- Estimated 50 million orders created during peak week.
+- Average raw JSON order payload: $2\text{ KB}$.
+- Engineering calculation: $50\times 10^6 \times 2\text{ KB} = 100\text{ GB}$.
+- Provisioned storage on primary database: $250\text{ GB}$ (assuming $2.5\times$ safety margin).
 
-For **memory / cache sizing**, apply the 80/20 rule — roughly 20% of data serves
-80% of requests, so cache the hot 20%:
+Within 6 hours of Black Friday launch, the primary database crashed with an unrecoverable `ENOSPC: No space left on device` error. Writes froze globally, causing cart checkout failure across the mobile app and website for 42 minutes.
 
-```
-cache_size ≈ 0.2 × daily_data_touched
-```
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Checkout Service
+    participant DB as Primary PostgreSQL
+    participant Repl as Standby Replica (Streaming WAL)
+    participant Disk as NVMe Storage Array (250 GB)
 
-If a service reads 100 GB of distinct data per day, caching the hot ~20 GB
-captures most requests and fits comfortably in a single large Redis node's RAM —
-recall the cache-aside pattern and hot-key thinking from **05-caching-and-
-performance**. If the hot set were 2 TB instead, no single node holds it and
-you're into a *distributed* cache (module 04 of this track).
-
-### Sanity checks and orders of magnitude
-
-The point of the exercise isn't the final digit — it's the *shape*. After every
-estimate, sanity-check it:
-
-- **Does the power of ten feel right?** 12,000 writes/sec for a global social
-  network — plausible. 12 writes/sec — too low, you dropped a factor. 12M/sec —
-  too high, that's more than Twitter's real peak; recheck.
-- **Does it change the architecture?** If your storage estimate is 50 GB, a
-  single database is fine and sharding is over-engineering. If it's 500 TB, one
-  box is impossible and sharding is mandatory. State that conclusion — the number
-  exists to drive a decision.
-- **State your assumptions out loud.** "Assuming 200M DAU, 2 posts each, 100:1
-  read:write, 3× peak" — the interviewer cares far more that your assumptions are
-  explicit and your arithmetic is consistent than whether DAU is really 180M or
-  220M. Wrong-but-stated beats right-but-hidden.
-
-### Reference architecture
-
-The whole point of the math is that each number *sizes a box*. Here is a generic
-web-service architecture with every tier annotated by the estimate that
-determines how big it is — read it as "estimate on the left decides the box on
-the right":
-
-```
-                        peak_qps = avg_qps × peak_factor
-                                   │
-  ┌────────┐    ┌──────────────────▼─────┐    ┌───────────────────────────┐
-  │ Client │───►│      Load Balancer      │───►│   App server fleet         │
-  │ (many) │    │  (spreads peak QPS      │    │  N ≈ peak_qps /            │
-  └────────┘    │   across the fleet)     │    │      per_server_capacity   │
-                └─────────────────────────┘    │  (+ N+2 redundancy)        │
-                                               └──────┬──────────┬──────────┘
-                                        cache lookup  │          │ cache miss
-                                                      ▼          ▼
-                                          ┌───────────────┐  ┌───────────────────┐
-                                          │  Cache layer  │  │    Database        │
-                                          │  (Redis)      │  │  (primary +        │
-                                          │  size ≈ 0.2 × │  │   read replicas)   │
-                                          │  daily data   │  │  disk ≈ item_size  │
-                                          │  = hot set    │  │  × rate × retention│
-                                          └───────────────┘  │  × replication     │
-                                                             └─────────┬──────────┘
-                                                    large blobs         │
-                                                    (photos/video)      ▼
-                                          ┌──────────────────────────────────────┐
-                                          │   Object storage  ──►  CDN edge       │
-                                          │   sized by total blob bytes;          │
-                                          │   egress ≈ qps × avg_payload_size     │
-                                          └──────────────────────────────────────┘
+    App->>DB: INSERT INTO orders (50M target)
+    DB->>Disk: Write raw table tuple (100 GB)
+    DB->>Disk: Write 5 Secondary B-Tree Indexes (120 GB!)
+    DB->>Disk: Retain Postgres WAL Segments for Replicas (40 GB!)
+    Note over Disk: Total Disk Used: 260 GB / 250 GB
+    Disk-->>DB: PANIC: No space left on device (ENOSPC)
+    DB-->>App: 500 Internal Error / Connection Terminated
+    Note over App: Global Checkout Outage ($1.8M lost revenue)
 ```
 
-**Component walkthrough:**
+### The Post-Mortem & Formula Correction
+The post-mortem revealed three critical estimation mistakes:
+1. **Secondary Index Overhead Ignored:** The table had 5 secondary indexes (`user_id`, `created_at`, `status`, `payment_ref`, `tracking_code`). B-Tree index pages consume between $100\%$ and $150\%$ of the raw table volume!
+2. **Postgres WAL & Tombstones Omitted:** Write-Ahead Logs (WAL) retained for asynchronous streaming replication consumed an extra $40\text{ GB}$.
+3. **The Multiplier Rule:** Production storage must ALWAYS account for:
+$$\text{Total Storage} = (\text{Raw Data} \times 1.5_{\text{Index Overhead}} + \text{WAL Buffer}) \times \text{Replication Factor (3)} \times 1.4_{\text{Filesystem Headroom}}$$
 
-- **Client fleet** — the source of the workload. Its size (DAU × actions/user) is
-  the single input number that the whole *estimation recipe* funnels: DAU →
-  actions/day → QPS.
-- **Load Balancer** — spreads incoming requests across app servers. It has to
-  absorb **peak QPS** (`avg_qps × peak_factor`, default 3×), which is why the
-  *peak factor* step of the recipe matters: you size for the burst, not the
-  average.
-- **App server fleet** — stateless compute. The number of machines comes straight
-  from the **server-count formula**: `peak_qps / per_server_capacity`, rounded up,
-  plus N+2 redundancy and growth headroom. This is where "one commodity server
-  handles ~10⁴–10⁵ req/sec" turns a QPS number into a machine count.
-- **Cache layer (Redis)** — holds the hot set so most reads never touch the DB.
-  Sized by the **memory / 80-20 math**: `cache_size ≈ 0.2 × daily_distinct_data`.
-  If that number fits one node's RAM you're done; if not, it forces a distributed
-  cache (module 04).
-- **Database (primary + read replicas)** — the durable store. Its disk footprint
-  is the **storage formula**: `item_size × item_rate × retention × replication`.
-  That number decides single-node vs. sharded, and the read replicas exist
-  because the read:write ratio pushes far more reads than one primary can serve.
-- **Object storage + CDN** — for large blobs (photos, video) and static egress.
-  Sized two ways: total capacity from summed blob bytes, and the **bandwidth
-  formula** `qps × avg_payload_size`, whose result (e.g. 1.6 Gbps of egress) is
-  what tells you a single NIC can't cope and a CDN is mandatory.
+---
 
-## Command reference
+## 4. Multi-Language Capacity Estimation Engine
 
-Numbers and formulas to memorize. This is your whiteboard cheat sheet.
+Below is a complete, production-grade Capacity & Hardware Sizing Calculator implemented in Go, TypeScript, and Python. It calculates QPS, Bandwidth, Storage over 5 years (including indexes & replication), Cache RAM, and Server fleet sizing with $N+2$ redundancy.
 
-| Quantity | Value to use | Note |
-|---|---|---|
-| Seconds per day | ~86,400 ≈ **10⁵** | The single most useful constant |
-| Seconds per month | ~2.5 × 10⁶ | 30 × 86,400 |
-| KB / MB / GB / TB / PB | 10³ / 10⁶ / 10⁹ / 10¹² / 10¹⁵ | Decimal approx of 2¹⁰·ⁿ |
-| Peak factor | **2–10×** average (default ~3×) | Traffic is bursty |
-| Read:write ratio | 10:1 typical, **100:1** social feed | Most systems read-heavy |
-| Char / ASCII byte | 1 byte | |
-| 64-bit id / timestamp | 8 bytes | |
-| UUID | 16 B raw, 36 B as string | |
-| Short text record | ~0.1–1 KB | tweet, chat message |
-| Photo / minute of video | ~0.2–1 MB / ~tens of MB | |
-| Single SQL DB write ceiling | ~**thousands**/sec | not hundreds of thousands |
-| Cached app server | ~10⁴–10⁵ req/sec | order of magnitude |
-| Hot-set fraction (80/20) | ~20% of data serves ~80% of reads | cache sizing |
+````carousel
+```python
+# capacity_calculator.py
+"""
+Production Back-of-the-Envelope Capacity Estimator
+Calculates QPS, Network Bandwidth, Multi-Year Storage, Cache, and Server Fleet Size.
+"""
 
-Latency ladder (rounded, memorize the *ratios* not the digits):
+from dataclasses import dataclass
+import math
 
-| Operation | Time | Relative |
-|---|---|---|
-| L1 cache reference | ~1 ns | 1× |
-| Main memory reference | ~100 ns | 100× |
-| SSD random read | ~100 µs (10⁵ ns) | ~1,000× memory |
-| Same-datacenter round trip | ~0.5 ms | |
-| Rotational disk seek | ~10 ms | |
-| Cross-continent round trip | ~100+ ms | ~10⁶× memory |
+SECONDS_PER_DAY = 100_000  # Engineering approximation for 86,400
 
-The four formulas:
+@dataclass
+class SystemParameters:
+    dau: int                     # Daily Active Users
+    actions_per_user_per_day: int
+    read_write_ratio: float       # e.g., 10.0 means 10 reads per 1 write
+    peak_multiplier: float        # e.g., 3.0
+    payload_write_bytes: int     # Average write size in bytes
+    payload_read_bytes: int      # Average read response size in bytes
+    retention_years: int
+    replication_factor: int       # Typically 3x
+    index_overhead_ratio: float   # e.g., 1.4 (40% overhead for indexes)
+    server_safe_rps: int          # Max throughput per server instance at 60% CPU
 
+def compute_capacity(p: SystemParameters):
+    # 1. QPS Calculations
+    total_writes_day = p.dau * p.actions_per_user_per_day
+    avg_write_qps = total_writes_day / SECONDS_PER_DAY
+    peak_write_qps = avg_write_qps * p.peak_multiplier
+
+    avg_read_qps = avg_write_qps * p.read_write_ratio
+    peak_read_qps = avg_read_qps * p.peak_multiplier
+    total_peak_qps = peak_write_qps + peak_read_qps
+
+    # 2. Network Bandwidth
+    ingress_bytes_sec = peak_write_qps * p.payload_write_bytes
+    egress_bytes_sec = peak_read_qps * p.payload_read_bytes
+    ingress_mbps = (ingress_bytes_sec * 8) / (1024 * 1024)
+    egress_mbps = (egress_bytes_sec * 8) / (1024 * 1024)
+
+    # 3. Storage Calculations (over retention window)
+    daily_raw_storage = total_writes_day * p.payload_write_bytes
+    yearly_raw_storage = daily_raw_storage * 365
+    total_raw_storage = yearly_raw_storage * p.retention_years
+    
+    # Including secondary index overhead and 3x replica factor
+    total_provisioned_storage = (
+        total_raw_storage * p.index_overhead_ratio * p.replication_factor
+    )
+
+    # 4. Memory / Cache Sizing (80/20 Pareto Rule on daily reads)
+    daily_read_volume = (avg_read_qps * SECONDS_PER_DAY) * p.payload_read_bytes
+    cache_ram_bytes = daily_read_volume * 0.20  # Cache 20% hot data
+
+    # 5. Compute Fleet Sizing (at 60% CPU target + N+2 redundancy)
+    baseline_servers = math.ceil(total_peak_qps / p.server_safe_rps)
+    n_plus_two_servers = baseline_servers + 2
+
+    return {
+        "Avg Write QPS": round(avg_write_qps),
+        "Peak Write QPS": round(peak_write_qps),
+        "Avg Read QPS": round(avg_read_qps),
+        "Peak Read QPS": round(peak_read_qps),
+        "Total Peak QPS": round(total_peak_qps),
+        "Network Ingress (Mbps)": round(ingress_mbps, 2),
+        "Network Egress (Mbps)": round(egress_mbps, 2),
+        "Daily Raw Storage (GB)": round(daily_raw_storage / (10**9), 2),
+        f"Storage {p.retention_years}Yr Provisioned (TB)": round(total_provisioned_storage / (10**12), 2),
+        "Cache RAM Required (GB)": round(cache_ram_bytes / (10**9), 2),
+        "Minimum Server Fleet (N+2)": n_plus_two_servers
+    }
+
+if __name__ == "__main__":
+    # Example: Sizing Twitter / X scale post service
+    params = SystemParameters(
+        dau=200_000_000,
+        actions_per_user_per_day=2,      # 2 tweets written/day
+        read_write_ratio=100.0,          # 100 timeline reads per 1 tweet write
+        peak_multiplier=3.0,
+        payload_write_bytes=500,         # 500 bytes per tweet record
+        payload_read_bytes=10_000,       # 10 KB per timeline page
+        retention_years=5,
+        replication_factor=3,
+        index_overhead_ratio=1.4,
+        server_safe_rps=2_000
+    )
+    results = compute_capacity(params)
+    for k, v in results.items():
+        print(f"{k:35}: {v}")
 ```
-avg_qps    = actions_per_day / 10^5
-peak_qps   = avg_qps × peak_factor            (2–10, default 3)
-storage    = item_size × item_rate × retention × replication_factor
-bandwidth  = qps × avg_payload_size
-servers    = peak_qps / per_server_capacity   (round up, add N+2 redundancy)
-cache_size = 0.2 × daily_distinct_data_touched
+<!-- slide -->
+```go
+// capacity_calculator.go
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+const SecondsPerDay = 100000.0 // 10^5 approximation
+
+type SystemParameters struct {
+	DAU                  float64
+	ActionsPerUserDay    float64
+	ReadWriteRatio       float64
+	PeakMultiplier       float64
+	PayloadWriteBytes    float64
+	PayloadReadBytes     float64
+	RetentionYears       float64
+	ReplicationFactor    float64
+	IndexOverheadRatio   float64
+	ServerSafeRPS        float64
+}
+
+type CapacityResult struct {
+	AvgWriteQPS          int64
+	PeakWriteQPS         int64
+	AvgReadQPS           int64
+	PeakReadQPS          int64
+	TotalPeakQPS         int64
+	IngressMbps          float64
+	EgressMbps           float64
+	DailyStorageGB       float64
+	FiveYearStorageTB    float64
+	CacheRAMGB           float64
+	ServerFleetCount     int64
+}
+
+func ComputeCapacity(p SystemParameters) CapacityResult {
+	totalWritesDay := p.DAU * p.ActionsPerUserDay
+	avgWriteQPS := totalWritesDay / SecondsPerDay
+	peakWriteQPS := avgWriteQPS * p.PeakMultiplier
+
+	avgReadQPS := avgWriteQPS * p.ReadWriteRatio
+	peakReadQPS := avgReadQPS * p.PeakMultiplier
+	totalPeakQPS := peakWriteQPS + peakReadQPS
+
+	ingressBytesSec := peakWriteQPS * p.PayloadWriteBytes
+	egressBytesSec := peakReadQPS * p.PayloadReadBytes
+	ingressMbps := (ingressBytesSec * 8) / (1024 * 1024)
+	egressMbps := (egressBytesSec * 8) / (1024 * 1024)
+
+	dailyRawStorage := totalWritesDay * p.PayloadWriteBytes
+	totalProvisionedStorage := dailyRawStorage * 365 * p.RetentionYears * p.IndexOverheadRatio * p.ReplicationFactor
+
+	dailyReadVolume := (avgReadQPS * SecondsPerDay) * p.PayloadReadBytes
+	cacheRAM := dailyReadVolume * 0.20
+
+	baseServers := math.Ceil(totalPeakQPS / p.ServerSafeRPS)
+
+	return CapacityResult{
+		AvgWriteQPS:       int64(avgWriteQPS),
+		PeakWriteQPS:      int64(peakWriteQPS),
+		AvgReadQPS:        int64(avgReadQPS),
+		PeakReadQPS:       int64(peakReadQPS),
+		TotalPeakQPS:      int64(totalPeakQPS),
+		IngressMbps:       ingressMbps,
+		EgressMbps:        egressMbps,
+		DailyStorageGB:    dailyRawStorage / 1e9,
+		FiveYearStorageTB: totalProvisionedStorage / 1e12,
+		CacheRAMGB:        cacheRAM / 1e9,
+		ServerFleetCount:  int64(baseServers) + 2,
+	}
+}
+
+func main() {
+	params := SystemParameters{
+		DAU:                200000000,
+		ActionsPerUserDay:  2,
+		ReadWriteRatio:     100,
+		PeakMultiplier:     3,
+		PayloadWriteBytes:  500,
+		PayloadReadBytes:   10000,
+		RetentionYears:     5,
+		ReplicationFactor:  3,
+		IndexOverheadRatio: 1.4,
+		ServerSafeRPS:      2000,
+	}
+
+	res := ComputeCapacity(params)
+	fmt.Printf("Peak Write QPS      : %d\n", res.PeakWriteQPS)
+	fmt.Printf("Peak Read QPS       : %d\n", res.PeakReadQPS)
+	fmt.Printf("Egress Bandwidth    : %.2f Mbps (%.2f Gbps)\n", res.EgressMbps, res.EgressMbps/1000)
+	fmt.Printf("5-Yr Storage (TB)   : %.2f TB\n", res.FiveYearStorageTB)
+	fmt.Printf("Cache RAM (20%% hot) : %.2f GB\n", res.CacheRAMGB)
+	fmt.Printf("Server Instances N+2: %d\n", res.ServerFleetCount)
+}
+```
+<!-- slide -->
+```typescript
+// capacity_calculator.ts
+interface SystemParameters {
+  dau: number;
+  actionsPerUserPerDay: number;
+  readWriteRatio: number;
+  peakMultiplier: number;
+  payloadWriteBytes: number;
+  payloadReadBytes: number;
+  retentionYears: number;
+  replicationFactor: number;
+  indexOverheadRatio: number;
+  serverSafeRPS: number;
+}
+
+export function computeCapacity(p: SystemParameters) {
+  const SECONDS_PER_DAY = 100_000;
+
+  const totalWritesDay = p.dau * p.actionsPerUserPerDay;
+  const avgWriteQPS = totalWritesDay / SECONDS_PER_DAY;
+  const peakWriteQPS = avgWriteQPS * p.peakMultiplier;
+
+  const avgReadQPS = avgWriteQPS * p.readWriteRatio;
+  const peakReadQPS = avgReadQPS * p.peakMultiplier;
+  const totalPeakQPS = peakWriteQPS + peakReadQPS;
+
+  const ingressMbps = (peakWriteQPS * p.payloadWriteBytes * 8) / (1024 * 1024);
+  const egressMbps = (peakReadQPS * p.payloadReadBytes * 8) / (1024 * 1024);
+
+  const dailyRawStorage = totalWritesDay * p.payloadWriteBytes;
+  const totalProvisionedStorage =
+    dailyRawStorage * 365 * p.retentionYears * p.indexOverheadRatio * p.replicationFactor;
+
+  const dailyReadVolume = avgReadQPS * SECONDS_PER_DAY * p.payloadReadBytes;
+  const cacheRAMBytes = dailyReadVolume * 0.2;
+
+  const baseServers = Math.ceil(totalPeakQPS / p.serverSafeRPS);
+
+  return {
+    avgWriteQPS: Math.round(avgWriteQPS),
+    peakWriteQPS: Math.round(peakWriteQPS),
+    avgReadQPS: Math.round(avgReadQPS),
+    peakReadQPS: Math.round(peakReadQPS),
+    ingressMbps: Number(ingressMbps.toFixed(2)),
+    egressGbps: Number((egressMbps / 1000).toFixed(2)),
+    fiveYearStorageTB: Number((totalProvisionedStorage / 1e12).toFixed(2)),
+    cacheRAMGB: Number((cacheRAMBytes / 1e9).toFixed(2)),
+    minServersWithRedundancy: baseServers + 2,
+  };
+}
+
+// Verification sample run
+console.log(
+  computeCapacity({
+    dau: 200_000_000,
+    actionsPerUserPerDay: 2,
+    readWriteRatio: 100,
+    peakMultiplier: 3,
+    payloadWriteBytes: 500,
+    payloadReadBytes: 10_000,
+    retentionYears: 5,
+    replicationFactor: 3,
+    indexOverheadRatio: 1.4,
+    serverSafeRPS: 2000,
+  })
+);
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Run arithmetic verification directly in PowerShell / terminal without a spreadsheet:
+
+```powershell
+# 1. Verification of Seconds per Day conversion
+# Daily actions = 500 Million
+$dailyActions = 500000000
+$secondsDay = 100000
+$avgQPS = $dailyActions / $secondsDay
+Write-Host "Average QPS: $avgQPS" # Expected: 5000
+
+# 2. Peak QPS at 3x burst multiplier
+$peakQPS = $avgQPS * 3
+Write-Host "Peak QPS: $peakQPS"   # Expected: 15000
+
+# 3. Bandwidth calculation: 15,000 requests/sec * 2 KB payload
+$payloadBytes = 2048
+$bandwidthBytesSec = $peakQPS * $payloadBytes
+$bandwidthMbps = ($bandwidthBytesSec * 8) / 1000000
+Write-Host "Peak Bandwidth: $bandwidthMbps Mbps" # Expected: ~245.76 Mbps
+
+# 4. Storage over 5 years (Replicated 3x with 1.4 index overhead)
+$days = 365 * 5
+$rawStorageBytes = $dailyActions * $payloadBytes * $days
+$provisionedStorageTB = ($rawStorageBytes * 1.4 * 3) / 1e12
+Write-Host "5-Year Replicated Storage: $([Math]::Round($provisionedStorageTB, 2)) TB"
 ```
 
-## Hands-on exercises
+---
 
-Do these on paper (or a whiteboard) with no calculator — that's the skill. Write
-your assumptions first, then the arithmetic, then a one-line sanity check.
-
-### 1. Warm up: QPS from DAU
-
-A photo-sharing app has **500M DAU**, and each user uploads **1 photo/day** on
-average. Compute the average upload QPS, then apply a 3× peak factor for peak
-upload QPS. Then, given a **100:1** read:write (view:upload) ratio, compute peak
-*view* QPS. Expected order of magnitude: uploads in the thousands/sec, views in
-the hundreds-of-thousands/sec.
-
-### 2. Storage over five years
-
-Each of those photos averages **400 KB**, plus a **1 KB** metadata row, kept for
-**5 years**, replicated **3×**. Estimate total storage. State it in TB or PB and
-then answer the architectural question: does this fit on one machine, and what
-does that imply?
-
-### 3. Bandwidth and the NIC
-
-Using your peak *view* QPS from exercise 1 and the 400 KB photo size, estimate
-peak egress bandwidth in GB/s and Gbps. A single server NIC is ~10–25 Gbps.
-Conclude, in one sentence, what infrastructure this forces (hint: recall CDNs and
-edge caching from **05-caching-and-performance**).
-
-### 4. Memory / cache sizing
-
-The app serves **100 TB** of distinct photos over a typical day but requests
-follow an 80/20 distribution. Estimate the hot-set size to cache. A large cache
-node holds ~256 GB RAM. Does the hot set fit in one node, and if not, roughly how
-many nodes — and what does that tell you about needing module 04's distributed
-cache?
-
-### 5. Server count from QPS
-
-Peak view QPS is ~1.5M/sec (use your own number if different). One CDN/cache-
-backed edge server sustains ~50,000 req/sec. How many edge servers do you need
-for load alone, and how many after adding N+2 redundancy and 30% growth
-headroom? Round sensibly.
-
-### 6. The latency-ladder decision
-
-You have a read path that currently does one **rotational-disk seek** per
-request. You're considering moving the hot data to (a) SSD or (b) RAM. Using the
-latency ladder, state the *approximate* speedup of each move, and explain which
-one turns a 10 ms read into a sub-millisecond read. Tie it back to *why* caching
-in memory is the highest-leverage change.
-
-### 7. A write-heavy twist
-
-An IoT platform ingests telemetry from **10M devices**, each sending **1
-reading every 10 seconds**, each reading **100 bytes**. Compute sustained write
-QPS and daily write volume. Then answer: can a single SQL primary absorb this
-write rate (recall the DB write ceiling), and if not, name the technique from
-**04-databases-and-data-layer** you'd reach for.
-
-### 8. Diagnose and fix a flawed estimate
-
-A candidate presents this estimate for a chat app. Find **every** error and
-redo it correctly.
-
-> "We have 50M daily users sending 40 messages each. That's 50M × 40 = 2
-> *billion* messages a day. Dividing by the 3,600 seconds in a day gives about
-> 550,000 messages/second average. Peak is the same since chat is steady. Each
-> message is 1 KB, so storage per day is 2 billion × 1 KB = 2 GB. Over 5 years
-> that's about 3.6 TB, so a single database is clearly fine."
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why is rounding 86,400 to 100,000 acceptable (and preferred) in System Design Interviews?</strong></summary>
 
-Three concrete errors, one questionable assumption, and a wrong conclusion:
-
-1. **Wrong seconds/day.** They used 3,600 (that's seconds in an *hour*). It's
-   ~86,400 ≈ 10⁵. Correct average QPS = 2 × 10⁹ / 10⁵ = **20,000 msg/sec**, not
-   550,000. (They were off by ~24× — exactly the hour/day confusion.)
-2. **No peak factor.** "Peak is the same since chat is steady" is wrong — chat is
-   *very* bursty (evenings, events). Apply ~3×: peak ≈ **60,000 msg/sec**.
-3. **Storage arithmetic is off by 10⁶.** 2 × 10⁹ messages × 1 KB (10³ B) = 2 ×
-   10¹² B = **2 TB/day**, not 2 GB. They dropped the KB→byte factor entirely.
-4. **Five-year storage.** 2 TB/day × 365 × 5 ≈ **3.65 PB**, not 3.6 TB — again
-   off by ~1000 because of the per-day error. With 3× replication, ~11 PB.
-5. **Wrong conclusion.** "A single database is clearly fine" follows only from
-   the broken 3.6 TB number. The real ~3.65 PB (11 PB replicated) *mandates*
-   sharding and tiered/cold storage — the exact opposite decision.
-
-Lesson: a single dropped factor of ten (or here, several) doesn't just make the
-number wrong — it flips the architecture. Always sanity-check the power of ten
-against reality before drawing a conclusion.
-
+> **Root Cause Analysis:**  
+> Back-of-the-envelope calculations are designed to establish **orders of magnitude** ($10^2$ vs $10^4$ vs $10^7$) to determine architecture (e.g. single instance vs sharded cluster).  
+> 
+> Dividing by $10^5$ instead of $86,400$ produces an answer within $\sim 15\%$ of actual average throughput. Real-world traffic fluctuations between peak hours and off-peak hours exceed $200\%-500\%$ (a $2\times$ to $5\times$ peak multiplier). A $15\%$ discrepancy in average throughput is completely dwarfed by the peak burst multiplier. Using $10^5$ allows mental arithmetic without losing conversational momentum on a whiteboard.
 </details>
-
-## Independent challenge
-
-No solution given. Using only the recipe and the memorized numbers, produce a
-complete capacity estimate for a **global ride-hailing app** — the kind of
-back-of-envelope pass you'd open a **01-the-system-design-interview-framework**
-session with. Assume 100M DAU, each taking 2 rides/day, and that an active ride
-sends a GPS location update every 4 seconds for an average 15-minute trip.
-Estimate: (a) ride-request write QPS and peak; (b) sustained location-update
-write QPS (this is the scary number — it's not driven by ride count but by
-*concurrent active trips*); (c) storage per day if each location point is ~100
-bytes and each ride record ~2 KB; (d) five-year storage with 3× replication; and
-(e) one sentence per number on what architectural decision it forces. Write every
-assumption down first.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: An interviewer says: "Our app has 10M DAU, and we want to cache all reads. Can we put the cache on one server?" How do you answer?</strong></summary>
 
-The location-update rate is the trap and the whole point. Don't multiply total
-daily rides by updates-per-ride and divide by seconds — that under-counts the
-sustained load because trips overlap. Instead compute the number of *concurrent
-active trips* at peak (rides/day × trip_duration / seconds_in_day, times your
-peak factor) and multiply by the per-trip update frequency (one every 4 s =
-0.25/sec). That concurrent-trips number is what actually hammers your ingestion
-pipeline, and it's why real systems put location updates on a streaming/queue
-path (recall background processing from **06-background-processing-and-
-realtime**) instead of straight into a SQL primary.
-
+> **Root Cause Analysis:**  
+> Frame the answer using the funnel:
+> 1. Clarify **actions per user** and **read-to-write ratio**. If each user performs 10 reads of $2\text{ KB}$ each: $10\text{M} \times 10 = 100\text{M reads/day} \implies 100\text{M} \times 2\text{ KB} = 200\text{ GB daily read volume}$.
+> 2. Apply the **80/20 Pareto Principle**: $20\%$ of items generate $80\%$ of read traffic. Hot set size $= 200\text{ GB} \times 0.20 = 40\text{ GB}$.
+> 3. Memory evaluation: $40\text{ GB}$ easily fits into a single high-memory Redis server (e.g., AWS `r6g.xlarge` with $32\text{ GB}$ or `r6g.2xlarge` with $64\text{ GB}$).
+> 4. **Throughput check:** Average read $\text{QPS} = 100\text{M} / 10^5 = 1,000\text{ QPS}$; Peak ($3\times$) $= 3,000\text{ QPS}$. A single Redis instance easily sustains $50,000+\text{ QPS}$.  
+> **Conclusion:** Yes, from both RAM and QPS perspectives, one primary instance with one replica for failover is sufficient.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Seconds-per-day errors.** Using 3,600 (an hour) or 24 instead of ~86,400 ≈
-  10⁵. This single mistake is the most common source of a 24× or 3,600× error.
-  Memorize 10⁵ and never derive it under pressure.
-- **Dropping the KB→byte (or MB→byte) factor.** "2 billion × 1 KB = 2 GB" — no,
-  it's 2 TB. Track your units explicitly; write the exponent every time.
-- **Forgetting the peak factor.** Provisioning for *average* QPS guarantees you
-  fall over during the daily peak. Always multiply by 2–10×.
-- **Ignoring replication and overhead.** Raw data × replication factor (usually
-  3×), plus index/overhead, is the real storage bill — not the raw number.
-- **Chasing false precision.** Grinding out 86,400 × 365 × 4.7 by hand wastes
-  whiteboard time and impresses no one. Round aggressively (10⁵, ×400, ×1000) and
-  keep moving; the order of magnitude is the deliverable.
-- **Not converting the number into a decision.** An estimate that just sits there
-  is useless. Every number must end in "...therefore [one DB is fine / we must
-  shard / we need a CDN / it fits in one cache node]."
-- **Concurrent-vs-total confusion.** For streaming loads (locations, live video,
-  websockets), the load is driven by *concurrent* sessions, not total daily
-  count. Compute concurrency, not throughput-over-a-day.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the approximate number of seconds in a day, rounded to a power of ten,
-   and why is it the single most useful constant in capacity estimation?
-2. State the full recipe, in order, for going from a DAU figure to a peak read
-   QPS number. Name every step.
-3. A service does 8.6 billion writes per day. Without a calculator, what's the
-   average write QPS, and what's a reasonable peak?
-4. Give the storage formula, and explain why leaving out the replication factor
-   understates your real storage bill.
-5. On the latency ladder, roughly how much faster is a main-memory reference than
-   an SSD random read, and than a rotational-disk seek? Why does that make
-   in-memory caching the highest-leverage optimization?
-6. Why is stating your assumptions out loud more important than getting DAU
-   exactly right?
-7. For a live-video or GPS-tracking system, why is *concurrent sessions* the
-   right load driver rather than total daily sessions?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: What is the N+2 redundancy rule, and why does server fleet estimation target 60% CPU utilization rather than 90%?</strong></summary>
 
-1. ~86,400, rounded to **10⁵**. It converts any per-day action count into an
-   average per-second rate with a single division, which is the backbone of
-   every QPS estimate.
-2. DAU → actions/day (× actions per user) → average QPS (÷ 10⁵) → peak QPS
-   (× peak factor 2–10) → reads (× read:write ratio). Five steps: users, actions,
-   average, peak, read multiplier.
-3. 8.6 × 10⁹ / 10⁵ = **~86,000 writes/sec average** (≈10⁵). Peak at ~3× ≈
-   **~250,000–300,000 writes/sec**. (This is genuinely large — it implies
-   sharding and a write-optimized path.)
-4. `storage = item_size × item_rate × retention_window × replication_factor`.
-   Omitting replication (typically ×3) understates the bill by that factor, plus
-   you'd also miss index/overhead — so you'd under-provision disk by 3× or more.
-5. Memory (~100 ns) is **~1,000× faster than SSD** (~100 µs) and **~100,000×
-   faster than a disk seek** (~10 ms). Moving the hot set from disk/SSD into RAM
-   collapses a multi-millisecond read into a sub-microsecond one, which is why
-   caching in memory beats almost every other single optimization.
-6. Because the interviewer is evaluating your *reasoning*, and the arithmetic is
-   only consistent (and checkable) if the assumptions are explicit. A stated
-   assumption that's slightly off still yields a defensible, correct-shaped
-   answer; a hidden one makes the whole estimate unauditable.
-7. Because those loads are sustained by sessions that overlap in time — the
-   pressure on the system at any instant is the number of sessions *currently
-   active*, each emitting a steady stream, not the total that started that day.
-   Total-per-day divided by seconds under-counts the real concurrent throughput.
-
+> **Root Cause Analysis:**  
+> Systems operating at $>70\%$ utilization experience non-linear queuing latency explosion according to **Kingman's Formula**:
+> $$W_q \approx \left(\frac{\rho}{1-\rho}\right) \cdot \left(\frac{C_a^2 + C_s^2}{2}\right) \cdot \frac{1}{\mu}$$
+> As utilization $\rho \to 1.0$, waiting time $W_q \to \infty$. Sizing for $60\%$ utilization ensures that unexpected micro-bursts do not degrade p99 latencies.  
+> 
+> The **$N+2$ rule** ensures operational survival during maintenance and disaster:
+> - $N$: The number of servers required to handle peak load at $60\%$ utilization.
+> - $+1$: Redundancy for an unexpected node failure or network split.
+> - $+2$: Redundancy allowing rolling zero-downtime OS/security deployments while maintaining fault tolerance.
 </details>
 
-## Further reading & sources
+---
 
-- [Numbers Every Programmer Should Know (Jeff Dean's latency ladder)](https://gist.github.com/jboner/2841832) - the canonical latency numbers (memory vs. SSD vs. disk seek vs. network) that this module's latency ladder is drawn from.
-- [System Design Primer — Back-of-the-envelope calculations](https://github.com/donnemartin/system-design-primer#appendix) - the widely-used open-source cheat sheet of powers of two, per-second conversions, and capacity constants.
-- [Powers of two and data-size units](https://en.wikipedia.org/wiki/Byte#Multiple-byte_units) - reference for KB/MB/GB/TB/PB and the decimal-vs-binary approximation used throughout the estimation recipe.
-- [The Log: What every software engineer should know about real-time data (Jay Kreps)](https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying-abstraction) - background on why streaming/queue paths absorb the concurrent-session write loads this module warns about.
-- [Latency Numbers Every Programmer Should Know — interactive](https://colin-scott.github.io/personal_website/research/interactive_latency.html) - an interactive version of the latency ladder showing how the numbers scale over hardware generations.
-
-## Free PDF notes
+## 7. Free PDF Notes & Printables
 
 Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-D-001: Back-of-the-Envelope Estimation](https://backendroadmap.com/notes/system-design/SD-D-001.pdf), [SD-D-003: How to Estimate RPS](https://backendroadmap.com/notes/system-design/SD-D-003.pdf), [SD-D-004: Peak vs Average Traffic](https://backendroadmap.com/notes/system-design/SD-D-004.pdf), [SD-D-005: Read/Write Ratio](https://backendroadmap.com/notes/system-design/SD-D-005.pdf), [SD-D-006: Storage Estimation](https://backendroadmap.com/notes/system-design/SD-D-006.pdf), [SD-D-007: Bandwidth Estimation](https://backendroadmap.com/notes/system-design/SD-D-007.pdf), [SD-D-008: Cache Sizing](https://backendroadmap.com/notes/system-design/SD-D-008.pdf), [SD-D-009: How Many Servers Do You Need? Capacity, 60% Target & N+2](https://backendroadmap.com/notes/system-design/SD-D-009.pdf), [SD-D-010: Growth Projections](https://backendroadmap.com/notes/system-design/SD-D-010.pdf), [SD-D-011: Back-of-the-Envelope Estimation](https://backendroadmap.com/notes/system-design/SD-D-011.pdf). Each section in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
 
-## Next
+---
 
-[01-the-system-design-interview-framework](../01-the-system-design-interview-framework/README.md)
-— you can now put numbers on a system; next you'll learn the *structure* that
-wraps those numbers into a complete whiteboard answer: how to scope the problem
-with requirements, when to drop in your capacity estimate, how to move from a
-high-level diagram to a deep-dive, and how to talk through tradeoffs the way
-interviewers actually score.
+## 8. Curriculum Navigation
+
+- [Back to System Design Track Overview](../README.md)
+- [Proceed to Module 01: The System Design Interview Framework](../01-the-system-design-interview-framework/README.md)

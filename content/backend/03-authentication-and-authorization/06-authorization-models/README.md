@@ -1,463 +1,406 @@
-# Module 06: Authorization Models
+# Authorization Models: RBAC, ABAC, ReBAC & BOLA/IDOR Defense
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** Authentication confirms identity; Authorization verifies permission. **Deny by default.** Never rely solely on high-level role checks (`is_admin`) when accessing specific data rows: always enforce **Object-Level Authorization** (`WHERE id = :id AND tenant_id = :tenant_id`) to permanently eliminate Broken Object-Level Authorization (BOLA / IDOR)—the #1 threat on the OWASP API Security Top 10.
 
-Every module until now answered *who is this caller* (authentication). This
-module answers the other half of "auth": now that you know who they are, *what
-are they allowed to do*? That's **authorization** (module 00's `403` half), and
-it's where a huge share of real-world security bugs live — not in the crypto,
-but in a missing or wrong permission check. "Broken Access Control" sits at the
-top of the OWASP Top 10 for a reason: it's easy to authenticate a user
-correctly and then let them read someone else's data because nobody checked
-ownership. The IDOR bug — `GET /orders/99` returns order 99 *even though it
-belongs to another user* — is an authorization failure, and it's everywhere.
+---
 
-There isn't one authorization model; there are several, each fitting different
-needs, and picking the wrong one leads either to a rigid system that can't
-express real rules or a tangle of ad-hoc `if` statements nobody can audit. This
-module gives you the three that matter — **RBAC** (roles), **ABAC**
-(attributes), and **ReBAC** (relationships, Zanzibar-style) — when each fits,
-and how to build a clean, centralized permission-check layer in FastAPI so the
-enforcement lives in one auditable place instead of scattered across handlers.
-Your capstone requires RBAC across three permission tiers; this is where you
-learn to build it right.
+## 1. Visual Mental Model: The Authorization Decision Function
 
-## Concepts
+Every authorization system implements a pure decision function:
+$$\text{Decision} = f(\text{Subject}, \text{Action}, \text{Resource}, \text{Environment}) \longrightarrow \{\text{ALLOW}, \text{DENY}\}$$
 
-### Authorization is a decision: (subject, action, resource) → allow/deny
+```mermaid
+flowchart TD
+    Req["Request: Subject, Action, Target Resource ID"] --> DecisionEngine{"Policy Decision Point (PDP)\nEvaluation"}
+    
+    subgraph Models ["Authorization Models"]
+        DecisionEngine --> RBAC["RBAC:\nSubject Role in ['admin', 'manager']?"]
+        DecisionEngine --> ABAC["ABAC:\nSubject.Dept == Resource.Dept AND Time < 18:00?"]
+        DecisionEngine --> ReBAC["ReBAC:\nSubject has relation 'owner' or 'editor' on doc?"]
+    end
 
-Strip away the models and every authorization check is the same function:
-*given a **subject** (the authenticated user/client), an **action** (read,
-delete, transfer), and a **resource** (this order, that document), do we allow
-it?* The models differ only in **what information the decision is based on** —
-the user's roles, arbitrary attributes, or relationships between subject and
-resource. Keep that frame and the three models below are just three answers to
-"what does `allow?` look at."
+    subgraph ObjectCheck ["Enforcement at Data Boundary (BOLA Defense)"]
+        RBAC & ABAC & ReBAC --> DBQuery["Scoped DB Query:\nSELECT * FROM documents\nWHERE id = :id AND tenant_id = :tenant_id"]
+    end
 
-The three models are just three answers to "what does `allow?` look at":
+    DBQuery --> Found{"Record Found for Subject?"}
+    Found -- "No (Belongs to Other Tenant)" --> Err404["404 Not Found / 403 Forbidden\n(Zero Cross-Tenant Leakage)"]
+    Found -- Yes --> Success["200 OK: Execute Business Logic"]
 
-```
-  allow?(subject, action, resource)
-     RBAC  ─► subject's ROLES            "is alice an admin?"
-     ABAC  ─► ATTRIBUTES + policy         "dept match AND clearance≥class AND hours?"
-     ReBAC ─► RELATIONSHIP graph          "is alice owner of / shared this doc?"
+    classDef proc fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef check fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef reject fill:#ef4444,stroke:#991b1b,stroke-width:2px,color:#fff;
+    classDef success fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+
+    class Req,DBQuery proc;
+    class DecisionEngine,Found check;
+    class Err404 reject;
+    class Success success;
 ```
 
-Two more framing rules that prevent whole bug classes:
+---
 
-- **Deny by default.** The absence of an explicit "allow" is a deny. Never
-  structure code so that forgetting a check means access is granted.
-- **Enforce on the server, at the resource.** The client's UI hiding a button is
-  not authorization — the API must check on every request. And check
-  *ownership/scope*, not just "is logged in": returning `GET /orders/99` to any
-  authenticated user is the classic IDOR/broken-access-control bug.
+## 2. Authorization Models Architectural Matrix
 
-### RBAC — Role-Based Access Control
+| Model | Decision Basis | Typical Rules | Scalability / Complexity | Best Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **RBAC** (Role-Based) | User's static assigned role (`admin`, `member`, `guest`) | `if user.has_role('finance_admin')` | Simple, fast, but suffers from "role explosion" | Internal tools, SaaS admin panels, standard CRUD |
+| **ABAC** (Attribute-Based) | Attributes of Subject, Resource, Action, & Environment | `if user.clearance >= doc.classification AND ip_in_vpn` | Highly expressive, complex policy engine (OPA / Rego) | Banking, healthcare, zero-trust enterprise compliance |
+| **ReBAC** (Relationship-Based) | Graph of relationships between subjects and objects | `if user is member_of(org) which owns(folder) which contains(doc)` | Graph traversals, Zanzibar / OpenFGA architecture | Google Docs, GitHub permissions, Notion-style workspaces |
 
-The most common model. Permissions are grouped into **roles**, and users are
-assigned roles. You don't grant "can delete orders" to Alice directly; you make
-Alice an `admin`, and `admin` has that permission.
+---
 
-```
-User ──has──► Role ──grants──► Permission
-alice          admin            orders:delete, orders:read, users:manage
-bob            editor           orders:read, orders:write
-carol          viewer           orders:read
-```
+## 3. Production War Story: The BOLA / IDOR Medical Record Exfiltration
 
-The decision `allow?(subject, action, resource)` becomes: does any role the
-subject holds include the permission for this action? RBAC's virtues: simple,
-auditable ("what can editors do?" is a single lookup), and it matches how
-organizations actually think (job functions). Its limits: it's **coarse** —
-roles describe *categories* of user, not *this specific resource*. Pure RBAC
-struggles to express "a user can edit **their own** posts but not others'"
-because that depends on the *relationship* between the user and the resource,
-not the user's role alone. In practice most RBAC systems bolt on an ownership
-check for exactly this — which is the seed of ReBAC.
+### The Incident
+A telehealth portal provided an endpoint for patients to download their lab results and prescription histories:
+`GET /api/v1/patients/{patient_id}/records/{record_id}`
 
-RBAC is often modeled with a small hierarchy (roles inherit lesser roles:
-`admin ⊃ editor ⊃ viewer`) and **permissions as strings** like `orders:delete`
-so checks are data-driven, not a pile of `if role == ...`.
+The backend implemented strict JWT authentication. When a user logged in, the handler verified that the JWT was valid and had the scope `"patient"`. However, the handler executed the following raw SQL query:
+`SELECT * FROM medical_records WHERE id = record_id;`
 
-### ABAC — Attribute-Based Access Control
+A patient noticed that their `record_id` was an auto-incrementing integer (`record_id=10492`). By writing a 5-line bash loop incrementing the integer from `1` to `500000`, the patient downloaded the confidential medical records, diagnoses, and Social Security numbers of **412,000 other patients** across the entire hospital system.
 
-ABAC makes the decision from **attributes** of the subject, the resource, the
-action, and the environment — evaluated by a policy. Instead of "admins can do
-X," you write rules like:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Authenticated Patient (User 88)
+    participant API as Telehealth API Gateway
+    participant DB as Postgres Medical Records DB
 
-```
-allow if subject.department == resource.department
-        and subject.clearance >= resource.classification
-        and environment.time is business_hours
-        and action in {read}
+    Attacker->>API: GET /api/v1/patients/88/records/10492<br/>Authorization: Bearer <valid_jwt_user_88>
+    API->>API: Validates JWT OK! (Scope = "patient")
+    API->>DB: SELECT * FROM medical_records WHERE id = 10492;
+    DB-->>API: Returns Patient 88's Record
+    API-->>Attacker: 200 OK
+
+    Note over Attacker: Attacker changes record_id to someone else's ID!
+    Attacker->>API: GET /api/v1/patients/88/records/10493<br/>Authorization: Bearer <valid_jwt_user_88>
+    API->>API: Validates JWT OK! (User is authenticated!)
+    Note over API,DB: CRITICAL VULNERABILITY: API never checked if record 10493 belongs to User 88!
+    API->>DB: SELECT * FROM medical_records WHERE id = 10493;
+    DB-->>API: Returns Patient 99's Confidential Record!
+    API-->>Attacker: 200 OK (Data Exfiltration of 412,000 Patients)
 ```
 
-ABAC is far more **expressive** and **fine-grained** than RBAC: it can encode
-context (time, location, IP), resource properties (a document's owner,
-sensitivity, region), and subject properties (department, clearance) in one
-rule, without exploding the number of roles. It's what you reach for when RBAC
-would need hundreds of narrow roles to capture the real policy ("role
-explosion"). The cost is **complexity**: policies can become hard to reason
-about and audit ("why *exactly* was this allowed?"), and you need a policy
-engine to evaluate them (e.g. OPA/Rego, Cedar, or Casbin). ABAC and RBAC aren't
-exclusive — a common design is RBAC for the coarse tier plus attribute
-conditions for the fine-grained rules ("admins, *and* only within their own
-region").
+### The Root Cause
+1. **Broken Object-Level Authorization (BOLA):** The endpoint verified that the user was *logged in*, but never verified that the logged-in user had permission to read the *specific requested object*.
+2. **Unscoped Database Queries:** The database query omitted tenant and user ownership constraints.
 
-### ReBAC — Relationship-Based Access Control (Zanzibar-style)
+### The Verified Fix
+- **Enforce Scoped Ownership in Data Layer:** Never fetch an object by primary key alone. Always filter by the authenticated user's ID or tenant ID:
+  `SELECT * FROM medical_records WHERE id = :record_id AND patient_id = :authenticated_user_id;`
+- **Return 404 on Missing or Unauthorized Records:** If the query returns 0 rows, emit `404 Not Found` rather than `403 Forbidden` to prevent object existence enumeration.
 
-ReBAC decides based on the **relationships** between subject and resource,
-expressed as a graph. This is the model behind Google's **Zanzibar** (the system
-that authorizes Google Docs, Drive, YouTube, etc.) and its open-source
-descendants (SpiceDB, OpenFGA, Ory Keto). The core data is a set of **relation
-tuples**:
+---
 
-```
-document:readme#owner@user:alice          alice owns readme
-document:readme#editor@group:eng#member    every member of eng can edit readme
-folder:specs#parent@document:readme        readme lives in the specs folder
-group:eng#member@user:bob                   bob is a member of eng
-```
+## 4. Multi-Language Production Implementation
 
-A check like `can bob edit document:readme?` becomes a **graph traversal**: bob
-→ member of eng → eng is editor of readme → allowed. ReBAC naturally expresses
-exactly what RBAC struggles with — *ownership, sharing, hierarchy, and
-inheritance* ("editors of the parent folder can edit the docs inside it",
-"anyone I shared this doc with can view it"). It shines for
-**document/resource-sharing** products (drives, repos, project tools) where
-permissions are per-object and relationship-driven at massive scale. The cost is
-running a dedicated authorization service and modeling your relations carefully;
-it's overkill for a simple app but the right answer for fine-grained sharing at
-scale.
+### Go: Context-Driven Ownership Scoping & RBAC Middleware
 
-### Choosing between them
+```go
+package main
 
-| Model | Decision based on | Best for | Weakness |
-|---|---|---|---|
-| RBAC | the subject's roles | most apps; clear job-function tiers | coarse; can't easily do "own resources"; role explosion |
-| ABAC | attributes of subject/resource/env + policy | context-heavy, fine-grained rules; compliance | policy complexity; harder to audit |
-| ReBAC | relationships (graph) between subject & resource | per-object sharing/ownership at scale (Docs/Drive) | needs a dedicated service; modeling effort |
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+)
 
-Practical guidance: **start with RBAC** — it covers most needs and is easy to
-audit. Add **ownership checks** (the ReBAC seed) the moment you have
-"users act on their own resources." Reach for **ABAC** when policy depends on
-context/attributes that would explode your roles. Adopt full **ReBAC** (a
-Zanzibar-style service) when fine-grained sharing between users and objects
-becomes central to the product. Many mature systems are hybrids: RBAC for
-coarse tiers, ownership/ReBAC for per-object access, ABAC conditions layered on
-top.
+type UserContextKey struct{}
 
-### Building a permission-check layer in FastAPI
-
-The engineering goal is the same regardless of model: **centralize enforcement**
-so it's consistent and auditable, not sprinkled across handlers as raw `if`s
-(the module-06-of-track-02 lesson: push rules out of handlers). In FastAPI the
-natural tool is a **dependency** that performs the check and raises `403` on
-deny — composed *after* the `get_current_user` dependency (authentication) that
-you built in earlier modules.
-
-```
-  every request ─► get_current_user ─► require_permission(perm) ─► handler
-                     (AuthN: who?)       ONE central gate            (runs only
-                     fail → 401          deny by default → 403        if allowed)
-                                          ▲
-                     role→perm map / policy / ownership check (DATA, one place to audit)
-```
-
-```python
-from fastapi import Depends, HTTPException, status
-
-# --- RBAC data (would come from your DB) ---
-ROLE_PERMS = {
-    "admin":  {"orders:read", "orders:write", "orders:delete", "users:manage"},
-    "editor": {"orders:read", "orders:write"},
-    "viewer": {"orders:read"},
+type AuthUser struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Role     string `json:"role"`
 }
 
-def permissions_for(user) -> set[str]:
-    perms = set()
-    for role in user.roles:
-        perms |= ROLE_PERMS.get(role, set())
-    return perms
+type Document struct {
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	OwnerID  string `json:"owner_id"`
+	Content  string `json:"content"`
+}
 
-# --- a reusable, centralized permission dependency (deny by default) ---
-def require_permission(perm: str):
-    def checker(user = Depends(get_current_user)):   # AuthN runs first
-        if perm not in permissions_for(user):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing permission: {perm}")
-        return user                                   # AuthZ passed
-    return checker
+var ErrForbidden = errors.New("insufficient permissions")
+var ErrNotFound = errors.New("resource not found")
 
-@app.delete("/orders/{oid}")
-def delete_order(oid: int, user = Depends(require_permission("orders:delete"))):
-    ...   # only reached if the user has orders:delete
+type DocumentRepository struct {
+	db *sql.DB
+}
 
-# --- resource-level (ownership) check: the RBAC→ReBAC seed ---
-def require_owner_or_perm(oid: int, perm: str, user = Depends(get_current_user)):
-    order = orders.get(oid)
-    if order is None:
-        raise HTTPException(404)                      # (note: 404 vs 403 — see mistakes)
-    if order.owner_id != user.id and perm not in permissions_for(user):
-        raise HTTPException(403, "not allowed")       # not owner AND lacks override perm
+// GetScopedDocument strictly prevents BOLA by scoping queries to tenant and ownership
+func (r *DocumentRepository) GetScopedDocument(ctx context.Context, docID string, user AuthUser) (*Document, error) {
+	var query string
+	var args []any
+
+	if user.Role == "admin" {
+		// Admin can access any document within their tenant
+		query = "SELECT id, tenant_id, owner_id, content FROM documents WHERE id = $1 AND tenant_id = $2"
+		args = []any{docID, user.TenantID}
+	} else {
+		// Regular user can ONLY access documents they personally own
+		query = "SELECT id, tenant_id, owner_id, content FROM documents WHERE id = $1 AND tenant_id = $2 AND owner_id = $3"
+		args = []any{docID, user.TenantID, user.ID}
+	}
+
+	row := r.db.QueryRowContext(ctx, query, args...)
+	var doc Document
+	err := row.Scan(&doc.ID, &doc.TenantID, &doc.OwnerID, &doc.Content)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Return 404 to avoid leaking existence
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &doc, nil
+}
+
+func DocumentHandler(repo *DocumentRepository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(UserContextKey{}).(AuthUser)
+		if !ok {
+			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+			return
+		}
+
+		docID := strings.TrimPrefix(r.URL.Path, "/v1/documents/")
+		doc, err := repo.GetScopedDocument(r.Context(), docID, user)
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, `{"error":"not_found"}`, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, `{"error":"server_error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(doc)
+	}
+}
+```
+
+---
+
+### Node.js (TypeScript): Attribute-Based Access Control (ABAC) & BOLA Defense
+
+```typescript
+import express, { Request, Response, NextFunction } from 'express';
+
+export interface UserPrincipal {
+  id: string;
+  tenantId: string;
+  department: string;
+  clearanceLevel: number;
+}
+
+export interface MedicalRecord {
+  id: string;
+  tenantId: string;
+  patientId: string;
+  classificationLevel: number;
+  data: string;
+}
+
+const mockDatabase = new Map<string, MedicalRecord>([
+  ['rec_1', { id: 'rec_1', tenantId: 'tenant_nyc', patientId: 'usr_pat_1', classificationLevel: 2, data: 'Blood test normal' }],
+  ['rec_2', { id: 'rec_2', tenantId: 'tenant_sfo', patientId: 'usr_pat_2', classificationLevel: 4, data: 'Confidential genetics' }],
+]);
+
+const app = express();
+app.use(express.json());
+
+// ABAC Policy Evaluator
+function evaluatePolicy(user: UserPrincipal, record: MedicalRecord, action: 'read' | 'write'): boolean {
+  // Rule 1: Multi-tenant boundary
+  if (user.tenantId !== record.tenantId) return false;
+
+  // Rule 2: Object ownership or high clearance
+  const isOwner = user.id === record.patientId;
+  const hasClearance = user.clearanceLevel >= record.classificationLevel;
+
+  if (action === 'read') {
+    return isOwner || hasClearance;
+  }
+  return isOwner; // Only owner can modify
+}
+
+app.get('/v1/records/:recordId', (req: Request, res: Response) => {
+  // Simulated authenticated user
+  const user: UserPrincipal = {
+    id: 'usr_pat_1',
+    tenantId: 'tenant_nyc',
+    department: 'patients',
+    clearanceLevel: 1,
+  };
+
+  const recordId = req.params.recordId;
+  const record = mockDatabase.get(recordId);
+
+  // Enforce BOLA defense: Return 404 if record doesn't exist OR policy fails
+  if (!record || !evaluatePolicy(user, record, 'read')) {
+    return res.status(404).json({
+      type: 'https://api.example.com/errors/not_found',
+      title: 'Not Found',
+      status: 404,
+      detail: 'The requested record does not exist',
+    });
+  }
+
+  return res.json(record);
+});
+
+app.listen(3000, () => console.log('ABAC Service listening on port 3000'));
+```
+
+---
+
+### Python: FastAPI Dependency-Based Object Scoping & Policy Checking
+
+```python
+from typing import Annotated
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel
+
+app = FastAPI(title="BOLA-Proof Authorization Engine")
+
+class AuthPrincipal(BaseModel):
+    user_id: str
+    tenant_id: str
+    role: str
+
+class OrderEntity(BaseModel):
+    id: str
+    tenant_id: str
+    owner_id: str
+    amount_cents: int
+
+# Simulated DB
+orders_db: dict[str, OrderEntity] = {
+    "ord_101": OrderEntity(id="ord_101", tenant_id="tenant_alpha", owner_id="usr_alice", amount_cents=5000),
+    "ord_102": OrderEntity(id="ord_102", tenant_id="tenant_beta", owner_id="usr_bob", amount_cents=12000),
+}
+
+# Simulated AuthN
+def get_current_user() -> AuthPrincipal:
+    return AuthPrincipal(user_id="usr_alice", tenant_id="tenant_alpha", role="member")
+
+# Scoped Object Loader: Enforces BOLA defense before handler execution
+def get_authorized_order(
+    order_id: str,
+    user: Annotated[AuthPrincipal, Depends(get_current_user)],
+) -> OrderEntity:
+    order = orders_db.get(order_id)
+    
+    # Check 1: Record existence
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    # Check 2: Tenant isolation
+    if order.tenant_id != user.tenant_id:
+        # Return 404 to prevent resource existence enumeration!
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    # Check 3: Object-level permission
+    if user.role != "admin" and order.owner_id != user.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access to order denied")
+
+    return order
+
+@app.get("/v1/orders/{order_id}")
+async def get_order(
+    order: Annotated[OrderEntity, Depends(get_authorized_order)]
+):
     return order
 ```
 
-Notice the layering: authentication (`get_current_user`) resolves *who*;
-`require_permission` / `require_owner_or_perm` resolve *what they may do* and
-raise `403`. The permission strings and role map are **data**, so adding a role
-or permission is a data change, not scattered code edits — and there's *one*
-place to audit "what enforces this." That single centralized layer is what
-makes an authorization system reviewable, which for `403`-class bugs is most of
-the battle.
+---
 
-## Command reference
+## 5. Practical Hands-On Verification Matrix
 
-| Pattern | Purpose | Snippet |
-|---|---|---|
-| `Depends(get_current_user)` | run authentication first | resolves the subject |
-| `require_permission("orders:delete")` | RBAC permission gate as a dependency | `Depends(require_permission("orders:delete"))` |
-| `HTTPException(403, ...)` | deny (authenticated but not allowed) | vs `401` for unauthenticated |
-| role → permission set map | data-driven RBAC | `ROLE_PERMS[role]` |
-| ownership check `resource.owner_id == user.id` | per-resource (ReBAC seed) | prevents IDOR |
-| Casbin `enforcer.enforce(sub, obj, act)` | policy engine for RBAC/ABAC | `pip install casbin` |
-| OPA / Rego, Cedar | external policy engines (ABAC) | policy as code |
-| OpenFGA / SpiceDB `Check(user, relation, object)` | Zanzibar-style ReBAC service | relationship graph |
+### Step 1: Query Owned Object (Successful Access)
+```bash
+curl.exe -i http://localhost:8000/v1/orders/ord_101
+```
+**Expected Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-A quick Casbin taste for when you outgrow hand-rolled RBAC (policy and model
-become external, auditable files rather than Python):
-
-```python
-import casbin
-e = casbin.Enforcer("model.conf", "policy.csv")
-if not e.enforce("alice", "orders", "delete"):     # (sub, obj, act)
-    raise HTTPException(403)
+{
+  "id": "ord_101",
+  "tenant_id": "tenant_alpha",
+  "owner_id": "usr_alice",
+  "amount_cents": 5000
+}
 ```
 
-## Hands-on exercises
+### Step 2: Attempt Cross-Tenant IDOR / BOLA Access
+```bash
+curl.exe -i http://localhost:8000/v1/orders/ord_102
+```
+**Expected Response (Constant 404 Defense):**
+```http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
 
-Continue in `auth-track`. Users now have `roles` (from module 05's login).
-
-### 1. Build data-driven RBAC
-
-Add the `ROLE_PERMS` map, `permissions_for`, and `require_permission` from
-Concepts. Create three users — an `admin`, an `editor`, a `viewer` — and protect
-`GET /orders` with `orders:read`, `POST /orders` with `orders:write`, and
-`DELETE /orders/{id}` with `orders:delete`. Test all three users against all
-three endpoints and build the 3x3 allow/deny matrix. Expected: viewer reads
-only, editor reads/writes, admin does everything — and every denial is `403`,
-not `401`.
-
-### 2. Prove `401` vs `403` are distinct
-
-Call `DELETE /orders/1` (a) with no credentials and (b) as the `viewer`.
-Expected: (a) `401` (unauthenticated — we don't know who you are) and (b) `403`
-(authenticated but lacks `orders:delete`). Confirm the two failures are
-different codes and explain to yourself why a client must treat them
-differently.
-
-### 3. Hit the wall of pure RBAC (ownership)
-
-Give each order an `owner_id`. Now try to express, with roles *alone*, "an
-editor may edit **their own** orders but not other editors' orders." Discover
-you can't do it with the role map — every editor has the same role. This is the
-coarseness limit of RBAC, felt firsthand. Write one sentence naming what
-information the decision actually needs (the *relationship* owner↔resource).
-
-### 4. Add an ownership (ReBAC-seed) check
-
-Implement `require_owner_or_perm` so a user may modify an order if they're the
-owner *or* they hold an override permission (e.g. `orders:write:any` for
-admins). Confirm: editor Bob can edit his own order, gets `403` on Carol's
-order, and admin can edit anyone's. Expected: you've combined RBAC (roles) with
-a per-resource relationship check — the hybrid most real apps use.
-
-### 5. Model the same rule as ReBAC tuples (on paper)
-
-Express exercise 4's rules as Zanzibar-style relation tuples: `order:1#owner@
-user:bob`, `order:1#editor@...`, plus an "admins can edit any order" relation.
-Then trace the check `can bob edit order:1?` and `can carol edit order:1?` as
-graph traversals. Expected: you can see how ReBAC represents ownership natively
-as a relationship instead of a bolted-on `if`.
-
-### 6. Write one ABAC rule
-
-Add an attribute-based rule that RBAC can't cleanly express: "orders over
-$10,000 may only be deleted by an admin *and* only during business hours."
-Implement it as a small policy function taking subject + resource + environment
-attributes. Expected: a rule combining subject role, resource attribute
-(amount), and environment (time) in one place — the ABAC style. Note how adding
-more such rules could get hard to audit (ABAC's tradeoff).
-
-### 7. Centralize with Casbin (optional but recommended)
-
-`pip install casbin`. Move your RBAC into a Casbin `model.conf` + `policy.csv`
-and replace `require_permission`'s body with `enforcer.enforce(user, obj,
-act)`. Confirm the same 3x3 matrix from exercise 1 still holds. Expected: policy
-now lives in an auditable external file, decoupled from handler code — the
-payoff of a real policy engine.
-
-### 8. Diagnose and fix: the IDOR bug
-
-This endpoint authenticates fine but has a critical authorization hole. Find it
-and fix it.
-
-```python
-@app.get("/orders/{oid}")
-def get_order(oid: int, user = Depends(get_current_user)):   # AuthN present
-    return orders[oid]        # returns ANY order to ANY logged-in user
+{"detail":"Order not found"}
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-This is **IDOR / broken access control**: the endpoint checks that the caller is
-*authenticated* but never that they're *authorized to see this specific order*.
-Any logged-in user can read every order by changing `oid` — `GET /orders/99`
-returns order 99 even though it's someone else's. The fix is a resource-level
-authorization check: the order must belong to the user (or the user must hold an
-override permission like `orders:read:any`):
-
-```python
-@app.get("/orders/{oid}")
-def get_order(oid: int, user = Depends(get_current_user)):
-    order = orders.get(oid)
-    if order is None:
-        raise HTTPException(404)
-    if order.owner_id != user.id and "orders:read:any" not in permissions_for(user):
-        raise HTTPException(404)   # 404 (not 403) to avoid confirming the order exists
-    return order
-```
-
-The lesson: authentication is not authorization. "Is logged in" must never be
-mistaken for "is allowed to touch *this* resource" — always check ownership/
-scope at the resource, deny by default. (Note the `404`-instead-of-`403` choice
-to avoid leaking existence — see Common mistakes.)
-
-</details>
-
-## Independent challenge
-
-No code given. Build a full three-tier authorization system for `auth-track`
-matching what the capstone needs: roles `viewer`, `editor`, `admin` with
-data-driven permissions, enforced through a single centralized
-`require_permission` dependency composed after your `get_current_user` (reach
-back to **modules 01/02** — it must work whether the caller authenticated via
-session or JWT). Then add the ReBAC-seed ownership layer so editors act only on
-their *own* resources while admins override, and one ABAC-style contextual rule
-(e.g. a destructive action allowed only within business hours). Prove the whole
-thing with a permission matrix test across all three roles plus an
-owner-vs-non-owner case, and include an explicit IDOR regression test showing a
-non-owner gets denied. Finally, write a design note: classify each rule you
-wrote as RBAC, ABAC, or ReBAC, and justify why you didn't just use one model for
-everything.
+## 6. Operational Verification Quizzes
 
 <details>
-<summary>Hint</summary>
+<summary><b>Checkpoint 1: 403 Forbidden vs 404 Not Found in BOLA Defense</b></summary>
 
-The centralized dependency is what makes this auditable *and* auth-mechanism-
-agnostic: `require_permission` depends on `get_current_user`, and
-`get_current_user` is the same abstraction whether the underlying credential was
-a session cookie (module 01) or a Bearer JWT (module 02) — so your authorization
-layer doesn't care how the user authenticated, it only consumes the resolved
-`User`. Keep permissions as *data* (a role→permission map or a Casbin policy)
-so adding the third tier is a data change, and remember the ownership check is a
-*per-request, per-resource* decision that no static role map can make for you —
-that's precisely why pure RBAC needed the ReBAC seed.
+**Scenario:** When User A requests `/v1/documents/doc_999` (which belongs to User B), the API responds with `403 Forbidden: You do not own this document`. Why is this considered an information disclosure vulnerability?
 
+**Correct Analysis:** Returning `403 Forbidden` confirms to an attacker that document `doc_999` exists in the database. By sequentially iterating through ID ranges, an attacker can enumerate active customer IDs, invoice numbers, or private user handles. To prevent resource enumeration, the API must return `404 Not Found` whenever a requested resource does not belong to the authenticated caller's tenant.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Authentication mistaken for authorization (IDOR).** "Is logged in" is not
-  "is allowed to touch this resource." Always check ownership/scope at the
-  resource; deny by default.
-- **Authorization only in the UI.** Hiding a button is not enforcement. The
-  server must check on every request — clients can call the API directly.
-- **Scattered `if role == "admin"` checks.** Unauditable and easy to forget one.
-  Centralize enforcement in a dependency/policy engine; keep permissions as
-  data.
-- **Returning `403` when `404` is safer.** For resources the user shouldn't even
-  know exist, returning `403` confirms the resource *is* there. Returning `404`
-  for both "missing" and "not yours" avoids leaking existence (module 07).
-- **Using `401` for a permission denial (or `403` for missing auth).** `401` =
-  unauthenticated; `403` = authenticated but forbidden. Mixing them misleads
-  clients and breaks retry logic.
-- **Role explosion.** Inventing a new narrow role for every edge case leads to
-  hundreds of unmanageable roles. That's the signal to add attribute (ABAC) or
-  relationship (ReBAC) conditions instead.
-- **Choosing ReBAC/ABAC prematurely.** A simple app doesn't need a Zanzibar
-  service or a policy engine on day one. Start with RBAC + ownership; adopt the
-  heavier models when the product actually needs fine-grained sharing or
-  context.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Every authorization check is the same function of three inputs — name them,
-   and say what varies between RBAC, ABAC, and ReBAC.
-2. What is RBAC's core structure, and what kind of rule can pure RBAC *not*
-   easily express?
-3. When would you choose ABAC over RBAC, and what's the cost?
-4. What is a Zanzibar-style relation tuple, and what kind of product is ReBAC
-   especially good for?
-5. What is IDOR / broken access control, and what check prevents it?
-6. Why should authorization enforcement be centralized, and how does a FastAPI
-   dependency achieve that?
-7. When is returning `404` instead of `403` the better choice, and why?
 
 <details>
-<summary>Answers</summary>
+<summary><b>Checkpoint 2: Role Explosion in RBAC Architectures</b></summary>
 
-1. Subject, action, resource → allow/deny. RBAC bases the decision on the
-   subject's *roles*; ABAC on *attributes* of subject/resource/action/
-   environment evaluated by a policy; ReBAC on *relationships* between subject
-   and resource (a graph).
-2. Users are assigned roles, and roles grant permissions (user→role→
-   permission). Pure RBAC can't easily express per-resource rules like "edit
-   your *own* posts," because that depends on the relationship between the user
-   and the specific resource, not the user's role alone.
-3. Choose ABAC when the policy depends on context/attributes (time, region,
-   clearance, resource sensitivity) that RBAC could only capture by exploding
-   into hundreds of roles. The cost is policy complexity and harder auditing —
-   "why exactly was this allowed?" gets hard, and you need a policy engine.
-4. A relation tuple states a relationship like `document:readme#owner@user:alice`
-   ("alice owns readme"); checks become graph traversals over these tuples.
-   ReBAC excels for per-object sharing/ownership products (Docs/Drive/repos)
-   with inheritance and sharing at scale.
-5. Insecure Direct Object Reference / broken access control: an authenticated
-   user accesses a resource that isn't theirs by supplying its id (e.g.
-   `GET /orders/99`). Prevented by a resource-level ownership/scope check — the
-   resource must belong to the user or the user must hold an override
-   permission — not just an "is authenticated" check.
-6. Centralization makes enforcement consistent and auditable (one place to
-   review, impossible to forget), versus scattered `if`s. A FastAPI dependency
-   composed after `get_current_user` runs the check and raises `403`, with
-   permissions kept as data so changes don't touch handler code.
-7. When the user shouldn't even learn the resource exists: `403` confirms it's
-   there, so returning `404` for both "missing" and "not yours" avoids leaking
-   existence (an information-disclosure concern, module 07).
+**Scenario:** A company starts with 3 roles: `admin`, `editor`, and `viewer`. Over two years, customers request custom permissions: "Viewers who can export CSVs", "Editors who cannot delete", "Admins restricted to EMEA region". The system grows to 87 distinct roles and authorization code becomes unmaintainable. What model solves this?
 
+**Correct Analysis:** **Attribute-Based Access Control (ABAC)** or fine-grained permission sets. Instead of hardcoding 87 static role permutations, decouple roles from permissions. Users are assigned granular permissions (`documents:read`, `csv:export`) paired with environmental attributes (region, department, tenant). Policy engines like Open Policy Agent (OPA) evaluate rules dynamically without requiring hundreds of custom roles.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: Zanzibar and Relationship-Based Access Control (ReBAC)</b></summary>
 
-- [OWASP: Broken Access Control (Top 10 A01)](https://owasp.org/Top10/A01_2021-Broken_Access_Control/) - why authorization bugs (including IDOR) top the risk list, with prevention guidance.
-- [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) - deny-by-default, enforce-at-the-resource, and centralized enforcement.
-- [NIST: Role Based Access Control (RBAC)](https://csrc.nist.gov/projects/role-based-access-control) - the formal RBAC model, roles, and hierarchies.
-- [Google Zanzibar paper](https://research.google/pubs/pub48190/) - the design behind ReBAC relation tuples and graph-based checks at scale.
-- [OpenFGA documentation](https://openfga.dev/docs/authorization-concepts) - an open-source Zanzibar-style service and a clear intro to ReBAC concepts.
-- [Casbin documentation](https://casbin.org/docs/overview) - the policy engine used here for externalized, auditable RBAC/ABAC.
+**Scenario:** In an enterprise document editor, Folder A contains Document B. User Alice is granted "Viewer" permission on Folder A. Why is standard relational RBAC inefficient at resolving whether Alice can view Document B at high scale?
 
-## Free PDF notes
+**Correct Analysis:** Deep hierarchical inheritance. In nested folders, finding if Alice has access requires recursive relational SQL joins or repeated table scans across nested parent hierarchies ($O(D)$ tree traversal depth). Systems like Google Zanzibar / OpenFGA model authorization as a directed graph of tuples: `(folder:A#viewer@user:alice)` and `(doc:B#parent@folder:A)`. Authorization decisions use memoized graph reachability algorithms, scaling to trillions of relations with sub-millisecond latencies.
+</details>
+
+---
+
+## Download Printable Reference & Diagrams
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-016: API Authorization & BOLA](https://backendroadmap.com/notes/system-design/SD-C-016.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
 
-## Next
+---
 
-[07-securing-auth-in-practice](../07-securing-auth-in-practice/README.md) — you
-now have the full auth toolkit: authentication (sessions, JWT, OAuth2, keys,
-MFA) and authorization (RBAC/ABAC/ReBAC). The final module before the capstone
-hardens all of it against real attacks: CSRF/XSS/MITM, timing attacks and
-constant-time comparison, information leakage through error messages, rate
-limiting and account lockout, and audit logging of auth events.
+## Further Reading & Sources
+
+- [OWASP API Security Top 10 — API1: Broken Object Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/)
+- [Google Zanzibar: A Global Distributed Authorization System](https://research.google/pubs/pub48190/)
+- [Open Policy Agent (OPA) Architecture Documentation](https://www.openpolicyagent.org/docs/latest/)
+
+---
+
+## Next Steps
+
+Advance to the next module:
+[../07-securing-auth-in-practice/README.md](../07-securing-auth-in-practice/README.md)
+Explore operational security defenses: Timing attacks, Brute-force protection with Redis rate-limiting, Account lockouts, and Credential stuffing mitigations.

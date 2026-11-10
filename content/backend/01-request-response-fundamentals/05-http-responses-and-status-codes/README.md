@@ -1,489 +1,375 @@
 # Module 05: HTTP Responses and Status Codes
 
-## Why this matters
+## Why This Matters
 
-The status code is the server's three-digit executive summary of what
-happened. It's the first thing every client — browser, library, proxy,
-cache, monitoring tool — looks at, and it drives *automatic behavior*: a
-`301` makes a browser remember a new URL forever, a `304` makes it reuse a
-cached copy, a `429` makes a well-written client back off and retry, a
-`503` makes a load balancer mark the backend unhealthy. Return the wrong
-code and every one of those automatic behaviors does the wrong thing.
+The HTTP status code is the server's three-digit executive summary of what happened on the wire. It is the primary signal consumed by every browser, API gateway, reverse proxy, CDN, SDK retry loop, and observability system (Datadog, Prometheus):
+* **Automated Client Decisions:** A `304` tells a client to serve instantly from local disk cache, a `429` signals an exponential backoff loop, and a `503` commands a load balancer to eject the container from the pool.
+* **The Blame Line ($4xx$ vs. $5xx$):** $4xx$ signifies a client-side mistake (invalid JSON, bad credentials)—retrying unchanged is futile. $5xx$ signifies server infrastructure distress—retrying with jitter is warranted.
+* **Observability Integrity:** If your backend returns `200 OK` with `{"error": "database down"}`, every monitoring dashboard reports green while your users experience a 100% outage.
 
-The most common failure in real APIs is returning `200 OK` for everything
-and stuffing `{"error": "not found"}` in the body. Now every client has to
-parse your body to discover something the status line was designed to tell
-them at a glance — caches cache your errors, retry logic can't tell a
-retryable failure from a permanent one, and monitoring can't distinguish
-"my API is healthy" from "my API is returning errors with a smile." Codes
-are a contract; this module is about honoring it.
+> [!TIP]
+> **The Golden Rule:** Never return `200 OK` for error states. Classify the outcome using standard HTTP status codes, and elaborate machine-readable error details using RFC 9457 (`application/problem+json`).
 
-You've already met `200`, `201`, `204`, `404`, and `405` in modules 03-04.
-Here we complete the map — all five classes, the codes you'll actually use
-weekly, and the precise "when do I return which" judgment that makes an API
-feel correct.
+---
 
-## Concepts
+## The Mental Model: The Decision Flowchart
 
-### The five classes
+```mermaid
+flowchart TD
+    Start(["Incoming Request"]) --> Parse{"Is Request Syntax Valid?"}
+    Parse -- No --> C400["400 Bad Request\n(Malformed JSON / Headers)"]
+    Parse -- Yes --> Auth{"Is Client Authenticated?"}
 
-The first digit classifies the response:
+    Auth -- No --> C401["401 Unauthorized\n(Missing / Expired Bearer Token)\n+ WWW-Authenticate"]
+    Auth -- Yes --> Perm{"Has Required Permissions?"}
 
-- **`1xx` Informational** — interim, rarely seen directly (`100 Continue`,
-  `101 Switching Protocols` for WebSocket upgrades). You mostly don't
-  return these by hand.
-- **`2xx` Success** — the request succeeded. `200`, `201`, `202`, `204`.
-- **`3xx` Redirection** — more action needed, usually "go look
-  elsewhere." `301`, `302`, `304`, `307`, `308`.
-- **`4xx` Client error** — *the caller* did something wrong; don't retry
-  unchanged. `400`, `401`, `403`, `404`, `405`, `409`, `422`, `429`.
-- **`5xx` Server error** — *the server* failed; the request may be fine
-  and worth retrying. `500`, `502`, `503`, `504`.
+    Perm -- No --> C403["403 Forbidden\n(Authenticated, but Role Insufficient)"]
+    Perm -- Yes --> Exists{"Does Target Resource Exist?"}
 
-```
-  1xx ┤ informational   "hold on, interim update"     100, 101
-  2xx ┤ success         "here you go"                  200 201 202 204
-  3xx ┤ redirection     "go look elsewhere / use cache"301 302 304 307 308
-  4xx ┤ client error    "YOU broke it — don't retry"   400 401 403 404 409 422 429
-  5xx ┤ server error    "I broke it — retry may work"  500 502 503 504
-      └──────────────────────────────────────────────────────────►
-                        ▲ the 4xx│5xx line: whose fault, and retry-or-not
-```
+    Exists -- No --> C404["404 Not Found\n(Resource Does Not Exist)"]
+    Exists -- Yes --> Method{"Is Method Allowed on URI?"}
 
-The `4xx`/`5xx` split is the most consequential distinction in all of
-HTTP: `4xx` means "you broke it, fixing your request might help"; `5xx`
-means "I broke it, your request might be fine — retry may succeed." Retry
-logic, alerting, and blame all hinge on this line.
+    Method -- No --> C405["405 Method Not Allowed\n+ Allow: GET, POST"]
+    Method -- Yes --> Valid{"Payload Valid Semantically?"}
 
-### The 2xx codes worth knowing
+    Valid -- No --> C422["422 Unprocessable Entity\n(Valid JSON, but price < 0)"]
+    Valid -- Yes --> Conflict{"Conflicts with Current State?"}
 
-- **`200 OK`** — generic success with a body. `GET` that found something,
-  `PUT`/`PATCH` that returns the updated resource.
-- **`201 Created`** — a new resource was created. Pair with a `Location`
-  header pointing at it (module 03). The canonical `POST` success.
-- **`202 Accepted`** — the request was accepted for *asynchronous*
-  processing; it isn't done yet. Used when work is queued (a later track's
-  background jobs). The response often includes a status URL to poll.
-- **`204 No Content`** — success, and there is deliberately *no body*.
-  The canonical `DELETE` success, and a valid `PUT`/`PATCH` result when
-  you don't echo the resource back. A `204` must not have a body.
+    Conflict -- Yes --> C409["409 Conflict\n(Duplicate Email / Stale Version)"]
+    Conflict -- No --> Rate{"Exceeded Rate Limit?"}
 
-### The 3xx codes worth knowing
+    Rate -- Yes --> C429["429 Too Many Requests\n+ Retry-After: 60"]
+    Rate -- No --> Execute{"Execute Server Logic"}
 
-- **`301 Moved Permanently`** — this resource lives at a new URL forever;
-  update your bookmarks/links. Browsers and search engines cache this
-  aggressively — a `301` is hard to take back, so be sure. Include
-  `Location` with the new URL.
-- **`302 Found` / `307 Temporary Redirect`** — go here *for now*, but keep
-  using the original URL next time. `307` is the modern, method-preserving
-  version (a `307` on a POST re-POSTs; historically `302` sometimes got
-  turned into a GET, which `307` fixes).
-- **`308 Permanent Redirect`** — like `301` but method-preserving.
-- **`304 Not Modified`** — a *conditional* response: "your cached copy is
-  still current; reuse it, I'm sending no body." This is the beating heart
-  of HTTP caching (module 06) and saves enormous bandwidth. It's a `3xx`
-  because it tells the client to take action (use its cache).
+    Execute -- Unhandled Exception --> C500["500 Internal Server Error\n(Bug / Panic / Crash)"]
+    Execute -- Upstream Dead --> C502["502 Bad Gateway\n(Proxy received garbage)"]
+    Execute -- Upstream Timeout --> C504["504 Gateway Timeout\n(Downstream service hung)"]
+    Execute -- Success (Created) --> C201["201 Created\n+ Location: /users/42"]
+    Execute -- Success (Empty Body) --> C204["204 No Content\n(DELETE / Empty PUT)"]
+    Execute -- Success (With Data) --> C200["200 OK\n(Standard Payload)"]
 
-`Location` is the header that says *where* for the redirect family (module
-02).
+    classDef errClient fill:#fee2e2,stroke:#ef4444,stroke-width:2px;
+    classDef errServer fill:#fef3c7,stroke:#f59e0b,stroke-width:2px;
+    classDef okSuccess fill:#dcfce7,stroke:#22c55e,stroke-width:2px;
 
-### The 4xx codes worth knowing
-
-- **`400 Bad Request`** — the request is malformed or nonsensical (bad
-  JSON syntax, missing required field the server can't even parse). "I
-  can't understand this."
-- **`401 Unauthorized`** — you're not authenticated (no/invalid
-  credentials). Misnamed: it means *unauthenticated*. Pair with
-  `WWW-Authenticate` (module 02).
-- **`403 Forbidden`** — you're authenticated but *not allowed* to do this.
-  "I know who you are; you can't." (401 = who are you; 403 = you can't.)
-- **`404 Not Found`** — no such resource. Also used to *hide* existence
-  ("I won't confirm this exists to you").
-- **`405 Method Not Allowed`** — the resource exists but not for this
-  method; include an `Allow` header (module 03).
-- **`409 Conflict`** — the request conflicts with current state (e.g.
-  creating a user whose email already exists; an edit based on a stale
-  version). "This clashes with reality."
-- **`422 Unprocessable Entity`** — the syntax is fine but the *semantics*
-  are invalid (well-formed JSON, but `age: -5` fails validation). This is
-  what FastAPI returns for validation errors. The distinction from `400`:
-  `400` = "I can't parse this"; `422` = "I parsed it, but the values are
-  invalid."
-- **`429 Too Many Requests`** — rate limited. Pair with `Retry-After`
-  telling the client when to try again (module 02).
-
-### The 5xx codes worth knowing
-
-- **`500 Internal Server Error`** — an unhandled exception / bug in your
-  code. The generic "something blew up on my side." Never leak the stack
-  trace to clients in production.
-- **`502 Bad Gateway`** — a proxy/load balancer got an invalid response
-  from the upstream server it forwarded to (module 00's proxy layer). Often
-  means your app crashed or isn't speaking HTTP correctly behind the proxy.
-- **`503 Service Unavailable`** — the server is temporarily unable to
-  handle the request (overloaded, in maintenance, no healthy backends).
-  Pair with `Retry-After`. A load balancer with zero healthy backends
-  returns this.
-- **`504 Gateway Timeout`** — a proxy waited for the upstream and it never
-  answered in time (module 00: the upstream was too slow or hung).
-
-`502`, `503`, `504` are the trio you'll debug when "the API is down" —
-they tell you *which layer* failed: `502` = upstream gave garbage, `503` =
-no capacity, `504` = upstream too slow.
-
-### Choosing the right code: the decision path
-
-When writing a handler, walk this:
-
-1. Did the client's request make sense syntactically? No → `400`.
-2. Are they authenticated (if required)? No → `401`.
-3. Are they allowed to do this? No → `403`.
-4. Does the target resource exist? No → `404`.
-5. Is the method supported here? No → `405`.
-6. Is the body valid per your rules? No → `422`.
-7. Does it conflict with current state? Yes → `409`.
-8. Are they over their rate limit? Yes → `429`.
-9. Otherwise do the work. Created something new? → `201` + `Location`.
-   Nothing to return? → `204`. Otherwise → `200`.
-10. If *your* code fails doing the work → `500` (or `502/503/504` at the
-    infra layer).
-
-```
-  request ─► parse OK? ──no──► 400
-              │yes
-              ▼ authenticated? ──no──► 401
-              │yes
-              ▼ allowed? ──────────no──► 403
-              │yes
-              ▼ resource exists? ──no──► 404
-              │yes
-              ▼ method OK? ────────no──► 405 (+ Allow)
-              │yes
-              ▼ body valid? ──────no──► 422
-              │yes
-              ▼ conflicts? ──────yes──► 409
-              │no
-              ▼ over rate limit? ─yes──► 429 (+ Retry-After)
-              │no
-              ▼ do the work ──► created? 201 (+Location) · empty? 204 · else 200
-                        └─ blew up? ──► 500 / 502 / 503 / 504
+    class C400,C401,C403,C404,C405,C422,C409,C429 errClient;
+    class C500,C502,C504 errServer;
+    class C200,C201,C204 okSuccess;
 ```
 
-### The response body for errors
+---
 
-A `4xx`/`5xx` should still carry a *machine-readable* body explaining the
-problem — but the *status code* must independently convey the class. A
-common good shape is RFC 9457 "problem details":
+## 1. Quick Reference: The 5 Status Code Classes
+
+```
+1xx ── Informational   Protocol handshakes & streaming interim states (101 Switching Protocols)
+2xx ── Success         Action understood, accepted, and processed (200, 201, 204)
+3xx ── Redirection     Additional client action required (301, 304 Not Modified, 307, 308)
+4xx ── Client Error    Client sent invalid request; DO NOT retry unchanged (400, 401, 403, 404, 422, 429)
+5xx ── Server Error    Server or downstream dependency failed; SAFE to retry with backoff (500, 502, 503, 504)
+```
+
+### The Standard Error Payload: RFC 9457 (Problem Details)
+Instead of inventing arbitrary error schemas like `{"err": "bad"}`, high-reliability APIs use the standardized RFC 9457 format (`Content-Type: application/problem+json`):
 
 ```json
 {
-  "type": "https://api.example.com/errors/validation",
-  "title": "Validation failed",
+  "type": "https://api.example.com/errors/invalid-order",
+  "title": "Unprocessable Order Payload",
   "status": 422,
-  "detail": "age must be >= 0",
-  "errors": [{"field": "age", "message": "must be >= 0"}]
+  "detail": "The 'items' list contains an item with negative quantity.",
+  "instance": "/orders/req_9a8f23",
+  "invalid_params": [
+    {
+      "name": "quantity",
+      "reason": "Must be greater than 0, received -2"
+    }
+  ]
 }
 ```
 
-The rule: the body *elaborates*; the status code *classifies*. Never make
-the client parse the body to learn success vs. failure.
+---
 
-## Command reference
+## 2. Production War Story: The 200 OK Error Outage
 
-| Command | What it does |
-|---|---|
-| `curl -o /dev/null -s -w '%{http_code}\n' URL` | Print just the status code |
-| `curl -i URL` | Show status line + headers + body |
-| `curl -s -D - -o /dev/null URL` | Show status line + headers only |
-| `curl -L URL` | Follow `3xx` redirects (uses `Location`) |
-| `curl -i -X DELETE URL` | See a `204`/`404` for a delete |
-| `raise HTTPException(status_code=..., detail=...)` (FastAPI) | Return an error code from code |
+```mermaid
+sequenceDiagram
+    actor Client as Mobile Client App
+    participant LB as AWS ALB / Ingress
+    participant Gateway as Circuit Breaker / Envoy
+    participant App as Payment Service
+    participant DB as Postgres Database
 
-Notes:
+    Note over DB: Database runs out of connections (Deadlock)!
+    Client->>Gateway: POST /v1/checkout ($120.00)
+    Gateway->>App: Forward POST /v1/checkout
+    App->>DB: INSERT INTO payments ...
+    DB-->>App: Connection Refused / Out of Memory
+    Note over App: Developer catch-all block traps error and returns 200 OK!
+    App-->>Gateway: HTTP/1.1 200 OK {"success": false, "code": "DB_DOWN"}
+    Gateway-->>Client: HTTP/1.1 200 OK {"success": false, "code": "DB_DOWN"}
+    Note over Gateway: Circuit Breaker counts 200 OK as HEALTHY!
+    Note over Gateway: LB continues routing 10,000 req/s to broken nodes
+    Note over Gateway,App: SRE Alerting Dashboard shows 0% Error Rate while all payments fail!
+```
 
-- **`-w '%{http_code}'`** writes out just the numeric code — great for
-  scripting/monitoring ("is this endpoint returning 2xx?").
-- **`-L`** makes curl *follow* redirects by issuing a new request to the
-  `Location` URL. Without it, you *see* the `301`/`302` itself.
-- In FastAPI, returning a value → `200` (or the route's declared
-  `status_code`); `raise HTTPException(status_code=404, detail="...")`
-  produces a `4xx`/`5xx` with a JSON body; validation failures
-  auto-produce `422`.
+### The Incident
+During a Black Friday promotion, an e-commerce checkout service experienced a Postgres database connection pool exhaustion. Instead of returning `500 Internal Server Error` or `503 Service Unavailable`, the application catch-all block returned:
+```json
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-Example app used below:
+{"status": "failure", "message": "Database pool exhausted"}
+```
 
+### The Root Cause
+1. **Circuit Breakers Failed to Open:** The Envoy proxy was configured to trip and shed load if the 5xx rate exceeded 5%. Because the server returned `200 OK`, Envoy believed the backend was 100% healthy and continued routing full traffic into the saturated database.
+2. **Alerting Was Blind:** Automated PagerDuty alerts configured for `sum(rate(http_requests_total{status=~"5.."}[5m])) > 1%` showed a flatline of zero. The outage went undetected for 45 minutes until customers flooded customer support.
+
+### The Fix
+Never mask failures with `200 OK`. Allow exceptions to map directly to appropriate HTTP status codes (`500` or `503`):
+```http
+HTTP/1.1 503 Service Unavailable
+Retry-After: 30
+Content-Type: application/problem+json
+
+{
+  "type": "https://api.example.com/errors/service-unavailable",
+  "title": "Database Capacity Exhausted",
+  "status": 503,
+  "detail": "Temporary pool saturation. Retry after 30 seconds."
+}
+```
+
+---
+
+## 3. Production War Story: The Permanent 301 Cache Trap
+
+```mermaid
+sequenceDiagram
+    actor Browser as User Browser
+    participant API as Legacy API Gateway (Old Domain)
+    participant NewAPI as New API Gateway
+
+    Browser->>API: 1. POST /api/submit-order (Body: {"item": "Book"})
+    Note over API: Gateway responds with HTTP 301 Moved Permanently
+    API-->>Browser: 301 Moved Permanently (Location: https://new-api.com/submit-order)
+    Note over Browser: 1. Browser caches 301 in PERMANENT disk cache!
+    Note over Browser: 2. Browser transforms POST into GET (Historical 301 bug)!
+    Browser->>NewAPI: GET https://new-api.com/submit-order (Empty Body!)
+    NewAPI-->>Browser: 405 Method Not Allowed
+    Note over Browser: Even after server config is reverted, users are PERMANENTLY broken!
+```
+
+### The Root Cause & The Fix
+* **The Problem:** `301 Moved Permanently` is cached indefinitely by browser engines (often persisting until the user manually clears browser data). Furthermore, RFC 7231 acknowledges that older HTTP/1.0 clients frequently converted `POST` into `GET` upon receiving a `301` or `302`.
+* **The Modern Standard:** When redirecting API requests where the HTTP method and payload must be strictly preserved, always use:
+  * **`307 Temporary Redirect`** (Method and body preserved; not cached indefinitely).
+  * **`308 Permanent Redirect`** (Method and body preserved; permanent).
+
+---
+
+## 4. Multi-Language Implementation: Standardized RFC 9457 Errors
+
+### Go (`net/http`)
+Production Problem Details error responder:
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type ProblemDetail struct {
+	Type     string            `json:"type"`
+	Title    string            `json:"title"`
+	Status   int               `json:"status"`
+	Detail   string            `json:"detail"`
+	Instance string            `json:"instance,omitempty"`
+	Errors   map[string]string `json:"errors,omitempty"`
+}
+
+func WriteProblem(w http.ResponseWriter, r *http.Request, status int, title, detail string, errs map[string]string) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(ProblemDetail{
+		Type:     "https://api.example.com/errors/" + http.StatusText(status),
+		Title:    title,
+		Status:   status,
+		Detail:   detail,
+		Instance: r.URL.Path,
+		Errors:   errs,
+	})
+}
+
+func checkoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		WriteProblem(w, r, http.StatusMethodNotAllowed, "Method Not Allowed", "Use POST to submit checkout", nil)
+		return
+	}
+
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="checkout"`)
+		WriteProblem(w, r, http.StatusUnauthorized, "Authentication Required", "Valid Bearer token must be supplied", nil)
+		return
+	}
+
+	// Example 422 Unprocessable Entity
+	WriteProblem(w, r, http.StatusUnprocessableEntity, "Validation Error", "Item out of stock", map[string]string{
+		"item_id": "SKU-9901 is out of inventory",
+	})
+}
+```
+
+### Node.js / Express
+```typescript
+import express, { Request, Response, NextFunction } from 'express';
+
+export class AppError extends Error {
+  constructor(
+    public statusCode: number,
+    public title: string,
+    public detail: string,
+    public errors?: Record<string, string>
+  ) {
+    super(detail);
+  }
+}
+
+const app = express();
+
+// Global RFC 9457 Error Middleware
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  const isAppError = err instanceof AppError;
+  const status = isAppError ? err.statusCode : 500;
+  const title = isAppError ? err.title : 'Internal Server Error';
+  const detail = isAppError ? err.detail : 'An unexpected infrastructure error occurred.';
+
+  res.setHeader('Content-Type', 'application/problem+json');
+  res.status(status).json({
+    type: `https://api.example.com/errors/${status}`,
+    title,
+    status,
+    detail,
+    instance: req.originalUrl,
+    ...(isAppError && err.errors ? { errors: err.errors } : {})
+  });
+});
+```
+
+### Python (FastAPI)
 ```python
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 
 app = FastAPI()
-USERS = {1: {"id": 1, "name": "Ada", "email": "ada@x.com"}}
 
-class NewUser(BaseModel):
-    name: str
-    email: str
-    age: int = Field(ge=0)          # age must be >= 0
+class OrderInput(BaseModel):
+    sku: str = Field(min_length=3)
+    quantity: int = Field(gt=0, description="Quantity must be at least 1")
 
-@app.get("/users/{uid}")
-def get_user(uid: int):
-    if uid not in USERS:
-        raise HTTPException(status_code=404, detail="user not found")
-    return USERS[uid]
-
-@app.post("/users", status_code=status.HTTP_201_CREATED)
-def create(user: NewUser, response: Response):
-    for u in USERS.values():
-        if u["email"] == user.email:
-            raise HTTPException(status_code=409, detail="email already exists")
-    uid = max(USERS) + 1
-    USERS[uid] = {"id": uid, **user.model_dump()}
-    response.headers["Location"] = f"/users/{uid}"
-    return USERS[uid]
-
-@app.delete("/users/{uid}", status_code=status.HTTP_204_NO_CONTENT)
-def delete(uid: int):
-    USERS.pop(uid, None)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-@app.get("/boom")
-def boom():
-    raise RuntimeError("simulated bug")     # becomes a 500
+# Standardized RFC 9457 Validation Error Handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = {
+        ".".join(str(loc) for loc in err["loc"]): err["msg"]
+        for err in exc.errors()
+    }
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        media_type="application/problem+json",
+        content={
+            "type": "https://api.example.com/errors/validation",
+            "title": "Request Validation Failed",
+            "status": 422,
+            "detail": "One or more input fields failed validation constraints.",
+            "instance": request.url.path,
+            "errors": errors
+        }
+    )
 ```
 
-## Hands-on exercises
+---
 
-Run with `uvicorn app:app --reload`.
+## 5. Practical Hands-On Exercises
 
-### 1. Read just the code
+### Exercise 1: Extract Just the HTTP Status Code for Health Scripting
+Run this against any endpoint to extract the exact 3-digit status code without printing HTML/JSON bodies:
 
 ```bash
-curl -o /dev/null -s -w 'GET /users/1 -> %{http_code}\n' http://127.0.0.1:8000/users/1
-curl -o /dev/null -s -w 'GET /users/99 -> %{http_code}\n' http://127.0.0.1:8000/users/99
+curl -o /dev/null -s -w "%{http_code}\n" https://api.github.com/
+# Output: 200
+
+curl -o /dev/null -s -w "%{http_code}\n" https://api.github.com/non-existent-route
+# Output: 404
 ```
 
-Expected: `200` then `404`. The code alone tells you success vs.
-not-found — no body parsing needed.
-
-### 2. 201 + Location on create
+### Exercise 2: Observe 307 vs. 301 Behavior
+Send a request that triggers a URL canonicalization redirect:
 
 ```bash
-curl -s -i -X POST -H 'Content-Type: application/json' \
-  -d '{"name":"Lin","email":"lin@x.com","age":30}' http://127.0.0.1:8000/users
+curl -s -i https://httpbin.org/status/307 -H "Origin: https://example.com"
 ```
+**Look for:**
+* Status `307 Temporary Redirect`
+* `Location` header indicating target destination
 
-Expected: `HTTP/1.1 201 Created` and a `location: /users/2` header. That's
-the canonical create response (module 03).
+---
 
-### 3. 204 on delete — and no body
-
-```bash
-curl -s -i -X DELETE http://127.0.0.1:8000/users/2
-```
-
-Expected: `HTTP/1.1 204 No Content` and *no* response body. Confirm the
-body is empty — a `204` must not send one.
-
-### 4. 422 vs 400 — validation vs. unparseable
-
-```bash
-# Well-formed JSON, invalid value (age negative) -> 422
-curl -s -i -X POST -H 'Content-Type: application/json' \
-  -d '{"name":"X","email":"x@x.com","age":-5}' http://127.0.0.1:8000/users
-# Malformed JSON -> 422/400 depending; note the difference
-curl -s -i -X POST -H 'Content-Type: application/json' \
-  -d '{"name":"X", "email":' http://127.0.0.1:8000/users
-```
-
-Expected: the first returns `422 Unprocessable Entity` with a body
-pointing at the `age` field (parsed fine, value invalid). The second is a
-parse failure. Internalize the distinction: `422` = valid syntax, invalid
-semantics; `400` = can't even parse.
-
-### 5. 409 conflict
-
-```bash
-curl -s -i -X POST -H 'Content-Type: application/json' \
-  -d '{"name":"Ada2","email":"ada@x.com","age":40}' http://127.0.0.1:8000/users
-```
-
-Expected: `409 Conflict` — `ada@x.com` already exists. The request was
-well-formed and valid, but conflicts with current state.
-
-### 6. 500 — and what leaks
-
-```bash
-curl -s -i http://127.0.0.1:8000/boom
-```
-
-Expected: `500 Internal Server Error`. In `--reload`/debug mode you may
-see a traceback; in production you must *not* leak it. Note this is a
-`5xx` (server's fault) — a client would be right to retry, though here it
-will fail again because it's a real bug.
-
-### 7. Follow a redirect
-
-FastAPI adds a redirect for trailing-slash mismatches by default. Try:
-
-```bash
-curl -s -i http://127.0.0.1:8000/users/         # note trailing slash
-curl -s -i -L http://127.0.0.1:8000/users/
-```
-
-Expected: without `-L` you see a `307`/`308` with a `location` header;
-with `-L`, curl follows it to the final response. Seeing the redirect
-itself vs. following it is the difference `-L` makes.
-
-### 8. Map the decision path
-
-For each scenario, write the code you'd return *before* checking, then
-verify your reasoning against the decision path in Concepts:
-
-- Request body isn't valid JSON at all. → ?
-- Valid JSON, but missing a required field / bad value. → ?
-- No auth token on a protected route. → ?
-- Valid token, but this user can't access this resource. → ?
-- Resource genuinely doesn't exist. → ?
-- Creating something whose unique key already exists. → ?
-- Client has made 10,000 requests this minute. → ?
-
-Expected: `400`, `422`, `401`, `403`, `404`, `409`, `429`. If any were
-wrong, reread that code's paragraph.
-
-### 9. Diagnose and fix: 200-for-everything
-
-Here's a broken handler. Add it and see why it's bad:
-
-```python
-@app.get("/legacy/users/{uid}")
-def legacy_get(uid: int):
-    if uid not in USERS:
-        # BUG: signals "not found" with a 200 and an error body
-        return {"error": "user not found"}
-    return USERS[uid]
-```
-
-```bash
-curl -o /dev/null -s -w '%{http_code}\n' http://127.0.0.1:8000/legacy/users/99
-curl -s http://127.0.0.1:8000/legacy/users/99
-```
-
-Expected: status `200` even though the user doesn't exist, with an
-`{"error": ...}` body. **Diagnose:** every client, cache, and monitor now
-believes this succeeded. A cache may store the "error" as a valid
-response; a retry-on-5xx client won't retry; a dashboard counting non-2xx
-sees zero errors. **Fix:** `raise HTTPException(status_code=404,
-detail="user not found")` so the *status line* carries the truth and the
-body merely elaborates. Re-run: the code is now `404`. Lesson: classify
-with the status code; elaborate in the body.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Build a `/orders` endpoint set that returns the *semantically
-correct* status code for every one of these situations, and prove each
-with a curl command that prints just `%{http_code}`: (1) successfully
-fetching an existing order; (2) creating a new order; (3) fetching an
-order that doesn't exist; (4) creating an order with a negative quantity;
-(5) creating a duplicate order (same idempotency key/unique field as an
-existing one); (6) deleting an order; (7) an internal failure while
-processing. For the create-success case, also verify the correct header
-that points at the new resource is present (from module 03). Do not use
-`200` for any error case. This exercises the full decision path and the
-method/code pairings from module 03.
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The Authentication vs. Authorization Mismatch</strong></summary>
 
-The seven expected codes are `200`, `201`, `404`, `422`, `409`, `204`,
-`500`. For (2), remember `201` needs a `Location` header. For (7), let an
-exception propagate (or raise `HTTPException(status_code=500)`) — but in a
-real app you'd catch it and return a clean problem-details body without
-leaking internals.
+**Scenario:** An employee calls an internal payroll endpoint: `GET /api/v1/salaries/executive`.
+The client provides a valid, unexpired Bearer JWT for user `john.doe`, but John is an intern and not in the `Executive-HR` security group.
 
+Should the server respond with `401 Unauthorized` or `403 Forbidden`?
+
+**Answer:**
+**The server MUST return `403 Forbidden`.**
+
+* `401 Unauthorized` specifically means **unauthenticated** (missing, invalid, or expired credentials). Returning `401` instructs the client SDK to dump the token and present a login screen.
+* `403 Forbidden` means **authenticated, but unauthorized** (the server knows who you are, but your role/permissions do not permit access). Re-authenticating with the same credentials will not help.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **`200` for errors.** The cardinal sin. Clients, caches, and monitoring
-  all key off the status code; hiding failures behind `200` breaks them
-  all.
-- **Confusing `401` and `403`.** `401` = not authenticated (who are you?);
-  `403` = authenticated but not permitted (you can't). Wrong choice
-  confuses clients about whether to re-login.
-- **Confusing `400` and `422`.** `400` = unparseable/malformed; `422` =
-  parsed fine but failed validation rules.
-- **`301` used casually.** It's permanent and cached hard by browsers/
-  search engines — painful to reverse. Use `302`/`307` for temporary.
-- **`204` with a body.** A `204` must have no body; sending one is
-  malformed and confuses clients.
-- **Not distinguishing `502`/`503`/`504`.** They pinpoint *which layer*
-  failed (upstream garbage / no capacity / upstream too slow) — key for
-  ops debugging.
-- **Leaking stack traces on `500`.** Never expose internal errors to
-  clients; log them server-side, return a clean generic message.
-- **Missing `Retry-After` on `429`/`503`.** Well-behaved clients honor it
-  to back off; without it they hammer you.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the single most important distinction between a `4xx` and a
-   `5xx` code, and how does it affect retry logic?
-2. A client sends syntactically valid JSON, but `age` is `-5` and your
-   rules require `age >= 0`. What code, and how does it differ from the
-   code for genuinely malformed JSON?
-3. Distinguish `401` and `403` in one sentence each.
-4. What status code and what header should a successful resource-creating
-   `POST` return?
-5. What does `304 Not Modified` tell the client to do, and which upcoming
-   module is it central to?
-6. You're debugging "the site is down." You see `502` from the load
-   balancer for some requests and `504` for others. What does each tell
-   you about where the failure is?
-7. Why is returning `200` with `{"error": "..."}` for a missing resource
-   harmful? Name two concrete things it breaks.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Diagnosing 502 vs. 504 on an AWS ALB</strong></summary>
 
-1. `4xx` = the client's request was wrong (retrying it unchanged won't
-   help); `5xx` = the server failed (the request may be fine, so a retry
-   might succeed). Retry logic should generally retry `5xx` (and `429`
-   with backoff) but not blindly retry `4xx`.
-2. `422 Unprocessable Entity` — the JSON parsed fine but a value failed
-   validation. Malformed/unparseable JSON is `400 Bad Request` ("I can't
-   even parse this"), versus `422` ("I parsed it; the values are invalid").
-3. `401` = you are not authenticated (no/invalid credentials — "who are
-   you?"). `403` = you are authenticated but not permitted to do this
-   ("you can't").
-4. `201 Created`, with a `Location` header pointing at the new resource's
-   URL.
-5. It tells the client its cached copy is still valid, so it should reuse
-   the cache; the server sends no body. It's central to module 06 (HTTP
-   caching).
-6. `502 Bad Gateway` = the proxy got an invalid/garbage response from the
-   upstream app (likely crashed or misbehaving). `504 Gateway Timeout` =
-   the proxy waited and the upstream never responded in time (upstream
-   hung or too slow).
-7. It lies to every consumer of the status code. E.g.: caches may store
-   the "error" as a successful response; monitoring counting non-2xx sees
-   no errors; retry-on-5xx logic won't retry a genuine failure; clients
-   must parse the body to learn success vs. failure. (Any two.)
+**Scenario:** Your application load balancer (ALB) suddenly spikes in 5xx errors during peak traffic.
+In the ALB access logs, half the errors are logged as `502` and the other half as `504`.
 
+What is the operational difference between these two error states?
+
+**Answer:**
+* **`502 Bad Gateway`** indicates that the ALB connected to the backend container, but the container **terminated the connection abruptly** (TCP RST), crashed with an uncaught SIGSEGV/OOM, or returned malformed HTTP bytes.
+* **`504 Gateway Timeout`** indicates that the ALB connected to the backend container, but the backend **failed to respond within the ALB idle timeout limit** (e.g. 60 seconds) due to slow database queries or CPU starvation.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Validation Error Code Selection</strong></summary>
 
-- [MDN: HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the complete reference, one page per code, grouped by class.
-- [RFC 9110 §15: Status Codes](https://www.rfc-editor.org/rfc/rfc9110#name-status-codes) - the authoritative definitions and the semantics of each class.
-- [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457) - the standard error-body shape shown in Concepts.
-- [MDN: 422 Unprocessable Content](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422) - the validation-vs-parse distinction that trips people (400 vs 422).
-- [FastAPI: Handling errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - how `HTTPException` and validation map to the codes used in the exercises.
+**Scenario:** A client submits a `POST /v1/users` request with the body:
+`{"email": "not-an-email", "age": -10}`
+The JSON parser parses the bytes successfully into an object, but your schema validator rejects the fields.
 
-## Next
+Why should a modern API return `422 Unprocessable Entity` instead of `400 Bad Request`?
 
-[06-http-caching](../06-http-caching/README.md) — you just met `304`;
-now we build the whole caching system around it: `Cache-Control`, `ETag`,
-`Last-Modified`, and conditional requests.
+**Answer:**
+* **`400 Bad Request`** indicates that the server **could not understand or parse the request** (e.g. malformed syntax, truncated bytes, invalid HTTP headers).
+* **`422 Unprocessable Entity`** (RFC 9110) indicates that the syntax is completely valid and parseable (the JSON is well-formed), but the enclosed instructions or business rules are semantically invalid. 
+
+Returning `422` allows clients to differentiate between transport/syntax corruption (`400`) and field validation errors (`422`) that can be highlighted directly in user form interfaces.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered HTTP status codes and error taxonomy, proceed to **[06-http-caching](../06-http-caching/README.md)** to master `Cache-Control`, `ETags`, `Last-Modified`, and 304 conditional validation.

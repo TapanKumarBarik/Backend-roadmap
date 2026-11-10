@@ -8,7 +8,7 @@ import { modulesUnder, folderNode } from './modules.js';
 
 export const PATH_TEXT_FIELDS = ['id', 'title', 'topic', 'goal', 'audience'];
 export const PATH_LIST_FIELDS = ['prerequisites', 'skills'];
-const PATH_KEYS = new Set([...PATH_TEXT_FIELDS, 'difficulty', ...PATH_LIST_FIELDS, 'steps', 'next']);
+const PATH_KEYS = new Set([...PATH_TEXT_FIELDS, 'difficulty', ...PATH_LIST_FIELDS, 'steps', 'next', 'milestone', 'flagship']);
 const FILE_KEYS = new Set(['_about', 'paths']);
 
 // A path's id is part of its address (/paths/<id>/), so it is written like one.
@@ -45,6 +45,18 @@ export function pathListProblems(paths) {
       else if (p.steps.indexOf(step) !== i) problems.push(`${who}: step "${step}" is listed twice`);
     });
     if (p.next !== undefined && (!isText(p.next) || !ids.includes(p.next) || p.next === p.id)) problems.push(`${who}: next "${p.next}" is not another path in this file`);
+    if (p.flagship !== undefined && typeof p.flagship !== 'boolean') problems.push(`${who}: "flagship" must be true or false`);
+    if (p.milestone !== undefined) {
+      if (!p.milestone || typeof p.milestone !== 'object' || Array.isArray(p.milestone)) {
+        problems.push(`${who}: "milestone" must be an object with title and description`);
+      } else {
+        if (!isText(p.milestone.title)) problems.push(`${who}: milestone "title" is missing`);
+        if (!isText(p.milestone.description)) problems.push(`${who}: milestone "description" is missing`);
+        if (p.milestone.deliverables !== undefined && (!Array.isArray(p.milestone.deliverables) || !p.milestone.deliverables.every(isText))) {
+          problems.push(`${who}: milestone "deliverables" must be a list of texts`);
+        }
+      }
+    }
   }
   return problems;
 }

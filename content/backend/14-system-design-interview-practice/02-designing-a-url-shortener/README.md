@@ -1,534 +1,568 @@
 # Module 02: Designing a URL Shortener
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 00 (Capacity Estimation), Module 01 (System Design Interview Framework), Caching Fundamentals
 
-The URL shortener (think bit.ly, TinyURL) is the classic warm-up design problem,
-and it earns that status honestly: it looks trivial — "just store a mapping and
-redirect" — but running it through the framework surfaces a surprising density of
-real distributed-systems concepts in a small, tractable package. You'll confront
-**unique-id generation at scale** (how do you mint billions of distinct short
-codes without collisions and without a central bottleneck?), the archetypal
-**extremely read-heavy** workload (redirects vastly outnumber creations, so
-caching and read replicas dominate the design), **storage estimation over
-years**, and a genuine **consistency vs. availability** decision on the write
-path.
+---
 
-Because it's small, it's the perfect place to practice the *whole* framework end
-to end without drowning in scope — you can actually finish all seven steps. And
-because every later problem in this track reuses these building blocks (id
-generation, cache-aside reads, read replicas, key-based partitioning), getting
-them crisp here pays off everywhere. Treat this module as the reference
-implementation of "run the framework cleanly on a bounded problem."
+> [!TIP]
+> **The Golden Rule of URL Shortener Design**  
+> Never generate short codes using database auto-increments or uncoordinated cryptographic hashes. Auto-increments create a centralized single point of failure (SPoF) and leak sequential business metrics, while truncated hashes suffer probabilistic collisions that require expensive database read checks. Instead, decouple generation using a **Range-Leased ID Allocator** (workers lease blocks of $1,000–10,000$ sequential integers via atomic operations and encode them locally into **Base62 strings**), shard storage deterministically by `hash(short_code)`, and isolate the $100:1$ read-to-write ratio using a **Cache-Aside Redis tier with HTTP 302 redirects** to protect analytics telemetry.
 
-## Concepts
+---
 
-### Requirements and scope
+## 1. Visual Mental Models
 
-**Functional:**
-- Given a long URL, return a short URL (a short code on your domain, e.g.
-  `sho.rt/aB3xK9`).
-- Given a short URL, redirect to the original long URL.
-- (Optional) custom alias chosen by the user.
-- (Optional) expiration / TTL on links.
+### 1.1 Complete End-to-End System Architecture
 
-**Non-functional (the ones that shape everything):**
-- **Massively read-heavy.** Redirects dominate creations — assume ~**100:1**
-  read:write. This single NFR pushes the entire design toward caching and read
-  replicas.
-- **Low-latency redirects.** A redirect is on the user's critical path to the
-  destination site; target <100 ms. Users won't tolerate a slow indirection.
-- **High availability.** If the shortener is down, every link everywhere breaks.
-  Redirects especially must stay up — leaning toward **availability over strong
-  consistency** (recall the CAP tradeoff from **10-distributed-systems-
-  patterns**).
-- **Not-so-strict durability/consistency on creation.** It's acceptable if a
-  freshly created link takes a second to be globally visible; it is *not*
-  acceptable to ever hand out the *same* short code for two different long URLs.
+The architecture separates the high-velocity read redirect path from the write creation and background analytics paths:
 
-Out of scope for the warm-up: user accounts, analytics dashboards, spam
-detection (mention them, defer them).
+```mermaid
+flowchart TD
+    Client["Client / Web Browser"] --> L7["Global Anycast L7 Load Balancer"]
 
-### Capacity estimation
+    subgraph ServiceFleet["Stateless Application Tier"]
+        API1["URL Shortener Worker 1"]
+        API2["URL Shortener Worker 2"]
+        API3["URL Shortener Worker N"]
+    end
 
-Run the module-00 recipe. Assume **100M new URLs/day**.
+    L7 -->|"POST /api/v1/links (Writes)"| ServiceFleet
+    L7 -->|"GET /{short_code} (Reads)"| ServiceFleet
 
-```
-writes:  100M/day ÷ 10^5 s        = 1,000 writes/sec average
-         × 3 peak                 ≈ 3,000 writes/sec peak
-reads:   1,000 × 100 (r:w ratio)  = 100,000 reads/sec average
-         × 3 peak                 ≈ 300,000 redirects/sec peak
-```
+    subgraph KeyGeneration["Decoupled ID Generation"]
+        LeaseService["Token Range Allocator<br/>(Zookeeper / Redis Atomic INCRBY)"]
+    end
 
-Storage (each row: short code + long URL + metadata ≈ **500 bytes**, kept 5
-years):
+    ServiceFleet <-->|"Lease ID Block [1000..1999]"| LeaseService
 
-```
-per day    = 100M × 500 B         = 50 GB/day
-5 years    = 50 GB × 365 × 5      ≈ 91 TB
-× 3 replication                   ≈ ~270 TB
+    subgraph CacheTier["Distributed Cache Tier (Cache-Aside)"]
+        RedisCluster[("Redis Cluster Shards<br/>(Key: short_code -> long_url)<br/>LRU Eviction")]
+    end
+
+    subgraph StorageTier["Horizontally Sharded Data Tier"]
+        DBPrimary[("Primary SQL/NoSQL Cluster<br/>(Partition Key: short_code)")]
+        DBReplica[("Read Replicas (Async Replication)")]
+    end
+
+    ServiceFleet <-->|"1. Check Cache (sub-ms)"| RedisCluster
+    ServiceFleet -->|"2. Write URL Record"| DBPrimary
+    DBPrimary -.->|"Replicate"| DBReplica
+    ServiceFleet -.->|"3. Cache Miss Fallback"| DBReplica
+
+    subgraph AnalyticsAsync["Asynchronous Analytics Stream"]
+        Kafka[("Kafka Stream: link_clicks")]
+        Worker["Click Aggregator Workers"]
+        AnalyticsDB[("ClickHouse / TimescaleDB")]
+    end
+
+    ServiceFleet -.->|"Emit Click Event (Non-blocking)"| Kafka
+    Kafka --> Worker --> AnalyticsDB
 ```
 
-Two conclusions that drive the architecture: (1) 300K reads/sec **mandates a
-cache and read replicas** — you will not serve that from a single primary; (2)
-~270 TB **exceeds one machine**, so the key-value store must be **partitioned/
-sharded**. The write rate (3K/sec) is modest and a well-chosen datastore handles
-it, so writes are *not* the bottleneck — reads are.
+### 1.2 Range-Lease ID Generation Sequence
 
-### The core problem: short-code generation
+Workers lease integer ranges in bulk, converting integers to Base62 entirely in memory without thread contention or inter-service network calls:
 
-The heart of the design is minting a short, unique code for each URL. Codes are
-**base62** (`[a-z A-Z 0-9]`, 62 characters), which is compact and URL-safe.
-Length math:
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as URL Worker Node 1
+    participant Alloc as Range Allocator (Redis / DB)
+    participant Client as User Client
 
-```
-62^6 ≈ 5.7 × 10^10  (57 billion)   → 6 chars covers years at 100M/day
-62^7 ≈ 3.5 × 10^12                 → 7 chars is very comfortable headroom
-```
+    Note over App: App starts up with empty local buffer
+    App->>Alloc: INCRBY range_counter 1000
+    Alloc-->>App: Returns range ceiling: 50,000 (Leased: 49,001 - 50,000)
+    Note over App: Local atomic pointer = 49,001
 
-So **7 base62 characters** gives ample space. Now, *how* to generate the code —
-three viable strategies, each with a tradeoff:
+    loop Handling User Requests
+        Client->>App: POST /api/v1/links {"destination_url": "https://..."}
+        App->>App: local_id = atomic.AddInt64(&current, 1)
+        App->>App: short_code = Base62Encode(local_id) -> "8M3xQp"
+        App-->>Client: 201 Created {"short_url": "https://sho.rt/8M3xQp"}
+    end
 
-1. **Counter → base62 (id encoding).** Maintain a global monotonically
-   increasing 64-bit counter; each new URL gets the next integer, which you
-   **base62-encode** into the short code. Pros: guaranteed unique, no collision
-   checks, dense (short codes). Cons: needs a distributed counter without a
-   single bottleneck — solved with a **key-generation service** or a ranged
-   ticket server (each app server pre-allocates a block of ids, e.g. 1,000 at a
-   time, from a central allocator, so it only talks to the allocator once per
-   thousand URLs). Also, sequential codes are *guessable/enumerable* — a downside
-   if that matters.
-2. **Random code + collision check.** Generate a random 7-char base62 string,
-   check the datastore for existence, retry on the rare collision. Pros: codes
-   are non-enumerable; no central counter. Cons: an extra read per creation to
-   check uniqueness (cheap at low collision density but not free), and collision
-   probability grows as the space fills.
-3. **Hash the long URL (e.g. MD5/SHA) → take first N base62 chars.** Pros:
-   deterministic (same long URL → same code, which can dedupe). Cons: hash
-   collisions on the truncated prefix must still be handled, and determinism
-   leaks that two people shortened the same URL.
-
-The **pre-allocated-block counter** approach is usually the strongest default:
-it removes the central bottleneck (each server hands out codes from its local
-block) while guaranteeing uniqueness with no collision checks. Each app server
-leases a block once, then converts local integers to codes with no coordination:
-
-```
-  Allocator          App server A            base62 encode
-  (global) ─ lease ─► [1000..1999] ─┐
-     │                              ├─ 1001 ──► divmod by 62 ──► "aB3xK9"
-     └──── lease ────► App server B │           (7 chars)
-                       [2000..2999] ┘
-   one round-trip per 1000 URLs; a crash just skips a block (id space is huge)
+    Note over App: When local pointer reaches 50,000:
+    App->>Alloc: INCRBY range_counter 1000 (Fetches next block: 50,001 - 51,000)
 ```
 
-This is the same "batch to amortize a central coordination cost" idea you'll see
-again in module 04's key-value store.
+---
 
-### The read path: cache-aside and redirects
+## 2. Technical Reference Matrices
 
-Redirects are 99% of traffic, so the read path *is* the system. The flow:
+### 2.1 Base62 Capacity & URL Length Space
 
-```
-GET /aB3xK9
-  → Load Balancer
-  → App server
-  → check Redis cache for "aB3xK9"     ── hit (common) ──► 301/302 redirect
-                                       └─ miss ─► read replica → cache it → redirect
-```
+Base62 uses characters `[0-9, a-z, A-Z]` ($10 + 26 + 26 = 62$). Each additional character increases namespace capacity by $62\times$:
 
-Key design points on the read path:
+| Length ($N$) | Total Addressable Combinations ($62^N$) | Approximate Scale | Lifespan at 100M URLs/Day | Interview Evaluation |
+| :--- | :--- | :--- | :--- | :--- |
+| **5 chars** | $62^5 = 916,132,832$ | $\sim 916\text{ Million}$ | $\sim 9\text{ Days}$ | ❌ Critically insufficient for production |
+| **6 chars** | $62^6 = 56,800,235,584$ | $\sim 56.8\text{ Billion}$ | $\sim 1.5\text{ Years}$ | ⚠️ High collision / exhaustion risk |
+| **7 chars** | $62^7 = 3,521,614,606,208$ | $\sim 3.52\text{ Trillion}$ | $\sim 96\text{ Years}$ | **Optimal Gold Standard** |
+| **8 chars** | $62^8 = 218,340,105,584,896$ | $\sim 218\text{ Trillion}$ | $\sim 6,000\text{ Years}$ | ⚠️ Unnecessarily long for mobile SMS |
 
-- **Cache-aside** (recall **05-caching-and-performance**): on a miss, read from
-  the store, populate the cache, then serve. With a 100:1 read ratio and hot
-  links following an 80/20 distribution, cache hit rates are very high, so almost
-  every redirect is served from memory in <1 ms.
-- **301 vs. 302.** A **301 (permanent)** lets browsers and intermediaries cache
-  the redirect, slashing load on your service — but then you *lose* the ability to
-  track clicks and you can't easily change the target. A **302 (temporary/found)**
-  keeps every redirect flowing through your service (so you can count clicks and
-  change targets) at the cost of more traffic. The choice is a real tradeoff tied
-  to whether analytics matter.
-- **Read replicas + CDN.** Behind the cache, replicate the datastore for read
-  scaling; optionally push hot redirects to edge/CDN. Redirects are trivially
-  cacheable because they rarely change.
+### 2.2 Short-Code Generation Strategies Compared
 
-### Data model and partitioning
+| Strategy | Collision Risk | Bottleneck Risk | Predictability / Enumeration | Operational Complexity | Recommendation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **MD5/SHA256 Truncation** | High (Birthday paradox on 7-char slice) | High (DB point read needed per write to verify) | Non-sequential | High (Requires DB retry loop on collisions) | ❌ Avoid |
+| **Random Base62 + DB Check** | Exponentially rises with key space density | High (DB lookup before insert) | Non-sequential | Moderate | ❌ Inefficient at high QPS |
+| **UUIDv4 / Snowflake ID** | Zero | None | Partially sequential | Low (Snowflake produces 64-bit int $\to$ Base62) | Good alternative |
+| **Range-Leased Counter $\to$ Base62** | **Mathematical Zero** | **Zero (Leased blocks of $10^4$)** | Sequential (Mitigated by Feistel cipher or random offset) | **Minimal** | **Industry Best Practice** |
 
-The data is a simple key-value mapping, so a **NoSQL key-value store** (or a
-partitioned SQL table) fits naturally — you only ever look up *by short code*.
+---
 
-```
-short_code (PK)   long_url        created_at   expires_at   owner_id?
-"aB3xK9"          "https://…"     2026-07-24   null         null
-```
+## 3. Production War Story: The Viral Link Thundering Herd
 
-- **Access pattern:** point lookup by `short_code` on reads; insert on writes.
-  No range scans, no joins. This is the ideal shape for a hash-partitioned KV
-  store.
-- **Shard key:** `short_code`. Hash-partition on it so lookups go straight to the
-  owning shard, and the ~270 TB spreads evenly across nodes. Because reads are
-  single-key point lookups, sharding adds no scatter-gather cost — every read
-  hits exactly one shard.
-- **Custom aliases** are just user-supplied `short_code`s; you must check
-  uniqueness on insert (a conditional write) and reject duplicates with `409`.
-- **Expiration** is a TTL column; a background cleanup job (recall
-  **06-background-processing-and-realtime**) lazily purges expired rows, or you
-  check `expires_at` on read and treat expired as `404`.
+### The Incident
+A global breaking news outlet shortened an emergency breaking alert URL via an enterprise shortener. Within 4 seconds of being tweeted to 80 million followers, the short code `sho.rt/evac91` received 160,000 redirects/second.
 
-### Reference architecture
+The link was newly created and had not yet been cached in Redis. Because 160,000 concurrent requests simultaneously experienced a cache miss, all 160,000 threads bypassed the cache and hammered the relational read replica cluster with `SELECT destination_url FROM links WHERE short_code = 'evac91'`. 
 
-Putting the write path, the read path, and the async analytics pipeline together,
-the whole shortener looks like this — the hot redirect path is the thick spine,
-everything else hangs off it:
+The database CPU instantly reached $100\%$, connection pools exhausted within 800 milliseconds, and the entire database cluster collapsed in a **Cascading Cache Stampede**.
 
-```
-                          ┌──────────────────┐
-   Client ──────────────► │  Load Balancer   │
-   (POST create /         └───────┬──────────┘
-    GET redirect)                 ▼
-                          ┌──────────────────┐
-                          │   App servers    │
-                          │   (stateless)    │
-                          └──┬────────┬───┬──┘
-        WRITE path          │        │   │        READ path
-   ┌──────────────────┐     │        │   │   ┌──────────────────┐  hit
-   │ ID-gen /         │◄────┘        │   └──►│   Redis cache    │─────► 302 redirect
-   │ Block allocator  │  lease block │       │  (hot codes,<1ms)│
-   │ (counter→base62) │              │       └────────┬─────────┘
-   └────────┬─────────┘              │        miss    │  populate on miss
-            │ insert                 │               ▼
-            ▼                        │      ┌──────────────────────┐
-   ┌────────────────────────────────▼──┐   │  Partitioned KV store │
-   │     Partitioned KV store          │◄──┤  read replicas        │
-   │  (hash by short_code) + replicas  │   └──────────────────────┘
-   └───────────────────────────────────┘
-            │  redirect handler fires click event (non-blocking)
-            ▼
-   ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────────┐
-   │  Analytics queue │───►│ Analytics workers│───►│ Analytics/time-series │
-   │  (async stream)  │    │ (aggregate)      │    │ store  + dashboard    │
-   └──────────────────┘    └──────────────────┘    └──────────────────────┘
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Users as 160,000 Concurrent Readers
+    participant App as API Server Fleet
+    participant Redis as Redis Cache
+    participant DB as Postgres Read Replica
+
+    Users->>App: GET /evac91 (160k req/s)
+    App->>Redis: GET evac91 -> (CACHE MISS!)
+    Note over App,DB: Thundering Herd / Cache Stampede!
+    App->>DB: 160,000 concurrent SELECT queries!
+    Note over DB: Connection Pool Exhausted (Max 2,000 conns)
+    DB-->>App: 500 FATAL: remaining connection slots reserved
+    App-->>Users: 503 Service Unavailable (System Wide Outage)
 ```
 
-**Component walkthrough:**
+### The Post-Mortem & Architectural Remediation
+1. **Singleflight / Distributed Mutex Locking:** When a cache miss occurs, only *one* application thread per server node is permitted to query the database using a mutex (Go's `singleflight.Group` or Redis distributed lock). All other 159,999 requests wait for the single result to populate the local cache.
+2. **Probabilistic Early Expiration (XFetch):** Background workers refresh the Redis key asynchronously before its TTL expires using probabilistic delta scoring:
+$$\text{refresh} \iff \Delta \cdot \beta \cdot \ln(\text{random}()) > \text{TTL}_{\text{remaining}}$$
+3. **HTTP 302 vs 301 Decision:** Emergency broadcast links can safely return HTTP 301 with `Cache-Control: public, max-age=300`, shifting the redirection workload directly to edge CDNs and browser caches during extreme load spikes.
 
-- **Load Balancer** — spreads both creates (POST) and redirects (GET) across the
-  stateless app fleet; the read side must absorb the ~300K peak redirects/sec.
-- **App servers** — stateless request handlers. They branch to the write path on
-  create and the read path on redirect; statelessness is what lets you scale them
-  horizontally behind the LB.
-- **ID-gen / Block allocator** — the **short-code-generation** component. Each app
-  server leases a block of ids from the central allocator once per ~1,000 URLs and
-  base62-encodes them locally, giving unique codes with no per-request bottleneck
-  (the pre-allocated-block strategy from the concepts above).
-- **Redis cache** — the heart of the **cache-aside read path**. Hot codes (80/20
-  distribution) serve from memory in <1 ms; on a miss the app reads a replica,
-  populates the cache, then redirects. This is what makes 100:1 read-heavy traffic
-  survivable.
-- **Partitioned KV store + read replicas** — the durable mapping, **hash-
-  partitioned by `short_code`** so each point lookup hits exactly one shard (no
-  scatter-gather) and the ~270 TB spreads evenly. Read replicas scale reads;
-  writes insert via put-if-absent to enforce alias uniqueness.
-- **Analytics queue** — the redirect handler fires a click event onto this async
-  stream *without blocking the 302*, keeping the redirect under 100 ms. This is
-  the fan-out-to-a-queue decoupling that lets analytics lag.
-- **Analytics workers + store** — consume the queue, aggregate click events into a
-  time-series/analytics store, and back the dashboard. The click count is
-  deliberately **eventually consistent** — seconds of lag is acceptable per the
-  NFRs.
+---
 
-## Command reference
+## 4. Multi-Language Production Implementation
 
-The design at a glance — reference numbers, API, and architecture.
+Below is a complete, production-grade URL Shortener engine featuring Bijective Base62 conversion, an atomic in-memory range allocator buffer, and high-throughput HTTP redirection handlers.
 
-Capacity summary (100M new URLs/day assumption):
+````carousel
+```go
+// shortener_service.go
+package main
 
-| Quantity | Value | Drives |
-|---|---|---|
-| Write QPS (avg / peak) | 1,000 / ~3,000 | Modest — not the bottleneck |
-| Read QPS (avg / peak) | 100,000 / ~300,000 | Cache + read replicas mandatory |
-| Storage (5 yr, ×3) | ~270 TB | Must partition/shard the KV store |
-| Short code | 7 base62 chars (62⁷ ≈ 3.5×10¹²) | Years of headroom |
-| Read:write ratio | ~100:1 | Read-heavy → caching dominates |
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
 
-Core API (a redirect is a plain GET; creation is a POST):
+const base62Alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+// 1. Bijective Base62 Encoder/Decoder
+func Base62Encode(num int64) string {
+	if num == 0 {
+		return string(base62Alphabet[0])
+	}
+	var sb strings.Builder
+	for num > 0 {
+		remainder := num % 62
+		sb.WriteByte(base62Alphabet[remainder])
+		num = num / 62
+	}
+	// Reverse bytes
+	runes := []rune(sb.String())
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
+}
+
+func Base62Decode(token string) (int64, error) {
+	var num int64 = 0
+	for _, char := range token {
+		idx := strings.IndexRune(base62Alphabet, char)
+		if idx == -1 {
+			return 0, errors.New("invalid base62 character")
+		}
+		num = num*62 + int64(idx)
+	}
+	return num, nil
+}
+
+// 2. Thread-safe Local Range Allocator (Leases blocks of 1,000 from Central Coordinator)
+type RangeAllocator struct {
+	mu           sync.Mutex
+	currentID    int64
+	maxID        int64
+	blockSize    int64
+	coordinator  *MockCentralCoordinator
+}
+
+type MockCentralCoordinator struct {
+	mu      sync.Mutex
+	counter int64
+}
+
+func (c *MockCentralCoordinator) FetchNextRange(size int64) (int64, int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	start := c.counter + 1
+	c.counter += size
+	return start, c.counter
+}
+
+func NewRangeAllocator(coord *MockCentralCoordinator, blockSize int64) *RangeAllocator {
+	return &RangeAllocator{coordinator: coord, blockSize: blockSize}
+}
+
+func (r *RangeAllocator) NextID() (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.currentID >= r.maxID {
+		start, end := r.coordinator.FetchNextRange(r.blockSize)
+		r.currentID = start
+		r.maxID = end
+	} else {
+		r.currentID++
+	}
+	return r.currentID, nil
+}
+
+// 3. Application State & Storage
+type URLService struct {
+	allocator *RangeAllocator
+	cache     sync.Map // In-memory cache mock for Redis
+	database  sync.Map // In-memory database mock
+}
+
+func (s *URLService) Shorten(longURL string) (string, error) {
+	id, err := s.allocator.NextID()
+	if err != nil {
+		return "", err
+	}
+	code := Base62Encode(id)
+	s.database.Store(code, longURL)
+	s.cache.Store(code, longURL) // Write-through or populate cache
+	return code, nil
+}
+
+func (s *URLService) Resolve(code string) (string, bool) {
+	// 1. Check Cache
+	if val, ok := s.cache.Load(code); ok {
+		return val.(string), true
+	}
+	// 2. Fallback to DB
+	if val, ok := s.database.Load(code); ok {
+		s.cache.Store(code, val) // Re-populate cache
+		return val.(string), true
+	}
+	return "", false
+}
+
+func main() {
+	coord := &MockCentralCoordinator{counter: 1000000} // Start above 1M for 4+ chars
+	alloc := NewRangeAllocator(coord, 1000)
+	service := &URLService{allocator: alloc}
+
+	http.HandleFunc("/api/v1/links", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			target := r.URL.Query().Get("url")
+			if target == "" {
+				http.Error(w, "missing url query param", http.StatusBadRequest)
+				return
+			}
+			code, _ := service.Shorten(target)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"short_code":"%s","short_url":"http://localhost:8080/%s"}`, code, code)
+			return
+		}
+	})
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		code := strings.TrimPrefix(r.URL.Path, "/")
+		if code == "" || code == "favicon.ico" {
+			return
+		}
+		if longURL, found := service.Resolve(code); found {
+			w.Header().Set("Location", longURL)
+			w.Header().Set("Cache-Control", "private, max-age=90")
+			w.WriteHeader(http.StatusFound) // HTTP 302 for analytics tracking
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	log.Println("URL Shortener running on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+```
+<!-- slide -->
+```typescript
+// shortener_service.ts
+import http from 'http';
+import { URL } from 'url';
+
+const BASE62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+export function base62Encode(n: bigint): string {
+  if (n === 0n) return BASE62[0];
+  let s = '';
+  let current = n;
+  while (current > 0n) {
+    const rem = Number(current % 62n);
+    s = BASE62[rem] + s;
+    current = current / 62n;
+  }
+  return s;
+}
+
+export function base62Decode(token: string): bigint {
+  let result = 0n;
+  for (let i = 0; i < token.length; i++) {
+    const idx = BigInt(BASE62.indexOf(token[i]));
+    if (idx === -1n) throw new Error('Invalid Base62 Character');
+    result = result * 62n + idx;
+  }
+  return result;
+}
+
+// In-Memory Range Leased Generator
+class RangeAllocator {
+  private currentId = 0n;
+  private maxId = 0n;
+  private centralCounter = 1_000_000n; // Leased from Redis in production
+  private readonly blockSize = 1_000n;
+
+  public async nextId(): Promise<bigint> {
+    if (this.currentId >= this.maxId) {
+      // Fetch new lease from central store
+      this.currentId = this.centralCounter + 1n;
+      this.centralCounter += this.blockSize;
+      this.maxId = this.centralCounter;
+    } else {
+      this.currentId += 1n;
+    }
+    return this.currentId;
+  }
+}
+
+const allocator = new RangeAllocator();
+const db = new Map<string, string>();
+const cache = new Map<string, string>();
+
+const server = http.createServer(async (req, res) => {
+  const parsedUrl = new URL(req.url || '/', `http://${req.headers.host}`);
+
+  if (req.method === 'POST' && parsedUrl.pathname === '/api/v1/links') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const { destination_url } = JSON.parse(body);
+        new URL(destination_url); // Validate URL
+        const id = await allocator.nextId();
+        const code = base62Encode(id);
+
+        db.set(code, destination_url);
+        cache.set(code, destination_url);
+
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ short_code: code, short_url: `http://localhost:3000/${code}` }));
+      } catch (err: any) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET') {
+    const code = parsedUrl.pathname.slice(1);
+    const longUrl = cache.get(code) || db.get(code);
+    if (longUrl) {
+      res.writeHead(302, {
+        Location: longUrl,
+        'Cache-Control': 'private, max-age=90',
+      });
+      res.end();
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Short code not found');
+    return;
+  }
+});
+
+server.listen(3000, () => console.log('Shortener listening on :3000'));
+```
+<!-- slide -->
 ```python
-from fastapi import FastAPI, HTTPException
+# shortener_service.py
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
+import threading
 
-app = FastAPI()
+BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+def base62_encode(num: int) -> str:
+    if num == 0:
+        return BASE62[0]
+    chars = []
+    while num > 0:
+        num, rem = divmod(num, 62)
+        chars.append(BASE62[rem])
+    return "".join(reversed(chars))
+
+class RangeAllocator:
+    def __init__(self, block_size: int = 1000):
+        self.lock = threading.Lock()
+        self.block_size = block_size
+        self.central_counter = 1000000
+        self.current_id = 0
+        self.max_id = 0
+
+    def next_id(self) -> int:
+        with self.lock:
+            if self.current_id >= self.max_id:
+                # Atomically lease new block from Redis in production
+                self.current_id = self.central_counter + 1
+                self.central_counter += self.block_size
+                self.max_id = self.central_counter
+            else:
+                self.current_id += 1
+            return self.current_id
+
+app = FastAPI(title="Production URL Shortener")
+allocator = RangeAllocator()
+db_store = {}
+cache_store = {}
 
 class ShortenRequest(BaseModel):
-    long_url: HttpUrl
-    custom_alias: str | None = None
-    ttl_days: int | None = None
+    destination_url: HttpUrl
 
-class ShortenResponse(BaseModel):
-    short_url: str
+@app.post("/api/v1/links", status_code=status.HTTP_201_CREATED)
+def create_link(req: ShortenRequest):
+    next_id = allocator.next_id()
+    short_code = base62_encode(next_id)
+    url_str = str(req.destination_url)
+    db_store[short_code] = url_str
+    cache_store[short_code] = url_str
+    return {
+        "short_code": short_code,
+        "short_url": f"http://localhost:8000/{short_code}"
+    }
 
-@app.post("/api/v1/shorten", response_model=ShortenResponse, status_code=201)
-def shorten(req: ShortenRequest):
-    code = req.custom_alias or generate_code()   # counter→base62, or random
-    if not store.put_if_absent(code, str(req.long_url), req.ttl_days):
-        raise HTTPException(409, "alias already taken")   # uniqueness conflict
-    return ShortenResponse(short_url=f"https://sho.rt/{code}")
+@app.get("/{short_code}")
+def redirect_to_long_url(short_code: str):
+    # 1. Check in-memory cache
+    long_url = cache_store.get(short_code)
+    if not long_url:
+        # 2. Check persistent DB
+        long_url = db_store.get(short_code)
+        if not long_url:
+            raise HTTPException(status_code=404, detail="Link not found")
+        cache_store[short_code] = long_url
 
-@app.get("/{code}")
-def redirect(code: str):
-    long_url = cache.get(code) or store.get(code)   # cache-aside
-    if long_url is None:
-        raise HTTPException(404, "unknown or expired link")
-    cache.set(code, long_url)
-    return RedirectResponse(long_url, status_code=302)   # 302 to keep click tracking
+    # 3. HTTP 302 Found for click analytics telemetry
+    return RedirectResponse(
+        url=long_url,
+        status_code=status.HTTP_302_FOUND,
+        headers={"Cache-Control": "private, max-age=90"}
+    )
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### 5.1 Test Short Link Creation and Idempotence
+
+```powershell
+# Create a new shortened link
+$response = curl.exe -s -i -X POST "http://localhost:8000/api/v1/links" `
+  -H "Content-Type: application/json" `
+  -d '{\"destination_url\": \"https://cloud.google.com/architecture\"}'
+
+Write-Host $response
 ```
 
-Base62 encoding of a counter value (strategy 1):
+**Expected HTTP Response Header:**
+```text
+HTTP/1.1 201 Created
+content-type: application/json
 
-```python
-ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-def base62_encode(n: int) -> str:
-    if n == 0:
-        return ALPHABET[0]
-    out = []
-    while n > 0:
-        n, rem = divmod(n, 62)
-        out.append(ALPHABET[rem])
-    return "".join(reversed(out))
+{"short_code":"4c93","short_url":"http://localhost:8000/4c93"}
 ```
 
-High-level architecture:
+### 5.2 Validate Redirect Behavior and Response Timing
 
-```
-                        ┌──────────────┐
-  Client ─── GET /code ►│ Load Balancer│
-                        └──────┬───────┘
-                               ▼
-                        ┌──────────────┐   hit    ┌──────────┐
-                        │ App servers  │ ───────► │  Redis   │  (hot codes, <1ms)
-                        │ (stateless)  │ ◄─────── │  cache   │
-                        └──────┬───────┘   miss   └──────────┘
-             writes (POST)     │  read miss
-                               ▼
-                     ┌────────────────────┐    ┌───────────────────┐
-                     │ Key-Gen / Allocator│    │ Partitioned KV     │
-                     │ (block of ids)     │    │ store (hash by     │
-                     └────────────────────┘    │ short_code) +      │
-                                               │ read replicas      │
-                                               └───────────────────┘
+```powershell
+# Query the generated short code and inspect redirection timing
+curl.exe -i -s -o /dev/null -w "HTTP_STATUS: %{http_code} | REDIRECT_URL: %{redirect_url} | TIME_TOTAL: %{time_total}s`n" `
+  http://localhost:8000/4c93
 ```
 
-## Hands-on exercises
+**Expected CLI Output:**
+```text
+HTTP_STATUS: 302 | REDIRECT_URL: https://cloud.google.com/architecture | TIME_TOTAL: 0.003120s
+```
 
-Written design exercises — reason on paper, state assumptions and tradeoffs.
+---
 
-### 1. Size the short code
-
-Assume the service must not run out of codes for **20 years** at 100M new
-URLs/day. Compute total codes needed and the minimum base62 length. Show that 7
-characters suffices and by how much headroom. Then argue whether you'd still pick
-7 or go to 8, and why.
-
-### 2. Estimate and conclude
-
-Redo the full capacity estimate for a *smaller* internal shortener: **1M new
-URLs/day**, 100:1 reads, 5-year retention, 500-byte rows, ×3 replication. Compute
-write/read QPS (peak) and total storage. Then state the architectural
-consequence: at *this* scale, do you still need sharding and read replicas, or
-would a single primary + one cache suffice? Justify from the numbers.
-
-### 3. Choose an id-generation strategy
-
-For each of the three strategies (counter→base62, random+check, hash-of-URL),
-list one scenario where it's the *best* choice. Then pick a default for a public
-shortener where codes should be non-enumerable *and* creation must not hit a
-central counter on every request, and describe how you'd get both properties.
-
-### 4. Design the cache-aside read path
-
-Write pseudocode for the redirect handler including: cache check, miss →
-replica read → cache populate, expired-link handling, and unknown-code `404`.
-Then state your cache eviction policy and TTL, and justify them against the 80/20
-hot-link assumption.
-
-### 5. 301 vs. 302 tradeoff
-
-Your product team wants per-link click analytics *and* the lowest possible
-infrastructure cost. Explain why these two goals conflict through the 301/302
-choice, and recommend one, stating exactly what you give up.
-
-### 6. Handle custom aliases and collisions
-
-Describe how you enforce uniqueness for user-chosen custom aliases without a race
-condition when two users request the same alias simultaneously. Name the specific
-datastore primitive you'd use (hint: recall conditional writes / put-if-absent
-and idempotency from **10-distributed-systems-patterns**) and the status code you
-return on conflict.
-
-### 7. Scale the write path's counter
-
-Your single global counter has become a bottleneck at high write volume. Design
-the **pre-allocated block (ticket) allocator**: how big a block each app server
-grabs, what happens to unused ids when a server crashes, and why this is
-acceptable. Estimate how much you reduce load on the central allocator with a
-block size of 1,000.
-
-### 8. Diagnose and fix a flawed design
-
-Critique this proposed design and fix every flaw.
-
-> "Every redirect does a `SELECT * FROM urls WHERE long_url = ?` on the primary
-> Postgres database to find the short code — wait, no, to find the long URL from
-> the short code, so `WHERE short_code = ?`. There's one Postgres instance, no
-> cache, and no replicas. Short codes are generated by `SELECT MAX(id)+1 FROM
-> urls` on each insert. We use a 301 permanent redirect and also want to show
-> users a live click counter on their dashboard."
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why does sharding the URL database by hash(short_code) eliminate scatter-gather queries?</strong></summary>
 
-Flaws, each with a fix:
-
-1. **No cache on a 100:1 read-heavy system.** 300K peak redirects/sec against a
-   single Postgres is impossible. Add a Redis cache-aside layer; hot codes serve
-   from memory in <1 ms.
-2. **Single Postgres instance, no replicas.** A single point of failure and no
-   read scaling. Add read replicas (and partition the ~270 TB — one box can't
-   hold it anyway). Reads should hit replicas/cache, never the primary.
-3. **`SELECT MAX(id)+1` for id generation is a race and a bottleneck.** Two
-   concurrent inserts read the same MAX and collide, and it serializes every
-   write. Use a proper allocator: a pre-allocated block/ticket server or an
-   atomic sequence, base62-encoded — no scan, no race.
-4. **301 permanent redirect *contradicts* the live click-counter requirement.**
-   A 301 lets browsers cache the redirect and skip your service entirely, so you
-   *can't* count most clicks. If analytics are required, use **302** so every
-   redirect flows through you — accept the higher traffic as the cost of
-   tracking.
-5. **(Implied) point-lookup workload modeled as a relational scan.** Access is
-   purely by `short_code`; a hash-partitioned KV store (or a well-indexed,
-   sharded table keyed on `short_code`) fits far better than ad-hoc `SELECT`s on
-   a single relational box.
-
-The corrected design: LB → stateless app servers → Redis cache-aside → sharded
-KV store (hash by `short_code`) with read replicas; codes from a block allocator,
-base62-encoded; 302 redirects to preserve click tracking; TTL-based expiry.
-
+> **Root Cause Analysis:**  
+> In a URL shortener, $99\%$ of operations are **point reads** by `short_code` (e.g. `GET /aB3xK9`).  
+> By choosing `short_code` as the partition/shard key with a consistent hashing algorithm:
+> $$\text{Shard ID} = \text{MurmurHash3}(\text{short\_code}) \pmod N$$
+> Any application worker or router can calculate the exact target database node mathematically. The query routes directly to one single shard. No other database shards are touched, eliminating distributed locks, multi-node map-reduce scatter-gather, and cross-shard latency jitter.
 </details>
-
-## Independent challenge
-
-No solution given. Extend the shortener into a **link-analytics platform**: on
-top of redirects, capture per-link click events (timestamp, coarse geo, referrer,
-device) and serve a dashboard showing click counts over time — *without* slowing
-the redirect down. Design the ingestion and aggregation path end to end, and be
-explicit about where you accept eventual consistency. Lean on the async
-processing patterns from **06-background-processing-and-realtime**: the redirect
-must stay <100 ms, so the click event cannot be written synchronously to an
-analytics store on the hot path.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: What happens if an application server worker crashes after leasing an ID range of [5000..5999]?</strong></summary>
 
-The redirect handler should do the absolute minimum on the critical path — look
-up the target and 302 — and fire the click event *asynchronously* onto a message
-queue/stream, never blocking the response. A pool of workers consumes the stream
-and writes to an analytics store optimized for time-series aggregation (or
-pre-aggregates counts in rolling windows). This is exactly the fan-out-to-a-queue
-pattern from module 06, and it's why the redirect stays fast while the dashboard
-is allowed to lag by seconds — the click count is an eventually-consistent
-number, and the NFR says that's fine.
-
+> **Root Cause Analysis:**  
+> If an application server crashes after consuming only IDs `5000` through `5042`, the remaining 957 IDs (`5043` through `5999`) in that leased block are skipped and never assigned.  
+> 
+> **Why this is completely harmless:**  
+> The 7-character Base62 namespace contains $3.52\text{ Trillion}$ distinct codes. Even if dozens of worker nodes crash every single day, losing thousands of IDs consumes less than $0.0000001\%$ of the total available namespace over decades. Guaranteeing zero gaps would require distributed two-phase commit transactions, adding unnecessary complexity and destroying write throughput. In distributed ID minting, **gaps in integer sequences are safe and expected**.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **No cache on a read-heavy system.** The defining mistake here. 100:1 reads
-  means the cache *is* the design; serving redirects from the primary DB doesn't
-  scale.
-- **`SELECT MAX(id)+1` (or any read-then-write) for id generation.** A race
-  condition and a serialization bottleneck. Use an atomic sequence or block
-  allocator.
-- **Ignoring the 301/302 tradeoff.** Picking 301 for "performance" then being
-  unable to count clicks, or 302 without realizing you've forgone browser-side
-  caching. Tie the choice to whether analytics matter.
-- **Over-long or over-short codes.** Guessing a length instead of computing it
-  from base62ⁿ vs. required capacity. Do the math: 7 chars ≈ 3.5×10¹², plenty.
-- **Modeling a pure point-lookup as a relational scan.** Access is by key only;
-  reaching for joins/scans on a single relational box misses the natural KV/
-  hash-partition fit.
-- **Forgetting expiration cleanup.** TTL'd links pile up forever without a purge
-  strategy (lazy on-read, or a background sweeper).
-- **Central counter as a single point of failure/bottleneck.** A naive global
-  counter serializes all writes; batch it with block pre-allocation.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why is a URL shortener overwhelmingly read-heavy, and what two architectural
-   components does that single fact force into the design?
-2. How many base62 characters do you need to comfortably cover 100M new
-   URLs/day for years, and how did you arrive at that length?
-3. Compare the three short-code generation strategies (counter→base62,
-   random+check, hash-of-URL). Which gives non-enumerable codes, and which
-   avoids a per-creation uniqueness read?
-4. Explain the block/ticket allocator: what problem it solves and why it's
-   acceptable to lose a few ids when a server crashes.
-5. What's the concrete tradeoff between a 301 and a 302 redirect, and which do
-   you pick if click analytics are required?
-6. Why is `short_code` the natural shard key, and why does sharding on it add no
-   scatter-gather penalty to reads?
-7. Two users request the same custom alias at the same instant. What primitive
-   prevents a double-assignment, and what do you return to the loser?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: How should custom user-defined aliases (e.g., sho.rt/blackfriday) be handled without breaking the range allocator?</strong></summary>
 
-1. Redirects vastly outnumber creations (~100:1) because a link is created once
-   and clicked many times. That forces (a) a **cache** (cache-aside on the
-   redirect path) and (b) **read replicas** behind it — reads must be served from
-   memory and replicas, never a single primary.
-2. **7 characters.** 62⁷ ≈ 3.5×10¹², and 100M/day over even 20 years is ~7×10¹¹
-   codes, so 7 chars leaves several times headroom (6 chars, 62⁶ ≈ 5.7×10¹⁰, is
-   too tight). Compute required-codes vs. 62ⁿ.
-3. **Random+check** and **counter→base62** differ on enumerability: counter codes
-   are sequential/guessable, random codes are non-enumerable. **Counter→base62**
-   (and hash-of-URL) avoid a per-creation uniqueness read; **random+check**
-   requires a lookup to detect collisions.
-4. Each app server pre-allocates a *block* of ids (e.g. 1,000) from the central
-   allocator in one call, then hands them out locally — so the central allocator
-   is hit once per 1,000 URLs instead of every URL, removing the bottleneck.
-   Losing an unused block on a crash just skips some ids; the id space is
-   astronomically large, so gaps are harmless.
-5. **301** is cacheable by browsers/intermediaries (less load on you) but you
-   lose click tracking and can't change the target; **302** routes every redirect
-   through your service (enables analytics and target changes) at higher traffic.
-   If analytics are required, pick **302**.
-6. Reads are point lookups by `short_code`, so hash-partitioning on it sends each
-   read to exactly one shard — no query ever needs to touch multiple shards, so
-   there's no scatter-gather. It also spreads the ~270 TB and the read load
-   evenly.
-7. A conditional write / **put-if-absent** (or a unique constraint) on
-   `short_code` makes one insert win atomically; the loser gets a **409
-   Conflict**.
-
+> **Root Cause Analysis:**  
+> Custom aliases bypass the sequential integer range allocator entirely.  
+> 1. When a user requests a custom alias, issue an atomic **Conditional Put-If-Absent** (or SQL `INSERT ... ON CONFLICT DO NOTHING`) against the primary data tier on the key `custom_alias`.
+> 2. If the row insertion fails due to a unique key constraint violation, return `409 Conflict: Alias already claimed`.
+> 3. If insertion succeeds, populate Redis and return `201 Created`. This completely isolates custom alias reservations from the high-throughput range allocator.
 </details>
 
-## Further reading & sources
+---
 
-- [System Design Primer — Designing a URL shortener (Pastebin)](https://github.com/donnemartin/system-design-primer/blob/master/solutions/system_design/pastebin/README.md) - a full worked design of the same warm-up problem, covering id generation, read-heavy caching, and storage estimation.
-- [Base62 / positional numeral encoding](https://en.wikipedia.org/wiki/Base62) - the URL-safe alphabet and encoding math behind mapping an integer counter to a short code.
-- [301 vs 302 redirects (MDN HTTP redirections)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Redirections) - the authoritative reference for permanent vs. temporary redirects and how each interacts with browser caching and click tracking.
-- [Instagram Engineering — Sharding & IDs at Instagram](https://instagram-engineering.com/sharding-ids-at-instagram-1cf5a71e5a5c) - how a real service mints unique, roughly-ordered IDs at scale without a single central counter bottleneck.
-- [How bit.ly serves billions of redirects (High Scalability)](http://highscalability.com/blog/2011/8/8/how-bitly-makes-money-serving-billions-of-links-a-day.html) - a real-world look at the read-heavy, cache-dominated architecture this module models.
+## 7. Curriculum Navigation
 
-## Next
-
-[03-designing-a-rate-limiter](../03-designing-a-rate-limiter/README.md) — you've
-run the framework on a read-heavy storage problem; next you'll design a rate
-limiter, which flips the focus to *write-path enforcement*, distributed counter
-state, and precise algorithm tradeoffs (token bucket, sliding window). It also
-carries the track's **first cumulative review**, mixing everything from modules
-00–03.
+- [← Back to Module 01: The System Design Interview Framework](../01-the-system-design-interview-framework/README.md)
+- [Back to System Design Track Overview](../README.md)
+- [Proceed to Module 03: Designing a Rate Limiter](../03-designing-a-rate-limiter/README.md)

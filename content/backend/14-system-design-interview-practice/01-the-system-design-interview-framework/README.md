@@ -1,521 +1,381 @@
 # Module 01: The System Design Interview Framework
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate to Advanced  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 00 (Capacity Estimation and Back-of-the-Envelope Math), Distributed Systems Fundamentals
 
-A system-design interview is not a knowledge quiz — it's a simulation of you
-doing the actual job of designing a system with a colleague at a whiteboard. The
-single most common way strong engineers fail it is not lack of knowledge; it's
-lack of *structure*. They hear "design Twitter," panic, and immediately start
-naming technologies ("we'll use Kafka and Cassandra and…") before they've
-established what the system even needs to do. Forty-five minutes later they've
-got a pile of buzzwords, no coherent design, and an interviewer who couldn't
-follow the reasoning. The knowledge was there; the process wasn't.
+---
 
-The fix is a repeatable framework you run *every single time*, so that under
-pressure you're following a script instead of improvising. A good framework does
-three things: it keeps you from freezing (you always know the next step), it
-makes your reasoning *legible* to the interviewer (they're scoring how you
-think, not just the final diagram), and it forces you to nail down scope before
-you spend time on details that might not matter. This module gives you that
-framework — requirements, estimation, API, data model, high-level design,
-deep-dive, bottlenecks — and, just as importantly, teaches you how to *drive the
-conversation*: it's a dialogue, not a monologue. Master the process here and
-every remaining module in this track is just applying it to a specific problem.
+> [!TIP]
+> **The Golden Rule of the System Design Interview**  
+> A system design interview is not an academic knowledge quiz—it is an interactive simulation of technical leadership. Never write a single database name or draw an architectural box before establishing explicit boundaries. Drive the session collaboratively: **Scope & NFRs (5 min)** $\to$ **Capacity Math (5 min)** $\to$ **API & Data Model (5 min)** $\to$ **High-Level Design (10 min)** $\to$ **Deep-Dive on Critical Bottleneck (10 min)** $\to$ **Failure Modes & Tradeoffs (5 min)**. Anchor every design choice in the formula: *"We choose X over Y because requirement Z mandates high read throughput at the cost of eventual consistency."*
 
-## Concepts
+---
 
-### The interview is a conversation, not a monologue
+## 1. Visual Mental Models
 
-The interviewer is playing the role of a teammate and a stakeholder. They have
-information you need (the real requirements, which are deliberately vague at the
-start) and they're evaluating *how you collaborate*, not just what you output.
-This reframes everything:
+### 1.1 The 45-Minute Interview Whiteboard Time Budget
 
-- **Ask before you assume.** "Design a chat app" could mean 1:1 messaging or
-  Slack-scale group chat with 100K-member channels — wildly different systems.
-  Clarifying questions aren't a stalling tactic; they're the first thing you're
-  scored on.
-- **Think out loud.** A silent candidate drawing boxes is unscoreable. Narrate
-  the *why*: "I'm putting a cache here because the read:write ratio is 100:1, so
-  reads dominate and the DB will be the bottleneck."
-- **Take signals.** If the interviewer says "let's assume writes are the hard
-  part" or "don't worry about auth," that's them steering you toward what they
-  want to probe. Follow it. Fighting the steer to show off a different area is a
-  classic mistake.
-- **Manage the clock, out loud.** "We have about 40 minutes; I'll spend ~5 on
-  requirements, ~5 on estimation and API, ~10 on the high-level design, then go
-  deep on whatever you're most interested in." This shows seniority immediately.
+Senior candidates control the clock and narrate the process explicitly to prevent running out of time before reaching technical depth:
 
-### The framework: seven steps in order
+```mermaid
+gantt
+    title 45-Minute System Design Interview Execution Plan
+    dateFormat  m
+    axisFormat %M min
 
-Run these in order every time. The times assume a ~45-minute interview; scale
-proportionally.
+    section Phase 1: Scoping
+    1. Requirements & Scope Clarification (FR & NFR) :active, p1, 0, 5m
+    2. Capacity & Back-of-Envelope Math               :p2, 5, 10m
 
-1. **Requirements & scope (~5 min).** Nail down *functional* requirements (what
-   the system does — the 2–4 core features) and *non-functional* requirements
-   (how it must behave — scale, latency, availability, consistency). Explicitly
-   state what's **out of scope** ("no payments, no analytics for now"). This is
-   the most important step; getting it wrong wastes the whole interview.
-2. **Capacity estimation (~5 min).** The back-of-envelope math from module 00:
-   DAU, QPS (read and write, peak), storage, bandwidth. Do just enough to *drive
-   decisions* — you need to know if you're at "one database" scale or "shard
-   everything" scale.
-3. **API design (~5 min).** Sketch the core endpoints — the contract between
-   client and system. A handful of REST (or gRPC/GraphQL) signatures. This forces
-   concreteness and reveals the data flow.
-4. **Data model (~5 min).** The main entities, their key fields, and the
-   relationships. Critically: *SQL vs. NoSQL* and *how you'll shard/partition* —
-   these are driven by your access patterns and the numbers from step 2.
-5. **High-level design (~10 min).** The boxes-and-arrows diagram: clients → load
-   balancer → app servers → caches → databases → queues → workers. Draw the
-   *happy path* of a core request end to end. Keep it high-level; resist diving
-   deep yet.
-6. **Deep-dive (~10 min).** Pick the 1–2 hardest/most interesting components (or
-   follow the interviewer's steer) and go deep: the sharding scheme, the caching
-   strategy, the consistency model, the fan-out approach. This is where senior
-   candidates separate themselves.
-7. **Bottlenecks, scaling & wrap-up (~5 min).** Identify single points of
-   failure, the component that breaks first under load, and how you'd scale it.
-   Discuss tradeoffs you made and what you'd revisit with more time.
+    section Phase 2: Contracts
+    3. Core API Signature Design                     :p3, 10, 15m
+    4. Data Model & Storage Choice                   :p4, 15, 20m
 
-You will rarely finish all seven perfectly, and that's fine — the framework
-ensures that whenever time runs out, you've spent it on the highest-value things
-in the right order. Laid out against the clock, the ~45-minute budget looks like
-this — breadth first (steps 1–5), then depth (step 6), then wrap-up:
+    section Phase 3: Architecture
+    5. High-Level Design (Happy Path End-to-End)     :crit, p5, 20, 30m
 
-```
- min: 0    5    10   15   20   25   30   35   40   45
-      ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-      │ 1  │ 2  │ 3  │ 4  │      5       │    6     │ 7 │
-      │Req │Est │API │Data│  High-level  │Deep-dive │Wrap│
-      └────┴────┴────┴────┴──────────────┴──────────┴────┘
-       └── scope & numbers ──┘└─ diagram ─┘└─ hardest ─┘
+    section Phase 4: Seniority
+    6. Deep-Dive on Complex Components               :p6, 30, 40m
+    7. Failure Modes, SPoF & Bottleneck Tradeoffs    :p7, 40, 45m
 ```
 
-### Functional vs. non-functional requirements
+### 1.2 Evolutionary Architectural Progression
 
-This distinction structures step 1 and quietly drives every later decision.
+Never draw the final complex distributed architecture on minute one. Build it incrementally to justify every added component with concrete numbers:
 
-- **Functional requirements** are *what the system does* — the features, phrased
-  as user-visible capabilities. For a URL shortener: "create a short URL from a
-  long one," "redirect a short URL to its original," "optional custom alias,"
-  "optional expiration." Keep it to the 2–4 that matter; the interviewer will
-  tell you if you've missed one.
-- **Non-functional requirements (NFRs)** are *how the system must behave* — the
-  qualities that shape the architecture far more than the features do:
-  - **Scale:** how many users, requests, how much data (your step-2 numbers).
-  - **Latency:** how fast must a request be? (A redirect must be <100 ms; a
-    nightly report can take minutes.)
-  - **Availability:** what uptime? Is brief downtime acceptable or is this a
-    payment system where it isn't?
-  - **Consistency:** must every reader see the latest write immediately (strong),
-    or is eventual consistency acceptable? This is the deepest fork — recall the
-    CAP theorem from **10-distributed-systems-patterns**.
-  - **Durability:** can you ever lose data? (A tweet losing one like: tolerable.
-    A financial ledger losing a transaction: never.)
+```mermaid
+flowchart TD
+    subgraph StepA["Stage 1: Monolithic Simplicity"]
+        ClientA[Client] --> LBA[Load Balancer]
+        LBA --> AppA[App Servers]
+        AppA --> DBA[(Single RDBMS)]
+    end
 
-The NFRs are where designs actually diverge. Two candidates asked to "design a
-feed" produce completely different systems depending on whether they decided the
-feed must be strongly consistent and sub-100 ms, or eventually consistent and
-best-effort.
+    subgraph StepB["Stage 2: Scale Reads & Caching"]
+        ClientB[Client] --> LBB[L7 Ingress]
+        LBB --> AppB[Stateless App Fleet]
+        AppB --> CacheB[(Distributed Redis Cache)]
+        AppB --> DBB_Primary[(RDBMS Primary)]
+        DBB_Primary -->|"Async Replication"| DBB_Replica[(Read Replicas)]
+    end
 
-### Driving the design: high-level first, then deep-dive
+    subgraph StepC["Stage 3: Scale Writes & Decouple (Target State)"]
+        ClientC[Client] --> LBC[Global Anycast DNS / CDN]
+        LBC --> IngressC[API Gateway Fleet]
+        IngressC --> AppC[Microservice Domain]
+        AppC --> QueueC[(Kafka Event Stream)]
+        QueueC --> WorkerC[Asynchronous Worker Pool]
+        AppC --> CacheC[(Sharded Redis Cache Cluster)]
+        WorkerC --> ShardedDB[(Horizontally Sharded Data Tier)]
+    end
 
-The most common structural error after skipping requirements is going deep too
-early — spending fifteen minutes on the perfect sharding key before there's even
-a diagram. Resist it. Work **outside-in and top-down**:
-
-- **Start with the simplest thing that could work**, then scale it. It's
-  completely legitimate — encouraged, even — to first say "at small scale this is
-  one app server and one database," draw that, confirm it satisfies the
-  functional requirements, and *then* apply your capacity numbers to break it and
-  evolve it. This narrates the reasoning that produced the complex design instead
-  of presenting the complex design as a fait accompli.
-- **Draw the happy path of one core request end to end** before adding any
-  secondary features. For a feed: "user opens app → request hits LB → app server
-  → checks feed cache → cache hit returns pre-computed feed." One clean path
-  first; edge cases and other features after.
-- **Then pick where to go deep.** You cannot deep-dive everything in ten minutes.
-  Choose the component that's (a) the actual bottleneck per your numbers, or (b)
-  what the interviewer signaled interest in. Announce the choice: "The
-  interesting problem here is feed generation — let me go deep on fan-out."
-
-### Talking tradeoffs (the thing actually being scored)
-
-Senior signal in a design interview is almost entirely about **tradeoffs**.
-There is no "correct" architecture — every choice buys something and costs
-something, and your job is to make the cost/benefit explicit and tie it to the
-requirements. The pattern to internalize: *"I'll do X, which gives us [benefit],
-at the cost of [downside]; that's the right call here because [requirement]."*
-
-- "I'll denormalize the feed into a per-user cache (fan-out on write). That makes
-  reads O(1) and fast — right for a 100:1 read-heavy system — at the cost of
-  expensive writes and a hard problem for celebrity accounts, which I'll handle
-  with a hybrid pull model."
-- "I'll use eventual consistency for the like count. A user seeing a like count
-  that's stale by a second is fine (the NFR says so), and it lets me avoid a
-  distributed transaction on every like."
-- "I'll shard by user_id, which co-locates a user's data for fast reads but makes
-  cross-user queries scatter-gather — acceptable because our access pattern is
-  overwhelmingly single-user."
-
-Every strong answer is a chain of these. When you catch yourself asserting a
-technology with no tradeoff attached ("we'll use Kafka"), stop and add the
-*why*: what does it buy, what does it cost, which requirement justifies it.
-
-### Reference architecture
-
-Almost every system you'll be asked to design is a subset of one recurring
-skeleton. Learning it once means step 5 (high-level design) is never a blank
-whiteboard — you start from this and delete what the problem doesn't need. Each
-tier is labelled with the framework step where it typically first appears:
-
-```
-              ┌───────────────────────┐
-   Client ───►│  CDN / Load Balancer  │   (step 5: entry point; static+media at edge)
-              └───────────┬───────────┘
-                          ▼
-              ┌───────────────────────┐
-              │     API Gateway        │  (step 3: auth, rate limiting, routing)
-              └───────────┬───────────┘
-                          ▼
-              ┌───────────────────────┐        ┌─────────────────┐
-              │  App / Service layer   │ ─────► │   Cache (Redis) │  (step 5, deep-
-              │     (stateless)        │ ◄───── │   hot read set  │   dived in step 6)
-              └───┬───────────────┬───┘        └─────────────────┘
-         (sync)   │               │  (async)
-                  ▼               ▼
-        ┌───────────────────┐   ┌──────────────────┐
-        │  Primary Database │   │  Message Queue    │  (step 6: decouple slow work)
-        │  + read replicas  │   └────────┬─────────┘
-        │ (step 4: schema,  │            ▼
-        │  shard key)       │   ┌──────────────────┐   ┌──────────────────────┐
-        └─────────┬─────────┘   │ Background Workers│──►│ Object storage / CDN │
-                  │             │ (fan-out, email,  │   │ (blobs, media, static)│
-                  └────────────►│  indexing, ML)    │   └──────────────────────┘
-                                └──────────────────┘
+    StepA -->|"Traffic 100x -> Read Bottleneck"| StepB
+    StepB -->|"Traffic 1000x -> Write Lock Contention"| StepC
 ```
 
-**Component walkthrough:**
+---
 
-- **CDN / Load Balancer** — the front door. The load balancer spreads traffic
-  across the stateless app fleet; the CDN serves static assets and media from
-  edge locations. It shows up in the **high-level design (step 5)** and its
-  capacity is justified by the bandwidth/QPS numbers from **step 2**.
-- **API Gateway** — the single ingress that handles cross-cutting concerns: auth,
-  rate limiting, request routing, TLS termination. It's where the **API contract
-  (step 3)** is enforced; naming it signals you know these concerns don't belong
-  scattered in each service.
-- **App / Service layer** — stateless business logic. Stateless is the key
-  property: it lets the load balancer treat any instance as interchangeable and
-  lets you scale horizontally by adding boxes (the **step 7** scaling answer).
-- **Cache (Redis)** — holds the hot read set so the database isn't hit on every
-  request. It first appears in the **high-level design (step 5)** because the
-  read:write ratio demands it, and it's a favourite target for the **deep-dive
-  (step 6)**: eviction policy, cache-aside vs. write-through, hot-key handling.
-- **Primary Database + read replicas** — the durable source of truth. Its schema,
-  SQL-vs-NoSQL choice, and **shard key are the whole of step 4**; read replicas
-  exist because the read:write ratio (step 2) overwhelms a single primary.
-- **Message Queue** — decouples fast request handling from slow work. It's a
-  classic **deep-dive (step 6)** component: it buys async processing and load
-  smoothing at the cost of eventual consistency and delivery-semantics complexity.
-- **Background Workers** — consume the queue to do fan-out, send email/push,
-  build search indexes, or run ML scoring off the critical path. They're the
-  concrete answer to "how does the slow work not block the user's request."
-- **Object storage / CDN** — durable blob store for media and large static files,
-  fronted by the CDN for delivery. Sized from the storage/bandwidth math of
-  **step 2**, and the reason a design for photos or video always sprouts this tier.
+## 2. The 7-Step Whiteboard Rubric & Evaluation Grid
 
-## Command reference
+| Phase | Time | Candidate Primary Action | High Signal Behaviors (Pass) | Anti-Patterns (Fail) |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Requirements** | $0-5\text{ min}$ | Establish 2–4 Functional Requirements (FR), 3 Non-Functional Requirements (NFR), and Out-of-Scope limits. | Asks clarifying questions; bounds the problem domain; identifies latency & consistency requirements upfront. | Immediately assumes requirements; starts designing features without asking who the users are. |
+| **2. Estimation** | $5-10\text{ min}$ | Compute QPS (Peak/Avg), Ingress/Egress Bandwidth, 5-Yr Storage, and RAM Cache size. | Uses $10^5\text{ s/day}$; calculates storage with replication and index overhead; deduces single node vs sharded cluster. | Skips calculations; calculates to 4 decimal places using a calculator; treats memory as infinite. |
+| **3. API Design** | $10-15\text{ min}$ | Define clean REST / gRPC endpoint signatures including headers, request bodies, and error responses. | Includes idempotency keys; passes pagination tokens (`cursor`); specifies HTTP status codes. | Omits IDs; designs vague `POST /doEverything` endpoints without status codes or auth context. |
+| **4. Data Model** | $15-20\text{ min}$ | Define schemas, primary keys, access patterns, and justify Relational vs NoSQL vs Search index. | Maps data access patterns to query models; chooses partition/shard keys deliberately to prevent hotspots. | Names a database solely because it is popular ("We will use Cassandra because it scales"). |
+| **5. High-Level** | $20-30\text{ min}$ | Draw the complete end-to-end request flow (Client $\to$ DNS/CDN $\to$ LB $\to$ App $\to$ Cache $\to$ DB). | Explains request flow step-by-step; keeps compute stateless; isolates stateful storage. | Jumps straight to complex distributed consensus or streaming before drawing a basic working flow. |
+| **6. Deep Dive** | $30-40\text{ min}$ | Drill deep into the 1–2 most challenging components (e.g., ID generation, fan-out, cache invalidation). | Articulates concrete distributed algorithms; addresses race conditions and edge cases. | Speaks in hand-wavy generalities; evades difficult concurrency questions. |
+| **7. Bottlenecks** | $40-45\text{ min}$ | Identify Single Points of Failure (SPoF), network partitions, cascading failures, and graceful degradation. | Proactively identifies weaknesses in own design; explains circuit breakers, rate limits, and fallback paths. | Claims the system is "100% bug-free and cannot fail"; gets defensive when challenged. |
 
-The framework as a whiteboard checklist. Memorize this; it's the spine of every
-remaining module.
+---
 
-| Step | Time (of ~45) | Deliverable | Key questions |
-|---|---|---|---|
-| 1. Requirements & scope | ~5 min | Functional (2–4) + NFRs + out-of-scope | What must it do? At what scale/latency/consistency? |
-| 2. Capacity estimation | ~5 min | QPS (r/w, peak), storage, bandwidth | Are we at one-box or shard-everything scale? |
-| 3. API design | ~5 min | Core endpoint signatures | What's the client↔system contract? |
-| 4. Data model | ~5 min | Entities, keys, SQL/NoSQL, shard key | What are the access patterns? |
-| 5. High-level design | ~10 min | Boxes-and-arrows, one happy path | How does one core request flow end to end? |
-| 6. Deep-dive | ~10 min | 1–2 hardest components in detail | Where's the real difficulty / interviewer's interest? |
-| 7. Bottlenecks & wrap-up | ~5 min | SPOFs, scaling plan, tradeoffs | What breaks first? What would you revisit? |
+## 3. Production War Story: The Buzzword Trap
 
-The requirements checklist (step 1), expanded:
+### The Incident
+During a Staff Engineer architectural review at a financial technology company, an engineering team presented a design for an internal real-time audit ledger:
+- **The Pitch:** *"We designed a hyper-scale event pipeline using Apache Kafka, Apache Flink for stream joins, and Apache Cassandra with a multi-region quorum for sub-millisecond writes."*
+- **The Actual Requirements:** The company had 45 financial auditors. Total daily transactions averaged 12,000 writes/day ($0.12\text{ QPS}$), peaking at $15\text{ QPS}$ during month-end closes. Strong read-after-write consistency was legally required for tax compliance.
+- **The Consequence:** During the initial rollout, Cassandra's eventual consistency delivered stale balances to auditors. Furthermore, operating a multi-region Cassandra cluster and Kafka cluster for $15\text{ QPS}$ cost $\$38,000/\text{month}$ in infrastructure overhead while suffering three cascading tombstone-compaction outages.
 
-```
-FUNCTIONAL (what it does)
-  - core feature 1, 2, 3 (keep to 2-4)
-  - explicitly OUT of scope: ___
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Auditor as Financial Auditor
+    participant App as Audit Service
+    participant Cass1 as Cassandra Node A (Coordinator)
+    participant Cass2 as Cassandra Node B (Replica)
 
-NON-FUNCTIONAL (how it behaves)
-  - Scale:         DAU, QPS, data volume
-  - Latency:       target for the critical read/write path
-  - Availability:  uptime target; is downtime acceptable?
-  - Consistency:   strong vs eventual (per operation)
-  - Durability:    can we ever lose data?
+    Auditor->>App: Record $500,000 Settlement
+    App->>Cass1: INSERT INTO ledger (Consistency: ONE)
+    Cass1-->>App: Acknowledged (Written to Node A)
+    App-->>Auditor: Settlement Confirmed
+    
+    Auditor->>App: Fetch Total Balance
+    App->>Cass2: SELECT SUM(amount) FROM ledger
+    Note over Cass2: Node B has not received background gossip replication!
+    Cass2-->>App: Balance: $0.00 (STALE READ!)
+    App-->>Auditor: Displayed $0.00 -> Regulatory Panic!
 ```
 
-A reusable high-level reference architecture (most designs are a subset of this):
+### The Post-Mortem & Rule
+The system was dismantled and replaced with a single PostgreSQL instance with streaming replication and daily snapshots. Cost dropped from $\$38,000/\text{month}$ to $\$140/\text{month}$, latency dropped to $2\text{ ms}$, and data consistency was mathematically guaranteed by ACID relational constraints.
 
+> **Interview Lesson:** Scalability without necessity is engineering negligence. Never bring distributed streaming or NoSQL to a problem that fits on a single relational database with read replicas.
+
+---
+
+## 4. Multi-Language Implementation: Contract & Domain Model Scaffolding
+
+During Phase 3 (API Design) and Phase 4 (Data Model), writing clean, typed interfaces proves architectural clarity. Below is the multi-language contract scaffolding for a high-throughput, idempotent resource creation service (e.g., a URL Shortener or Order Engine).
+
+````carousel
+```typescript
+// contracts/shortener.interface.ts
+/**
+ * Phase 3 & 4: Typed Contract & Entity Definitions
+ */
+
+// 1. Core API Request/Response Contracts
+export interface CreateLinkRequest {
+  destination_url: string;
+  custom_alias?: string;
+  expires_at_epoch_ms?: number;
+}
+
+export interface CreateLinkResponse {
+  link_id: string;
+  short_code: string;
+  short_url: string;
+  destination_url: string;
+  created_at_epoch_ms: number;
+  expires_at_epoch_ms: number | null;
+}
+
+export interface ResolveLinkResponse {
+  destination_url: string;
+  http_status: 301 | 302;
+}
+
+// 2. Storage Data Model (Database Entity)
+export interface LinkEntity {
+  // Primary Shard Key: short_code (enables deterministic point lookups)
+  short_code: string;
+  destination_url: string;
+  user_id: string;
+  created_at_epoch_ms: number;
+  expires_at_epoch_ms: number | null;
+  click_count: number;
+  is_active: boolean;
+}
+
+// 3. API Handler Skeleton demonstrating Idempotency & Validation
+export class LinkServiceContract {
+  async createLink(
+    idempotencyKey: string,
+    req: CreateLinkRequest
+  ): Promise<CreateLinkResponse> {
+    // Validate URL syntax
+    try {
+      new URL(req.destination_url);
+    } catch {
+      throw new Error('INVALID_ARGUMENT: Malformed destination URL');
+    }
+
+    // In interview, demonstrate header-based idempotency handling
+    return {
+      link_id: 'link_98a7sd12',
+      short_code: req.custom_alias || 'x8K3mQ',
+      short_url: `https://sho.rt/${req.custom_alias || 'x8K3mQ'}`,
+      destination_url: req.destination_url,
+      created_at_epoch_ms: Date.now(),
+      expires_at_epoch_ms: req.expires_at_epoch_ms || null,
+    };
+  }
+}
 ```
-                    ┌─────────────┐
-   Clients ───────► │ Load Balancer│
-                    └──────┬───────┘
-                           ▼
-                   ┌───────────────┐        ┌───────────┐
-                   │  App Servers  │ ─────► │   Cache   │ (read path, hot data)
-                   │ (stateless)   │        └───────────┘
-                   └───┬───────┬───┘
-                       │       │
-             (sync)    ▼       ▼   (async)
-              ┌──────────────┐ ┌──────────────┐
-              │  Database(s) │ │ Message Queue│──► Workers ──► (email, feed
-              │ (sharded/    │ └──────────────┘              fan-out, indexing…)
-              │  replicated) │
-              └──────────────┘
-                       │
-                       ▼
-                 Object store / CDN (blobs, media, static)
+<!-- slide -->
+```go
+// contracts/shortener.go
+package contracts
+
+import (
+	"errors"
+	"net/url"
+	"time"
+)
+
+// 1. API Request & Response Contracts
+type CreateLinkRequest struct {
+	DestinationURL   string     `json:"destination_url"`
+	CustomAlias      *string    `json:"custom_alias,omitempty"`
+	ExpiresAtEpochMS *int64     `json:"expires_at_epoch_ms,omitempty"`
+}
+
+type CreateLinkResponse struct {
+	LinkID           string `json:"link_id"`
+	ShortCode        string `json:"short_code"`
+	ShortURL         string `json:"short_url"`
+	DestinationURL   string `json:"destination_url"`
+	CreatedAtEpochMS int64  `json:"created_at_epoch_ms"`
+}
+
+// 2. Database Entity Model
+// Shard Key: ShortCode ensures distributed lookup across database partitions
+type LinkEntity struct {
+	ShortCode        string `gorm:"primaryKey;size:10"`
+	DestinationURL   string `gorm:"size:2048;not null"`
+	UserID           string `gorm:"index;size:64"`
+	CreatedAtEpochMS int64  `gorm:"autoCreateTime:milli"`
+	ExpiresAtEpochMS *int64 `gorm:"index"`
+	IsActive         bool   `gorm:"default:true"`
+}
+
+// 3. Service Contract Validation
+func ValidateCreateLink(req CreateLinkRequest) error {
+	if req.DestinationURL == "" {
+		return errors.New("destination_url cannot be empty")
+	}
+	parsed, err := url.ParseRequestURI(req.DestinationURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("destination_url must be a valid HTTP/HTTPS URL")
+	}
+	if req.CustomAlias != nil && len(*req.CustomAlias) > 32 {
+		return errors.New("custom_alias exceeds 32 characters")
+	}
+	return nil
+}
+```
+<!-- slide -->
+```python
+# contracts/shortener.py
+from pydantic import BaseModel, HttpUrl, Field
+from typing import Optional
+from datetime import datetime
+import time
+
+# 1. API Schemas
+class CreateLinkRequest(BaseModel):
+    destination_url: HttpUrl
+    custom_alias: Optional[str] = Field(None, max_length=32, regex="^[a-zA-Z0-9_-]+$")
+    expires_at_epoch_ms: Optional[int] = None
+
+class CreateLinkResponse(BaseModel):
+    link_id: str
+    short_code: str
+    short_url: str
+    destination_url: str
+    created_at_epoch_ms: int
+
+# 2. Storage Data Model
+class LinkRecord:
+    """
+    Primary Key / Shard Key: short_code (Base62 encoded integer)
+    """
+    def __init__(
+        self,
+        short_code: str,
+        destination_url: str,
+        user_id: str,
+        expires_at_epoch_ms: Optional[int] = None
+    ):
+        self.short_code = short_code
+        self.destination_url = destination_url
+        self.user_id = user_id
+        self.created_at_epoch_ms = int(time.time() * 1000)
+        self.expires_at_epoch_ms = expires_at_epoch_ms
+        self.is_active = True
+
+    def to_dict(self):
+        return {
+            "short_code": self.short_code,
+            "destination_url": self.destination_url,
+            "user_id": self.user_id,
+            "created_at_epoch_ms": self.created_at_epoch_ms,
+            "expires_at_epoch_ms": self.expires_at_epoch_ms,
+            "is_active": self.is_active
+        }
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+During API design verification, test endpoint behavior and wire contracts using standard CLI commands:
+
+```powershell
+# 1. Test URL creation contract with an Idempotency-Key header
+curl.exe -i -X POST http://localhost:8000/api/v1/links `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: 7b819f3a-9e12-4f6b-8d1e-5a7c2b3e8a10" `
+  -d '{\"destination_url\": \"https://engineering.atspotify.com/2023/system-design\", \"custom_alias\": \"spotify-arch\"}'
+
+# Expected Wire Output:
+# HTTP/1.1 201 Created
+# Content-Type: application/json
+# Location: /api/v1/links/spotify-arch
+#
+# {
+#   "link_id": "lnk_10924a8f",
+#   "short_code": "spotify-arch",
+#   "short_url": "https://sho.rt/spotify-arch",
+#   "destination_url": "https://engineering.atspotify.com/2023/system-design",
+#   "created_at_epoch_ms": 1715000000000
+# }
+
+# 2. Test redirect resolution contract (verifying 302 Temporary vs 301 Permanent Redirect)
+curl.exe -i -X GET http://localhost:8000/spotify-arch
+
+# Expected Wire Output:
+# HTTP/1.1 302 Found
+# Location: https://engineering.atspotify.com/2023/system-design
+# Cache-Control: private, max-age=90
 ```
 
-The tradeoff sentence template (use it constantly in step 6):
+---
 
-```
-"I'll do <choice>, which gives us <benefit> at the cost of <downside>;
- that's right here because <specific requirement>."
-```
-
-## Hands-on exercises
-
-These are written/spoken exercises — do them out loud or on paper, timed where
-noted, exactly as you would in a real interview.
-
-### 1. Split requirements for three prompts
-
-For each prompt — "design a URL shortener," "design a ride-hailing app," "design
-Instagram" — write **2–4 functional requirements** and **the five NFRs** (scale,
-latency, availability, consistency, durability), plus one explicit **out-of-
-scope** item. Keep functional lists short. Notice how the NFRs, not the features,
-are what make these three systems architecturally different.
-
-### 2. Write the clarifying questions
-
-For "design a chat application," write the **six clarifying questions** you'd ask
-in the first two minutes, before drawing anything. Rank them by how much each
-answer would change your architecture. (Hint: "1:1 or group?" and "how large can
-a group get?" reshape the whole design; "what color is the send button?" does
-not.)
-
-### 3. Time-box a full pass
-
-Set a 20-minute timer. Out loud (record yourself or talk to a rubber duck), do a
-compressed pass over "design a pastebin/text-sharing service": requirements,
-rough estimation, three API endpoints, the main entity, and a high-level
-diagram. The goal isn't depth — it's *hitting every step in order under a clock*.
-Note which step you rushed or skipped.
-
-### 4. Turn assertions into tradeoffs
-
-Each of these is a bare technology assertion. Rewrite each using the tradeoff
-template ("...which gives us X at the cost of Y; right here because Z"):
-(a) "We'll use Redis." (b) "We'll shard the database." (c) "We'll use a message
-queue." (d) "We'll go with eventual consistency." Invent a plausible requirement
-to justify each.
-
-### 5. Sequence a derailed interview
-
-A candidate, given "design Twitter," immediately starts with: "So we'll use
-Cassandra because it scales writes, and Kafka for the timeline, and…". List, in
-order, the **four steps they skipped**, and write the one sentence you'd use to
-pull the conversation back to step 1 gracefully.
-
-### 6. Read the interviewer's steer
-
-You're 15 minutes into "design a news feed," mid-way through drawing the data
-model, when the interviewer says: "Let's assume you have 100M users and some
-accounts have 50M followers — how does the feed get built?" What are they
-signaling, which framework step should you jump to, and what's the specific
-problem they want you to address? Write your next two sentences.
-
-### 7. Scope creep defense
-
-Given "design a photo-sharing app," a candidate's requirements list is: upload
-photos, view feed, follow users, comment, like, direct messages, stories,
-explore/discovery, ads, and analytics. Explain why this list is a *problem* for a
-45-minute interview, then cut it to a defensible core and state what you'd
-explicitly defer.
-
-### 8. Diagnose and fix a flawed design process
-
-Critique this candidate's **process** (not their technology). Identify every
-process error and rewrite the opening five minutes correctly.
-
-> The candidate hears "design a video streaming service," nods, and immediately
-> draws: a CDN, an S3 bucket, a transcoding pipeline with six worker types, a
-> recommendation ML service, and a GraphQL gateway. They spend twelve minutes
-> perfecting the transcoding fan-out diagram in silence. They never mention
-> scale, never write an API, and never ask whether the focus is upload, playback,
-> or recommendations. At minute 20 the interviewer asks "how many users?" and the
-> candidate says "lots, it'll scale."
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why should HTTP 302 (Temporary Redirect) be chosen over HTTP 301 (Permanent Redirect) in a URL Shortener?</strong></summary>
 
-The technology choices might even be fine — the *process* is broken in at least
-five ways:
-
-1. **No requirements or scope.** They never established functional requirements
-   or asked what to focus on (upload? playback? recommendations?). "Design a
-   video streaming service" is deliberately vague; the first job is to bound it.
-   A recommendation ML service may be entirely out of scope.
-2. **No capacity estimation.** "Lots, it'll scale" is a non-answer. Without
-   numbers there's no justification for a CDN, for the transcoding fleet's size,
-   or for any sharding decision — the whole design is unmotivated.
-3. **Silent for twelve minutes.** An unscoreable stretch. The interviewer can't
-   follow the reasoning, and reasoning is what's being graded.
-4. **Deep-dived before a high-level design existed.** Perfecting the transcoding
-   fan-out before there's an end-to-end happy path is going deep too early — on a
-   component that might not even be the focus.
-5. **No API, no data model, no tradeoffs voiced.** Nothing concrete tied the
-   design to actual behavior, and no choice was justified against a requirement.
-
-Corrected opening five minutes: "Let me clarify scope first — is the focus on the
-upload/transcoding path, the playback/streaming path, or recommendations? …
-Okay, playback. Functional requirements: upload a video, transcode it to
-multiple resolutions, stream it smoothly to viewers worldwide. Out of scope for
-now: recommendations, comments, monetization. NFRs: this is massively read-heavy
-and latency-sensitive on playback — buffering is the enemy — global audience so
-we'll need edge delivery, availability high, consistency can be eventual
-(a newly uploaded video appearing a minute late is fine). Let me put rough
-numbers on it before I draw anything…" — narrated, scoped, and numbers-first,
-*then* the diagram.
-
+> **Root Cause Analysis:**  
+> - **HTTP 301 (Moved Permanently):** The browser permanently caches the redirect mapping in local browser storage. Subsequent clicks bypass your servers entirely and navigate directly to the target URL.  
+> - **Tradeoff:** While HTTP 301 reduces server load, you permanently lose the ability to track click analytics, geo-location, user-agent telemetry, and link expiration.  
+> - **HTTP 302 (Found / Temporary Redirect):** The browser issues a GET request to your service on every click, allowing accurate real-time click counting, fraud detection, and dynamic destination changes at the expense of handling higher redirection QPS.
 </details>
-
-## Independent challenge
-
-No solution given. Take a prompt you have *not* seen worked in this track —
-**"design a collaborative document editor like Google Docs"** — and run the full
-seven-step framework end to end, out loud, in 40 minutes, as if it were a real
-interview. Produce, in order: a scoped requirements list (functional + five
-NFRs + out-of-scope), a rough capacity estimate, 3–5 API endpoints, the core
-data model, a high-level diagram of one happy-path edit, one deep-dive of your
-choosing, and a bottleneck/wrap-up. Then, drawing on the estimation discipline
-from **00-capacity-estimation-and-back-of-envelope-math**, verify that every
-architectural decision you made traces back to a specific number or NFR — if any
-box in your diagram has no requirement behind it, you added it out of habit, not
-reasoning.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: What is the single biggest failure mode of candidates during the 10-minute High-Level Design phase?</strong></summary>
 
-Real-time collaborative editing lives or dies on the *consistency* NFR, so spend
-your requirements time there: what happens when two users edit the same
-paragraph at the same instant? That single question forces you toward conflict
-resolution (operational transforms or CRDTs) and toward a persistent low-latency
-connection per client (websockets — recall real-time transport from
-**06-background-processing-and-realtime**). If you find yourself designing a
-plain request/response CRUD API, you've mis-scoped the hardest requirement; the
-interesting system is the concurrent-edit path, and your deep-dive almost
-certainly belongs there.
-
+> **Root Cause Analysis:**  
+> The **"Premature Optimization Rabbit Hole"**.  
+> Candidates often get bogged down in the intricacies of a single edge case (e.g., handling Raft distributed leader election or multi-region CDC replication) before establishing the basic end-to-end request path. If the interviewer does not see a client connect to a load balancer, route to an app server, check a cache, and query a database, the candidate receives a "No Hire" in *System Architecture Breadth*. Always sketch the high-level happy path end-to-end first, then ask: *"Which component would you like me to drill into deeper?"*
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Skipping requirements and diving into the diagram.** The number-one failure.
-  Spend the first five minutes bounding the problem or the rest is unmoored.
-- **Naming technologies with no tradeoff.** "We'll use Kafka/Cassandra/Redis"
-  with no *why* reads as buzzword bingo. Always attach benefit, cost, and the
-  requirement that justifies it.
-- **Going deep too early.** Perfecting one component before an end-to-end
-  high-level design exists. Breadth first, then depth on the part that matters.
-- **Going silent.** Unnarrated whiteboarding is unscoreable. Think out loud; the
-  reasoning *is* the deliverable.
-- **Ignoring the interviewer's steer.** When they nudge you toward writes, or
-  toward the celebrity-follower problem, follow it — that's the part they want to
-  evaluate. Insisting on your own agenda loses points.
-- **Not managing the clock.** Spending 25 of 45 minutes on requirements, then
-  having no diagram. Announce a time budget and keep glancing at it.
-- **Unbounded scope.** Accepting or generating a ten-feature requirements list
-  guarantees you finish nothing. Ruthlessly cut to a core and defer the rest out
-  loud.
-- **Presenting the complex design as a given.** Jumping straight to the sharded,
-  cached, queued monster with no story of how you got there. Start simple, break
-  it with your numbers, evolve it — the evolution is the reasoning.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. List the seven steps of the framework in order, with a rough time budget for
-   each in a 45-minute interview.
-2. What's the difference between a functional and a non-functional requirement?
-   Give two examples of each for a URL shortener.
-3. Why is the requirements-and-scope step the most important one, and what
-   specifically goes wrong if you rush or skip it?
-4. Name the five non-functional requirements you should always establish, and
-   explain which one most often causes two designs of the "same" system to
-   diverge.
-5. What does "start with the simplest thing that works, then scale it" buy you in
-   an interview, versus presenting the fully-scaled design immediately?
-6. Give the tradeoff-sentence template and use it to justify a single concrete
-   choice of your own.
-7. The interviewer says "assume some accounts have tens of millions of
-   followers." What are they signaling, and which framework step and specific
-   problem should you move to?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: How should a candidate respond when an interviewer abruptly says: "What happens if this database goes down?"</strong></summary>
 
-1. (1) Requirements & scope ~5 min, (2) capacity estimation ~5, (3) API design
-   ~5, (4) data model ~5, (5) high-level design ~10, (6) deep-dive ~10, (7)
-   bottlenecks & wrap-up ~5.
-2. Functional = *what it does* (create a short URL from a long one; redirect a
-   short code to its original). Non-functional = *how it behaves* (redirects must
-   be <100 ms and highly available; the system handles ~100:1 read:write at large
-   scale). Features vs. qualities.
-3. Because every later decision depends on scope and requirements; getting them
-   wrong means you design the wrong system, and you waste the interview on
-   details that don't matter. Rushing it typically means solving a harder or
-   different problem than the interviewer intended.
-4. Scale, latency, availability, consistency, durability. **Consistency**
-   (strong vs. eventual) most often forks the design — it determines whether you
-   can denormalize/cache freely and avoid distributed transactions, or must
-   coordinate every write.
-5. It narrates the *reasoning* — you show how the numbers and NFRs break the
-   simple version and force each added component, so the complex design is
-   justified step by step. Presenting the finished monster gives the interviewer
-   no window into your thinking and often includes boxes you can't defend.
-6. "I'll do <choice>, which gives us <benefit> at the cost of <downside>; that's
-   right here because <requirement>." Example: "I'll cache feeds per-user
-   (fan-out on write), giving O(1) reads at the cost of expensive writes; right
-   here because the system is 100:1 read-heavy."
-7. They're signaling the **celebrity / high-fan-out problem** and steering you to
-   the **deep-dive** step on feed generation — specifically that pure fan-out-on-
-   write explodes for accounts with tens of millions of followers, and they want
-   to see your hybrid (fan-out on write for most, fan-out on read/pull for
-   celebrities) solution.
-
+> **Root Cause Analysis:**  
+> Frame the answer using the standard High-Availability (HA) triage sequence:
+> 1. **Detection:** Health check probes (readiness/liveness) via Raft heartbeat loss or orchestrator timeout ($<3\text{ s}$).
+> 2. **Automatic Failover:** Promote a hot synchronous standby replica to primary; update connection poolers (e.g., PgBouncer) or internal DNS records.
+> 3. **Mitigate Write Degradation:** If primary failover takes $30\text{ seconds}$, degrade gracefully by buffering incoming write events in Kafka or an SQS queue, returning `202 Accepted` to clients.
+> 4. **Mitigate Read Degradation:** Serve reads directly from the distributed Redis cache or read-replicas in eventual-consistency mode.
 </details>
 
-## Further reading & sources
+---
 
-- [System Design Primer — study guide and approach](https://github.com/donnemartin/system-design-primer#study-guide) - the most-starred open-source walkthrough of how to structure a design interview, mirroring this module's seven-step flow.
-- [System Design Interview – An Insider's Guide (Alex Xu) — companion resource](https://bytebytego.com/) - the ByteByteGo material behind the widely-used book that codifies the requirements → estimation → design → deep-dive approach taught here.
-- [Grokking the System Design Interview — the step-by-step method](https://www.educative.io/courses/grokking-the-system-design-interview) - the structured template (clarify, estimate, define API, design, bottlenecks) that this framework follows.
-- [How to succeed in a system design interview (Pramp / Exponent write-ups)](https://www.tryexponent.com/blog/system-design-interview-guide) - practical guidance on driving the conversation, thinking out loud, and reading interviewer steers.
-- [Functional vs. non-functional requirements](https://en.wikipedia.org/wiki/Non-functional_requirement) - reference for the distinction that structures step 1 and quietly drives every later architectural fork.
-
-## Free PDF notes
+## 7. Free PDF Notes & Printables
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-D-012: Architecture Diagrams](https://backendroadmap.com/notes/system-design/SD-D-012.pdf). Each section in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
 
-## Next
+---
 
-[02-designing-a-url-shortener](../02-designing-a-url-shortener/README.md) — you
-have the framework; now you'll run it on the classic warm-up problem. A URL
-shortener looks trivial but touches unique-id generation, the read-heavy caching
-pattern, storage estimation, and a genuine consistency question — the perfect
-first system to take through all seven steps end to end.
+## 8. Curriculum Navigation
+
+- [← Back to Module 00: Capacity Estimation and Back-of-Envelope Math](../00-capacity-estimation-and-back-of-envelope-math/README.md)
+- [Back to System Design Track Overview](../README.md)
+- [Proceed to Module 02: Designing a URL Shortener](../02-designing-a-url-shortener/README.md)

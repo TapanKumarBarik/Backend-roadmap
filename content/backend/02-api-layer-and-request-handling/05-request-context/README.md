@@ -1,570 +1,356 @@
 # Module 05: Request Context
 
-## Why this matters
+## Why This Matters
 
-In module 04 your auth middleware did something quietly important: it verified
-a token and wrote `request.state.user = user` so that *later* code — the
-handler, a service, a logger — could find out who's making the request without
-re-verifying the token. That little stash is **request-scoped state**, and
-this module is about doing it deliberately and well. Every request is a
-short-lived world of its own: it has *its* authenticated user, *its* trace ID,
-*its* deadline, *its* set of permission checks. That per-request world needs to
-be reachable from many layers without every function taking twelve parameters
-or, worse, reaching into a global variable that gets clobbered by the next
-concurrent request.
+Every incoming HTTP request represents an ephemeral, isolated world. It possesses **its own authenticated user**, **its own distributed trace ID**, **its own database transaction**, and **its own deadline timeout**. 
 
-The naive alternatives are both bad. **Threading everything through
-parameters** (`def create_order(body, current_user, request_id, db, trace_id,
-...)`) couples every function to every piece of context and makes signatures
-unbearable. **Global variables** are catastrophic under concurrency: your
-server handles many requests at once, and a module-level `current_user`
-written by request A gets overwritten by request B a millisecond later —
-request A now acts as the wrong person. Request context is the disciplined
-middle path: a per-request container that the framework scopes correctly and
-that layers can read from without tight coupling.
+Managing this request-scoped state is one of the most critical concurrency concerns in backend engineering:
+* **The Global State Trap:** Under concurrency, a web server processes hundreds of requests simultaneously across threads or coroutines. Storing `current_user` in a module-level global variable causes Request B to overwrite Request A, leaking private data across tenants.
+* **Context Propagation:** Request state must be accessible to deep service layers, ORM repositories, and loggers without cluttering every function signature with 12 identical parameters.
+* **Cancellation & Deadlines:** If a mobile client loses connection or times out after 2 seconds, the server must propagate a **cancellation signal** downward to terminate database queries, abort RPC calls, and free connection pool slots immediately.
 
-FastAPI's answer is **dependency injection** via `Depends(...)`, and it's one
-of the framework's best features. Instead of a handler reaching *out* to grab
-context, the context is *injected into* the handler (and into services)
-declaratively. `current_user: User = Depends(get_current_user)` says "before
-you run me, resolve the current user and hand it to me." This inverts the
-coupling: your handler declares *what it needs*, and FastAPI wires it up. This
-module teaches the request lifecycle, what belongs in context (and what
-absolutely doesn't), timeouts and cancellation, and the DI patterns that make
-it all clean.
+> [!TIP]
+> **The Golden Rule:** Never use global or module-level variables for per-request state. Scope request state strictly to `context.Context` (Go), `AsyncLocalStorage` (Node.js), or Dependency Injection (FastAPI), and always pass the request context into database operations (`db.QueryContext(ctx)`).
 
-## Concepts
+---
 
-### The lifecycle of a request, and what "request-scoped" means
+## The Mental Model: Context Hierarchy & Cancellation Lifecycle
 
-A request is born when bytes arrive, and it dies when the response is sent.
-"Request-scoped" state lives exactly that long: created during this request,
-readable by anything handling this request, and gone when it ends —
-critically, *not* shared with any other concurrent request. The lifecycle,
-layer by layer:
+```mermaid
+flowchart TD
+    Client(["Client HTTP Request\n(Timeout Deadline: 3.0s)"]) --> RootCtx["1. Root Request Context\n(Carries TraceID: 'req_8f12', TenantID: 'acme')"]
+    
+    RootCtx --> WithTimeout["2. context.WithTimeout(ctx, 3*time.Second)"]
+    
+    WithTimeout --> ServiceLayer["3. Domain Service Layer\n(Extracts User Identity & Permissions)"]
+    
+    ServiceLayer --> DBQuery["4. Database Driver\nSELECT * FROM orders WHERE ..."]
+    ServiceLayer --> ExternalRPC["5. Downstream Payment Gateway API\nPOST https://api.stripe.com/..."]
 
-```
-arrive → [middleware pre-request] → [dependencies resolve] → [handler] →
-         [dependencies clean up]  → [middleware post-response] → sent
+    Client -.->|Network Drop / Client Disconnect| CancelEvent["⚠️ Client Cancels Connection!"]
+    CancelEvent --> SigCancel["ctx.Done() Signal Fires Instantly!"]
+    
+    SigCancel -.->|Abort Query| DBQuery
+    SigCancel -.->|Close Socket| ExternalRPC
+    
+    DBQuery --> Rollback["Postgres aborts SQL execution;\nReleases row locks & returns connection to pool!"]
+
+    style RootCtx fill:#e0e7ff,stroke:#6366f1,stroke-width:2px
+    style WithTimeout fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style CancelEvent fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+    style Rollback fill:#dcfce7,stroke:#22c55e,stroke-width:2px
 ```
 
-Middleware (module 03/04) can seed context early (request ID, user).
-Dependencies resolve just before the handler and can also *produce* context
-(load the user, open a DB session). The handler and any services it calls read
-that context. Then cleanup runs (close the DB session) and the response goes
-out. Everything in that window is one isolated request-world.
+---
 
+## 1. Quick Reference: What Belongs in Context vs. What Does Not
+
+| Data Category | Belongs in Request Context? | Justification & Production Rule |
+| :--- | :---: | :--- |
+| **Trace / Request ID** | **YES** | Essential for distributed tracing and correlating logs across microservice hops. |
+| **Authenticated Identity** | **YES** | User ID, roles, and tenant ID extracted once by auth middleware. |
+| **Request Deadline / Timeout** | **YES** | Hard time boundary; prevents runaway queries from hogging server threads. |
+| **Scoped DB Transaction** | **YES** | Allows multiple service methods to participate in the same atomic SQL transaction. |
+| **Global App Configuration** | **NO** | Database URLs and secrets belong in global application-level singletons, not context. |
+| **Optional Function Arguments** | **NO** | Never use context as an untyped generic parameter bag; keep function signatures explicit. |
+
+---
+
+## 2. Production War Story: The Global Variable Cross-Account Leak
+
+```mermaid
+sequenceDiagram
+    actor Alice as Customer Alice (Request A)
+    actor Bob as Admin Bob (Request B)
+    participant Server as Multi-Threaded Web App (Flawed Global State)
+    participant DB as Production Database
+
+    Note over Server: FLAGGED ANTI-PATTERN: global CURRENT_USER!
+    Alice->>Server: 1. POST /api/checkout (Alice's Cookie)
+    Note over Server: Thread 1 sets global CURRENT_USER = 'Alice'
+    
+    Bob->>Server: 2. POST /api/profile (Bob's Cookie)
+    Note over Server: Thread 2 sets global CURRENT_USER = 'Bob' (Overwrites Alice!)
+    
+    Note over Server: Thread 1 wakes up to save Alice's order!
+    Server->>DB: INSERT INTO orders (user_id, amount) VALUES (CURRENT_USER, $500);
+    Note over DB: Order is inserted with user_id = 'Bob'!
+    Note over DB: Alice's credit card charged Bob's account!
+    Note over Alice,Bob: Severe Data Breach: User records corrupted across tenants!
 ```
-  GLOBAL (app-scoped)            REQUEST-SCOPED (isolated)
-  ┌─────────────────┐            req A ─► [ user=A, id=A1, db=A ] ─► sent
-  │ CURRENT_USER = ?│  ◄─ A & B   req B ─► [ user=B, id=B7, db=B ] ─► sent
-  └─────────────────┘    clobber        each request its own world;
-   B overwrites A's value               B can never see A's user
-```
 
-### What belongs in request context
+### The Incident
+A FinTech startup launched a high-volume stock trading endpoint. During market opening hours, multiple users reported that trade confirmations appeared in other customers' accounts, and account balances were deducted from the wrong user profiles.
 
-Keep it **lightweight** and request-specific:
-
-- **Request metadata**: method, path, client IP, user agent — mostly already
-  on `request`.
-- **Identity**: the authenticated user / session, injected by auth
-  (middleware or a dependency).
-- **Trace / request IDs**: a correlation id threaded through logs and
-  downstream calls so you can reconstruct one request's whole journey.
-- **Derived request-scoped data**: the result of a permission check, a
-  resolved tenant/organization, a per-request DB session or transaction.
-
-What does **not** belong: application-wide config (that's app-scoped, set
-once at startup), caches meant to outlive the request, or anything you're
-tempted to use as a general "pass data between unrelated functions" bag.
-Context is not a global dumping ground; over-relying on it to smuggle data
-around hides real dependencies and makes code hard to follow.
-
-### `request.state` vs. dependency injection
-
-Two ways to carry context, and they compose:
-
-- **`request.state`** — an arbitrary attribute bag on the request object.
-  Middleware writes to it (`request.state.request_id = rid`); anything with
-  access to `request` reads it. Good for values middleware produces before
-  routing. Downside: it's untyped and only reachable where you have the raw
-  `request`.
-- **Dependency injection (`Depends`)** — a function whose return value is
-  injected into handlers (and other dependencies) by declaring it as a
-  parameter. Typed, testable, reusable, and it shows up in your OpenAPI docs.
-  This is the idiomatic FastAPI way to *derive and inject* context.
-
+### The Root Cause
+A developer attempted to avoid passing `user` through 6 layers of service calls by storing it in a module-level global variable:
 ```python
-from fastapi import Depends, Request, HTTPException
+# CATASTROPHIC BUG:
+CURRENT_USER = None
 
-def get_current_user(request: Request):
-    user = getattr(request.state, "user", None)   # seeded by auth middleware
-    if user is None:
-        raise HTTPException(status_code=401, detail="unauthorized")
-    return user
+def auth_middleware(request):
+    global CURRENT_USER
+    CURRENT_USER = verify_jwt(request) # Overwritten by concurrent threads!
+```
+Under high concurrency, Thread 2 processed Bob's request and reassigned `CURRENT_USER` while Thread 1 (processing Alice's request) was awaiting an I/O database response. When Thread 1 resumed, it read `CURRENT_USER` (which was now Bob) and saved Alice's financial trade under Bob's account.
 
-@app.get("/me")
-async def me(current_user=Depends(get_current_user)):
-    return {"user": current_user}
+### The Fix
+Never use global state for request data. Always store request data within a **scoped context** that is strictly tied to the request thread or async task lifecycle.
+
+---
+
+## 3. Production War Story 2: The Zombie Query Database Meltdown
+
+```mermaid
+sequenceDiagram
+    actor Mobile as Mobile App Client
+    participant API as Backend Service (No Context Cancellation)
+    participant DB as Postgres Database
+
+    Mobile->>API: 1. GET /reports/analytics (Heavy 30-second query)
+    API->>DB: 2. SELECT * FROM events ... (db.Query without ctx)
+    Note over Mobile: User loses patience after 2 seconds and clicks Refresh!
+    Note over Mobile: Mobile cancels TCP socket!
+    Mobile->>API: 3. RETRY: GET /reports/analytics
+    API->>DB: 4. SELECT * FROM events ... (Second 30s query!)
+    Note over Mobile: User clicks Refresh 3 more times!
+    Note over DB: Postgres is now running 5 identical 30-second queries concurrently!
+    Note over DB: CPU hits 100% · Connection pool saturated · Postgres crashes!
 ```
 
-The handler never reaches for the user; it *declares* it needs one, and
-`get_current_user` provides it. That's dependency injection: the coupling is
-inverted, and `get_current_user` is reusable across every route.
+### The Incident
+A business analytics dashboard crashed every Monday morning. Database monitoring revealed that Postgres connection pools were saturated with dozens of identical slow queries, driving database CPU to 100% and taking down the entire platform.
 
-### Dependencies that produce and clean up context (`yield`)
+### The Root Cause
+When users encountered a slow report, they clicked "Refresh" multiple times. The browser dropped the original HTTP connection, but the backend Go/Node code used `db.Query()` instead of `db.QueryContext(ctx)`. 
 
-Some context needs setup *and* teardown — a database session must be opened
-before the handler and closed after, even if the handler raises. FastAPI
-dependencies support this with `yield`:
+Because the backend ignored client cancellation, the database continued executing the abandoned 30-second queries to completion. 50 user refreshes spawned 250 zombie queries that paralyzed the database.
 
+### The Fix
+Pass the request context directly into database drivers:
+```go
+// PRODUCTION CORRECT:
+rows, err := db.QueryContext(r.Context(), "SELECT ...")
+// If client disconnects, Postgres receives an immediate cancel command!
+```
+
+---
+
+## 4. Multi-Language Implementation: Production Context & Cancellation
+
+### Go (`context.Context` Propagation & Timeouts)
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
+)
+
+type contextKey string
+const UserContextKey contextKey = "AuthenticatedUser"
+
+type UserProfile struct {
+	ID    int
+	Email string
+}
+
+func ContextAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Resolve user identity
+		user := UserProfile{ID: 42, Email: "ada@example.com"}
+
+		// 2. Attach user to request-scoped context
+		ctx := context.WithValue(r.Context(), UserContextKey, user)
+
+		// 3. Enforce a strict 5-second deadline for the entire request
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel() // Release context resources on egress
+
+		next.ServeHTTP(w, r.WithContext(ctxWithTimeout))
+	})
+}
+
+func reportHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Retrieve request-scoped user safely
+		currentUser := ctx.Value(UserContextKey).(UserProfile)
+		log.Printf("Processing report for user: %s", currentUser.Email)
+
+		// Pass context to DB: If client disconnects or timeout expires, DB cancels!
+		row := db.QueryRowContext(ctx, "SELECT pg_sleep(2), count(*) FROM transactions")
+		
+		var sleepResult any
+		var count int
+		if err := row.Scan(&sleepResult, &count); err != nil {
+			if ctx.Err() == context.Canceled {
+				log.Println("Client disconnected; query aborted cleanly.")
+				return
+			}
+			http.Error(w, "Query failed or timed out", http.StatusGatewayTimeout)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"transactions": %d, "owner": "%s"}`, count, currentUser.Email)
+	}
+}
+```
+
+### Node.js (`AsyncLocalStorage` Transparent Context Propagation)
+```typescript
+import express, { Request, Response, NextFunction } from 'express';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+interface RequestContext {
+  requestId: string;
+  userId: string;
+}
+
+// Scoped container shared across all async functions in this execution chain
+export const asyncLocalStorage = new AsyncLocalStorage<RequestContext>();
+
+const app = express();
+
+// Middleware: Establish isolated context per request
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const context: RequestContext = {
+    requestId: (req.headers['x-request-id'] as string) || 'req_auto_1',
+    userId: 'user_9901', // Resolved from JWT
+  };
+
+  // Run downstream chain inside the isolated async scope
+  asyncLocalStorage.run(context, () => {
+    next();
+  });
+});
+
+// Deep Domain Service: Reads context WITHOUT requiring function parameters!
+async function executeOrderService() {
+  const store = asyncLocalStorage.getStore();
+  if (!store) throw new Error('No active request context!');
+  
+  // Safe from race conditions: 'store.userId' is unique to this specific request
+  console.log(`[${store.requestId}] Executing order for User ${store.userId}`);
+  return { orderId: 'ord_102', user: store.userId };
+}
+
+app.post('/api/orders', async (req, res) => {
+  const result = await executeOrderService();
+  res.json(result);
+});
+
+app.listen(3000);
+```
+
+### Python (FastAPI Scoped Dependency Injection with Teardown)
 ```python
-def get_db():
-    db = SessionLocal()           # setup: runs before the handler
-    try:
-        yield db                  # the handler runs with `db` injected here
-    finally:
-        db.close()                # teardown: always runs after, even on error
-
-@app.post("/orders")
-async def create_order(body: OrderIn, db=Depends(get_db)):
-    ...   # uses db; it's closed for you when the request ends
-```
-
-This is the clean answer to "acquire a resource for the duration of a request
-and release it no matter what." The `finally` guarantees cleanup — the "clean
-up after the request" best practice, enforced by the framework.
-
-### Sharing context across layers without tight coupling
-
-The power move: dependencies can depend on *other* dependencies. A permission
-check depends on the current user; a service depends on the DB session and the
-user. You compose them, and FastAPI resolves the whole graph per request:
-
-```python
-def require_admin(user=Depends(get_current_user)):
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="admin only")
-    return user
-
-@app.delete("/users/{user_id}")
-async def delete_user(user_id: int, admin=Depends(require_admin), db=Depends(get_db)):
-    ...
-```
-
-```
-                       ┌─ Depends(require_admin) ─► Depends(get_current_user)
-   delete_user handler ┤                                    │
-                       └─ Depends(get_db)                   ▼
-                                              reads request.state.user
-   FastAPI resolves this graph per request (get_current_user cached, runs once)
-```
-
-`delete_user` doesn't know *how* the admin check works or *where* the user
-came from — it declares "I need an admin and a db." The layers are decoupled:
-you can change how users are loaded or how admin is determined without
-touching a single handler. That's sharing context without coupling.
-
-### Timeouts and cancellation
-
-A request shouldn't run forever. If a client disconnects, or a downstream call
-hangs, you want to *cancel* the work rather than tie up a worker. In async
-Python this rides on `asyncio` cancellation and `asyncio.timeout`:
-
-```python
+from fastapi import FastAPI, Depends, HTTPException, Request, status
+from typing import Generator
 import asyncio
-from fastapi import HTTPException
-
-@app.get("/slow")
-async def slow():
-    try:
-        async with asyncio.timeout(2.0):     # cancel if it takes > 2s
-            await do_expensive_thing()
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="upstream timed out")
-    return {"ok": True}
-```
-
-FastAPI/Starlette also propagate client-disconnect as cancellation to your
-`await` points — an awaited call gets cancelled if the client goes away. The
-concept to internalize: context isn't only *data*, it's also the request's
-*deadline and cancellation signal*. Long-running handlers should be
-cancellable and bounded, not open-ended.
-
-### Best practices
-
-- **Keep context lightweight.** Small, request-specific values. Not a cache,
-  not app config, not a junk drawer.
-- **Clean up after the request.** Use `yield` dependencies with `finally` (or
-  middleware post-response) to release anything you acquired.
-- **Don't over-rely on context to pass data.** If function B needs a value
-  function A computed, prefer passing it explicitly or via a dependency, not
-  stuffing it into a shared bag to smuggle across unrelated code. Hidden
-  data-flow through context is a maintenance trap.
-- **Never use module-level globals for per-request data.** They're shared
-  across concurrent requests and will leak one user's data into another's.
-  Use `request.state`, `Depends`, or `contextvars` (advanced) — all of which
-  are correctly request-scoped.
-
-## Command reference
-
-| Pattern | What it does | Example |
-|---|---|---|
-| `request.state.x = v` | Middleware writes request-scoped data | `request.state.request_id = rid` |
-| `getattr(request.state, "x", None)` | Safely read possibly-unset state | in a dependency |
-| `param=Depends(fn)` | Inject `fn`'s return value into a handler | `user=Depends(get_current_user)` |
-| dependency with `yield` | Setup + guaranteed teardown per request | `get_db` above |
-| dependency-on-dependency | Compose context without coupling | `require_admin` depends on `get_current_user` |
-| `dependencies=[Depends(fn)]` | Run a dependency for its side effect (no injection) | `@app.get("/x", dependencies=[Depends(rate_check)])` |
-| `asyncio.timeout(seconds)` | Bound a block; cancel on overrun | `async with asyncio.timeout(2.0):` |
-| `contextvars.ContextVar` | Request-safe implicit context (advanced) | for logging correlation |
-
-**`Depends` at three levels.** You can attach a dependency to a single
-*parameter* (inject its value), to a *path operation* via
-`dependencies=[...]` (run it for validation/side effects without using the
-return), or to an entire *router/app* via `APIRouter(dependencies=[...])` /
-`FastAPI(dependencies=[...])` (apply to every route beneath it). Router-level
-dependencies are how you protect a whole group of endpoints with one line —
-the DI counterpart to auth middleware, but scoped to specific routes.
-
-**Dependencies are cached per request.** If two dependencies both depend on
-`get_current_user`, FastAPI calls it *once* per request and reuses the result
-— so composing dependencies doesn't multiply work. (Disable with
-`Depends(fn, use_cache=False)` when you truly need a fresh call.)
-
-**`request.state` is not typed or autocompleted.** It's a plain attribute bag,
-so a typo (`request.state.reqest_id`) fails silently as `AttributeError` or a
-wrong `None`. Prefer deriving typed values through dependencies where it
-matters; use `state` mainly as the middleware→dependency hand-off.
-
-## Hands-on exercises
-
-Continue in the `api-layer` project.
-
-### 1. Read middleware-seeded state in a dependency
-
-Keep the request-ID middleware from module 03. Add:
-
-```python
-from fastapi import Depends, Request
-
-def get_request_id(request: Request) -> str:
-    return getattr(request.state, "request_id", "unknown")
-
-@app.get("/ctx")
-async def ctx(request_id: str = Depends(get_request_id)):
-    return {"request_id": request_id}
-```
-
-Call `GET /ctx`. Expected: the injected `request_id` matches the
-`X-Request-ID` response header. The handler got the value without touching
-`request` directly — decoupled.
-
-### 2. Inject the current user
-
-```python
-from fastapi import Depends, Request, HTTPException
-
-def get_current_user(request: Request):
-    user = getattr(request.state, "user", None)
-    if user is None:
-        raise HTTPException(status_code=401, detail="unauthorized")
-    return user
-
-@app.get("/me")
-async def me(current_user=Depends(get_current_user)):
-    return {"user": current_user}
-```
-
-With the auth middleware from module 04 active, call `/me` with
-`Authorization: Bearer secret` (returns the user) and without (`401`). The
-dependency turns middleware-seeded state into a clean, reusable injection.
-
-### 3. A `yield` dependency with guaranteed cleanup
-
-Simulate a DB session so you can *see* setup and teardown:
-
-```python
-class FakeSession:
-    def __init__(self): print("[db] open")
-    def close(self): print("[db] close")
-
-def get_db():
-    db = FakeSession()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@app.get("/with-db")
-async def with_db(db=Depends(get_db)):
-    print("[handler] using db")
-    return {"ok": True}
-```
-
-Call `/with-db` and watch the console. Expected order: `[db] open` →
-`[handler] using db` → `[db] close`. Now make the handler `raise
-RuntimeError("boom")` and confirm `[db] close` *still* prints — teardown runs
-even on error.
-
-### 4. Compose dependencies (permission check)
-
-```python
-def require_admin(user=Depends(get_current_user)):
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="admin only")
-    return user
-
-@app.delete("/admin/things/{thing_id}")
-async def delete_thing(thing_id: int, admin=Depends(require_admin)):
-    return {"deleted": thing_id, "by": admin["name"]}
-```
-
-Make `verify_token` (module 04) return a user *without* `is_admin` for one
-token and *with* it for another. Call the endpoint with each. Expected:
-non-admin → `403`, admin → `200`. `delete_thing` never checks admin-ness
-itself — it declared the requirement.
-
-### 5. Protect a whole router with one dependency
-
-```python
-from fastapi import APIRouter, Depends
-
-admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
-
-@admin_router.get("/stats")
-async def stats():
-    return {"secret": "numbers"}
-
-@admin_router.get("/audit")
-async def audit():
-    return {"secret": "log"}
-
-app.include_router(admin_router)
-```
-
-Call `/admin/stats` and `/admin/audit` as non-admin (both `403`) and admin
-(both `200`). Expected: one line protected two endpoints — router-level DI is
-the per-route counterpart to global auth middleware.
-
-### 6. Prove dependency caching
-
-```python
-def noisy_user(request: Request):
-    print("[dep] resolving user")
-    return getattr(request.state, "user", {"name": "anon"})
-
-def a(u=Depends(noisy_user)): return u
-def b(u=Depends(noisy_user)): return u
-
-@app.get("/cache-test")
-async def cache_test(x=Depends(a), y=Depends(b)):
-    return {"x": x, "y": y}
-```
-
-Call `/cache-test`. Expected: `[dep] resolving user` prints **once**, not
-twice, even though two dependencies both need it — FastAPI caches per request.
-
-### 7. Bound a slow handler with a timeout
-
-```python
-import asyncio
-from fastapi import HTTPException
-
-async def do_expensive_thing(seconds: float):
-    await asyncio.sleep(seconds)
-
-@app.get("/timeout-demo")
-async def timeout_demo(seconds: float = 1.0):
-    try:
-        async with asyncio.timeout(2.0):
-            await do_expensive_thing(seconds)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="operation timed out")
-    return {"slept": seconds}
-```
-
-Call `?seconds=1` (completes, `200`) and `?seconds=5` (`504` after ~2s).
-Expected: the second is cancelled at the 2-second deadline rather than running
-the full 5 seconds. The request's deadline is part of its context.
-
-### 8. Diagnose and fix: a concurrency-unsafe global
-
-This code "works" in local testing with one request at a time but corrupts
-data under concurrent load — user A sometimes sees user B's name. Find the
-root cause and fix it using request context properly.
-
-```python
-from fastapi import FastAPI, Request
 
 app = FastAPI()
-CURRENT_USER = {}      # (!) module-level global
 
-@app.middleware("http")
-async def load_user(request: Request, call_next):
-    global CURRENT_USER
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
-    CURRENT_USER = {"name": token or "anon"}   # (!) writes to shared global
-    return await call_next(request)
+class DatabaseSession:
+    def __init__(self, trace_id: str):
+        self.trace_id = trace_id
+        print(f"[{self.trace_id}] DB Connection Opened.")
 
-@app.get("/name")
-async def name():
-    return {"name": CURRENT_USER["name"]}      # (!) reads the shared global
+    def close(self):
+        print(f"[{self.trace_id}] DB Connection Closed.")
+
+# Dependency with teardown using yield
+def get_db_session(request: Request) -> Generator[DatabaseSession, None, None]:
+    trace_id = request.headers.get("x-request-id", "trace_1")
+    session = DatabaseSession(trace_id)
+    try:
+        # 1. Setup Phase: Hand session to route handler
+        yield session
+    finally:
+        # 2. Teardown Phase: Guaranteed to execute even if an exception occurs!
+        session.close()
+
+@app.get("/items")
+async def list_items(db: DatabaseSession = Depends(get_db_session)):
+    # Handler declares dependencies explicitly
+    await asyncio.sleep(0.5)
+    return {"status": "success", "trace": db.trace_id}
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-The bug is the **module-level `CURRENT_USER` global**. The server handles many
-requests concurrently; request B overwrites `CURRENT_USER` between the moment
-request A's middleware set it and the moment A's handler reads it. A then
-returns B's name. Globals are app-scoped, not request-scoped — exactly the
-wrong lifetime for per-request data.
+## 5. Practical Hands-On Exercises
 
-Fix: put the value on `request.state` (request-scoped, isolated per request)
-and read it via injection, never a global:
+### Exercise 1: Simulate Client Disconnect & Cancellation
+Demonstrate that dropping an HTTP request terminates execution on the server:
 
-```python
-@app.middleware("http")
-async def load_user(request: Request, call_next):
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
-    request.state.user = {"name": token or "anon"}   # per-request, isolated
-    return await call_next(request)
-
-def get_user(request: Request):
-    return getattr(request.state, "user", {"name": "anon"})
-
-@app.get("/name")
-async def name(user=Depends(get_user)):
-    return {"name": user["name"]}
+```bash
+# Issue an expensive request with a 1-second client timeout
+curl -m 1 http://localhost:8000/slow-query
 ```
+**Server Log Observation:** Look for `ctx.Err() == context.Canceled` or `Client disconnected; query aborted cleanly`.
 
-Lesson: per-request data must live in per-request storage (`request.state`,
-`Depends`, or `contextvars`) — never a module global, which is shared across
-all concurrent requests and will leak one user's data into another's.
+---
 
-</details>
-
-## Independent challenge
-
-No code given. Build a small "current organization" context system for a
-multi-tenant API. Every request carries an `X-Org-ID` header; a dependency
-must resolve it into an org object (rejecting unknown orgs with `404`), and a
-second dependency must verify the **authenticated user** (from module 04's
-auth) actually belongs to that org (rejecting with `403` otherwise). Then
-write two protected endpoints that both need the org *and* a per-request "DB
-session" (a `yield` dependency), and confirm the session is opened once and
-closed once per request even when a permission check rejects the request
-early. Reuse the **dependency-caching** behavior from this module so the org
-is resolved only once no matter how many dependencies need it, and reuse
-module 04's idea that this is the **per-route** counterpart to auth
-middleware.
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The `context.Background()` Antipattern</strong></summary>
 
-Compose: `get_org` depends on nothing but the header; `require_org_member`
-depends on both `get_current_user` and `get_org`. Attach
-`require_org_member` at the *router* level so both endpoints are protected by
-one line. For the "closed even on early rejection" guarantee, make sure the
-`get_db` `yield`/`finally` teardown runs — dependencies with `yield` clean up
-even when a *later* dependency or the handler raises, but a dependency that
-raises *before* `get_db` resolves means `get_db` never opened, which is also
-fine. Order your `dependencies=[...]` so the cheap checks fail first.
+**Scenario:** In a Go HTTP route handler, a developer writes:
+```go
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+    // BUG:
+    results, err := db.QueryContext(context.Background(), "SELECT ...")
+}
+```
+Why is passing `context.Background()` inside an HTTP handler an operational hazard?
 
+**Answer:**
+**It severs the connection between the request lifecycle and the database query.**
+
+`context.Background()` creates an immortal root context that is never canceled and has no timeout. If the client disconnects or the request exceeds the gateway deadline, the database driver will **never be notified**. 
+
+The query will continue running inside Postgres until completion, consuming CPU, memory, and database connection pool slots. You must always pass **`r.Context()`** so cancellations propagate downward.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Module-level globals for per-request data.** Shared across concurrent
-  requests; leaks one user's data into another's. Use `request.state` /
-  `Depends` / `contextvars`.
-- **Threading context through every function parameter.** Couples everything
-  and bloats signatures. Inject via `Depends` instead.
-- **Forgetting cleanup.** Resources acquired per request (DB sessions, files)
-  must be released. Use a `yield` dependency with `finally`.
-- **Using context as a junk drawer.** Stuffing unrelated data into
-  `request.state` to smuggle it between functions hides real dependencies.
-  Keep context lightweight and pass data explicitly where you can.
-- **Typos in `request.state`.** It's untyped; `request.state.reqest_id` fails
-  silently. Prefer typed dependencies for values that matter.
-- **Unbounded handlers.** A handler with no timeout on a downstream call can
-  tie up a worker forever. Bound long operations with `asyncio.timeout` and
-  make them cancellable.
-- **Assuming a dependency runs multiple times.** It's cached per request by
-  default; if you truly need a fresh call, pass `use_cache=False`.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What does "request-scoped" mean, and why is a module-level global the wrong
-   place to store the current user?
-2. Name three things that belong in request context and one thing that does
-   not.
-3. What's the difference between `request.state` and a `Depends` dependency
-   for carrying context, and when do you use each?
-4. Why does a dependency written with `yield` guarantee cleanup even when the
-   handler raises?
-5. How does dependency composition let a handler require an admin user
-   *without* the handler knowing how admin-ness is determined?
-6. If two dependencies both depend on `get_current_user`, how many times does
-   it run per request, and why does that matter?
-7. What are the two things "request context" includes besides data — i.e.,
-   what does a request's deadline/cancellation have to do with context?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Context Value Type Safety</strong></summary>
 
-1. It means the data lives only for the duration of one request and is
-   isolated from other concurrent requests. A module-level global is
-   app-scoped and shared across all requests running at once, so a concurrent
-   request overwrites it — one user ends up seeing another's data.
-2. Belongs: authenticated user/session, trace/request ID, per-request DB
-   session, resolved tenant, request metadata, a permission-check result.
-   Does not: application-wide config, long-lived caches, or arbitrary data
-   used to smuggle values between unrelated functions.
-3. `request.state` is an untyped attribute bag written by middleware and read
-   wherever you have the raw `request` — good for the middleware→handler
-   hand-off. `Depends` injects a typed, testable, reusable value and appears
-   in OpenAPI — the idiomatic way to derive and inject context. Use state for
-   middleware-produced values, DI for derived/typed context.
-4. The code after `yield` runs in a `finally`, and FastAPI ensures the
-   generator is resumed (cleanup executed) after the response is produced,
-   whether the handler returned normally or raised — so teardown always runs.
-5. The handler declares `admin=Depends(require_admin)`. `require_admin`
-   depends on `get_current_user` and does the check, raising `403` on
-   failure. The handler only expresses the requirement; the how lives in the
-   dependency, so it's decoupled and reusable.
-6. Once — dependencies are cached per request, so a shared dependency is
-   resolved a single time and reused. It matters because composing many
-   dependencies that share a common one doesn't multiply work (e.g. no
-   repeated token verification or DB lookups).
-7. Its identity/data *and* its deadline and cancellation signal. A request
-   has a bounded lifetime; long operations should be cancellable and
-   time-bounded (`asyncio.timeout`, client-disconnect propagation), so
-   context includes "how long may this run / has it been cancelled," not just
-   "who is it."
+**Scenario:** In Go, why should context keys always be defined as custom unexported types (e.g. `type contextKey string`) rather than built-in strings (`"user"`)?
 
+**Answer:**
+**To prevent collisions across independent packages and libraries.**
+
+If Package A stores a value under `"user"` and Package B (e.g. a third-party auth middleware) also stores a value under `"user"`, one package will silently overwrite the other. 
+
+By defining an unexported type:
+```go
+type contextKey string
+const UserKey contextKey = "user"
+```
+The Go runtime enforces that `context.Value(UserKey)` only matches keys created with that exact package type, guaranteeing cryptographic namespace isolation.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Teardown Guarantees in Scoped Dependencies</strong></summary>
 
-- [FastAPI — Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) - the core `Depends(...)` model for injecting request-scoped context declaratively.
-- [FastAPI — Dependencies with yield](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/) - setup/teardown dependencies that guarantee cleanup (e.g. DB sessions) even when a handler raises.
-- [FastAPI — Global Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/global-dependencies/) - attaching dependencies at the router/app level to protect whole groups of routes.
-- [Starlette — Requests (`request.state`)](https://www.starlette.io/requests/#other-state) - the per-request attribute bag used for the middleware-to-handler hand-off.
-- [Python docs — `contextvars`](https://docs.python.org/3/library/contextvars.html) - request-safe implicit context that avoids the concurrency hazards of module-level globals.
-- [Python docs — `asyncio.timeout`](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout) - bounding and cancelling long-running work, the deadline side of request context.
+**Scenario:** How does FastAPI's `yield` dependency pattern ensure database connection pool integrity when an unhandled exception occurs inside a route handler?
 
-## Free PDF notes
+**Answer:**
+**Via the Python context manager / generator `finally` guarantee.**
 
-Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-020: Network Timeouts](https://backendroadmap.com/notes/system-design/SD-B-020.pdf), [SD-C-019: API Timeouts & Deadline Propagation](https://backendroadmap.com/notes/system-design/SD-C-019.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf) and [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+When a handler raises an uncaught exception, Python unwinds the execution stack through the generator. Code located after the `yield` statement (or inside a `finally:` block) is **guaranteed to execute**, ensuring that `db.close()` or `session.rollback()` is invoked even during fatal crashes, preventing database connection leaks.
+</details>
 
-## Next
+---
 
-[06-handlers-controllers-and-services](../06-handlers-controllers-and-services/README.md)
-— you can validate, wrap, and inject context; now you'll organize the actual
-business logic into clean layers (handler → controller → service) so it stays
-testable and DRY as the app grows.
+## Next Step
+
+Now that you have mastered request context, cancellation propagation, and scoped state, proceed to **[06-handlers-controllers-and-services](../06-handlers-controllers-and-services/README.md)** to master layered architecture, separating transport logic from domain business rules, and repository patterns.

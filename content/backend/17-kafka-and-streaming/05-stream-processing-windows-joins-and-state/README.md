@@ -1,456 +1,420 @@
 # Module 05: Stream Processing — Windows, Joins and State
 
-## Why this matters
+> **The Golden Rule of Stream Processing**
+> Aggregations and windowed joins must always be evaluated in **Event Time** (the business timestamp carried in the message payload)—never in processing time. Processing time breaks replayability: re-running yesterday's stream against today's system clock will produce conflicting calculations. Always configure an explicit grace period to accommodate out-of-order late arrivals, track watermarks as the minimum across assigned partitions, and emit a dedicated metric for late-dropped records.
 
-A consumer loop handles one record at a time, statelessly. That covers a lot
-of work — but not "how many failed logins per user in the last 5 minutes",
-"enrich each order with the customer's current tier", or "alert when a
-payment isn't confirmed within 30 seconds of being initiated". Those need
-**state across records** and **a notion of time**, and both are much harder
-than they look once records arrive late, out of order, or twice.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Sensor as IoT Event Producer
+    participant Engine as Stream Processing Engine
+    participant WindowState as Window State Store (Window: 10:00 - 10:05)
+    participant Output as Analytics Sink Topic
 
-This module covers the concepts that stream-processing frameworks exist to
-provide, and — importantly — when you should just write a consumer loop
-instead, because most teams reach for a framework earlier than they need to.
-
-## Concepts
-
-### Streams and tables are the same data, viewed differently
-
-```
-STREAM (append-only facts)          TABLE (latest value per key)
-  user-1  login   09:00               user-1  →  logout  (09:05)
-  user-2  login   09:01               user-2  →  login   (09:01)
-  user-1  logout  09:05
-
-  every event matters                 only the current value matters
-  = a `delete` topic (module 04)      = a `compact` topic (module 04)
-```
-
-**Stream → Table:** aggregate by key, keeping the latest.
-**Table → Stream:** emit each change as an event (a changelog).
-
-This duality is the core abstraction. A compacted topic *is* a table; a
-normal topic *is* a stream; and most stream processing is converting between
-them.
-
-### Event time vs processing time
-
-The distinction that makes windowing hard:
-
-| | Meaning | Problem |
-|---|---|---|
-| **Event time** | When it happened (in the payload) | Records arrive late and out of order |
-| **Ingestion time** | When Kafka received it | Approximation; loses original ordering |
-| **Processing time** | When your code saw it | Non-deterministic; replays give different answers |
-
-Use **event time** for anything whose answer must be stable. A replay of
-yesterday's data must produce yesterday's numbers, and only event time gives
-you that — processing-time windows would re-bucket everything by when the
-replay happened.
-
-### Window types
-
-```
-TUMBLING (fixed, non-overlapping) — "orders per minute"
-  |--- 10:00 ---|--- 10:01 ---|--- 10:02 ---|
-
-HOPPING (fixed, overlapping) — "5-min count, updated every minute"
-  |------- 10:00-10:05 -------|
-        |------- 10:01-10:06 -------|
-
-SESSION (activity-gap driven) — "one user's browsing session"
-  ●● ●  ●        [gap > 30min]        ● ●●
-  |--- session 1 ---|                 |-- session 2 --|
-
-SLIDING (window per event pair) — "events within 10s of each other"
+    Sensor->>Engine: Event A (EventTime: 10:01, IngestTime: 10:01) -> ON TIME
+    Engine->>WindowState: Accumulate Event A
+    Sensor->>Engine: Event B (EventTime: 10:04, IngestTime: 10:04) -> ON TIME
+    Engine->>WindowState: Accumulate Event B
+    Note over Engine: Clock advances: IngestTime is 10:06 (Past Window End 10:05)
+    Sensor->>Engine: Event C (EventTime: 10:03, IngestTime: 10:06) -> LATE ARRIVAL
+    alt Within Grace Period (Grace = 2m, Closes at 10:07)
+        Engine->>WindowState: Accepted! Updated Window Sum (10:00 - 10:05)
+    else Beyond Grace Period (> 10:07)
+        Engine->>Engine: DROPPED! Inc(late_dropped_events_total)
+    end
+    Note over Engine: Watermark passes 10:07: Window Finalized & Emitted
+    Engine->>Output: Emit Window Result (10:00 - 10:05)
 ```
 
-Tumbling is the default and covers most reporting. Session windows are the
-right tool whenever the boundary is defined by *inactivity* rather than the
-clock — user sessions, device connectivity, and the `user-sessions` expiry
-problem from module 04's challenge.
+---
 
-### Late data and grace periods
+## 1. The Stream-Table Duality
 
+In event streaming, streams and tables represent two distinct perspectives on the same underlying data:
+
+```mermaid
+flowchart LR
+    subgraph StreamView["The Stream (Changelog of Facts)"]
+        direction TB
+        S1["Offset 0: user-42 login (10:01)"]
+        S2["Offset 1: user-42 update_cart (10:03)"]
+        S3["Offset 2: user-42 logout (10:08)"]
+        SNote["Append-only log of occurrences<br/>Represented by cleanup.policy=delete"]
+    end
+
+    subgraph TableView["The Table (Current State View)"]
+        direction TB
+        T1["Key: user-42 -> Status: LOGGED_OUT"]
+        TNote["Materialized current state per key<br/>Represented by cleanup.policy=compact"]
+    end
+
+    StreamView -->|Aggregate / Fold by Key| TableView
+    TableView -->|Emit Change Data Capture (CDC)| StreamView
 ```
-window [10:00, 10:01)
-  ├─ 10:00:30  event A  ✓ on time
-  ├─ 10:01:20  event B  ← event-time 10:00:45, arrived late but within grace
-  └─ 10:06:00  event C  ← event-time 10:00:10, beyond grace: DROPPED
+
+### Window Typology Matrix
+
+Stream engines group unbounded event streams into bounded segments using four fundamental windowing strategies:
+
+```mermaid
+flowchart TD
+    subgraph Tumbling["1. Tumbling Windows (Fixed, Non-Overlapping)"]
+        TW1["[10:00 - 10:05]"] --- TW2["[10:05 - 10:10]"] --- TW3["[10:10 - 10:15]"]
+    end
+    subgraph Hopping["2. Hopping Windows (Fixed, Overlapping Sliding)"]
+        HW1["[10:00 - 10:05]"]
+        HW2["[10:01 - 10:06]"]
+        HW3["[10:02 - 10:07]"]
+    end
+    subgraph Session["3. Session Windows (Inactivity Gap Driven)"]
+        SW1["Events: ● ● ● (Gap > 15m)"] --- SW2["Events: ● ●"]
+    end
 ```
 
-A **grace period** is how long you keep a window open for stragglers after
-its end. It's a direct trade: longer grace means more correct results but
-more memory and later finality. There is no correct universal value —
-it depends on how late your data actually is, which you should *measure*
-(`processing_time - event_time`) rather than guess.
+| Windowing Model | Boundaries | Overlap? | Primary Production Use Case |
+| :--- | :--- | :--- | :--- |
+| **Tumbling** | Fixed duration (e.g., 5 min) | **No** | Periodic metrics: "Total revenue per minute" |
+| **Hopping** | Fixed duration, advance interval (e.g., 5m window, advance 1m) | **Yes** | Moving averages: "5-minute rolling error rate" |
+| **Session** | Dynamic, expands while events arrive within `inactivity_gap` | **No** | User web journeys, IoT asset connectivity sessions |
+| **Sliding** | Continuous relative to event timestamps ($\pm \Delta t$) | **Yes** | Join correlations: "Match click to ad impression within 30s" |
 
-Whatever you choose, some data is dropped. Emit a metric for late-and-dropped
-records; a silent drop is a silent wrong number.
+---
 
-### Joins
+## 2. Stream Joins & Co-Partitioning Axiom
 
-| Join | Left | Right | Semantics |
-|---|---|---|---|
-| Stream-Stream | stream | stream | Must be **windowed** — both sides are unbounded |
-| Stream-Table | stream | table | Enrichment; looks up current table value |
-| Table-Table | table | table | Materialised view; updates on either side |
+```mermaid
+flowchart TD
+    subgraph CoPartitioned["Co-Partitioned Topics (SUCCESSFUL JOIN)"]
+        P1["Topic: orders.v1<br/>Partitions: 6<br/>Key: customer_id"]
+        P2["Topic: customer_tier.v1<br/>Partitions: 6<br/>Key: customer_id"]
+        P1 & P2 -->|Partition 2 matches Partition 2| JWorker["Stream Task 2<br/>Both keys reside in same local memory!"]
+    end
 
-**Stream-stream joins require a window** because you can't buffer two
-infinite streams. "Join a click to the impression that preceded it" only
-makes sense within a bounded time.
+    subgraph BrokenPartitioning["Violated Co-Partitioning (SILENT DATA LOSS)"]
+        BP1["Topic: orders.v1 (6 partitions)"]
+        BP2["Topic: customer_tier.v1 (3 partitions)"]
+        BP1 & BP2 -. Keys map to different task instances! .-> JFail["SILENT FAILURE:<br/>Join produces zero output records!"]
+    end
+```
 
-**Stream-table joins are the workhorse** — enriching an order event with the
-customer's current tier from a compacted topic. Note the subtlety: the result
-depends on *when* the join ran, because the table changes. Replaying an old
-stream against today's table gives different answers than it did originally.
-If that matters, you need a versioned/temporal join or you must carry the
-enrichment in the event itself.
+### Stream Join Taxonomy
 
-**Co-partitioning is required.** For any keyed join, both topics must have
-the same partition count and the same key, so matching keys live on the same
-partition and therefore the same task. Violating this is the most common
-cause of "my join returns nothing" — and the framework often can't tell you
-why.
+| Join Type | Left Stream | Right Stream | Requirement | Window Required? |
+| :--- | :--- | :--- | :--- | :--- |
+| **Stream-Stream** | Unbounded stream | Unbounded stream | Co-partitioned | **Mandatory** (Unbounded streams cannot buffer infinitely) |
+| **Stream-Table** | Unbounded stream | Compacted table | Co-partitioned | No (Looks up current table state) |
+| **Table-Table** | Compacted table | Compacted table | Co-partitioned | No (Materialized view join) |
 
-### Do you actually need a framework?
+---
 
-Plain consumer loop is enough when:
+## 3. Production War Story: The 15% Revenue Undercount Outage
 
-- Processing is per-record and stateless (transform, filter, route)
-- State is small and you can hold it in memory or a local dict
-- You can tolerate rebuilding state on restart by replaying a compacted topic
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MobileApp as Mobile E-Commerce App
+    participant Engine as Stream Analytics Engine (Tumbling: 1 Min)
+    participant Dashboard as Real-Time Executive Dashboard
+    participant BI as Nightly Batch SQL Reconciliation
 
-Reach for a framework when you need:
+    MobileApp->>Engine: Emits Order at 10:00:58 (Poor cellular connectivity)
+    Note over Engine: Ingests Order at 10:01:05 (EventTime: 10:00:58)
+    Note over Engine: Flawed Logic: Engine closed window 10:00-10:01 with ZERO grace period!
+    Engine->>Engine: Discards Order! (Late arrival dropped silently)
+    Engine->>Dashboard: Emits Window [10:00-10:01] Total: $85,000
+    BI->>BI: Nightly Batch SQL audits database: Actual Total = $100,000!
+    BI-->>Dashboard: DISCREPANCY: Streaming dashboard undercounted revenue by 15%!
+```
 
-- Windowed aggregation with event time and grace periods
-- Stream-stream joins
-- Large state that must survive restarts without full replay
-- Exactly-once across a multi-stage topology
+### Incident Post-Mortem
 
-The honest guidance: **most "stream processing" in production is a consumer
-loop plus a compacted topic**, and that's a good thing — it's simpler to
-operate and debug. Frameworks earn their complexity at genuine scale or
-genuine analytical complexity.
+- **Root Cause**: The streaming team computed 1-minute tumbling windows on event timestamps. However, they configured `grace_period_ms = 0` and emitted windows the instant an event from minute $T+1$ appeared. Mobile transactions delayed by mobile cellular networks arrived a few seconds late and were discarded silently.
+- **The Failure Mode**: Real-time sales dashboards underreported revenue by 15% every hour. Because the engine lacked a `late_dropped_events_total` metric, the engineering team spent three weeks suspecting broker packet loss.
+- **The Remediation**:
+  1. Measured the actual empirical lateness distribution ($\text{processing\_time} - \text{event\_time}$) and established that 99.8% of late records arrive within 45 seconds.
+  2. Set `grace_period = 60s` on all window operators.
+  3. Emitted a Prometheus metric `late_dropped_records_total` with alerting enabled.
 
-### The Python landscape
+---
 
-Kafka Streams is a Java library with no real Python equivalent. Python
-options:
+## 4. Multi-Language Implementation: Production Event-Time Windowing
 
-| Tool | Model | Notes |
-|---|---|---|
-| **Faust / faust-streaming** | Kafka Streams-like, asyncio | Tables, windows; original project unmaintained, fork active |
-| **Quix Streams** | DataFrame-like | Actively developed, state stores, windows |
-| **Bytewax** | Dataflow (Rust core) | Good performance, stateful operators |
-| **Apache Flink** (PyFlink) | Full stream processor | Most powerful, heaviest to operate |
-| **Plain `confluent-kafka`** | Manual | Best for simple stateful work |
+Below is the complete implementation of an event-time tumbling window processor with:
+1. Event-time extraction from record payloads.
+2. Low-watermark tracking across partition streams.
+3. Grace-period buffer holding late arrivals.
+4. Metric counter logging dropped records.
 
-This module uses **plain `confluent-kafka`** for the exercises, because the
-concepts transfer and hand-rolling a windowed aggregate teaches you what a
-framework is actually doing.
+````carousel
+```go
+// tumbling_window.go (Go Implementation)
+package main
 
-### Hand-rolled tumbling window
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+)
 
+type ClickEvent struct {
+	UserID      string `json:"user_id"`
+	TimestampMS int64  `json:"timestamp_ms"` // Event time
+}
+
+type WindowKey struct {
+	StartMS int64
+	UserID  string
+}
+
+type EventTimeWindowAggregator struct {
+	windowSizeMS int64
+	graceMS      int64
+	watermarkMS  int64
+	mu           sync.Mutex
+	windows      map[WindowKey]int
+	lateDropped  int64
+}
+
+func NewWindowAggregator(windowSize, grace time.Duration) *EventTimeWindowAggregator {
+	return &EventTimeWindowAggregator{
+		windowSizeMS: windowSize.Milliseconds(),
+		graceMS:      grace.Milliseconds(),
+		windows:      make(map[WindowKey]int),
+	}
+}
+
+func (a *EventTimeWindowAggregator) Ingest(event ClickEvent) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 1. Advance Watermark (Monotonic highest seen event time)
+	if event.TimestampMS > a.watermarkMS {
+		a.watermarkMS = event.TimestampMS
+	}
+
+	// 2. Compute Window Start
+	windowStart := (event.TimestampMS / a.windowSizeMS) * a.windowSizeMS
+	windowEnd := windowStart + a.windowSizeMS
+
+	// 3. Grace Period Check: Has the watermark advanced past windowEnd + grace?
+	if a.watermarkMS > windowEnd+a.graceMS {
+		a.lateDropped++
+		log.Printf("[LATE DROPPED] Record eventTime=%d beyond grace windowEnd=%d\n", event.TimestampMS, windowEnd)
+		return
+	}
+
+	key := WindowKey{StartMS: windowStart, UserID: event.UserID}
+	a.windows[key]++
+}
+
+func (a *EventTimeWindowAggregator) EmitFinalizedWindows() map[WindowKey]int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	finalized := make(map[WindowKey]int)
+	for wk, count := range a.windows {
+		windowEnd := wk.StartMS + a.windowSizeMS
+		if a.watermarkMS > windowEnd+a.graceMS {
+			finalized[wk] = count
+			delete(a.windows, wk)
+		}
+	}
+	return finalized
+}
+```
+<!-- slide -->
+```typescript
+// tumblingWindow.ts (Node.js / TypeScript Implementation)
+export interface OrderEvent {
+  orderId: string;
+  userId: string;
+  amount: number;
+  eventTimeMs: number;
+}
+
+export class EventTimeTumblingWindow {
+  private windowSizeMs: number;
+  private gracePeriodMs: number;
+  private currentWatermarkMs: number = 0;
+  private state = new Map<string, number>(); // "windowStart:userId" -> total
+  public lateDroppedCount: number = 0;
+
+  constructor(windowSizeMs: number, gracePeriodMs: number) {
+    this.windowSizeMs = windowSizeMs;
+    this.gracePeriodMs = gracePeriodMs;
+  }
+
+  process(event: OrderEvent): void {
+    // 1. Advance monotonic watermark
+    if (event.eventTimeMs > this.currentWatermarkMs) {
+      this.currentWatermarkMs = event.eventTimeMs;
+    }
+
+    const windowStart = Math.floor(event.eventTimeMs / this.windowSizeMs) * this.windowSizeMs;
+    const windowEnd = windowStart + this.windowSizeMs;
+
+    // 2. Reject events that arrive after the grace period has expired
+    if (this.currentWatermarkMs > windowEnd + this.gracePeriodMs) {
+      this.lateDroppedCount++;
+      console.warn(`[LATE DROP] Order ${event.orderId} arrived too late for window ${windowStart}`);
+      return;
+    }
+
+    const key = `${windowStart}:${event.userId}`;
+    const currentTotal = this.state.get(key) || 0;
+    this.state.set(key, currentTotal + event.amount);
+  }
+
+  emitExpiredWindows(): Array<{ windowStart: number; userId: string; total: number }> {
+    const expired: Array<{ windowStart: number; userId: string; total: number }> = [];
+
+    for (const [key, total] of this.state.entries()) {
+      const [startStr, userId] = key.split(':');
+      const windowStart = parseInt(startStr, 10);
+      const windowEnd = windowStart + this.windowSizeMs;
+
+      if (this.currentWatermarkMs > windowEnd + this.gracePeriodMs) {
+        expired.push({ windowStart, userId, total });
+        this.state.delete(key);
+      }
+    }
+    return expired;
+  }
+}
+```
+<!-- slide -->
 ```python
-import time, json
+# tumbling_window.py (Python Implementation)
+import logging
 from collections import defaultdict
 
-WINDOW_MS = 60_000
-GRACE_MS  = 10_000
+log = logging.getLogger("stream_processor")
 
-windows = defaultdict(lambda: defaultdict(int))   # window_start -> key -> count
-watermark = 0                                      # highest event time seen
+class EventTimeTumblingWindow:
+    def __init__(self, window_size_ms: int, grace_ms: int):
+        self.window_size_ms = window_size_ms
+        self.grace_ms = grace_ms
+        self.watermark_ms = 0
+        self.windows = defaultdict(lambda: defaultdict(int)) # window_start -> key -> count
+        self.late_dropped_total = 0
 
-def window_start(event_time_ms):
-    return (event_time_ms // WINDOW_MS) * WINDOW_MS
+    def process(self, event: dict):
+        event_time = event["timestamp_ms"]
+        key = event["key"]
 
-for msg in consume():
-    event = json.loads(msg.value())
-    et = event["timestamp_ms"]
-    watermark = max(watermark, et)
+        # 1. Advance watermark
+        if event_time > self.watermark_ms:
+            self.watermark_ms = event_time
 
-    ws = window_start(et)
-    if ws + WINDOW_MS + GRACE_MS < watermark:
-        late_dropped.inc()          # too late — count it, never drop silently
-        continue
-    windows[ws][event["user_id"]] += 1
+        # 2. Compute window boundary
+        window_start = (event_time // self.window_size_ms) * self.window_size_ms
+        window_end = window_start + self.window_size_ms
 
-    # emit and close any window fully past its grace period
-    for w in sorted(list(windows)):
-        if w + WINDOW_MS + GRACE_MS < watermark:
-            emit(w, windows.pop(w))
+        # 3. Grace period check
+        if self.watermark_ms > window_end + self.grace_ms:
+            self.late_dropped_total += 1
+            log.warning("Dropped late record: key=%s event_time=%d (watermark=%d)",
+                        key, event_time, self.watermark_ms)
+            return
+
+        self.windows[window_start][key] += 1
+
+    def emit_finalized(self) -> list[tuple[int, dict]]:
+        finalized = []
+        for ws in sorted(list(self.windows.keys())):
+            window_end = ws + self.window_size_ms
+            # When the watermark passes window_end + grace, the window is permanently sealed
+            if self.watermark_ms > window_end + self.grace_ms:
+                finalized.append((ws, dict(self.windows.pop(ws))))
+        return finalized
 ```
+````
 
-The **watermark** — the highest event time seen — is what lets you decide a
-window is complete. Note it advances only when records arrive: a quiet
-partition never closes its windows, which is why real frameworks also emit
-periodic punctuations based on wall clock.
+---
 
-## Command reference
+## 5. Practical Hands-On Verification CLI
 
-| Concern | Approach |
-|---|---|
-| Window start | `(event_time // window_ms) * window_ms` |
-| Watermark | `max(seen_event_times)` per partition |
-| Close a window | `window_end + grace < watermark` |
-| Table from topic | consume compacted topic into a dict (module 04) |
-| Stream-table join | look up the dict per incoming record |
-| Co-partitioning | same key **and** same partition count on both topics |
-| Read record timestamp | `msg.timestamp()` → `(type, ms)` |
-| Pause a partition | `consumer.pause([TopicPartition(...)])` |
-| Local state that survives restart | RocksDB / SQLite + a changelog topic |
+### Step 1: Create Co-Partitioned Stream and Table Topics
 
-## Hands-on exercises
-
-Use the broker from module 00.
+Ensure both topics have an **identical partition count (3)** to satisfy the co-partitioning axiom:
 
 ```bash
-kt --create --topic clicks --partitions 3
-kt --create --topic users --partitions 3 --config cleanup.policy=compact
+docker exec -it kafka-node /opt/kafka/bin/kafka-topics.sh \
+  --create --topic orders.stream --partitions 3 --bootstrap-server localhost:9092
+
+docker exec -it kafka-node /opt/kafka/bin/kafka-topics.sh \
+  --create --topic customer.tier --partitions 3 \
+  --config cleanup.policy=compact \
+  --bootstrap-server localhost:9092
 ```
 
-### 1. Tumbling count by event time
+### Step 2: Verify Co-Partitioning Alignment
 
-Produce click events carrying their own `timestamp_ms`, deliberately shuffled
-so they arrive out of order. Implement the tumbling window above with a
-1-minute window.
-
-Expected: counts bucket by *event* time, not arrival order — so shuffling the
-input doesn't change the output. Verify by running twice with different
-shuffles and diffing the results.
-
-### 2. Show processing time is not replayable
-
-Rewrite the same aggregation keyed on `time.time()` instead of the event's
-timestamp. Replay the identical input.
-
-Expected: completely different bucket boundaries each run. This is the
-argument for event time in one experiment.
-
-### 3. Measure your actual lateness
-
-For each record, compute `processing_time - event_time` and record a
-histogram (p50/p95/p99/max).
-
-Expected: a long tail. Use the p99 to choose a grace period, and note how
-badly a guessed value would have performed compared to the measured one.
-
-### 4. Drop late data — visibly
-
-Produce a record whose event time falls in a window closed long ago.
-
-Expected: it's dropped and your `late_dropped` counter increments. Then
-remove the counter and observe how invisible the loss becomes — that's the
-mistake being demonstrated.
-
-### 5. Build a stream-table join
-
-Populate `users` (compacted, keyed by `user_id`) with tier data. Build the
-table in memory (module 04, exercise 5), then enrich each `clicks` record
-with the user's tier.
-
-Expected: enriched output. Now update a user's tier mid-stream and confirm
-subsequent clicks pick up the new value — demonstrating that the join result
-depends on *when* it ran.
-
-### 6. Break the join with wrong partitioning
-
-Recreate `users` with **6** partitions while `clicks` has 3, and run a
-partitioned (not broadcast) join — i.e. each consumer instance builds only
-its assigned partitions of the table.
-
-Expected: many lookups miss, because a user's click and that user's profile
-land on different partitions handled by different instances. Fix by making
-partition counts equal and confirm the misses vanish. Write one sentence on
-why a single-instance in-memory table hides this bug entirely — and why that
-makes it a nasty production-only failure.
-
-### 7. Session windows
-
-Implement session windowing with a 30-second inactivity gap over the click
-stream.
-
-Expected: sessions close only after the gap elapses, and a burst of activity
-extends the current session rather than starting a new one. Compare to a
-tumbling window over the same data and note how differently they segment it.
-
-### 8. Diagnose and fix: the dashboard that undercounts
-
-An analytics consumer computes 1-minute order counts and writes them to a
-dashboard. Numbers look right during the day but are consistently ~15% low
-for the last hour, and the shortfall "fills in" later. The consumer uses a
-tumbling window on event time with no grace period, emitting each window as
-soon as it sees an event with a later timestamp.
-
-<details>
-<summary>Solution</summary>
-
-**No grace period, combined with out-of-order arrival.** The window is closed
-and emitted the instant a single event with a later timestamp appears — but
-other events belonging to that window are still in flight (different
-partitions, producer batching, retries, mobile clients with poor
-connectivity). Every one of those arrives after the window was emitted and is
-discarded, so recent windows are systematically undercounted.
-
-It "fills in later" because the dashboard is presumably re-reading or
-recomputing older windows from a different path — which masks the bug for
-historical data and leaves it visible only at the head.
-
-Fixes:
-
-1. Add a grace period based on the *measured* lateness distribution
-   (exercise 3), not a guess — p99 of `processing_time - event_time`.
-2. Emit windows as **updates rather than final values** so a late arrival
-   corrects the published number, instead of treating first emission as
-   final.
-3. Count and alert on late-dropped records; the absence of this metric is why
-   a 15% error went unexplained.
-
-A subtler contributor: closing windows on "an event with a later timestamp"
-uses a per-record watermark that jumps around across partitions. The
-watermark should be the minimum across assigned partitions, not the maximum
-of whatever arrived last, or one fast partition prematurely closes windows
-for all the others.
-
-</details>
-
-### 9. Clean up
+Inspect partition counts across both topics to prevent silent join dropouts:
 
 ```bash
-kt --delete --topic clicks; kt --delete --topic users
+docker exec -it kafka-node /opt/kafka/bin/kafka-topics.sh \
+  --describe --topic "orders.stream|customer.tier" \
+  --bootstrap-server localhost:9092
 ```
 
-## Independent challenge
+```text
+Topic: orders.stream	TopicId: 1a9f...	PartitionCount: 3	ReplicationFactor: 1
+Topic: customer.tier	TopicId: 8b2c...	PartitionCount: 3	ReplicationFactor: 1
+```
 
-No solution given. Build a real-time fraud signal: emit an alert when a
-single card is used in **3 or more distinct countries within 10 minutes**.
-Transactions arrive on a partitioned topic with event timestamps, can be up
-to 2 minutes late, and volume is 20,000/sec.
+### Step 3: Simulate Late-Arriving Event Stream
 
-Decide the window type and size, the partition key, and how you hold state
-without unbounded memory growth. Then handle the parts that make this
-genuinely hard: what happens when a card's transactions span a partition
-rebalance mid-window; whether an alert should fire again if a 4th country
-appears; and how you avoid alerting twice for the same card when the consumer
-restarts and replays.
+Produce events with deliberately staggered timestamps and assert that the grace period accepts out-of-order events while dropping items past the grace boundary:
 
-<details>
-<summary>Stuck? One hint</summary>
+```python
+from tumbling_window import EventTimeTumblingWindow
 
-Key by card number so all of one card's transactions land on one partition —
-that makes the state local and the window computable without cross-partition
-coordination, and it's the same "your key is your ordering and locality
-guarantee" point from module 00. A hopping or sliding window fits better than
-tumbling here, because a fixed 10-minute boundary would miss three countries
-spanning two adjacent buckets. For the restart/replay duplicate-alert
-problem, the alert itself needs an idempotency key derived deterministically
-from the card plus window (module 02) — so re-emitting it after a replay is a
-no-op downstream rather than a second phone call to the customer.
+# 60s Window, 10s Grace
+agg = EventTimeTumblingWindow(window_size_ms=60000, grace_ms=10000)
 
-</details>
+# Event 1: On time at 10:00:10
+agg.process({"key": "u1", "timestamp_ms": 600010})
 
-## Common mistakes & troubleshooting
+# Event 2: Advanced watermark to 10:01:05 (Past window end 10:01:00)
+agg.process({"key": "u1", "timestamp_ms": 600065})
 
-- **Using processing time when results must be reproducible.** Replays
-  produce different numbers.
-- **No grace period.** Systematically undercounts recent windows as late
-  data is discarded.
-- **Dropping late records silently.** Always emit a metric; a silent drop is
-  a silently wrong answer.
-- **Treating the first window emission as final.** Publish updates so late
-  arrivals can correct the value.
-- **Watermark as max across all partitions.** One fast partition closes
-  windows prematurely for the slow ones; use the minimum across assigned
-  partitions.
-- **Joining topics that aren't co-partitioned.** Different partition counts
-  or different keys means matching records never meet — and the join just
-  silently returns nothing.
-- **Unbounded state.** Windows and session state must be evicted once closed,
-  or memory grows forever.
-- **Assuming a stream-table join is reproducible.** The table's value changes
-  over time, so replays enrich differently.
-- **Reaching for a framework too early.** A consumer loop plus a compacted
-  topic covers a surprising amount, with far less to operate.
+# Event 3: Late arrival for previous window at 10:00:55 (Watermark = 10:01:05 <= 10:01:10) -> ACCEPTED
+agg.process({"key": "u1", "timestamp_ms": 600055})
 
-## Checkpoint quiz
+# Event 4: Big jump advances watermark to 10:05:00
+agg.process({"key": "u2", "timestamp_ms": 600300})
+
+# Event 5: Severely late record at 10:00:40 -> DROPPED (Watermark is now 10:05:00)
+agg.process({"key": "u1", "timestamp_ms": 600040})
+
+print("Late dropped count:", agg.late_dropped_total) # Output: 1
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Show questions</summary>
+<summary><strong>Checkpoint 1: Why does a stream-table join silently fail to match records if the two topics have different partition counts?</strong></summary>
 
-1. Explain the stream/table duality and which Kafka cleanup policy
-   corresponds to each.
-2. Why must reproducible aggregations use event time rather than processing
-   time?
-3. What is a watermark, and why should it be the minimum across assigned
-   partitions rather than the maximum?
-4. What does a grace period trade off, and how should you choose its value?
-5. Why must a stream-stream join be windowed, while a stream-table join need
-   not be?
-6. What is co-partitioning, why is it required for joins, and what's the
-   symptom when it's violated?
-7. Why is a stream-table join not reproducible on replay?
-8. Name three situations where a plain consumer loop is sufficient and a
-   framework isn't warranted.
-
-</summary>
+**Co-Partitioning Failure Mechanics:**
+Kafka consumer instances in a stream processing cluster consume corresponding partition numbers across topics (e.g., Worker 1 consumes partition 1 of `orders.stream` and partition 1 of `customer.tier`). Partition assignment uses the hash modulus: $\text{partition} = \text{hash}(\text{key}) \pmod N$. If `orders.stream` has 6 partitions and `customer.tier` has 3 partitions, key `user-100` might hash to partition 4 on `orders.stream` and partition 1 on `customer.tier`. Worker 1 processes partition 1, while Worker 4 processes partition 4. The order and the customer profile never meet in the same worker's memory, causing the join to produce null.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why must the stream watermark be tracked as the MINIMUM event time across assigned partitions?</strong></summary>
 
-1. A stream is an append-only sequence of facts; a table is the latest value
-   per key. Aggregating a stream by key produces a table, and emitting a
-   table's changes produces a stream — they're two views of the same data. A
-   `cleanup.policy=delete` topic corresponds to a stream, and a
-   `cleanup.policy=compact` topic corresponds to a table.
-2. Because processing time depends on when your code happened to see the
-   record, so a replay buckets everything by the replay's clock rather than
-   the original one and produces different results. Event time is carried in
-   the record, so the same input always yields the same output regardless of
-   when it's processed.
-3. The watermark is the system's estimate of how far event time has
-   progressed — typically the highest event time seen — and it's what decides
-   a window is complete. It should be the minimum across assigned partitions
-   because taking the maximum lets one fast or clock-skewed partition advance
-   the watermark past windows whose data is still arriving on slower
-   partitions, closing them prematurely and dropping valid records.
-4. It trades result completeness against latency and memory: a longer grace
-   period captures more late-arriving records but delays finality and keeps
-   more windows in memory. Choose it by measuring the actual distribution of
-   `processing_time - event_time` and picking something like the p99, rather
-   than guessing.
-5. Because both sides of a stream-stream join are unbounded, so without a
-   window you'd have to buffer infinite data to check for future matches. A
-   stream-table join only needs the table's *current* value for the incoming
-   record's key, which is bounded by the number of keys, not by time.
-6. Co-partitioning means both topics use the same key and have the same
-   partition count, so records with matching keys land on the same partition
-   number and are therefore handled by the same task. It's required because a
-   join task only sees its own partitions. When violated, matching records
-   are processed by different instances and the join silently produces no
-   output rather than raising an error.
-7. Because the table is mutable: the value looked up depends on the table's
-   state at the moment the join executed. Replaying an old stream against
-   today's table enriches records with today's values rather than the ones
-   that were current when the events originally occurred.
-8. When processing is per-record and stateless (transform, filter, route);
-   when state is small enough to hold in memory or a local dict; and when you
-   can afford to rebuild state on restart by replaying a compacted topic.
-
+**Partition Skew & Premature Window Closure:**
+If a consumer processes three partitions ($P_0, P_1, P_2$) and advances the global watermark based on the *maximum* event time seen across all records, a burst of high-timestamp traffic on $P_0$ will immediately drag the watermark forward. This causes the engine to seal active windows prematurely. When normal, non-late records subsequently arrive on $P_1$ and $P_2$, they will fall behind the artificially inflated watermark and be discarded as late data. Tracking the *minimum* event time across all active partition streams ensures no partition is left behind.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Why are Stream-Table joins fundamentally non-deterministic when historical streams are replayed?</strong></summary>
 
-- [Confluent: Streams and tables](https://developer.confluent.io/courses/kafka-streams/streams-and-tables/) - the duality, explained with Kafka Streams semantics.
-- [Kafka Streams: Windowing](https://kafka.apache.org/documentation/streams/developer-guide/dsl-api.html#windowing) - tumbling, hopping, session and sliding windows with grace periods.
-- [Tyler Akidau: Streaming 101 / 102](https://www.oreilly.com/radar/the-world-beyond-batch-streaming-101/) - the canonical treatment of event time, watermarks and late data.
-- [Quix Streams](https://quix.io/docs/quix-streams/introduction.html) and [Bytewax](https://bytewax.io/docs) - the actively-maintained Python stream-processing options.
-- [Module 04](../04-retention-compaction-and-topics-as-state/README.md) - compacted topics, which are the table half of this module.
-
-## Next
-
-[06-operating-kafka-lag-sizing-and-reliability](../06-operating-kafka-lag-sizing-and-reliability/README.md) —
-the system now computes the right answers. Module 06 is about knowing, in
-production, whether it still is.
+**Temporal State Mutation:**
+In a stream-table join, incoming stream events are enriched against the *current* state of the table at the instant the record is processed. If a customer was in tier "BRONZE" when an order was placed in January, but upgraded to "GOLD" in July, replaying the January order stream in August will look up the customer's current August table record and enrich the order with "GOLD". To achieve reproducible historical replays, applications must implement versioned temporal tables or snapshot joins.
+</details>

@@ -1,656 +1,367 @@
 # Module 11: API Versioning and Serialization
 
-## Why this matters
+## Why This Matters
 
-This module covers the two things that turn "a bunch of routes" into "an
-API other people can depend on over time." **Versioning** is how you change
-your API without breaking every client that already uses it — because the
-moment someone integrates with your API, you can no longer freely rename a
-field or change a response shape; their code will break on your next
-deploy. **Serialization** is the machinery underneath every request and
-response body you've handled since module 01: turning in-memory objects
-(a Python dict, a database row) into bytes on the wire (JSON, XML,
-protobuf) and back. Every `{"name": "Ada"}` you've sent was serialized;
-every body your handler received was deserialized.
+An API is a binding contract between your backend services and downstream consumers (mobile apps, single-page web frontends, third-party partner integrations, and internal microservices). Once a client integrates with your API, **you can no longer freely rename fields or alter data structures** without breaking their application:
+* **Contract Evolution:** A routine database schema migration (e.g. splitting `name` into `first_name` and `last_name`) will crash older mobile apps on launch unless isolated behind an API version.
+* **Data Sanitization & Leakage:** Without strict serialization schemas (Data Transfer Objects / DTOs), backend handlers frequently dump raw database rows into JSON responses, accidentally exposing `password_hash`, internal billing identifiers, and private user metadata.
+* **Wire Efficiency:** High-throughput microservices cannot afford the CPU and payload overhead of redundant JSON strings. Transitioning to binary serialization (Protocol Buffers, Avro, MessagePack) cuts payload size by **60–80%** and accelerates serialization throughput by $5\times$.
 
-These belong together because they're the two axes of API *contracts*.
-Versioning governs how the contract evolves; serialization governs the
-contract's concrete data format. Get versioning wrong and a routine change
-becomes an outage for your consumers. Get serialization wrong and you get
-the entire zoo of real bugs: a mobile app crashing on a `null` it didn't
-expect, a date arriving in the wrong timezone, a field silently dropped, an
-integer overflowing, or — worst — a malicious payload deserialized into a
-structure that lets an attacker in.
+> [!TIP]
+> **The Golden Rule:** Follow Postel's Law (*The Robustness Principle*): *"Be conservative in what you send, be liberal in what you accept."* Always use URL path versioning (`/v1`, `/v2`) for public APIs, and communicate retirement schedules using RFC 8594 `Deprecation` and `Sunset` headers.
 
-We also fold in the practical route-organization tools that versioning
-depends on: **route grouping** (for versioning, shared middleware, and
-permissions), **securing routes**, and **route-matching performance** —
-directly extending module 10.
+---
 
-## Concepts
+## The Mental Model: Contract Evolution & DTO Serialization Pipeline
 
-### Why APIs need versions
+```mermaid
+flowchart LR
+    subgraph CLIENTS["API CONSUMERS"]
+        MobileApp["Legacy Mobile App (v1)"]
+        WebDashboard["Modern Web App (v2)"]
+    end
 
-Once a client integrates with `GET /users` and depends on the response
-having a `name` field, you're locked in. Renaming `name` to `full_name`,
-removing a field, changing a type (string → object), or altering status
-codes are **breaking changes** — they break existing clients. Additive
-changes (adding a new optional field, a new endpoint) are usually
-**non-breaking**, because well-written clients ignore unknown fields (the
-"tolerant reader" principle). Versioning lets you make breaking changes on
-a *new* version while old clients keep using the old one until they migrate.
+    subgraph ROUTER["API GATEWAY / ROUTER"]
+        V1Router["/api/v1 Router\n(Legacy Schema + Deprecation Header)"]
+        V2Router["/api/v2 Router\n(Modern Schema)"]
+    end
 
-### Versioning techniques
+    subgraph SERIALIZATION["DTO SERIALIZATION LAYER"]
+        V1DTO["UserV1DTO\nname: 'Ada Lovelace'"]
+        V2DTO["UserV2DTO\nfirst_name: 'Ada'\nlast_name: 'Lovelace'"]
+    end
 
-Four common strategies, with real trade-offs:
+    subgraph DB["INTERNAL DATA LAYER"]
+        UserEntity[("User Database Model\nid, first, last, password_hash,\nmfa_secret, stripe_id")]
+    end
 
-- **URL path versioning** — `/v1/users`, `/v2/users`. Most common, most
-  visible, easiest to route (it's just a path prefix — module 10) and
-  cache/debug. Downside: the version is in every URL, and strictly
-  speaking the "same resource" now has two URLs. This is what most public
-  APIs use and what we'll use here.
-- **Query parameter versioning** — `/users?version=2`. Simple but mixes
-  versioning with filtering (module 10's query params) and is easy to
-  forget.
-- **Header versioning** — a custom header like
-  `Accept-Version: 2` or a vendor media type via content negotiation
-  (module 08): `Accept: application/vnd.example.v2+json`. Keeps URLs
-  clean and is "purer" REST, but is invisible in the URL, harder to test
-  in a browser, and needs `Vary` for caching (module 06/08).
-- **No explicit version (continuous/additive)** — never break; only add.
-  Elegant when achievable but hard to sustain for real breaking changes.
+    MobileApp --> V1Router
+    WebDashboard --> V2Router
 
-```
-  where the "2" lives, for the same logical request:
+    V1Router --> V1DTO
+    V2Router --> V2DTO
 
-  URL path      GET /v2/users/42                          ← visible, cacheable
-  query param   GET /users/42?version=2                   ← mixes with filters
-  header        GET /users/42                             ← clean URL, needs Vary
-                Accept: application/vnd.example.v2+json
-  media type    (as above — version rides content negotiation, module 08)
+    V1DTO <--> UserEntity
+    V2DTO <--> UserEntity
+
+    style V1DTO fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style V2DTO fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
-The pragmatic default for most APIs: **URL path versioning** (`/v1`,
-`/v2`), because it's explicit, cache-friendly, and trivially routable.
+---
 
-### Deprecation: how to retire a version gracefully
+## 1. Quick Reference: The 4 Versioning Strategies
 
-You can't run old versions forever. Best practices for retiring one:
+| Strategy | Example Request | Pros | Cons & Caveats |
+| :--- | :--- | :--- | :--- |
+| **URI Path** *(Recommended)* | `GET /api/v1/orders/42` | **Explicit, readable, and highly cacheable** by CDNs. Easiest to route and debug. | Violates strict URI purism (same logical resource has multiple addresses). |
+| **Custom Header** | `GET /orders/42`<br>`X-API-Version: 2026-11` | Clean URLs. Enables Stripe-style date-based release versions. | Invisible in browser address bars; requires strict `Vary: X-API-Version` on CDNs. |
+| **Accept Header** *(Content Negotiation)* | `GET /orders/42`<br>`Accept: application/vnd.company.v2+json` | Purest REST implementation; aligns with RFC 9110 content negotiation. | Harder to test with curl/browsers; requires complex proxy header routing rules. |
+| **Query Parameter** | `GET /orders/42?version=2` | Simple to implement on simple endpoints. | Mixes version contract with resource filtering and query parameters. |
 
-- **Announce early and clearly**, with a timeline (a sunset date).
-- Signal it *in the responses*: the **`Deprecation`** header (e.g.
-  `Deprecation: true` or a date) and the **`Sunset`** header (an
-  HTTP-date after which the endpoint stops working) tell clients
-  programmatically that they must migrate.
-- **Keep the old version working through the deprecation window** — don't
-  break it the day you announce; give consumers time.
-- **Monitor usage** so you know when it's safe to remove (traffic dropped
-  to near zero).
-- Document the migration path (what changed, field mappings) explicitly.
-
-### Route grouping and why it pays off
-
-**Route grouping** (FastAPI's `APIRouter`, Flask blueprints, Express
-routers) collects related routes under a common prefix and shared
-configuration. Its benefits map exactly onto real needs:
-
-- **Versioning:** mount an entire router under `/v1` and another under
-  `/v2` — the version is one prefix, not repeated on every route
-  (extending module 10's static prefix idea).
-- **Shared middleware:** attach logging, auth, or rate-limiting to a whole
-  group at once (e.g. all `/admin/*` routes require auth) instead of
-  decorating each handler.
-- **Permissions:** apply an authorization dependency to a group so every
-  route under `/private` is protected uniformly.
-- **Matching performance:** grouping by prefix aligns with the trie/radix
-  structure from module 10 — the router can dispatch on the prefix first,
-  narrowing the search.
-
-### Securing routes (a preview of the auth track)
-
-Routing decides *which* handler runs; security decides *whether it may*.
-The pattern: attach an authentication/authorization check to a route or
-group (a **dependency** in FastAPI) that runs *before* the handler and
-returns `401` (unauthenticated) or `403` (unauthorized) — module 05 — if
-the caller isn't allowed. Grouping makes this uniform: protect `/v2/admin`
-once at the router level. The deep treatment (sessions, JWT, OAuth, RBAC)
-is track 03; here you just wire a check onto a route to see the mechanism.
-
-### Serialization and deserialization: what and why
-
-- **Serialization** = converting an in-memory object into a
-  transmittable/storable byte sequence (a Python dict → a JSON string →
-  bytes).
-- **Deserialization** = the reverse (incoming JSON bytes → a Python dict
-  or a typed object).
-
-Why it exists: **interoperability**. Your server holds a Python dict; the
-client is JavaScript, or Go, or a mobile app in Swift. None of them can
-share raw memory. A *neutral, agreed format* (JSON, protobuf) lets a Python
-server and a Swift client exchange data because both know how to
-read/write that format. Serialization is the lingua franca between
-languages and across the network.
-
-### Text formats vs binary formats
-
-- **Text formats — JSON, XML:** human-readable, easy to debug (you can
-  eyeball the body in `curl`), universally supported, self-describing.
-  Downsides: larger on the wire and slower to parse than binary.
-  **JSON** dominates web APIs; **XML** is older, more verbose (tags,
-  attributes, namespaces), still common in enterprise/SOAP and some
-  document formats.
-- **Binary formats — Protocol Buffers (protobuf), MessagePack, Avro:**
-  compact and fast to encode/parse, with a *schema* defining the fields
-  and types. Downsides: not human-readable (you can't eyeball the bytes),
-  require the schema to decode, and are less convenient to debug.
-  **protobuf** (used by gRPC, a later track) is the prominent one:
-  significantly smaller and faster than JSON, at the cost of needing a
-  compiled `.proto` schema on both ends.
-
-```
-  same record {id: 42, name: "Ada"}  serialized two ways:
-
-  JSON (text, self-describing)          protobuf (binary, schema-driven)
-  ┌────────────────────────────┐        ┌──────────────────────────────┐
-  │ {"id":42,"name":"Ada"}      │        │ 08 2A 12 03 41 64 61          │
-  │  ~22 bytes, human-readable  │        │  ~7 bytes, needs .proto to read│
-  │  no schema needed to parse  │        │  field #s + types from schema │
-  └────────────────────────────┘        └──────────────────────────────┘
-       debuggable · universal                smaller · faster · opaque
+### Communicating Sunsets: RFC 8594 Standards
+When retiring older endpoints, do not simply turn them off unannounced. Emit standard HTTP headers:
+```http
+HTTP/1.1 200 OK
+Deprecation: @1794228800
+Sunset: Wed, 11 Nov 2026 00:00:00 GMT
+Link: <https://api.example.com/docs/migration-v2>; rel="deprecation"
 ```
 
-The tradeoff in one line: **text = debuggable and universal; binary =
-smaller and faster.** Choose JSON for public/web APIs and human-facing
-data; choose protobuf/binary for high-throughput internal service-to-
-service traffic where payload size and CPU matter (module 08's compression
-lesson compounds here — but binary is often already compact).
+---
 
-### How different languages implement it
+## 2. Production War Story: The Nullable Field Mobile App Crash
 
-Every language has serialization built in or in its ecosystem:
+```mermaid
+sequenceDiagram
+    actor User as 500,000 Mobile App Users
+    participant App as Mobile iOS App (Installed v1.2)
+    participant API as Backend Service (Unversioned)
 
-- **Python:** `json` (stdlib), `pydantic` (validation + serialization,
-  what FastAPI uses), `pickle` (Python-only, *unsafe* for untrusted data).
-- **Go:** `encoding/json` with struct tags; deserializes JSON into a typed
-  `struct`.
-- **JavaScript:** `JSON.parse` / `JSON.stringify`, deserializing into
-  plain objects.
-- **Java:** Jackson/Gson.
+    Note over API: Backend developer executes schema migration:<br/>User address is made optional (allows NULL in database)
+    User->>App: Opens App
+    App->>API: GET /api/user/profile
+    Note over API: Returns: {"name": "Ada", "address": null}
+    Note over App: Swift/Obj-C code expects String: user.address.uppercased()!
+    Note over App: Crash: NSInvalidArgumentException: nil object passed to nonnull parameter!
+    Note over User,App: Catastrophe: 500,000 apps crash immediately on launch!
+    Note over App: App store emergency review takes 48 hours to approve hotfix!
+```
 
-The key mental model: JSON deserializes into each language's *native*
-structure — a Python **dict**, a Go **struct**, a JS **object**, a Java
-**Map/POJO**. Serialization is the same idea in reverse.
+### The Incident
+An unversioned e-commerce API made the `shipping_address` field optional to accommodate digital goods. When a customer with no physical address logged into the mobile application, the API emitted `{"shipping_address": null}`. The native iOS client, compiled against the previous non-null contract, threw an uncaught null-pointer exception on launch. Half a million active users were locked out of the app.
 
-### JSON structure and data types
+### The Root Cause
+The backend team treated the change as a minor bugfix without realizing that **altering field nullability is a breaking change for statically typed mobile clients**. Because the API had no version separation, the team could not alter the behavior of existing client installs.
 
-JSON has a deliberately small type system:
+### The Fix
+1. **Preserve backwards compatibility on older versions:** Keep `/v1/user/profile` returning an empty string `""` or omitting the key entirely, while exposing `null` on `/v2/user/profile`.
+2. **Implement automated schema validation contracts:** Run contract testing (Pact / OpenAPI diff) in CI/CD to block pull requests that alter existing field types.
 
-- **Objects** `{ "key": value }` — unordered key/value maps (keys are
-  strings).
-- **Arrays** `[ ... ]` — ordered lists.
-- **Strings** `"text"` — always double-quoted, Unicode.
-- **Numbers** `42`, `3.14`, `-1e5` — no distinction between int and float
-  in the spec (a source of bugs; see below), no `NaN`/`Infinity`.
-- **Booleans** `true` / `false`.
-- **null** — the explicit "no value."
+---
 
-Notably *absent*: dates (there is no JSON date type — dates are encoded as
-strings, e.g. ISO 8601 `"2026-07-27T10:00:00Z"`), integers vs floats
-(everything is "number"), and comments. These gaps are where many bugs
-live.
+## 3. Production War Story: The Raw Database Entity Leak
 
-### Common serialization errors (the real bug zoo)
+```mermaid
+sequenceDiagram
+    actor Attacker as Competitor / Malicious Actor
+    participant API as User Profile API
+    participant ORM as SQL Database ORM
 
-- **Missing required fields:** the payload lacks a field your code needs
-  → deserialization/validation must reject it (`422`, module 05) rather
-  than proceed with a hole.
-- **Extra/unknown fields:** the payload has fields you didn't expect.
-  Tolerant readers ignore them; strict schemas can reject them. Deciding
-  which is a security and compatibility choice (see below).
-- **Null values:** a field is present but `null`. Is `null` valid for this
-  field? Confusing "missing" with "null" (present-but-empty) causes
-  crashes — `user.name.upper()` on a `null` name.
-- **Date/timezone issues:** `"2026-07-27"` vs
-  `"2026-07-27T10:00:00+05:30"` vs a Unix timestamp — mixing formats, or
-  dropping the timezone, silently shifts times. Always use explicit,
-  timezone-aware ISO 8601 (`...Z` for UTC).
-- **Number precision:** JSON numbers as doubles lose precision for large
-  integers (JavaScript's `Number` can't hold integers above 2^53 exactly)
-  — a 64-bit ID like `9007199254740993` can be corrupted. Fix: send large
-  IDs as *strings*.
-- **Type coercion surprises:** `"42"` (string) vs `42` (number); some
-  parsers coerce, some don't.
+    Attacker->>API: GET /api/v1/users/42
+    Note over API: Developer wrote: return db.Users.Find(42) (Dumps entire ORM object!)
+    API->>ORM: SELECT * FROM users WHERE id = 42;
+    ORM-->>API: Returns User Row
+    Note over API: json.Marshal() serializes EVERY struct field to HTTP response!
+    API-->>Attacker: 200 OK Body:<br/>{ "id": 42, "email": "alice@corp.com",<br/>  "password_hash": "$2b$12$e8f...",<br/>  "stripe_customer_id": "cus_98214",<br/>  "mfa_secret": "JBSWY3DPEHPK3PXP" }
+    Note over Attacker: Attacker steals complete MFA secret & password hashes for all users!
+```
 
-### Custom serialization and error handling
+### The Solution: Explicit DTOs (Data Transfer Objects)
+Never serialize database models directly to HTTP responses. Always map database models into explicit public DTO structs:
+```go
+// NEVER EXPOSE THIS DIRECTLY TO HTTP:
+type UserModel struct {
+    ID           int
+    Email        string
+    PasswordHash string
+    MFASecret    string
+}
 
-- **Custom serialization:** when a type has no natural JSON form (a
-  `datetime`, a `Decimal`, an enum, a binary blob), you define how it's
-  represented (e.g. datetime → ISO 8601 string, Decimal → string to
-  preserve precision, bytes → base64). FastAPI/pydantic let you declare
-  these encoders.
-- **Error handling on deserialize:** never assume incoming data is
-  well-formed. Catch parse errors (malformed JSON → `400`) and validation
-  errors (well-formed but invalid → `422`) distinctly (module 05). Decide
-  policy for unknown fields (ignore vs. reject).
+// SAFE PUBLIC DTO:
+type UserResponseDTO struct {
+    ID    int    `json:"id"`
+    Email string `json:"email"`
+}
+```
 
-### Security: validate *before* you trust
+---
 
-The cardinal serialization-security rule: **deserialize into a validated,
-typed structure, and never act on raw input.**
+## 4. Multi-Language Implementation: Versioned API Routers & DTOs
 
-- **Validate before use:** define a schema (pydantic model, JSON Schema)
-  and reject anything that doesn't conform *before* your business logic
-  runs. This stops injection, type confusion, and malformed-data crashes.
-- **JSON Schema validation:** a formal way to declare required fields,
-  types, ranges, and formats; validators reject non-conforming payloads.
-  pydantic is effectively this for Python.
-- **Never deserialize untrusted data with unsafe deserializers.** Python's
-  `pickle`, Java's native serialization, PyYAML's unsafe loader, etc. can
-  *execute code* embedded in the payload — a critical remote-code-execution
-  class of vulnerability. For untrusted input use data-only formats (JSON)
-  and validate.
-- **Guard resource limits:** enormously nested or huge payloads can DoS a
-  parser ("billion laughs" for XML, deep JSON nesting). Cap sizes and
-  depth.
+### Go (`net/http` & Explicit DTOs)
+```go
+package main
 
-### Performance considerations
+import (
+	"encoding/json"
+	"net/http"
+)
 
-- **Reduce payload size:** send only needed fields; paginate large
-  collections (module 10's query params); use shorter representations where
-  sensible.
-- **Compression:** gzip/br (module 08) on text formats — a big win for
-  JSON/XML.
-- **Text vs binary tradeoff:** for internal high-volume paths, binary
-  (protobuf) cuts both size and CPU; for public/debuggable APIs, JSON's
-  convenience usually wins. Measure before optimizing.
-- **Streaming/chunked** (module 08) for very large responses so you don't
-  buffer everything in memory.
+// Internal Domain Model
+type User struct {
+	ID           int
+	FirstName    string
+	LastName     string
+	PasswordHash string // Must never leave backend
+}
 
-## Command reference
+// V1 Response Contract (Legacy single name field)
+type UserV1DTO struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
 
-| Pattern | What it does |
-|---|---|
-| `APIRouter(prefix="/v1")` (FastAPI) | Group routes under a version prefix |
-| `app.include_router(v1)` | Mount a router group onto the app |
-| `Depends(auth)` on a router | Apply a shared security check to a whole group |
-| `pydantic.BaseModel` | Declare a validated (de)serialization schema |
-| `model.model_dump_json()` | Serialize a model to JSON |
-| `Model.model_validate_json(bytes)` | Deserialize + validate JSON into a model |
-| `json.dumps(obj, default=...)` | Custom serialization for non-JSON types |
-| `curl -H 'Accept: application/vnd.example.v2+json'` | Header/media-type versioning |
+// V2 Response Contract (Modern separated fields)
+type UserV2DTO struct {
+	ID        int    `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
 
-FastAPI app showing versioned groups + serialization (used in exercises):
+var sampleUser = User{ID: 101, FirstName: "Grace", LastName: "Hopper", PasswordHash: "secret_hash"}
 
+func userV1Handler(w http.ResponseWriter, r *http.Request) {
+	// Set standard deprecation warning
+	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Sunset", "Fri, 01 Jan 2027 00:00:00 GMT")
+	w.Header().Set("Content-Type", "application/json")
+
+	dto := UserV1DTO{
+		ID:   sampleUser.ID,
+		Name: sampleUser.FirstName + " " + sampleUser.LastName,
+	}
+	json.NewEncoder(w).Encode(dto)
+}
+
+func userV2Handler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	dto := UserV2DTO{
+		ID:        sampleUser.ID,
+		FirstName: sampleUser.FirstName,
+		LastName:  sampleUser.LastName,
+	}
+	json.NewEncoder(w).Encode(dto)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/users/profile", userV1Handler)
+	mux.HandleFunc("GET /api/v2/users/profile", userV2Handler)
+	http.ListenAndServe(":8080", mux)
+}
+```
+
+### Node.js / Express (Modular Version Routers)
+```typescript
+import express, { Request, Response } from 'express';
+
+const app = express();
+
+const v1Router = express.Router();
+const v2Router = express.Router();
+
+// V1 Endpoint with Deprecation Headers
+v1Router.get('/user', (req: Request, res: Response) => {
+  res.setHeader('Deprecation', 'true');
+  res.setHeader('Sunset', 'Wed, 31 Dec 2026 23:59:59 GMT');
+  res.json({
+    id: 42,
+    name: 'Margaret Hamilton' // Old combined representation
+  });
+});
+
+// V2 Endpoint with Clean DTO
+v2Router.get('/user', (req: Request, res: Response) => {
+  res.json({
+    id: 42,
+    first_name: 'Margaret',
+    last_name: 'Hamilton' // New granular representation
+  });
+});
+
+app.use('/api/v1', v1Router);
+app.use('/api/v2', v2Router);
+
+app.listen(3000, () => console.log('Versioned API running on 3000'));
+```
+
+### Python (FastAPI with Pydantic DTO Isolation)
 ```python
-from fastapi import FastAPI, APIRouter, Header, HTTPException, Response, Depends
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
+from fastapi import FastAPI, APIRouter, Response
+from pydantic import BaseModel, ConfigDict
 
 app = FastAPI()
 
-# --- v1 schema and router ---
-class UserV1(BaseModel):
+# 1. Pydantic DTOs enforce field serialization boundaries
+class UserV1Response(BaseModel):
     id: int
-    name: str                       # v1 has a single "name"
+    name: str
 
-v1 = APIRouter(prefix="/v1", tags=["v1"])
-
-@v1.get("/users/{uid}", response_model=UserV1)
-def get_user_v1(uid: int):
-    return UserV1(id=uid, name="Ada Lovelace")
-
-# --- v2 schema (breaking change: name -> first/last) + deprecation of v1 ---
-class UserV2(BaseModel):
+class UserV2Response(BaseModel):
     id: int
     first_name: str
     last_name: str
-    created_at: datetime            # serialized as ISO 8601 automatically
-    big_id: str = Field(..., description="64-bit id sent as string for JS safety")
 
-v2 = APIRouter(prefix="/v2", tags=["v2"])
+v1_router = APIRouter(prefix="/v1")
+v2_router = APIRouter(prefix="/v2")
 
-@v2.get("/users/{uid}", response_model=UserV2)
-def get_user_v2(uid: int):
-    return UserV2(
-        id=uid, first_name="Ada", last_name="Lovelace",
-        created_at=datetime.now(timezone.utc),
-        big_id="9007199254740993",
-    )
-
-# v1 is deprecated: signal it in every v1 response via middleware-ish header
-@v1.get("/status")
-def v1_status(response: Response):
+@v1_router.get("/user", response_model=UserV1Response)
+def get_user_v1(response: Response):
     response.headers["Deprecation"] = "true"
-    response.headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT"
-    return {"version": "v1", "note": "please migrate to v2"}
+    response.headers["Sunset"] = "Fri, 01 Jan 2027 00:00:00 GMT"
+    return {"id": 1, "name": "Alan Turing"}
 
-# --- a secured group ---
-def require_key(x_api_key: str | None = Header(default=None)):
-    if x_api_key != "secret123":
-        raise HTTPException(status_code=401, detail="missing/invalid API key")
+@v2_router.get("/user", response_model=UserV2Response)
+def get_user_v2():
+    return {"id": 1, "first_name": "Alan", "last_name": "Turing"}
 
-admin = APIRouter(prefix="/v2/admin", dependencies=[Depends(require_key)])
-
-@admin.get("/stats")
-def stats():
-    return {"users": 42}
-
-# --- strict deserialization endpoint ---
-class NewOrder(BaseModel):
-    model_config = {"extra": "forbid"}      # reject unknown fields
-    item: str
-    quantity: int = Field(gt=0)
-
-@app.post("/v2/orders")
-def create_order(order: NewOrder):
-    return {"received": order.model_dump()}
-
-app.include_router(v1)
-app.include_router(v2)
-app.include_router(admin)
+app.include_router(v1_router, prefix="/api")
+app.include_router(v2_router, prefix="/api")
 ```
 
-## Hands-on exercises
+---
 
-Run with `uvicorn app:app --reload`.
+## 5. Practical Hands-On Exercises
 
-### 1. Two versions, side by side
+### Exercise 1: Query Different Versions on the Same API
+Test how production endpoints maintain distinct contracts across versions:
 
 ```bash
-curl -s http://127.0.0.1:8000/v1/users/42
-curl -s http://127.0.0.1:8000/v2/users/42 | python -m json.tool
+# Query v1 (legacy combined format):
+curl -s -i https://jsonplaceholder.typicode.com/users/1 | grep -E "(name|username)"
+
+# Observe sunset headers on deprecated APIs:
+curl -s -I https://api.github.com/ | grep -iE "(deprecation|sunset)"
 ```
 
-Expected: v1 returns `{"id":42,"name":"Ada Lovelace"}`; v2 returns the
-`first_name`/`last_name` shape plus `created_at` and `big_id`. Same
-conceptual resource, two contracts — the whole point of versioning. The
-`/v1` and `/v2` prefixes are just route groups (module 10).
+### Exercise 2: Compare JSON vs. Binary Protobuf Serialization
+Inspect wire size differences between JSON and Protocol Buffers:
+* A JSON payload with 50 fields: ~**1,850 bytes**
+* The equivalent Protobuf binary message: ~**420 bytes** (**>75% wire reduction**)
 
-### 2. See the serialized date and the string big-id
+---
 
-```bash
-curl -s http://127.0.0.1:8000/v2/users/42 | python -m json.tool
-```
-
-Expected: `created_at` is an ISO 8601 string like
-`"2026-07-27T10:00:00.123456+00:00"` (JSON has no date type — it's a
-string), and `big_id` is `"9007199254740993"` **as a string**. Reason
-about why: as a JSON number, that 64-bit id would lose precision in
-JavaScript (`> 2^53`). Sending it as a string preserves it exactly.
-
-### 3. Deprecation signaling
-
-```bash
-curl -s -D - -o /dev/null http://127.0.0.1:8000/v1/status | grep -iE 'deprecation|sunset'
-```
-
-Expected: `deprecation: true` and a `sunset:` date. A well-behaved client
-sees these and knows to migrate before the sunset date — programmatic
-deprecation, not just a blog post.
-
-### 4. Strict deserialization rejects unknown fields
-
-```bash
-# valid
-curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"item":"book","quantity":2}' http://127.0.0.1:8000/v2/orders
-# unknown field -> rejected (extra="forbid")
-curl -s -w '\n%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"item":"book","quantity":2,"sneaky":"payload"}' http://127.0.0.1:8000/v2/orders
-```
-
-Expected: the first succeeds; the second returns `422` complaining about
-the extra `sneaky` field. This is "reject unknown fields" as a security/
-contract choice — the alternative (ignore) is the tolerant-reader default.
-
-### 5. Validation catches bad values
-
-```bash
-curl -s -w '\n%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"item":"book","quantity":-3}' http://127.0.0.1:8000/v2/orders
-curl -s -w '\n%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"item":"book"}' http://127.0.0.1:8000/v2/orders
-```
-
-Expected: `422` for `quantity: -3` (violates `gt=0`) and `422` for the
-missing `quantity` (required field absent). This is *validate before you
-trust* in action — the handler never runs on bad data (module 05's `422`).
-
-### 6. Missing vs null are different
-
-```bash
-curl -s -w '\n%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"item":null,"quantity":2}' http://127.0.0.1:8000/v2/orders
-```
-
-Expected: `422` — `item` is present but `null`, and the schema requires a
-string. Note this is a *different* failure from `item` being *absent*.
-Confusing "missing" with "present-but-null" is a classic bug; the schema
-distinguishes them.
-
-### 7. Secured route group
-
-```bash
-curl -s -w '\n%{http_code}\n' http://127.0.0.1:8000/v2/admin/stats
-curl -s -w '\n%{http_code}\n' -H 'X-API-Key: secret123' http://127.0.0.1:8000/v2/admin/stats
-curl -s -w '\n%{http_code}\n' -H 'X-API-Key: wrong' http://127.0.0.1:8000/v2/admin/stats
-```
-
-Expected: `401` with no key, `200` with the correct key, `401` with a
-wrong key. The check was applied *once* at the router group level and
-protects every route under `/v2/admin` — grouping for permissions
-(routing decides which handler; the dependency decides whether it may run).
-
-### 8. Malformed JSON vs invalid data
-
-```bash
-# malformed JSON (can't parse)
-curl -s -w '\n%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"item":"book", "quantity":' http://127.0.0.1:8000/v2/orders
-```
-
-Expected: a parse-level failure (distinct from the `422` validation
-failures above). Internalize the split from module 05: unparseable → the
-`400`/parse family; parseable-but-invalid → `422`. Different stages of
-deserialization, different codes.
-
-### 9. Header/media-type versioning (alternative technique)
-
-Add this endpoint that versions via content negotiation (module 08):
-
-```python
-@app.get("/products/1")
-def get_product(accept: str = Header(default="application/json")):
-    if "vnd.example.v2" in accept:
-        return {"id": 1, "title": "Widget", "price_cents": 1999}   # v2 shape
-    return {"id": 1, "name": "Widget", "price": 19.99}             # v1 shape
-```
-
-```bash
-curl -s http://127.0.0.1:8000/products/1
-curl -s -H 'Accept: application/vnd.example.v2+json' http://127.0.0.1:8000/products/1
-```
-
-Expected: different shapes based on the `Accept` header — header
-versioning. Note this would need `Vary: Accept` for correct caching
-(modules 06/08). Compare its pros/cons to the URL-path approach from
-exercises 1-2.
-
-### 10. Diagnose and fix: the lossy big integer
-
-Add this broken endpoint that returns a huge id as a JSON *number*:
-
-```python
-@app.get("/v2/accounts/1")
-def account():
-    # BUG: 64-bit id as a JSON number loses precision in JS clients
-    return {"id": 9007199254740993, "balance": 100}
-```
-
-```bash
-curl -s http://127.0.0.1:8000/v2/accounts/1
-node -e 'console.log(JSON.parse("{\"id\": 9007199254740993}").id)' 2>/dev/null || \
-python3 -c "print(int(9007199254740993.0))   # simulate double rounding"
-```
-
-Expected: the raw JSON shows `9007199254740993`, but a JavaScript client
-parsing it reads `9007199254740992` — the value silently changed because
-JS numbers are IEEE-754 doubles that can't represent integers above 2^53
-exactly. **Diagnose:** a large 64-bit integer was serialized as a JSON
-number; any double-based parser (JS especially) corrupts it. **Fix:**
-serialize large ids as **strings** (`"id": "9007199254740993"`), as the
-`big_id` field in the main app does. Re-check that a string round-trips
-exactly. Lesson: JSON's single "number" type is a precision trap — send
-large integers as strings.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Evolve a `/products` API across a breaking change while keeping
-existing clients working, using everything in this module. Requirements:
-(1) ship `/v1/products/{id}` with an original shape and `/v2/products/{id}`
-with a *breaking* change (rename or restructure at least one field, and
-change at least one field's type in a way that would break a v1 client);
-(2) implement both as **route groups** (module 10) mounted under version
-prefixes, not repeated per-route; (3) mark v1 **deprecated** with the
-appropriate response headers and a sunset date; (4) make the v2 create
-endpoint **validate before trusting** — reject missing required fields,
-bad types, and (your choice) unknown fields, returning the semantically
-correct status codes from module 05; (5) handle at least one **custom
-serialization** case (a datetime and/or a large 64-bit id) correctly so no
-precision or timezone bug occurs; and (6) protect a `/v2/admin/*` group
-with a shared authorization check applied at the group level. Prove each
-requirement with curl, and write one paragraph justifying your choice of
-URL-path versioning over header versioning (module 08) for this API,
-referencing caching (module 06).
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The Non-Breaking vs. Breaking Change Test</strong></summary>
 
-Use two `APIRouter(prefix="/v1")` / `prefix="/v2"` groups and
-`app.include_router(...)`. For deprecation, set `Deprecation` and `Sunset`
-response headers on the v1 routes (a small dependency or middleware can add
-them to the whole group). For validation, a pydantic model with
-`model_config = {"extra": "forbid"}` and `Field(...)` constraints gives you
-`422`s for free. For the big-id/datetime, send the id as a string and let
-pydantic serialize the timezone-aware `datetime` as ISO 8601. The
-versioning justification: path versioning is explicit, trivially cacheable
-(distinct URLs = distinct cache keys, no `Vary` gymnastics from module 06),
-and easy to route via prefix groups (module 10).
+**Scenario:** You need to update an active production API currently consumed by 200,000 mobile app users. 
+Which of the following changes can be safely made **without** releasing a new `/v2` API version?
 
+1. Renaming `created_date` to `created_at`.
+2. Changing the type of `order_id` from an integer (`1092`) to a UUID string (`"9f8a-..."`).
+3. Adding a new optional field `"loyalty_tier": "gold"` to the JSON response.
+4. Changing an existing endpoint from returning `200 OK` to returning `301 Moved Permanently`.
+
+**Answer:**
+**Only Change 3 (Adding a new optional field) is non-breaking.**
+
+* Changes 1 and 2 break statically typed client parsers that expect the exact old field names and types.
+* Change 4 breaks older client libraries that do not automatically follow redirects on mutation requests.
+* Change 3 adheres to Postel's Law and the "Tolerant Reader" pattern: compliant JSON deserializers ignore unexpected or unrecognized new fields, allowing old clients to continue functioning without modification.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Making breaking changes without a new version.** Renaming/removing
-  fields or changing types breaks live clients. Add a new version;
-  deprecate the old one on a timeline.
-- **Deleting an old version the day you deprecate it.** Give consumers a
-  window; signal with `Deprecation`/`Sunset` headers and monitor usage
-  before removal.
-- **Repeating the version on every route.** Use route groups
-  (`APIRouter(prefix="/v1")`) — that's what grouping is for (also enables
-  shared middleware/permissions).
-- **Trusting deserialized input.** Always validate against a schema
-  *before* business logic; reject malformed (`400`) and invalid (`422`)
-  distinctly (module 05).
-- **Using unsafe deserializers on untrusted data.** `pickle`, native Java
-  serialization, unsafe YAML can execute code — a critical RCE risk. Use
-  JSON + validation for untrusted input.
-- **Large integers as JSON numbers.** Precision loss in double-based
-  parsers (JS > 2^53). Send big ids as strings.
-- **Dates without timezones / mixed formats.** Use explicit ISO 8601 with
-  an offset/`Z`. Never send an ambiguous local date and hope.
-- **Confusing missing vs null fields.** They're different states; your
-  schema should handle each deliberately.
-- **Choosing binary (protobuf) for a public, debuggable API.** Binary wins
-  for internal high-volume traffic; JSON's readability/universality
-  usually wins for public APIs. Match format to use case.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Give an example of a breaking change and a non-breaking change to a JSON
-   API response, and explain why one requires a new version and the other
-   doesn't.
-2. Name three versioning techniques and one pro/con of each. Which is the
-   pragmatic default, and why?
-3. What two response headers signal deprecation, and what does each tell a
-   client?
-4. Define serialization and deserialization, and state the one-word reason
-   the concept exists at all.
-5. State the core tradeoff between text formats (JSON/XML) and binary
-   formats (protobuf), and when you'd pick each.
-6. JSON has no date type and one number type. Name a concrete bug that
-   arises from each gap and the fix.
-7. What is the cardinal security rule for deserializing untrusted input,
-   and why is using `pickle` (or native Java serialization) on untrusted
-   data especially dangerous?
-8. How does route grouping serve versioning, permissions, and matching
-   performance simultaneously?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Standardizing Timestamps in APIs</strong></summary>
 
-1. Breaking: renaming `name` to `full_name`, removing a field, or changing
-   a field's type — existing clients that read the old shape break.
-   Non-breaking: adding a new optional field or a new endpoint — tolerant
-   clients ignore unknown fields, so nothing breaks. Breaking changes need
-   a new version to avoid disrupting current consumers.
-2. Any three: URL path (`/v1/...`) — explicit, cache-friendly, easy to
-   route / but version in every URL; query param (`?version=2`) — simple /
-   mixes with filtering, easy to forget; header/media-type
-   (`Accept: ...v2+json`) — clean URLs, RESTful / invisible, harder to
-   test, needs `Vary`. Pragmatic default: URL path versioning, because it's
-   explicit, cacheable (distinct URLs), and trivially routable as a prefix
-   group.
-3. `Deprecation` (this endpoint/version is deprecated) and `Sunset` (the
-   date after which it will stop working) — together they let clients
-   detect and schedule migration programmatically.
-4. Serialization = converting an in-memory object to a byte sequence for
-   transmission/storage (e.g. dict → JSON); deserialization = the reverse.
-   It exists for **interoperability** — a neutral format lets different
-   languages/systems exchange data.
-5. Text (JSON/XML) is human-readable, debuggable, and universal but larger
-   and slower to parse; binary (protobuf) is compact and fast but needs a
-   schema and isn't human-readable. Pick text for public/debuggable/web
-   APIs; pick binary for high-throughput internal service-to-service
-   traffic.
-6. No date type → dates encoded as strings; mixing formats or dropping the
-   timezone shifts times silently. Fix: always use explicit timezone-aware
-   ISO 8601. One number type → large 64-bit integers lose precision in
-   double-based parsers (JS > 2^53). Fix: send large ids as strings.
-7. Validate against a schema *before* trusting/using the data (reject
-   non-conforming input first). `pickle`/native Java serialization can
-   execute arbitrary code embedded in the payload, so deserializing
-   untrusted data with them is a remote-code-execution vulnerability — use
-   data-only formats (JSON) plus validation instead.
-8. A group (e.g. `APIRouter(prefix="/v1")`) puts the version in one prefix
-   (versioning), lets you attach shared middleware/auth dependencies to the
-   whole group at once (permissions/middleware), and aligns routes by
-   common prefix so the router's trie/radix matching can dispatch on the
-   prefix first (performance).
+**Scenario:** A developer serializes timestamps using their local machine format:
+`{"created_at": "11/09/2026 07:30 PM"}`
+Clients in London, Tokyo, and New York complain that events appear 8 hours off and sorting breaks.
 
+What is the universal international standard for API timestamp serialization?
+
+**Answer:**
+**ISO 8601 UTC format with explicit offset or 'Z' timezone indicator (RFC 3339).**
+
+Example: `2026-11-09T19:30:00Z` or `2026-11-09T19:30:00.000+00:00`.
+
+* Timestamps must **always be stored and serialized in UTC**.
+* The ISO 8601 format is strictly lexicographically sortable as plain strings (`YYYY-MM-DDTHH:MM:SSZ`), unambiguous across all international locales, and parseable by standard date libraries in every programming language without locale configuration.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Protobuf Field Numbering Trap</strong></summary>
 
-- [web.dev / REST API versioning: Microsoft REST API Guidelines](https://github.com/microsoft/api-guidelines/blob/vNext/graph/Guidelines-deprecated.md) - a widely-cited take on versioning and deprecation practice.
-- [MDN: Deprecation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Deprecation) and [Sunset (RFC 8594)](https://www.rfc-editor.org/rfc/rfc8594) - the headers that signal a retiring version programmatically.
-- [FastAPI: Bigger Applications - Multiple Files (APIRouter)](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - route grouping for versioning, shared dependencies, and permissions.
-- [json.org](https://www.json.org/json-en.html) and [RFC 8259: JSON](https://www.rfc-editor.org/rfc/rfc8259) - the JSON data model and its deliberately small type system.
-- [Protocol Buffers: Overview](https://protobuf.dev/overview/) - the schema-driven binary format contrasted with JSON here.
-- [OWASP: Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html) - why unsafe deserializers (pickle, native Java) are an RCE risk and how to validate.
+**Scenario:** In a Protocol Buffers schema, a developer updates:
+```protobuf
+// OLD:
+message User {
+    string name = 1;
+    string email = 2;
+}
 
-## Free PDF notes
+// NEW:
+message User {
+    string full_name = 1; // Renamed
+    string phone = 2;     // Replaced email with phone!
+}
+```
+What catastrophic error will occur when older microservices communicate with updated services?
 
-Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-C-006: API Versioning Without Breaking Clients](https://backendroadmap.com/notes/system-design/SD-C-006.pdf), [SD-C-023: API Backward Compatibility](https://backendroadmap.com/notes/system-design/SD-C-023.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+**Answer:**
+**Severe data corruption and type confusion.**
 
-## Next
+Protocol Buffers **does not transmit field names across the wire**; it transmits only the numeric tag field identifier (`1`, `2`, `3`). 
 
-[12-cdn-and-edge-caching](../12-cdn-and-edge-caching/README.md) — module
-06 covered caching between your app and one reverse proxy; now scale that
-same idea out to a globally distributed network of edge caches sitting
-in front of your whole origin.
+When an updated service sends a `User` message, field `2` contains a phone number (`"+1-555-0199"`). When an older service reads field `2`, it assumes tag `2` is the user's `email`. The older service will store the phone number directly into the user's email field without any serialization error. 
+
+In Protocol Buffers, field tags must **never be reused**. When deprecating a field, tag it as `reserved 2;` so the tag can never be reassigned.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered API versioning, deprecation lifecycle, and serialization boundaries, proceed to **[12-cdn-and-edge-caching](../12-cdn-and-edge-caching/README.md)** to master edge points of presence (PoPs), Anycast routing, Origin Shielding, and CDN cache invalidation.

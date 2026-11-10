@@ -79,3 +79,7 @@ export const checkContentFile = async (path, content) => (await answer(await sen
 
 /** Commits a practice file (a new one when `create`). A file with problems is refused: the error's `problems` says what. Resolves { path, sha, commit }. */
 export const saveContentFile = async ({ path, content, sha, create }) => answer(await send('PUT', '/api/manage/content', { path, content, ...(sha ? { sha } : {}), ...(create ? { create: true } : {}) }), 'failed to save the file');
+
+/** Daily architectural incident challenge & streak */
+export const fetchDailyIncident = async (id) => answer(await fetch(id ? `/api/practice/daily-incident?id=${encodeURIComponent(id)}` : '/api/practice/daily-incident'), 'failed to load the daily incident');
+export const submitDailyIncidentAttempt = async (incidentId, selectedOption) => answer(await send('POST', '/api/practice/daily-incident/attempt', { incidentId, selectedOption }), 'failed to submit your diagnosis');

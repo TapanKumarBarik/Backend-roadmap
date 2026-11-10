@@ -2,6 +2,152 @@
   "_about": "Learning paths: short, ordered routes through the library, each with a finish line. `topic` is the small label above the title. A step is the folder of a track (all its written modules, in order) or of a single module. Order matters: it is the order a reader follows. `next` is the path to suggest once this one is finished. Run `npm run check:paths` after editing.",
   "paths": [
     {
+      "id": "production-core",
+      "title": "Production Core",
+      "topic": "Production Backend",
+      "goal": "Master the core of production backend services: HTTP protocols, API routing and validation, authentication, transactional SQL, and multi-tier caching.",
+      "audience": "Engineers building backend services that must handle real-world traffic reliably, securely, and correctly.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Basic programming in any backend language (Go, Java, Python, TypeScript, C#)",
+        "Basic SQL and relational database knowledge"
+      ],
+      "skills": [
+        "HTTP/REST API Design & Validation",
+        "Authentication & JWT/Sessions",
+        "ACID Transactions & Connection Pooling",
+        "Multi-Tier Caching & Invalidation Strategies"
+      ],
+      "steps": [
+        "backend/01-request-response-fundamentals",
+        "backend/02-api-layer-and-request-handling",
+        "backend/03-authentication-and-authorization",
+        "backend/04-databases-and-data-layer",
+        "backend/05-caching-and-performance"
+      ],
+      "milestone": {
+        "title": "Idempotent Payment & Order Engine",
+        "description": "Design and implement a concurrent payment processing API with distributed locks, idempotency keys, and zero double-charge race conditions.",
+        "deliverables": [
+          "POST /v1/orders with Idempotency-Key support",
+          "Distributed lock with automated TTL and singleflight protection",
+          "Concurrency stress test simulating 1,000 parallel checkout requests"
+        ]
+      },
+      "flagship": true,
+      "next": "high-scale-distributed"
+    },
+    {
+      "id": "high-scale-distributed",
+      "title": "High-Scale & Distributed Systems",
+      "topic": "Distributed Systems",
+      "goal": "Design and scale distributed backends: Kafka streaming, gRPC microservices, consensus, sharding, sagas, and system design patterns.",
+      "audience": "Backend developers and engineers preparing for senior roles and system design interviews.",
+      "difficulty": "advanced",
+      "prerequisites": [
+        "Production Core, or comfortable with databases, caching, and APIs",
+        "Understanding of network fundamentals"
+      ],
+      "skills": [
+        "Event Streaming with Kafka",
+        "High-Performance gRPC Communication",
+        "Distributed Transactions & Sagas",
+        "Data Sharding & Partitioning",
+        "System Design Trade-offs (CAP, Availability, Latency)"
+      ],
+      "steps": [
+        "backend/06-background-processing-and-realtime",
+        "backend/10-distributed-systems-patterns",
+        "backend/16-grpc-deep-dive",
+        "backend/17-kafka-and-streaming",
+        "backend/14-system-design-interview-practice"
+      ],
+      "milestone": {
+        "title": "Distributed Sliding-Window Rate Limiter",
+        "description": "Build a high-throughput multi-tier rate limiting service using Redis sliding logs/token buckets with Kafka dead-letter queues under failover.",
+        "deliverables": [
+          "Sliding-window counter implementation with Redis Lua scripts",
+          "gRPC interceptor / reverse-proxy middleware",
+          "Chaos test simulating Redis node failure with graceful fallback"
+        ]
+      },
+      "flagship": true,
+      "next": "observability-and-devops"
+    },
+    {
+      "id": "observability-and-devops",
+      "title": "Observability & DevOps",
+      "topic": "Cloud & DevOps",
+      "goal": "Package, orchestrate, monitor, and deploy backend microservices: Docker containers, Kubernetes clusters, CI/CD GitOps, Prometheus metrics, and SRE incident response.",
+      "audience": "Backend engineers who need full operational ownership of their services in production.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Basic Linux command-line skills",
+        "A runnable backend service to containerize"
+      ],
+      "skills": [
+        "Docker Containerization & Multi-Stage Builds",
+        "Kubernetes Pods, Probes & Services",
+        "CI/CD & GitOps Automation",
+        "Metrics, Structured Logging & Distributed Tracing",
+        "SRE Post-Mortems & SLOs"
+      ],
+      "steps": [
+        "learn/02-docker",
+        "learn/03-kubernetes",
+        "learn/10-cicd-and-gitops",
+        "learn/12-observability-deep-dive",
+        "learn/20-sre-practices"
+      ],
+      "milestone": {
+        "title": "Self-Healing Canary Deployment",
+        "description": "Set up a complete automated CI/CD and canary deployment pipeline that monitors p99 latency and error budgets, auto-rolling back upon degradation.",
+        "deliverables": [
+          "Multi-stage Dockerfile + Kubernetes Helm/Kustomize manifest",
+          "Prometheus alerts for p99 latency and 5xx error rate",
+          "Automated canary rollback script on simulated traffic errors"
+        ]
+      },
+      "flagship": true,
+      "next": "ai-backend"
+    },
+    {
+      "id": "ai-backend",
+      "title": "AI Backend Engineering",
+      "topic": "GenAI Engineering",
+      "goal": "Engineer robust AI-native backends: token economics, model serving, OpenAI/Gemini APIs, vector embeddings, and semantic caching.",
+      "audience": "Backend developers integrating large language models and vector search into production software.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Can call HTTP APIs from backend code",
+        "Basic vector and linear algebra intuition"
+      ],
+      "skills": [
+        "Tokens, Encoders & Transformer Architectures",
+        "LLM APIs, Streaming & Tool Calling",
+        "Vector Embeddings & Similarity Search",
+        "Semantic Caching & Rate-Limit Cost Optimization"
+      ],
+      "steps": [
+        "genai/00-genai-foundations",
+        "genai/01-tokens-and-language-modeling",
+        "genai/02-transformer-architecture",
+        "genai/06-openai-and-the-model-landscape",
+        "genai/08-embeddings-and-vector-databases"
+      ],
+      "milestone": {
+        "title": "Production RAG & Semantic Cache Gateway",
+        "description": "Build an API gateway that intercepts LLM queries, performs vector cosine similarity search in a semantic cache, and falls back to streaming model responses.",
+        "deliverables": [
+          "Vector embedding generator with batching",
+          "Semantic cache query engine in Redis/PgVector with <15ms response",
+          "Token streaming handler with graceful provider fallback"
+        ]
+      },
+      "flagship": true,
+      "next": "production-core"
+    },
+    {
       "id": "backend-foundations",
       "title": "Backend foundations",
       "topic": "Backend",
@@ -22,7 +168,7 @@
         "backend/03-authentication-and-authorization",
         "backend/04-databases-and-data-layer"
       ],
-      "next": "production-backend"
+      "next": "production-core"
     },
     {
       "id": "production-backend",
@@ -47,7 +193,7 @@
         "backend/08-observability-and-operational-readiness",
         "backend/10-distributed-systems-patterns"
       ],
-      "next": "system-design-interview"
+      "next": "high-scale-distributed"
     },
     {
       "id": "system-design-interview",
@@ -112,7 +258,7 @@
         "learn/02-docker",
         "learn/03-kubernetes"
       ],
-      "next": "production-backend"
+      "next": "observability-and-devops"
     },
     {
       "id": "genai-foundations",
@@ -135,7 +281,7 @@
         "genai/01-tokens-and-language-modeling",
         "genai/02-transformer-architecture"
       ],
-      "next": "openai-api"
+      "next": "ai-backend"
     },
     {
       "id": "openai-api",
@@ -154,7 +300,8 @@
       ],
       "steps": [
         "genai/06-openai-and-the-model-landscape"
-      ]
+      ],
+      "next": "ai-backend"
     },
     {
       "id": "low-level-design",

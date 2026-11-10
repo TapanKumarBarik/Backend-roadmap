@@ -1,470 +1,349 @@
 # Module 06: HTTP Caching
 
-## Why this matters
+## Why This Matters
 
-Caching is the highest-leverage performance tool HTTP gives you, and it's
-almost free — it's a handful of response headers. Done right, a browser or
-CDN answers a request *without ever touching your server*, or with a tiny
-"is this still current?" round trip that skips re-sending a megabyte of
-data. Done wrong, users see stale content for hours (or you cache
-something private and leak one user's data to another). The gap between
-those two outcomes is entirely in how you set `Cache-Control`, `ETag`, and
-`Last-Modified` — a couple of lines of code.
+HTTP caching is the single most powerful scalability mechanism on the internet. Properly configured caching transforms expensive backend database queries into $0\text{ms}$ local memory lookups or sub-$10\text{ms}$ edge CDN hits:
+* **Freshness vs. Validation:** Freshness (`Cache-Control: max-age`) eliminates network round-trips entirely during the validity window. Validation (`ETag`, `If-None-Match`) ensures that once content goes stale, clients revalidate with $0$-byte `304 Not Modified` payloads rather than re-downloading megabytes of unchanged data.
+* **Security & Privacy:** Marking an authenticated user response (e.g. `/profile` or `/cart`) as `Cache-Control: public` instructs shared edge CDNs to cache that specific user's private data and serve it to complete strangers.
+* **Bandwidth & Compute Savings:** High-volume APIs (GitHub, Stripe, Cloudflare) achieve 70–90% cache hit ratios, shielding upstream databases from thundering herds.
 
-You already met the payoff code in module 05: `304 Not Modified`, the
-"reuse your copy" response. And you met the underlying idea way back in
-module 00: DNS TTL — "how long may I reuse this answer before asking
-again?" HTTP caching is that same time-to-live concept, plus a second,
-smarter mechanism (validation) for "my copy might be stale, but let me
-cheaply check instead of blindly refetching." This module ties both
-together.
+> [!TIP]
+> **The Golden Rule:** Remember that `no-cache` does **NOT** mean "do not cache." It means "store the response, but **revalidate** with the origin server before every reuse." To forbid caching completely, you must specify `no-store`.
 
-The two questions every cache header answers are: **"May I reuse this, and
-for how long?"** (freshness) and, once it's stale, **"Has it actually
-changed, or can I keep using my copy?"** (validation). Get those two
-straight and caching stops being mysterious.
+---
 
-## Concepts
+## The Mental Model: Freshness Window vs. Conditional Validation
 
-### Where caches live
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Browser / Mobile App
+    participant Edge as Edge CDN / Proxy
+    participant App as Backend Origin Server
 
-A "cache" isn't one thing. The same response can be cached at several
-layers between your server and the user (module 00's journey in reverse):
+    Note over Client,App: PHASE 1: INITIAL REQUEST (COLD CACHE)
+    Client->>App: 1. GET /api/v1/products/42
+    Note over App: Computes payload & SHA-256 ETag fingerprint
+    App-->>Client: 2. 200 OK [Body: 120 KB]<br/>Cache-Control: public, max-age=60<br/>ETag: "w/9f2a7b"
 
-- **The browser cache** (private) — stores responses for one user on their
-  device.
-- **A CDN / edge cache** (shared) — stores responses near users, serving
-  many of them from a copy without hitting your origin.
-- **A reverse proxy cache** (shared) — nginx/Varnish in front of your app.
+    Note over Client,Edge: PHASE 2: FRESHNESS WINDOW (0 to 60 Seconds)
+    Client->>Client: 3. GET /api/v1/products/42 (Within 60s)
+    Note over Client: Served INSTANTLY from local disk/memory cache!<br/>0ms Latency · 0 Network Packets · Server untouched
 
-Your response headers instruct *all* of them. The critical safety rule:
-**`private` vs. `public`** — a `private` response may only be stored by
-the browser (one user); a `public` one may be stored by shared caches
-(CDN/proxy). Cache a user-specific response (their profile, their cart) as
-`public` and a shared cache can hand *your* data to the *next* user. This
-is a real, severe bug class.
-
-### Freshness: `Cache-Control` and `max-age`
-
-The primary caching header is **`Cache-Control`**, a general header
-(module 02) carrying directives. The most important is **`max-age=<seconds>`**:
-"this response is fresh for N seconds; during that window, reuse it
-*without asking me at all*."
-
-```
-Cache-Control: max-age=3600
+    Note over Client,App: PHASE 3: STALE REVALIDATION (After 60 Seconds)
+    Client->>App: 4. GET /api/v1/products/42<br/>If-None-Match: "w/9f2a7b"
+    Note over App: Server compares hash: "w/9f2a7b" matches current DB row!
+    App-->>Client: 5. 304 Not Modified<br/>[0 Bytes Body · Payload re-used from local cache]
 ```
 
-For 3600 seconds (1 hour) after fetching, the cache serves its stored copy
-directly — zero requests to your server. This is exactly DNS TTL (module
-00) applied to HTTP responses. Common companion directives:
+---
 
-- **`public`** — shared caches may store it.
-- **`private`** — only the browser may store it (per-user data).
-- **`no-cache`** — *may* store it, but must **revalidate** with the server
-  before each reuse (a conditional request; see below). Misleadingly
-  named: it does *not* mean "don't cache."
-- **`no-store`** — do not store this *at all*, anywhere. For truly
-  sensitive responses (bank balances, one-time tokens).
-- **`must-revalidate`** — once stale, don't serve the stale copy; you must
-  revalidate first.
-- **`s-maxage=<seconds>`** — like `max-age` but *only* for shared caches
-  (overrides `max-age` for CDNs/proxies).
-- **`immutable`** — this will never change during its `max-age`; don't
-  even revalidate on reload (great for versioned static assets like
-  `app.abc123.js`).
-
-The mental model: `max-age` = "reuse blindly for this long"; `no-cache` =
-"reuse only after checking"; `no-store` = "never keep it."
-
-### Validation: `ETag` and `Last-Modified`
-
-Freshness answers "may I reuse without asking?" But when a response goes
-*stale* (its `max-age` expired), the cache doesn't have to blindly
-re-download everything. It can ask "has this actually changed?" cheaply,
-using a **validator** the server previously gave it:
-
-- **`ETag: "a1b2c3"`** — an opaque "version fingerprint" of the response
-  body (often a hash). If the body changes, the ETag changes.
-- **`Last-Modified: Sat, 26 Jul 2026 09:00:00 GMT`** — when the resource
-  last changed (a coarser, second-resolution validator).
-
-On the next request for a stale resource, the cache sends a **conditional
-request** echoing the validator:
-
-- **`If-None-Match: "a1b2c3"`** — "only send the body if the ETag is *not*
-  still `a1b2c3`."
-- **`If-Modified-Since: Sat, 26 Jul 2026 09:00:00 GMT`** — "only send the
-  body if it changed after this time."
-
-The server compares. Two outcomes:
-
-- **Unchanged** → the server returns **`304 Not Modified`** with *no
-  body*. The cache reuses its stored copy. You just saved re-sending the
-  whole payload — only headers crossed the wire.
-- **Changed** → the server returns **`200 OK`** with the new body and a
-  new `ETag`/`Last-Modified`.
-
-This is why `304` (module 05) is a `3xx`: it directs the client to use its
-cache. Validation is the "cheap check" half of caching; freshness is the
-"don't even check" half.
+## 1. Quick Reference: Directives & Header Taxonomy
 
 ```
-  1st request (nothing cached yet)         later request (copy is stale)
-  client ─ GET /doc ───────────► server    client ─ GET /doc ───────────► server
-         ◄─ 200 OK              ─                  │  If-None-Match: "a1b2c3"
-           ETag: "a1b2c3"                          │
-           Cache-Control: max-age=30               ▼  server compares ETag
-           <full 1 MB body>                  ┌── unchanged ──► 304 Not Modified
-  client stores copy + ETag                  │                 (no body — reuse cache)
-                                             └── changed ────► 200 OK + new ETag
-                                                               <full new body>
+Cache-Control: [Visibility], [Freshness Directive], [Revalidation Constraint]
+Example:       Cache-Control: public, s-maxage=3600, max-age=60, must-revalidate
 ```
 
-### Strong vs. weak ETags
+| Directive | Cache Level | Meaning & Production Use Case |
+| :--- | :--- | :--- |
+| **`public`** | Shared (CDN / Proxy) | May be cached by any intermediate cache (CDNs, Cloudflare, proxies). Safe for public, shared data. |
+| **`private`** | Browser Only | May **only** be stored by the user's browser. Shared CDNs must never store it. Required for authenticated user data. |
+| **`no-cache`** | All Caches | Caches may store the asset, but **must revalidate** with origin via `ETag` before every reuse. |
+| **`no-store`** | All Caches | **Never store** any part of this response anywhere (RAM or disk). Used for bank balances and secrets. |
+| **`max-age=<sec>`** | Browser + Shared | Specifies freshness lifetime in seconds (e.g. `max-age=3600` for 1 hour). |
+| **`s-maxage=<sec>`** | Shared Only (CDN) | Overrides `max-age` specifically for shared caches/CDNs. Ignored by private browsers. |
+| **`immutable`** | Browser | Content will never change during its `max-age`. Browser skips revalidation even on page reload. Used for hashed static assets (`app.5d8e.js`). |
+| **`must-revalidate`** | All Caches | Once stale, the cache **must not** serve the stale copy under any circumstances without revalidating. |
 
-An ETag can be **strong** (`"a1b2c3"` — byte-for-byte identical) or
-**weak** (`W/"a1b2c3"` — semantically equivalent but maybe not
-byte-identical, e.g. same content with a different compression). Strong
-ETags are required for range requests (resuming partial downloads); weak
-ETags are fine for ordinary "did this change?" validation. Most APIs use
-strong ETags derived from a hash of the serialized body.
+### The Conditional Request Pair
 
-### `Vary`: caching under content negotiation
+| Initial Server Response | Subsequent Client Request | Cache Hit Response | Cache Miss Response |
+| :--- | :--- | :--- | :--- |
+| `ETag: "c5a-8b1"` | `If-None-Match: "c5a-8b1"` | **`304 Not Modified`** (No body) | **`200 OK`** (New body + new ETag) |
+| `Last-Modified: Wed, 21 Oct 2026 07:28:00 GMT` | `If-Modified-Since: Wed, 21 Oct 2026 07:28:00 GMT` | **`304 Not Modified`** (No body) | **`200 OK`** (New body + new timestamp) |
 
-If a response differs based on a *request* header — say you return JSON or
-XML depending on `Accept` (module 08), or gzip vs. plain based on
-`Accept-Encoding` — a shared cache must not serve the JSON copy to a
-client that asked for XML. The **`Vary`** response header tells caches
-which request headers to include in the cache key:
+---
 
-```
-Vary: Accept, Accept-Encoding
-```
+## 2. Production War Story: The Steam Christmas Day Account Leak
 
-"Cache separate copies per distinct `Accept` and `Accept-Encoding`." Omit
-`Vary` when you negotiate and a cache will serve the wrong representation
-to someone. This header is the bridge between caching (this module) and
-content negotiation (module 08).
+```mermaid
+sequenceDiagram
+    actor Attacker as Random Gamer (User B)
+    actor Victim as Account Owner (User A)
+    participant CDN as Edge Caching Tier (Varnish / Fastly)
+    participant Origin as Steam Account Backend
 
-```
-  shared cache keyed by URL + the Vary'd headers:
+    Note over Victim: User A logs into store.steampowered.com/account/
+    Victim->>CDN: GET /account/ (Cookie: session_user_a)
+    CDN->>Origin: Forward GET /account/
+    Note over Origin: High server load! Config mistakenly marks dynamic HTML as public!
+    Origin-->>CDN: HTTP 200 OK [Cache-Control: public, max-age=300]<br/>Body: Account details for User A
+    CDN-->>Victim: Renders User A Profile
 
-   key: /doc | Accept: application/json | Accept-Encoding: gzip  ─► [gzipped JSON]
-   key: /doc | Accept: application/xml  | Accept-Encoding: (none)─► [plain XML]
-                     ▲ same URL, different stored copies — no cross-serving
-```
-
-### Putting freshness + validation together
-
-A well-cached API response typically carries *both*: a `max-age` (so
-during the fresh window there are zero requests) *and* an `ETag` (so once
-stale, revalidation is a cheap `304` instead of a full refetch). Example:
-
-```
-HTTP/1.1 200 OK
-Cache-Control: public, max-age=60
-ETag: "v3-a1b2c3"
-Vary: Accept-Encoding
-Content-Type: application/json
+    Note over Attacker: 3 seconds later, User B visits store.steampowered.com/account/
+    Attacker->>CDN: GET /account/ (Cookie: session_user_b)
+    Note over CDN: Cache HIT! Shared edge serves cached /account/ page!
+    CDN-->>Attacker: HTTP 200 OK [From Cache]<br/>Body: Shows User A's private email, billing address & credit card last-4!
+    Note over Attacker: User B can see User A's purchase history and private account details!
 ```
 
-For 60 seconds: reuse with no request. After 60 seconds: send
-`If-None-Match: "v3-a1b2c3"`; get a `304` if nothing changed, a fresh
-`200` if it did.
+### The Incident
+On Christmas Day 2015, Valve's Steam service experienced intense traffic spikes during the Winter Holiday Sale. In an effort to mitigate database overload, caching rules were adjusted on the reverse proxy and CDN tier. Shortly thereafter, millions of users worldwide reported that clicking "Account Details" displayed other players' full names, purchase histories, billing addresses, and credit card digits.
 
-## Command reference
+### The Root Cause
+A misconfigured caching profile applied `Cache-Control: public` to the authenticated `/account/` route. The edge caching layer ignored session cookies and cached the complete HTML payload under the URL key `/account/`. Every user who visited the page received the cached HTML of whoever had requested the page seconds earlier.
 
-| Command | What it does |
-|---|---|
-| `curl -s -D - -o /dev/null URL` | Inspect caching response headers |
-| `curl -s -H 'If-None-Match: "TAG"' -i URL` | Send a conditional request by ETag |
-| `curl -s -H 'If-Modified-Since: <http-date>' -i URL` | Conditional request by date |
-| `curl -s -w '%{http_code}\n' -H 'If-None-Match: "TAG"' -o /dev/null URL` | See `304` vs `200` |
+### The Fix
+All dynamic, authenticated, and per-user endpoints must explicitly forbid shared caching:
+```http
+Cache-Control: private, no-cache, no-store, must-revalidate
+Pragma: no-cache
+Expires: 0
+```
 
-Notes:
+---
 
-- To test validation manually: first `GET` and note the `ETag`, then re-GET
-  with `If-None-Match: "<that etag>"` and confirm you get `304` with no
-  body. Change the resource, repeat, and confirm you get `200` with a new
-  ETag.
+## 3. Production War Story: The Thundering Herd Cache Stampede
 
-FastAPI app with real caching (used in exercises):
+```mermaid
+sequenceDiagram
+    participant Clients as 5,000 Concurrent Requests
+    participant Redis as Edge Cache (TTL = 60s)
+    participant DB as Postgres Database
 
+    Note over Redis: Clock strikes 00:01:00 -> Key 'homepage_deals' EXPIRES!
+    Clients->>Redis: 5,000 requests query 'homepage_deals' at exact same millisecond
+    Note over Redis: Cache MISS for all 5,000 incoming threads!
+    Redis->>DB: 5,000 concurrent heavy SQL queries hit database at once!
+    Note over DB: CPU spikes to 100% · Connection pool saturated · DB dies
+    DB-->>Clients: 504 Gateway Timeout / 500 Internal Server Error
+```
+
+### The Solution: Probabilistic Early Expiration (XFetch) & Singleflight
+When millions of requests read the same cache key, having it expire sharply creates a **cache stampede** (thundering herd). 
+
+**The Remedy:**
+1. **Mutex / Singleflight Pattern:** Ensure that upon a cache miss, only **one** backend thread is permitted to compute the query, while the other 4,999 threads await that single result.
+2. **Stale-While-Revalidate (`Cache-Control: max-age=60, stale-while-revalidate=30`):** Instructs the CDN/browser to immediately serve the stale copy for 30 seconds while an asynchronous background request fetches the fresh version from the origin.
+
+---
+
+## 4. Multi-Language Implementation: ETag Generation & 304 Validation
+
+### Go (`net/http`)
+Production SHA-256 ETag middleware with conditional validation:
+
+```go
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+)
+
+type responseRecorder struct {
+	http.ResponseWriter
+	body   *bytes.Buffer
+	status int
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	return r.body.Write(b)
+}
+
+func (r *responseRecorder) WriteHeader(status int) {
+	r.status = status
+}
+
+func ETagMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &responseRecorder{
+			ResponseWriter: w,
+			body:           &bytes.Buffer{},
+			status:         http.StatusOK,
+		}
+
+		next.ServeHTTP(rec, r)
+
+		// Compute cryptographic hash of the generated response body
+		hash := sha256.Sum256(rec.body.Bytes())
+		etag := `"` + hex.EncodeToString(hash[:8]) + `"`
+
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "public, max-age=120, stale-while-revalidate=30")
+		w.Header().Set("Vary", "Accept-Encoding")
+
+		// 304 Validation Check
+		if match := r.Header.Get("If-None-Match"); match == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return // Return 304 with ZERO body bytes
+		}
+
+		w.WriteHeader(rec.status)
+		w.Write(rec.body.Bytes())
+	})
+}
+```
+
+### Node.js / Express
+```typescript
+import express, { Request, Response } from 'express';
+import crypto from 'crypto';
+
+const app = express();
+
+// Express includes built-in ETag generation, but you can explicitly control it:
+app.set('etag', 'strong'); // 'strong' or 'weak'
+
+app.get('/api/catalog', (req: Request, res: Response) => {
+  const catalogData = {
+    updated_at: '2026-11-09T18:00:00Z',
+    items: ['Server Rack', 'Managed Switch', 'Fiber Cable']
+  };
+
+  const payload = JSON.stringify(catalogData);
+  const etag = `"${crypto.createHash('md5').update(payload).digest('hex')}"`;
+
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+  res.setHeader('Vary', 'Accept-Encoding');
+
+  // Check if client sent matching If-None-Match
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end(); // Empty body, 304 Not Modified
+  }
+
+  res.status(200).send(payload);
+});
+```
+
+### Python (FastAPI)
 ```python
-import hashlib, json
+import hashlib
+import json
 from fastapi import FastAPI, Request, Response, status
 
 app = FastAPI()
-DOC = {"version": 1, "title": "Hello", "body": "world"}
 
-def etag_for(obj) -> str:
-    raw = json.dumps(obj, sort_keys=True).encode()
-    return '"' + hashlib.sha256(raw).hexdigest()[:16] + '"'
+ITEMS = {"catalog_version": 4, "products": ["Router", "Server", "Firewall"]}
 
-@app.get("/doc")
-def get_doc(request: Request, response: Response):
-    etag = etag_for(DOC)
-    # Validation: if the client's copy matches, short-circuit to 304
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED,
-                        headers={"ETag": etag, "Cache-Control": "public, max-age=30"})
-    response.headers["ETag"] = etag
-    response.headers["Cache-Control"] = "public, max-age=30"
+def compute_etag(data: dict) -> str:
+    raw = json.dumps(data, sort_keys=True).encode("utf-8")
+    return f'"{hashlib.sha256(raw).hexdigest()[:16]}"'
+
+@app.get("/api/catalog")
+def get_catalog(request: Request, response: Response):
+    current_etag = compute_etag(ITEMS)
+    
+    # Check conditional validation
+    client_etag = request.headers.get("if-none-match")
+    if client_etag == current_etag:
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED,
+            headers={
+                "ETag": current_etag,
+                "Cache-Control": "public, max-age=60, stale-while-revalidate=30"
+            }
+        )
+
+    response.headers["ETag"] = current_etag
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=30"
     response.headers["Vary"] = "Accept-Encoding"
-    return DOC
-
-@app.post("/doc")
-def edit_doc(changes: dict):
-    DOC.update(changes)
-    DOC["version"] += 1
-    return DOC
-
-@app.get("/static/app.js")
-def static_asset(response: Response):
-    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-    return Response(content="console.log('v1')", media_type="application/javascript",
-                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
-
-@app.get("/me")
-def me(response: Response):
-    # Per-user data: must NOT be shared-cached
-    response.headers["Cache-Control"] = "private, no-store"
-    return {"user": "ada", "balance": 4200}
+    return ITEMS
 ```
 
-## Hands-on exercises
+---
 
-Run with `uvicorn app:app --reload`.
+## 5. Practical Hands-On Exercises
 
-### 1. See freshness headers
+### Exercise 1: Verify 304 Bandwidth Reduction
+Run this sequence against a live API to witness bandwidth savings first-hand:
 
 ```bash
-curl -s -D - -o /dev/null http://127.0.0.1:8000/doc
+# 1. Fetch resource and capture the ETag header
+ETAG=$(curl -s -D - -o /dev/null https://api.github.com/ | grep -i etag | tr -d '\r' | awk '{print $2}')
+echo "Captured ETag: $ETAG"
+
+# 2. Make conditional request with If-None-Match
+curl -s -i -H "If-None-Match: $ETAG" https://api.github.com/ | grep -E "(HTTP\/|ETag:)"
 ```
+**Look for:**
+* `HTTP/2 304 Not Modified`
+* Body length is exactly **0 bytes**
 
-Expected: `cache-control: public, max-age=30`, an `etag: "..."`, and
-`vary: Accept-Encoding`. Note the ETag value — you'll use it next.
-
-### 2. Revalidate and get a 304
-
-Copy the ETag from exercise 1, then:
+### Exercise 2: Inspecting Cache-Control on Static vs. Dynamic Content
+Compare the caching headers of Google's homepage vs. a static asset:
 
 ```bash
-curl -s -i -H 'If-None-Match: "PASTE_ETAG_HERE"' http://127.0.0.1:8000/doc
+# HTML: Must be dynamic or short-lived
+curl -s -D - -o /dev/null https://www.google.com/ | grep -i "cache-control"
+
+# Fingerprinted static JS: Cached for 1 year (immutable)
+curl -s -D - -o /dev/null https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js | grep -i "cache-control"
 ```
+**Observe:** The static React library has `max-age=31536000, immutable` (365 days).
 
-Expected: `HTTP/1.1 304 Not Modified` with **no body**. The server told
-you "your copy is current — reuse it." Only headers crossed the wire; the
-document body did not. That's the bandwidth win.
+---
 
-### 3. Change the resource, watch the ETag change
-
-```bash
-curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"title":"Changed"}' http://127.0.0.1:8000/doc
-curl -s -i -H 'If-None-Match: "PASTE_OLD_ETAG_HERE"' http://127.0.0.1:8000/doc
-```
-
-Expected: now you get `200 OK` with the *new* body and a *different*
-ETag — the old validator no longer matches because the content changed.
-Validation correctly detected the change.
-
-### 4. Prove `no-store` on per-user data
-
-```bash
-curl -s -D - -o /dev/null http://127.0.0.1:8000/me
-```
-
-Expected: `cache-control: private, no-store`. No shared cache will store
-this, and even the browser won't persist it. Reason about why serving
-`/me` as `public, max-age=60` would be a data-leak bug (a CDN could hand
-Ada's balance to the next user).
-
-### 5. Immutable versioned asset
-
-```bash
-curl -s -D - -o /dev/null http://127.0.0.1:8000/static/app.js
-```
-
-Expected: `cache-control: public, max-age=31536000, immutable`. A browser
-caches this for a year and won't even revalidate on reload. This is the
-standard strategy for fingerprinted assets (`app.abc123.js`): the URL
-changes when the content changes, so the cached copy is never wrong.
-
-### 6. max-age vs no-cache, in your head then in curl
-
-Change `/doc`'s `Cache-Control` to `no-cache` (keep the ETag logic),
-restart, and re-run exercises 1-2.
-
-Expected: with `no-cache`, a compliant cache stores the copy but
-*revalidates every time* before reuse — so you'll always see the
-conditional request happen (and get `304`s when unchanged). Contrast:
-`max-age=30` skips the server entirely for 30s. Write down the difference
-in one sentence.
-
-### 7. Vary and negotiation interaction
-
-```bash
-curl -s -D - -o /dev/null -H 'Accept-Encoding: gzip' http://127.0.0.1:8000/doc
-```
-
-Expected: the `vary: Accept-Encoding` header is present. Explain what a
-shared cache does with it: it keys its stored copies by `Accept-Encoding`,
-so a client that sent `gzip` and one that sent nothing get the correct
-respective representations — the cache won't hand a gzipped body to a
-client that can't decode it (module 08).
-
-### 8. Diagnose and fix: the private-data leak
-
-Here's a broken endpoint. Add it:
-
-```python
-@app.get("/profile")
-def profile(response: Response):
-    # BUG: per-user data marked public and cacheable by shared caches
-    response.headers["Cache-Control"] = "public, max-age=3600"
-    return {"user": "ada", "email": "ada@x.com", "secret_prefs": [1, 2, 3]}
-```
-
-```bash
-curl -s -D - -o /dev/null http://127.0.0.1:8000/profile
-```
-
-Expected: `cache-control: public, max-age=3600` on clearly per-user data.
-**Diagnose:** a shared cache (CDN/proxy) may store Ada's profile and serve
-it to the *next* user who requests `/profile` for an hour — a
-cross-user data leak. **Fix:** mark it `private, no-store` (or at least
-`private, max-age=0, must-revalidate` if some per-browser caching is
-acceptable). Re-run and confirm it's no longer `public`. Lesson:
-`public` vs. `private` is a *security* decision, not just performance.
-
-### 9. Measure the win
-
-```bash
-# Full response (200) size vs. a revalidation (304) size
-curl -s -o /dev/null -w 'full: %{size_download} bytes\n' http://127.0.0.1:8000/doc
-ETAG=$(curl -s -D - -o /dev/null http://127.0.0.1:8000/doc | grep -i etag | tr -d '\r' | awk '{print $2}')
-curl -s -o /dev/null -w '304:  %{size_download} bytes\n' -H "If-None-Match: $ETAG" http://127.0.0.1:8000/doc
-```
-
-Expected: the `304` downloads ~0 body bytes versus the full response's
-payload. On a real API returning kilobytes or megabytes, that's the
-concrete savings validation buys — repeated for every client, every
-revalidation.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Implement caching for a `/report` endpoint that returns an
-expensive-to-generate JSON report which changes at most once an hour.
-Requirements: (a) during the freshness window, browsers and your CDN
-should serve it *without contacting your server at all*; (b) once stale, a
-client should be able to revalidate and receive a `304` (module 05) if the
-report hasn't regenerated, saving the full payload; (c) the report is the
-same for all users, so shared caching is desirable — but a *different*
-endpoint `/report/mine` returns a per-user version that must **never** be
-stored by a shared cache. Prove each behavior with curl: show the fresh
-window serves without revalidation, show a `304` on revalidation, and show
-`/report/mine` carries directives that forbid shared caching. Tie your
-choices back to the DNS-TTL analogy from module 00 and the `304` mechanic
-from module 05.
+## 6. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: The "no-cache" Interview Trap</strong></summary>
 
-For `/report`: `Cache-Control: public, max-age=3600` plus an `ETag`
-derived from a hash of the report content (or its generation timestamp),
-and the same `If-None-Match` → `304` short-circuit as the `/doc` example.
-For `/report/mine`: `Cache-Control: private, no-store` (or at least
-`private`). The `public`/`private` split is the whole safety story.
+**Scenario:** A software engineer configures an API endpoint returning live stock prices with:
+`Cache-Control: no-cache`
+The engineer expects that no browser or proxy will ever store the response and that every single request will fetch the latest price from the database.
 
+Did the engineer configure this correctly?
+
+**Answer:**
+**No.** `no-cache` does **NOT** mean "do not cache." 
+
+`no-cache` instructs browsers and CDNs: *"You are permitted to store this response in cache, but you MUST revalidate with the server using `If-None-Match` before reusing it."* 
+
+If the database or server returns `304 Not Modified`, the client continues using the cached copy. If the engineer wanted to ensure the response is never written to disk or memory under any circumstances, the correct directive is **`Cache-Control: no-store`**.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Caching per-user data as `public`.** A shared cache can then leak one
-  user's response to another. Per-user data must be `private` (and often
-  `no-store`).
-- **Thinking `no-cache` means "don't cache."** It means "cache, but
-  revalidate before every reuse." "Don't store at all" is `no-store`.
-- **Negotiating content without `Vary`.** A shared cache will serve the
-  wrong representation (JSON to an XML client, gzip to a client that can't
-  decode it). Add `Vary` with the relevant request headers.
-- **No validator on cacheable responses.** Without an `ETag`/
-  `Last-Modified`, a stale cache must refetch the *entire* body instead of
-  getting a cheap `304`. Always pair `max-age` with a validator for large
-  responses.
-- **`immutable` on things that actually change.** Only use it for
-  content-addressed/versioned URLs whose content is fixed for that URL.
-- **Very long `max-age` on non-versioned URLs.** Users get stuck with
-  stale content and no easy way to bust it. Use short `max-age` +
-  revalidation, or versioned URLs + long `max-age`.
-- **Forgetting that `304` responses should carry the same cache headers.**
-  A `304` should refresh freshness (`Cache-Control`) so the cached copy's
-  clock resets.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What two distinct questions do caching headers answer? Name the
-   mechanism (and key header) for each.
-2. What does `max-age=60` cause a cache to do for the first 60 seconds,
-   and what changes after that?
-3. Distinguish `no-cache`, `no-store`, and `private` — one clear sentence
-   each.
-4. Walk through a conditional request: what does the client send, what are
-   the server's two possible responses, and which one saves bandwidth and
-   how?
-5. Why is serving a per-user response with `Cache-Control: public,
-   max-age=3600` a security bug, not just a performance choice?
-6. You return JSON or XML depending on the `Accept` header. What header
-   must you add so shared caches don't serve the wrong one, and what does
-   it do?
-7. What's the standard caching strategy for a fingerprinted asset like
-   `app.9f8a.js`, and why is it safe to cache it for a year?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: The Missing Vary Header Disaster</strong></summary>
 
-1. (a) "May I reuse this, and for how long?" — *freshness*, via
-   `Cache-Control: max-age`. (b) "Has it actually changed?" — *validation*,
-   via `ETag`/`Last-Modified` and conditional requests.
-2. For 60 seconds the cache serves its stored copy directly with *no
-   request to the server* (fresh). After 60 seconds it's stale and the
-   cache must revalidate (or refetch) before reuse.
-3. `no-cache` = may store but must revalidate before each reuse.
-   `no-store` = never store it anywhere. `private` = only the browser (one
-   user) may store it, not shared caches.
-4. The client sends `If-None-Match: "<etag>"` (or `If-Modified-Since`).
-   The server returns `304 Not Modified` (no body) if unchanged, or
-   `200 OK` with the new body + new validator if changed. The `304` saves
-   bandwidth by not re-sending the body — only headers cross the wire.
-5. Because `public` lets a *shared* cache (CDN/proxy) store it and serve
-   the same stored response to *other* users — leaking one user's private
-   data to another for up to an hour.
-6. `Vary: Accept` — it tells shared caches to include the `Accept` request
-   header in the cache key, so each representation is cached and served
-   separately.
-7. `Cache-Control: public, max-age=31536000, immutable`. It's safe because
-   the filename (fingerprint/hash) changes whenever the content changes —
-   a given URL's bytes never change, so a cached copy is never stale.
+**Scenario:** A backend service supports content negotiation:
+* Desktop clients send `Accept-Encoding: gzip` $\rightarrow$ Server returns compressed JSON.
+* Embedded IoT microcontrollers send no compression headers $\rightarrow$ Server returns raw plain JSON.
 
+The service uses an upstream Cloudflare CDN edge cache. IoT clients suddenly crash with JSON parsing errors.
+
+What header was missing on the server's response?
+
+**Answer:**
+The server was missing **`Vary: Accept-Encoding`**.
+
+Without the `Vary` header, the CDN edge cache uses only the URL as the cache lookup key. When a desktop client requested the URL first, Cloudflare cached the gzipped binary payload. When the IoT client subsequently requested the same URL, Cloudflare served the cached gzipped bytes. Because the IoT device expected raw plain text, its JSON parser failed. 
+
+Adding `Vary: Accept-Encoding` forces the CDN to store separate cache buckets for gzipped and uncompressed clients.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Fingerprinted Assets and Immutable Caching</strong></summary>
 
-- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) - the end-to-end guide to freshness, validation, and the `private`/`public` split.
-- [RFC 9111: HTTP Caching](https://www.rfc-editor.org/rfc/rfc9111) - the authoritative spec for `Cache-Control`, `Vary`, and conditional requests.
-- [MDN: Cache-Control](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control) - every directive (`max-age`, `no-cache`, `no-store`, `immutable`) defined precisely.
-- [MDN: ETag](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag) and [If-None-Match](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/If-None-Match) - the validator and the conditional-request header that yields `304`.
-- [web.dev: HTTP caching](https://web.dev/articles/http-cache) - a practical, strategy-focused walkthrough including the fingerprinted-asset pattern.
-- [MDN: Vary](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Vary) - how the cache key changes under content negotiation, bridging to module 08.
+**Scenario:** You are deploying a Single Page Application (React/Vite). The build produces two files:
+1. `index.html`
+2. `assets/main.9f8b1c.js` (content-hashed filename)
 
-## Next
+What `Cache-Control` policy should you configure for each file on your CDN?
 
-[07-http-1-1-vs-2-vs-3](../07-http-1-1-vs-2-vs-3/README.md) — you've
-mastered HTTP's semantics on HTTP/1.1; now see how HTTP/2 and HTTP/3 keep
-those exact semantics but radically change performance on the wire.
+**Answer:**
+* **`index.html` $\rightarrow$ `Cache-Control: no-cache` (or `max-age=0, must-revalidate`):**
+  The entry point must never be aggressively cached. The browser must revalidate `index.html` on every visit so it immediately discovers when a new deployment points to a new JavaScript bundle hash.
+* **`assets/main.9f8b1c.js` $\rightarrow$ `Cache-Control: public, max-age=31536000, immutable`:**
+  Because the filename contains a cryptographic content hash, its contents will never change. If the code changes, a new build generates `main.4e7d2a.js`. Therefore, the current file can be safely cached on user disks and edge CDNs for 1 full year without ever revalidating.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered HTTP caching, proceed to **[07-http-1-1-vs-2-vs-3](../07-http-1-1-vs-2-vs-3/README.md)** to understand binary framing, stream multiplexing, head-of-line blocking, and HTTP/3 QUIC over UDP.

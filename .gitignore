@@ -29,3 +29,7 @@ __pycache__/
 # Local development screenshots (npm run shots). Only the folder's README is tracked.
 /screenshots/*
 !/screenshots/README.md
+
+# Local scratch and patch files
+_work_files_ignore/
+

@@ -19,7 +19,7 @@ const PopularLessons = lazy(() => import('./PopularLessons.jsx'));
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
 // stats are missing the page still reads correctly, it just says less.
-export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos, community, practice }) {
+export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos, onOpenIncident, community, practice }) {
   const link = (file) => ({
     href: routeUrl(file),
     onClick: (e) => {
@@ -42,7 +42,10 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
   const modules = stats?.modules;
   const startFile = stats?.curricula?.backend?.start || FALLBACK_START_FILE;
   const paths = stats?.paths || [];
-  const heroPath = paths.find((p) => p.id === HERO.startPath);
+  const flagshipPaths = paths.filter((p) => p.flagship);
+  const displayPaths = flagshipPaths.length > 0 ? flagshipPaths : paths.slice(0, 4);
+  const otherPathsCount = paths.length - displayPaths.length;
+  const heroPath = paths.find((p) => p.id === HERO.startPath) || displayPaths[0];
 
   // Newest work in the featured curriculum: the last finished tracks, then any track part-way through.
   const featured = stats?.tracks?.[FRESH.curriculum] || [];
@@ -91,16 +94,51 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
         </figure>
       </section>
 
+      {/* Daily Production Incident Challenge Banner */}
+      <section className="lp-incident-banner" aria-label="Daily Architectural Incident">
+        <div className="lp-incident-card">
+          <div className="lp-incident-badge">
+            <span className="lp-incident-pulse" />
+            <span>DAILY PRODUCTION FIRE</span>
+          </div>
+          <div className="lp-incident-main">
+            <div className="lp-incident-content">
+              <h3>🔥 Daily Incident Challenge: Real-World Triage &amp; Post-Mortems</h3>
+              <p>Step into an active on-call rotation. Triage telemetry logs, diagnose cascading failures, determine the root cause, and maintain your architectural streak.</p>
+            </div>
+            <div className="lp-incident-action">
+              <button
+                type="button"
+                className="lp-btn lp-btn-incident"
+                onClick={onOpenIncident}
+              >
+                Resolve Today&apos;s Fire <ArrowRightIcon />
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {paths.length > 0 && (
         <section className="lp-sec" aria-labelledby="lp-pick">
           <h2 id="lp-pick">{PICK.heading}</h2>
           <p className="lp-sec-sub">{PICK.sub}</p>
           <div className="lp-paths">
-            {paths.map((p) => (
-              <article key={p.id} className="lp-card">
-                <div className="lp-topic">{p.topic}</div>
+            {displayPaths.map((p) => (
+              <article key={p.id} className={`lp-card ${p.flagship ? 'lp-card--flagship' : ''}`}>
+                <div className="lp-card-head">
+                  <div className="lp-topic">{p.topic}</div>
+                  {p.flagship && <span className="lp-flagship-pill">Flagship Track</span>}
+                </div>
                 <h3>{p.title}</h3>
                 <p>{p.goal}</p>
+                {p.milestone && (
+                  <div className="lp-milestone-box">
+                    <span className="lp-milestone-label">🏆 Capstone Milestone:</span>
+                    <strong className="lp-milestone-title">{p.milestone.title}</strong>
+                    <p className="lp-milestone-desc">{p.milestone.description}</p>
+                  </div>
+                )}
                 <div className="lp-meta">{PICK.meta(p)}</div>
                 <div className="lp-card-acts">
                   <a className="lp-link lp-link-strong" {...startLink(p)}>{PICK.startLabel} <ArrowRightIcon /></a>
@@ -108,6 +146,13 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
               </article>
             ))}
           </div>
+          {otherPathsCount > 0 && (
+            <div className="lp-paths-more">
+              <a className="lp-btn" href={pageUrl(PATH_ROUTE)} onClick={followInApp(practice.onOpenPaths)}>
+                Explore all {paths.length} specialized tracks & interview sprints <ArrowRightIcon />
+              </a>
+            </div>
+          )}
         </section>
       )}
 

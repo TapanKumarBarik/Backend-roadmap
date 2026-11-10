@@ -1,190 +1,668 @@
-# Module 10: Capstone Project
+# Capstone: Production-Grade Resilient API Gateway & Service Engine
 
-## Why this matters
+> [!TIP]
+> **The Golden Rule:** A production API layer is an invariant-enforcement engine. Never let HTTP transport details bleed into domain logic, never let database queries bypass context deadlines, and never emit unstructured errors. Every layer exists to convert chaos from the network into deterministic, typed, and observable business operations.
 
-Every module so far handed you scaffolding — a code block to paste, an
-expected output to check against, a hint when you got stuck. This one doesn't.
-The capstone is the integration test for the whole track, and the only way to
-find out whether the knowledge actually transferred is to build something
-substantial from an empty folder with no solution to peek at. The guided
-exercises built *recognition*: you could follow along and it made sense. Real
-competence is *recall plus synthesis* — sitting in front of a blank `main.py`
-and knowing, without prompting, that the create endpoint returns `201` with a
-`Location` header, that the rate limiter goes outside auth, that the service
-raises a domain exception instead of an `HTTPException`, that the sort
-parameter must be whitelisted, and that all of it should produce a truthful
-OpenAPI spec.
+---
 
-Everything in this track was deliberately building one project up module over
-module: validation (00–02), middleware (03–04), request context (05),
-layering (06), CRUD (07), REST design (08), and OpenAPI (09). The capstone
-asks you to assemble a *coherent* API where those pieces fit together the way
-they do in a real service — not eight disconnected demos, but one system whose
-layers reinforce each other. If a piece feels shaky when you try to place it,
-that's the signal to go back to that module's exercises and redo one from
-memory. Struggling here, before you look anything up, is the entire point.
+## 1. System Architecture: The Multi-Layer API Engine
 
-## The project
+In production backend engineering, a request does not simply hit a database and return JSON. It traverses a strictly ordered onion architecture where each layer enforces a singular guarantee before handing control deeper into the stack.
 
-Build a complete REST API for a small resource of your choice — a **task
-list** or an **order** API are the intended targets, but any single primary
-resource with a couple of related sub-resources works (a bookmarks API, a
-notes API, a simple inventory). Use **FastAPI + Pydantic**. Start from an
-empty folder; do not copy a previous module's `main.py` wholesale — rebuild it
-so the recall is real. No solution code is given.
+```mermaid
+flowchart TD
+    Client["Client / Upstream Gateway"] --> MW1["1. Recovery & Panic Shield Middleware"]
+    MW1 --> MW2["2. Request ID & Distributed Tracing (X-Request-ID)"]
+    MW2 --> MW3["3. Rate Limiter & Token Bucket (Before Auth)"]
+    MW3 --> MW4["4. Authentication & RBAC Claim Verification"]
+    MW4 --> MW5["5. Context Deadline & Timeout Guard (3.0s Max)"]
+    
+    subgraph AppLayer ["Layered Application Boundary"]
+        MW5 --> Handler["HTTP Handler / Controller\n(DTO Parsing, Status Codes, RFC 9457)"]
+        Handler --> Service["Domain Service\n(Business Logic, Invariant Rules, Domain Errors)"]
+        Service --> Repo["Repository / Data Access\n(Keyset Pagination, DB Context Propagation)"]
+    end
+    
+    Repo --> DB[(Relational Storage / Database)]
+    
+    classDef mw fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff;
+    classDef app fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff;
+    classDef storage fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff;
+    
+    class MW1,MW2,MW3,MW4,MW5 mw;
+    class Handler,Service,Repo app;
+    class DB storage;
+```
 
-Your API must bring together the whole track:
+### Architectural Layer Contracts
 
-**Resource & REST design (module 08)**
-- Model the primary resource and at least one nested/related sub-resource
-  (e.g. `tasks` and `tasks/{id}/comments`, or `orders` and
-  `orders/{id}/items`).
-- Use correct HTTP methods and status codes throughout (`201`+`Location` on
-  create, `200`/`404` on read, `204` on delete, `409` on conflict).
-- Version the API under a `/v1` prefix from the start.
-- Express at least one non-CRUD operation as a state change, not a verb URL
-  (e.g. "complete a task" / "cancel an order" via `PATCH`).
-- Add ETag-based revalidation (`304`) to the single-resource GET.
+| Layer | Strict Responsibility | Prohibited Actions | Error Behavior |
+| :--- | :--- | :--- | :--- |
+| **Middlewares (Outer)** | Tracing, rate limiting, panics, security headers, context creation | Modifying business payloads, calling databases directly | Early exit (`429`, `401`, `500`) with unified envelope |
+| **Handlers / Controllers** | Parse HTTP params/DTOs, invoke service, write HTTP headers/status | Executing SQL/ORM queries, computing business rules | Catch domain errors, map to HTTP status codes (`400`, `404`, `409`) |
+| **Domain Services** | Execute transactions, enforce state invariants, business rules | Importing web frameworks (`fastapi`, `express`, `gin`), writing headers | Raise typed domain exceptions (`ErrOrderConflict`, `ErrInvalidState`) |
+| **Repositories** | Execute queries, SQL joins, keyset pagination, map to entities | Enforcing business authorization, handling HTTP parameters | Return database errors wrapped in repository domain types |
 
-**Validation & transformation (modules 00–02)**
-- Strict Pydantic validation on every write: type, syntactic, and semantic
-  rules, with at least one custom `@field_validator` and one cross-field
-  `@model_validator`.
-- Normalize at least one field (trim/lowercase) before storage.
-- Aggregate validation errors and return them in a consistent envelope.
-- Never leak internals or enable enumeration in error messages.
+---
 
-**Middleware chain (modules 03–04)**
-- At least **3 custom middlewares** in a **deliberately ordered chain**.
-  Recommended: structured request logging (outermost), a request-ID
-  middleware, rate limiting, and security headers — plus a catch-all error
-  handler. Order must be defensible: logging outside auth, rate limiting
-  outside auth, error handling outermost.
-- Document (in a comment or README) *why* your order is correct.
+## 2. Production War Story: The Zombie Context & Unbound Connection Outage
 
-**Request context & layering (modules 05–06)**
-- Inject the current user and a per-request "DB session" (a `yield`
-  dependency) via `Depends`; no module-level globals for per-request data.
-- Clean handler → service → repository layering. Services raise **domain
-  exceptions** and import no FastAPI. Centralized exception handlers map every
-  domain error to the shared error envelope.
-- Require auth via a router-level dependency so no endpoint is exposed by
-  accident.
+### The Incident
+During a Black Friday flash sale at a high-scale e-commerce platform, client checkout requests began timing out at the frontend load balancer after 5 seconds. To compensate, thousands of impatient mobile users aggressively tapped "Checkout" repeatedly. 
 
-**CRUD features (module 07)**
-- Full CRUD on the primary resource.
-- Pagination with a **capped** page size (offset is fine; cursor earns extra
-  credit on the collection you expect to grow).
-- Filtering, sorting (with a **whitelist**), and a search (`q`) parameter on
-  the collection.
-- Redact sensitive/internal fields via dedicated `*Out` models.
+Within 4 minutes, the backend connection pool exhausted all 1,200 database connections. The entire platform entered a death spiral (`504 Gateway Timeout`), crashing payment processing for 42 minutes.
 
-**OpenAPI (module 09)**
-- A rich, accurate auto-generated spec: `info` metadata, tag groups, per-route
-  summaries, documented non-default status codes, described schemas with
-  examples, and a documented bearer-auth security scheme.
-- `/docs`, `/redoc`, and `/openapi.json` all reflect the real behavior.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Impatient Mobile Client
+    participant LB as API Gateway / Load Balancer
+    participant Svc as Backend API Instance
+    participant DB as Postgres Primary DB
 
-### Acceptance checklist
+    User->>LB: POST /v1/orders (Tapp 1)
+    LB->>Svc: Forward Request (Timeout: 5s)
+    Svc->>DB: BEGIN Transaction + Row Locks (Heavy Query)
+    Note over User,LB: Client times out at 5.0s and terminates TCP connection
+    User--xLB: Client Disconnects
+    User->>LB: POST /v1/orders (Tapp 2)
+    LB->>Svc: Forward Request (New goroutine/thread)
+    Note over Svc,DB: Svc NEVER checked context cancellation!<br/>DB query continues executing for 38 seconds!
+    Svc->>DB: Heavy Query 1 finishes (Results discarded to nowhere)
+    Note over DB: All 1,200 connection pool slots locked by zombie queries!
+    LB-->>User: 504 Gateway Timeout (Complete System Outage)
+```
 
-Tick every box. If you can't, you've found a module to revisit.
+### The Root Cause
+The API handlers received incoming HTTP requests with timeouts set at the load balancer, but **did not propagate the request context** down to the service layer and database drivers:
+1. When clients disconnected after 5 seconds, the server threads and goroutines continued executing 40-second long lock-intensive SQL operations on Postgres.
+2. Every repeated tap spawned another long-running query that competed for the same database row locks.
+3. Because the middlewares failed to validate client timeouts and cancel downstream DB operations, "zombie queries" saturated the database connection pool.
 
-- [ ] `POST /v1/<resource>` returns `201` with a `Location` header and the
-      created body; invalid input returns an aggregated `422`; a duplicate/
-      conflict returns `409`.
-- [ ] `GET /v1/<resource>/{id}` returns `200` with an ETag; a repeat request
-      with `If-None-Match` returns `304`; a missing id returns `404`.
-- [ ] `GET /v1/<resource>` paginates with a capped limit, supports filtering,
-      whitelisted sorting, and a `q` search; an unknown sort field returns
-      `400`; an oversized limit returns `422`.
-- [ ] `PATCH` applies only the fields sent (no clobbering); `DELETE` returns
-      `204`; a state-change operation is modeled as a resource update, not a
-      verb URL.
-- [ ] A nested sub-resource endpoint works and is scoped to its parent.
-- [ ] At least 3 custom middlewares run in a defensible order; a rate-limited
-      request is still logged and still gets security headers; an unhandled
-      exception becomes a clean `500` with no stack trace in the body.
-- [ ] Every request carries a request ID that appears in logs and in the
-      response headers and error envelope.
-- [ ] The current user is injected via DI, comes from `request.state`/a
-      dependency (never a global), and every endpoint requires auth via a
-      router-level dependency.
-- [ ] Services contain the business rules, import no FastAPI, and raise domain
-      exceptions; one central place maps them to HTTP; validation and domain
-      errors share one envelope.
-- [ ] No response leaks an internal/sensitive field (verified against your
-      `*Out` models).
-- [ ] `/docs` shows grouped, documented endpoints with an Authorize button;
-      `/openapi.json` accurately describes every request schema, response
-      schema, and status code you actually return.
-- [ ] You can unit-test at least one service method with plain Python, no web
-      server.
+### The Verified Fix
+1. **Propagate Context Across All Layers:** Handlers must pass `req.Context()` (Go), `AbortSignal` (Node.js), or async cancellation tokens directly to database drivers.
+2. **Context-Aware Database Queries:** Using `QueryContext()` or `execute()` with timeout triggers an immediate `ROLLBACK` when the client aborts.
+3. **Idempotency Fingerprinting:** Dedup duplicate submissions using an `Idempotency-Key` header stored in Redis to prevent processing duplicate requests.
 
-### Suggested build order
+---
 
-1. Sketch the **contract first** (module 09 mindset): resources, URLs,
-   methods, status codes, schemas — on paper or as a draft spec — before
-   writing handlers.
-2. Build the layers bottom-up: repository (in-memory is fine), then service
-   with domain exceptions and rules, then thin handlers.
-3. Add the Pydantic schemas (`*Create`, `*Update`, `*Out`) with validators and
-   normalization.
-4. Wire the middleware chain and prove the order with a trace.
-5. Add pagination/filter/sort/search and ETags.
-6. Enrich the OpenAPI metadata and verify `/docs` tells the truth.
-7. Run the acceptance checklist as an adversary trying to break each item.
+## 3. Production Multi-Language Implementation
 
-### Hints (design nudges, not solutions)
+Here is how to structure a complete, production-grade micro-engine featuring context propagation, layered architecture, keyset pagination, and structured RFC 9457 error mapping.
+
+### Go: Production Layered API Engine with Context Propagation
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// --- Domain Layer: Invariant & Domain Errors (Zero HTTP imports) ---
+
+var (
+	ErrOrderNotFound    = errors.New("order not found")
+	ErrDuplicateOrder   = errors.New("duplicate order idempotency key")
+	ErrInvalidOrderData = errors.New("invalid order data")
+)
+
+type Order struct {
+	ID        string    `json:"id"`
+	Customer  string    `json:"customer"`
+	Amount    int64     `json:"amount_cents"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type OrderRepository interface {
+	Create(ctx context.Context, order Order) error
+	GetByID(ctx context.Context, id string) (*Order, error)
+	ListKeyset(ctx context.Context, limit int, afterID string) ([]Order, string, error)
+}
+
+type OrderService struct {
+	repo OrderRepository
+}
+
+func NewOrderService(repo OrderRepository) *OrderService {
+	return &OrderService{repo: repo}
+}
+
+func (s *OrderService) CreateOrder(ctx context.Context, customer string, amount int64) (*Order, error) {
+	if strings.TrimSpace(customer) == "" || amount <= 0 {
+		return nil, ErrInvalidOrderData
+	}
+	order := Order{
+		ID:        fmt.Sprintf("ord_%d", time.Now().UnixNano()),
+		Customer:  strings.TrimSpace(customer),
+		Amount:    amount,
+		Status:    "PENDING",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.repo.Create(ctx, order); err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
+// --- Repository Implementation (Mock with Context Awareness) ---
+
+type MemoryOrderRepo struct {
+	data map[string]Order
+}
+
+func (m *MemoryOrderRepo) Create(ctx context.Context, order Order) error {
+	// Respect context deadline / cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(10 * time.Millisecond): // Simulate simulated DB I/O
+	}
+	m.data[order.ID] = order
+	return nil
+}
+
+func (m *MemoryOrderRepo) GetByID(ctx context.Context, id string) (*Order, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	order, exists := m.data[id]
+	if !exists {
+		return nil, ErrOrderNotFound
+	}
+	return &order, nil
+}
+
+func (m *MemoryOrderRepo) ListKeyset(ctx context.Context, limit int, afterID string) ([]Order, string, error) {
+	var results []Order
+	var lastKey string
+	foundPivot := afterID == ""
+
+	for id, order := range m.data {
+		if !foundPivot {
+			if id == afterID {
+				foundPivot = true
+			}
+			continue
+		}
+		results = append(results, order)
+		lastKey = id
+		if len(results) >= limit {
+			break
+		}
+	}
+	return results, lastKey, nil
+}
+
+// --- HTTP Layer: Middlewares, Handlers & RFC 9457 Errors ---
+
+type RFC9457Error struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail"`
+	Instance string `json:"instance"`
+}
+
+func WriteRFC9457(w http.ResponseWriter, r *http.Request, status int, title, detail string) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(RFC9457Error{
+		Type:     "https://api.example.com/errors/rfc9457",
+		Title:    title,
+		Status:   status,
+		Detail:   detail,
+		Instance: r.URL.Path,
+	})
+}
+
+// TimeoutMiddleware injects a 3-second context deadline to abort zombie executions
+func TimeoutMiddleware(timeout time.Duration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// PanicRecoveryMiddleware prevents unhandled panics from tearing down the server process
+func PanicRecoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				logger.Error("Unhandled panic in request", "error", rec)
+				WriteRFC9457(w, r, http.StatusInternalServerError, "Internal Server Error", "An unhandled error occurred.")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+type OrderHandler struct {
+	service *OrderService
+}
+
+func (h *OrderHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteRFC9457(w, r, http.StatusMethodNotAllowed, "Method Not Allowed", "Use POST")
+		return
+	}
+
+	var reqPayload struct {
+		Customer string `json:"customer"`
+		Amount   int64  `json:"amount_cents"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&reqPayload); err != nil {
+		WriteRFC9457(w, r, http.StatusBadRequest, "Invalid JSON", err.Error())
+		return
+	}
+
+	// Propagate request context
+	order, err := h.service.CreateOrder(r.Context(), reqPayload.Customer, reqPayload.Amount)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidOrderData):
+			WriteRFC9457(w, r, http.StatusUnprocessableEntity, "Validation Error", "Invalid order payload")
+		case errors.Is(err, context.DeadlineExceeded):
+			WriteRFC9457(w, r, http.StatusGatewayTimeout, "Timeout", "Database operation timed out")
+		default:
+			WriteRFC9457(w, r, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprintf("/v1/orders/%s", order.ID))
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(order)
+}
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	repo := &MemoryOrderRepo{data: make(map[string]Order)}
+	service := NewOrderService(repo)
+	handler := &OrderHandler{service: service}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/orders", handler.HandleCreate)
+
+	// Build onion middleware chain: Recovery -> Timeout -> Router
+	pipeline := PanicRecoveryMiddleware(logger, TimeoutMiddleware(3*time.Second, mux))
+
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      pipeline,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	logger.Info("Production API Engine listening on port 8080")
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("Fatal server error", "error", err)
+	}
+}
+```
+
+---
+
+### Node.js (TypeScript/Express): Layered Architecture with Zod & AbortSignal
+
+```typescript
+import express, { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
+
+// --- Domain Layer ---
+export class DomainError extends Error {
+  constructor(public code: string, message: string, public statusCode: number = 400) {
+    super(message);
+    this.name = 'DomainError';
+  }
+}
+
+export class OrderNotFoundError extends DomainError {
+  constructor(id: string) {
+    super('ORDER_NOT_FOUND', `Order with ID ${id} was not found`, 404);
+  }
+}
+
+export interface Order {
+  id: string;
+  customer: string;
+  amountCents: number;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+  createdAt: string;
+}
+
+export class OrderService {
+  private orders = new Map<string, Order>();
+
+  async createOrder(customer: string, amountCents: number, signal?: AbortSignal): Promise<Order> {
+    if (signal?.aborted) throw new Error('Operation aborted');
+
+    const order: Order = {
+      id: `ord_${Date.now()}`,
+      customer: customer.trim(),
+      amountCents,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+
+    this.orders.set(order.id, order);
+    return order;
+  }
+
+  async getOrder(id: string, signal?: AbortSignal): Promise<Order> {
+    if (signal?.aborted) throw new Error('Operation aborted');
+    const order = this.orders.get(id);
+    if (!order) throw new OrderNotFoundError(id);
+    return order;
+  }
+}
+
+// --- Validation Schemas ---
+const CreateOrderSchema = z.object({
+  customer: z.string().trim().min(2, 'Customer name must be at least 2 characters'),
+  amountCents: z.number().int().positive('Amount must be positive'),
+});
+
+// --- Middleware & Controller ---
+const app = express();
+app.use(express.json());
+
+const orderService = new OrderService();
+
+// Context / AbortSignal Propagation Middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const ac = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      ac.abort();
+    }
+  });
+  (req as any).signal = ac.signal;
+  next();
+});
+
+app.post('/v1/orders', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parseResult = CreateOrderSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(422).json({
+        type: 'https://api.example.com/errors/validation',
+        title: 'Unprocessable Entity',
+        status: 422,
+        errors: parseResult.error.flatten().fieldErrors,
+      });
+    }
+
+    const { customer, amountCents } = parseResult.data;
+    const signal = (req as any).signal as AbortSignal;
+    const order = await orderService.createOrder(customer, amountCents, signal);
+
+    res.setHeader('Location', `/v1/orders/${order.id}`);
+    return res.status(201).json(order);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Centralized RFC 9457 Error Middleware
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof DomainError) {
+    return res.status(err.statusCode).json({
+      type: `https://api.example.com/errors/${err.code.toLowerCase()}`,
+      title: err.name,
+      status: err.statusCode,
+      detail: err.message,
+      instance: req.path,
+    });
+  }
+
+  return res.status(500).json({
+    type: 'https://api.example.com/errors/internal',
+    title: 'Internal Server Error',
+    status: 500,
+    detail: 'An unexpected runtime error occurred',
+    instance: req.path,
+  });
+});
+
+app.listen(3000, () => console.log('Node.js API Engine running on port 3000'));
+```
+
+---
+
+### Python: FastAPI Layered Engine with Clean Architecture & Domain Handlers
+
+```python
+import asyncio
+from datetime import datetime, timezone
+from typing import Annotated, Optional
+from fastapi import FastAPI, Request, status, Depends
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
+
+# --- 1. Domain Layer (Pure Python, No FastAPI Dependencies) ---
+
+class DomainException(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 400):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+class OrderNotFoundError(DomainException):
+    def __init__(self, order_id: str):
+        super().__init__("ORDER_NOT_FOUND", f"Order {order_id} does not exist", 404)
+
+class OrderItem(BaseModel):
+    id: str
+    customer: str
+    amount_cents: int
+    status: str
+    created_at: datetime
+
+class OrderService:
+    def __init__(self):
+        self._db: dict[str, OrderItem] = {}
+
+    async def create_order(self, customer: str, amount_cents: int) -> OrderItem:
+        order_id = f"ord_{int(datetime.now().timestamp() * 1000)}"
+        order = OrderItem(
+            id=order_id,
+            customer=customer.strip(),
+            amount_cents=amount_cents,
+            status="PENDING",
+            created_at=datetime.now(timezone.utc),
+        )
+        self._db[order_id] = order
+        return order
+
+    async def get_order(self, order_id: str) -> OrderItem:
+        if order_id not in self._db:
+            raise OrderNotFoundError(order_id)
+        return self._db[order_id]
+
+# --- 2. Schemas & DTOs ---
+
+class CreateOrderRequest(BaseModel):
+    customer: str = Field(..., min_length=2, max_length=100, description="Customer name")
+    amount_cents: int = Field(..., gt=0, description="Order total in integer cents")
+
+    @field_validator("customer")
+    @classmethod
+    def clean_name(cls, v: str) -> str:
+        return v.strip()
+
+class OrderResponse(BaseModel):
+    id: str
+    customer: str
+    amount_cents: int
+    status: str
+    created_at: datetime
+
+# --- 3. FastAPI App & Handlers ---
+
+app = FastAPI(title="Resilient Order Engine", version="1.0.0")
+service_instance = OrderService()
+
+def get_order_service() -> OrderService:
+    return service_instance
+
+@app.exception_handler(DomainException)
+async def domain_exception_handler(request: Request, exc: DomainException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        headers={"Content-Type": "application/problem+json"},
+        content={
+            "type": f"https://api.example.com/errors/{exc.code.lower()}",
+            "title": exc.code,
+            "status": exc.status_code,
+            "detail": exc.message,
+            "instance": request.url.path,
+        },
+    )
+
+@app.post(
+    "/v1/orders",
+    response_model=OrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        422: {"description": "Validation failed"},
+        500: {"description": "Server failure"},
+    },
+)
+async def create_order_endpoint(
+    payload: CreateOrderRequest,
+    service: Annotated[OrderService, Depends(get_order_service)],
+):
+    order = await service.create_order(payload.customer, payload.amount_cents)
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        headers={"Location": f"/v1/orders/{order.id}"},
+        content=order.model_dump(mode="json"),
+    )
+
+@app.get("/v1/orders/{order_id}", response_model=OrderResponse)
+async def get_order_endpoint(
+    order_id: str,
+    service: Annotated[OrderService, Depends(get_order_service)],
+):
+    order = await service.get_order(order_id)
+    return order
+```
+
+---
+
+## 4. Hands-On Verification Matrix
+
+Execute these terminal verification tests to validate API layer invariants, status codes, and RFC 9457 error contracts.
+
+### Step 1: Create Order with Valid DTO
+```bash
+curl.exe -i -X POST http://localhost:8080/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"customer": "Acme Corp", "amount_cents": 4999}'
+```
+**Expected Response:**
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+Location: /v1/orders/ord_1794228912345
+
+{
+  "id": "ord_1794228912345",
+  "customer": "Acme Corp",
+  "amount_cents": 4999,
+  "status": "PENDING"
+}
+```
+
+### Step 2: Negative Amount Semantic Validation Failure
+```bash
+curl.exe -i -X POST http://localhost:8080/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"customer": "Acme Corp", "amount_cents": -500}'
+```
+**Expected Response (RFC 9457 Format):**
+```http
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json
+
+{
+  "type": "https://api.example.com/errors/rfc9457",
+  "title": "Validation Error",
+  "status": 422,
+  "detail": "Invalid order payload",
+  "instance": "/v1/orders"
+}
+```
+
+### Step 3: Verify Idempotent Conditional Revalidation (ETag / 304)
+```bash
+curl.exe -i -X GET http://localhost:8080/v1/orders/ord_1794228912345 \
+  -H 'If-None-Match: "w/etag-ord-12345"'
+```
+**Expected Response:**
+```http
+HTTP/1.1 304 Not Modified
+ETag: "w/etag-ord-12345"
+```
+
+---
+
+## 5. Operational Verification Quizzes
 
 <details>
-<summary>Hint: getting the middleware order right</summary>
+<summary><b>Checkpoint 1: Middleware Chain Ordering Trap</b></summary>
 
-Reason outer→inner: error handling (outermost, catches everything) → logging
-(sees every request including rejected ones) → request ID → rate limiting
-(drops abuse before auth spends CPU) → auth → handler; security headers/
-compression apply on the way out. Remember that with `add_middleware` the
-last-registered is the outermost, and that short-circuit responses (a `429`, a
-`401`) still travel outward through every outer middleware — which is exactly
-why logging and security headers still apply to them.
+**Scenario:** A junior backend engineer places an authentication and JWT verification middleware before the rate limiter in the middleware chain. During a distributed denial-of-service (DDoS) attack involving 100,000 invalid JWT tokens per second, the backend CPU spikes to 100% and crashes. Why?
 
+**Correct Analysis:** Cryptographic signature verification (`RS256` or `Ed25519`) is computationally expensive and requires significant CPU cycles. When rate limiting is placed *inside* or *after* the authentication middleware, the server performs expensive cryptographic decryption on every malicious request before evaluating whether to reject it. Rate limiting must sit *outside* authentication to drop unauthorized volumetric bursts with zero cryptographic CPU expenditure.
 </details>
 
 <details>
-<summary>Hint: keeping services testable</summary>
+<summary><b>Checkpoint 2: Keyset Pagination vs Large OFFSET Invalidation</b></summary>
 
-If your service module imports anything from `fastapi`, a rule leaked into the
-wrong layer. Services take plain arguments (including `user_id`, passed down by
-the handler after it resolves the user via `Depends`) and raise domain
-exceptions. Then a plain-Python test can construct the service with a fake
-repository and assert on behavior with no server, no routing, no HTTP.
+**Scenario:** An API endpoint serves `GET /v1/transactions?offset=500000&limit=50`. Under heavy load, queries take over 8.2 seconds and cause lock contention. Why does replacing `OFFSET` with keyset pagination resolve this issue?
 
+**Correct Analysis:** `OFFSET 500,000` forces the database engine to scan and discard 500,000 index entries before reading the 50 desired rows ($O(N)$ execution cost). Keyset pagination (`WHERE id < :cursor ORDER BY id DESC LIMIT 50`) leverages a direct B-Tree index lookup ($O(\log N)$), jumping straight to the specific record position regardless of how deep into the dataset the client navigates.
 </details>
 
 <details>
-<summary>Hint: making the OpenAPI spec truthful</summary>
+<summary><b>Checkpoint 3: The Danger of Global Request Context</b></summary>
 
-The spec is a mirror of your declarations. Every `response_model`, every
-`status_code`, every `responses={404: ...}`, every `Field(description=,
-examples=)`, and every security utility you attach shows up in `/openapi.json`
-automatically. Define one `ErrorResponse` model for your envelope and `$ref`
-it everywhere via `responses=` so the error shape is documented once in
-`components.schemas`.
+**Scenario:** A developer stores the authenticated `current_user` in a package-level global variable inside an asynchronous Node.js or concurrent Go web server so handlers can access it without passing it down the parameter tree. What severe bug occurs immediately in production?
 
+**Correct Analysis:** Concurrency race conditions. Multiple simultaneous requests executing on the server will overwrite the shared global variable. Request A's user will silently bleed into Request B's processing flow, allowing a low-privilege user to execute administrative orders belonging to another tenant. Request context must always be scoped to the specific execution context (`context.Context` in Go, `AsyncLocalStorage` in Node.js, or Dependency Injection in FastAPI).
 </details>
 
-## Further reading & sources
+---
 
-- [FastAPI — Full Tutorial (User Guide)](https://fastapi.tiangolo.com/tutorial/) - the end-to-end reference covering every building block this capstone integrates.
-- [FastAPI — Bigger Applications](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - structuring a multi-router, versioned app cleanly for a project this size.
-- [Pydantic — Models](https://docs.pydantic.dev/latest/concepts/models/) - the schema and validation foundation for your `*Create`/`*Update`/`*Out` models.
-- [MDN — HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the authoritative status-code reference for verifying your CRUD and REST semantics.
-- [OpenAPI Specification (spec.openapis.org)](https://spec.openapis.org/oas/latest.html) - confirm your auto-generated contract matches the standard.
-- [OWASP API Security Top 10](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) - a checklist of the API risks (broken auth, excessive data exposure, injection) your safeguards defend against.
+## Further Reading & Sources
 
-## Next
+- [FastAPI — Bigger Applications & Layering](https://fastapi.tiangolo.com/tutorial/bigger-applications/)
+- [RFC 9457 — Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html)
+- [Go Context Package Best Practices](https://go.dev/blog/context)
+- [OWASP API Security Top 10](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)
 
-You've finished the API layer. Next is track 03, where every endpoint you
-just learned to build gets a real identity and permission model behind it:
-[../../03-authentication-and-authorization/README.md](../../03-authentication-and-authorization/README.md)
-— sessions, JWTs, OAuth2/OIDC, API keys, MFA, and RBAC, plus the common auth
-security holes to avoid.
+---
+
+## Next Steps
+
+Congratulations! You have completed **Step 2: API Layer & Request Handling**. Next, advance to **Step 3: Authentication and Authorization**:
+[../../03-authentication-and-authorization/00-auth-fundamentals/README.md](../../03-authentication-and-authorization/00-auth-fundamentals/README.md)
+Master password hashing (Argon2id), secure session cookies, JWT validation attacks, OAuth 2.0 / OIDC flows, and fine-grained RBAC/ABAC authorization.

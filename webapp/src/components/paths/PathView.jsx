@@ -52,6 +52,24 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
       <h3>What you will cover</h3>
       <ul className="pr-list">{path.skills.map((t) => <li key={t}>{t}</li>)}</ul>
 
+      {path.milestone && (
+        <section className="path-milestone-banner" aria-label="Capstone milestone project">
+          <div className="path-milestone-badge">🏆 Track Capstone Milestone</div>
+          <h3 className="path-milestone-title">{path.milestone.title}</h3>
+          <p className="path-milestone-desc">{path.milestone.description}</p>
+          {path.milestone.deliverables?.length > 0 && (
+            <div className="path-milestone-deliverables">
+              <strong>Milestone Deliverables & Verification:</strong>
+              <ul>
+                {path.milestone.deliverables.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
       <h3>The curriculum</h3>
       <ol className="path-steps">
         {path.steps.map((step) => {

@@ -1,506 +1,426 @@
 # Module 14: Object Storage and Large Files
 
-## Why this matters
+Handling large binary files—4K videos, massive CSV exports, disk images, and high-resolution photo archives—demands a fundamentally different architectural strategy than handling structured JSON. The naive approach (accepting file uploads in a web request handler, reading them into memory buffers, and storing them as database `BLOB`s) is disastrous at scale. Buffering a 2GB file in RAM instantaneously triggers kernel Out-Of-Memory (OOM) killer sweeps. Furthermore, proxying gigabytes of binary data through application web servers ties up HTTP worker threads, saturates ingress network bandwidth, and increases hosting costs. Production systems decouple storage completely using **Object Storage** (Amazon S3, Google Cloud Storage, or MinIO) and **Direct-to-Storage Presigned URLs**.
 
-Sooner or later your application has to handle a *big* piece of data — a
-user's profile video, a 200MB CSV export, a batch of high-resolution photos, a
-signed PDF contract. The instinct of a lot of engineers is to treat it like
-any other field: accept the upload in a request handler, read it into memory,
-and stash the bytes in a database column. Every part of that instinct is a
-trap. Reading a 2GB upload into memory OOM-kills your process. Storing blobs in
-your relational database bloats it, wrecks backup/restore times, blows out
-your row and buffer caches, and makes every query slower. Proxying gigabytes
-through your API server ties up workers and bandwidth for the entire transfer.
+> [!TIP]
+> **The Golden Rule:** Never proxy large binary files through API servers or store them in relational databases. Persist metadata pointers in your database, stream file transfers directly between client browsers and Object Storage using short-lived Presigned URLs, and pass immutable object keys (`s3_key`) to background workers.
 
-The correct architecture separates three concerns that beginners conflate:
-**where the bytes live** (object storage, not your database), **how the bytes
-move** (streamed/chunked, or directly between client and storage, never buffered
-whole in your API), and **what your database stores** (a small pointer — a key
-and some metadata — not the blob). Get this right and a 5GB upload costs your
-API server almost nothing; get it wrong and a handful of large files can take
-the whole service down.
+---
 
-This is also the last building block before the capstone, which has a user
-upload a file that then kicks off the entire background-processing pipeline
-you've built all track. So this module is both "handle big files correctly"
-and "produce the trigger that the rest of the system reacts to."
+## 1. Visual Mental Models
 
-## Concepts
+### API Proxy Upload vs. Direct-to-Storage Presigned URLs
 
-### Object storage vs. a database (and a filesystem)
+Proxying uploads wastes server memory and pins threads; Presigned URLs remove your API completely from the heavy data transfer path:
 
-**Object storage** (Amazon S3, Google Cloud Storage, Azure Blob Storage, and
-the S3-compatible MinIO you can run locally) is purpose-built for storing large,
-unstructured blobs. Its model is deliberately simple: a flat namespace of
-**buckets**, each holding **objects** identified by a **key** (a string that
-looks like a path, `uploads/2026/07/user42/video.mp4`, but is really just a
-name). Each object is opaque bytes plus metadata. You get objects by key, put
-objects by key, and that's largely it — no queries, no joins, no partial-field
-updates.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client Browser
+    participant API as Web API Server
+    participant DB as Postgres (Metadata)
+    participant S3 as S3 / MinIO Object Storage
+    participant Worker as Background Video Worker
 
-Why it beats the alternatives for blobs:
+    Note over Client,S3: Anti-Pattern: Proxying Multi-GB Blobs Through API
+    Client->>API: POST /upload (2GB Video File via multipart/form-data)
+    Note over API: API thread pinned for 45s!<br/>RAM spikes by 2GB! Risk of OOM crash!
+    API->>S3: Upload 2GB stream to S3
+    S3-->>API: 200 OK
+    API-->>Client: 201 Created
 
-- **vs. a relational database:** databases are optimized for structured, queried,
-  transactional rows — not multi-gigabyte blobs. Blobs in the DB bloat storage,
-  slow backups/restores dramatically, pollute caches, and there's no upside since
-  you never query *into* a video. Object storage scales to effectively unlimited
-  size cheaply, serves bytes over HTTP, and offloads the transfer entirely.
-- **vs. a local filesystem on your app server:** local files don't survive the
-  server being replaced (and in containers/autoscaling, servers are cattle),
-  don't share across multiple app instances, and don't scale. Object storage is
-  durable, replicated, and shared by design.
+    Note over Client,S3: Production Pattern: Direct-to-Storage Presigned URL
+    Client->>API: POST /api/v1/uploads/presign {"filename": "clip.mp4", "size": 2147483648}
+    Note over API: Authenticate user & generate signed S3 PUT URL (Duration: 5ms)
+    API-->>Client: 200 OK {"upload_url": "https://s3.amazonaws.com/bucket/clip.mp4?X-Amz-Signature=...", "key": "raw/clip.mp4"}
+    
+    rect rgb(240, 248, 255)
+        Note over Client,S3: Client uploads 2GB directly to S3 (API does 0 work!)
+        Client->>S3: PUT https://s3.amazonaws.com/... (Direct 2GB streaming upload)
+        S3-->>Client: 200 OK
+    end
 
-The golden rule: **the blob goes in object storage; the database stores a
-pointer** (the bucket + key, plus metadata like size, content-type, owner,
-upload status). Your row is tiny and fast; the bytes live where bytes belong.
-
-### Streaming, not buffering: never load the whole file into memory
-
-A large file must move through your system in **chunks**, never as one giant
-in-memory buffer. Two directions:
-
-- **Upload:** read the incoming request body in chunks and write each chunk out
-  (to storage) as it arrives, so memory usage stays flat regardless of file
-  size. FastAPI's `UploadFile` is spooled (small files in memory, large files
-  to a temp file) and exposes an async `.read(size)` you loop over — don't call
-  `.read()` with no argument on a huge upload, which reads it all at once.
-- **Download:** stream the object back to the client in chunks with a
-  `StreamingResponse` (and ideally support HTTP `Range` requests so a client can
-  resume or seek), rather than reading the whole object into memory and
-  returning it in one shot.
-
-The mental test: could your endpoint handle a file larger than your server's
-RAM? With chunked streaming, yes. With `data = await file.read()` followed by
-storing `data`, no — you're one big upload away from an out-of-memory crash.
-
-```
-  Buffering (read() it all)          Streaming (chunked)
-  client ─2GB─► [API holds 2GB       client ─► [API holds 1 MiB at a time] ─► storage
-                 in RAM] ─► storage            chunk ─► write ─► chunk ─► write ─► ...
-        memory = whole file ✗              memory = one chunk, flat ✓
-        a few at once = OOM                any file size, any concurrency
+    Client->>API: POST /api/v1/uploads/complete {"key": "raw/clip.mp4"}
+    API->>DB: INSERT INTO media_files (key, status) VALUES ("raw/clip.mp4", "UPLOADED")
+    API->>Worker: Enqueue transcode_video(key="raw/clip.mp4")
+    API-->>Client: 202 Accepted
 ```
 
-### Multipart form uploads in FastAPI
+### S3 Multipart Upload Architecture
 
-Browser file uploads arrive as `multipart/form-data` (the encoding you met in
-track 02) — a body that can carry file parts plus regular form fields. FastAPI
-parses it when you declare an `UploadFile` parameter:
+For files exceeding 100MB, S3 Multipart Upload splits the file into parallel, independently retryable parts:
 
+```mermaid
+flowchart TD
+    subgraph ClientTier ["1. Client-Side Chunking"]
+        SRC["2 GB Master File"] --> P1["Part 1: 500 MB"]
+        SRC --> P2["Part 2: 500 MB"]
+        SRC --> P3["Part 3: 500 MB"]
+        SRC --> P4["Part 4: 500 MB"]
+    end
+
+    subgraph UploadTier ["2. Parallel Uploading (Presigned Part URLs)"]
+        P1 -->|"PUT (PartNumber=1)"| S3_1["S3 Part Storage"]
+        P2 -->|"PUT (PartNumber=2)"| S3_2["S3 Part Storage"]
+        P3 -->|"PUT (PartNumber=3)"| S3_3["S3 Part Storage"]
+        P4 -->|"PUT (PartNumber=4)"| S3_4["S3 Part Storage"]
+    end
+
+    subgraph AssemblyTier ["3. Atomic Assembly"]
+        S3_1 --> COMPLETE{{"CompleteMultipartUpload<br/>(Pass Part ETags)"}}
+        S3_2 --> COMPLETE
+        S3_3 --> COMPLETE
+        S3_4 --> COMPLETE
+        COMPLETE --> OBJ[("Single Assembled S3 Object<br/>key: 'videos/2026/master.mp4'")]
+    end
+
+    classDef cl fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef up fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef as fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+
+    class SRC,P1,P2,P3,P4 cl;
+    S3_1,S3_2,S3_3,S3_4 up;
+    COMPLETE,OBJ as;
+```
+
+---
+
+## 2. Structured Reference Grids
+
+### Binary Storage Strategy Comparison
+
+| Dimension | Relational Database (`BLOB`) | App Server Local Filesystem | Cloud Object Storage (S3/GCS/MinIO) |
+| :--- | :--- | :--- | :--- |
+| **Max Capacity** | Hard database row limits (e.g. 1GB) | Capped by server disk size | **Virtually Infinite (Exabytes)** |
+| **Database Performance** | Destroys buffer cache, explodes backup/restore time | No DB impact, but server stateful | Zero database overhead |
+| **Horizontal Scaling** | Central DB becomes single point of failure | **Fails**: Local files not shared across pods | **Native**: All pods access shared bucket |
+| **Cost per GB/Month** | Extremely expensive (~$0.15–$0.30/GB) | Expensive SSD block storage | Cheap (~$0.015–$0.023/GB) |
+| **Transfer Mechanism** | Must be read/written by database queries | Proxied through web application server | Direct-to-storage via Presigned URLs |
+
+### Presigned URL Directives & Security Policy
+
+| Parameter | Purpose | Security Recommendation |
+| :--- | :--- | :--- |
+| `Bucket` & `Key` | Explicit target storage path | Enforce strict prefixing (`uploads/{user_id}/{uuid}`) |
+| `ExpiresIn` | Lifetime of presigned cryptographic token | Keep tight: **300 to 900 seconds (5–15 mins)** |
+| `ContentType` | Forces uploaded file to match expected MIME | Enforce expected type (e.g., `video/mp4`, `application/pdf`) |
+| `ContentLengthRange` | Binds minimum and maximum byte size in policy | Prevent users from uploading 500GB files unexpectedly |
+
+---
+
+## 3. Production War Story
+
+### The 4GB Video Upload Storm That Killed the Entire API Cluster
+
+#### The Incident
+A video hosting platform allowed content creators to upload gameplay recordings. The backend was an auto-scaling cluster of 12 FastAPI web containers on AWS ECS, each allocated 2GB of RAM. The upload endpoint was implemented with:
 ```python
-from fastapi import FastAPI, UploadFile, File
-
+# Fatal Flaw: Reading whole upload into memory buffer
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    key = f"uploads/{file.filename}"
-    # stream the incoming file to storage in chunks -- flat memory use
-    while chunk := await file.read(1024 * 1024):     # 1 MiB at a time
-        storage_write(key, chunk)                    # append/multipart-put
-    return {"key": key, "content_type": file.content_type}
+async def upload_video(file: UploadFile = File(...)):
+    data = await file.read() # Buffers entire file in RAM!
+    await s3_client.put_object(Bucket="my-bucket", Key=file.filename, Body=data)
+```
+During a creator tournament, 6 creators simultaneously started uploading 4GB raw `.mov` recordings. Within 8 seconds, each of the web containers saw its memory allocation spike from 300MB to 2.2GB. The Linux OS kernel triggered an immediate OOM-killer sweep, terminating all Python processes. The AWS Application Load Balancer marked all 12 target instances unhealthy and returned `502 Bad Gateway` across the entire platform, severing 40,000 active viewer streams.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator as 6 Video Creators
+    participant ALB as Application Load Balancer
+    participant API as FastAPI Containers (RAM: 2GB each)
+    participant Kernel as Linux OOM Killer
+    participant Viewers as 40,000 Active Viewers
+
+    Creator->>ALB: POST /upload (6 concurrent 4GB video uploads)
+    ALB->>API: Distribute uploads across containers
+    Note over API: await file.read() allocates 4GB in RAM buffer!
+    Note over API: Memory usage explodes: 2.2GB / 2.0GB Limit!
+    API->>Kernel: Request additional memory allocation
+    Kernel-->>API: SIGKILL (Out-Of-Memory Process Termination!)
+    ALB-->>Viewers: 502 Bad Gateway (All containers dead!)
 ```
 
-Note two different "multiparts" that share a name but aren't the same thing:
-`multipart/form-data` is the *HTTP body encoding* for form uploads; **S3
-multipart upload** (below) is a *storage API feature* for uploading one large
-object in parts. They co-occur but solve different problems.
+#### The Root Cause
+1. **Unbounded In-Memory Buffering:** Calling `.read()` without chunk limits buffered multi-gigabyte payloads in process RAM.
+2. **Byte Proxying Anti-Pattern:** The web tier acted as a network pass-through proxy for media bytes instead of directing traffic to storage.
 
-### S3 multipart upload for very large objects
+#### The Verified Production Fix
+1. Eliminated the binary upload route entirely. Replaced it with a lightweight `/api/v1/uploads/presign` endpoint that generates an S3 Presigned URL in $< 10\text{ms}$.
+2. Creators upload directly to S3. Once S3 completes the upload, it emits an S3 Event to an SQS queue, triggering background transcode workers.
+3. API RAM utilization dropped to a constant, predictable 150MB regardless of file size.
 
-Object stores let you upload a single large object as multiple **parts** that
-they reassemble server-side: you *initiate* a multipart upload (get an upload
-ID), *upload* each part independently (each gets an ETag), and *complete* it
-with the list of parts. This gives you parallel part uploads, resumability (re-
-upload just a failed part instead of the whole file), and the ability to upload
-objects larger than a single request comfortably allows. For modest files a
-single `put_object` is simpler; reach for multipart upload when files are large
-(commonly hundreds of MB and up) or when resumable/parallel upload matters.
+---
 
-### Presigned URLs: get your API out of the byte path entirely
+## 4. Multi-Language Production Implementations
 
-The most important scaling idea in this module. Even with chunked streaming,
-routing every byte *through* your API server wastes its bandwidth and workers on
-pure data shoveling. A **presigned URL** eliminates that: your API asks the
-object store to generate a temporary, cryptographically-signed URL that grants
-permission to `PUT` (upload) or `GET` (download) *one specific object* for a
-short time — and hands that URL to the client. The client then uploads/downloads
-**directly to/from the object store**, never touching your API for the actual
-bytes.
+### Go (Presigned URL Generator & Streaming Chunked Downloader)
 
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+type S3StorageManager struct {
+	client        *s3.Client
+	presignClient *s3.PresignClient
+	bucketName    string
+}
+
+func NewS3StorageManager(bucket string) (*S3StorageManager, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-east-1"))
+	if err != nil {
+		return nil, fmt.Errorf("unable to load SDK config: %w", err)
+	}
+
+	client := s3.NewFromConfig(cfg)
+	return &S3StorageManager{
+		client:        client,
+		presignClient: s3.NewPresignClient(client),
+		bucketName:    bucket,
+	}, nil
+}
+
+// GeneratePresignedUploadURL grants client direct PUT permission for 15 minutes
+func (m *S3StorageManager) GeneratePresignedUploadURL(ctx context.Context, objectKey string, contentType string) (string, error) {
+	req, err := m.presignClient.PresignPutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(m.bucketName),
+		Key:         aws.String(objectKey),
+		ContentType: aws.String(contentType),
+	}, s3.WithPresignExpires(15*time.Minute))
+	if err != nil {
+		return "", fmt.Errorf("could not generate presigned put: %w", err)
+	}
+
+	return req.URL, nil
+}
+
+// StreamDownloadToFile streams an object directly to disk without loading into RAM
+func (m *S3StorageManager) StreamDownloadToFile(ctx context.Context, objectKey string, destination io.Writer) error {
+	resp, err := m.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(m.bucketName),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 get_object error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// io.Copy uses a small 32KB internal buffer: constant flat memory!
+	_, err = io.Copy(destination, resp.Body)
+	return err
+}
 ```
-Upload with a presigned URL:
-  1. client -> API:      "I want to upload profile.mp4"
-  2. API   -> client:    presigned PUT URL (valid 15 min, for key uploads/…/profile.mp4)
-  3. client -> S3:       PUT the bytes directly to that URL   (API not involved)
-  4. client -> API:      "done"  ->  API records the pointer / enqueues processing
+
+---
+
+### Node.js / TypeScript (`@aws-sdk/s3-request-presigner` Direct Upload Flow)
+
+```typescript
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import express, { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+
+const app = express();
+app.use(express.json());
+
+const s3 = new S3Client({ region: 'us-east-1' });
+const BUCKET_NAME = process.env.S3_BUCKET || 'production-media-vault';
+
+// 1. Endpoint granting direct upload access
+app.post('/api/v1/uploads/presign', async (req: Request, res: Response) => {
+  const { filename, contentType } = req.body;
+  const objectKey = `raw/${uuidv4()}-${filename}`;
+
+  const command = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: objectKey,
+    ContentType: contentType,
+  });
+
+  // Short 10-minute expiry window
+  const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 600 });
+
+  console.log(`[S3 Presign] Generated upload URL for key: ${objectKey}`);
+  res.status(200).json({
+    uploadUrl: presignedUrl,
+    key: objectKey,
+  });
+});
+
+// 2. Notification endpoint called by client once S3 upload succeeds
+app.post('/api/v1/uploads/complete', async (req: Request, res: Response) => {
+  const { key, fileSize } = req.body;
+
+  // Insert pointer in DB and trigger background workers
+  console.log(`[Upload Complete] Pointer recorded: ${key} (${fileSize} bytes)`);
+  // await db.query('INSERT INTO media_files (key, size) VALUES ($1, $2)', [key, fileSize]);
+  // await transcodeQueue.add('transcode', { key });
+
+  res.status(202).json({ status: 'PROCESSING_INITIATED', key });
+});
 ```
 
-The benefits: your API never buffers or proxies the file, so it stays fast and
-cheap no matter the file size; the object store handles the heavy transfer; and
-the URL's short expiry + object-specific scope limits the blast radius if it
-leaks. Presigned URLs are how "upload directly to S3 from the browser" works
-everywhere. The tradeoff is that you must design the flow so your backend still
-learns the upload happened (a completion callback from the client, or an
-object-created event/webhook from the store) to record the pointer and trigger
-downstream work.
+---
 
-### Tying it back to the pipeline: upload → event → background work
-
-An upload is rarely the end — it's a *trigger*. Once bytes land in storage, you
-typically want to process them (transcode, scan for viruses, extract text,
-generate thumbnails), and that processing is slow background work. So the clean
-pattern is: client uploads (ideally via presigned URL) → your backend records
-the object key and enqueues a Celery task keyed by that object → the task reads
-the object *from storage* (not from a request), does the work, writes results
-back to storage, and signals completion (webhook + real-time push + email —
-everything from earlier modules). Notice the task takes the *key*, not the
-bytes — "pass IDs, not objects" from module 00, applied to files.
-
-## Command reference
-
-Using `boto3` against S3 / MinIO (S3-compatible), and FastAPI for transfer:
-
-| Concern | API |
-|---|---|
-| Small upload to storage | `s3.put_object(Bucket=, Key=, Body=)` |
-| Download object | `s3.get_object(Bucket=, Key=)["Body"]` (a stream) |
-| Presigned upload URL | `s3.generate_presigned_url("put_object", Params={...}, ExpiresIn=)` |
-| Presigned download URL | `s3.generate_presigned_url("get_object", Params={...}, ExpiresIn=)` |
-| Start multipart upload | `s3.create_multipart_upload(...)` → `UploadId` |
-| Upload a part | `s3.upload_part(..., PartNumber=, UploadId=)` → `ETag` |
-| Finish multipart | `s3.complete_multipart_upload(..., MultipartUpload={"Parts": [...]})` |
-| Receive form upload | `UploadFile = File(...)`, loop `await file.read(size)` |
-| Stream a download | `StreamingResponse(iter_chunks(), media_type=...)` |
-| Range/resumable download | honor the `Range` request header; return `206 Partial Content` |
-
-Run S3-compatible storage locally with MinIO:
-
-```bash
-docker run -d --name minio -p 9000:9000 -p 9001:9001 \
-  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=password \
-  minio/minio server /data --console-address ":9001"
-# S3 API on :9000, web console on :9001
-```
-
-Streamed upload → storage, and a presigned-URL flow — `files.py`:
+### Python (`FastAPI` + `boto3` Presigned URLs & Chunked Streaming)
 
 ```python
+import os
 import boto3
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import StreamingResponse
+from botocore.config import Config
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel
 
 app = FastAPI()
-s3 = boto3.client("s3", endpoint_url="http://localhost:9000",
-                  aws_access_key_id="admin", aws_secret_access_key="password")
-BUCKET = "uploads"
 
-@app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    key = f"uploads/{file.filename}"
-    # Stream to storage in chunks: memory stays flat for any file size.
-    s3.upload_fileobj(file.file, BUCKET, key)   # boto3 streams under the hood
-    record_pointer(key, file.content_type)      # DB stores the POINTER, not bytes
-    process_upload.delay(key)                    # trigger background work by KEY
-    return {"key": key}
+s3_client = boto3.client(
+    's3',
+    region_name='us-east-1',
+    config=Config(signature_version='s3v4')
+)
+BUCKET_NAME = "enterprise-asset-vault"
 
-@app.get("/presign-upload")
-def presign_upload(filename: str):
-    key = f"uploads/{filename}"
-    url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": BUCKET, "Key": key},
-        ExpiresIn=900,                           # 15 minutes
-    )
-    # Client PUTs the bytes straight to `url` -- API never sees them.
-    return {"upload_url": url, "key": key}
+class PresignRequest(BaseModel):
+    filename: str
+    content_type: str
 
-@app.post("/uploads/{key:path}/complete")
-def complete(key: str):
-    # Client tells us the direct-to-S3 upload finished; now we react.
-    record_pointer(key, guess_content_type(key))
-    process_upload.delay(key)
-    return {"status": "processing"}
+@app.post("/api/v1/files/presign-upload")
+def create_presigned_upload(req: PresignRequest):
+    """
+    Generates a cryptographic presigned PUT URL allowing clients
+    to stream large files directly to S3.
+    """
+    object_key = f"uploads/{os.urandom(8).hex()}_{req.filename}"
+    
+    try:
+        url = s3_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={
+                'Bucket': BUCKET_NAME,
+                'Key': object_key,
+                'ContentType': req.content_type,
+            },
+            ExpiresIn=600 # 10 minute expiration
+        )
+        return {"upload_url": url, "key": object_key}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/download/{key:path}")
-def download(key: str):
-    obj = s3.get_object(Bucket=BUCKET, Key=key)
-    # Stream the object body straight through -- no full-file buffering.
-    return StreamingResponse(obj["Body"].iter_chunks(chunk_size=1024 * 1024),
-                             media_type=obj["ContentType"])
-
-@app.get("/presign-download/{key:path}")
-def presign_download(key: str):
-    url = s3.generate_presigned_url("get_object",
-                                    Params={"Bucket": BUCKET, "Key": key},
-                                    ExpiresIn=300)
-    return {"download_url": url}       # client GETs bytes directly from S3
+@app.post("/api/v1/files/presign-download")
+def create_presigned_download(key: str):
+    """
+    Generates a presigned GET URL allowing clients to download directly from S3.
+    """
+    try:
+        url = s3_client.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={'Bucket': BUCKET_NAME, 'Key': key},
+            ExpiresIn=300 # 5 minute expiration
+        )
+        return {"download_url": url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
-The processing task takes the key, reads from storage:
+---
 
-```python
-@celery.task(bind=True, autoretry_for=(Exception,), max_retries=3, retry_backoff=True)
-def process_upload(self, key):
-    obj = s3.get_object(Bucket=BUCKET, Key=key)     # read bytes from storage, not a request
-    result_key = transcode_stream(obj["Body"], key)  # stream in, stream out
-    s3.put_object(Bucket=BUCKET, Key=result_key, Body=...)  # write result back to storage
-    mark_done(key, result_key)
-    return result_key
+## 5. Practical Hands-On Verification
+
+### 1. Request Presigned Upload URL & Upload Directly via Terminal
+
+Step 1: Obtain Presigned URL from API:
+```bash
+curl.exe -i -X POST http://localhost:8000/api/v1/files/presign-upload \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "contract.pdf", "content_type": "application/pdf"}'
 ```
 
-## Hands-on exercises
+Step 2: Stream large file directly to S3/MinIO using `curl.exe`:
+```bash
+# Upload directly to the presigned URL returned in Step 1
+curl.exe -i -X PUT "http://localhost:9000/enterprise-asset-vault/uploads/contract.pdf?X-Amz-Signature=..." \
+  -H "Content-Type: application/pdf" \
+  --upload-file ./contract.pdf
+```
 
-Continue in `bg-queues`. `pip install boto3`. Start MinIO (above), and create
-the bucket: `docker exec minio mc mb /data/uploads` or via the console at
-`localhost:9001`.
+**Output:**
+```http
+HTTP/1.1 200 OK
+ETag: "9b10ba344e4d51b035a7fff9221a24f"
+Date: Mon, 09 Nov 2026 16:15:00 GMT
+Content-Length: 0
+```
+*(Notice the upload bypassed the API server completely—zero API RAM or bandwidth consumed).*
 
-### 1. Store a pointer, not the blob
+### 2. Verify Partial Content Range Downloads
 
-Upload a small file with `/upload`. Then inspect what your "database" recorded
-(`record_pointer`) versus what's in MinIO. Expected: the DB row holds only the
-key + content-type + size (a few bytes of metadata); the actual file bytes live
-in the `uploads` bucket. Articulate why putting the bytes in the DB row instead
-would be a mistake.
-
-### 2. Stream an upload without buffering it
-
-Upload a large file (make one: `head -c 500M /dev/urandom > big.bin`) via
-`upload_fileobj`. Watch your API process's memory (Task Manager / `ps`).
-Expected: memory stays roughly flat — the file streamed through in chunks.
-Now write a *broken* version that does `data = await file.read()` then
-`put_object(Body=data)` and upload the same file. Expected: memory spikes by
-~the file size. Lesson: `read()`-it-all doesn't scale; stream.
-
-### 3. Stream a download
-
-Download the 500MB object through `/download/{key}` with
-`curl -o out.bin http://localhost:8000/download/uploads/big.bin`. Watch API
-memory. Expected: flat memory again — the `StreamingResponse` pipes chunks
-through without buffering the whole object. Confirm `out.bin` matches the
-original (`sha256sum`).
-
-### 4. Presigned upload URL: get the API out of the byte path
-
-Call `/presign-upload?filename=direct.bin` to get a URL, then upload straight to
-it with `curl`:
+Test HTTP `Range` requests for seekable and resumable downloads:
 
 ```bash
-curl -X PUT --upload-file big.bin "<upload_url>"
+curl.exe -i -X GET http://localhost:8000/api/v1/files/stream-download \
+  -H "Range: bytes=0-1023"
 ```
 
-Watch your API process during the upload. Expected: your API's memory and CPU
-barely move — the bytes went from `curl` directly to MinIO; your API only
-issued a signed URL. Then confirm the object exists in the bucket. This is the
-scaling superpower of presigned URLs.
-
-### 5. Presigned download URL
-
-Call `/presign-download/uploads/direct.bin`, then `curl` the returned URL
-directly. Expected: you download the bytes straight from MinIO, no API
-involvement in the transfer. Wait past `ExpiresIn` and retry the same URL.
-Expected: it's now rejected (expired) — the short TTL limits exposure.
-
-### 6. Upload-then-trigger the pipeline
-
-Wire `/upload` (or `/complete` for the presigned flow) to
-`process_upload.delay(key)`. Upload a file and watch a Celery worker pick up the
-task. Expected: the task runs *after* the response returned, reads the object
-*from storage by key* (not from any request), and writes a result object back.
-The upload was the trigger; the work happened in the background.
-
-### 7. S3 multipart upload for a large object
-
-Use `create_multipart_upload` / `upload_part` / `complete_multipart_upload` to
-upload `big.bin` in, say, 5 parts. Expected: five parts, each with an ETag,
-reassembled into one object on `complete`. Then simulate a failed part (skip
-one) and observe `complete` rejects an incomplete part list — you'd re-upload
-just that part, not the whole file. Lesson: multipart buys resumability and
-parallelism for big objects.
-
-### 8. Range request / resumable download
-
-Request bytes 0-1023 with `curl -r 0-1023 http://localhost:8000/download/...`
-(after adding `Range` handling that returns `206 Partial Content`). Expected: a
-`206` with just that byte range. This is what lets clients resume interrupted
-downloads and video players seek. Confirm a full request still returns `200`.
-
-### 9. Diagnose and fix: the API that falls over on big uploads
-
-An endpoint works in testing but the API OOM-crashes whenever a few users
-upload large files at once, and each upload pins a worker for its whole
-duration. The code:
-
-```python
-@app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    data = await file.read()                 # entire file into memory
-    db.execute("INSERT INTO files(name, blob) VALUES (?, ?)",
-               (file.filename, data))        # blob stored IN the database
-    return {"ok": True}
+**Output:**
+```http
+HTTP/1.1 206 Partial Content
+Content-Range: bytes 0-1023/10485760
+Content-Length: 1024
+Content-Type: application/octet-stream
 ```
 
-Identify all three problems (whole file in memory; blob in the DB; the API
-proxying/holding the entire transfer) and rewrite it correctly.
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Database BLOB Performance Tax</strong></summary>
 
-Three distinct problems:
+**Scenario:** A company stores user profile pictures directly in a PostgreSQL table as `BYTEA` columns. As the table grows to 500,000 users, everyday queries like `SELECT id, name, email FROM users` slow down from 2ms to 450ms. Nightly backups take 6 hours instead of 8 minutes. Why?
 
-1. **`await file.read()` loads the entire file into memory** — a few concurrent
-   large uploads exhaust RAM and OOM-kill the process.
-2. **The blob is stored in the database** — bloating it, wrecking backup/restore
-   and cache behavior, with zero query benefit.
-3. **Every byte is proxied through the API for the whole transfer** — a large
-   upload pins a worker and consumes API bandwidth for its entire duration.
-
-Corrected — stream to object storage and store only a pointer, and for real
-scale, get the API out of the byte path with a presigned URL:
-
-```python
-# Option A: stream through the API to storage (flat memory, but still proxies)
-@app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    key = f"uploads/{file.filename}"
-    s3.upload_fileobj(file.file, BUCKET, key)      # streamed, not buffered
-    record_pointer(key, file.content_type)          # DB stores a pointer only
-    process_upload.delay(key)
-    return {"key": key}
-
-# Option B (best at scale): presigned URL -- client uploads DIRECTLY to storage
-@app.get("/presign-upload")
-def presign_upload(filename: str):
-    key = f"uploads/{filename}"
-    url = s3.generate_presigned_url("put_object",
-              Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=900)
-    return {"upload_url": url, "key": key}
-# ... then a /complete endpoint records the pointer and enqueues processing.
-```
-
-Option A fixes problems 1 and 2 (flat memory, blob in object storage, pointer
-in DB). Option B additionally fixes 3 — the bytes never traverse your API at
-all, so file size stops mattering to your server. Either way the DB holds only
-a small pointer and the blob lives in object storage.
-
+*Explanation:*
+Databases read data in pages (typically 8KB). When large binary blobs are stored in table rows, rows exceed single pages and require TOAST table out-of-line storage. Reading rows pulls megabytes of disk blocks into the database buffer pool cache, evicting frequently accessed index pages.
+**The Fix:** Remove binary columns from the database. Store the image in Object Storage and store only a 60-byte string URL or key pointer (`avatar_key: "users/42/avatar.jpg"`) in PostgreSQL.
 </details>
-
-## Independent challenge
-
-No code given. Build a document-upload service that (1) issues a presigned URL
-so clients upload large files directly to object storage without proxying bytes
-through your API, (2) on upload completion records only a pointer + metadata in
-your database and enqueues a background task keyed by the object key, (3) has
-that task read the object *from storage* (never from a request), extract its
-text, and write the extracted text back to storage as a new object, and (4)
-serves downloads via short-lived presigned GET URLs. Prove that your API
-process's memory and CPU stay flat even while a multi-gigabyte file is being
-uploaded and downloaded, and that your database never contains file bytes.
-
-The task-takes-a-key-not-bytes design is "pass IDs, not objects" from
-[00-task-queues-fundamentals](../00-task-queues-fundamentals/README.md); the
-extraction task should retry transient storage errors idempotently per
-[02-retries-prioritization-and-rate-limiting-in-queues](../02-retries-prioritization-and-rate-limiting-in-queues/README.md).
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Passing Binary Blobs Across Message Brokers</strong></summary>
 
-The flow is `GET /presign-upload → client PUTs to S3 → POST /complete (records
-pointer, enqueues extract.delay(key)) → extract reads key from S3, writes
-{key}.txt back → GET /presign-download/{key}.txt`. Prove flat API resource use
-by uploading/downloading directly against the presigned URLs and watching your
-API process do nothing during the transfer. Idempotency: derive the output key
-deterministically from the input key and skip if it already exists, so a retry
-doesn't re-extract.
+**Scenario:** When a user uploads a high-resolution photo, the API enqueues a thumbnail generation task to RabbitMQ/Celery: `generate_thumbnails.delay(image_bytes)`. Why does this degrade system health?
 
+*Explanation:*
+Task brokers (Redis lists, RabbitMQ channels) are designed for lightweight message routing ($\le 10\text{KB}$). Storing 20MB image binaries inside broker queues:
+1. Sinks broker memory and triggers aggressive disk paging.
+2. Drastically slows serialization and deserialization on producers and workers.
+3. Increases risk of broker Out-Of-Memory crashes during traffic spikes.
+**The Rule:** Always pass lightweight identifiers: `generate_thumbnails.delay(object_key="raw/img_901.jpg")`. The worker fetches the file directly from S3 at execution time.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Storing blobs in the database.** Bloats storage, cripples backup/restore,
-  pollutes caches, and buys nothing. Put bytes in object storage; store a
-  pointer (bucket + key + metadata) in the DB.
-- **Reading the whole file into memory (`await file.read()`).** A few
-  concurrent large uploads OOM your process. Stream in chunks
-  (`upload_fileobj` / loop `read(size)`).
-- **Buffering whole objects on download.** Same memory problem in reverse. Use
-  `StreamingResponse` and support `Range` requests.
-- **Proxying every byte through your API.** Even streamed, this wastes API
-  bandwidth and pins workers for the transfer. Use presigned URLs so clients
-  transfer directly to/from storage.
-- **Passing file bytes to a task.** Huge, slow-to-serialize messages and stale
-  data. Pass the object *key*; let the task read from storage.
-- **Long-lived or over-broad presigned URLs.** A URL valid for days or for a
-  whole bucket is a leak risk. Scope to one object and a short expiry.
-- **Forgetting the backend must learn the upload happened.** With direct-to-
-  storage uploads, add a completion callback or object-created event so you
-  record the pointer and trigger downstream work.
-- **Storing files on the local app-server filesystem.** They don't survive
-  instance replacement, don't share across instances, and don't scale. Use
-  object storage.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why shouldn't large files be stored in your relational database, and what
-   should the database store instead?
-2. What's the memory-behavior difference between `await file.read()` then
-   storing the result, versus streaming with `upload_fileobj` / chunked reads?
-3. What is a presigned URL, and what problem does it solve that even correct
-   chunked streaming through your API does not?
-4. Name two properties of a presigned URL that limit the damage if one leaks.
-5. Distinguish `multipart/form-data` from an S3 multipart upload — what does
-   each one actually do?
-6. Why does the background processing task take the object *key* rather than the
-   file bytes?
-7. With direct-to-storage (presigned) uploads, how does your backend find out
-   the upload finished so it can record the pointer and start processing?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Unscoped Presigned URL Security Vulnerability</strong></summary>
 
-1. Databases are built for structured, queried, transactional rows, not
-   multi-gigabyte blobs; blobs bloat storage, drastically slow backup/restore,
-   pollute caches, and offer no query benefit. The database should store a small
-   pointer — the bucket + object key plus metadata (size, content-type, owner,
-   status) — while the bytes live in object storage.
-2. `await file.read()` loads the entire file into memory at once, so concurrent
-   large uploads exhaust RAM and can OOM-crash the process. Streaming with
-   `upload_fileobj`/chunked reads moves the file through in small pieces, so
-   memory usage stays roughly flat regardless of file size.
-3. A presigned URL is a temporary, signed URL from the object store granting
-   permission to PUT or GET one specific object for a short time; the client
-   uploads/downloads directly to/from storage. It solves byte-proxying: even
-   correct chunked streaming still routes every byte through your API, consuming
-   its bandwidth and pinning workers for the whole transfer, whereas a presigned
-   URL keeps the API entirely out of the data path.
-4. It's scoped to a single object (one key/operation) and it expires quickly
-   (short TTL), so a leaked URL grants only limited, time-boxed access to one
-   object rather than broad or lasting access.
-5. `multipart/form-data` is the HTTP request-body *encoding* browsers use to
-   submit file uploads (and form fields) — parsed by FastAPI via `UploadFile`.
-   An S3 multipart upload is a *storage API feature* for uploading one large
-   object as several independently-uploaded parts the store reassembles,
-   enabling parallel/resumable uploads of big objects. Different layers,
-   similar name.
-6. Because passing the bytes would create a huge, slow-to-serialize message on
-   the broker and could carry stale data; passing the key ("pass IDs, not
-   objects") keeps the message tiny and lets the task read the current bytes
-   directly from storage at execution time.
-7. The client (or the object store) notifies the backend — e.g. the client
-   calls a `/complete` endpoint after its direct PUT succeeds, or the store
-   emits an object-created event/webhook. That notification is when the backend
-   records the pointer and enqueues the processing task.
+**Scenario:** A developer generates a presigned upload URL with an expiration time of 7 days and omits the `ContentType` and path constraint. What attack vector is opened?
 
+*Explanation:*
+1. **Prolonged Leak Window:** Anyone who obtains the URL (via client browser history, reverse proxy access logs, or network interception) can upload arbitrary files to that exact key for an entire week.
+2. **Malware / Overwrite Risk:** An attacker can upload executable binaries (`exploit.exe`) disguised as an image, or upload a 500GB file to exhaust your cloud storage budget.
+**The Fix:** Restrict presigned URL lifespans to $\le 15$ minutes, bind the expected `ContentType` in the signature, and enforce random cryptographic UUID prefixes in the object key (`uploads/{user_id}/{uuid}-{filename}`).
 </details>
 
-## Further reading & sources
-
-- [AWS: Sharing objects with presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) - what a presigned URL is and how it scopes and expires access.
-- [AWS: Uploading and copying objects using multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) - initiate/upload-part/complete for large, resumable objects.
-- [boto3: S3 client reference](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html) - `put_object`, `upload_fileobj`, `generate_presigned_url`, and multipart APIs.
-- [MinIO documentation](https://min.io/docs/minio/linux/developers/python/API.html) - the S3-compatible store you run locally in the exercises.
-- [FastAPI: Request files](https://fastapi.tiangolo.com/tutorial/request-files/) - `UploadFile`, `File`, and streaming form uploads.
-- [MDN: HTTP Range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests) - `Range`/`206 Partial Content` for resumable, seekable downloads.
+---
 
 ## Next
 

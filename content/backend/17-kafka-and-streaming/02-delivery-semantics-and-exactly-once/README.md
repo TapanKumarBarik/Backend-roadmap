@@ -1,488 +1,460 @@
 # Module 02: Delivery Semantics and Exactly-Once
 
-## Why this matters
+> **The Golden Rule of Kafka Delivery Semantics**
+> Kafka transactions guarantee Exactly-Once Semantics (EOS) strictly within the Kafka-to-Kafka boundary (consume $\to$ transform $\to$ produce $\to$ commit offset). They do NOT roll back external database writes, credit card charges, or third-party webhooks. For external side effects, the correct production architecture is at-least-once delivery paired with an idempotent consumer backed by a unique database constraint (`ON CONFLICT DO NOTHING`). Always set `isolation.level = read_committed` on downstream consumers to prevent reading uncommitted or aborted batches.
 
-"Exactly-once" is the most misunderstood phrase in streaming. It's often
-dismissed as impossible (true, for *delivery* over an unreliable network) and
-just as often assumed to be a checkbox (false). Kafka does provide genuine
-exactly-once **processing** — but only within a specific boundary, and only
-if you use the right API. Outside that boundary, the honest answer is
-at-least-once plus idempotent handlers, and knowing which situation you're in
-is the actual skill.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Consumer as Transactional Consumer
+    participant TxCoord as Transaction Coordinator (Broker)
+    participant TopicOut as Output Topic (Partition Leader)
+    participant OffsetsTopic as __consumer_offsets Partition
+    participant Downstream as Downstream Consumer (read_committed)
 
-Getting this wrong is expensive in a way that's specific to money: a payment
-consumer that reprocesses a batch after a rebalance charges customers twice.
-
-## Concepts
-
-### The three semantics, and where they come from
-
-| Semantic | Mechanism | Failure result |
-|---|---|---|
-| At-most-once | Commit offset *before* processing | Records lost on crash |
-| At-least-once | Commit offset *after* processing | Records reprocessed on crash |
-| Exactly-once | Offset commit and output in one transaction | Neither |
-
-The first two are decided by one line of ordering:
-
-```python
-# AT-MOST-ONCE — do not do this unless loss is genuinely acceptable
-msg = consumer.poll(1.0)
-consumer.commit(msg)          # committed first
-process(msg)                  # crash here -> record never processed, never retried
-
-# AT-LEAST-ONCE — the correct default
-msg = consumer.poll(1.0)
-process(msg)                  # crash here -> record redelivered to the next owner
-consumer.commit(msg)          # committed only after success
+    Consumer->>TxCoord: AddPartitionsToTxnRequest(TopicOut-0)
+    Consumer->>TopicOut: Produce transformed records (Tx Marker: OPEN)
+    Note over Downstream: Downstream is blocked at Last Stable Offset (LSO)! Cannot read open txn!
+    Consumer->>TxCoord: AddOffsetsToTxnRequest(group_id="payments")
+    Consumer->>OffsetsTopic: Produce Consumer Group Offsets inside Txn
+    Consumer->>TxCoord: EndTxnRequest(commit=True)
+    TxCoord->>TopicOut: Write COMMIT marker
+    TxCoord->>OffsetsTopic: Write COMMIT marker
+    TxCoord-->>Consumer: Transaction Committed Successfully!
+    Note over Downstream: LSO advances! Downstream reads committed records cleanly.
 ```
 
-### Auto-commit is neither, reliably
+---
 
-```python
-{"enable.auto.commit": True, "auto.commit.interval.ms": 5000}
+## 1. The Three Delivery Semantics
+
+In distributed stream processing, the delivery semantic is determined entirely by the sequence in which processing and offset commits occur:
+
+```mermaid
+flowchart TD
+    subgraph AtMostOnce["At-Most-Once (Commit BEFORE Process)"]
+        A1["poll() returns message"] --> A2["commitSync()"]
+        A2 --> A3["processMessage()"]
+        A3 -. Crash mid-processing .-> A4["CRITICAL LOSS: Offset already moved forward!<br/>Message is lost forever."]
+    end
+
+    subgraph AtLeastOnce["At-Least-Once (Commit AFTER Process)"]
+        B1["poll() returns message"] --> B2["processMessage()"]
+        B2 --> B3["commitSync()"]
+        B2 -. Crash mid-processing .-> B4["DUPLICATE RISK: Next worker re-reads message.<br/>Requires idempotent handler!"]
+    end
+
+    subgraph ExactlyOnce["Exactly-Once Semantics (Transactional EOS)"]
+        C1["begin_transaction()"] --> C2["produce(output_topic)"]
+        C2 --> C3["send_offsets_to_transaction()"]
+        C3 --> C4["commit_transaction()"]
+        C4 --> C5["ATOMIC: Offsets and outputs commit together!"]
+    end
 ```
 
-Auto-commit fires on a **timer**, during `poll()`, for everything returned by
-the *previous* poll — whether or not you finished processing it. So it's
-at-least-once when your batch completes faster than the interval, and
-at-most-once when it doesn't. You don't get to choose which, and it varies
-with load.
+### Delivery Guarantee Taxonomy
 
-Auto-commit is fine for genuinely idempotent, loss-tolerant work (metrics,
-logs, cache warming). For anything else, turn it off:
+| Semantic | Offset Commit Timing | Failure Dynamic | Production Suitability |
+| :--- | :--- | :--- | :--- |
+| **At-Most-Once** | Offset committed *before* handler completes | Message dropped permanently on worker crash | Real-time sensor telemetry, ephemeral metrics |
+| **At-Least-Once** | Offset committed *after* handler completes | Message re-delivered on worker crash | **Default Standard for 95% of microservices** (with deduplication table) |
+| **Kafka EOS (Transactions)** | Offset and output written under atomic 2PC | Aborted on failure; no duplicates inside Kafka | Stream-to-stream pipelines (Kafka Streams, Flink) |
+| **Auto-Commit** (`enable.auto.commit=true`) | Timer-based (every 5s) during `poll()` | Unpredictable (at-least-once or at-most-once depending on load timing) | Loss-tolerant background cache warming |
 
-```python
-{"enable.auto.commit": False}
+---
+
+## 2. The Mechanics of Kafka Transactions: Consume-Transform-Produce
+
+Kafka transactions allow a consumer to read from Topic A, produce to Topic B, and commit its consumer offset to `__consumer_offsets` in a single atomic transaction.
+
+```mermaid
+stateDiagram-v2
+    [*] --> InitTransactions: Producer sets transactional.id="worker-01"
+    InitTransactions --> ZombieFenced: New Epoch Issued (Fences older instances of worker-01)
+    ZombieFenced --> BeginTransaction: begin_transaction()
+    BeginTransaction --> WritePayloads: produce() to output topics
+    WritePayloads --> SendOffsets: send_offsets_to_transaction(offsets, group_metadata)
+    state SendOffsets {
+        [*] --> CoordinateCommit: 2-Phase Commit initiated with TxCoordinator
+        CoordinateCommit --> WriteCommitMarkers: Write Control Markers to Data & Offsets logs
+    }
+    SendOffsets --> CommitSuccess: commit_transaction()
+    CommitSuccess --> [*]
+    WritePayloads --> Aborted: Error / Crash detected
+    Aborted --> Rollback: abort_transaction() -> Write ABORT control markers
 ```
 
-### At-least-once, done properly
+### Core Transactional Requirements
 
-```python
-from confluent_kafka import Consumer, KafkaError
+1. **`transactional.id`**: Must be a stable, persistent string per worker instance (e.g., `orders-stream-worker-1`). When an instance reboots, Kafka issues a new transactional epoch and **fences** any orphaned zombie processes holding the previous ID.
+2. **`send_offsets_to_transaction`**: Without this explicit method, the output messages commit atomically, but consumer offsets commit independently—degrading the system back to at-least-once.
+3. **`isolation.level = read_committed`**: Downstream consumers must opt into `read_committed`. By default (`read_uncommitted`), consumers will read uncommitted or aborted messages.
 
-consumer = Consumer({
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "payments",
-    "enable.auto.commit": False,
-    "auto.offset.reset": "earliest",
-    "max.poll.records": 20,           # module 01: keep batches small
-    "partition.assignment.strategy": "cooperative-sticky",
-})
-consumer.subscribe(["orders"])
+---
 
-try:
-    while True:
-        msg = consumer.poll(1.0)
-        if msg is None:
-            continue
-        if msg.error():
-            if msg.error().code() == KafkaError._PARTITION_EOF:
-                continue
-            raise KafkaException(msg.error())
+## 3. Production War Story: The Stripe Double-Charge Illusion
 
-        process(msg)                              # must be idempotent
-        consumer.commit(msg, asynchronous=False)  # synchronous: know it landed
-finally:
-    consumer.close()                              # commits + leaves group cleanly
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Worker as Transactional Kafka Consumer
+    participant Stripe as Stripe API (External HTTP Gateway)
+    participant Kafka as Kafka Output Topic (Receipts)
+    participant TxCoord as Transaction Coordinator
+
+    Worker->>Worker: begin_transaction()
+    Worker->>Stripe: POST /v1/charges ($100.00) -> 200 OK (ch_9128)
+    Worker->>Kafka: produce("receipts", charge_id="ch_9128")
+    Worker->>TxCoord: send_offsets_to_transaction()
+    Note over Worker,TxCoord: Network partition or Worker OOM Crash occurs before commit!
+    TxCoord->>TxCoord: Transaction TIMEOUT -> Writes ABORT Marker!
+    Note over Worker: New Worker pod restarts & takes over partition
+    Note over Worker: Offset was NEVER committed because transaction aborted!
+    Worker->>Stripe: POST /v1/charges ($100.00) -> 200 OK (ch_9129)!
+    Note over Worker,Stripe: CATASTROPHE: Customer billed TWICE ($200.00)!<br/>Kafka rolled back its own topic, but could NOT roll back Stripe!
 ```
 
-Committing synchronously per record is the safest and slowest option.
-Committing per *batch* is the usual compromise — you narrow the reprocessing
-window to one batch rather than one record, which is why small
-`max.poll.records` helps twice.
+### Incident Post-Mortem
 
-### The offset you commit is `offset + 1`
+- **Root Cause**: The engineering team believed enabling Kafka transactions provided end-to-end "exactly-once" processing for their payment pipeline. Inside the transaction block, they invoked external payment gateway API calls (`charge_card()`).
+- **The Blindspot**: Kafka transactions operate exclusively over Kafka commit logs. When a network hiccup aborted the Kafka transaction, the $100 credit card charge had already succeeded in Stripe. Because the consumer offset rolled back, the restarting consumer reprocessed the event, charging the customer a second time.
+- **The Architectural Fix**:
+  1. Recognized that external side effects cannot participate in a Kafka 2-phase commit.
+  2. Switched from Kafka transactions to **at-least-once delivery paired with an Idempotency Deduplication Table** in PostgreSQL:
+     `INSERT INTO processed_events (event_id, charge_id) VALUES ($1, $2) ON CONFLICT (event_id) DO NOTHING;`
+  3. Passed the event's immutable UUID as the `Idempotency-Key` header directly to Stripe.
 
-This trips people up constantly. A committed offset means "the next record I
-want", not "the last record I processed":
+---
 
-```python
-from confluent_kafka import TopicPartition
+## 4. Multi-Language Implementation: Production Atomic Stream Processor
 
-# commit position AFTER msg
-consumer.commit(offsets=[TopicPartition(msg.topic(), msg.partition(), msg.offset() + 1)])
+Below is the complete implementation of:
+1. Transactional Producer & Consumer loop (`consume -> transform -> produce -> send_offsets_to_transaction`).
+2. Downstream consumer with `isolation.level = read_committed`.
+3. Idempotent consumer with relational database de-duplication table.
+
+````carousel
+```go
+// transactional_stream.go (Go Implementation)
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+)
+
+func RunTransactionalPipeline(brokers, groupID, txnID string) {
+	// 1. Transactional Producer Configuration
+	p, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers":  brokers,
+		"transactional.id":   txnID, // Mandatory stable ID per worker
+		"enable.idempotence": true,
+	})
+	if err != nil {
+		log.Fatalf("Producer error: %v", err)
+	}
+	defer p.Close()
+
+	// 2. Initialize Transactions (Fences older instances with same txnID)
+	ctx := context.Background()
+	if err := p.InitTransactions(ctx); err != nil {
+		log.Fatalf("InitTransactions failed: %v", err)
+	}
+
+	// 3. Consumer with read_committed isolation
+	c, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers":  brokers,
+		"group.id":           groupID,
+		"enable.auto.commit": false, // Transactions manage offsets!
+		"auto.offset.reset":  "earliest",
+		"isolation.level":    "read_committed",
+	})
+	if err != nil {
+		log.Fatalf("Consumer error: %v", err)
+	}
+	defer c.Close()
+
+	c.SubscribeTopics([]string{"orders.raw"}, nil)
+
+	for {
+		msg, err := c.ReadMessage(1000 * time.Millisecond)
+		if err != nil {
+			continue
+		}
+
+		// Begin Atomic Transaction
+		if err := p.BeginTransaction(); err != nil {
+			log.Printf("BeginTransaction error: %v", err)
+			continue
+		}
+
+		// Transform and produce to output topic
+		outTopic := "orders.processed"
+		transformedPayload := []byte(fmt.Sprintf(`{"status":"VALIDATED","raw":%s}`, string(msg.Value)))
+		err = p.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &outTopic, Partition: kafka.PartitionAny},
+			Key:            msg.Key,
+			Value:          transformedPayload,
+		}, nil)
+
+		if err != nil {
+			p.AbortTransaction(ctx)
+			continue
+		}
+
+		// Atomic Offset Commit: Attach consumer position to the producer transaction
+		metadata, _ := c.GetConsumerGroupMetadata()
+		nextOffset := kafka.TopicPartition{
+			Topic:     msg.TopicPartition.Topic,
+			Partition: msg.TopicPartition.Partition,
+			Offset:    msg.TopicPartition.Offset + 1, // Offset + 1 rule!
+		}
+
+		err = p.SendOffsetsToTransaction(ctx, []kafka.TopicPartition{nextOffset}, metadata)
+		if err != nil {
+			p.AbortTransaction(ctx)
+			continue
+		}
+
+		// Commit Output and Offsets atomically
+		if err := p.CommitTransaction(ctx); err != nil {
+			log.Printf("Commit failed: %v", err)
+			p.AbortTransaction(ctx)
+		}
+	}
+}
 ```
+<!-- slide -->
+```typescript
+// idempotentConsumer.ts (Node.js / TypeScript: At-Least-Once with DB Dedupe)
+import { Kafka } from 'kafkajs';
+import { Pool } from 'pg';
 
-`consumer.commit(message=msg)` does the `+1` for you. Doing it manually and
-forgetting the `+1` means every restart reprocesses one record per partition
-— a subtle, low-grade duplicate source that's hard to spot.
+export class IdempotentPaymentConsumer {
+  private kafka: Kafka;
+  private db: Pool;
 
-### Idempotent processing beats clever delivery
+  constructor(brokers: string[], dbPool: Pool) {
+    this.kafka = new Kafka({ clientId: 'payments-worker', brokers });
+    this.db = dbPool;
+  }
 
-For most systems, the right answer is **at-least-once delivery + an
-idempotent handler**, not transactions. Track 10's idempotency-key pattern
-applies directly:
+  async start() {
+    const consumer = this.kafka.consumer({
+      groupId: 'payments-processing-group',
+      enableAutoCommit: false, // Manual commits
+    });
 
-```python
-def process(msg):
-    event = json.loads(msg.value())
-    key = event["event_id"]                      # producer-assigned, stable
-    with db.transaction():
-        # UNIQUE(event_id) makes the second attempt a no-op
-        inserted = db.execute(
-            "INSERT INTO processed_events (event_id) VALUES (%s) "
-            "ON CONFLICT (event_id) DO NOTHING RETURNING event_id", (key,))
-        if not inserted:
-            return                               # already handled; skip silently
-        apply_business_effect(event)
+    await consumer.connect();
+    await consumer.subscribe({ topic: 'orders.checkout', fromBeginning: true });
+
+    await consumer.run({
+      autoCommit: false,
+      eachMessage: async ({ topic, partition, message }) => {
+        const eventId = message.key?.toString();
+        if (!eventId) return;
+
+        const payload = JSON.parse(message.value?.toString() || '{}');
+        const client = await this.db.connect();
+
+        try {
+          await client.query('BEGIN');
+
+          // Idempotency Gate: UNIQUE constraint on event_id
+          const dedupeResult = await client.query(
+            `INSERT INTO processed_events (event_id, processed_at) 
+             VALUES ($1, NOW()) 
+             ON CONFLICT (event_id) DO NOTHING 
+             RETURNING event_id`,
+            [eventId]
+          );
+
+          if ((dedupeResult.rowCount ?? 0) > 0) {
+            // First time seeing event: Execute business side effect
+            await client.query(
+              'UPDATE accounts SET balance = balance - $1 WHERE account_id = $2',
+              [payload.amount, payload.accountId]
+            );
+          } else {
+            console.log(`[DEDUPE] Event ${eventId} was already processed. Skipping duplicate execution.`);
+          }
+
+          await client.query('COMMIT');
+
+          // Commit Kafka offset only after DB transaction is committed
+          await consumer.commitOffsets([
+            { topic, partition, offset: (BigInt(message.offset) + BigInt(1)).toString() },
+          ]);
+        } catch (err) {
+          await client.query('ROLLBACK');
+          throw err; // Trigger Kafka retry
+        } finally {
+          client.release();
+        }
+      },
+    });
+  }
+}
 ```
-
-This works regardless of Kafka's guarantees, survives consumer restarts and
-rebalances, and — crucially — extends to side effects Kafka transactions
-can't cover at all, like charging a card or sending an email.
-
-### Kafka transactions: exactly-once *within Kafka*
-
-Transactions solve one specific shape: **consume from Kafka, process, produce
-to Kafka** — atomically, including the offset commit.
-
+<!-- slide -->
 ```python
-from confluent_kafka import Producer, Consumer, TopicPartition
+# transactional_processor.py (Python Implementation: confluent-kafka)
+import logging
+from confluent_kafka import Producer, Consumer, TopicPartition, KafkaError
 
-producer = Producer({
-    "bootstrap.servers": "localhost:9092",
-    "transactional.id": "payment-processor-1",   # MUST be stable per instance
-    "enable.idempotence": True,                  # implied, but be explicit
-})
-producer.init_transactions()
+log = logging.getLogger("transactional_pipeline")
 
-consumer = Consumer({
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "payments",
-    "enable.auto.commit": False,                 # transaction owns the offsets
-    "isolation.level": "read_committed",         # don't read aborted data
-})
-consumer.subscribe(["orders"])
+def run_pipeline(bootstrap_servers: str, txn_id: str):
+    # 1. Transactional Producer Setup
+    producer = Producer({
+        "bootstrap.servers": bootstrap_servers,
+        "transactional.id": txn_id,      # Stable instance identity
+        "enable.idempotence": True,
+    })
+    producer.init_transactions()
 
-while True:
-    msgs = consumer.consume(num_messages=100, timeout=1.0)
-    if not msgs:
-        continue
+    # 2. Consumer Setup with read_committed
+    consumer = Consumer({
+        "bootstrap.servers": bootstrap_servers,
+        "group.id": "analytics-processor",
+        "enable.auto.commit": False,     # Transaction manages offsets
+        "auto.offset.reset": "earliest",
+        "isolation.level": "read_committed",
+    })
+    consumer.subscribe(["events.raw"])
 
-    producer.begin_transaction()
     try:
-        for msg in msgs:
-            if msg.error():
+        while True:
+            msgs = consumer.consume(num_messages=50, timeout=1.0)
+            if not msgs:
                 continue
-            producer.produce("payments", key=msg.key(), value=transform(msg.value()))
 
-        # the offsets become part of the transaction — this is the whole trick
-        producer.send_offsets_to_transaction(
-            consumer.position(consumer.assignment()),
-            consumer.consumer_group_metadata(),
-        )
-        producer.commit_transaction()
-    except Exception:
-        producer.abort_transaction()
-        raise
+            producer.begin_transaction()
+            try:
+                for msg in msgs:
+                    if msg.error():
+                        continue
+                    # Produce transformed record
+                    producer.produce(
+                        topic="events.enriched",
+                        key=msg.key(),
+                        value=b'{"enriched": true, "data": ' + msg.value() + b'}'
+                    )
+
+                # Send consumer offsets to the transaction
+                positions = [
+                    TopicPartition(m.topic(), m.partition(), m.offset() + 1)
+                    for m in msgs
+                ]
+                producer.send_offsets_to_transaction(
+                    positions,
+                    consumer.consumer_group_metadata()
+                )
+
+                # Commit offsets and messages atomically
+                producer.commit_transaction()
+            except Exception as e:
+                log.error("Transaction failed: %s. Aborting...", e)
+                producer.abort_transaction()
+    finally:
+        consumer.close()
 ```
+````
 
-Three settings carry the guarantee:
+---
 
-- **`transactional.id`** — stable per logical instance. On restart, Kafka
-  fences the previous session (zombie fencing), so a hung old instance can't
-  write. If two live instances share one `transactional.id`, they fence each
-  other in a loop.
-- **`send_offsets_to_transaction`** — makes the consumer's offset commit part
-  of the producer transaction. Without it you have atomic *output* but a
-  separate offset commit, which is just at-least-once again.
-- **`isolation.level=read_committed`** on downstream consumers — otherwise
-  they read records from aborted transactions.
+## 5. Practical Hands-On Verification CLI
 
-### What transactions do *not* cover
-
-This is the part people miss. The atomicity is **Kafka-to-Kafka only**:
-
-```python
-producer.begin_transaction()
-charge_credit_card(order)              # ← NOT part of the transaction
-producer.produce("payments", ...)
-producer.commit_transaction()          # if this aborts, the card is still charged
-```
-
-Any external side effect — a database write, an HTTP call, an email — is
-outside the transaction boundary. If you need atomicity across Kafka *and* a
-database, you need the transactional-outbox pattern (track 10) or an
-idempotent handler, not Kafka transactions.
-
-### The cost
-
-Transactions add latency (each commit is a two-phase round trip through the
-transaction coordinator), reduce throughput meaningfully, require
-`read_committed` consumers to wait for the LSO (last stable offset) — so a
-long-running transaction blocks downstream reads — and add operational
-surface via `transactional.id` lifecycle management.
-
-**Decision rule:** use transactions when the work is genuinely Kafka-to-Kafka
-(stream processing, enrichment, routing) and duplicates are unacceptable. Use
-at-least-once with idempotent handlers for everything that touches the
-outside world. Most services are the second case.
-
-## Command reference
-
-| Concern | Setting / API |
-|---|---|
-| Disable auto-commit | `enable.auto.commit=False` |
-| Commit after processing | `consumer.commit(msg, asynchronous=False)` |
-| Manual offset (note the +1) | `TopicPartition(t, p, msg.offset() + 1)` |
-| Enable transactions | `transactional.id=<stable-id>` + `producer.init_transactions()` |
-| Transaction lifecycle | `begin_transaction()` / `commit_transaction()` / `abort_transaction()` |
-| Atomic offsets | `producer.send_offsets_to_transaction(positions, group_metadata)` |
-| Hide aborted records | consumer `isolation.level=read_committed` |
-| Inspect committed offsets | `kafka-consumer-groups.sh --describe --group g ...` |
-| Reset to reprocess | `kafka-consumer-groups.sh --reset-offsets --to-earliest --execute ...` |
-
-## Hands-on exercises
-
-Use the broker from module 00.
+### Step 1: Create Input and Output Topics
 
 ```bash
-kt --create --topic tx-in --partitions 2
-kt --create --topic tx-out --partitions 2
+docker exec -it kafka-node /opt/kafka/bin/kafka-topics.sh \
+  --create --topic tx-in --partitions 2 --bootstrap-server localhost:9092
+
+docker exec -it kafka-node /opt/kafka/bin/kafka-topics.sh \
+  --create --topic tx-out --partitions 2 --bootstrap-server localhost:9092
 ```
 
-### 1. Produce at-most-once loss
+### Step 2: Simulate Aborted Transaction vs. Committed Transaction
 
-Commit before processing, then `kill -9` the consumer mid-batch. Restart it.
-
-Expected: records that were in flight are never processed and never
-redelivered — the offset moved past them. Count what you processed vs. what
-was produced and confirm the gap.
-
-### 2. Produce at-least-once duplicates
-
-Move the commit after processing and repeat the kill.
-
-Expected: on restart, records already processed are delivered again. Log
-processed IDs to a set and count duplicates.
-
-### 3. Show auto-commit is neither
-
-Set `enable.auto.commit=True`, `auto.commit.interval.ms=5000`, and make
-processing take 8 seconds per batch. Kill mid-batch.
-
-Expected: some records both committed *and* unprocessed (loss), depending on
-where the timer fell. Then make processing take 1 second and repeat —
-now you get duplicates instead. Same config, opposite semantics, decided by
-timing.
-
-### 4. Prove the `+1` matters
-
-Commit `msg.offset()` instead of `msg.offset() + 1`, restart the consumer,
-and observe.
-
-Expected: exactly one record per partition is reprocessed every restart.
-Small, permanent, easy to miss in testing.
-
-### 5. Build an idempotent handler
-
-Add a SQLite (or Postgres) `processed_events(event_id PRIMARY KEY)` table and
-the `ON CONFLICT DO NOTHING` guard. Re-run exercise 2's kill test.
-
-Expected: duplicates are still *delivered*, but the business effect happens
-once. Confirm by counting rows in your effect table, not messages consumed.
-
-### 6. Run a real transactional consume-process-produce
-
-Implement the transaction loop above. Verify it works, then introduce a
-deliberate failure after `produce()` but before `commit_transaction()` (raise
-an exception so `abort_transaction()` runs).
-
-Expected: with a `read_committed` consumer on `tx-out`, the aborted records
-are **not** visible, and the offsets weren't committed either — so on restart
-the input is reprocessed cleanly. Now read `tx-out` with
-`isolation.level=read_uncommitted` and confirm you *can* see the aborted
-records. That contrast is the whole point of `isolation.level`.
-
-### 7. Watch zombie fencing
-
-Start two processes with the **same** `transactional.id`. Have both attempt
-transactions.
-
-Expected: one gets fenced with a `ProducerFenced`-style error the moment the
-other calls `init_transactions()`. Write one sentence on why this is a safety
-feature rather than a bug, and what it implies for how you assign
-`transactional.id` in Kubernetes.
-
-### 8. Diagnose and fix: the double-charged customers
-
-A payments consumer uses transactions and looks correct:
+Execute a python script that writes two batches: Batch 1 is **ABORTED**, Batch 2 is **COMMITTED**:
 
 ```python
-producer = Producer({"bootstrap.servers": "...", "transactional.id": "payments"})
-producer.init_transactions()
-consumer = Consumer({"group.id": "payments", "enable.auto.commit": True})
+from confluent_kafka import Producer
+p = Producer({"bootstrap.servers": "localhost:9092", "transactional.id": "tx-tester", "enable.idempotence": True})
+p.init_transactions()
 
-while True:
-    msgs = consumer.consume(100, timeout=1.0)
-    producer.begin_transaction()
-    for msg in msgs:
-        charge_card(msg)                                  # external API call
-        producer.produce("receipts", value=receipt(msg))
-    producer.commit_transaction()
+# 1. Aborted Transaction
+p.begin_transaction()
+p.produce("tx-out", key=b"ord-01", value=b"ABORTED_SECRET_DATA")
+p.abort_transaction()
+
+# 2. Committed Transaction
+p.begin_transaction()
+p.produce("tx-out", key=b"ord-02", value=b"COMMITTED_CONFIRMED_DATA")
+p.commit_transaction()
 ```
 
-Customers report duplicate charges after every deploy. Find all the bugs.
+### Step 3: Verify Downstream Isolation via `read_committed`
 
-<details>
-<summary>Solution</summary>
-
-Three, and the first is fatal to the whole design:
-
-1. **`charge_card()` is outside the transaction boundary.** Kafka
-   transactions are Kafka-to-Kafka only. If `commit_transaction()` fails or
-   the process dies after some charges, those charges have already happened
-   and cannot be rolled back — but the offsets weren't committed, so on
-   restart the same records are reprocessed and the cards are charged again.
-   No Kafka setting fixes this; the charge must be made idempotent (an
-   idempotency key on the payment provider's API, which every real provider
-   supports) or moved out of the transaction with an outbox.
-2. **`enable.auto.commit=True` alongside transactions.** The consumer commits
-   offsets on its own timer, independently of the transaction, so the atomic
-   offset guarantee is entirely defeated. It must be `False`, with
-   `send_offsets_to_transaction()` doing the commit.
-3. **`send_offsets_to_transaction()` is missing.** Even with auto-commit off,
-   nothing ties the offsets to the transaction — you'd get atomic output and
-   no offset progress at all.
-
-There's also a deployment hazard: a single hardcoded `transactional.id` means
-you can only ever run one instance, and two overlapping instances during a
-rolling deploy will fence each other repeatedly.
-
-</details>
-
-### 9. Clean up
+Run consumer with `isolation.level=read_committed`:
 
 ```bash
-kt --delete --topic tx-in; kt --delete --topic tx-out
+docker exec -it kafka-node /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic tx-out \
+  --from-beginning \
+  --isolation-level read_committed \
+  --timeout-ms 5000
 ```
 
-## Independent challenge
+```text
+COMMITTED_CONFIRMED_DATA
+```
 
-No solution given. You're building an order-fulfilment consumer that, per
-order event, must: write a row to Postgres, call a warehouse REST API to
-reserve stock, and emit a `stock.reserved` event to Kafka. Duplicates cause
-double-reservations, which cost real money.
+> **Verification Success**: The aborted record `ABORTED_SECRET_DATA` was completely hidden from the consumer!
 
-Design the delivery guarantee. Decide whether Kafka transactions help at all
-here, and if not, what does. Specify exactly where idempotency keys live,
-what happens when the warehouse API times out (you don't know if it
-succeeded), and what your consumer does on restart mid-order. Then state the
-one failure mode your design still can't prevent, and why accepting it is
-reasonable.
+Now query with `isolation-level read_uncommitted` to see the aborted record:
 
-<details>
-<summary>Stuck? One hint</summary>
+```bash
+docker exec -it kafka-node /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic tx-out \
+  --from-beginning \
+  --isolation-level read_uncommitted \
+  --timeout-ms 5000
+```
 
-Kafka transactions cover only the Kafka write, so they can't make the
-Postgres write and the warehouse call atomic with it — this is the
-distributed-transaction problem from track 10, and the standard answers are
-the transactional outbox (write the row *and* the outbox event in one
-Postgres transaction, publish separately) plus an idempotency key on the
-warehouse call so a timeout can be safely retried. The failure mode you
-can't eliminate is the gap between "warehouse reserved stock" and "we
-recorded that it did": if you crash in between, the retry relies entirely on
-the warehouse honouring the idempotency key. That's why the key must be
-derived deterministically from the event (e.g. the `event_id`), not
-generated per attempt.
+```text
+ABORTED_SECRET_DATA
+COMMITTED_CONFIRMED_DATA
+```
 
-</details>
+---
 
-## Common mistakes & troubleshooting
-
-- **Assuming auto-commit gives at-least-once.** It's timer-based and gives
-  whichever semantic the timing happens to produce.
-- **Committing `msg.offset()` instead of `offset + 1`.** One reprocessed
-  record per partition on every restart.
-- **Believing transactions cover external side effects.** They are
-  Kafka-to-Kafka only; database writes and API calls are outside the
-  boundary.
-- **Transactions without `send_offsets_to_transaction()`.** Atomic output,
-  non-atomic offsets — i.e. at-least-once with extra latency.
-- **Leaving `enable.auto.commit=True` with transactions.** Defeats the offset
-  guarantee entirely.
-- **Downstream consumers on `read_uncommitted`.** They see records from
-  aborted transactions.
-- **Sharing one `transactional.id` across instances.** They fence each other
-  continuously.
-- **Long-running transactions.** They hold the LSO back and stall
-  `read_committed` consumers downstream.
-- **Reaching for EOS when an idempotent handler would do.** Simpler, faster,
-  and covers external effects that transactions can't.
-
-## Checkpoint quiz
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Show questions</summary>
+<summary><strong>Checkpoint 1: Why does committing `msg.offset()` instead of `msg.offset() + 1` cause duplicate reprocessing on consumer restarts?</strong></summary>
 
-1. What single ordering decision distinguishes at-most-once from
-   at-least-once?
-2. Why is auto-commit neither reliably, and when is it acceptable?
-3. Why do you commit `msg.offset() + 1`?
-4. What exactly does a Kafka transaction make atomic, and what does it not
-   cover?
-5. What does `send_offsets_to_transaction()` add, and what do you get without
-   it?
-6. What is `isolation.level=read_committed` for, and what breaks without it?
-7. What does `transactional.id` do on restart, and what goes wrong if two
-   instances share one?
-8. When should you prefer at-least-once with an idempotent handler over
-   transactions?
-
-</summary>
+**Committed Offset Semantics:**
+In Apache Kafka, a committed offset designates the **next logical message offset** that the consumer wishes to read. If a consumer processes message at offset 42 and commits offset 42, upon reboot the consumer requests partition data starting at offset 42. It re-reads and reprocesses message 42 a second time. The consumer must commit `offset + 1` (offset 43) to confirm that message 42 was completed.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why do Kafka transactions fail to provide exactly-once guarantees for outbound REST API or database calls?</strong></summary>
 
-1. Whether the offset is committed before or after processing. Committing
-   first gives at-most-once (a crash loses the record, since the offset has
-   already advanced past it); committing after gives at-least-once (a crash
-   redelivers it).
-2. Because it commits on a timer during `poll()`, covering records from the
-   previous poll regardless of whether processing finished — so it behaves as
-   at-least-once when batches finish faster than the interval and
-   at-most-once when they don't, varying with load. It's acceptable for
-   idempotent, loss-tolerant work such as metrics, logs or cache warming.
-3. Because a committed offset means "the next record I want to read", not
-   "the last one I processed". Committing the record's own offset makes the
-   consumer re-read that record after a restart, producing one duplicate per
-   partition every time.
-4. It makes the records produced to Kafka topics *and* the consumer offset
-   commit atomic — all visible together or not at all. It does not cover any
-   external side effect: database writes, HTTP calls, emails and payments all
-   sit outside the transaction boundary and are not rolled back by an abort.
-5. It makes the consumer's offset commit part of the producer transaction, so
-   input position and output records commit atomically. Without it you have
-   atomic output but an independent offset commit, which is just
-   at-least-once with the added cost of transactions.
-6. It makes a consumer skip records belonging to aborted (or still open)
-   transactions, so it only sees committed data. Without it (on
-   `read_uncommitted`, the default) a downstream consumer reads records from
-   transactions that were later aborted — data that logically never happened.
-7. It gives the producer a stable identity so that, on restart, Kafka fences
-   the previous session and prevents a hung or zombie old instance from
-   writing. If two live instances share one, each fences the other as it
-   initialises, and they knock each other out repeatedly.
-8. Whenever the work touches anything outside Kafka — a database, an external
-   API, a payment provider — because transactions can't cover those anyway.
-   It's also the right default when duplicates are cheap to absorb, since it
-   avoids the latency, throughput cost and operational complexity of the
-   transactional path.
-
+**Two-Phase Commit Boundary Isolation:**
+Kafka transactions use a two-phase commit protocol managed by the Kafka Transaction Coordinator. It can coordinate commits across topic partitions and the `__consumer_offsets` internal log. External systems (such as a Stripe API, an email service, or an external PostgreSQL database) do not participate in Kafka's 2PC transaction protocol. If the external API call succeeds and the Kafka transaction subsequently aborts or times out, the external side effect cannot be undone by Kafka.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: What is "Zombie Fencing" in transactional Kafka producers?</strong></summary>
 
-- [KIP-98: Exactly-once delivery and transactional messaging](https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging) - the transaction coordinator design, fencing, and LSO.
-- [Confluent: Transactions in Apache Kafka](https://www.confluent.io/blog/transactions-apache-kafka/) - the canonical walkthrough of consume-process-produce.
-- [Kafka: Consumer configuration — `isolation.level`](https://kafka.apache.org/documentation/#consumerconfigs_isolation.level) - read_committed semantics and the LSO.
-- [confluent-kafka-python: transactional API](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html#transactional-api) - `init_transactions`, `send_offsets_to_transaction` and error handling.
-- [Track 10: Idempotency in practice](../../10-distributed-systems-patterns/01-idempotency-in-practice/README.md) - the idempotency-key pattern this module recommends over transactions for external effects.
-
-## Next
-
-[03-schemas-and-evolution-with-schema-registry](../03-schemas-and-evolution-with-schema-registry/README.md) —
-your records now arrive exactly as intended. Module 03 covers keeping them
-*readable* as producers and consumers change independently over years.
+**Epoch Increment & Monotonic Fencing:**
+When a worker process experiences a long GC pause or network partition, the cluster may assume it is dead and launch a replacement instance with the same `transactional.id`. When the replacement calls `init_transactions()`, the Transaction Coordinator increments the transactional epoch for that ID. When the paused zombie instance wakes up and attempts to call `commit_transaction()`, the coordinator rejects the request with a fatal `ProducerFencedException`, preventing the zombie from corrupting partition logs.
+</details>

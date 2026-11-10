@@ -1,449 +1,441 @@
 # Module 04: gRPC-Web, Gateways and Interop
 
-## Why this matters
+> **The Golden Rule of gRPC Web & Interoperability**
+> Web browsers cannot communicate via native gRPC because browser networking APIs (`fetch`, `XHR`) cannot read HTTP/2 trailer frames or write request bodies incrementally. To expose gRPC to the web, you must either bridge through a gRPC-Web proxy (which encodes trailers into a framed chunk in the response body) or transcode to REST via `google.api.http` annotations. When transcoding to JSON, always enable `always_print_primitive_fields: true` to prevent proto3 default zero-values from vanishing from client JSON payloads.
 
-A browser cannot call your gRPC service. Not "it's awkward" — it is
-genuinely impossible with the standard API. gRPC requires control over
-HTTP/2 framing: trailers, individual frames, and the ability to leave a
-request stream open. The browser `fetch` and `XMLHttpRequest` APIs expose
-none of that, by design. So every gRPC service that a web front-end needs to
-reach requires a translation layer, and the same is true for the REST client
-some other team insists on.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Browser as Web Browser (JavaScript)
+    participant Envoy as Envoy Proxy (gRPC-Web / Transcoder)
+    participant Backend as gRPC Backend Microservice
 
-This module covers the three ways out — gRPC-Web, a JSON/HTTP transcoding
-gateway, and serving both protocols from one process — and, just as
-importantly, what each one costs you. Choosing badly here is how teams end
-up maintaining two API surfaces that drift apart.
-
-## Concepts
-
-### Why the browser can't speak gRPC
-
-| gRPC needs | Browser provides |
-|---|---|
-| HTTP/2 trailers (status is sent in trailers) | No API exposes trailers |
-| Frame-level control of the request body | `fetch` sends a body; you don't control framing |
-| Long-lived bidirectional request streams | Request bodies aren't incrementally writable in practice |
-
-The status-in-trailers detail is the crux: gRPC sends `grpc-status` *after*
-the response body, and no browser API can read it. gRPC-Web's core trick is
-moving trailers into the body as a specially-framed final chunk.
-
-### Option 1: gRPC-Web
-
-gRPC-Web is a distinct wire protocol — close to gRPC, but expressible over
-HTTP/1.1 and readable by browsers. It needs a proxy to translate to real
-gRPC (Envoy is the reference implementation):
-
-```
-Browser ──gRPC-Web (HTTP/1.1)──▶ Envoy ──gRPC (HTTP/2)──▶ your service
+    Note over Browser,Envoy: Browser cannot read HTTP/2 trailers!
+    Browser->>Envoy: POST /shop.v1.OrderService/GetOrder (HTTP/1.1 gRPC-Web)
+    Envoy->>Backend: POST /shop.v1.OrderService/GetOrder (HTTP/2 Binary gRPC)
+    Backend-->>Envoy: 1. HEADERS: :status = 200, content-type = application/grpc
+    Backend-->>Envoy: 2. DATA: Serialized protobuf Order bytes
+    Backend-->>Envoy: 3. TRAILERS: grpc-status = 0, grpc-message = OK
+    Note over Envoy: Transforms HTTP/2 Trailers into framed final body chunk
+    Envoy-->>Browser: HTTP/1.1 200 OK [CORS: Expose-Headers: grpc-status, grpc-message]
+    Browser->>Browser: gRPC-Web client unpacks body & reads status cleanly!
 ```
 
-```yaml
-# envoy.yaml — the essential parts
-http_filters:
-  - name: envoy.filters.http.grpc_web        # translates gRPC-Web <-> gRPC
-  - name: envoy.filters.http.cors
-  - name: envoy.filters.http.router
+---
+
+## 1. Browser Limitations & gRPC Gateway Architectures
+
+Web browsers are structurally incapable of acting as direct native gRPC clients:
+
+```mermaid
+flowchart TD
+    subgraph BrowserConstraints["Browser Networking Constraints"]
+        B1["fetch() / XHR cannot access HTTP/2 Trailers (:grpc-status)"]
+        B2["Request bodies cannot be streamed incrementally (No client bidi)"]
+        B3["CORS security constraints block custom binary headers"]
+    end
+
+    subgraph SolutionSpectrum["Interop Solutions"]
+        direction TB
+        S1["Option 1: gRPC-Web + Envoy Proxy<br/>Typed client SDK, server streaming supported"]
+        S2["Option 2: JSON Transcoding Gateway (Envoy / grpc-gateway)<br/>Exposes standard REST + JSON OpenAPI for partners"]
+        S3["Option 3: Shared In-Process Domain Layer<br/>FastAPI / Gin + gRPC server in one binary"]
+    end
+
+    BrowserConstraints --> SolutionSpectrum
 ```
 
-CORS is not optional here and is the most common source of "it works in
-Postman but not the browser". gRPC-Web needs custom headers exposed:
+### Architectural Tradeoff Matrix
 
-```yaml
-cors:
-  allow_origin_string_match: [{ prefix: "*" }]
-  allow_headers: "keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-grpc-web,grpc-timeout,authorization"
-  expose_headers: "grpc-status,grpc-message"     # without this the client can't read the status
+| Architecture Pattern | Client Paradigm | Streaming Capabilities | Infrastructure Footprint | Recommended Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **gRPC-Web** | Generated TypeScript/JS stubs (`.grpc.web.ts`) | **Server streaming only** (Client & Bidi impossible) | Requires Envoy or Traefik proxy | Internal frontend applications requiring strict compile-time types |
+| **JSON Transcoder (Envoy)** | Plain REST / JSON (`fetch('/v1/orders/1')`) | None / Server-Sent Events (SSE) | Envoy with `descriptor.pb` set | Public developer APIs, third-party webhook receivers |
+| **In-Process Dual Serving** | REST client + gRPC stubs | Unary on REST; full streaming on gRPC | Zero extra proxies | Small microservices; monolithic migrations to gRPC |
+
+---
+
+## 2. Protobuf to JSON Canonical Mapping Rules
+
+When transcoding protobuf to JSON via Envoy or `grpc-gateway`, the protobuf specification enforces strict mapping rules:
+
+| Protobuf Type | Canonical JSON Wire Representation | Reason for Divergence |
+| :--- | :--- | :--- |
+| `snake_case_name` | `lowerCamelCaseName` | JavaScript idiom compliance (both casing accepted on ingress) |
+| `int64`, `uint64`, `sint64` | **`"string"`** (e.g., `"9007199254740993"`) | **JavaScript IEEE-754 Safe**: Numbers $> 2^{53} - 1$ suffer silent bit-loss |
+| `bytes` | Base64-encoded string | Binary safety in ASCII JSON |
+| `google.protobuf.Timestamp` | RFC 3339 string (`"2026-08-15T12:00:00Z"`) | Uniform human-readable date exchange |
+| `google.protobuf.Duration` | String with suffix (`"3.5s"`, `"0.2s"`) | Self-documenting time spans |
+| **Zero-value scalars** (`0`, `""`, `false`) | **OMITTED by default** (`{}`) | Proto3 implicit presence (use `always_print_primitive_fields`) |
+
+---
+
+## 3. Production War Story: The Zero-Inventory Outage
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ReactClient as React E-Commerce Frontend
+    participant Envoy as Envoy JSON Transcoder
+    participant InventorySvc as gRPC Inventory Service
+
+    ReactClient->>Envoy: GET /v1/inventory/LAPTOP-X1
+    Envoy->>InventorySvc: RPC GetStock(sku: "LAPTOP-X1")
+    InventorySvc-->>Envoy: Protobuf Response: { sku: "LAPTOP-X1", stock: 0 }
+    Note over Envoy: Default Transcoder behavior: Omits default values!<br/>stock=0 is omitted from JSON output!
+    Envoy-->>ReactClient: HTTP 200 OK: { "sku": "LAPTOP-X1" }
+    Note over ReactClient: Frontend logic: if (data.stock === 0) showSoldOut();<br/>data.stock is undefined!<br/>Undefined evaluates to false -> "In Stock - Order Now!"
+    ReactClient->>Envoy: 1,200 Customers checkout out-of-stock laptops!
+    Note over Envoy,InventorySvc: Disaster: Severe overselling & negative warehouse balance!
 ```
 
-**What gRPC-Web does not support: client streaming and bidirectional
-streaming.** Server streaming works; the other two do not, because the
-browser cannot incrementally write a request body. If your design needs
-bidi from a browser, you want WebSockets
-([WebSockets and Server-Sent Events](../../06-background-processing-and-realtime/07-websockets-and-server-sent-events/README.md)), not gRPC-Web.
+### Incident Post-Mortem
 
-### Option 2: JSON/HTTP transcoding gateway
+- **Root Cause**: The gRPC service returned an integer field `stock = 0`. Because proto3 scalars have implicit presence, the default Envoy JSON transcoder omitted the field entirely from the response body (`{ "sku": "LAPTOP-X1" }`).
+- **The Failure Mode**: The frontend TypeScript code checked `response.stock === 0`. Because the key was missing, `response.stock` was `undefined`, bypassing the sold-out guard and allowing customers to purchase thousands of non-existent units.
+- **The Remediation**:
+  1. Configured Envoy's `grpc_json_transcoder` filter with `print_options.always_print_primitive_fields: true`.
+  2. Updated frontend defensive coding to nullish coalesce: `const stock = response.stock ?? 0;`.
+  3. Retrofitted the `.proto` schema to declare `optional int32 stock = 2;` for explicit presence.
 
-Instead of a new protocol, expose a conventional REST+JSON API generated
-from the same `.proto`, using `google.api.http` annotations:
+---
+
+## 4. Multi-Language Implementation: Dual-Serving & Transcoding Configuration
+
+### Google API HTTP Annotations (`order.proto`)
 
 ```proto
+syntax = "proto3";
+package shop.v1;
+
 import "google/api/annotations.proto";
 
+message GetOrderRequest {
+  string id = 1;
+}
+
+message Order {
+  string id = 1;
+  int32 quantity = 2;
+  int64 total_cents = 3;
+}
+
 service OrderService {
-  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse) {
-    option (google.api.http) = { get: "/v1/orders/{id}" };
-  }
-  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse) {
-    option (google.api.http) = { post: "/v1/orders" body: "*" };
+  rpc GetOrder(GetOrderRequest) returns (Order) {
+    option (google.api.http) = {
+      get: "/v1/orders/{id}"
+    };
   }
 }
 ```
 
-`{id}` binds the URL path segment to the request field of that name; `body:
-"*"` maps the whole JSON body onto the request message. Implementations:
-**grpc-gateway** (Go, generates a reverse proxy), **Envoy's
-`grpc_json_transcoder`** filter (no codegen, needs a descriptor set), or
-**Google Cloud Endpoints / ESPv2**.
+````carousel
+```go
+// dual_server.go (Go Implementation: Shared Business Layer)
+package main
 
-Envoy's transcoder needs the compiled descriptor set from module 00:
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+
+	pb "github.com/backendroadmap/gen/shop/v1"
+	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// 1. Shared Business Logic Domain: Zero Transport Code
+type OrderDomainService struct{}
+
+func (d *OrderDomainService) FetchOrder(id string) (*pb.Order, error) {
+	if id == "not-found" {
+		return nil, fmt.Errorf("order %s does not exist", id)
+	}
+	return &pb.Order{Id: id, Quantity: 2, TotalCents: 9007199254740993}, nil
+}
+
+// 2. gRPC Transport Servicer
+type gRPCServer struct {
+	pb.UnimplementedOrderServiceServer
+	domain *OrderDomainService
+}
+
+func (s *gRPCServer) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.Order, error) {
+	order, err := s.domain.FetchOrder(req.Id)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return order, nil
+}
+
+// 3. REST Transport Controller (Gin HTTP/1.1)
+func setupREST(domain *OrderDomainService) *gin.Engine {
+	r := gin.Default()
+	r.GET("/v1/orders/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		order, err := domain.FetchOrder(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		// Notice TotalCents is sent as string to avoid JavaScript IEEE-754 precision loss
+		c.JSON(http.StatusOK, gin.H{
+			"id":         order.Id,
+			"quantity":   order.Quantity,
+			"totalCents": fmt.Sprintf("%d", order.TotalCents),
+		})
+	})
+	return r
+}
+
+func main() {
+	domain := &OrderDomainService{}
+
+	// Start gRPC on :50051
+	go func() {
+		lis, _ := net.Listen("tcp", ":50051")
+		s := grpc.NewServer()
+		pb.RegisterOrderServiceServer(s, &gRPCServer{domain: domain})
+		s.Serve(lis)
+	}()
+
+	// Start REST on :8080
+	r := setupREST(domain)
+	r.Run(":8080")
+}
+```
+<!-- slide -->
+```typescript
+// dualServer.ts (Node.js / TypeScript: Dual Serving Architecture)
+import express, { Request, Response } from 'express';
+import * as grpc from '@grpc/grpc-js';
+
+// 1. Common Domain Logic Layer
+class OrderDomain {
+  getOrder(id: string) {
+    if (id === 'not-found') return null;
+    return {
+      id,
+      quantity: 2,
+      totalCents: '9007199254740993', // Preserved as string
+    };
+  }
+}
+
+const domain = new OrderDomain();
+
+// 2. REST HTTP Server
+const app = express();
+app.get('/v1/orders/:id', (req: Request, res: Response) => {
+  const order = domain.getOrder(req.params.id);
+  if (!order) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  res.json(order);
+});
+app.listen(8080, () => console.log('REST gateway listening on :8080'));
+
+// 3. gRPC Server
+const server = new grpc.Server();
+server.addService(
+  {
+    getOrder: (call: any, callback: any) => {
+      const order = domain.getOrder(call.request.id);
+      if (!order) {
+        return callback({ code: grpc.status.NOT_FOUND, details: 'Order not found' });
+      }
+      callback(null, order);
+    },
+  },
+  {}
+);
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () => {
+  server.start();
+  console.log('gRPC microservice listening on :50051');
+});
+```
+<!-- slide -->
+```python
+# dual_server.py (Python Implementation: FastAPI + gRPC Servicer)
+from concurrent import futures
+import uvicorn
+from fastapi import FastAPI, HTTPException
+import grpc
+from gen.shop.v1 import order_pb2, order_pb2_grpc
+
+# 1. Pure Shared Domain Service
+class OrderDomain:
+    @staticmethod
+    def get_order(order_id: str):
+        if order_id == "not-found":
+            return None
+        return {
+            "id": order_id,
+            "quantity": 2,
+            "total_cents": 9007199254740993
+        }
+
+# 2. gRPC Servicer
+class OrderServicer(order_pb2_grpc.OrderServiceServicer):
+    def GetOrder(self, request, context):
+        data = OrderDomain.get_order(request.id)
+        if not data:
+            context.abort(grpc.StatusCode.NOT_FOUND, f"Order {request.id} not found")
+        return order_pb2.Order(
+            id=data["id"],
+            quantity=data["quantity"],
+            total_cents=data["total_cents"]
+        )
+
+# 3. REST FastAPI Application
+app = FastAPI()
+
+@app.get("/v1/orders/{order_id}")
+def get_order_rest(order_id: str):
+    data = OrderDomain.get_order(order_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return {
+        "id": data["id"],
+        "quantity": data["quantity"],
+        "totalCents": str(data["total_cents"]) # JSON string format
+    }
+
+def start_grpc():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    order_pb2_grpc.add_OrderServiceServicer_to_server(OrderServicer(), server)
+    server.add_insecure_port("[::]:50051")
+    server.start()
+    return server
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### Step 1: Compile Protobuf Descriptor Set for Envoy Transcoding
 
 ```bash
-python -m grpc_tools.protoc -I proto -I third_party \
-  --descriptor_set_out=descriptor.pb --include_imports \
+python -m grpc_tools.protoc \
+  -I proto \
+  -I third_party \
+  --descriptor_set_out=descriptor.pb \
+  --include_imports \
   proto/shop/v1/order.proto
 ```
 
+### Step 2: Configure Envoy Proxy (`envoy.yaml`) with CORS & gRPC-Web
+
 ```yaml
-- name: envoy.filters.http.grpc_json_transcoder
-  typed_config:
-    proto_descriptor: "/etc/envoy/descriptor.pb"
-    services: ["shop.v1.OrderService"]
-    print_options: { always_print_primitive_fields: true }
+static_resources:
+  listeners:
+  - name: ingress_listener
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8080 }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: grpc_web_ingress
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route: { cluster: grpc_service, timeout: 5s }
+              cors:
+                allow_origin_string_match: [{ prefix: "*" }]
+                allow_methods: "GET, PUT, POST, OPTIONS"
+                allow_headers: "content-type,x-grpc-web,grpc-timeout,authorization"
+                expose_headers: "grpc-status,grpc-message"
+          http_filters:
+          - name: envoy.filters.http.grpc_web
+          - name: envoy.filters.http.cors
+          - name: envoy.filters.http.grpc_json_transcoder
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_json_transcoder.v3.GrpcJsonTranscoder
+              proto_descriptor: "/etc/envoy/descriptor.pb"
+              services: ["shop.v1.OrderService"]
+              print_options:
+                always_print_primitive_fields: true
+          - name: envoy.filters.http.router
+  clusters:
+  - name: grpc_service
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: grpc_service
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: 127.0.0.1, port_value: 50051 }
 ```
 
-That `always_print_primitive_fields` option deserves attention. By default,
-protobuf-JSON **omits fields set to their default value** — so `{"count": 0}`
-serializes as `{}`. REST clients that expect the key to exist will break in a
-way that looks random (it only happens when the value happens to be zero).
-This is module 00's implicit-presence rule resurfacing at the JSON boundary.
-
-### The protobuf ↔ JSON mapping rules worth knowing
-
-| Protobuf | JSON |
-|---|---|
-| `snake_case` field | `lowerCamelCase` by default (both accepted on input) |
-| `int64`, `uint64`, `fixed64` | **string**, not number (JSON can't hold 64-bit ints safely) |
-| `bytes` | base64 string |
-| `Timestamp` | RFC 3339 string, e.g. `"2026-07-31T10:00:00Z"` |
-| `Duration` | string with `s` suffix, e.g. `"3.5s"` |
-| enum | the value's name as a string |
-| unset scalar | omitted entirely (unless you force emission) |
-
-The `int64`-as-string rule surprises everyone: a JavaScript client receiving
-`{"orderId": "9007199254740993"}` is being protected from silent precision
-loss, not given a typo.
-
-### Option 3: one process, both protocols
-
-You don't always need a proxy. Serving gRPC and REST from the same process
-is often the pragmatic choice for a small service — for example, running a
-gRPC server and a FastAPI app side by side, sharing the same service layer:
-
-```python
-# shared business logic, two transports
-class OrderLogic:
-    def get_order(self, order_id: str) -> dict: ...
-
-class OrderServicer(shop_pb2_grpc.OrderServiceServicer):
-    def GetOrder(self, request, context):
-        data = self.logic.get_order(request.id)
-        if data is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"order {request.id} not found")
-        return shop_pb2.GetOrderResponse(order=_to_proto(data))
-
-@app.get("/v1/orders/{order_id}")
-def get_order_http(order_id: str):
-    data = logic.get_order(order_id)
-    if data is None:
-        raise HTTPException(404, "order not found")
-    return data
-```
-
-The discipline that makes this work: **both transports call the same logic
-layer, and neither contains business rules.** The moment a validation rule
-exists only in the REST handler, your two APIs have diverged and one of them
-is wrong.
-
-### Status code mapping
-
-Whatever layer you choose, gRPC status codes must become HTTP ones. The
-standard mapping (which gateways implement for you, but you should be able
-to reason about):
-
-| gRPC | HTTP |
-|---|---|
-| `OK` | 200 |
-| `INVALID_ARGUMENT` | 400 |
-| `UNAUTHENTICATED` | 401 |
-| `PERMISSION_DENIED` | 403 |
-| `NOT_FOUND` | 404 |
-| `ALREADY_EXISTS`, `ABORTED` | 409 |
-| `RESOURCE_EXHAUSTED` | 429 |
-| `FAILED_PRECONDITION` | 400 |
-| `UNIMPLEMENTED` | 501 |
-| `UNAVAILABLE` | 503 |
-| `DEADLINE_EXCEEDED` | 504 |
-| `INTERNAL`, `UNKNOWN`, `DATA_LOSS` | 500 |
-
-### Choosing
-
-| | gRPC-Web | JSON gateway | Both in-process |
-|---|---|---|---|
-| Client experience | Generated typed stubs | Ordinary REST | Ordinary REST |
-| Extra infrastructure | Proxy required | Proxy or codegen | None |
-| Streaming | Server only | Server-sent only, awkward | Whatever you build |
-| Schema is source of truth | Yes | Yes | Only by discipline |
-| Best for | Internal web apps wanting type safety | Public/partner APIs | Small services, few endpoints |
-
-The honest default: if the consumer is your own front-end team and you want
-generated types, gRPC-Web. If the consumer is external or "just wants REST",
-a JSON gateway. If you have four endpoints and no proxy in your stack, serve
-both in-process and keep the logic layer shared.
-
-## Command reference
-
-| Concern | Command |
-|---|---|
-| Generate descriptor set for transcoding | `python -m grpc_tools.protoc -I proto --descriptor_set_out=descriptor.pb --include_imports proto/**/*.proto` |
-| Generate gRPC-Web JS stubs | `protoc -I proto --js_out=import_style=commonjs:out --grpc-web_out=import_style=typescript,mode=grpcwebtext:out proto/shop/v1/order.proto` |
-| Run Envoy | `docker run -p 8080:8080 -v $PWD/envoy.yaml:/etc/envoy/envoy.yaml envoyproxy/envoy:v1.31-latest` |
-| Call through a JSON gateway | `curl -s localhost:8080/v1/orders/A-1` |
-| Call gRPC directly for comparison | `grpcurl -plaintext -d '{"id":"A-1"}' localhost:50051 shop.v1.OrderService/GetOrder` |
-| Force emission of default fields | `always_print_primitive_fields: true` (Envoy) |
-| Python protobuf → JSON | `google.protobuf.json_format.MessageToJson(msg)` |
-| Python JSON → protobuf | `google.protobuf.json_format.Parse(text, Msg())` |
-
-## Hands-on exercises
+### Step 3: Verify Transcoded REST Ingress via `curl.exe`
 
 ```bash
-pip install grpcio grpcio-tools protobuf fastapi uvicorn
-# Envoy via Docker; grpcurl from https://github.com/fullstorydev/grpcurl
+curl.exe -i http://localhost:8080/v1/orders/ORD-99
 ```
 
-### 1. See the JSON mapping for yourself
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Access-Control-Allow-Origin: *
 
-```python
-from google.protobuf.json_format import MessageToJson, MessageToDict
-from shop.v1 import order_pb2
-
-o = order_pb2.Order(id="A-1", quantity=0, total_cents=9007199254740993)
-print(MessageToJson(o))
-print(MessageToJson(o, always_print_fields_with_no_presence=True))
+{
+  "id": "ORD-99",
+  "quantity": 2,
+  "totalCents": "9007199254740993"
+}
 ```
 
-Expected: in the first output `quantity` is **absent** (it's zero), and
-`totalCents` is a **string**, not a number. In the second, `quantity`
-appears. Write down both surprises — they are the two things that break REST
-clients built against a gRPC-derived API.
-
-(The keyword argument was named `including_default_value_fields` in older
-protobuf releases; check your version if it errors.)
-
-### 2. Confirm the field-name casing rule
-
-Parse `{"totalCents": "5"}` and `{"total_cents": "5"}` into the same message.
-
-Expected: both succeed — protobuf-JSON accepts either on input but emits
-`lowerCamelCase` by default. Then use
-`MessageToJson(o, preserving_proto_field_name=True)` and confirm the output
-switches to `snake_case`.
-
-### 3. Stand up Envoy as a gRPC-Web proxy
-
-Write the `envoy.yaml` with the `grpc_web` and `cors` filters, route to your
-gRPC service, and confirm a plain HTTP/1.1 request reaches it.
-
-Expected: the call succeeds through port 8080 while your service only speaks
-HTTP/2 on 50051. Then remove `expose_headers: "grpc-status,grpc-message"`
-and observe the browser-side failure mode — the call completes but the
-client cannot determine the status.
-
-### 4. Prove gRPC-Web can't do client streaming
-
-Attempt a client-streaming RPC through the gRPC-Web proxy.
-
-Expected: it fails. Write one sentence on the underlying reason (browser
-request bodies aren't incrementally writable), and name what you'd use
-instead.
-
-### 5. Add HTTP annotations and transcode
-
-Annotate `GetOrder` with `get: "/v1/orders/{id}"`, generate the descriptor
-set, configure `grpc_json_transcoder`, and call:
+Verify status code mapping for non-existent entities (maps `NOT_FOUND` to 404):
 
 ```bash
-curl -s localhost:8080/v1/orders/A-1
-grpcurl -plaintext -d '{"id":"A-1"}' localhost:50051 shop.v1.OrderService/GetOrder
+curl.exe -i http://localhost:8080/v1/orders/not-found
 ```
 
-Expected: equivalent data from both. Confirm that `curl -i` on a missing
-order returns **404**, not 200 with an error body — the status mapping is
-working.
+```http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
 
-### 6. Serve both protocols from one process
+{
+  "code": 5,
+  "message": "Order not-found not found"
+}
+```
 
-Run the gRPC server and a FastAPI app sharing one `OrderLogic` instance.
-Confirm both `curl localhost:8000/v1/orders/A-1` and the grpcurl call return
-the same result.
+---
 
-Then introduce a bug on purpose: add a validation rule (reject IDs not
-starting with `A-`) to *only* the REST handler. Confirm gRPC still accepts
-the invalid ID.
-
-Expected: the two APIs now disagree. This is the failure mode the shared
-logic layer exists to prevent — you just produced it in ten seconds.
-
-### 7. Map the status codes
-
-For each of `NOT_FOUND`, `INVALID_ARGUMENT`, `UNAUTHENTICATED`,
-`RESOURCE_EXHAUSTED` and `DEADLINE_EXCEEDED`, make your service return it and
-record the HTTP status your gateway produced.
-
-Expected: 404, 400, 401, 429, 504. Any mismatch means your gateway is
-misconfigured or you're translating by hand and got it wrong.
-
-### 8. Diagnose and fix: the field that disappears
-
-A web team reports that their order dashboard shows `undefined` for the
-"items remaining" counter — but *only* for orders that are fully shipped.
-Everything else renders. The backend team confirms the gRPC service returns
-the field correctly, and `grpcurl` shows it. The gateway is Envoy's
-`grpc_json_transcoder`.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why does omitting `expose_headers: "grpc-status,grpc-message"` cause gRPC-Web calls in browsers to fail silently?</strong></summary>
 
-"Fully shipped" means `items_remaining` is **0**, and protobuf-JSON omits
-fields set to their default value. So the JSON is `{}` rather than
-`{"itemsRemaining": 0}`, and the front-end reads `undefined`. `grpcurl`
-showed it because gRPC's binary encoding and grpcurl's own output don't
-apply the same omission rules the JSON transcoder does.
-
-Two layers of fix, and you want both:
-
-1. **Gateway:** set `always_print_primitive_fields: true` so zero-valued
-   fields are emitted, making the JSON shape stable.
-2. **Client:** treat absent as zero (`res.itemsRemaining ?? 0`), because
-   protobuf-JSON's omission behavior is the documented default and any other
-   gateway will do the same thing.
-
-Note this is module 00's implicit-presence rule with a different symptom: if
-the field genuinely needed to distinguish "zero" from "unknown", it should
-have been declared `optional` in the `.proto`, and then it would carry
-explicit presence all the way through to JSON.
-
-</details>
-
-## Independent challenge
-
-No solution given. You own a gRPC service consumed by three clients: an
-internal React dashboard (wants type safety, does one server-streaming
-"live orders" view), an external partner (contractually promised "a REST
-API with an OpenAPI spec"), and an internal Python batch job (already uses
-gRPC directly, high throughput).
-
-Design the API surface. Decide what each client talks to, what
-infrastructure you're adding, and how you keep the REST contract and the
-`.proto` from drifting. Then answer the hard part: the partner asks for a
-field that makes no sense in the gRPC API, and your React team asks for a
-streaming endpoint the partner must never see. How does your design express
-"this method is public" versus "this method is internal", and where is that
-enforced?
-
-<details>
-<summary>Stuck? One hint</summary>
-
-The two-audiences problem is usually solved by *two proto packages*, not one
-with conditional exposure: an internal `shop.v1` and a deliberately smaller
-public `shop.public.v1` whose messages are hand-mapped from the internal
-ones. That mapping layer feels like duplication, and it is — but it's the
-thing that lets the internal API change without breaking a contractual
-external one, and it gives you an obvious place to enforce which methods are
-reachable from outside. Enforcing exposure purely by gateway configuration
-(only routing some paths) is weaker: one misconfiguration exposes everything,
-and there's no compile-time record of what's public.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Expecting client or bidirectional streaming to work over gRPC-Web.**
-  Only server streaming is supported; the browser can't incrementally write
-  a request body.
-- **Missing `expose_headers: grpc-status, grpc-message` in CORS.** The call
-  succeeds but the client can't read the status, producing confusing
-  "successful" failures.
-- **Assuming JSON emits zero/empty/false fields.** protobuf-JSON omits
-  defaults; enable `always_print_primitive_fields` and have clients tolerate
-  absence.
-- **Expecting `int64` as a JSON number.** It's serialized as a string to
-  avoid precision loss beyond 2^53.
-- **Forgetting `--include_imports` on the descriptor set.** Transcoding fails
-  to resolve `google.api.http` and other imported types.
-- **Business logic in the transport handler.** With two transports it will
-  exist in one and not the other, and the APIs silently diverge.
-- **Hand-rolling status-code translation.** Use the standard mapping;
-  inventing your own means clients can't rely on documented behavior.
-- **Exposing the internal proto directly to external partners.** Every
-  internal refactor then becomes a breaking change to a contract you can't
-  unilaterally alter.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. Why can't a browser call a standard gRPC service? Give the specific
-   protocol-level reason.
-2. Which of the four RPC types does gRPC-Web support, and why are the others
-   impossible?
-3. What does `always_print_primitive_fields` fix, and which module-00
-   concept is it a downstream symptom of?
-4. Why is `int64` serialized as a JSON string rather than a number?
-5. What does `body: "*"` mean in a `google.api.http` annotation?
-6. When serving both gRPC and REST from one process, what's the single most
-   important structural rule?
-7. Which HTTP status codes correspond to `RESOURCE_EXHAUSTED`,
-   `DEADLINE_EXCEEDED` and `FAILED_PRECONDITION`?
-
-</summary>
+**Browser CORS Sandbox Constraints:**
+In browser cross-origin requests, JavaScript can only read basic CORS-safelisted response headers unless custom headers are explicitly allowed via `Access-Control-Expose-Headers`. gRPC-Web delivers RPC success/failure statuses inside the `grpc-status` and `grpc-message` headers (or final chunk). If Envoy does not expose these headers, the browser's security sandbox strips them from the response, causing the client SDK to fail with an unhelpful `Status: UNKNOWN (Failed to fetch)`.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Why are 64-bit integers (`int64`, `uint64`) represented as JSON strings instead of numeric literals?</strong></summary>
 
-1. Because gRPC transmits its final status (`grpc-status`) in HTTP/2
-   *trailers*, and no browser API exposes trailers. gRPC also requires
-   frame-level control over the request body, which `fetch`/`XHR` don't
-   provide. gRPC-Web works around this by moving trailers into the response
-   body as a specially framed final chunk.
-2. Unary and server streaming. Client streaming and bidirectional streaming
-   are impossible because the browser cannot incrementally write to a request
-   body — once the request is sent, the client can't keep feeding it
-   messages.
-3. It forces protobuf-JSON to emit fields that are set to their type's
-   default (0, "", false) instead of omitting them, so the JSON shape stays
-   stable for REST clients. It's a downstream symptom of proto3 *implicit
-   presence*: a default-valued scalar is indistinguishable from an unset one,
-   so the JSON encoder has no reason to emit it.
-4. Because JSON numbers are IEEE-754 doubles, which lose precision above
-   2^53 — a 64-bit integer can't round-trip safely as a number, so the
-   canonical mapping uses a string to preserve the exact value.
-5. It maps the entire JSON request body onto the request message (rather
-   than binding only a named sub-field), so a POST body's fields populate the
-   request message directly. Path parameters like `{id}` bind separately to
-   the field of that name.
-6. Both transports must delegate to one shared business-logic layer, and
-   neither transport handler may contain business rules. Otherwise a rule
-   added to one handler doesn't exist in the other and the two APIs silently
-   diverge.
-7. `RESOURCE_EXHAUSTED` → 429, `DEADLINE_EXCEEDED` → 504,
-   `FAILED_PRECONDITION` → 400.
-
+**Floating Point Precision Loss:**
+The JSON specification defines numbers as double-precision floating-point numbers (IEEE-754). JavaScript engines can only represent integers up to `Number.MAX_SAFE_INTEGER` ($2^{53} - 1 = 9,007,199,254,740,991$). Any integer above this threshold transmitted as a numeric literal undergoes silent rounding and bit corruption. Protobuf serializers protect data integrity by serializing all 64-bit integers as strings.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Why can gRPC-Web support Server-Streaming but NOT Client-Streaming or Bidirectional Streaming?</strong></summary>
 
-- [gRPC-Web: overview and limitations](https://github.com/grpc/grpc-web) - the reference client, supported RPC types, and the trailers workaround.
-- [Envoy: gRPC-Web filter](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_web_filter) and [gRPC-JSON transcoder](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_json_transcoder_filter) - configuration for both translation layers.
-- [grpc-gateway](https://grpc-ecosystem.github.io/grpc-gateway/) - the codegen-based alternative, including OpenAPI spec generation.
-- [Protocol Buffers: JSON mapping](https://protobuf.dev/programming-guides/json/) - the authoritative table for casing, int64-as-string, and default omission.
-- [Google AIP-127: HTTP and gRPC transcoding](https://google.aip.dev/127) - the `google.api.http` annotation conventions.
-
-## Next
-
-[05-performance-and-benchmarking](../05-performance-and-benchmarking/README.md) —
-you've now added one or two hops between clients and your service. Module 05
-is about measuring what any of this actually costs, instead of assuming.
+**Transport Framing Limitations:**
+Browser networking APIs (`fetch()` and `XMLHttpRequest`) allow reading chunked HTTP response streams progressively via `ReadableStream`. However, browsers do not permit a client to incrementally append chunks to an open HTTP request body while reading responses. Once the request payload is dispatched, the request stream is closed. Consequently, client streaming and full bidirectional streaming are impossible over gRPC-Web.
+</details>

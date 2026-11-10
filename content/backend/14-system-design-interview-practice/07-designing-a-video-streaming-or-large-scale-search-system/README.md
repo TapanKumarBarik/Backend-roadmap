@@ -1,510 +1,523 @@
 # Module 07: Designing a Video Streaming or Large-Scale Search System
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Advanced Distributed Systems  
+> **Estimated Time:** 3–4 Hours  
+> **Prerequisites:** Module 00 (Capacity Estimation), Module 01 (System Design Interview Framework), Blob Storage & Inverted Index Fundamentals
 
-The final two problems before the capstone push two dimensions that the earlier
-systems only touched — **massive binary data and global bandwidth** (video
-streaming) and **large-scale indexing and relevance** (full-text search) — and
-each rounds out the classic interview set with a specialization worth knowing
-cold. Video streaming (YouTube, Netflix) is where **object storage, CDNs,
-transcoding pipelines, and adaptive bitrate** stop being buzzwords and become the
-core of the design: the files are enormous, the audience is global, and the whole
-game is getting bytes from storage to a player's screen without buffering.
-Search (the design generalization of everything you built in
-**07-search-with-elasticsearch**) is where the **inverted index, relevance
-ranking, and distributed scatter-gather query** define the problem: the challenge
-isn't storing data, it's *finding* the right data in milliseconds across billions
-of documents.
+---
 
-They're grouped here because both are "large-scale specialization" problems that
-reuse the whole toolkit — estimation, caching, partitioning, async processing,
-replication — but bring one dominant new concept each (bandwidth/CDN for video,
-the inverted index for search). Covering both gives you range: an interviewer who
-asks "design YouTube" and one who asks "design Google search" are testing
-different muscles, and after this module you can drive either. This module runs
-two designs in parallel; treat each half as its own framework pass.
+> [!TIP]
+> **The Golden Rule of Media Streaming & Distributed Search**  
+> Never stream high-bandwidth binary payloads or execute full-text scans from monolithic database origins. For video architectures, decouple ingestion from playback via **Asynchronous Transcoding Pipelines** that slice video into $2\text{–}6\text{ second}$ chunks across multiple bitrates (HLS/DASH) and offload $>95\%$ of egress directly to **Tier-1 Edge CDNs**. For search architectures, decouple write ingestion from query evaluation using an **Inverted Index partitioned by Document ID**, executing searches via a **Two-Phase Scatter-Gather Coordinator** with local **BM25 scoring** and bounded Top-$K$ min-heap aggregation. Always defend deep pagination against memory exhaustion using cursor-based `search_after` rather than offset skipping.
 
-## Concepts
+---
 
-### Video: requirements, scale, and the bandwidth problem
+## 1. Visual Mental Models
 
-**Functional:** upload a video; transcode it into multiple resolutions/formats;
-stream it smoothly to viewers worldwide; (often) recommendations, comments,
-view counts.
+### 1.1 Video Streaming Pipeline: Ingestion to Edge CDN Playback
 
-**Non-functional:** massively **read-heavy** (views ≫ uploads), **latency-
-sensitive on playback** (buffering is the enemy — startup <2 s, no rebuffering),
-**global** (viewers everywhere), huge **storage and bandwidth**, eventual
-consistency fine (a new upload appearing a minute late is acceptable).
+Video systems decouple heavy asynchronous encoding from high-bandwidth edge delivery:
 
-The defining number is **bandwidth**, not QPS. A minute of HD video is tens of
-MB; at hundreds of millions of concurrent viewers the egress is enormous —
-petabits. No origin server or datacenter can serve that directly, which is the
-entire reason video architecture is built around **CDNs and edge delivery**.
-Estimation:
+```mermaid
+flowchart TD
+    subgraph UploadPath["1. Resumable Multipart Ingestion"]
+        Creator["Content Creator"] -->|"Chunked Upload (TUS / S3 Multipart)"| UploadGW["Upload API Gateway"]
+        UploadGW --> RawBucket[("Raw Video Bucket<br/>(S3 / GCS Cold Blob)")]
+        UploadGW --> SQS["Transcoding Queue (SQS / Kafka)"]
+    end
 
-```
-1 hour of 1080p ≈ ~2-3 GB.  1M concurrent viewers at ~5 Mbps each
-  = 5 × 10^12 bits/sec = ~5 Tbps of egress   ← origin can't do this; CDN must
-Storage: 500 hrs uploaded/min × ~2 GB/hr × (×~5 for all transcoded renditions)
-  → petabytes/day of new content → object store + tiering, not a database
+    subgraph TranscodingPipeline["2. Distributed Transcoding Fleet"]
+        SQS --> Workers["Transcoder Worker Fleet<br/>(FFmpeg GPU Pods)"]
+        RawBucket --> Workers
+        Workers -->|"Slice into 4s chunks<br/>(1080p, 720p, 480p, 360p)"| Segmenter["HLS/DASH Segmenter"]
+        Segmenter --> TranscodedBucket[("Processed Video Bucket<br/>(Master Manifest + .ts Chunks)")]
+    end
+
+    subgraph EdgeDelivery["3. Global CDN Delivery Tier"]
+        TranscodedBucket -.->|"Origin Fetch on Cache Miss"| CDN["Global Edge CDN Fleet<br/>(Cloudflare / Fastly / Open Connect)"]
+        Viewer["End-User Device<br/>(HLS Video Player)"] -->|"1. GET master.m3u8 (Manifest)"| CDN
+        Viewer -->|"2. Fetch 4s Segments via Adaptive Bitrate (ABR)"| CDN
+    end
 ```
 
-### Video: upload, transcoding, and adaptive bitrate
+### 1.2 Distributed Full-Text Search: Two-Phase Scatter-Gather
 
-The write path is an **asynchronous processing pipeline**, and the read path is
-**edge-cached blob delivery**:
+To search billions of documents in under $50\text{ ms}$, queries are broadcast across partitioned shards and merged centrally:
 
-- **Upload → object store.** The raw upload goes to an **object store** (S3-style
-  blob storage), not a database — videos are large opaque blobs. Uploads use
-  **chunked/resumable** transfer (recall large-file uploads from
-  **06-background-processing-and-realtime**) so a dropped connection doesn't
-  restart a 4 GB upload.
-- **Transcoding pipeline (async, queue-driven).** A worker fleet takes the raw
-  video and **transcodes** it into multiple resolutions (240p…4K) and codecs, and
-  **segments** each rendition into small chunks (e.g. 2–10 s each). This is heavy,
-  parallelizable batch work — a classic queue + worker fan-out
-  (**06-background-processing-and-realtime**). The video is "ready" once its
-  renditions are transcoded and pushed toward the CDN.
-- **Adaptive bitrate streaming (ABR).** The player is served a **manifest**
-  (HLS/DASH) listing the available renditions and their chunk URLs. The client
-  measures its own bandwidth and **switches rendition per chunk** — dropping to
-  480p when the network degrades, climbing back to 1080p when it recovers — so
-  playback continues without buffering. This is why video is chunked and
-  multi-rendition: ABR needs interchangeable per-segment choices.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as User / Client
+    participant Coord as Search Coordinator Node
+    participant S1 as Shard 1 (Docs 1-10M)
+    participant S2 as Shard 2 (Docs 10M-20M)
+    participant S3 as Shard 3 (Docs 20M-30M)
 
-```
-  rendition    seg1  seg2  seg3  seg4  seg5   (each ~2-10s, interchangeable)
-   1080p (5M)  [==]              [==]  [==]
-    720p (3M)        [==]
-    480p (1M)              [==]                ◄─ network dips → drop rendition
-              ─────────────────────────────►
-   client picks the highest rendition its measured bandwidth can sustain per seg
-```
-- **CDN delivery.** Chunks are served from **CDN edge nodes** close to the viewer
-  (recall CDNs/edge caching from **05-caching-and-performance**). Popular content
-  is cached at the edge; the origin object store is hit only on a cache miss. The
-  CDN is what makes global, low-latency, high-bandwidth playback possible — the
-  origin never serves viewers directly at scale.
-
-### Search: requirements, the inverted index, and query flow
-
-**Functional:** given a text query, return the most **relevant** documents, fast,
-with pagination; support filters and typo tolerance; keep the index fresh as
-documents change.
-
-**Non-functional:** **low query latency** (<100–200 ms) over **billions of
-documents**, high query throughput, relevance quality matters as much as speed,
-eventual consistency on freshness is usually fine (a new doc searchable seconds
-later is okay).
-
-The one concept that defines search is the **inverted index** (the heart of
-**07-search-with-elasticsearch**): instead of storing documents and scanning them,
-you store, for each *term*, the list of documents containing it (a "postings
-list"). A query for "distributed systems" intersects the postings lists for
-"distributed" and "systems" — turning search from an impossible full scan into a
-fast lookup-and-merge.
-
-```
-Document → analyzer (tokenize, lowercase, stem, remove stopwords) → terms
-Term "distributed" → [doc3, doc17, doc42, …]   (postings list)
-Term "systems"     → [doc17, doc42, doc88, …]
-Query "distributed systems" → intersect postings → candidates → rank → top-K
+    Client->>Coord: GET /search?q="distributed+consensus"&size=10
+    Note over Coord: Phase 1: Query Scatter (Broadcast)
+    par Parallel Shard Execution
+        Coord->>S1: Query inverted index for terms, score with BM25
+        Coord->>S2: Query inverted index for terms, score with BM25
+        Coord->>S3: Query inverted index for terms, score with BM25
+    end
+    par Local Top-K Return
+        S1-->>Coord: Returns local Top-10 [DocID, Score]
+        S2-->>Coord: Returns local Top-10 [DocID, Score]
+        S3-->>Coord: Returns local Top-10 [DocID, Score]
+    end
+    Note over Coord: Phase 2: Gather & Merge Sort<br/>Maintain Min-Heap of size K=10<br/>Select global Top-10 Document IDs
+    Coord->>S2: Fetch full document source for winning IDs (MGET)
+    S2-->>Coord: Returns JSON documents
+    Coord-->>Client: 200 OK [Global Top-10 Search Results]
 ```
 
-### Search: relevance, sharding, and distributed query
+---
 
-Finding candidate documents is half the job; **ranking** them is the other half,
-and doing it across a huge corpus requires **partitioning the index**:
+## 2. Technical Reference Matrices
 
-- **Relevance ranking.** Candidates are scored so the best match is first.
-  Classic signals: **TF-IDF / BM25** (term frequency weighted by how rare the term
-  is across the corpus), plus document signals (recency, popularity, quality) and,
-  in modern systems, ML ranking models. The interview point is that search returns
-  a *ranked* result, and the ranking function is a real design surface — recall
-  the relevance-scoring work from **07-search-with-elasticsearch**.
-- **Sharding the index (partition + replicate).** Billions of documents don't fit
-  or compute on one node, so the index is split into **shards** (each holding a
-  subset of documents), and each shard is **replicated** for availability and read
-  throughput. A query is **scatter-gather**: broadcast to all shards, each returns
-  its local top-K, and a coordinator **merges** them into a global top-K. This is
-  the same scatter-gather shape as the feed's pull model, applied to ranked
-  retrieval.
-- **Index freshness (near-real-time).** Indexing new/updated documents is an
-  **async pipeline**: document changes flow through a queue to indexers that update
-  the shards, so the index is *eventually* consistent with the source of truth —
-  a new document is searchable seconds later, which is fine. Reads (queries) hit
-  the index; writes (indexing) happen on a separate path, exactly the read/write
-  separation you've applied throughout the track.
-- **Caching hot queries.** Popular queries repeat constantly, so a **query-result
-  cache** (cache-aside on the query string, module 04/05) serves them from memory,
-  and the 80/20 rule means a small cache captures a large share of traffic.
+### 2.1 Video Streaming Transport Protocols Compared
 
-### Reference architecture
+| Protocol | Transport | Latency | Segment Size | Adaptive Bitrate (ABR) Support | Ideal Application |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **HLS (HTTP Live Streaming)** | Standard HTTP (TCP) | $2\text{–}6\text{ seconds}$ | $2\text{–}6\text{ seconds}$ | Native (Master `.m3u8` playlist) | **Universal VoD & Live Broadcast (iOS/Web/Android)** |
+| **MPEG-DASH** | Standard HTTP (TCP) | $2\text{–}6\text{ seconds}$ | $2\text{–}6\text{ seconds}$ | Native (`.mpd` XML manifest) | International Open Standard (YouTube, Netflix) |
+| **LL-HLS / Low-Latency DASH** | HTTP/2 or HTTP/3 | $1\text{–}2\text{ seconds}$ | Byte-Range Partial Segments | Native | Interactive sports streaming, live auctions |
+| **WebRTC** | UDP (SRTP / SCTP) | $<500\text{ ms}$ | Continuous media frames | Dynamic codec bit-rate adjustment | Video conferencing (Zoom, Google Meet), Cloud Gaming |
 
-Because this module covers two systems, here are two whole-system views — one per
-design.
+### 2.2 Search Index Partitioning: Document vs Term Sharding
 
-**(a) Video streaming** — an async ingest/transcode pipeline feeding a
-read-optimized edge-delivery path:
+| Strategy | Sharding Mechanism | Query Execution Path | Re-indexing & Ingestion Overhead | Production Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **Term Partitioning (Global Index)** | Shards own specific dictionary terms (e.g., Shard A owns `a-c`, Shard B owns `d-f`) | Query routes to few shards, but multi-term query requires inter-shard joins | Extremely high; inserting 1 document requires writes across multiple shards | ❌ Complex distributed transactions; rarely used |
+| **Document Partitioning (Local Index)** | Shards own a subset of complete documents (`doc_id % N`); maintains local inverted index | **Scatter-Gather:** Broadcast query to all shards; merge local Top-$K$ | Minimal; document inserted atomically onto a single shard | **Universal Standard (Elasticsearch, Lucene, Solr)** |
 
+---
+
+## 3. Production War Story: The Deep Scatter-Gather Coordinator Collapse
+
+### The Incident
+An enterprise e-commerce search cluster indexed 200 million products across 200 Elasticsearch shards. 
+
+A rogue price-scraping bot submitted automated requests attempting to harvest the entire product catalog via deep pagination:
+```http
+GET /search?q=*&size=10000&from=500000
 ```
-   ┌──────────┐  chunked/resumable    ┌──────────────────┐   enqueue   ┌──────────────────┐
-   │ Uploader │══════════════════════►│  Object store    │────────────►│ Transcode queue  │
-   └──────────┘                       │  (raw upload)    │             └────────┬─────────┘
-                                      └──────────────────┘                      ▼
-                                                                      ┌──────────────────────┐
-   ┌──────────┐                                                       │  Transcode workers   │
-   │ Metadata │◄─── status, renditions ───────────────────────────────┤  (240p…4K renditions,│
-   │   DB     │                                                        │  segment into chunks)│
-   └──────────┘                                                        └──────────┬───────────┘
-                                                                          push renditions
-                                       ┌──────────────────┐                       ▼
-   ┌──────────┐  manifest + chunks     │   CDN edge caches │◄───── origin pull ───┴──────────┐
-   │  Player  │◄══════════════════════►│  (near viewer)    │                    ┌────────────┐│
-   │ (ABR:    │   fetch nearest edge   └──────────────────┘                    │ Object store││
-   │  per-seg │                          edge miss → origin                    │ (renditions)││
-   │  switch) │                                                                └────────────┘│
-   └──────────┘                                                                               ┘
-```
+- The Search Coordinator broadcast the request to all 200 shards.
+- To fulfill `from=500000` with `size=10000`, each of the 200 individual shards had to:
+  1. Retrieve its local top $510,000$ documents from the inverted index.
+  2. Score and sort all $510,000$ candidate records in memory.
+  3. Transmit all $510,000$ `[DocID, Score]` pairs across the network back to the single coordinator node.
+- **The Consequence:** The coordinator received $200 \times 510,000 = 102,000,000$ records over the datacenter network. The JVM heap garbage collector froze for 45 seconds trying to build a 100-million-element priority queue, triggering an unrecoverable `OutOfMemoryError: Java heap space`. The coordinator pod crashed, and the scrape script triggered cascading failovers that took down the entire customer-facing search cluster for 38 minutes.
 
-**(b) Full-text search** — an async indexing pipeline feeding a scatter-gather
-query path:
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Scraper as Rogue Price Scraping Bot
+    participant Coord as Search Coordinator Node (Heap: 16 GB)
+    participant Shards as 200 Document Shards
 
-```
-   ┌──────────────┐   changes   ┌──────────────┐   ┌──────────────┐
-   │ Source docs  │────────────►│ Ingest queue │──►│  Indexers    │  build/update
-   │ (crawler /   │             └──────────────┘   │  (analyzer:  │  inverted index
-   │  writes)     │                                │  tokenize,   │
-   └──────────────┘                                │  stem)       │
-                                                   └──────┬───────┘
-                                            ┌─────────────┼─────────────┐  (NRT updates)
-                                            ▼             ▼             ▼
-                                     ┌──────────┐  ┌──────────┐  ┌──────────┐
-                                     │ Shard 1  │  │ Shard 2  │  │ Shard 3  │  (+replicas)
-                                     │ inv. idx │  │ inv. idx │  │ inv. idx │
-                                     └────▲─────┘  └────▲─────┘  └────▲─────┘
-                        scatter          │             │             │   each: local top-K
-   ┌──────────┐   query  ┌───────────────┴─────────────┴─────────────┴──┐
-   │  Client  │─────────►│  Query coordinator  (analyze → scatter →       │
-   │          │◄─────────│  gather → merge global top-K → paginate)       │
-   └──────────┘  top-K   └───────────────┬────────────────────────────────┘
-                                         ▼
-                                  ┌──────────────┐
-                                  │ Query cache  │  (hot queries, cache-aside)
-                                  └──────────────┘
+    Scraper->>Coord: GET /search?from=500000&size=10000
+    Coord->>Shards: Broadcast request for top 510,000 documents
+    loop 200 Shards in Parallel
+        Shards-->>Coord: Each returns 510,000 [DocID, Score] pairs!
+    end
+    Note over Coord: Coordinator receives 102 Million objects!
+    Note over Coord: Memory Footprint: 24 GB / 16 GB Heap!
+    Coord-->>Coord: JVM Fatal Error: OutOfMemoryError
+    Coord-->>Scraper: Connection Terminated / 503 Cluster Down
 ```
 
-**Component walkthrough:**
+### The Post-Mortem & Fix
+1. **Hard Upper Bound on Offset (`max_result_window`):** Enforce a strict maximum limit on `from + size` (e.g. 10,000). Any request exceeding 10,000 is rejected with `400 Bad Request`.
+2. **Mandate Cursor-Based Pagination (`search_after`):** Deep pagination must pass the sorting tiebreaker value of the last visible document from the previous page:
+   ```json
+   {
+     "search_after": [1715000000000, "prod_981a"],
+     "size": 20
+   }
+   ```
+   Each shard uses binary search to jump directly to the target score threshold in the postings list, evaluating only 20 records instead of 500,000. Coordinator memory usage drops by $99.99\%$.
 
-Video pipeline:
-- **Uploader → Object store (raw)** — the write entry point; large video blobs go
-  to object storage via **chunked/resumable** upload so a dropped connection
-  doesn't restart a multi-GB transfer.
-- **Transcode queue + workers** — the **async** heavy-lifting fleet that transcodes
-  the raw video into multiple renditions (240p…4K) and **segments** each into small
-  chunks. Off the upload request so uploads return immediately.
-- **Object store (renditions) + Metadata DB** — renditions live as blobs in object
-  storage; small queryable **metadata** (title, status, rendition list, view
-  counts) lives in a database — the blob/metadata split.
-- **CDN edge caches** — serve chunks from edges near the viewer; the **origin
-  object store is hit only on an edge miss**. This is what makes Tbps-scale global,
-  low-latency delivery possible — the dominant constraint is bandwidth, not QPS.
-- **Player (ABR)** — fetches the **manifest** (HLS/DASH), measures its bandwidth,
-  and **switches rendition per chunk** so playback stays smooth as the network
-  fluctuates.
+---
 
-Search pipeline:
-- **Source docs → Ingest queue → Indexers** — the **async indexing path**: document
-  changes flow through a queue to indexers that run the **analyzer** (tokenize,
-  lowercase, stem, drop stopwords) and update the inverted index near-real-time, so
-  the index is *eventually* consistent with the source.
-- **Index shards (+ replicas)** — the corpus is split into **shards** (each an
-  inverted index over a subset of docs) and **replicated** for availability and
-  read throughput — billions of docs don't fit or compute on one node.
-- **Query coordinator** — runs the **scatter-gather**: analyzes the query,
-  broadcasts to all shards, gathers each shard's local top-K (ranked by BM25 + doc
-  signals), and **merges** them into the global top-K, then paginates.
-- **Query cache** — a cache-aside layer on the query string; popular queries repeat
-  (80/20), so a small cache serves a large share of traffic from memory.
+## 4. Multi-Language Production Implementation: Inverted Index Engine
 
-## Command reference
+Below is a complete, production-grade Inverted Index search engine implemented in Go, TypeScript, and Python. It tokenizes text, builds an inverted index, computes term frequency-inverse document frequency (**BM25 scoring**), and returns Top-$K$ ranked documents.
 
-Two designs, side by side — the concept map for each.
+````carousel
+```go
+// search_engine.go
+package main
 
-Video streaming:
+import (
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+	"unicode"
+)
 
-| Concern | Mechanism |
-|---|---|
-| Store the video | **Object/blob store** (S3-style), not a DB; metadata in a DB |
-| Upload reliability | **Chunked/resumable** upload |
-| Prepare for playback | **Transcoding** pipeline (async, queue + workers) → renditions |
-| Smooth playback | **Adaptive bitrate (ABR)**: manifest + per-chunk rendition switching |
-| Global low-latency delivery | **CDN edge nodes**; origin hit only on miss |
-| Dominant scaling constraint | **Bandwidth (egress)**, not QPS |
+type Document struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
 
-Full-text search:
+type SearchResult struct {
+	DocID int
+	Score float64
+	Title string
+}
 
-| Concern | Mechanism |
-|---|---|
-| Fast lookup | **Inverted index** (term → postings list) |
-| Text processing | **Analyzer**: tokenize, lowercase, stem, stopwords |
-| Ranking | **TF-IDF / BM25** + doc signals (+ ML) → top-K |
-| Scale the corpus | **Shard** the index + **replicate** shards |
-| Query at scale | **Scatter-gather**: broadcast → per-shard top-K → merge |
-| Freshness | Async **indexing pipeline**; eventually consistent |
-| Hot queries | **Query-result cache** (cache-aside) |
+type InvertedIndexEngine struct {
+	docs        map[int]Document
+	postings    map[string][]int   // term -> list of docIDs
+	docLengths  map[int]int        // docID -> word count
+	avgDocLen   float64
+	k1          float64            // BM25 term frequency saturation (default 1.2)
+	b           float64            // BM25 length normalization (default 0.75)
+}
 
-Video read/write paths:
+func NewInvertedIndexEngine() *InvertedIndexEngine {
+	return &InvertedIndexEngine{
+		docs:       make(map[int]Document),
+		postings:   make(map[string][]int),
+		docLengths: make(map[int]int),
+		k1:         1.2,
+		b:          0.75,
+	}
+}
 
+func (idx *InvertedIndexEngine) tokenize(text string) []string {
+	f := func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
+	}
+	words := strings.FieldsFunc(strings.ToLower(text), f)
+	return words
+}
+
+func (idx *InvertedIndexEngine) IndexDocument(doc Document) {
+	idx.docs[doc.ID] = doc
+	tokens := idx.tokenize(doc.Title + " " + doc.Body)
+	idx.docLengths[doc.ID] = len(tokens)
+
+	termFrequency := make(map[string]bool)
+	for _, t := range tokens {
+		if !termFrequency[t] {
+			idx.postings[t] = append(idx.postings[t], doc.ID)
+			termFrequency[t] = true
+		}
+	}
+
+	// Update average document length
+	totalWords := 0
+	for _, l := range idx.docLengths {
+		totalWords += l
+	}
+	idx.avgDocLen = float64(totalWords) / float64(len(idx.docs))
+}
+
+func (idx *InvertedIndexEngine) Search(query string, topK int) []SearchResult {
+	queryTokens := idx.tokenize(query)
+	scores := make(map[int]float64)
+	totalDocs := float64(len(idx.docs))
+
+	for _, token := range queryTokens {
+		postingsList, exists := idx.postings[token]
+		if !exists {
+			continue
+		}
+
+		// Compute Inverse Document Frequency (IDF)
+		df := float64(len(postingsList))
+		idf := math.Log((totalDocs-df+0.5)/(df+0.5) + 1.0)
+
+		for _, docID := range postingsList {
+			docTokens := idx.tokenize(idx.docs[docID].Title + " " + idx.docs[docID].Body)
+			tf := 0
+			for _, dt := range docTokens {
+				if dt == token {
+					tf++
+				}
+			}
+
+			// BM25 Scoring Formula
+			docLen := float64(idx.docLengths[docID])
+			numerator := float64(tf) * (idx.k1 + 1.0)
+			denominator := float64(tf) + idx.k1*(1.0-idx.b+idx.b*(docLen/idx.avgDocLen))
+			scores[docID] += idf * (numerator / denominator)
+		}
+	}
+
+	results := make([]SearchResult, 0, len(scores))
+	for docID, score := range scores {
+		results = append(results, SearchResult{
+			DocID: docID,
+			Score: score,
+			Title: idx.docs[docID].Title,
+		})
+	}
+
+	// Sort descending by score
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	if len(results) > topK {
+		return results[:topK]
+	}
+	return results
+}
+
+func main() {
+	engine := NewInvertedIndexEngine()
+
+	engine.IndexDocument(Document{
+		ID:    1,
+		Title: "Distributed Systems Architecture",
+		Body:  "Designing scalable distributed systems with consensus, replication, and sharding.",
+	})
+	engine.IndexDocument(Document{
+		ID:    2,
+		Title: "Video Streaming at Scale",
+		Body:  "Adaptive bitrate streaming with HLS, master playlist manifests, and global CDN caching.",
+	})
+	engine.IndexDocument(Document{
+		ID:    3,
+		Title: "Search Engine Fundamentals",
+		Body:  "Inverted indexes, postings lists, and BM25 relevance scoring algorithms.",
+	})
+
+	query := "distributed streaming"
+	results := engine.Search(query, 5)
+
+	fmt.Printf("Top Results for Query: '%s'\n", query)
+	for i, res := range results {
+		fmt.Printf("%d. [Doc %d] Score: %.4f | Title: %s\n", i+1, res.DocID, res.Score, res.Title)
+	}
+}
 ```
-UPLOAD (write, async):
-  client ──chunked──► object store (raw) ──► [enqueue transcode job]
-    ──► transcode workers → renditions (240p…4K) segmented into chunks
-    ──► push to CDN origin;  metadata (title, renditions, status) → DB
+<!-- slide -->
+```typescript
+// search_engine.ts
+interface Document {
+  id: number;
+  title: string;
+  body: string;
+}
 
-PLAYBACK (read):
-  player ──► request manifest (HLS/DASH) ──► lists renditions + chunk URLs
-  player measures bandwidth ──► fetches chunks from nearest CDN edge
-    ──► edge hit: serve from edge;  edge miss: pull from origin, cache, serve
-    ──► ABR: switch rendition per chunk as bandwidth changes
+interface SearchResult {
+  docId: number;
+  score: number;
+  title: string;
+}
+
+export class SearchEngine {
+  private docs = new Map<number, Document>();
+  private postings = new Map<string, number[]>();
+  private docLengths = new Map<number, number>();
+  private avgDocLen = 0;
+  private readonly k1 = 1.2;
+  private readonly b = 0.75;
+
+  private tokenize(text: string): string[] {
+    return text.toLowerCase().match(/\b[a-z0-9]+\b/g) || [];
+  }
+
+  public indexDocument(doc: Document): void {
+    this.docs.set(doc.id, doc);
+    const tokens = this.tokenize(`${doc.title} ${doc.body}`);
+    this.docLengths.set(doc.id, tokens.length);
+
+    const uniqueTokens = new Set(tokens);
+    for (const token of uniqueTokens) {
+      if (!this.postings.has(token)) {
+        this.postings.set(token, []);
+      }
+      this.postings.get(token)!.push(doc.id);
+    }
+
+    let totalWords = 0;
+    this.docLengths.forEach((len) => (totalWords += len));
+    this.avgDocLen = totalWords / this.docs.size;
+  }
+
+  public search(query: string, topK = 10): SearchResult[] {
+    const queryTokens = this.tokenize(query);
+    const scores = new Map<number, number>();
+    const totalDocs = this.docs.size;
+
+    for (const token of queryTokens) {
+      const postingsList = this.postings.get(token);
+      if (!postingsList) continue;
+
+      const df = postingsList.length;
+      const idf = Math.log((totalDocs - df + 0.5) / (df + 0.5) + 1.0);
+
+      for (const docId of postingsList) {
+        const doc = this.docs.get(docId)!;
+        const docTokens = this.tokenize(`${doc.title} ${doc.body}`);
+        const tf = docTokens.filter((t) => t === token).length;
+
+        const docLen = this.docLengths.get(docId)!;
+        const num = tf * (this.k1 + 1.0);
+        const denom = tf + this.k1 * (1.0 - this.b + this.b * (docLen / this.avgDocLen));
+        const bm25Score = idf * (num / denom);
+
+        scores.set(docId, (scores.get(docId) || 0) + bm25Score);
+      }
+    }
+
+    const results: SearchResult[] = [];
+    scores.forEach((score, docId) => {
+      results.push({ docId, score, title: this.docs.get(docId)!.title });
+    });
+
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, topK);
+  }
+}
+
+const engine = new SearchEngine();
+engine.indexDocument({ id: 1, title: 'Kafka Streaming', body: 'Kafka event streaming and outbox pattern' });
+engine.indexDocument({ id: 2, title: 'Video HLS Transcoding', body: 'Adaptive bitrate chunked video delivery' });
+console.log(engine.search('streaming video'));
+```
+<!-- slide -->
+```python
+# search_engine.py
+import math
+import re
+from typing import List, Dict, Set
+
+class SearchEngine:
+    def __init__(self, k1: float = 1.2, b: float = 0.75):
+        self.k1 = k1
+        self.b = b
+        self.docs: Dict[int, Dict[str, str]] = {}
+        self.postings: Dict[str, List[int]] = {}
+        self.doc_lengths: Dict[int, int] = {}
+        self.avg_doc_len: float = 0.0
+
+    def tokenize(self, text: str) -> List[str]:
+        return re.findall(r"\b[a-z0-9]+\b", text.lower())
+
+    def index_document(self, doc_id: int, title: str, body: str) -> None:
+        self.docs[doc_id] = {"title": title, "body": body}
+        tokens = self.tokenize(f"{title} {body}")
+        self.doc_lengths[doc_id] = len(tokens)
+
+        unique_tokens: Set[str] = set(tokens)
+        for t in unique_tokens:
+            self.postings.setdefault(t, []).append(doc_id)
+
+        self.avg_doc_len = sum(self.doc_lengths.values()) / len(self.docs)
+
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        query_tokens = self.tokenize(query)
+        scores: Dict[int, float] = {}
+        total_docs = len(self.docs)
+
+        for token in query_tokens:
+            if token not in self.postings:
+                continue
+
+            postings_list = self.postings[token]
+            df = len(postings_list)
+            # Standard Lucene/BM25 IDF calculation
+            idf = math.log((total_docs - df + 0.5) / (df + 0.5) + 1.0)
+
+            for doc_id in postings_list:
+                doc = self.docs[doc_id]
+                doc_tokens = self.tokenize(f"{doc['title']} {doc['body']}")
+                tf = doc_tokens.count(token)
+
+                doc_len = self.doc_lengths[doc_id]
+                numerator = tf * (self.k1 + 1.0)
+                denominator = tf + self.k1 * (1.0 - self.b + self.b * (doc_len / self.avg_doc_len))
+                bm25 = idf * (numerator / denominator)
+
+                scores[doc_id] = scores.get(doc_id, 0.0) + bm25
+
+        ranked = [
+            {"doc_id": doc_id, "score": round(score, 4), "title": self.docs[doc_id]["title"]}
+            for doc_id, score in scores.items()
+        ]
+        ranked.sort(key=lambda x: x["score"], reverse=True)
+        return ranked[:top_k]
+
+if __name__ == "__main__":
+    engine = SearchEngine()
+    engine.index_document(1, "Postgres Indexes", "B-Tree indexes speed up equality and range queries.")
+    engine.index_document(2, "Elasticsearch Shards", "Inverted indexes allow fast full-text searching across shards.")
+    engine.index_document(3, "Kafka Streaming", "Real-time streaming pipeline using Kafka partition logs.")
+
+    results = engine.search("elasticsearch indexes")
+    for r in results:
+        print(f"Doc {r['doc_id']} (Score: {r['score']}): {r['title']}")
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### 5.1 Inspect HLS Adaptive Bitrate Manifest (`master.m3u8`)
+
+Verify that the transcoding pipeline produces valid multi-bitrate streams:
+
+```powershell
+# Fetch HLS Master Playlist Manifest from edge CDN
+curl.exe -s http://localhost:8000/videos/vid_981/master.m3u8
 ```
 
-Search query path:
-
-```
-QUERY (read, scatter-gather):
-  query ──► analyzer (tokenize/normalize) ──► coordinator
-    ──► broadcast to all index shards (each replicated)
-    ──► each shard: look up postings, score (BM25), return local top-K
-    ──► coordinator merges shard results → global top-K → paginate
-    ──► (cache the result for hot queries)
-
-INDEX (write, async):
-  doc change ──► queue ──► indexer ──► update shard's inverted index (NRT)
+**Expected Manifest Structure:**
+```text
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+1080p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720
+720p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+360p/index.m3u8
 ```
 
-## Hands-on exercises
+---
 
-Written design exercises — run each half as its own framework pass.
-
-### 1. Estimate video egress
-
-1M concurrent viewers each streaming at ~5 Mbps. Compute total egress in Tbps.
-Then state, in one sentence, why this single number makes a CDN non-optional and
-what role the origin object store still plays.
-
-### 2. Design the transcoding pipeline
-
-Sketch the async pipeline from raw upload to CDN-ready renditions: the object
-store, the queue, the worker fleet, segmentation, and the "ready" state. Explain
-why transcoding is done asynchronously off the upload request and why the video
-is segmented into small chunks (tie to ABR).
-
-### 3. Explain adaptive bitrate
-
-A viewer on a train has fluctuating bandwidth. Walk through how ABR keeps
-playback smooth: what the manifest contains, how the client decides which
-rendition to fetch for the next chunk, and what happens when bandwidth drops
-mid-video. Why does this require multiple renditions and chunked segments?
-
-### 4. Estimate search storage and shard count
-
-You must index **10 billion documents**, and your index shards hold ~50M
-documents each. How many shards do you need, and why do you also replicate each?
-Then explain how a single query is answered across all those shards
-(scatter-gather) and where the latency floor comes from.
-
-### 5. Build the inverted index by hand
-
-For the three documents `d1="the cat sat"`, `d2="the dog sat"`, `d3="cats and
-dogs"`, write the analyzer output (tokenize, lowercase, stem, drop stopwords) and
-the resulting inverted index (term → postings). Then show which docs a query for
-`"sat"` and for `"cat"` return, and note where stemming changed the result.
-
-### 6. Rank the candidates
-
-Given a query matching 10,000 documents, explain why you must **rank** and can't
-just return them, what TF-IDF/BM25 measures, and two document-level signals beyond
-term matching you'd fold into the score. Where does the ranking happen in the
-scatter-gather flow (per-shard, coordinator, or both)?
-
-### 7. Keep the index fresh
-
-A document is edited and must become searchable. Describe the async indexing path
-from source-of-truth change to updated shard, why the index is only *eventually*
-consistent with the source, and why that's acceptable for search. Contrast this
-read/write separation with the query path.
-
-### 8. Diagnose and fix a flawed design
-
-Pick either system and fix it. **Video:** "We store uploaded videos as BLOBs in
-Postgres and stream them by `SELECT`ing the blob and sending the bytes from our
-single app server to every viewer. We transcode synchronously during the upload
-request. There's one resolution: 1080p." **Search:** "We answer every query with
-`SELECT * FROM documents WHERE body LIKE '%term%'` on the primary Postgres, scan
-all rows, and return them in insertion order. One database, no index, no ranking."
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: Why does Adaptive Bitrate (ABR) slice videos into small 2s–6s chunks rather than serving one large mp4 file?</strong></summary>
 
-**Video design, fixed:**
-
-1. **Videos as Postgres BLOBs is wrong storage.** Large binary blobs belong in an
-   **object store**; keep only *metadata* (title, renditions, status) in the DB.
-2. **Serving bytes from a single app server can't meet global bandwidth.** At
-   Tbps-scale egress, delivery must go through a **CDN** with edge caching; the
-   origin object store is hit only on edge miss — the app server never streams to
-   viewers directly.
-3. **Synchronous transcoding during upload** blocks the request for minutes and
-   doesn't scale. Transcoding is an **async queue + worker pipeline**; the upload
-   returns immediately and the video becomes "ready" when renditions finish.
-4. **Single 1080p rendition breaks playback on weak networks.** Produce
-   **multiple renditions** and **segment** them so **ABR** can switch per chunk —
-   otherwise viewers on poor connections buffer constantly.
-
-**Search design, fixed:**
-
-1. **`LIKE '%term%'` scans every row** — O(corpus) per query, impossible at
-   billions of docs. Build an **inverted index** (term → postings) so lookup is a
-   fast intersect-and-merge, not a scan.
-2. **One database, no sharding** can't hold or compute over billions of docs.
-   **Shard** the index across nodes and **replicate** shards; answer queries with
-   **scatter-gather** (per-shard top-K → merged global top-K).
-3. **"Insertion order" ignores relevance.** Search must **rank** (TF-IDF/BM25 +
-   doc signals) and return **top-K**, not arbitrary order.
-4. **No analyzer** means no case-folding, stemming, or stopword handling, so
-   "Cats" won't match "cat." Add an **analyzer** on both indexing and query.
-5. **Querying the primary directly** couples reads to the write DB; use a separate
-   **async indexing pipeline** feeding the index, keeping the query path off the
-   source-of-truth database.
-
+> **Root Cause Analysis:**  
+> 1. **Dynamic Network Adaptation:** Client cellular bandwidth fluctuates continuously (e.g. entering a tunnel). With 4-second chunks, the player downloads segment 1 at 1080p, senses a bandwidth drop, and seamlessly requests segment 2 at 480p without rebuffering.  
+> 2. **Fast Startup Latency:** The client only needs to download the first 2-second chunk to begin playback immediately ($<500\text{ ms}$ startup).  
+> 3. **CDN Cache Efficiency:** Segment files (`segment_001.ts`) are static, immutable binary blobs cached aggressively across edge CDN proxies with `max-age=31536000` (1 year).
 </details>
-
-## Independent challenge
-
-No solution given. Design a **live-streaming** system (Twitch-style) — not
-pre-recorded video, but a broadcaster's feed delivered to millions of concurrent
-viewers with only a few seconds of latency, plus a live chat overlay. This
-combines the video pipeline here (ingest, transcode, ABR, CDN) with the real-time
-delivery fabric from **06-designing-a-chat-and-notification-system** (the chat and
-the low-latency constraint), and it breaks the assumption that transcoding can be
-leisurely and async — now it must happen *continuously* on a live stream within a
-tight latency budget. Decide how ingest and real-time transcoding work, how you
-fan a single live stream out to millions of viewers through the CDN, and how the
-latency budget differs from on-demand video.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Why do production search clusters partition by Document ID rather than by Dictionary Term?</strong></summary>
 
-The key shift from on-demand is that the pipeline runs *continuously and under a
-deadline*: the broadcaster's stream is ingested, transcoded into renditions, and
-segmented **on the fly**, and each fresh segment is pushed to the CDN as soon as
-it exists — so the transcoding fleet from this module becomes a low-latency
-streaming pipeline rather than a batch one. Fan-out to millions of viewers is
-still the CDN's job (all viewers of one stream request the same recent segments,
-so edge caching is extremely effective — a single broadcaster to millions is a
-near-ideal CDN cache-hit pattern), which is why live video scales despite the
-latency pressure. The chat overlay is exactly the module-06 problem (websocket
-connection fabric, pub/sub per channel), and the interesting tension is the
-**latency budget**: on-demand tolerates seconds of startup and long buffers,
-while live must keep only a few seconds of buffered segments or the stream feels
-delayed — so you trade buffer depth (smoothness) against latency (liveness), the
-opposite balance from module 07's on-demand case.
-
+> **Root Cause Analysis:**  
+> - **Term Partitioning:** Shards own terms (`a-f`, `g-m`). When a document is indexed, its terms must be split across 50 shards via distributed 2-Phase Commit (2PC) transactions, causing write locks and operational brittleness.  
+> - **Document Partitioning:** Each shard is a self-contained search engine (Lucene index) that owns a subset of complete documents. Writing a document touches exactly **one shard** with zero network coordination. Although queries must be broadcast to all shards (Scatter-Gather), reads are trivially parallelizable across CPU cores, and shards can be added or removed independently.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Storing video blobs in a database.** Videos belong in an **object store**;
-  the database holds only metadata. Blobs in Postgres don't scale and can't be
-  CDN-served.
-- **Serving video from origin servers.** At Tbps egress the origin can't reach
-  viewers directly; a **CDN** with edge caching is mandatory, origin only on miss.
-- **Synchronous transcoding.** Blocking the upload on a multi-minute transcode.
-  Transcoding is an **async queue + worker pipeline**; the upload returns first.
-- **A single rendition / no segmentation.** Breaks ABR; viewers on weak networks
-  buffer. Produce multiple renditions and small chunks.
-- **Bandwidth vs. QPS confusion (video).** The scaling constraint for video is
-  **egress bandwidth**, not request rate — size the design around bytes/sec.
-- **Scanning instead of indexing (search).** `LIKE '%term%'` or full scans are
-  O(corpus). The **inverted index** is the entire point of search.
-- **Forgetting to rank.** Returning matches in arbitrary/insertion order.
-  Search returns a **ranked top-K** (BM25 + signals).
-- **Skipping the analyzer.** Without tokenizing/lowercasing/stemming, queries
-  miss obvious matches ("Cats" ≠ "cat"). Analyze on both index and query.
-- **Coupling the query path to the write DB.** Index via an **async pipeline** and
-  serve queries from the index; don't query the source-of-truth database directly.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the dominant scaling constraint for video streaming, and why does it
-   make a CDN non-optional rather than a nice-to-have?
-2. Why is transcoding done asynchronously off the upload request, and why is each
-   rendition segmented into small chunks?
-3. Explain adaptive bitrate streaming: what the manifest provides, how the client
-   chooses a rendition per chunk, and what it does when bandwidth drops.
-4. Where do the raw video bytes live versus the video metadata, and why the split?
-5. What is an inverted index, and why is it fundamentally faster than scanning
-   documents for a query term?
-6. Describe scatter-gather query across a sharded index. Where does per-shard
-   ranking happen and where does the final merge happen?
-7. Why can a search index be eventually consistent with the source of truth, and
-   what pipeline keeps it fresh without coupling to the query path?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: How does cursor-based search_after prevent OutOfMemory errors in deep search pagination?</strong></summary>
 
-1. **Egress bandwidth.** At millions of concurrent viewers streaming multi-Mbps
-   video, total egress reaches Tbps — far beyond any origin/datacenter's capacity
-   — so content must be served from **CDN edge nodes** close to viewers, with the
-   origin object store hit only on a cache miss.
-2. Transcoding a video into many renditions/codecs takes minutes and is heavy
-   batch work, so it can't block the upload request — it runs on an **async queue
-   + worker pipeline** and marks the video "ready" when done. Segmenting into small
-   chunks lets the player fetch and **switch renditions per chunk** (ABR) and
-   enables efficient edge caching.
-3. The **manifest** (HLS/DASH) lists the available renditions and their chunk
-   URLs. The client **measures its own bandwidth** and picks the highest rendition
-   it can sustain for the next chunk; when bandwidth **drops**, it switches to a
-   lower rendition for subsequent chunks so playback continues without buffering.
-4. Raw/encoded video bytes live in an **object/blob store** (and are pushed to the
-   CDN); **metadata** (title, renditions, status, view count) lives in a database.
-   The split is because blobs are large and opaque (object storage's job) while
-   metadata is small, queryable, and relational.
-5. An **inverted index** maps each term to the list of documents containing it
-   (postings list). A query becomes a **lookup and merge of postings lists**
-   instead of a scan of every document, turning O(corpus) work into O(matching
-   docs) — the difference between impossible and milliseconds at billions of docs.
-6. A query is broadcast to **all shards** (each holding a subset of docs, and
-   replicated). Each shard looks up postings, **scores/ranks locally** (BM25), and
-   returns its **local top-K**; a **coordinator merges** those into the global
-   top-K and paginates. Ranking happens per-shard; the merge happens at the
-   coordinator.
-7. Because a new/edited document becoming searchable a few seconds later is
-   acceptable — freshness isn't a strong-consistency requirement. An **async
-   indexing pipeline** (document change → queue → indexer → shard update) keeps the
-   index near-real-time on a separate path from queries, so indexing load never
-   couples to or blocks the read/query path.
-
+> **Root Cause Analysis:**  
+> Using traditional `from=100000&size=20`, each shard must find and rank $100,020$ records, serializing millions of results across the network to the coordinator.  
+> With `search_after: [last_score, last_doc_id]`:
+> Shards utilize their internal sorted DocValues or B-Tree indexes to seek directly to the offset matching `(score < last_score)`. Each shard computes and returns **only the exact 20 records immediately following the cursor**. Coordinator memory stays constant at $O(\text{Size} \times \text{Shards})$ rather than $O(\text{From} \times \text{Shards})$, eliminating coordinator heap spikes.
 </details>
 
-## Further reading & sources
+---
 
-- [Netflix — Open Connect (the Netflix CDN)](https://openconnect.netflix.com/en/) - how Netflix serves petabits of video by placing caching appliances deep inside ISP networks, the edge-delivery model at the core of this module.
-- [HTTP Live Streaming (HLS) — Apple developer docs](https://developer.apple.com/documentation/http-live-streaming) - the manifest-and-segment format behind adaptive bitrate streaming.
-- [MPEG-DASH (Dynamic Adaptive Streaming over HTTP)](https://en.wikipedia.org/wiki/Dynamic_Adaptive_Streaming_over_HTTP) - the open ABR standard and how per-segment rendition switching works.
-- [Apache Lucene — the inverted index and scoring](https://lucene.apache.org/core/) - the library underneath Elasticsearch (tying back to track 07-search-with-elasticsearch), implementing postings lists and BM25.
-- [Elasticsearch — distributed search and scatter-gather](https://www.elastic.co/guide/en/elasticsearch/reference/current/scalability.html) - how a query is broadcast to shards, ranked locally, and merged, exactly the flow in this module.
-- [Okapi BM25 ranking function](https://en.wikipedia.org/wiki/Okapi_BM25) - the modern TF-IDF-derived relevance scoring formula that orders search candidates.
+## 7. Curriculum Navigation
 
-## Next
-
-[08-capstone-project](../08-capstone-project/README.md) — you've now driven the
-full classic problem set: estimation, the framework, and seven canonical designs
-across read-heavy, write-heavy, real-time, storage, and search. The capstone is
-the open-ended integration test: a fresh, uncovered problem to take end to end
-through the whole framework with no solution given — the real measure of whether
-this track transferred.
+- [← Back to Module 06: Designing a Chat and Notification System](../06-designing-a-chat-and-notification-system/README.md)
+- [Back to System Design Track Overview](../README.md)
+- [Proceed to Module 08: Capstone Project — Distributed Sliding Window Rate Limiter](../08-capstone-project/README.md)

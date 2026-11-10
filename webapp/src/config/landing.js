@@ -22,26 +22,27 @@ export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-
 export const HERO = {
   eyebrow: 'Free · No sign-up to read',
   headline: 'Build the engineering skills that matter.',
-  lead: (modules) => `Learn backend development, cloud engineering, GenAI and system design through structured roadmaps, hands-on practice and real-world challenges.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
+  lead: (modules) => `Learn backend development, distributed systems, cloud DevOps and AI engineering through 4 focused flagship tracks, actionable milestone projects and real-world failure post-mortems.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
   // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
   // FALLBACK_START_FILE instead.
-  startPath: 'backend-foundations',
-  exploreLabel: 'Explore Learning Paths',
-  startLabel: 'Start Learning',
-  browseLabel: 'Browse the curriculum',
+  startPath: 'production-core',
+  exploreLabel: 'Explore Flagship Tracks',
+  startLabel: 'Start Production Core',
+  browseLabel: 'Browse All Curricula',
   searchLabel: (modules) => (modules ? `Search ${fmt(modules.written)} modules and topics` : 'Search modules and topics'),
-  routeCaption: 'A route through it'
+  routeCaption: 'The 4 Milestones'
 };
 
 // One concrete route through the written material: every stop is a real track overview.
 export const ROUTE = [
-  { label: 'Request & response', sub: 'HTTP, headers, methods', file: 'backend/01-request-response-fundamentals/README.md' },
-  { label: 'APIs', sub: 'Routing, validation, errors', file: 'backend/02-api-layer-and-request-handling/README.md' },
-  { label: 'Databases', sub: 'Schemas, indexes, transactions', file: 'backend/04-databases-and-data-layer/README.md' },
-  { label: 'Caching', sub: 'Where, what and when to invalidate', file: 'backend/05-caching-and-performance/README.md' },
-  { label: 'Distributed systems', sub: 'Retries, consistency, queues', file: 'backend/10-distributed-systems-patterns/README.md' },
-  { label: 'Kubernetes', sub: 'Pods to production', file: 'learn/03-kubernetes/README.md' },
-  { label: 'LLM APIs', sub: 'Streaming, tools, structured output', file: 'genai/06-openai-and-the-model-landscape/README.md' }
+  { label: 'Production Core', sub: 'APIs, SQL, Auth, Caching', file: 'backend/01-request-response-fundamentals/README.md' },
+  { label: 'Milestone 1', sub: 'Idempotent Payment Engine', file: 'backend/04-databases-and-data-layer/README.md' },
+  { label: 'High-Scale Systems', sub: 'Kafka, Sagas, gRPC, Sharding', file: 'backend/10-distributed-systems-patterns/README.md' },
+  { label: 'Milestone 2', sub: 'Distributed Rate Limiter', file: 'backend/17-kafka-and-streaming/README.md' },
+  { label: 'DevOps & SRE', sub: 'Docker, K8s, Metrics, SLOs', file: 'learn/03-kubernetes/README.md' },
+  { label: 'Milestone 3', sub: 'Self-Healing Canary Pipeline', file: 'learn/12-observability-deep-dive/README.md' },
+  { label: 'AI Backend', sub: 'Vector DBs, RAG, LLM APIs', file: 'genai/06-openai-and-the-model-landscape/README.md' },
+  { label: 'Milestone 4', sub: 'Semantic Cache Gateway', file: 'genai/08-embeddings-and-vector-databases/README.md' }
 ];
 
 // The lessons read most this month (api/routes/popular.js): shown only when there are enough of them to be a real list.
@@ -55,9 +56,9 @@ export const POPULAR = {
 
 // The learning paths, as cards. The numbers come from the stats (`stats.paths`).
 export const PICK = {
-  heading: 'Pick a path',
-  sub: 'Each path is a short, ordered route with a finish line, built from the written modules. Pick one and your progress is tracked against it.',
-  startLabel: 'Start this path',
+  heading: 'The 4 Flagship Tracks',
+  sub: 'Master the curriculum through 4 actionable milestones instead of a 400-module wall. Each track culminates in a production-ready milestone project.',
+  startLabel: 'Start this track',
   meta: (p) => PATH_COPY.meta(p.modules, formatDuration(p.minutes), p.tracks)
 };
 

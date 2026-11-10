@@ -1,0 +1,208 @@
+{
+  "incidents": [
+    {
+      "id": "inc-db-pool-exhaustion",
+      "title": "03:14 AM — Database Connection Pool Starvation & Lock Contention",
+      "severity": "P1",
+      "service_name": "billing-worker-prod",
+      "scenario_markdown": "PagerDuty alerts fire as `billing-worker` API p99 latency spikes from 35ms to 6,800ms. Error rates on `/v1/checkout` surge to 42% with HTTP 504 Gateway Timeout. Database CPU on Postgres primary is sitting at only 12%, but the active connection count has hit the max pool cap (500/500), queuing all incoming transactions.",
+      "logs_snippet": "2026-11-09T03:14:02.112Z [WARN] pool.HikariPool - billing-db: Connection is not available, request timed out after 5002ms.\n2026-11-09T03:14:03.441Z [ERROR] billing.checkout - Transaction aborted: context deadline exceeded\n  db.Exec(\"BEGIN TRANSACTION\")\n  db.QueryRow(\"SELECT * FROM accounts WHERE user_id = $1 FOR UPDATE\", uid)\n  // External call to 3rd-party fraud API\n  fraudResp := http.Post(\"https://fraud-api.partner.io/v1/score\", ...)\n  db.Exec(\"UPDATE accounts SET balance = balance - $1 WHERE user_id = $2\", amt, uid)\n  db.Exec(\"COMMIT\")",
+      "options": [
+        {
+          "id": 1,
+          "text": "PostgreSQL has exhausted memory due to inadequate shared_buffers configuration."
+        },
+        {
+          "id": 2,
+          "text": "A synchronous external HTTP call is held inside an open database transaction lock, tying up pool connections."
+        },
+        {
+          "id": 3,
+          "text": "The HikariCP maxLifetime setting is too short, causing rapid TCP reconnection storms."
+        },
+        {
+          "id": 4,
+          "text": "Missing composite B-Tree index on accounts(user_id, balance)."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe checkout handler acquired an exclusive row lock (`SELECT ... FOR UPDATE`) inside an open database transaction and then performed an outbound HTTP call to a third-party fraud scoring API.\n\nWhen the fraud vendor experienced a 4-second latency degradation, each checkout thread held its PostgreSQL connection open for over 4 seconds waiting on network I/O. With 125 concurrent requests, the 500-connection pool was completely exhausted within 4 seconds.\n\n### The Resolution\n1. **Never perform network I/O inside a database transaction**: Fetch external fraud scores *before* opening the database transaction.\n2. **Strict Timeouts**: Enforce a 500ms `http.Client` timeout on all 3rd-party integration calls.\n3. **Pool Sizing**: PostgreSQL recommends pool size `(core_count * 2) + effective_spindle_count`, typically between 20-50 connections with a connection pooler like PgBouncer rather than 500 raw connections.",
+      "related_module": "backend/04-databases-and-data-layer/05-connection-pooling-and-pgbouncer/README.md"
+    },
+    {
+      "id": "inc-cache-stampede",
+      "title": "09:45 AM — Black Friday Cache Stampede & Dog-Piling Outage",
+      "severity": "P1",
+      "service_name": "product-catalog-api",
+      "scenario_markdown": "At 09:45 UTC, the flash sale banner for the top holiday item went live. Within seconds of the previous Redis key TTL expiring, p99 latency spiked from 8ms to 4,500ms. The read-replica database crashed due to CPU spiking to 100% under 140,000 queries per second.",
+      "logs_snippet": "09:45:00.001Z [INFO] redis.cache: Key 'featured_promo_hero' expired (TTL reached 0)\n09:45:00.015Z [WARN] postgres.replica: Active client queries jumped from 45 -> 14,210 in 15ms\n09:45:00.120Z [ERROR] postgres.replica: CPU utilization 100.0%, max_connections (1000) reached\n09:45:00.340Z [FATAL] catalog.handler: pq: remaining connection slots are reserved for non-replication superuser connections",
+      "options": [
+        {
+          "id": 1,
+          "text": "Redis persistence (RDB snapshotting) blocked the main event loop thread."
+        },
+        {
+          "id": 2,
+          "text": "Cache stampede: thousands of concurrent requests encountered a simultaneous cache miss and all hammered the database to recompute the same key."
+        },
+        {
+          "id": 3,
+          "text": "PostgreSQL query planner flipped from an Index Scan to a Sequential Scan due to outdated table statistics."
+        },
+        {
+          "id": 4,
+          "text": "The Redis cluster hash slot was overloaded, causing cross-slot CRC16 routing failures."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nWhen a high-traffic cache key expires without concurrency control, all simultaneous client requests experience a cache miss at the exact same millisecond. Each request independently issues a query to the database to populate the cache.\n\nUnder 140k req/s, tens of thousands of duplicate SQL queries hit Postgres simultaneously, completely overwhelming the engine.\n\n### The Resolution\n1. **Singleflight / Distributed Mutex**: Use a singleflight pattern (e.g. Go's `golang.org/x/sync/singleflight` or Redlock) so only ONE thread queries the database on a cache miss, while other concurrent requests wait on that single promise.\n2. **Probabilistic Early Expiration (XFetch)**: Recompute cache entries in the background slightly before the TTL expires based on request density.\n3. **Stale-While-Revalidate**: Serve the slightly stale cached value for 10 seconds while a background worker asynchronously refreshes the key.",
+      "related_module": "backend/05-caching-and-performance/02-cache-aside-and-write-through/README.md"
+    },
+    {
+      "id": "inc-kafka-rebalance-storm",
+      "title": "14:20 PM — Kafka Consumer Lag Avalanche & Rebalance Storm",
+      "severity": "P1",
+      "service_name": "event-stream-processor",
+      "scenario_markdown": "The order fulfillment consumer group suddenly stopped making progress. Consumer lag exploded to over 1.8 million messages. Every 30 to 45 seconds, the consumer group coordinator triggered a full group rebalance, halting all stream consumption across all 32 partitions.",
+      "logs_snippet": "14:20:15.820Z [WARN] org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: [Consumer clientId=consumer-order-group-3] Heartbeat failed: consumer poll timeout has expired\n14:20:15.825Z [INFO] org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: Group coordinator marked consumer member failed: max.poll.interval.ms exceeded\n14:20:16.104Z [INFO] org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: Preparing to rebalance group order-fulfillment-group\n14:20:45.312Z [INFO] org.apache.kafka.clients.consumer.internals.ConsumerCoordinator: Rebalance complete. Revoking partitions -> Assigning partitions",
+      "options": [
+        {
+          "id": 1,
+          "text": "A malformed 'poison pill' message caused processing of a single batch to exceed max.poll.interval.ms, triggering repeated eviction and rebalance cycles."
+        },
+        {
+          "id": 2,
+          "text": "Kafka brokers ran out of disk space on partition log segments, forcing unclean leader elections."
+        },
+        {
+          "id": 3,
+          "text": "Zookeeper session timeout occurred due to JVM garbage collection pauses."
+        },
+        {
+          "id": 4,
+          "text": "The consumer group was configured with an odd number of partitions, violating the consistent hashing ring."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nA malformed payload caused the business logic in the processing loop to hang on an infinite regex back-trace. Because the message never completed, the consumer thread did not call `poll()` before `max.poll.interval.ms` (300,000ms) elapsed.\n\nThe Kafka cluster coordinator assumed the consumer worker had died and kicked it out of the group, triggering a rebalance. Upon rebalance, another consumer was assigned the exact same partition and picked up the exact same poison pill message, causing it to hang and trigger another rebalance.\n\n### The Resolution\n1. **Dead Letter Queue (DLQ)**: Wrap record processing in a resilient try-catch with a strict per-message deadline. If a message fails or times out, write it to a dead-letter topic and commit the offset.\n2. **Tuned Batch Sizes**: Lower `max.poll.records` so a batch never takes more than a fraction of `max.poll.interval.ms`.\n3. **Cooperative Sticky Assignor**: Upgrade consumer partitioning strategy from eager rebalance to cooperative sticky rebalance to prevent whole-cluster freezes.",
+      "related_module": "backend/17-kafka-and-streaming/03-consumer-groups-and-partition-assignment/README.md"
+    },
+    {
+      "id": "inc-split-brain-consensus",
+      "title": "01:10 AM — Split-Brain & Data Loss in Leader Election",
+      "severity": "P1",
+      "service_name": "consensus-raft-cluster",
+      "scenario_markdown": "During routine cross-datacenter maintenance, fiber link degradation split a 5-node distributed cluster into two network segments: Node A & B in DC-East, and Node C, D & E in DC-West. After connectivity was restored 15 minutes later, 18,000 committed customer writes were permanently overwritten.",
+      "logs_snippet": "01:10:02.100Z [WARN] raft.nodeA: Lost heartbeat from quorum peers C, D, E\n01:10:02.400Z [INFO] raft.nodeA: Candidate election started for term 14\n01:10:02.412Z [INFO] raft.nodeA: Node B voted for Node A. Total votes: 2/2 in partition. Node A declared Leader for term 14\n01:10:05.120Z [INFO] raft.nodeC: Term 15 election: received votes from D, E. Quorum (3/5) achieved. Node C declared Leader for term 15\n01:25:00.000Z [FATAL] raft.nodeA: Network restored. Received AppendEntries from Node C with higher Term 15. Overwriting uncommitted local log indexes 4100..4520!",
+      "options": [
+        {
+          "id": 1,
+          "text": "Node A did not have NTP clock synchronization enabled."
+        },
+        {
+          "id": 2,
+          "text": "The cluster partition in DC-East accepted client writes without a strict majority quorum (N/2 + 1), causing a dual-leader split-brain."
+        },
+        {
+          "id": 3,
+          "text": "The Raft heartbeat interval was set higher than the election timeout."
+        },
+        {
+          "id": 4,
+          "text": "TCP keep-alive timeouts caused TLS renegotiation deadlock."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nIn a 5-node Raft consensus cluster, a strict majority quorum requires at least 3 nodes (`5 / 2 + 1 = 3`).\n\nA misconfiguration in Node A's custom implementation allowed it to consider 'all reachable peers' (which was only Node A & B) as sufficient to elect a leader and accept writes. Consequently, both DC-East and DC-West accepted conflicting writes simultaneously.\n\nWhen the network healed, Raft protocol rules dictated that Term 15 (DC-West) superseded Term 14 (DC-East), overwriting all writes processed by Node A.\n\n### The Resolution\n1. **Strict Majority Quorum**: Never allow a node to transition to Leader or commit a log entry without acknowledgments from `floor(N/2) + 1` configured cluster members.\n2. **Leader Leases & Pre-Vote**: Implement Raft pre-vote phases and leader leases to prevent partitioned nodes from causing term disruption.\n3. **Fencing Tokens**: Use incrementing fencing tokens to invalidate any stale writes from an isolated former leader.",
+      "related_module": "backend/10-distributed-systems-patterns/02-consensus-raft-paxos/README.md"
+    },
+    {
+      "id": "inc-cascading-retry-storm",
+      "title": "18:30 PM — Cascading Retry Storm Overwhelms Downstream Payment Gateway",
+      "severity": "P2",
+      "service_name": "checkout-api-prod",
+      "scenario_markdown": "A brief 200ms latency bump on an internal card processing microservice caused upstream checkout services to time out. Within 30 seconds, traffic to the payment gateway jumped from 2,000 req/s to 18,000 req/s, triggering a total cascading failure.",
+      "logs_snippet": "18:30:01.002Z [WARN] checkout.http: POST /internal/charge timeout (500ms limit reached)\n18:30:01.003Z [INFO] checkout.retry: Immediate retry attempt 1/3\n18:30:01.504Z [WARN] checkout.http: POST /internal/charge timeout (500ms limit reached)\n18:30:01.505Z [INFO] checkout.retry: Immediate retry attempt 2/3\n18:30:02.006Z [WARN] checkout.http: POST /internal/charge timeout (500ms limit reached)\n18:30:02.007Z [INFO] checkout.retry: Immediate retry attempt 3/3\n18:30:05.100Z [FATAL] card-svc.upstream: Rate limit exceeded (HTTP 429), dropping requests",
+      "options": [
+        {
+          "id": 1,
+          "text": "Clients retried immediately on timeouts with neither exponential backoff nor jitter, creating an amplified stampede that prevented the downstream service from recovering."
+        },
+        {
+          "id": 2,
+          "text": "The payment gateway ran out of ephemeral ports due to TIME_WAIT socket accumulation."
+        },
+        {
+          "id": 3,
+          "text": "HTTP/2 multiplexing saturated bandwidth on the Kubernetes ingress controller."
+        },
+        {
+          "id": 4,
+          "text": "A race condition in the credit card CVV hash generation caused thread deadlocks."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nWhen a downstream service experiences high load or temporary throttling, naive immediate retries multiply the traffic volume exponentially.\n\nEvery failed request generated 3 immediate sequential retry attempts with 0ms delay. When 2,000 original requests failed, they spawned 6,000 new requests within 1.5 seconds, transforming a minor transient glitch into an 18,000 req/s catastrophic failure.\n\n### The Resolution\n1. **Exponential Backoff with Full Jitter**: Multiply wait times exponentially (`base * 2^attempt`) and randomize the interval (`random_between(0, sleep)`) to break synchronized wave patterns.\n2. **Circuit Breakers**: Trip the circuit open when error rates exceed 25%, immediately failing fast without hitting downstream.\n3. **Retry Budgets**: Limit total retries across the client to no more than 10% of total incoming requests.",
+      "related_module": "backend/10-distributed-systems-patterns/04-circuit-breakers-and-retries/README.md"
+    },
+    {
+      "id": "inc-socket-leak-keepalive",
+      "title": "11:05 AM — Goroutine & Socket Exhaustion Under Keep-Alive",
+      "severity": "P2",
+      "service_name": "reverse-proxy-worker",
+      "scenario_markdown": "After deploying a new microservice proxy in Go, the node suddenly stopped accepting any incoming HTTP traffic. The application did not crash or panic, but all client connections began hanging indefinitely until timing out.",
+      "logs_snippet": "11:05:22.401Z [ERROR] proxy.server: accept tcp [::]:8080: accept4: too many open files\n11:05:23.001Z [INFO] runtime.pprof: Goroutine count: 248,190 (baseline: 420)\n11:05:23.512Z [INFO] sys.lsof: Open TCP sockets count: 65,534 (limit: 65,535)\n11:05:24.015Z [WARN] kernel: [12948.11] TCP: out of memory -- consider increasing sysctl tcp_mem",
+      "options": [
+        {
+          "id": 1,
+          "text": "The Linux epoll system call encountered a race condition in the kernel network subsystem."
+        },
+        {
+          "id": 2,
+          "text": "The proxy code failed to close http.Response.Body on outbound requests, causing TCP sockets and background read goroutines to leak indefinitely."
+        },
+        {
+          "id": 3,
+          "text": "TCP SYN cookies were disabled, leaving the server vulnerable to half-open SYN floods."
+        },
+        {
+          "id": 4,
+          "text": "The TLS certificate handshake cache exceeded available memory."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nIn Go's `net/http` client, when a response is received, the underlying TCP connection cannot be returned to the idle connection pool until the entire response body is read and closed:\n\n```go\nresp, err := client.Do(req)\nif err != nil { return err }\ndefer resp.Body.Close() // <-- THIS WAS MISSING\n```\n\nWithout `resp.Body.Close()`, the runtime keeps the TCP socket open and retains the internal read goroutine. Over a 3-hour period, 248,000 goroutines and 65,535 file descriptors leaked, exhausting the OS process limit (`EMFILE`).\n\n### The Resolution\n1. **Always Defer Close**: Always call `defer resp.Body.Close()` immediately after checking `err == nil`.\n2. **Drain Unread Bytes**: If discarding the body, call `io.Copy(io.Discard, resp.Body)` before closing so the TCP connection can be reused.\n3. **Process Ulimits & Alerts**: Monitor active file descriptors and set alerts when descriptor utilization exceeds 75% of `ulimit -n`.",
+      "related_module": "backend/01-request-response-fundamentals/03-http-connections-and-keep-alive/README.md"
+    },
+    {
+      "id": "inc-jwt-revocation-blackhole",
+      "title": "04:00 AM — Stateless JWT Revocation Blind Spot During Credential Compromise",
+      "severity": "P1",
+      "service_name": "identity-api",
+      "scenario_markdown": "A developer laptop containing an admin API session token was stolen at 03:30 AM. Security engineers immediately triggered an account password reset and revoked user sessions in the admin database. However, at 04:00 AM, audit logs showed the attacker continued exporting sensitive customer data using the stolen token for another 48 hours.",
+      "logs_snippet": "03:30:12.000Z [INFO] sec.ops: Triggered emergency session revocation for user 'admin@company.com'\n03:30:12.050Z [INFO] auth.db: Deleted session rows from user_sessions table\n04:00:15.112Z [INFO] api.gateway: Validated JWT signature for admin@company.com (Algorithm: RS256, exp: 2026-11-16T03:30:00Z)\n04:00:15.113Z [INFO] api.gateway: JWT valid! Forwarding request to /api/v1/customer-exports\n04:00:15.820Z [INFO] customer-svc: 200 OK - 50,000 records exported by admin@company.com",
+      "options": [
+        {
+          "id": 1,
+          "text": "The public RSA verification key was compromised and rewritten in memory."
+        },
+        {
+          "id": 2,
+          "text": "Purely stateless JWT verification checks only cryptographic signatures and expiration dates, completely ignoring database session revocation until the token naturally expires."
+        },
+        {
+          "id": 3,
+          "text": "The attacker used a JWT algorithm confusion vulnerability, changing 'RS256' to 'none'."
+        },
+        {
+          "id": 4,
+          "text": "Clock skew between microservices was larger than the 7-day token expiration window."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe API gateway relied exclusively on stateless JWT signature validation. Because JWTs are self-contained and cryptographically signed, the gateway validated the RS256 signature locally without querying a central database.\n\nThe token had been minted with a 7-day expiration (`exp`). Consequently, deleting the user's session row in the database had zero effect on the validity of the signed JWT in the attacker's possession.\n\n### The Resolution\n1. **Short-Lived Access Tokens + Refresh Tokens**: Issue access tokens with a strict 15-minute lifespan; use refresh tokens (validated against Redis/DB) for renewal.\n2. **Distributed Revocation Deny-List**: Maintain an in-memory Redis blocklist storing compromised `jti` (JWT ID) claims with a TTL matching the token's remaining lifetime.\n3. **Token Versioning / Password Changed Timestamp**: Include a `token_version` or `valid_after` epoch in the user's cached profile. If the user's password was changed after the token's issue date (`iat`), immediately reject the token.",
+      "related_module": "backend/03-authentication-and-authorization/02-jwt-and-token-based-auth/README.md"
+    }
+  ]
+}
+

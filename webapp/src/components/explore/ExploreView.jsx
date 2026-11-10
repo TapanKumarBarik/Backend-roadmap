@@ -1,45 +1,69 @@
 import { useMemo, useState } from 'react';
 import { groupTags } from '../../lib/curriculum/tagDomains.js';
 import PathExplorer from '../paths/PathExplorer.jsx';
+import '../../styles/explore.css';
 
-// The home screen used to open with 26 monospace tag chips ordered by
-// frequency — the loudest thing on the page, above the curriculum itself,
-// and useful only if you already knew which tag you wanted. This is where
-// that belongs: a place to browse by subject when you don't yet know what
-// you're looking for. Search stays the exhaustive path.
+// Explore screen: curriculum directory for learning paths and topics.
 export default function ExploreView({ allTags, onOpenPalette, paths = [], statusMap = {}, nodeByFile = {}, activeId, onOpenPath }) {
   const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => groupTags(allTags), [allTags]);
   const total = Object.keys(allTags).length;
 
   return (
-    <div id="empty">
-      <h2>Explore</h2>
-      {paths.length > 0 && <PathExplorer paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activeId} onOpenPath={onOpenPath} />}
-      <h2 className="pr-subhead">Topics</h2>
-      <p className="home-sub">
-        {total} tags across the curriculum, grouped by subject. Pick one to see every module
-        that covers it.
-      </p>
+    <div id="empty" className="explore-screen">
+      <header className="explore-hero">
+        <span className="explore-eyebrow">CURRICULUM DIRECTORY</span>
+        <h1>Explore Backend Engineering</h1>
+        <p className="explore-hero-lead">
+          Choose a structured learning track with real-world capstone milestones, or dive deep into specialized backend topics across system design, databases, DevOps, and GenAI.
+        </p>
+      </header>
 
-      {groups.map((g) => (
-        <div key={g.name}>
-          <div className="home-h">{g.name}</div>
-          <div className="tag-grid">
-            {(g.rest && !showAll ? g.items.slice(0, 12) : g.items).map(({ tag, count }) => (
-              <button key={tag} className="tag-card" onClick={() => onOpenPalette('#' + tag)}>
-                <span className="tag-card-n">{tag}</span>
-                <span className="tag-card-c">{count} module{count === 1 ? '' : 's'}</span>
+      {paths.length > 0 && (
+        <PathExplorer
+          paths={paths}
+          statusMap={statusMap}
+          nodeByFile={nodeByFile}
+          activeId={activeId}
+          onOpenPath={onOpenPath}
+        />
+      )}
+
+      <section className="explore-topics-section" aria-labelledby="explore-topics-title">
+        <h2 id="explore-topics-title">Browse by Technical Topic</h2>
+        <p className="explore-topics-lead">
+          {total} curated tags across the entire curriculum. Select any topic to jump directly to related architecture lessons and code deep dives.
+        </p>
+
+        {groups.map((g) => (
+          <div key={g.name} className="explore-group-block">
+            <h3 className="explore-group-title">{g.name}</h3>
+            <div className="explore-tag-grid">
+              {(g.rest && !showAll ? g.items.slice(0, 12) : g.items).map(({ tag, count }) => (
+                <button
+                  key={tag}
+                  className="explore-tag-card"
+                  type="button"
+                  onClick={() => onOpenPalette('#' + tag)}
+                >
+                  <span className="explore-tag-name">#{tag}</span>
+                  <span className="explore-tag-count">{count} {count === 1 ? 'module' : 'modules'}</span>
+                </button>
+              ))}
+            </div>
+            {g.rest && g.items.length > 12 && (
+              <button
+                type="button"
+                className="path-toggle"
+                style={{ marginTop: 14 }}
+                onClick={() => setShowAll((v) => !v)}
+              >
+                {showAll ? 'Show fewer topics' : `Show all ${g.items.length} topics`}
               </button>
-            ))}
+            )}
           </div>
-          {g.rest && g.items.length > 12 && (
-            <button className="path-toggle" style={{ marginTop: 10 }} onClick={() => setShowAll((v) => !v)}>
-              {showAll ? 'Show fewer' : `Show all ${g.items.length}`}
-            </button>
-          )}
-        </div>
-      ))}
+        ))}
+      </section>
     </div>
   );
 }

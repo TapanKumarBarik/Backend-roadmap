@@ -1,498 +1,418 @@
 # Module 10: Message Brokers — Kafka
 
-## Why this matters
+Traditional message brokers (like RabbitMQ or Redis) operate on destructive consumption: once a worker acknowledges a message, it is permanently erased from the broker. This model succeeds for isolated task execution, but collapses in modern streaming architectures where multiple autonomous services—such as billing, real-time analytics, machine learning fraud models, and compliance audit loggers—must consume the exact same event stream independently, at their own velocity, and periodically **replay history** from days or months ago. **Apache Kafka** solves this by modeling data as a distributed, append-only, partitioned **commit log**.
 
-Both brokers you've used so far — Redis-as-broker and RabbitMQ — share
-one property: once a message is consumed (Redis) or acked (RabbitMQ),
-it's gone. That's exactly right for "do this piece of work exactly once."
-It's exactly wrong for a different, very common need: **several
-independent systems each need to read the same stream of events, at
-their own pace, and sometimes replay history** — analytics reprocessing
-last week's orders after a bug fix, a new service backfilling from
-events that happened before it existed, an audit system needing every
-event ever emitted. Kafka's model is a durable, ordered, replayable
-**log**, not a queue that empties as it's consumed. This module builds
-that mental model and the concrete mechanics (topics, partitions,
-consumer groups, offsets) that make replay and independent consumption
-possible at once.
+> [!TIP]
+> **The Golden Rule:** Kafka topics are durable, replayable commit logs, not destructive queues. Always assign message keys deterministically by entity identifier (`order_id`) for strict partition ordering, scale consumer groups up to the partition count ($N_{\text{consumers}} \le N_{\text{partitions}}$), and commit offsets manually only after business operations succeed.
 
-## Concepts
+---
 
-### A topic is a log, not a queue
+## 1. Visual Mental Models
 
-RabbitMQ's queue holds messages until *a* consumer acks them, then
-they're gone. A Kafka **topic** instead appends every message to the end
-of a log and keeps them for a configured **retention period** (or
-forever, with unlimited retention) — regardless of whether anyone has
-read them yet. Consuming a message doesn't remove it. Multiple consumers
-can read the same topic from different positions, and one consumer can
-re-read from an earlier position later.
+### Destructive Queue vs. Append-Only Distributed Log
 
-```
-  RabbitMQ queue: consumed message is gone
-    [msg1][msg2][msg3] ──consume msg1──► [msg2][msg3]
+In traditional queues, reading destroys data. In Kafka, consuming is simply advancing an independent read pointer (offset) across an immutable append-only disk log:
 
-  Kafka topic: consumed message stays; consumers track their own position
-    [msg1][msg2][msg3][msg4][msg5]  ← the log, unchanged by reading
-           ▲              ▲
-      consumer A      consumer B
-      (read up to 2)  (read up to 4, independently)
-```
+```mermaid
+flowchart TD
+    subgraph TraditionalBroker ["1. Destructive Queue (RabbitMQ / Redis)"]
+        Q["[Msg 1] [Msg 2] [Msg 3]"] -->|"Worker consumes Msg 1"| Q_AFTER["[Msg 2] [Msg 3]"]
+        Note1["Data deleted upon ACK; impossible to replay or share across new services"]
+    end
 
-### Partitions: how a topic scales and how ordering actually works
+    subgraph KafkaLog ["2. Append-Only Commit Log (Kafka Topic Partition)"]
+        LOG["[Offset 0] [Offset 1] [Offset 2] [Offset 3] [Offset 4] [Offset 5]"]
+        
+        C_BILL["Billing Service<br/>(Committed Offset: 4)"]
+        C_ML["ML Fraud Engine<br/>(Committed Offset: 5)"]
+        C_AUDIT["Audit Service (Replaying)<br/>(Reset Offset: 0)"]
+        
+        LOG -.->|"Reads at offset 4"| C_BILL
+        LOG -.->|"Reads at offset 5"| C_ML
+        LOG -.->|"Re-reads from offset 0"| C_AUDIT
+        Note2["Log remains immutable on disk. Consumers advance independently at their own pace."]
+    end
 
-A topic is split into **partitions** — independent, ordered logs that
-together make up the topic. Kafka guarantees order **within** a
-partition, never across the whole topic. Each message is assigned a
-partition based on its **key** (same key → same partition, always,
-via a hash), so "all events for order 42" land in the same partition and
-are read in the order they were produced — but "all events across every
-order" have no guaranteed cross-partition ordering.
+    classDef q fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    classDef k fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
 
-```
-  topic: orders (3 partitions)
-
-  partition 0: [order 42 created][order 42 paid][order 88 created]
-  partition 1: [order 17 created][order 17 cancelled]
-  partition 2: [order 55 created][order 55 paid][order 55 shipped]
-
-  key = order_id  →  same order_id always hashes to the same partition
-  → per-order event order is guaranteed; cross-order order is not
+    class Q,Q_AFTER,Note1 q;
+    class LOG,C_BILL,C_ML,C_AUDIT,Note2 k;
 ```
 
-This is the practical reason to pick a message's **key** deliberately:
-key by the entity whose event order actually matters to you (order ID,
-user ID, device ID), not by something arbitrary — otherwise related
-events can land in different partitions and be processed out of order
-relative to each other.
+### Partition Hashing & Consumer Group Parallelism
 
-### Offsets: each consumer tracks its own position in the log
+Kafka achieves both work-sharing and pub/sub fan-out simultaneously through Consumer Groups and Partition Allocation:
 
-An **offset** is a message's position within its partition (0, 1, 2,
-...). A consumer doesn't ack individual messages the way RabbitMQ does —
-it periodically **commits** the offset up to which it has processed,
-recording "I'm caught up through message N in this partition." On
-restart, it resumes from its last committed offset, not from the
-beginning and not from whatever's newest. This is what makes replay
-possible: manually resetting a consumer's committed offset backward
-makes it re-read everything from that point forward, on demand.
+```mermaid
+flowchart LR
+    subgraph TopicOrders ["Topic: orders (3 Partitions)"]
+        P0["Partition 0<br/>(hash(key) % 3 == 0)"]
+        P1["Partition 1<br/>(hash(key) % 3 == 1)"]
+        P2["Partition 2<br/>(hash(key) % 3 == 2)"]
+    end
 
-```
-  partition 0: [0][1][2][3][4][5][6][7]
-                           ▲
-                  committed offset = 4
-                  (consumer has processed 0-4; resumes at 5 next)
+    subgraph GroupFulfillment ["Consumer Group: fulfillment-service (Work-Sharing)"]
+        C1["Fulfillment Pod 1"]
+        C2["Fulfillment Pod 2"]
+    end
 
-  replay: reset committed offset to 0 → re-reads 0-7 from the start
-```
+    subgraph GroupAnalytics ["Consumer Group: analytics-service (Fan-Out)"]
+        A1["Analytics Pod 1"]
+    end
 
-### Consumer groups: how Kafka gives you both fan-out and work-sharing
+    P0 -->|"Assigned to"| C1
+    P1 -->|"Assigned to"| C2
+    P2 -->|"Assigned to"| C2
 
-This is the piece that resolves module 08's "fan-out vs. competing
-consumers" tension instead of forcing a choice between them. A
-**consumer group** is a named set of consumer instances that *share* the
-partitions of a topic — each partition is read by exactly one consumer
-*within* that group (competing-consumers, work-sharing). But a
-**different** consumer group reading the same topic gets its own
-complete, independent copy of every partition (fan-out, the pub/sub
-property). Put together: multiple groups get fan-out; consumers *within*
-one group split the work.
+    P0 -->|"Assigned to"| A1
+    P1 -->|"Assigned to"| A1
+    P2 -->|"Assigned to"| A1
 
-```
-  topic: orders (3 partitions)
+    classDef top fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef grp1 fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef grp2 fill:#ede7f6,stroke:#512da8,stroke-width:2px;
 
-  consumer group "billing"          consumer group "analytics"
-    consumer 1 ← partition 0          consumer A ← partition 0
-    consumer 2 ← partition 1            (analytics reads ALL partitions
-    consumer 3 ← partition 2             independently of billing's group,
-    (work SPLIT across 3 consumers)      on its own offsets)
+    class P0,P1,P2 top;
+    class C1,C2 grp1;
+    class A1 grp2;
 ```
 
-If a consumer group has *fewer* consumers than partitions, one consumer
-reads multiple partitions. If it has *more* consumers than partitions,
-the extra consumers sit idle — a partition can only be assigned to one
-consumer within a group at a time, which is also the hard ceiling on how
-much you can parallelize consumption of a single topic within one group
-(add partitions, not just consumers, to raise that ceiling).
+---
 
-### Delivery semantics and idempotency, once more
+## 2. Structured Reference Grids
 
-Kafka gives **at-least-once** delivery by default (like RabbitMQ's
-manual-ack mode, like Celery): a consumer that crashes after processing
-a message but before committing its offset will reprocess that message
-on restart. The fix is the same idempotency discipline from module 02
-and module 09 — nothing about Kafka removes the need for it. (Kafka also
-supports an opt-in "exactly-once" processing mode for
-Kafka-to-Kafka pipelines specifically; it doesn't extend to arbitrary
-external side effects like charging a card, so idempotent handling still
-matters for those regardless.)
+### Kafka vs. RabbitMQ vs. Redis Streams Architectural Matrix
 
-### Kafka vs. RabbitMQ vs. Redis, revisited
+| Architectural Feature | Apache Kafka | RabbitMQ | Redis Streams |
+| :--- | :--- | :--- | :--- |
+| **Storage Primitive** | Append-only partitioned disk log | Memory-backed AMQP queue | In-memory radix tree / stream log |
+| **Message Consumption** | Non-destructive; read via cursor offsets | **Destructive**; deleted on ACK | Non-destructive; consumer group cursor |
+| **Historical Replay** | Native (`--reset-offsets --to-offset N`) | Impossible (Messages deleted) | Supported (`XREAD` from stream ID) |
+| **Ordering Guarantee** | **Strict per-partition ordering** | Strict per-queue ordering | Strict per-stream ordering |
+| **Throughput Scaling** | Millions of msgs/sec via zero-copy OS sendfile | ~50k–100k msgs/sec | ~500k msgs/sec (RAM bounded) |
+| **Concurrency Ceiling** | Strictly capped by partition count | Uncapped (Any number of workers) | Uncapped within consumer group |
 
-| | Redis (as broker) | RabbitMQ | Kafka |
-|---|---|---|---|
-| Storage model | Ephemeral list/pub-sub | Queue, emptied on ack | Log, retained regardless of consumption |
-| Replay | No | No | Yes — reset offset, re-read |
-| Ordering guarantee | None | Per-queue (roughly FIFO) | Per-partition only |
-| Fan-out + work-sharing together | Pick one | Pick one (per queue) | Both — different consumer groups |
-| Best fit | Simple queues, ephemeral signals | Routing rules, per-message reliability | High-volume streams, multiple independent readers, replay/reprocessing |
+### Offset Management & Configuration Directives
 
-The decision that actually matters in practice: if you're asking "how do
-I make sure this one piece of work happens," you want a queue
-(Redis/RabbitMQ). If you're asking "how do multiple, independent,
-possibly-not-yet-built systems each get their own complete view of
-everything that happened, including things that happened before they
-existed," you want a log (Kafka).
+| Parameter | Recommended Setting | Failure Prevented |
+| :--- | :--- | :--- |
+| `enable.auto.commit` | `false` | Data loss when consumer crashes between timer tick and DB commit |
+| `auto.offset.reset` | `earliest` | Brand new consumer groups missing existing unread backlog |
+| `max.poll.interval.ms`| `300000` (5 minutes) | Slow record processing triggering endless rebalance storms |
+| `acks` (Producer) | `all` (`-1`) | Producer acknowledging before replicas write to disk (prevents broker data loss) |
 
-## Command reference
+---
 
-| Concern | kafka-python API / CLI |
-|---|---|
-| Producer | `KafkaProducer(bootstrap_servers="localhost:9092")` |
-| Produce with a key | `producer.send("orders", key=b"42", value=b'{"event":"created"}')` |
-| Consumer in a group | `KafkaConsumer("orders", group_id="billing", bootstrap_servers=..., auto_offset_reset="earliest")` |
-| Manual offset commit | `consumer.commit()` (after `enable_auto_commit=False`) |
-| List topics | `docker exec kafka kafka-topics.sh --bootstrap-server localhost:9092 --list` |
-| Describe a topic (partitions) | `docker exec kafka kafka-topics.sh --describe --topic orders --bootstrap-server localhost:9092` |
-| Reset a group's offset to earliest | `docker exec kafka kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group billing --topic orders --reset-offsets --to-earliest --execute` |
-| Check consumer group lag | `docker exec kafka kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group billing` |
+## 3. Production War Story
 
-A keyed producer — `producer.py`:
+### The `enable.auto.commit=True` Data Loss & The Out-of-Order Notification
+
+#### The Incident
+An on-demand logistics platform ingested driver GPS location pings and package status changes into Kafka. When volume surged, customer support was inundated with complaints: users received "Package Delivered" push notifications *before* the "Package Dispatched" notification arrived. Worse, when an automated database connection pool exhausted and crashed 4 consumer pods, 12,000 package status events completely disappeared without being updated in PostgreSQL.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Kafka as Kafka Broker (Partition 0)
+    participant Worker as Logistics Worker (auto.commit=true)
+    participant DB as Postgres Database
+
+    Kafka->>Worker: Fetch Batch: Records 1,000 to 1,500
+    Note over Worker: Background thread ticks at 5000ms...
+    Worker->>Kafka: AUTO-COMMIT Offset: 1,500 (Committed!)
+    Note over Worker: Processing record 1,042...
+    Worker->>DB: DB Pool Exhaustion! Panic / Process Crash!
+    Note over Worker: Process dies! Records 1,043 to 1,500 NEVER written to DB!
+    Note over Kafka: Kubernetes restarts worker pod...
+    Worker->>Kafka: Resume reading from committed offset: 1,500
+    Note over Kafka,DB: Records 1,043 to 1,499 are skipped FOREVER! Silent Data Loss!
+```
+
+#### The Root Cause
+1. **Background Auto-Commit:** The consumer was configured with `enable.auto.commit=True`. The Kafka client committed offset `1500` to the broker based purely on a timer, long before the worker finished writing records to the database. When the pod crashed, Kafka assumed everything up to `1500` was done.
+2. **Missing Message Keys:** Producers emitted order events with `key=None`. Kafka round-robined events across partitions 0, 1, and 2. Partition 1 processed the `delivered` event faster than Partition 0 processed `dispatched`, scrambling event sequence.
+
+#### The Verified Production Fix
+1. Disabled automatic offset commits (`enable.auto.commit=False`). Configured the consumer to commit offsets manually (`commitSync()` / `commit()`) strictly after database transactions commit.
+2. Required explicit entity keys on all outgoing messages: `key=order.id.encode('utf-8')`. This guarantees that all lifecycle events for a specific order route to the identical partition, preserving strict chronological ordering.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+### Go (`segmentio/kafka-go` Resilient Reader with Manual Commits)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/segmentio/kafka-go"
+)
+
+func RunKafkaConsumer(ctx context.Context) {
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        []string{"localhost:9092"},
+		GroupID:        "order-processing-group",
+		Topic:          "orders.v1",
+		MinBytes:       10e3, // 10KB
+		MaxBytes:       10e6, // 10MB
+		CommitInterval: 0,    // Synchronous manual commits only
+		StartOffset:    kafka.FirstOffset,
+	})
+	defer reader.Close()
+
+	log.Println("[Kafka] Consumer online. Reading topic: orders.v1...")
+
+	for {
+		// 1. Fetch next message from partition
+		m, err := reader.FetchMessage(ctx)
+		if err != nil {
+			log.Printf("[Kafka] Error fetching message: %v", err)
+			break
+		}
+
+		log.Printf("[Kafka] Partition: %d, Offset: %d, Key: %s", m.Partition, m.Offset, string(m.Key))
+
+		// 2. Execute business logic
+		if err := processOrderEvent(m.Value); err != nil {
+			log.Printf("[Error] Failed processing order. Not committing offset: %v", err)
+			continue // Retry or DLQ strategy
+		}
+
+		// 3. Commit offset strictly after successful execution
+		if err := reader.CommitMessages(ctx, m); err != nil {
+			log.Printf("[Error] Failed to commit offset %d: %v", m.Offset, err)
+		}
+	}
+}
+
+func processOrderEvent(payload []byte) error {
+	time.Sleep(20 * time.Millisecond)
+	return nil
+}
+```
+
+---
+
+### Node.js / TypeScript (`KafkaJS` Manual Commit & Key Hashing)
+
+```typescript
+import { Kafka, Partitioners } from 'kafkajs';
+
+const kafka = new Kafka({
+  clientId: 'order-service',
+  brokers: ['localhost:9092'],
+});
+
+// 1. Production Producer with Partition Keys
+export async function publishOrderEvent(orderId: string, eventType: string, data: object) {
+  const producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner });
+  await producer.connect();
+
+  await producer.send({
+    topic: 'orders.v1',
+    messages: [
+      {
+        key: orderId, // Crucial: Keys guarantee partition ordering!
+        value: JSON.stringify({ eventType, orderId, data, timestamp: Date.now() }),
+        headers: { 'source-service': 'order-gateway' },
+      },
+    ],
+  });
+
+  await producer.disconnect();
+}
+
+// 2. Resilient Consumer with Manual Offset Commit
+export async function startConsumerGroup() {
+  const consumer = kafka.consumer({
+    groupId: 'order-fulfillment-group',
+    autoCommit: false, // Enforce manual offset commits
+  });
+
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'orders.v1', fromBeginning: true });
+
+  await consumer.run({
+    autoCommit: false,
+    eachMessage: async ({ topic, partition, message }) => {
+      const offset = message.offset;
+      const key = message.key?.toString();
+      const value = message.value?.toString();
+
+      console.log(`[Kafka Consumer] Partition ${partition} | Offset ${offset} | Key: ${key}`);
+
+      // Process business event
+      await executeFulfillment(value);
+
+      // Commit offset explicitly
+      await consumer.commitOffsets([
+        { topic, partition, offset: (BigInt(offset) + 1n).toString() },
+      ]);
+    },
+  });
+}
+
+async function executeFulfillment(payload: string | undefined) {
+  // Database update...
+}
+```
+
+---
+
+### Python (`confluent-kafka` High-Throughput Consumer)
 
 ```python
 import json
-from kafka import KafkaProducer
+from confluent_kafka import Consumer, KafkaError, Producer
 
-producer = KafkaProducer(
-    bootstrap_servers="localhost:9092",
-    value_serializer=lambda v: json.dumps(v).encode(),
-    key_serializer=lambda k: k.encode(),
-)
+def delivery_report(err, msg):
+    if err is not None:
+        print(f"[Producer Error] Message delivery failed: {err}")
+    else:
+        print(f"[Producer] Delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
-def publish_order_event(order_id: int, event_type: str, **fields):
-    producer.send("orders", key=str(order_id), value={"order_id": order_id, "type": event_type, **fields})
+def produce_order_event(order_id: str, payload: dict):
+    producer = Producer({'bootstrap.servers': 'localhost:9092', 'acks': 'all'})
+    
+    # Passing order_id as key guarantees partition affinity
+    producer.produce(
+        topic='orders.v1',
+        key=order_id.encode('utf-8'),
+        value=json.dumps(payload).encode('utf-8'),
+        on_delivery=delivery_report
+    )
+    producer.flush()
 
-publish_order_event(42, "created", total=99.00)
-publish_order_event(42, "paid")
-publish_order_event(17, "created", total=15.00)
-producer.flush()
+def consume_orders():
+    conf = {
+        'bootstrap.servers': 'localhost:9092',
+        'group.id': 'analytics-consumer-group',
+        'auto.offset.reset': 'earliest',
+        'enable.auto.commit': False, # Manual offset commits
+    }
+
+    consumer = Consumer(conf)
+    consumer.subscribe(['orders.v1'])
+    print("[Kafka] Subscribed to orders.v1 with manual offset tracking...")
+
+    try:
+        while True:
+            msg = consumer.poll(timeout=1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+                else:
+                    print(f"[Kafka Error] {msg.error()}")
+                    break
+
+            order_id = msg.key().decode('utf-8')
+            event = json.loads(msg.value().decode('utf-8'))
+            print(f"[Worker] Processing Order {order_id} at offset {msg.offset()}")
+
+            # Business execution
+            # ... write to DB ...
+
+            # Commit offset synchronously
+            consumer.commit(msg, asynchronous=False)
+    finally:
+        consumer.close()
 ```
 
-A consumer in the `billing` group with manual offset commit —
-`billing_consumer.py`:
+---
 
-```python
-import json
-from kafka import KafkaConsumer
+## 5. Practical Hands-On Verification
 
-consumer = KafkaConsumer(
-    "orders",
-    bootstrap_servers="localhost:9092",
-    group_id="billing",
-    value_deserializer=lambda v: json.loads(v.decode()),
-    enable_auto_commit=False,
-    auto_offset_reset="earliest",
-)
-
-for message in consumer:
-    event = json.loads(json.dumps(message.value))  # already a dict via deserializer
-    print(f"partition={message.partition} offset={message.offset} event={event}")
-    process_billing_event(event)          # your idempotent handler
-    consumer.commit()                     # only advance after success
-
-def process_billing_event(event):
-    print(f"billing processed order {event['order_id']} ({event['type']})")
-```
-
-## Hands-on exercises
-
-Run a single-node Kafka broker with Docker Compose (KRaft mode, no
-separate Zookeeper needed):
+### 1. Create Multi-Partition Topic via Kafka CLI
 
 ```bash
-mkdir -p ~/learn-backend/kafka-lab && cd ~/learn-backend/kafka-lab
-cat > compose.yaml <<'EOF'
-services:
-  kafka:
-    image: apache/kafka:3.7.0
-    container_name: kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-EOF
-docker compose up -d
+kafka-topics.sh --bootstrap-server localhost:9092 --create \
+  --topic orders.v1 \
+  --partitions 3 \
+  --replication-factor 1
 ```
 
-`pip install kafka-python`.
+**Output:**
+```text
+Created topic orders.v1.
+```
 
-### 1. Create a topic with multiple partitions and inspect it
+### 2. Inspect Consumer Group Lag
+
+Verify consumer progress and detect stuck consumers across partitions:
 
 ```bash
-docker exec kafka /opt/kafka/bin/kafka-topics.sh --create --topic orders \
-  --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
-docker exec kafka /opt/kafka/bin/kafka-topics.sh --describe --topic orders \
-  --bootstrap-server localhost:9092
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group order-processing-group
 ```
 
-Expected: output listing `PartitionCount: 3` and each partition's leader
-— confirming the topic is actually split into 3 independent logs, not
-one.
+**Output:**
+```text
+GROUP                  TOPIC     PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID     HOST
+order-processing-group orders.v1 0          104             104             0               consumer-pod-1  /172.18.0.4
+order-processing-group orders.v1 1          89              92              3               consumer-pod-2  /172.18.0.5
+order-processing-group orders.v1 2          150             150             0               consumer-pod-2  /172.18.0.5
+```
 
-### 2. Prove same-key messages land in the same partition, in order
+### 3. Replay Historical Topic Log
 
-Run the `producer.py` pattern from the Concepts section, publishing
-several events for `order_id=42` and a few for `order_id=17`. Then read
-raw partition assignments:
+Reset a consumer group's offset to the beginning to reprocess historical events:
 
 ```bash
-docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --topic orders \
-  --bootstrap-server localhost:9092 --from-beginning \
-  --property print.partition=true --property print.key=true --timeout-ms 5000
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --group order-processing-group \
+  --reset-offsets --to-earliest \
+  --topic orders.v1 \
+  --execute
 ```
 
-Expected: every message with key `42` shows the *same* partition number,
-in the order they were sent; every message with key `17` shows its own
-(possibly different) partition, also in order. This is the "same key,
-same partition, ordered within it" guarantee, made visible.
+---
 
-### 3. Consumer group work-sharing: two consumers split three partitions
-
-Start two instances of `billing_consumer.py` (same `group_id="billing"`)
-in two terminals, then publish several keyed events spread across
-different order IDs so they land on different partitions. Expected: the
-two consumer processes each print messages from a *different subset* of
-partitions — they split the 3 partitions between them (one gets 2
-partitions, the other gets 1, or similar), never both printing the exact
-same message. Check the assignment explicitly:
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-  --describe --group billing
-```
-
-Expected: the `CONSUMER-ID` column shows each partition assigned to
-exactly one of your two running consumer processes.
-
-### 4. Consumer group fan-out: a second group reads everything independently
-
-With `billing`'s consumers still running (or stopped, doesn't matter),
-start a *new* consumer using `group_id="analytics"` instead, reading the
-same `orders` topic from `auto_offset_reset="earliest"`. Expected: the
-analytics consumer reads **every** message ever published to the topic
-(not just new ones), completely independently of whatever offset
-`billing`'s group had already committed — proving one topic serves both
-groups' full, independent views at once.
-
-### 5. Replay: reset a consumer group's offset backward
-
-Let `billing`'s consumer fully catch up (no more new messages arriving),
-then stop it (`Ctrl+C`, or let the script exit) and reset its offset:
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-  --group billing --topic orders --reset-offsets --to-earliest --execute
-```
-
-Expect this to **fail the first few times** with `Error: Assignments can
-only be reset if the group 'billing' is inactive, but the current state
-is Stable` (or `PreparingRebalance`). A consumer group isn't
-"gone" the instant your script exits — Kafka only considers it inactive
-after the group's session timeout expires (tens of seconds by default),
-so retry the same command every few seconds until it prints a
-`NEW-OFFSET` table instead of an error. This lag between "my script
-stopped" and "the broker agrees this consumer is gone" is a real
-operational quirk, not a mistake in the command.
-
-Once the reset succeeds, restart `billing_consumer.py`. Expected: it
-reprocesses every message from the beginning of the topic, even ones it
-had already committed past before — this is the capability RabbitMQ and
-Redis fundamentally cannot give you once a message has been
-acked/consumed.
-
-### 6. Diagnose and fix: a new service can't see historical events
-
-A team adds a new `fraud-detection` consumer group to an existing
-`orders` topic that's been running for months. On first run it sees
-*nothing* — no historical orders, only events published after it
-started — even though the retention period is long enough to have kept
-everything.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Partition Count Concurrency Ceiling</strong></summary>
 
-Root cause: a brand-new consumer group with no previously committed
-offset defaults to Kafka's `auto_offset_reset` policy, and the common
-default is `"latest"` — meaning "start reading from whatever's newest
-right now," skipping everything already in the log even though it's
-still there and readable.
+**Scenario:** A topic has 4 partitions. Due to an unexpected surge in event volume, the DevOps team scales the Kubernetes consumer deployment from 4 pods to 12 pods. However, overall processing throughput does not increase by a single transaction per second. Why?
 
-Fix: set `auto_offset_reset="earliest"` for the new consumer group
-before its first run (as this module's `billing_consumer.py` does) so it
-starts from the beginning of the retained log instead of only new
-messages. This only affects a group with *no* committed offset yet —
-once it has committed at least once, subsequent restarts resume from
-that committed position regardless of this setting.
-
-</details>
-
-### 7. Clean up
-
-```bash
-docker compose down
-cd ~ && rm -rf ~/learn-backend/kafka-lab
-```
-
-## Independent challenge
-
-No code given. Design a Kafka setup for an `orders` topic that three
-independent teams read from: **billing** must process every order
-exactly once per order lifecycle stage in the correct per-order
-sequence (never a `paid` event processed before that same order's
-`created` event); **fraud-detection** is a brand-new service that must
-be able to scan the *entire* history of orders from day one, independent
-of what billing has already consumed; **a load test** needs to
-temporarily replay last week's traffic through fraud-detection again
-without touching billing's position at all. Decide the partition key,
-the topic's partition count, and each consumer's group ID and
-`auto_offset_reset` setting, and justify each choice. Prove the
-isolation: show that resetting fraud-detection's offset for the replay
-does not change billing's committed position or cause billing to
-reprocess anything.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-Key every message by `order_id` (guarantees per-order ordering within a
-partition, satisfying billing's requirement). Give billing and
-fraud-detection separate `group_id`s so their offsets are tracked
-completely independently — resetting one's offset via
-`kafka-consumer-groups.sh --group fraud-detection ...` never touches
-`--group billing`'s committed position, because consumer group offsets
-are stored per-group. `fraud-detection`'s first run needs
-`auto_offset_reset="earliest"` to see history; billing likely also wants
-`earliest` so a first deploy doesn't skip pre-existing orders, but
-that's a one-time concern since its offset persists after that.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Assuming ordering holds across an entire topic.** Kafka only
-  guarantees order *within* a partition. Two events for different keys
-  can be processed in either order relative to each other, even if they
-  were published moments apart — design around per-key ordering, not
-  global ordering.
-- **Picking a partition key that doesn't match what actually needs
-  ordering.** Keying by something arbitrary (a random UUID per message,
-  say) defeats the purpose — related events for the same entity can land
-  in different partitions and be processed out of order relative to each
-  other.
-- **Leaving `auto_offset_reset` at its default for a brand-new consumer
-  group and expecting history.** As exercise 6 showed, a fresh group
-  with no committed offset and a `"latest"` default only sees messages
-  produced after it starts, even though older messages are still
-  retained and readable with `"earliest"`.
-- **Adding more consumers than partitions and expecting more
-  parallelism.** A partition is assigned to exactly one consumer within
-  a group at a time; consumers beyond the partition count sit idle.
-  Raise the partition count to raise the real ceiling on parallel
-  consumption within one group.
-- **Confusing "Kafka retains messages" with "Kafka is a substitute for a
-  database."** Retention has a configured period (or is unlimited, but
-  that's a deliberate choice, not automatic) — it's a durable log for
-  streaming and replay, not a query-friendly datastore; don't design
-  around "query Kafka for the current state of an order" the way you'd
-  query a database.
-- **Trying to reset a consumer group's offset immediately after stopping
-  its consumer.** As exercise 5 showed, the broker keeps a group
-  "Stable" or "PreparingRebalance" for a while after its last member
-  disconnects (governed by the session timeout) — `--reset-offsets`
-  refuses to run until the group is fully inactive. Retry after a short
-  wait rather than assuming the command itself is broken.
-- **Committing an offset before processing succeeds.** The same mistake
-  as RabbitMQ's `auto_ack=True` problem (module 09) — commit only after
-  the work is actually done, or a crash between commit and completion
-  silently loses that message's processing.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking
-without attempting first is the single easiest way to fool yourself into
-thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the core difference between how RabbitMQ/Redis treat a
-   consumed message and how Kafka treats one?
-2. What determines which partition a message is written to, and what
-   ordering guarantee does that give you (and not give you)?
-3. What is an offset, and how does it differ from RabbitMQ's per-message
-   acknowledgment?
-4. How do consumer groups let Kafka provide both work-sharing (like a
-   queue) and fan-out (like pub/sub) from the same topic at once?
-5. What happens if a consumer group has more consumer instances than the
-   topic has partitions?
-6. A brand-new consumer group sees no historical messages on its first
-   run despite a long retention period. What setting controls this, and
-   what should it be set to instead?
-
-</summary>
+*Explanation:*
+Kafka enforces a strict invariant: **Within a consumer group, each partition is assigned to at most one consumer instance at any given time**.
+Because the topic only has 4 partitions, 4 consumer pods are assigned 1 partition each, and the remaining 8 pods sit completely idle.
+**The Fix:** Partition count dictates the maximum consumer concurrency ceiling. To scale consumers to 12 active workers, you must increase the topic's partition count to at least 12 using `kafka-topics.sh --alter --partitions 12`.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: The Cascading Consumer Rebalance Storm</strong></summary>
 
-1. RabbitMQ and Redis both remove or stop tracking a message once it's
-   handled (acked or delivered) — it's gone for future consumers. Kafka
-   appends messages to a retained log and consuming one doesn't remove
-   it; other consumers, including ones that don't exist yet, can still
-   read it later, and the same consumer can re-read it by resetting its
-   offset.
-2. The message's key (hashed) determines its partition — the same key
-   always maps to the same partition. This guarantees ordering *within*
-   that partition (all events for that key arrive in send order) but
-   gives no ordering guarantee *across* different partitions/keys.
-3. An offset is a message's position within its partition; a consumer
-   periodically commits how far it's processed, and resumes from that
-   committed position on restart. Unlike RabbitMQ's per-message ack,
-   it's a single running position per partition, not an individual flag
-   per message — and unlike an ack, committing doesn't remove anything
-   from the log.
-4. Consumers *within* the same group split a topic's partitions among
-   themselves (each partition read by exactly one consumer in that
-   group), giving work-sharing. A *different* consumer group reading the
-   same topic gets its own independent, complete copy of every
-   partition, tracked with its own offsets — giving fan-out across
-   groups while still sharing work within each one.
-5. The extra consumer instances beyond the partition count sit idle —
-   a single partition can only be assigned to one consumer within a
-   group at any given time, so consumer count beyond partition count
-   adds no additional parallelism for that group.
-6. The consumer's `auto_offset_reset` setting, which only applies when a
-   group has no previously committed offset. It commonly defaults to
-   `"latest"` (skip straight to new messages); setting it to
-   `"earliest"` makes a brand-new group start from the beginning of the
-   retained log instead.
+**Scenario:** A consumer pulls a batch of 100 heavy image-processing messages from Kafka. Processing the batch takes 8 minutes. Suddenly, the consumer crashes with `CommitFailedException`, and all other consumers in the group freeze, constantly dropping and re-assigning partitions in an infinite loop. What happened?
 
+*Explanation:*
+Kafka requires consumers to call `.poll()` at least once every `max.poll.interval.ms` (default: 5 minutes / 300,000ms).
+Because the worker took 8 minutes to process the batch, the Kafka coordinator concluded the worker was dead, evicted it from the group, and initiated a **Group Rebalance**. When the worker finally tried to commit its offset, its membership was invalid.
+**The Fix:**
+1. Decrease `max.poll.records` (e.g., from 500 down to 20) so batches complete well within the interval.
+2. Increase `max.poll.interval.ms` to comfortably exceed the 99th percentile processing duration.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The Danger of Null Message Keys</strong></summary>
 
-- [Apache Kafka: Introduction](https://kafka.apache.org/documentation/#gettingStarted) - the official conceptual overview of topics, partitions, and the log model.
-- [Confluent: Consumer groups explained](https://developer.confluent.io/courses/architecture/consumer-group-protocol/) - a deeper look at partition assignment and rebalancing within a group.
-- [Apache Kafka: Offset management](https://kafka.apache.org/documentation/#semantics) - delivery-semantics reference, including at-least-once and the opt-in exactly-once mode.
-- [kafka-python documentation](https://kafka-python.readthedocs.io/) - the Python client used throughout this module's code.
-- [Confluent: Kafka vs. traditional messaging systems](https://developer.confluent.io/learn-more/podcasts/apache-kafka-vs-traditional-messaging-technology/) - a direct comparison covering the same RabbitMQ-vs-Kafka tradeoffs discussed in this module.
-- [Track 15: Queues vs. topics vs. streams](../../../learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams/README.md) - where a log-based stream fits next to queues and topics, and Azure Event Hubs as a Kafka-compatible managed stream.
+**Scenario:** A developer publishes user profile updates without specifying a message key (`key=None`). A user rapidly updates their email address from A to B, and then from B to C within 500ms. In the database, the user's final email ends up as B instead of C. Why?
+
+*Explanation:*
+When `key=None`, Kafka distributes messages across partitions using round-robin or sticky partitioning. Update 1 (`A -> B`) was routed to Partition 0, while Update 2 (`B -> C`) landed on Partition 1. Two separate consumer workers processed the partitions in parallel. Worker 2 finished before Worker 1, allowing Worker 1's older update to overwrite Worker 2's newer state.
+**The Rule:** Always key messages by domain entity (`key=user_id`). All updates for a given user are guaranteed to land on the same partition and be consumed in strict sequential order.
+</details>
+
+---
 
 ## Next
 
@@ -500,4 +420,3 @@ thinking you've learned this.
 one more outbound channel this track hasn't covered yet: reaching a user's
 phone even when your app isn't open, via a push provider (APNs/FCM)
 instead of a broker you run yourself.
-</content>

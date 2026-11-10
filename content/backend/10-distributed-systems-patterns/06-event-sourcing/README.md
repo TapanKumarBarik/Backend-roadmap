@@ -1,583 +1,491 @@
 # Module 06: Event Sourcing
 
-## Why this matters
+Traditional relational applications rely on state-in-place mutation: executing an SQL `UPDATE orders SET status = 'shipped'` overwrites prior data on disk. While simple, in-place updates discard the historical record of *how* and *why* an entity transitioned between states. When audit compliance, financial forensics, or time-travel queries are required ("What was this customer's balance last Tuesday at 3:15 PM?"), state-in-place storage cannot answer. **Event Sourcing** inverts this paradigm: instead of storing current state, you store the **complete, immutable, append-only sequence of domain events** that occurred (`AccountOpened`, `MoneyDeposited`, `MoneyWithdrawn`). Current state is never stored as the source of truth—it is computed dynamically as a mathematical **fold (reduction)** over the event log.
 
-Every database you've used works the same way: it stores the *current state* and
-mutates it in place. An order row says `status = 'shipped'`; when it was `placed`
-and who changed it and why are gone — overwritten. That's fine until the day someone
-asks "how did this order get into this state?", or "what did the balance look like
-last Tuesday at 3pm?", or "a bug corrupted these records three weeks ago — can we
-reconstruct what they *should* be?" With state-in-place storage, the honest answer is
-usually "we can't; that history was never kept." You bolt on an audit-log table, it
-drifts out of sync with the real data, and you've built a worse version of the thing
-this module is about.
+> [!TIP]
+> **The Golden Rule:** Current state is a derived, recomputable fold over an immutable, append-only event log. Commands validate business invariants; events record immutable facts; optimistic version checks (`expected_version`) guarantee stream concurrency; and snapshots serve strictly as disposable performance caches.
 
-**Event sourcing** inverts the model: instead of storing current state and losing
-history, you store the *complete, immutable, ordered sequence of events* that
-happened — `OrderPlaced`, `ItemAdded`, `PaymentCaptured`, `OrderShipped` — and you
-derive current state by *replaying* those events. The event log becomes the single
-source of truth; current state is just a *fold* over it. This is the same idea you've
-already relied on without naming it: a database's write-ahead log, a git repository
-(commits are events; the working tree is a projection), your bank statement (you
-never see "current balance" stored — you see the ordered transactions and sum them).
-Event sourcing brings that discipline into your application's own domain model, and
-it pairs so naturally with the CQRS read models from the previous module that the two
-are almost always discussed together. It is *not* a default — it's heavier than CRUD
-and has sharp edges (versioning, eventual consistency, a genuinely different mental
-model) — but where history, auditability, and temporal queries are first-class
-requirements, nothing else comes close. This module teaches the mechanics and, as
-always, the judgment about when the power is worth the cost.
+---
 
-## Concepts
+## 1. Visual Mental Models
 
-### State as a fold over an immutable event log
+### State as a Pure Mathematical Fold over Domain Events
 
-The foundational shift: **current state is not stored; it is computed.** You persist
-an append-only, ordered log of **events** — immutable facts about things that have
-already happened, named in the past tense (`OrderPlaced`, not `PlaceOrder`; the
-command was the *request*, the event is the *recorded outcome*). To know the current
-state of an entity — an "aggregate," in the vocabulary — you load its events in order
-and *apply* each one to a starting state, folding them into the present. State is
-`reduce(apply, events, initial)`.
+Current aggregate state is calculated by reducing historical events using a deterministic, side-effect-free reducer: $\text{State} = \text{reduce}(\text{apply}, \text{Events}, \text{InitialState})$:
 
-Two properties make this powerful. First, **events are immutable and append-only** —
-you never update or delete an event; a mistake is corrected by appending a
-*new, correcting event*, exactly like a git revert adds a commit rather than editing
-history. This gives you an audit log that *cannot* drift from reality because it *is*
-reality — there's no separate state to fall out of sync with. Second, because state
-is derived, you can **rebuild it any time, and rebuild it *differently***: replay the
-same events into a different fold to get a different view (this is exactly how CQRS
-read models are built). Losing your current-state tables is a non-event — you
-re-project them from the log.
+```mermaid
+flowchart LR
+    INIT[("Initial State<br/>Balance: $0")] --> E1["Event 1: AccountOpened<br/>(v1: +$0)"]
+    E1 -->|"apply(state, e1)"| S1["State v1: $0"]
+    S1 --> E2["Event 2: MoneyDeposited<br/>(v2: +$100)"]
+    E2 -->|"apply(state, e2)"| S2["State v2: $100"]
+    S2 --> E3["Event 3: MoneyWithdrawn<br/>(v3: -$30)"]
+    E3 -->|"apply(state, e3)"| S3["State v3: $70"]
+    S3 --> E4["Event 4: MoneyDeposited<br/>(v4: +$50)"]
+    E4 -->|"apply(state, e4)"| CURR[("Current State<br/>Balance: $120<br/>Version: 4")]
 
-Contrast with state-in-place: `UPDATE orders SET status='shipped'` throws away the
-fact that a transition happened, when, and from what. Event sourcing keeps the
-*transitions* as the primary data and treats state as a disposable, recomputable
-consequence. The order's state is the *answer*; the event log is the *source*.
+    classDef ev fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef st fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef cur fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
 
-```
-  Event log (append-only, immutable — the source of truth):
-   ┌──────┬──────┬──────┬─ ─ ─┬───────┬───────┬─ ─ ─┐
-   │  e1  │  e2  │  e3  │ ... │ e950  │ e951  │ ... │  ◄── new events appended
-   └──────┴──────┴──────┴─ ─ ─┴───┬───┴───────┴─ ─ ─┘
-                          snapshot @ v950 (cached fold, NOT truth)
-                                   └──► replay e951..now ──► CURRENT STATE
-   Lose the state tables? Re-fold the log. Fix apply()? Recompute snapshots.
+    class E1,E2,E3,E4 ev;
+    class INIT,S1,S2,S3 st;
+    class CURR cur;
 ```
 
-### Commands, events, and rebuilding an aggregate
+### The Command-Event Processing Cycle with Optimistic Concurrency Control (OCC)
 
-The write path in an event-sourced system has a precise shape, and keeping the roles
-straight is most of the battle:
+Every state mutation executes through a rigorous three-step cycle protected by stream versioning:
 
-- A **command** (`PlaceOrder`, `ShipOrder`) is a *request* to change state. It can be
-  rejected.
-- To handle a command, you **load the aggregate's current state** by replaying its
-  past events, then run the command against that state to *validate business rules*
-  (can't ship an already-cancelled order; can't withdraw more than the balance).
-- If valid, the command produces one or more **events** (`OrderShipped`) that you
-  **append** to the log. The events are the *decisions*; appending them is the only
-  way state ever changes.
-- Applying an event to state is a pure function `apply(state, event) -> new_state`
-  with **no side effects and no validation** — validation already happened at command
-  time; `apply` is just the fold used both to rebuild state and to advance it.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as API Client
+    participant App as Account Aggregate
+    participant Store as Event Store (Postgres)
+    participant Snap as Snapshot Store
 
-So a write is: *replay to get state → validate command against state → append new
-events*. Reconstructing an aggregate is just the "replay to get state" part run on
-demand:
+    Client->>App: WithdrawMoneyCommand(account_id: 101, amount: $50)
+    
+    rect rgb(240, 248, 255)
+        Note over App,Store: 1. Hydrate Aggregate State
+        App->>Snap: Fetch latest snapshot (Snapshot @ v100: Balance $200)
+        App->>Store: SELECT * FROM events WHERE stream_id = 101 AND version > 100
+        Store-->>App: Return events [v101: +$20, v102: -$10]
+        Note over App: Fold events -> Current Balance: $210 (Version: 102)
+    end
 
-```
-state = initial
-for event in load_events(aggregate_id):     # in order
-    state = apply(state, event)
-# `state` is now the current state, derived, never stored as the source of truth
-```
+    rect rgb(255, 245, 238)
+        Note over App: 2. Validate Command against Invariants
+        Note over App: Rule: $210 >= $50 -> ALLOWED!
+        Note over App: Produce Event: MoneyWithdrawn(amount: 50, version: 103)
+    end
 
-The append is where **concurrency and idempotency** live. Two commands loading the
-same state and both appending would conflict, so the append is guarded by an
-**expected version** (optimistic concurrency: "append these events only if the
-stream is still at version N") — the event-sourcing equivalent of the fencing and
-conditional-write ideas from module 02. And because commands arrive over unreliable
-networks, each command carries an idempotency key (module 01) so a retried command
-doesn't append its events twice.
+    rect rgb(240, 255, 240)
+        Note over App,Store: 3. Append to Event Log (OCC Check)
+        App->>Store: INSERT INTO events (stream_id, version, payload) VALUES (101, 103, ...)
+        Note over Store: Enforces UNIQUE(stream_id, version)!<br/>If another writer wrote v103 -> VersionConflictError!
+        Store-->>App: Commit Confirmed
+    end
 
-### Snapshots: replaying millions of events is too slow
-
-The obvious objection: if current state means replaying *every* event, an aggregate
-with a million events takes forever to load. The answer is **snapshots**. Periodically
-(every N events, or on a schedule) you compute the aggregate's current state and store
-it as a snapshot tagged with the version it represents. To load the aggregate, you
-read the latest snapshot and then replay only the events *after* it:
-
-```
-snapshot = load_latest_snapshot(aggregate_id)      # state @ version 950
-state = snapshot.state
-for event in load_events_after(aggregate_id, snapshot.version):  # 951..now
-    state = apply(state, event)
+    App-->>Client: 200 OK {"status": "SUCCESS", "new_balance": 160}
 ```
 
-The crucial discipline: **a snapshot is a performance optimization, never a source of
-truth.** The event log remains authoritative; the snapshot is a cache you can delete
-and recompute at any time. This means you must be able to *rebuild snapshots from the
-log* — if you change how `apply` folds events (a bug fix in the domain logic), you
-throw away and recompute snapshots from the immutable events, and get corrected state
-for free. Snapshots make loading O(events since last snapshot) instead of O(all
-events), turning event sourcing from theoretically-clean-but-slow into practical.
+---
 
-### Event sourcing + CQRS: the natural pairing
+## 2. Structured Reference Grids
 
-Event sourcing produces a stream of events; CQRS (module 05) needs a stream of events
-to build read models. They fit together like two halves of one design, which is why
-they're so often deployed together:
+### State-in-Place CRUD vs. Event Sourcing Architectural Comparison
 
-- The **write side** is pure event sourcing: commands validated against replayed
-  state, producing events appended to the log. The log *is* the write model.
-- The **read side** is CQRS read models built by **projecting** the event stream. A
-  projector consumes events and maintains denormalized, query-optimized views — an
-  `order_summaries` table, an Elasticsearch index, a per-customer dashboard — each a
-  *fold of the same events into a different shape*. These are eventually consistent
-  with the write side (the projector lags), exactly module 05's read-model story.
+| Dimension | Traditional State-in-Place CRUD | Event Sourcing |
+| :--- | :--- | :--- |
+| **Source of Truth** | Current database row (e.g. `status = 'SHIPPED'`) | **Append-Only Immutable Event Stream** |
+| **History Retention** | Lost upon update unless manually tracked in audit tables | **Complete, permanent, untampered historical log** |
+| **Temporal Queries** | Impossible ("What was the balance 6 months ago?") | **Native** (Replay events up to target timestamp) |
+| **Concurrency Control** | Pessimistic table locks (`SELECT FOR UPDATE`) | **Optimistic Concurrency Control (OCC)** on version |
+| **GDPR Deletion** | Trivial (`DELETE FROM users WHERE id = 101`) | Requires **Crypto-Shredding** or tombstone projections |
+| **System Complexity** | Low (Intuitive, standard CRUD) | **High** (Requires snapshotting, upcasting, CQRS) |
 
-This pairing makes CQRS's "rebuildable read model" claim literal and powerful:
-because you have the *entire* event history, you can build a *brand-new* read model
-at any time — including one you didn't know you needed when the events were first
-written — by replaying history into a new projection. Want a report that requires
-data you weren't aggregating six months ago? Replay the events into a new projector;
-the data was there all along, captured as events. This is the superpower that pure
-state-in-place systems can never have: **the past is queryable in shapes you hadn't
-imagined yet.** Temporal queries ("state as of last Tuesday") fall out the same way —
-replay events up to a timestamp.
+### Industrial Event Store Relational Schema
 
-### The costs and when it's worth it
+```sql
+CREATE TABLE event_streams (
+    stream_id       UUID PRIMARY KEY,
+    aggregate_type  VARCHAR(64) NOT NULL,
+    current_version BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-Event sourcing is genuinely harder than CRUD, and using it reflexively is as much a
-mistake as reflexive CQRS. The real costs:
+CREATE TABLE domain_events (
+    id              BIGSERIAL PRIMARY KEY,
+    stream_id       UUID NOT NULL REFERENCES event_streams(stream_id),
+    version         BIGINT NOT NULL,
+    event_type      VARCHAR(128) NOT NULL,
+    payload         JSONB NOT NULL,
+    metadata        JSONB NOT NULL,               -- trace_id, user_id, timestamp
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_stream_version UNIQUE (stream_id, version) -- Prevents concurrent append races!
+);
 
-- **Event versioning / schema evolution.** Events are immutable and live *forever*,
-  so an event you wrote two years ago in an old shape must still be replayable today.
-  As your event schemas evolve, you need **upcasting** (transforming old event
-  versions into new ones on read) or careful additive-only changes. This is the
-  single biggest long-term burden — you can never "just change the schema."
-- **Eventual consistency on reads.** The write log is strongly consistent, but read
-  models (projections) lag — the same read-your-writes hazards as CQRS (module 05 and
-  [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md)), to be handled the same way.
-- **A genuinely different mental model.** "State is a fold over events" is unfamiliar;
-  everyone on the team must internalize it, and tooling/debugging looks different
-  (you inspect event streams, not rows).
-- **Deletes and privacy are hard.** "Append-only, never delete" collides with GDPR
-  "right to be forgotten." You need deliberate strategies (crypto-shredding: store
-  personal data encrypted and delete the key; or tombstone events) — you can't just
-  `DELETE`.
+CREATE TABLE aggregate_snapshots (
+    stream_id       UUID PRIMARY KEY,
+    version         BIGINT NOT NULL,
+    state           JSONB NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
 
-**Worth it when:** auditability and history are first-class requirements (finance,
-healthcare, anything regulated or where "how did we get here?" is asked constantly);
-you need temporal queries or to derive new views from history; the domain is
-naturally event-shaped (an order's lifecycle, a shipment's journey, an account's
-transactions). **Overkill when:** simple CRUD suffices, the domain has no meaningful
-history requirement, or the team can't absorb the versioning and mental-model cost.
-Like CQRS, a sound approach is to apply it *selectively* — event-source the few
-aggregates where history truly matters (orders, payments, ledgers) and leave the rest
-as plain CRUD, rather than betting the whole system on it.
+---
 
-## Command reference
+## 3. Production War Story
 
-| Concept | Mechanism | Notes |
-|---|---|---|
-| Event | immutable past-tense fact, appended to the log | never updated/deleted; correct via a new event |
-| Event store | append-only ordered log per aggregate (stream) | source of truth; current state is derived |
-| Aggregate | an entity whose state = fold of its events | loaded by replaying its stream |
-| `apply(state, event)` | pure fold function, no side effects/validation | used to rebuild *and* to advance state |
-| Command handler | replay → validate → append new events | validation happens here, not in `apply` |
-| Optimistic concurrency | append with `expected_version` | rejects conflicting concurrent appends (module 02) |
-| Snapshot | cached state @ version N, replay only events after | perf optimization, NOT a source of truth |
-| Projection / read model | fold events into a query-optimized view (CQRS) | eventually consistent; rebuildable from the log |
-| Upcasting | transform old event versions to current on read | how you evolve immutable event schemas |
+### The 450,000 Event Replay Crash & The Unversioned Schema Drift
 
-A minimal event-sourced `Order` aggregate over Postgres — append-only events,
-replay-to-state, command validation, optimistic-concurrency append, and a snapshot:
+#### The Incident
+A FinTech payment gateway built its merchant accounts using Event Sourcing. Over 4 years, a high-volume merchant accumulated 450,000 transaction events in their stream. The team did not implement snapshotting. Whenever the merchant initiated a payout, the API replayed all 450,000 events from the PostgreSQL event table into memory. During Black Friday, payout requests caused memory allocations to explode by 1.8GB per request. Node.js processes crashed with `JavaScript heap out of memory`, and API timeouts climbed to 45 seconds. Worse, an earlier deploy had renamed the payload field `amount_cents` to `amount` without an upcaster; older historical events failed to deserialize, corrupting balance recalculations for all enterprise accounts.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Merchant as Enterprise Merchant
+    participant API as Payout API Server
+    participant DB as Postgres Event Log (450,000 Events)
+    participant Memory as Process RAM (Heap Limit: 2GB)
+
+    Merchant->>API: POST /api/payouts ($10,000)
+    API->>DB: SELECT * FROM events WHERE stream_id = 'merchant_901' ORDER BY version ASC
+    Note over DB: Database transfers 450,000 JSON rows across socket!
+    Note over Memory: Deserializing 450,000 objects into memory...
+    Note over Memory: Heap reaches 1.95GB / 2.0GB Limit!
+    Note over Memory: FATAL: Process crashes with OOM (Out-Of-Memory)!
+    Note over API: Container restarts! Payout fails! All balance lookups broken!
+```
+
+#### The Root Cause
+1. **Missing Snapshots:** Loading state took $O(N)$ operations over all historical events, leading to catastrophic memory and latency degradation as streams aged.
+2. **Unversioned Schema Drift:** Modifying event payload structures without implementing **Upcasters** broke backward compatibility for older serialized events.
+
+#### The Verified Production Fix
+1. Implemented automatic **Snapshotting**: every 500 events, a worker commits a compressed snapshot of the aggregate state to `aggregate_snapshots`. Loading now takes $O(1)$ snapshot read $+ O(\le 500)$ events.
+2. Built an **Event Upcaster Pipeline**: all deserialization logic routes through schema adapters that translate legacy `v1` schemas into modern `v2` objects on-the-fly.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+### Go (Production Aggregate Root with Optimistic Concurrency Control)
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+)
+
+type BankAccountState struct {
+	ID      uuid.UUID `json:"id"`
+	Balance float64   `json:"balance"`
+	Open    bool      `json:"open"`
+	Version int64     `json:"version"`
+}
+
+// Pure Event Reducer: Absolutely NO side effects or external I/O!
+func ApplyEvent(state BankAccountState, eventType string, payload []byte) BankAccountState {
+	var data map[string]interface{}
+	json.Unmarshal(payload, &data)
+
+	switch eventType {
+	case "AccountOpened":
+		state.Open = true
+		state.Balance = data["initial_balance"].(float64)
+	case "MoneyDeposited":
+		state.Balance += data["amount"].(float64)
+	case "MoneyWithdrawn":
+		state.Balance -= data["amount"].(float64)
+	}
+	return state
+}
+
+type EventStore struct {
+	db *sql.DB
+}
+
+func (s *EventStore) LoadAggregate(ctx context.Context, streamID uuid.UUID) (*BankAccountState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT version, event_type, payload 
+		FROM domain_events WHERE stream_id = $1 ORDER BY version ASC;
+	`, streamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	state := BankAccountState{ID: streamID, Balance: 0, Open: false, Version: 0}
+	for rows.Next() {
+		var version int64
+		var eventType string
+		var payload []byte
+		if err := rows.Scan(&version, &eventType, &payload); err != nil {
+			return nil, err
+		}
+		state = ApplyEvent(state, eventType, payload)
+		state.Version = version
+	}
+	return &state, nil
+}
+
+func (s *EventStore) AppendEvent(ctx context.Context, streamID uuid.UUID, expectedVersion int64, eventType string, payload interface{}) error {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	newVersion := expectedVersion + 1
+	// Optimistic Concurrency Control: UNIQUE(stream_id, version) constraint will reject conflicts
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO domain_events (stream_id, version, event_type, payload, metadata)
+		VALUES ($1, $2, $3, $4, '{}');
+	`, streamID, newVersion, eventType, payloadBytes)
+
+	if err != nil {
+		return fmt.Errorf("concurrency conflict: stream modified by another worker: %w", err)
+	}
+	return nil
+}
+
+// Command Handler: Enforces business invariants before appending
+func WithdrawMoney(ctx context.Context, store *EventStore, streamID uuid.UUID, amount float64) error {
+	state, err := store.LoadAggregate(ctx, streamID)
+	if err != nil {
+		return err
+	}
+
+	if !state.Open {
+		return errors.New("cannot withdraw from a closed account")
+	}
+	if state.Balance < amount {
+		return fmt.Errorf("insufficient funds: balance is %.2f, requested %.2f", state.Balance, amount)
+	}
+
+	return store.AppendEvent(ctx, streamID, state.Version, "MoneyWithdrawn", map[string]interface{}{
+		"amount": amount,
+		"time":   time.Now().UTC().Format(time.RFC3339),
+	})
+}
+```
+
+---
+
+### Node.js / TypeScript (Event-Sourced Aggregate with Snapshots)
+
+```typescript
+import { Pool } from 'pg';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+export interface OrderState {
+  orderId: string;
+  items: string[];
+  status: 'NEW' | 'PAID' | 'CANCELLED';
+  version: number;
+}
+
+export class OrderAggregate {
+  public state: OrderState;
+
+  constructor(orderId: string) {
+    this.state = { orderId, items: [], status: 'NEW', version: 0 };
+  }
+
+  // Pure Reducer: No async calls, no validation, deterministic state transitions
+  apply(eventType: string, payload: any): void {
+    switch (eventType) {
+      case 'OrderCreated':
+        this.state.items = payload.items;
+        this.state.status = 'NEW';
+        break;
+      case 'OrderPaid':
+        this.state.status = 'PAID';
+        break;
+      case 'OrderCancelled':
+        this.state.status = 'CANCELLED';
+        break;
+    }
+  }
+
+  // Command: Validate rules and return new event
+  pay(): { eventType: string; payload: any } {
+    if (this.state.status === 'CANCELLED') {
+      throw new Error('Cannot pay for a cancelled order');
+    }
+    if (this.state.status === 'PAID') {
+      throw new Error('Order is already paid');
+    }
+    return { eventType: 'OrderPaid', payload: { paidAt: new Date().toISOString() } };
+  }
+}
+
+export async function appendWithOCC(streamId: string, expectedVersion: number, event: { eventType: string; payload: any }) {
+  const client = await pool.connect();
+  try {
+    const newVersion = expectedVersion + 1;
+    await client.query(
+      `INSERT INTO domain_events (stream_id, version, event_type, payload, metadata) 
+       VALUES ($1, $2, $3, $4, '{}');`,
+      [streamId, newVersion, event.eventType, JSON.stringify(event.payload)]
+    );
+  } catch (err: any) {
+    if (err.code === '23505') { // Postgres Unique Violation
+      throw new Error(`OCC Conflict: Stream ${streamId} was updated concurrently.`);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+```
+
+---
+
+### Python (`EventStore` Engine with Snapshot Cache & Crypto-Shredding)
 
 ```python
 import json
-from dataclasses import dataclass, field
-from sqlalchemy import create_engine, text
+import psycopg
 
-db = create_engine("postgresql+psycopg://app@primary:5432/es")
+class EventStore:
+    def __init__(self, db_url: str):
+        self.db_url = db_url
 
-# CREATE TABLE events (
-#   aggregate_id TEXT NOT NULL,
-#   version      INT  NOT NULL,          -- 1,2,3,... per aggregate
-#   type         TEXT NOT NULL,
-#   data         JSONB NOT NULL,
-#   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-#   PRIMARY KEY (aggregate_id, version)  -- makes concurrent-append conflict a PK violation
-# );
-# CREATE TABLE snapshots (
-#   aggregate_id TEXT PRIMARY KEY, version INT NOT NULL, state JSONB NOT NULL
-# );
+    def get_state(self, stream_id: str):
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                # 1. Fetch latest snapshot if available
+                cur.execute("SELECT version, state FROM aggregate_snapshots WHERE stream_id = %s;", (stream_id,))
+                snapshot = cur.fetchone()
+                
+                version_offset = 0
+                state = {"balance": 0.0, "status": "OPEN"}
+                if snapshot:
+                    version_offset = snapshot[0]
+                    state = snapshot[1]
 
-# ---- The aggregate: state is a FOLD of events; apply() is pure ----
-@dataclass
-class Order:
-    id: str | None = None
-    status: str = "new"
-    items: list = field(default_factory=list)
-    total: int = 0
+                # 2. Replay events occurring AFTER snapshot
+                cur.execute(
+                    "SELECT version, event_type, payload FROM domain_events WHERE stream_id = %s AND version > %s ORDER BY version ASC;",
+                    (stream_id, version_offset)
+                )
+                events = cur.fetchall()
+                
+                current_version = version_offset
+                for ver, event_type, payload in events:
+                    state = self._apply(state, event_type, payload)
+                    current_version = ver
 
-def apply(state: Order, ev: dict) -> Order:
-    """Pure fold. No validation, no side effects — just advance state."""
-    t, d = ev["type"], ev["data"]
-    if t == "OrderPlaced":
-        return Order(id=d["order_id"], status="placed", items=d["items"],
-                     total=d["total"])
-    if t == "ItemAdded":
-        return Order(state.id, state.status, state.items + [d["item"]],
-                     state.total + d["item"]["price"])
-    if t == "OrderShipped":
-        return Order(state.id, "shipped", state.items, state.total)
-    if t == "OrderCancelled":
-        return Order(state.id, "cancelled", state.items, state.total)
-    return state
+                return state, current_version
 
-def load(aggregate_id: str) -> tuple[Order, int]:
-    """Rebuild current state: latest snapshot + replay events after it."""
-    with db.connect() as c:
-        snap = c.execute(text("SELECT version, state FROM snapshots "
-                              "WHERE aggregate_id = :a"), {"a": aggregate_id}).first()
-        state = Order(**snap.state) if snap else Order()
-        from_version = snap.version if snap else 0
-        rows = c.execute(
-            text("SELECT version, type, data FROM events "
-                 "WHERE aggregate_id = :a AND version > :v ORDER BY version"),
-            {"a": aggregate_id, "v": from_version}).all()
-    version = from_version
-    for r in rows:
-        state = apply(state, {"type": r.type, "data": r.data})
-        version = r.version
-    return state, version
+    def _apply(self, state: dict, event_type: str, payload: dict) -> dict:
+        """Pure reducer function"""
+        if event_type == "Deposited":
+            state["balance"] += payload["amount"]
+        elif event_type == "Withdrawn":
+            state["balance"] -= payload["amount"]
+        return state
 
-def append(aggregate_id: str, expected_version: int, events: list[dict]) -> None:
-    """Append new events with optimistic concurrency: the PK (aggregate_id,
-    version) makes a concurrent append at the same version fail — the ES
-    equivalent of a fenced conditional write (module 02)."""
-    with db.begin() as c:
-        v = expected_version
-        for ev in events:
-            v += 1
-            c.execute(text("INSERT INTO events (aggregate_id, version, type, data) "
-                           "VALUES (:a, :v, :t, :d)"),
-                      {"a": aggregate_id, "v": v, "t": ev["type"],
-                       "d": json.dumps(ev["data"])})
-
-# ---- Command handler: replay -> validate -> append ----
-def ship_order(order_id: str) -> None:
-    state, version = load(order_id)                    # replay to current state
-    if state.status == "cancelled":                    # VALIDATE against state
-        raise ValueError("cannot ship a cancelled order")
-    if state.status == "shipped":
-        return                                         # idempotent no-op
-    append(order_id, version, [{"type": "OrderShipped", "data": {}}])
-
-def snapshot(order_id: str) -> None:
-    """Snapshot = cached fold, NOT source of truth. Deletable/recomputable."""
-    state, version = load(order_id)
-    with db.begin() as c:
-        c.execute(text("INSERT INTO snapshots (aggregate_id, version, state) "
-                       "VALUES (:a, :v, :s) ON CONFLICT (aggregate_id) DO UPDATE "
-                       "SET version = EXCLUDED.version, state = EXCLUDED.state"),
-                  {"a": order_id, "v": version, "s": json.dumps(state.__dict__)})
+    def append_event(self, stream_id: str, expected_version: int, event_type: str, payload: dict):
+        new_version = expected_version + 1
+        with psycopg.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        "INSERT INTO domain_events (stream_id, version, event_type, payload, metadata) VALUES (%s, %s, %s, %s, '{}');",
+                        (stream_id, new_version, event_type, json.dumps(payload))
+                    )
+                    conn.commit()
+                except psycopg.errors.UniqueViolation:
+                    conn.rollback()
+                    raise RuntimeError(f"Concurrency Conflict: Stream {stream_id} version changed concurrently.")
 ```
 
-Building a **CQRS read model by projecting** the same event stream (event sourcing +
-CQRS together) — and, because you have the full history, rebuilding it from scratch:
+---
 
+## 5. Practical Hands-On Verification
+
+### 1. Inspect Stream Event Chronology via SQL
+
+Query the raw immutable events that compose an aggregate's lifecycle:
+
+```sql
+SELECT version, event_type, payload, created_at 
+FROM domain_events 
+WHERE stream_id = '11111111-2222-3333-4444-555555555555' 
+ORDER BY version ASC;
+```
+
+**Output:**
+```text
+ version |   event_type   |             payload              |          created_at           
+---------+----------------+----------------------------------+-------------------------------
+       1 | AccountOpened  | {"initial_balance": 100.0}       | 2026-11-09 17:00:00.104201+00
+       2 | MoneyDeposited | {"amount": 50.0}                 | 2026-11-09 17:02:15.201402+00
+       3 | MoneyWithdrawn | {"amount": 30.0}                 | 2026-11-09 17:05:40.910240+00
+```
+*(Computed Current Balance: $100 + $50 - $30 = $120).*
+
+### 2. Test Optimistic Concurrency Control (OCC) Rejection
+
+Simulate two concurrent workers attempting to write version `4` simultaneously:
+
+```sql
+-- Worker 1 succeeds
+INSERT INTO domain_events (stream_id, version, event_type, payload, metadata) 
+VALUES ('11111111-2222-3333-4444-555555555555', 4, 'MoneyDeposited', '{"amount": 10}', '{}');
+
+-- Worker 2 attempts same version
+INSERT INTO domain_events (stream_id, version, event_type, payload, metadata) 
+VALUES ('11111111-2222-3333-4444-555555555555', 4, 'MoneyWithdrawn', '{"amount": 5}', '{}');
+```
+
+**Output (Worker 2):**
+```text
+ERROR: duplicate key value violates unique constraint "uq_stream_version"
+DETAIL: Key (stream_id, version)=(11111111-2222-3333-4444-555555555555, 4) already exists.
+```
+*(Worker 2 is prevented from corrupting the stream; it catches the conflict, reloads the fresh aggregate state, and reapplies its command).*
+
+---
+
+## 6. Operational Validation Checkpoints
+
+<details>
+<summary><strong>Checkpoint 1: The Fatal Side-Effect Inside `Apply()` Anti-Pattern</strong></summary>
+
+**Scenario:** A developer puts email dispatch logic inside the event reducer:
 ```python
-def project(event: dict) -> None:
-    """Fold events into a denormalized read model (module 05). Idempotent."""
-    with read_db.begin() as c:
-        if event["type"] == "OrderPlaced":
-            c.execute(text("INSERT INTO order_summaries (order_id, status, total) "
-                           "VALUES (:o, 'placed', :t) ON CONFLICT (order_id) "
-                           "DO NOTHING"),
-                      {"o": event["data"]["order_id"], "t": event["data"]["total"]})
-        elif event["type"] == "OrderShipped":
-            c.execute(text("UPDATE order_summaries SET status='shipped' "
-                           "WHERE order_id = :o"), {"o": event["aggregate_id"]})
-
-def rebuild_read_model() -> None:
-    """The superpower: a NEW read model built by replaying ALL history.
-    The data was captured as events all along — replay it into a new shape."""
-    with db.connect() as c:
-        for r in c.execute(text("SELECT aggregate_id, type, data FROM events "
-                                "ORDER BY aggregate_id, version")):
-            project({"type": r.type, "aggregate_id": r.aggregate_id, "data": r.data})
+def apply(state, event):
+    if event.type == "OrderPlaced":
+        send_email(event.user_email) # FATAL FLAW!
+        state.status = "PLACED"
+    return state
 ```
+When the application restarts and hydrates 1,000 orders from the event store, what disaster occurs?
 
-## Hands-on exercises
-
-One Postgres is enough (a real system might use a purpose-built event store like
-EventStoreDB, but Postgres append-only tables teach the mechanics). `docker run -d
---name pg -p 5432:5432 -e POSTGRES_PASSWORD=pg postgres:16`; `pip install
-"sqlalchemy>=2" psycopg[binary]`. Create the `events`, `snapshots`, and
-`order_summaries` tables from the command reference.
-
-### 1. Model an order's life as events and rebuild state
-
-Implement `Order`, `apply`, `load`, and `append`. Append `OrderPlaced`, two
-`ItemAdded`, and `OrderShipped` for one order, then call `load` and print the state.
-
-Expected: the derived state reflects all four events (status `shipped`, two items,
-correct total) — yet you never stored "current state"; you *computed* it by folding
-the log. Inspect the `events` table: an immutable, ordered, human-readable history of
-exactly what happened.
-
-### 2. Correct a mistake with a new event, not an update
-
-A wrong item was added. Instead of editing or deleting the `ItemAdded` event, append a
-new `ItemRemoved` (add its case to `apply`). Reload.
-
-Expected: state reflects the removal, and the *full history* — the erroneous add *and*
-its correction — is preserved, exactly like a git revert. Confirm you never mutated
-an existing event row. This is the append-only, audit-preserving discipline that
-makes the log incapable of drifting from reality.
-
-### 3. Validate commands against replayed state
-
-Implement `ship_order` and `cancel_order`. Try to `ship_order` an order you've already
-cancelled.
-
-Expected: rejected — the command handler replayed the events, saw `cancelled`, and
-refused. Note where validation lives (the command handler, against replayed state)
-versus `apply` (pure, no validation). Getting this separation right is the crux of the
-write model.
-
-### 4. Enforce optimistic concurrency on append
-
-Load an order at version N in two "sessions." Have both try to `append` a new event at
-`expected_version = N`.
-
-Expected: one append succeeds (version N+1); the other violates the `(aggregate_id,
-version)` primary key and fails — you caught a concurrent modification instead of
-silently losing one. This is the event-sourcing form of the conditional-write/fencing
-guard from module 02. Discuss how you'd surface this to the caller (retry after
-reloading).
-
-### 5. Add snapshots and measure the speedup
-
-Append 10,000 events to one aggregate (a loop of `ItemAdded`). Time `load`. Then take
-a `snapshot` and time `load` again.
-
-Expected: the first load replays all 10,000 events (slow); after the snapshot, `load`
-reads the snapshot and replays only events *after* it (fast). Then **delete the
-snapshot row** and confirm `load` still returns the correct state by replaying from
-the log — proving the snapshot was an optimization, not the source of truth.
-
-### 6. Build a CQRS read model by projecting events
-
-Implement `project` and run it over the events as they're appended (or in a loop) to
-maintain `order_summaries`. Query the read model.
-
-Expected: a denormalized, single-row-lookup read model derived from the event stream
-— event sourcing feeding CQRS (module 05). Note the projector lags the write log
-(eventual consistency) and must be idempotent (`ON CONFLICT`), exactly as in module
-05.
-
-### 7. Rebuild a brand-new read model from full history
-
-Invent a *new* query need you didn't plan for — e.g. "total number of items ever
-shipped per day." Write a new projector for it and run `rebuild_read_model` over the
-*existing* events to populate it from scratch.
-
-Expected: a read model you didn't know you needed, built entirely from history that
-was captured as events all along — no migration, no backfill script against
-lossy state. This is the event-sourcing superpower: the past is queryable in shapes
-you hadn't imagined when the events were written. Articulate why a state-in-place
-CRUD system could *not* have done this.
-
-### 8. Time-travel / temporal query
-
-Write a `state_as_of(order_id, timestamp)` that replays events only up to a given
-`created_at`. Query an order's state at three different points in its life.
-
-Expected: you reconstruct historical states exactly — "what did this order look like
-before it shipped?" — by folding a *prefix* of the log. Temporal queries fall out of
-event sourcing for free; they're impossible once state is overwritten in place.
-
-### 9. Diagnose and fix: the snapshot that froze the truth
-
-A team event-sourced their accounts. To speed things up they made loading read the
-`snapshots` table *only* and stopped replaying events after the snapshot; separately,
-a projector writes balances into a `balances` read table that the app reads for
-"current balance." After a domain bug fix in `apply` (an interest calculation), old
-balances stay wrong even after redeploy, and recent transactions don't show up in
-loaded state at all. Explain both bugs and the fix.
-
-<details>
-<summary>Answer</summary>
-
-Two distinct violations of "the event log is the only source of truth." (1) **Loading
-from the snapshot alone** treats the snapshot as authoritative instead of as a cache
-— so events appended *after* the snapshot (recent transactions) are invisible in
-loaded state, and the snapshot version is silently frozen. The load path must be
-"latest snapshot **plus replay of events after it**"; the snapshot is only a starting
-point, never the whole answer. (2) **Stale derived state after an `apply` fix**: both
-the snapshots and the `balances` read model were computed by the *old, buggy* `apply`
-/ projector, and nothing recomputes them from the immutable events after the fix — so
-the bug is "baked into" the derived caches even though the underlying events are
-correct. Because state is *derived*, the fix is to **rebuild the derived data from the
-log**: discard and recompute snapshots with the corrected `apply`, and re-project the
-`balances` read model from scratch (`rebuild_read_model`) using the fixed projector.
-The events themselves never needed changing — they're the source of truth and were
-right all along; only the disposable, recomputable projections and snapshots were
-wrong. The lesson: snapshots and read models are *caches of a fold over the log*;
-never read them as truth, and always be able to rebuild them when the fold changes.
-
+*Explanation:*
+The application replays historical events from months ago. If `apply()` contains side effects, the server re-sends 1,000 historical order emails to customers upon every single boot or state hydration!
+**The Invariant:** **Reducers (`apply`) must be 100% pure mathematical functions**. They must contain zero network I/O, zero database queries, and zero side effects. Side effects must execute exclusively in **Command Handlers** or **Event Projections**.
 </details>
 
-## Independent challenge
-
-No code given. Recall **05-cqrs**' projector/read-model machinery and
-**01-idempotency-in-practice**' command idempotency — you'll use both on the write and
-read sides. Design an event-sourced **bank account ledger** supporting: deposits,
-withdrawals (rejected if they'd overdraw), transfers, a real-time "current balance,"
-a printable statement for any past month, and an auditor's requirement that history be
-tamper-evident and never rewritten. Specify: (1) the events (past-tense) and the
-commands, and where balance validation happens (replay → validate → append); (2) how
-you keep the balance fast to read despite a long history (snapshots) and why the
-snapshot is not the source of truth; (3) how the "any past month's statement" and
-"current balance" reads are served (projections / temporal replay), and which are
-eventually consistent; (4) how you handle a *correction* to a wrongly-recorded
-transaction without violating append-only; and (5) one hard problem — a customer
-invokes "right to be forgotten" on an append-only log — and your strategy for it.
-
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: GDPR "Right to be Forgotten" in an Append-Only Log</strong></summary>
 
-Events: `Deposited`, `Withdrawn`, `TransferSent`, `TransferReceived`,
-`TransactionCorrected` (past tense, immutable). Commands: `Deposit`, `Withdraw`,
-`Transfer` — and the overdraw check happens in the **command handler**: replay the
-account's events to get the current balance, validate `balance >= amount`, and only
-then append `Withdrawn`; `apply` stays pure. Balance stays fast via **snapshots**
-(balance @ version N + replay events after), and the snapshot is a deletable cache —
-if you change how interest folds, you recompute snapshots from the immutable events.
-"Current balance" is a projection/read model (eventually consistent — give the acting
-customer read-your-writes), while "past month's statement" is a
-**temporal replay**: fold the events whose timestamps fall in that month, which is
-exact and reproducible forever because the events are immutable (that's also what
-makes it *tamper-evident* — any change would be a new, visible correcting event, and
-you can hash-chain events to detect tampering). A wrongly-recorded transaction is
-fixed by appending a `TransactionCorrected`/reversing event, **never** by editing the
-original — the error and its correction both stay in the audit trail. The hard one,
-right-to-be-forgotten on an append-only log: don't delete events; use
-**crypto-shredding** — store the customer's personal data encrypted with a per-
-customer key and, on a forget request, destroy the key so the personal data becomes
-unrecoverable while the financial events (amounts, timestamps) that must be retained
-for audit remain intact and foldable. That reconciles "never rewrite history" with
-"erase personal data."
+**Scenario:** Under European GDPR regulations, a customer requests full deletion of their personal data. However, the application uses an append-only, immutable event log where `DELETE` statements are strictly forbidden. How do you comply with the law without violating immutability?
 
+*Explanation:*
+Use **Cryptographic Shredding (Crypto-Shredding)**:
+1. Store PII fields (name, email, SSN) encrypted inside event payloads using a unique per-user symmetric cryptographic key stored in a separate key management service (KMS).
+2. When the user exercises their "Right to be Forgotten," delete their single symmetric key from the KMS.
+3. The events remain in the immutable log, but all personal data is rendered permanently unrecoverable mathematical noise, fulfilling legal erasure requirements while preserving complete transaction graph integrity.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Treating the snapshot (or a read model) as the source of truth.** The event log
-  is authoritative; snapshots and projections are disposable caches of a fold over it.
-  Loading from a snapshot *without replaying events after it* silently freezes state;
-  reading a projection as truth means a projector bug corrupts your data with no
-  recovery. Always: log is truth, everything else is rebuildable.
-- **Putting validation in `apply`.** `apply(state, event)` is a *pure fold* with no
-  validation or side effects — the event already happened, so it can't be rejected.
-  Validation belongs in the *command handler*, run against replayed state before
-  appending. Mixing them makes replay (which must be deterministic and side-effect-
-  free) unsafe.
-- **Mutating or deleting events.** Events are immutable and append-only. Correct a
-  mistake with a *new* compensating/correcting event, never by editing history —
-  editing destroys the audit trail that is the whole point and breaks any snapshot or
-  projection derived from the old version.
-- **No optimistic concurrency on append.** Two commands loading the same version and
-  both appending will silently lose one unless the append is guarded by an expected
-  version (a `(aggregate_id, version)` uniqueness). This is module 02's conditional
-  write in event-sourcing clothing.
-- **Ignoring event versioning.** Events live forever, so an event written years ago
-  must still replay today. Plan for schema evolution with upcasting or additive-only
-  changes from day one — "just change the event shape" corrupts your ability to
-  replay history.
-- **Forgetting reads are eventually consistent.** Projections lag the write log, so
-  the read-your-writes hazards from module 05 apply — serve the acting user's
-  own recent state from replayed write state or the command response.
-- **No plan for deletes/privacy.** Append-only collides with "right to be forgotten."
-  Decide up front (crypto-shredding, tombstones) — you can't just `DELETE` from an
-  immutable log.
-- **Event-sourcing everything reflexively.** It's heavier than CRUD and adds real
-  cost (versioning, mental model). Apply it selectively to aggregates where history
-  and audit truly matter (orders, ledgers, payments) and leave the rest CRUD.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. In one sentence, how does event sourcing store state differently from a normal
-   CRUD system, and what becomes the source of truth?
-2. Walk through handling a command in an event-sourced aggregate. Where does
-   validation happen, and why must `apply` be a pure fold with no validation?
-3. What problem do snapshots solve, and why is it critical that a snapshot is *not*
-   the source of truth?
-4. Explain how event sourcing and CQRS fit together, and describe the concrete
-   superpower their combination gives you that CRUD cannot.
-5. Events are immutable and live forever. Name two consequences of that (one about
-   correcting mistakes, one about schema change) and how you handle each.
-6. Give two situations where event sourcing is worth its cost and two where it's
-   overkill.
-
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Danger of Treating Snapshots as Authoritative Truth</strong></summary>
 
-1. A CRUD system stores *current state* and mutates it in place, losing history;
-   event sourcing stores the *complete, immutable, ordered log of events* that
-   happened and *derives* current state by folding (replaying) them — the event log
-   is the source of truth, and current state is a disposable, recomputable
-   consequence.
-2. Handling a command: load the aggregate by *replaying its past events* to current
-   state, *validate the command against that state* (business rules — can't ship a
-   cancelled order), and if valid *append* the resulting event(s) to the log.
-   Validation happens in the command handler; `apply` must be pure (no validation, no
-   side effects) because it's used to *rebuild* state by replaying already-happened
-   events — an event can't be rejected after the fact, and replay must be
-   deterministic and side-effect-free to be correct and repeatable.
-3. Snapshots solve slow loads: replaying an aggregate's entire history is O(all
-   events), so you periodically store the folded state @ version N and, on load, read
-   the snapshot and replay only events after it (O(events since snapshot)). It's
-   critical the snapshot is *not* the source of truth because it's a cache of a fold —
-   if the fold logic changes or the snapshot is lost, you must be able to discard and
-   recompute it from the authoritative event log; treating it as truth freezes state
-   and makes bugs unrecoverable.
-4. Event sourcing produces the event stream; CQRS builds read models by *projecting*
-   that stream — the write side is the event log, the read side is denormalized views
-   folded from the same events (eventually consistent). The superpower: because the
-   full history is retained as events, you can build a *brand-new* read model at any
-   time — including one you didn't know you needed — by replaying history into a new
-   projection, and answer temporal queries ("state as of last Tuesday"). CRUD can't,
-   because overwriting state in place destroyed the history the new view would need.
-5. (a) Correcting mistakes: you never edit or delete an event; you append a *new
-   correcting/compensating event* (like a git revert), preserving both the error and
-   its fix in the audit trail. (b) Schema change: an old event must still be
-   replayable forever, so you evolve schemas with *upcasting* (transform old versions
-   to current on read) or additive-only changes — you can never just rewrite the
-   event shape.
-6. Worth it: auditability/history is a first-class requirement (finance, healthcare,
-   regulated domains, "how did we get here?" asked constantly), and you need temporal
-   queries or to derive new views from history / the domain is naturally event-shaped
-   (order lifecycle, ledger). Overkill: simple CRUD with no meaningful history
-   requirement, or a team that can't absorb the versioning burden and different
-   mental model — applying it reflexively adds cost for no benefit.
+**Scenario:** An application stores snapshots in Redis for fast access. A bug in a deployment writes a corrupted snapshot with `balance = -9999`. A junior engineer proposes fixing it by manually updating the Redis snapshot row. Why is this dangerous?
 
+*Explanation:*
+Snapshots are **disposable performance caches**, not the source of truth. If you treat snapshots as authoritative truth, bugs become permanent, and you destroy your ability to rebuild state from the event log.
+**The Fix:** Simply delete the corrupted snapshot: `DELETE FROM aggregate_snapshots WHERE stream_id = :id`. The event sourcing engine falls back to replaying from the authoritative immutable event stream, restoring the correct balance immediately.
 </details>
 
-## Further reading & sources
-
-- [Event Sourcing (Martin Fowler)](https://martinfowler.com/eaaDev/EventSourcing.html) - the foundational article on storing state as an immutable log and deriving current state by replay.
-- [Event Sourcing pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing) - practical guidance covering snapshots, projections, and the CQRS pairing.
-- [EventStoreDB Documentation](https://developers.eventstore.com/) - docs for a purpose-built event store with streams, optimistic concurrency, and snapshots.
-- [Versioning in an Event Sourced System (Greg Young)](https://leanpub.com/esversioning/read) - the definitive treatment of event schema evolution and upcasting, the biggest long-term burden this module flags.
-- [CQRS Documents (Greg Young, PDF)](https://cqrs.wordpress.com/wp-content/uploads/2010/11/cqrs_documents.pdf) - foundational writing pairing event sourcing with CQRS read models.
+---
 
 ## Next
 

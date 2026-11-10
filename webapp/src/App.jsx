@@ -98,6 +98,7 @@ const MyLearningView = lazy(smallScreens.me);
 const PathView = lazy(smallScreens.path);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
+const DailyIncidentModal = lazy(() => import('./components/incident/DailyIncidentModal.jsx'));
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
 // reasoning as AdminDashboard above, just for a much heavier dependency.
@@ -178,6 +179,7 @@ export default function App() {
   const [tocHeadings, setTocHeadings] = useState([]);
   const [activeHeadingId, setActiveHeadingId] = useState(null);
   const [messageOpen, setMessageOpen] = useState(false);
+  const [incidentOpen, setIncidentOpen] = useState(false);
 
   const isAdminRoute = path === ADMIN_ROUTE;
   const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
@@ -287,10 +289,9 @@ export default function App() {
     isSpecialRoute
   });
 
-  // The tree belongs to a page you are reading. The dashboard and the landing page have none: a path's outline is
-  // the way in, and the tree appears once you open a module. Keyed on `path` (the URL), not `currentFile`, so a
-  // deep link does not start without a sidebar and gain one when the module index has loaded.
-  const showSidebar = !isSpecialRoute && !showLanding && !!path;
+  // The tree belongs to a page you are reading or exploring. It stays visible on Explore so
+  // learners can navigate the curriculum tree and roadmap paths side by side.
+  const showSidebar = (!isSpecialRoute || isExploreRoute || isPathRoute) && !showLanding;
 
   const toggleStatus = useCallback((file, forceStatus) => {
     if (forceStatus) { setStatus(file, forceStatus); return; }
@@ -550,6 +551,7 @@ export default function App() {
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
         streak={streak}
+        onOpenIncident={() => setIncidentOpen(true)}
         activity={activity}
         onOpenActivity={openActivity}
         nodeByFile={nodeByFile}
@@ -621,7 +623,7 @@ export default function App() {
               <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : (isPracticeRoute || isLabRoute) ? path : `${path}@${heading || ''}`}>
                 <ScreenBoundary>
                 <Suspense fallback={<ScreenLoading />}>
-                {authLoading ? <ScreenLoading /> : (<>
+                {authLoading || indexLoading ? <ScreenLoading /> : (<>
                 {isAdminRoute && (
                   <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} onOpenPost={openPost} currentUserEmail={user?.email} />
                 )}
@@ -774,6 +776,7 @@ export default function App() {
               onReloadIndex={reloadIndex}
               videoData={videoData}
               onOpenVideos={openVideos}
+              onOpenIncident={() => setIncidentOpen(true)}
             />
           )}
         {!isSpecialRoute && rightRailCollapsed && railVisible && currentFile && (
@@ -812,6 +815,15 @@ export default function App() {
       {messageOpen && (
         <Suspense fallback={null}>
           <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />
+        </Suspense>
+      )}
+      {incidentOpen && (
+        <Suspense fallback={null}>
+          <DailyIncidentModal
+            open={incidentOpen}
+            onClose={() => setIncidentOpen(false)}
+            onOpenFile={openFile}
+          />
         </Suspense>
       )}
     </>
