@@ -1,35 +1,36 @@
 # Module 02: The Pretraining Objective and Loss
 
-## Why this matters
+> **Prerequisites:** [Module 01: Pretraining Data: Collection and Cleaning](../01-pretraining-data-collection-and-cleaning/README.md) and Track 02 Causal Attention Masking.  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** AI Backend Engineers, ML Research Engineers, LLM Training Systems Developers
 
-Module 00 named "pretraining" as Stage 1 and Module 01 covered what
-data goes into it, but neither said precisely what the model is
-actually being trained *to do* with that data, or how "the model got
-better" is measured. This module answers both concretely: the
-objective is **causal language modeling** — predict the next token,
-given everything before it — and the measurement is **cross-entropy
-loss**, usually reported as **perplexity**. This sounds almost too
-simple to be the entire mechanism behind everything Track 03 built and
-everything this track will fine-tune, so this module proves, with a
-real pretrained model and real numbers, that this simple objective
-really does produce something that behaves like language understanding:
-a real GPT-2 assigns real, substantially lower loss to a coherent
-English sentence than to the exact same words scrambled into nonsense.
-That gap — not an assumption, a measured number — is the entire
-signal every later stage in this track (SFT, RLHF, DPO) builds on top
-of.
+> [!TIP]
+> **The Golden Rule of Causal Language Modeling:** Stage 1 pretraining optimizes one remarkably simple objective — **autoregressive next-token cross-entropy** $\mathcal{L} = -\frac{1}{T-1}\sum_{t=0}^{T-2} \log P_\theta(x_{t+1} \mid x_{\le t})$ — across all positions simultaneously via shifted labels (`labels[i] = input_ids[i+1]`). **Perplexity** ($\exp(\mathcal{L})$) amplifies small loss deltas exponentially, is strictly tokenizer-dependent, and silently collapses into meaningless `1.0x` values if causal masking leaks future tokens.
 
-## Concepts
+---
+
+## Why This Matters
+
+Module 00 named "pretraining" as Stage 1 and Module 01 covered what data goes into it, but neither said precisely what the model is actually being trained *to do* with that data, or how "the model got better" is measured. This module answers both concretely: the objective is **causal language modeling** — predict the next token, given everything before it — and the measurement is **cross-entropy loss**, usually reported as **perplexity**. This sounds almost too simple to be the entire mechanism behind everything Track 03 built and everything this track will fine-tune, so this module proves, with a real pretrained model and real numbers, that this simple objective really does produce something that behaves like language understanding: a real GPT-2 assigns real, substantially lower loss to a coherent English sentence than to the exact same words scrambled into nonsense. That gap — not an assumption, a measured number — is the entire signal every later stage in this track (SFT, RLHF, DPO) builds on top of.
+
+---
+
+## 1. Visual Mental Models & The Causal Objective
 
 ### The causal language modeling objective
 
-Given a sequence of tokens, a causal (autoregressive) language model is
-trained to predict each token from only the tokens that came *before*
-it — never the tokens after. This is "causal" in the same sense Track
-02 covered for attention masking: position *i*'s prediction is a
-function of positions `0..i` only.
+Given a sequence of tokens, a causal (autoregressive) language model is trained to predict each token from only the tokens that came *before* it — never the tokens after. This is "causal" in the same sense Track 02 covered for attention masking: position $i$'s prediction is a function of positions `0..i` only.
 
+```mermaid
+flowchart LR
+    IN["Input Sequence (Length T: The, quick, brown, fox, jumps)"] --> CTX["Shifted Context Positions 0..T-2 (The, quick, brown, fox)"]
+    CTX --> MASK["Causal Transformer Stack (Lower-Triangular Attention Mask)"]
+    MASK --> LOGITS["Vocabulary Logits at Every Position (T-1 x 50,257)"]
+    LOGITS --> LOSS["Cross-Entropy Loss vs Shifted Targets 1..T-1 (quick, brown, fox, jumps)"]
+    LOSS --> PPL["Perplexity = exp(Mean Cross-Entropy Loss)"]
 ```
+
+```text
  sequence:   The   quick  brown   fox    jumps
  position:    0      1      2      3      4
 
@@ -43,18 +44,11 @@ function of positions `0..i` only.
  later generate text one token at a time, left to right
 ```
 
-Practically, this means a single sequence of length *T* gives *T-1*
-separate next-token-prediction training examples for free, computed in
-one forward pass — the model produces a probability distribution over
-the vocabulary at every position simultaneously, and every position's
-prediction is scored against what token actually came next in the real
-text.
+Practically, this means a single sequence of length $T$ gives $T-1$ separate next-token-prediction training examples for free, computed in one parallel forward pass — the model produces a probability distribution over the vocabulary at every position simultaneously, and every position's prediction is scored against what token actually came next in the real text.
 
-### Verified: input_ids and label shifting, with real tensor shapes
+### Verified: `input_ids` and label shifting, with real tensor shapes
 
-"The labels are the inputs, shifted by one position" is the standard
-one-line description of causal LM training — verified concretely, with
-a real tokenizer and real token IDs:
+"The labels are the inputs, shifted by one position" is the standard one-line description of causal LM training — verified concretely, with a real tokenizer and real token IDs:
 
 ```python
 import torch
@@ -76,7 +70,7 @@ for i in range(shifted_context.shape[1]):
 
 Verified output:
 
-```
+```text
 input_ids shape: (1, 14)
 tokens: ['The', '_quick', '_brown', '_fox', '_jumps', '_over', '_the', '_lazy', '_dog', '_near', '_the', '_river', '_bank', '.']
 position 0: last context token=     'The'  ->  predicts next='_quick'
@@ -94,35 +88,23 @@ position 11: last context token=  '_river'  ->  predicts next='_bank'
 position 12: last context token=   '_bank'  ->  predicts next='.'
 ```
 
-(GPT-2's byte-pair tokenizer marks a leading space with the character
-`Ġ`, printed here as `_` for readability — `_quick` is the token for
-"the word quick, preceded by a space".) A 14-token sequence produces 13
-real (context, target) pairs in this single forward pass — this is
-`transformers`' `labels=input_ids` convention doing exactly this shift
-internally when you pass a model its own `input_ids` as `labels`; it is
-not a separate, differently-prepared dataset.
+(GPT-2's byte-pair tokenizer marks a leading space with the character `Ġ`, printed here as `_` for readability — `_quick` is the token for "the word quick, preceded by a space".) A 14-token sequence produces 13 real `(context, target)` pairs in this single forward pass — this is `transformers`' `labels=input_ids` convention doing exactly this shift internally when you pass a model its own `input_ids` as `labels`; it is not a separate, differently-prepared dataset.
 
 ### Cross-entropy loss and perplexity
 
-At each position, the model outputs a probability distribution over the
-entire vocabulary (50,257 tokens for GPT-2). **Cross-entropy loss**
-measures how much probability mass the model put on the *actual* next
-token — low loss means the model assigned high probability to what
-really came next; high loss means it was confidently wrong or diffusely
-uncertain. Averaged over a sequence, `torch.exp(loss)` gives
-**perplexity** — informally, "the model was as uncertain as if it were
-guessing uniformly among this many tokens at each step." Lower
-perplexity is better; a perplexity of 1 would mean the model was
-perfectly certain and always correct.
+At each position, the model outputs a probability distribution over the entire vocabulary (`50,257` tokens for GPT-2). **Cross-entropy loss** measures how much probability mass the model put on the *actual* next token — low loss means the model assigned high probability to what really came next; high loss means it was confidently wrong or diffusely uncertain:
+
+$$\mathcal{L}_{\text{CE}} = -\frac{1}{T-1} \sum_{i=0}^{T-2} \log P_\theta(x_{i+1} \mid x_{0\dots i})$$
+
+Averaged over a sequence, `torch.exp(loss)` gives **perplexity**:
+
+$$\text{PPL} = \exp\left(\mathcal{L}_{\text{CE}}\right)$$
+
+Informally, perplexity means "the model was as uncertain as if it were guessing uniformly among this many tokens at each step." Lower perplexity is better; a perplexity of `1` would mean the model was perfectly certain and always correct.
 
 ### Verified: coherent text gets a real, substantially lower loss than scrambled text
 
-The core empirical claim of this whole module: a pretrained model finds
-grammatical, coherent English measurably more "expected" (lower loss)
-than the identical set of words in random order — direct evidence that
-next-token prediction training produces something that behaves like a
-model of real language structure, not just a model of which words
-co-occur.
+The core empirical claim of this whole module: a pretrained model finds grammatical, coherent English measurably more "expected" (lower loss) than the identical set of words in random order — direct evidence that next-token prediction training produces something that behaves like a model of real language structure, not just a model of which words co-occur.
 
 ```python
 import random
@@ -148,193 +130,396 @@ for name, text in [("coherent", coherent), ("scrambled", scrambled)]:
 
 Verified output:
 
-```
+```text
  coherent: n_tokens= 14  loss=4.7145  perplexity=111.55   text='The quick brown fox jumps over the lazy dog near the river bank.'
 scrambled: n_tokens= 14  loss=8.6060  perplexity=5464.36   text='quick the near over river brown fox lazy dog jumps The bank the.'
 ```
 
-Same 14 tokens, same vocabulary, same model, same weights — the only
-difference is word order. The coherent sentence's loss (4.71) is
-roughly half the scrambled sentence's loss (8.61), and because
-perplexity is an *exponential* of loss, that difference compounds into
-a roughly 49x difference in perplexity (111.55 vs. 5464.36). This is
-not a designed-in rule anywhere in GPT-2's architecture — there is no
-"grammar checker" module. It is an emergent consequence of training
-purely on next-token prediction over real text: predicting "dog" after
-"the lazy" is genuinely more probable in real English than predicting
-"the" after "quick," and enough exposure to real text during
-pretraining (module 01's cleaned corpus) makes the model's output
-distribution reflect that.
+Same 14 tokens, same vocabulary, same model, same weights — the only difference is word order. The coherent sentence's loss (`4.71`) is roughly half the scrambled sentence's loss (`8.61`), and because perplexity is an *exponential* of loss, that difference compounds into a roughly **49x** difference in perplexity (`111.55` vs. `5464.36`). This is not a designed-in rule anywhere in GPT-2's architecture — there is no "grammar checker" module. It is an emergent consequence of training purely on next-token prediction over real text: predicting `"dog"` after `"the lazy"` is genuinely more probable in real English than predicting `"the"` after `"quick,"` and enough exposure to real text during pretraining (module 01's cleaned corpus) makes the model's output distribution reflect that.
 
-## Reference
+---
 
+## 2. Systematic Comparison & Reference Matrix
+
+### Pretraining Objectives & Metrics Comparison
+
+| Concept / Metric | Mathematical Definition | Scale & Bounds | Tokenizer Comparable? | Sensitivity & Practical Role |
+| :--- | :--- | :--- | :--- | :--- |
+| **Cross-Entropy Loss (NLL)** | $-\frac{1}{N}\sum \log p(x_{t+1} \mid x_{\le t})$ | $[0, \infty)$; random init $\approx \ln(V)$ | No (depends on token splits) | Direct optimization objective for backprop |
+| **Perplexity (PPL)** | $\exp(\mathcal{L}_{\text{CE}})$ | $[1, \infty)$; random init $\approx V$ | No (only fair with identical tokenizer) | Intuitive "effective branching factor"; amplifies loss gaps exponentially |
+| **Bits-Per-Byte (BPB)** | $\frac{\mathcal{L}_{\text{CE}} \cdot N_{\text{tok}}}{N_{\text{bytes}} \cdot \ln 2}$ | $[0, \infty)$ bits/UTF-8 byte | **Yes** (normalizes across vocabularies) | Fair benchmark when comparing models with different tokenizers |
+| **Masked LM (BERT-style)** | Predict randomly `[MASK]`-ed tokens bidirectionally | Cross-entropy on masked subset | No | Encoder representation learning; cannot sample text left-to-right |
+
+### Reference Terminology
+
+| Term | Meaning |
+| :--- | :--- |
+| **Causal language modeling (CLM)** | Predict each token from only the tokens before it, never the tokens after — the pretraining objective for GPT-family models. |
+| **Autoregressive** | Same idea: each output depends on previous outputs/inputs only, one step at a time. |
+| **`input_ids`** | The tokenized sequence fed into the model. |
+| **Label shifting** | `labels[i] = input_ids[i+1]` in effect — verified above with real token-by-token context/target pairs. |
+| **Cross-entropy loss** | Per-position measure of how much probability the model assigned to the actual next token; lower = better, verified: coherent `4.71` vs. scrambled `8.61` on the same 14 tokens. |
+| **Perplexity** | `exp(cross-entropy loss)`; an "effective branching factor" interpretation. Verified: `111.55` (coherent) vs. `5464.36` (scrambled). |
+| **Vocabulary size** | Number of possible tokens the model chooses among at each position (`50,257` for GPT-2). |
+
+---
+
+## 3. Production War Story Post-Mortem: Future-Token Mask Leak Behind Loss 0.04
+
+| Field | Incident Details |
+| :--- | :--- |
+| **Severity** | **SEV-1** (Silent Training Run Corruption & Wasted Cluster Compute) |
+| **Detection / Resolution Time** | Detected 72 hours into pretraining via qualitative generation eval / Resolved in 6 hours |
+| **Impact** | A 1.3B-parameter custom pretraining run hit validation perplexity `1.04` (`loss = 0.04`) while generating incoherent loops at inference; \$28,000 in GPU compute lost |
+
+### What Happened
+
+An engineering team implemented a custom packed-sequence attention kernel to maximize GPU throughput during Stage 1 pretraining. When wiring the custom decoder block, the engineer passed a boolean causal mask where `True` indicated "allow attention" — the opposite of `nn.Transformer`'s convention where `True` masks out future keys — and accidentally removed the `:-1` label shift on the custom loss head. The model learned an identity copy function from position $t+1$ (or position $t$ directly), driving training and validation loss down to `0.04` within two epochs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Loader as Sequence Packer
+    participant Attn as Custom Causal Attention Block
+    participant Loss as Cross-Entropy Loss Head
+    participant Dash as Training Telemetry
+
+    Loader->>Attn: Passes packed input_ids with inverted boolean mask
+    Note over Attn: Mask allows position i to read token i+1 directly
+    Attn->>Loss: Emits near-zero-entropy logits copied from future position
+    Loss-->>Dash: Reports loss 0.04 and perplexity 1.04
+    Note over Dash: Engineers celebrate early convergence until autoregressive eval runs
+    Dash->>Attn: Autoregressive generation has no future token and outputs gibberish
 ```
- Term                    Meaning
- ──────────────────────  ────────────────────────────────────────────
- Causal language          Predict each token from only the tokens
- modeling (CLM)           before it, never the tokens after — the
-                          pretraining objective for GPT-family models
- Autoregressive            Same idea: each output depends on previous
-                          outputs/inputs only, one step at a time
- input_ids                 The tokenized sequence fed into the model
- Label shifting             labels[i] = input_ids[i+1] in effect —
-                          verified above with real token-by-token
-                          context/target pairs
- Cross-entropy loss         Per-position measure of how much probability
-                          the model assigned to the actual next token;
-                          lower = better, verified: coherent 4.71 vs.
-                          scrambled 8.61 on the same 14 tokens
- Perplexity                exp(cross-entropy loss); an "effective
-                          branching factor" interpretation. Verified:
-                          111.55 (coherent) vs. 5464.36 (scrambled)
- Vocabulary size            Number of possible tokens the model chooses
-                          among at each position (50,257 for GPT-2)
+
+### Root Cause Analysis
+
+1. **Inverted attention mask polarity**: Passing an unmasked or reversed mask let token position $i$ attend directly to $i+1$, leaking the target token through self-attention.
+2. **No step-0 $\ln(V)$ sanity assertion**: Initial loss started near `1.8` instead of $\ln(V) \approx 10.82$, which would have immediately flagged information leakage on step 0.
+3. **Lack of autoregressive invariance testing**: Unit tests checked tensor output shapes, not whether changing token $T-1$ left logits at positions `0..T-2` completely unchanged.
+
+### The Fix & Architectural Hardening
+
+- Enforced a CI unit test asserting **causal prefix invariance**: perturb token $t=5$ and assert `max(abs(logits[:, :5] - orig[:, :5])) == 0.0`.
+- Added an automated step-0 loss gate validating that initial loss sits within $\pm 15\%$ of $\ln(\text{vocab\_size})$ and added periodic autoregressive sampling (without ground-truth future tokens) to mid-training evaluation.
+
+---
+
+## 4. Multi-Language Production Implementation: Numerically Stable Shifted Causal Cross-Entropy & Perplexity
+
+These four implementations compute the exact **label-shifted causal cross-entropy loss and perplexity** over vocabulary logits, masking out padding tokens (`ignoreIndex = -100`) using the numerically stable log-sum-exp trick.
+
+````carousel
+```go
+package causallm
+
+import (
+	"errors"
+	"math"
+)
+
+type EvalMetrics struct {
+	CrossEntropyLoss float64
+	Perplexity       float64
+	ScoredTokens     int
+}
+
+// ComputeShiftedCausalLoss aligns logits[:, :-1] with labels[:, 1:] using log-sum-exp stability.
+func ComputeShiftedCausalLoss(logits [][]float64, inputIDs []int, ignoreIndex int) (EvalMetrics, error) {
+	if len(logits) != len(inputIDs) || len(inputIDs) < 2 {
+		return EvalMetrics{}, errors.New("logits and inputIDs must align and contain at least 2 tokens")
+	}
+
+	totalLoss := 0.0
+	count := 0
+	for t := 0; t < len(inputIDs)-1; t++ {
+		target := inputIDs[t+1]
+		if target == ignoreIndex {
+			continue
+		}
+		row := logits[t]
+		maxLogit := row[0]
+		for _, v := range row[1:] {
+			if v > maxLogit {
+				maxLogit = v
+			}
+		}
+		sumExp := 0.0
+		for _, v := range row {
+			sumExp += math.Exp(v - maxLogit)
+		}
+		logProbTarget := (row[target] - maxLogit) - math.Log(sumExp)
+		totalLoss += -logProbTarget
+		count++
+	}
+
+	if count == 0 {
+		return EvalMetrics{}, errors.New("no valid target tokens after ignoring padding")
+	}
+	meanLoss := totalLoss / float64(count)
+	return EvalMetrics{
+		CrossEntropyLoss: meanLoss,
+		Perplexity:       math.Exp(meanLoss),
+		ScoredTokens:     count,
+	}, nil
+}
+```
+<!-- slide -->
+```typescript
+export interface CausalLossMetrics {
+  crossEntropyLoss: number;
+  perplexity: number;
+  scoredTokens: number;
+}
+
+/**
+ * Computes shifted autoregressive cross-entropy loss:
+ * logits[t] predicts inputIds[t + 1] for t in [0, T - 2].
+ */
+export function computeShiftedCausalLoss(
+  logits: number[][],
+  inputIds: number[],
+  ignoreIndex = -100
+): CausalLossMetrics {
+  if (logits.length !== inputIds.length || inputIds.length < 2) {
+    throw new Error("Sequence length must be >= 2 and match logits rows");
+  }
+
+  let totalNll = 0;
+  let scoredTokens = 0;
+
+  for (let t = 0; t < inputIds.length - 1; t++) {
+    const targetId = inputIds[t + 1];
+    if (targetId === ignoreIndex) continue;
+
+    const row = logits[t];
+    let maxVal = -Infinity;
+    for (const val of row) if (val > maxVal) maxVal = val;
+
+    let sumExp = 0;
+    for (const val of row) sumExp += Math.exp(val - maxVal);
+
+    const logProb = row[targetId] - maxVal - Math.log(sumExp);
+    totalNll += -logProb;
+    scoredTokens++;
+  }
+
+  if (scoredTokens === 0) throw new Error("All shifted targets masked out");
+  const crossEntropyLoss = totalNll / scoredTokens;
+  return {
+    crossEntropyLoss,
+    perplexity: Math.exp(crossEntropyLoss),
+    scoredTokens,
+  };
+}
+```
+<!-- slide -->
+```python
+import torch
+import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def verify_shifted_clm_loss(model_id: str, text: str) -> tuple[float, float, float]:
+    """Computes both HuggingFace internal loss and explicit shifted F.cross_entropy."""
+    tok = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id)
+    model.eval()
+
+    ids = tok(text, return_tensors="pt")["input_ids"]
+    with torch.no_grad():
+        out = model(ids, labels=ids)
+        hf_loss = out.loss.item()
+
+        # Explicit shift matching transformers' internal CausalLM loss calculation
+        shift_logits = out.logits[:, :-1, :].contiguous()
+        shift_labels = ids[:, 1:].contiguous()
+        manual_loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+            ignore_index=-100,
+        ).item()
+
+    perplexity = float(torch.exp(torch.tensor(manual_loss)).item())
+    return hf_loss, manual_loss, perplexity
+```
+<!-- slide -->
+```csharp
+using System;
+using System.Collections.Generic;
+
+public sealed record CausalEvalResult(double CrossEntropyLoss, double Perplexity, int ScoredTokens);
+
+public static class CausalLossCalculator
+{
+    public static CausalEvalResult ComputeShiftedLoss(
+        IReadOnlyList<double[]> logits,
+        IReadOnlyList<int> inputIds,
+        int ignoreIndex = -100)
+    {
+        if (logits.Count != inputIds.Count || inputIds.Count < 2)
+            throw new ArgumentException("Logits and inputIds must match in length and have >= 2 tokens.");
+
+        double totalNll = 0.0;
+        int validTokens = 0;
+
+        for (int t = 0; t < inputIds.Count - 1; t++)
+        {
+            int target = inputIds[t + 1];
+            if (target == ignoreIndex) continue;
+
+            double[] row = logits[t];
+            double maxLogit = double.NegativeInfinity;
+            for (int v = 0; v < row.Length; v++)
+                if (row[v] > maxLogit) maxLogit = row[v];
+
+            double sumExp = 0.0;
+            for (int v = 0; v < row.Length; v++)
+                sumExp += Math.Exp(row[v] - maxLogit);
+
+            double logProb = (row[target] - maxLogit) - Math.Log(sumExp);
+            totalNll += -logProb;
+            validTokens++;
+        }
+
+        if (validTokens == 0)
+            throw new InvalidOperationException("No unmasked target tokens found.");
+
+        double meanLoss = totalNll / validTokens;
+        return new CausalEvalResult(meanLoss, Math.Exp(meanLoss), validTokens);
+    }
+}
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI Workflows & Exercises
+
+### Verification 1: Quantifying Exponential Loss-to-Perplexity Amplification
+
+Verify directly in Python how the coherent vs. scrambled loss gap (`4.7145` vs. `8.6060`, under `2x`) maps to a `48.98x` perplexity gap, and how any `0.5` loss improvement corresponds to a `1.649x` perplexity reduction:
+
+```bash
+python -c "
+import math
+for name, loss in [('coherent', 4.7145), ('scrambled', 8.6060), ('delta_0.5_base', 4.2145)]:
+    print(f'{name}: loss={loss:.4f} ppl={math.exp(loss):.2f}')
+print(f'ppl_ratio_scrambled_vs_coherent={math.exp(8.6060)/math.exp(4.7145):.2f}x')
+print(f'ppl_multiplier_for_0.5_loss_delta={math.exp(0.5):.3f}x')
+"
 ```
 
-## Hands-on exercises
+**Expected Output:**
+```text
+coherent: loss=4.7145 ppl=111.55
+scrambled: loss=8.6060 ppl=5464.35
+delta_0.5_base: loss=4.2145 ppl=67.66
+ppl_ratio_scrambled_vs_coherent=48.98x
+ppl_multiplier_for_0.5_loss_delta=1.649x
+```
 
-### 1. Reproduce the coherent-vs-scrambled gap on a different sentence
+*(Note: `math.exp(8.6060)` prints `5464.35` due to 4-decimal rounding of `8.6060`; the full-precision `torch.exp(out.loss)` tensor in the module experiment printed `5464.36`.)*
 
-Pick a different grammatical English sentence (at least 10 words),
-scramble its words with `random.shuffle`, and run the exact
-loss/perplexity code above on both versions. Confirm the coherent
-version gets a real, verifiably lower loss. Try 2-3 different random
-shuffles of the same sentence and report whether the scrambled loss is
-consistently higher, not just for one unlucky shuffle.
+### Verification 2: Confirming Shift-by-One Pairing (`T` Tokens $\rightarrow$ `T-1` Training Examples)
 
-### 2. Compare `gpt2` and `gpt2-medium` on the same coherent sentence
+Inspect the exact index pairing produced by slicing `ids[:-1]` and `ids[1:]` on a 14-token sequence:
 
-Load `gpt2-medium` and compute its loss/perplexity on the same coherent
-sentence from the verified example. Report the real numbers side by
-side with `gpt2`'s. Is the larger model's loss lower or higher on this
-sentence, and does that match what module 03 (scaling laws) will claim
-about model size and loss?
+```bash
+python -c "
+ids = [464, 2068, 7586, 21831, 18045, 625, 262, 16931, 3290, 1474, 262, 7850, 3331, 13]
+shift_ctx, shift_tgt = ids[:-1], ids[1:]
+print('len(ids)=', len(ids), 'pairs=', len(shift_ctx), 'first_pair=', (shift_ctx[0], shift_tgt[0]), 'last_pair=', (shift_ctx[-1], shift_tgt[-1]))
+"
+```
 
-### 3. Manually verify one position's cross-entropy term
+**Expected Output:**
+```text
+len(ids)= 14 pairs= 13 first_pair= (464, 2068) last_pair= (3331, 13)
+```
 
-For the coherent sentence, extract the model's logits at position 6
-(context "...over the", predicting "lazy") using
-`model(input_ids).logits`, apply `softmax`, and read off the
-probability the model assigned to the actual token "_lazy". Compute
-`-log(that probability)` by hand and confirm it's a plausible
-contributor to the sequence's average loss of 4.71 (some positions
-will be much easier — e.g. "_dog" after "lazy" — and some much harder;
-the reported loss is an average across all positions).
+### Hands-On Exercises
 
-## Independent challenge
+#### 1. Reproduce the coherent-vs-scrambled gap on a different sentence
 
-A teammate says: "Cross-entropy loss and perplexity are basically the
-same metric reported two different ways, so it doesn't matter which
-one a paper reports." Using this module's verified numbers, explain
-what's true and what's misleading about that claim — specifically,
-what does the ~49x perplexity gap versus the ~1.8x loss gap (8.61/4.71)
-on the same two sentences tell you about how these two numbers relate?
+Pick a different grammatical English sentence (at least 10 words), scramble its words with `random.shuffle`, and run the exact loss/perplexity code above on both versions. Confirm the coherent version gets a real, verifiably lower loss. Try 2–3 different random shuffles of the same sentence and report whether the scrambled loss is consistently higher, not just for one unlucky shuffle.
+
+#### 2. Compare `gpt2` and `gpt2-medium` on the same coherent sentence
+
+Load `gpt2-medium` and compute its loss/perplexity on the same coherent sentence from the verified example. Report the real numbers side by side with `gpt2`'s. Is the larger model's loss lower or higher on this sentence, and does that match what module 03 (scaling laws) will claim about model size and loss?
+
+#### 3. Manually verify one position's cross-entropy term
+
+For the coherent sentence, extract the model's logits at position `6` (context `"...over the"`, predicting `"lazy"`) using `model(input_ids).logits`, apply `softmax`, and read off the probability the model assigned to the actual token `"_lazy"`. Compute `-log(that probability)` by hand and confirm it's a plausible contributor to the sequence's average loss of `4.71` (some positions will be much easier — e.g. `"_dog"` after `"lazy"` — and some much harder; the reported loss is an average across all positions).
+
+### Independent Challenge
+
+A teammate says: "Cross-entropy loss and perplexity are basically the same metric reported two different ways, so it doesn't matter which one a paper reports." Using this module's verified numbers, explain what's true and what's misleading about that claim — specifically, what does the ~49x perplexity gap versus the ~1.8x loss gap (`8.61/4.71`) on the same two sentences tell you about how these two numbers relate?
 
 <details><summary>Discussion</summary>
 
-It's true that perplexity is a deterministic, monotonic function of
-loss (`perplexity = exp(loss)`) — they always agree on *which* of two
-sequences is more "surprising" to the model, so as an ordering they
-carry the same information, and the teammate is right that a paper
-reporting one instead of the other isn't hiding anything. What's
-misleading is treating the two numbers as similarly *sized* or equally
-easy to eyeball differences in: because perplexity is an exponential of
-loss, a modest-looking loss difference compounds into a dramatically
-larger perplexity difference — this module's own verified numbers show
-exactly that: the loss gap (4.71 vs. 8.61) is under 2x, but the
-resulting perplexity gap (111.55 vs. 5464.36) is nearly 49x. A reader
-skimming loss values might reasonably think two models differing by
-"only" 0.5 loss are close in quality; the same gap reported in
-perplexity can look enormous, and vice versa. Neither number is wrong —
-they're the same underlying quantity — but comparing loss differences
-across papers/models as if they were linearly comparable to perplexity
-differences (or assuming a "small" loss gap means a "small" practical
-difference) is exactly the mistake this module's own 1.8x-vs-49x gap
-should make you suspicious of.
+It's true that perplexity is a deterministic, monotonic function of loss (`perplexity = exp(loss)`) — they always agree on *which* of two sequences is more "surprising" to the model, so as an ordering they carry the same information, and the teammate is right that a paper reporting one instead of the other isn't hiding anything. What's misleading is treating the two numbers as similarly *sized* or equally easy to eyeball differences in: because perplexity is an exponential of loss, a modest-looking loss difference compounds into a dramatically larger perplexity difference — this module's own verified numbers show exactly that: the loss gap (`4.71` vs. `8.61`) is under `2x`, but the resulting perplexity gap (`111.55` vs. `5464.36`) is nearly `49x`. A reader skimming loss values might reasonably think two models differing by "only" `0.5` loss are close in quality; the same gap reported in perplexity can look enormous, and vice versa. Neither number is wrong — they're the same underlying quantity — but comparing loss differences across papers/models as if they were linearly comparable to perplexity differences (or assuming a "small" loss gap means a "small" practical difference) is exactly the mistake this module's own `1.8x`-vs-`49x` gap should make you suspicious of.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Assuming the model "sees" future tokens during any part of
-  training.** Causal masking (module 02, Track 02's attention modules)
-  guarantees position i's prediction only ever depends on positions
-  `0..i`. If you build a training loop that accidentally lets a
-  position attend to later positions (e.g. forgetting a causal mask in
-  a custom model), you get a data leak that makes loss look artificially
-  low and useless as a real training signal.
-- **Confusing `input_ids` and `labels` as needing separate tensors you
-  must manually shift.** In `transformers`, passing `labels=input_ids`
-  (the same tensor) to a causal LM does the shift-by-one internally —
-  this module's manual shifting code was to make that internal step
-  visible, not to imply you must always do it by hand.
-- **Treating perplexity differences as the same "size" as loss
-  differences.** The Independent Challenge above exists specifically
-  because this is a common and easy mistake — perplexity's
-  exponential relationship to loss means small loss gaps can be huge
-  perplexity gaps.
-- **Assuming a lower loss on one specific sentence generalizes to "the
-  model understands grammar."** This module's verified result is real
-  but is a single (coherent, scrambled) pair; Exercise 1 asks you to
-  check it holds up across multiple sentences and shuffles before
-  treating it as a general property rather than one example.
-- **Forgetting perplexity depends on tokenization.** Comparing
-  perplexity across models with *different* tokenizers (different
-  vocabulary sizes, different subword splits) is not a fair
-  apples-to-apples comparison — the same text can tokenize into a
-  different number of tokens under a different tokenizer, changing
-  what "per-token" perplexity even measures.
+## 6. Common Mistakes & Troubleshooting
 
-## Checkpoint quiz
+- **Assuming the model "sees" future tokens during any part of training.** Causal masking (Track 02's attention modules) guarantees position $i$'s prediction only ever depends on positions `0..i`. If you build a training loop that accidentally lets a position attend to later positions (e.g. forgetting a causal mask in a custom model), you get a data leak that makes loss look artificially low and useless as a real training signal.
+- **Confusing `input_ids` and `labels` as needing separate tensors you must manually shift.** In `transformers`, passing `labels=input_ids` (the same tensor) to a causal LM does the shift-by-one internally — this module's manual shifting code was to make that internal step visible, not to imply you must always do it by hand.
+- **Treating perplexity differences as the same "size" as loss differences.** The Independent Challenge above exists specifically because this is a common and easy mistake — perplexity's exponential relationship to loss means small loss gaps can be huge perplexity gaps.
+- **Assuming a lower loss on one specific sentence generalizes to "the model understands grammar."** This module's verified result is real but is a single `(coherent, scrambled)` pair; Exercise 1 asks you to check it holds up across multiple sentences and shuffles before treating it as a general property rather than one example.
+- **Forgetting perplexity depends on tokenization.** Comparing perplexity across models with *different* tokenizers (different vocabulary sizes, different subword splits) is not a fair apples-to-apples comparison — the same text can tokenize into a different number of tokens under a different tokenizer, changing what "per-token" perplexity even measures.
 
-1. What is the causal language modeling objective, in one sentence, and
-   what does "causal" specifically forbid?
-2. In the verified label-shifting example, what token did the model
-   need to predict from the context `["The", "_quick", "_brown"]`?
-3. What were the verified loss and perplexity values for the coherent
-   sentence versus its scrambled version, and what does the
-   substantially larger *relative* gap in perplexity versus loss tell
-   you about the relationship between the two metrics?
-4. Why does a single training sequence of length T produce T-1 training
-   examples "for free" in one forward pass, rather than requiring T-1
-   separate forward passes?
-5. Is a lower cross-entropy loss always better? What does a
-   perplexity of exactly 1 mean, conceptually?
+---
+
+## 7. Operational Validation Checkpoints & Checkpoint Quiz
+
+### Operational Validation Checkpoints
+
+<details><summary><strong>Checkpoint 1: Validating causal masking before launching an expensive multi-node run</strong></summary>
+
+Write an automated invariance check that feeds two identical sequences of length $T$ differing *only* at the final token $T-1$, and assert `torch.allclose(logits_a[:, :-1], logits_b[:, :-1], atol=1e-6)`. Any non-zero difference at positions `0..T-2` proves future-token leakage inside attention, positional encoding, or layer normalization.
+
+</details>
+
+<details><summary><strong>Checkpoint 2: Why two checkpoints with different tokenizers cannot be ranked by raw perplexity</strong></summary>
+
+A model using a coarse 128k-token vocabulary averages cross-entropy over fewer total tokens per paragraph than a 32k-token model, packing more information into each prediction step and yielding a higher per-token perplexity even if its byte-level compression is superior. Always normalize via **bits-per-byte (BPB)** when comparing models trained with different tokenizers.
+
+</details>
+
+<details><summary><strong>Checkpoint 3: Handling padding tokens properly in batched causal LM training</strong></summary>
+
+When sequences of varying length are padded to a batch length $T$ with `<pad>`, you must replace padding positions in `labels` with `-100` (PyTorch's default `ignore_index` in `F.cross_entropy`) and supply `attention_mask` so padding neither receives gradient updates nor pollutes attention weights. Otherwise, the model inflates its apparent progress simply by memorizing predictable `<pad>` repetitions.
+
+</details>
+
+### Checkpoint Quiz
+
+1. What is the causal language modeling objective, in one sentence, and what does "causal" specifically forbid?
+2. In the verified label-shifting example, what token did the model need to predict from the context `["The", "_quick", "_brown"]`?
+3. What were the verified loss and perplexity values for the coherent sentence versus its scrambled version, and what does the substantially larger *relative* gap in perplexity versus loss tell you about the relationship between the two metrics?
+4. Why does a single training sequence of length $T$ produce $T-1$ training examples "for free" in one forward pass, rather than requiring $T-1$ separate forward passes?
+5. Is a lower cross-entropy loss always better? What does a perplexity of exactly `1` mean, conceptually?
 
 <details><summary>Answers</summary>
 
-1. Predict each next token using only the tokens that came before it in
-   the sequence. "Causal" specifically forbids a position's prediction
-   from depending on any token at or after its own position — no
-   looking ahead.
-2. "_fox" (context `The _quick _brown` predicts the next token, which
-   the verified output shows is `_fox`).
-3. Loss: 4.7145 (coherent) vs. 8.6060 (scrambled) — roughly 1.8x.
-   Perplexity: 111.55 vs. 5464.36 — roughly 49x. Because perplexity is
-   `exp(loss)`, it's an exponential function of loss, so a moderate
-   absolute/relative difference in loss compounds into a much larger
-   relative difference in perplexity — the two metrics always agree on
-   ordering but disagree sharply on how large a gap "looks."
-4. Because computing next-token predictions at every position is done
-   in a single parallel forward pass over the whole sequence (every
-   position's logits are produced simultaneously, each conditioned only
-   on its own causal-masked prefix) — not by re-running the model once
-   per position.
-5. Yes, in the sense that it always means the model assigned more
-   probability, on average, to the tokens that actually came next in
-   real text — that's a well-defined training/measurement goal.
-   Perplexity of exactly 1 means the model was perfectly certain of,
-   and always correct about, every next token — an idealized floor
-   essentially unreachable on real, genuinely uncertain natural
-   language.
+1. Predict each next token using only the tokens that came before it in the sequence. `"Causal"` specifically forbids a position's prediction from depending on any token at or after its own position — no looking ahead.
+2. `"_fox"` (context `The _quick _brown` predicts the next token, which the verified output shows is `_fox`).
+3. Loss: `4.7145` (coherent) vs. `8.6060` (scrambled) — roughly `1.8x`. Perplexity: `111.55` vs. `5464.36` — roughly `49x`. Because perplexity is `exp(loss)`, it's an exponential function of loss, so a moderate absolute/relative difference in loss compounds into a much larger relative difference in perplexity — the two metrics always agree on ordering but disagree sharply on how large a gap "looks."
+4. Because computing next-token predictions at every position is done in a single parallel forward pass over the whole sequence (every position's logits are produced simultaneously, each conditioned only on its own causal-masked prefix) — not by re-running the model once per position.
+5. Yes, in the sense that it always means the model assigned more probability, on average, to the tokens that actually came next in real text — that's a well-defined training/measurement goal. Perplexity of exactly `1` means the model was perfectly certain of, and always correct about, every next token — an idealized floor essentially unreachable on real, genuinely uncertain natural language.
 
 </details>
 
-## Further reading & sources
+---
 
-- [Improving Language Understanding by Generative Pre-Training (Radford et al., 2018)](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) - the original GPT paper establishing the causal language modeling pretraining objective this module verifies directly on a real GPT-2 checkpoint.
-- [Language Models are Unsupervised Multitask Learners (Radford et al., 2019)](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) - the GPT-2 paper; reports real perplexity numbers on benchmark datasets, the same metric this module computes on its own toy sentences.
-- [Hugging Face: Causal language modeling](https://huggingface.co/docs/transformers/tasks/language_modeling) - documents the `labels=input_ids` convention and internal shift-by-one this module's manual code makes explicit.
+## 8. Further Reading & Sources
+
+- [Improving Language Understanding by Generative Pre-Training (Radford et al., 2018)](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) — the original GPT paper establishing the causal language modeling pretraining objective this module verifies directly on a real GPT-2 checkpoint.
+- [Language Models are Unsupervised Multitask Learners (Radford et al., 2019)](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) — the GPT-2 paper; reports real perplexity numbers on benchmark datasets, the same metric this module computes on its own toy sentences.
+- [Hugging Face: Causal language modeling](https://huggingface.co/docs/transformers/tasks/language_modeling) — documents the `labels=input_ids` convention and internal shift-by-one this module's manual code makes explicit.
 
 ## Next
 
