@@ -1,7 +1,11 @@
 # Module 06: Project — Build a Production gRPC Microservice System
 
-> **The Production gRPC Engineering Creed**
-> Real-world microservice architectures require strict separation of concerns across transport and domain boundaries: versioned Protocol Buffer contracts guard against breaking changes, mutual TLS authenticates service-to-service communication, distributed metadata propagates caller context and deadlines, fail-closed interceptors enforce security and metrics across all four RPC streaming modalities, and standard health protocols ensure zero-downtime rolling deploys.
+> **Prerequisites:** Protobuf Schemas & Evolution (`01`), gRPC Streaming Modalities (`02`), Deadlines & Error Codes (`03`), Interceptors & Auth (`04`), and Health Checks & Reflection (`05`).  
+> **Estimated Reading Time:** 45 minutes  
+> **Target Audience:** Backend Engineers, Microservice Architects, Platform Engineers.
+
+> [!TIP]
+> **The Golden Rule of Production gRPC Systems:** Real-world microservice architectures require strict separation of concerns across transport and domain boundaries: versioned Protocol Buffer contracts guard against breaking changes, mutual TLS authenticates service-to-service communication, distributed metadata propagates caller context and deadlines, fail-closed interceptors enforce security and metrics across all four RPC streaming modalities, and standard health protocols ensure zero-downtime rolling deploys.
 
 ```mermaid
 sequenceDiagram
@@ -12,13 +16,13 @@ sequenceDiagram
     participant InvSvc as Inventory gRPC Service (:50052)
     participant Prom as Prometheus Scraper (:9101, :9102)
 
-    Client->>Gateway: POST /v1/orders [Header: Authorization: Bearer JWT]
-    Note over Gateway: Transcodes JSON to Protobuf<br/>Validates JWT Signature
-    Gateway->>OrdersSvc: RPC CreateOrder() [mTLS + forwarded Bearer Token, timeout: 2.0s]
-    Note over OrdersSvc: Auth Interceptor validates Bearer Token<br/>Observability Interceptor records latency
-    OrdersSvc->>InvSvc: RPC CheckStock() [mTLS + forwarded Bearer Token, timeout: 1.5s]
+    Client->>Gateway: POST /v1/orders (Header Authorization Bearer JWT)
+    Note over Gateway: Transcodes JSON to Protobuf and validates JWT Signature
+    Gateway->>OrdersSvc: RPC CreateOrder() with mTLS + forwarded Bearer Token (timeout 2.0s)
+    Note over OrdersSvc: Auth Interceptor validates Bearer Token, Observability Interceptor records latency
+    OrdersSvc->>InvSvc: RPC CheckStock() with mTLS + forwarded Bearer Token (timeout 1.5s)
     InvSvc-->>OrdersSvc: CheckStockResponse(all_available=True)
-    OrdersSvc-->>Gateway: CreateOrderResponse(Order: CONFIRMED)
+    OrdersSvc-->>Gateway: CreateOrderResponse(Order CONFIRMED)
     Gateway-->>Client: HTTP 201 Created (JSON Response with Stringified int64)
     Prom->>OrdersSvc: GET :9102/metrics (Scrapes grpc_server_handled_total)
 ```
@@ -32,20 +36,20 @@ This guided project constructs a complete three-tier production e-commerce fulfi
 ```mermaid
 flowchart TD
     subgraph PublicBoundary["Public Ingress Boundary"]
-        ExtClient["External Client (HTTP/1.1 REST)"] -->|POST /v1/orders| GW["API Gateway (:8000)<br/>FastAPI / Gin<br/>Translates JSON to gRPC"]
+        ExtClient["External Client (HTTP/1.1 REST)"] -->|POST v1 orders| GW["API Gateway (:8000) - FastAPI / Gin - Translates JSON to gRPC"]
     end
 
     subgraph ServiceMeshBoundary["Private Microservice Mesh (mTLS Enforced)"]
-        GW -->|gRPC Unary + Bearer Token| ORD["Orders Microservice (:50051)<br/>- CreateOrder (Unary)<br/>- WatchOrders (Server Streaming)"]
-        ORD -->|gRPC Unary (CheckStock)| INV["Inventory Microservice (:50052)<br/>- CheckStock (Unary)<br/>- BulkRestock (Client Streaming)"]
+        GW -->|gRPC Unary + Bearer Token| ORD["Orders Microservice (:50051) - CreateOrder Unary, WatchOrders Server Stream"]
+        ORD -->|gRPC Unary CheckStock| INV["Inventory Microservice (:50052) - CheckStock Unary, BulkRestock Client Stream"]
         Ops["Admin / Warehouse CLI"] -->|gRPC Client Streaming| INV
     end
 
     subgraph Observability["Operational Metrics & Probes"]
         K8s["Kubernetes / Load Balancers"] -.->|grpc.health.v1.Health/Check| ORD
         K8s -.->|grpc.health.v1.Health/Check| INV
-        PromServer["Prometheus Scraper"] -->|GET :9101/metrics| INV
-        PromServer -->|GET :9102/metrics| ORD
+        PromServer["Prometheus Scraper"] -->|GET metrics port 9101| INV
+        PromServer -->|GET metrics port 9102| ORD
     end
 ```
 
@@ -86,6 +90,12 @@ sequenceDiagram
 
 ## 3. Production War Story: The Cascading Timeout Blackout
 
+| Field | Incident Details |
+| :--- | :--- |
+| **Severity** | **SEV-1** (100% Platform Collapse via Thread-Pool Exhaustion & Liveness Probe Loops) |
+| **Detection / Resolution Time** | Detected in 2 minutes via `504` ingress alerts / Mitigated in 25 minutes |
+| **Impact** | Complete outage across all API Gateway routes due to unbounded downstream gRPC calls |
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -96,12 +106,12 @@ sequenceDiagram
     participant SlowDB as Overloaded Inventory MySQL DB
 
     WebTraffic->>Gateway: POST /v1/orders
-    Gateway->>Orders: RPC CreateOrder() [NO DEADLINE CONFIGURED!]
-    Orders->>Inventory: RPC CheckStock() [NO DEADLINE CONFIGURED!]
+    Gateway->>Orders: RPC CreateOrder() with NO DEADLINE CONFIGURED
+    Orders->>Inventory: RPC CheckStock() with NO DEADLINE CONFIGURED
     Inventory->>SlowDB: Heavy Table Scan (Locks DB for 12 seconds)
-    Note over Gateway,Orders: All 64 Gateway worker threads blocked awaiting Orders!<br/>All Orders worker threads blocked awaiting Inventory!
-    Gateway-->>WebTraffic: 504 Gateway Timeout across 100% of routes!
-    Note over Gateway: CASCADING FAILURE: Health check endpoints starve on blocked threads!<br/>Kubernetes restarts Gateway pods, causing total platform collapse!
+    Note over Gateway,Orders: All 64 Gateway worker threads blocked awaiting Orders, and Orders threads blocked awaiting Inventory
+    Gateway-->>WebTraffic: 504 Gateway Timeout across 100% of routes
+    Note over Gateway: CASCADING FAILURE - Health check endpoints starve on blocked threads, Kubernetes restarts Gateway pods
 ```
 
 ### Incident Post-Mortem
@@ -110,7 +120,7 @@ sequenceDiagram
 - **The Cascade**: The API Gateway exhausted its entire thread pool within 4 seconds. Inbound health check requests (`/healthz`) queued behind blocked checkout threads, causing Kubernetes liveness probes to fail and rebooting the ingress pods in a death spiral.
 - **The Architecture Fix**:
   1. Enforced strict cascading deadlines: Gateway sets `timeout=2.0s`; Orders service reduces downstream inventory deadline to `timeout=1.5s`.
-  2. Implemented deadline propagation: handlers check `context.is_active()` before executing expensive computations.
+  2. Implemented deadline propagation: handlers check `context.is_active()` (or cancellation tokens) before executing expensive computations.
   3. Separated health check servers onto distinct execution threads immune to worker pool exhaustion.
 
 ---
@@ -123,7 +133,8 @@ Below is the complete implementation demonstrating:
 3. The Orders Microservice with deadline propagation and downstream client pooling.
 4. Fail-closed Auth and Observability Interceptors.
 
-````carousel
+### 4.1 Shared Protocol Buffer Contract (`proto/shop/v1/shop.proto`)
+
 ```protobuf
 // proto/shop/v1/shop.proto
 syntax = "proto3";
@@ -176,7 +187,10 @@ message CreateOrderRequest  { string customer_id = 1; repeated LineItem items = 
 message CreateOrderResponse { Order order = 1; }
 message WatchOrdersRequest  { string customer_id = 1; int32 limit = 2; }
 ```
-<!-- slide -->
+
+### 4.2 Multi-Language `OrderService` Implementation
+
+````carousel
 ```go
 // orders_service.go (Go Implementation)
 package main
@@ -184,14 +198,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
 	pb "github.com/backendroadmap/gen/shop/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -209,7 +220,7 @@ func (s *OrdersServer) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		return nil, status.Error(codes.InvalidArgument, "items cannot be empty")
 	}
 
-	// 1. Propagate caller token & enforce cascading downstream deadline
+	// 1. Propagate caller token & enforce cascading downstream deadline (1.5s < 2.0s gateway budget)
 	md, _ := metadata.FromIncomingContext(ctx)
 	downstreamCtx, cancel := context.WithTimeout(metadata.NewOutgoingContext(ctx, md), 1500*time.Millisecond)
 	defer cancel()
@@ -233,8 +244,9 @@ func (s *OrdersServer) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 	if invResp.AllAvailable {
 		order.Status = pb.OrderStatus_ORDER_STATUS_CONFIRMED
 		var total float64
-		for _, r := range invResp.Results {
-			total += r.UnitPrice * 1.0
+		for i, r := range invResp.Results {
+			qty := float64(req.Items[i].Quantity)
+			total += r.UnitPrice * qty
 		}
 		order.Total = total
 	} else {
@@ -266,6 +278,9 @@ func (s *OrdersServer) WatchOrders(req *pb.WatchOrdersRequest, stream pb.OrderSe
 	}
 
 	for i := 0; i < limit; i++ {
+		if stream.Context().Err() != nil {
+			return stream.Context().Err()
+		}
 		if err := stream.Send(matching[i]); err != nil {
 			return err
 		}
@@ -274,14 +289,94 @@ func (s *OrdersServer) WatchOrders(req *pb.WatchOrdersRequest, stream pb.OrderSe
 }
 ```
 <!-- slide -->
+```typescript
+// ordersService.ts (Node.js / TypeScript @grpc/grpc-js Implementation)
+import * as grpc from '@grpc/grpc-js';
+import { randomUUID } from 'node:crypto';
+
+interface LineItem { sku: string; quantity: number }
+interface CreateOrderReq { customerId: string; items: LineItem[] }
+interface WatchOrdersReq { customerId: string; limit: number }
+
+export class OrdersServiceHandler {
+  private orders = new Map<string, any>();
+
+  constructor(private inventoryClient: any) {}
+
+  createOrder = (
+    call: grpc.ServerUnaryCall<CreateOrderReq, any>,
+    callback: grpc.sendUnaryData<any>
+  ): void => {
+    const req = call.request;
+    if (!req.items || req.items.length === 0) {
+      callback({ code: grpc.status.INVALID_ARGUMENT, message: 'items cannot be empty' });
+      return;
+    }
+
+    // 1. Propagate caller authorization metadata and enforce 1.5s cascading deadline
+    const outMeta = new grpc.Metadata();
+    const authValues = call.metadata.get('authorization');
+    if (authValues.length > 0) {
+      outMeta.set('authorization', authValues[0]);
+    }
+    const deadline = new Date(Date.now() + 1500);
+
+    // 2. Call Downstream Inventory Service
+    this.inventoryClient.checkStock(
+      { items: req.items },
+      outMeta,
+      { deadline },
+      (err: grpc.ServiceError | null, stock: any) => {
+        if (err) {
+          const message = err.code === grpc.status.DEADLINE_EXCEEDED
+            ? 'downstream inventory timed out'
+            : `inventory error: ${err.message}`;
+          callback({ code: grpc.status.UNAVAILABLE, message });
+          return;
+        }
+
+        const order: any = {
+          id: `ORD-${randomUUID().slice(0, 8)}`,
+          customerId: req.customerId,
+          items: req.items,
+          status: stock.allAvailable ? 'ORDER_STATUS_CONFIRMED' : 'ORDER_STATUS_REJECTED',
+          total: stock.allAvailable
+            ? stock.results.reduce((acc: number, r: any, i: number) => acc + r.unitPrice * req.items[i].quantity, 0)
+            : 0,
+          rejectionReason: stock.allAvailable ? undefined : 'insufficient inventory',
+        };
+
+        this.orders.set(order.id, order);
+        callback(null, { order });
+      }
+    );
+  };
+
+  watchOrders = (call: grpc.ServerWritableStream<WatchOrdersReq, any>): void => {
+    const { customerId, limit } = call.request;
+    const matching = [...this.orders.values()].filter((o) => o.customerId === customerId);
+    const maxItems = limit > 0 ? Math.min(limit, matching.length) : matching.length;
+
+    for (let i = 0; i < maxItems; i++) {
+      if (call.cancelled) {
+        return; // Prevent zombie reads if client disconnected mid-stream
+      }
+      call.write(matching[i]);
+    }
+    call.end();
+  };
+}
+```
+<!-- slide -->
 ```python
 # orders_service.py (Python Implementation)
-import uuid, threading
-from concurrent import futures
+import uuid
+import threading
+import datetime as dt
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
-import datetime as dt
 from gen.shop.v1 import common_pb2, orders_pb2, orders_pb2_grpc, inventory_pb2, inventory_pb2_grpc
+
 
 class OrderService(orders_pb2_grpc.OrderServiceServicer):
     def __init__(self, inventory_channel):
@@ -299,7 +394,7 @@ class OrderService(orders_pb2_grpc.OrderServiceServicer):
             stock = self._inv.CheckStock(
                 inventory_pb2.CheckStockRequest(items=request.items),
                 metadata=[("authorization", token)],
-                timeout=1.5
+                timeout=1.5,
             )
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
@@ -337,6 +432,93 @@ class OrderService(orders_pb2_grpc.OrderServiceServicer):
             if not context.is_active():
                 return
             yield order
+```
+<!-- slide -->
+```csharp
+// OrdersService.cs (C# / Grpc.AspNetCore Implementation)
+using System.Collections.Concurrent;
+using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
+using Shop.V1;
+
+public sealed class OrdersServiceImpl(InventoryService.InventoryServiceClient inventoryClient)
+    : OrderService.OrderServiceBase
+{
+    private readonly ConcurrentDictionary<string, Order> _orders = new();
+
+    public override async Task<CreateOrderResponse> CreateOrder(
+        CreateOrderRequest request, ServerCallContext context)
+    {
+        if (request.Items.Count == 0)
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "items cannot be empty"));
+        }
+
+        // 1. Propagate authorization metadata & enforce 1.5s cascading downstream deadline
+        var headers = new Metadata();
+        var auth = context.RequestHeaders.GetValue("authorization");
+        if (!string.IsNullOrEmpty(auth))
+        {
+            headers.Add("authorization", auth);
+        }
+
+        CheckStockResponse invResp;
+        try
+        {
+            invResp = await inventoryClient.CheckStockAsync(
+                new CheckStockRequest { Items = { request.Items } },
+                headers: headers,
+                deadline: DateTime.UtcNow.AddMilliseconds(1500),
+                cancellationToken: context.CancellationToken);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            throw new RpcException(new Status(StatusCode.Unavailable, "downstream inventory timed out"));
+        }
+
+        var order = new Order
+        {
+            Id = $"ORD-{Guid.NewGuid():N}"[..12],
+            CustomerId = request.CustomerId,
+            CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow),
+            Status = invResp.AllAvailable
+                ? OrderStatus.Confirmed
+                : OrderStatus.Rejected,
+        };
+        order.Items.AddRange(request.Items);
+
+        if (invResp.AllAvailable)
+        {
+            order.Total = invResp.Results
+                .Zip(request.Items, (r, item) => r.UnitPrice * item.Quantity)
+                .Sum();
+        }
+        else
+        {
+            order.RejectionReason = "Out of stock for one or more requested items";
+        }
+
+        _orders[order.Id] = order;
+        return new CreateOrderResponse { Order = order };
+    }
+
+    public override async Task WatchOrders(
+        WatchOrdersRequest request, IServerStreamWriter<Order> responseStream, ServerCallContext context)
+    {
+        var matching = _orders.Values
+            .Where(o => o.CustomerId == request.CustomerId)
+            .Take(request.Limit > 0 ? request.Limit : int.MaxValue);
+
+        foreach (var order in matching)
+        {
+            if (context.CancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            await responseStream.WriteAsync(order);
+        }
+    }
+}
 ```
 ````
 
@@ -379,6 +561,7 @@ Confirm standard health check works without credentials:
 grpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check
 ```
 
+**Expected Output:**
 ```json
 {
   "status": "SERVING"
@@ -397,6 +580,7 @@ curl.exe -i -X POST http://localhost:8000/v1/orders \
   }'
 ```
 
+**Expected Output:**
 ```http
 HTTP/1.1 201 Created
 Content-Type: application/json
@@ -420,6 +604,7 @@ grpcurl -plaintext -H "authorization: Bearer $TOKEN" \
   localhost:50052 shop.v1.InventoryService/BulkRestock
 ```
 
+**Expected Output:**
 ```json
 {
   "itemsProcessed": 2,
@@ -436,6 +621,7 @@ grpcurl -plaintext -H "authorization: Bearer $TOKEN" \
 
 **Cascading Cancellation Mechanics:**
 If the API Gateway enforces a 2.0-second HTTP timeout on incoming client requests, any downstream gRPC call made by the Orders service to the Inventory service must have a strictly shorter deadline (e.g., 1.5 seconds). If downstream calls have equal or longer deadlines, the Gateway will abort and return a 504 Gateway Timeout while the Orders and Inventory services continue burning CPU, memory, and database connections processing work that the client has already abandoned.
+
 </details>
 
 <details>
@@ -443,6 +629,7 @@ If the API Gateway enforces a 2.0-second HTTP timeout on incoming client request
 
 **Resource Leak Prevention:**
 In server streaming RPCs (`WatchOrders`), a client may disconnect, navigate away from the browser, or encounter a network disruption mid-stream. If the server loop does not inspect `context.is_active()`, the server thread or goroutine will continue fetching database records and emitting messages into a dead TCP socket, generating zombie threads and uncollected garbage until the process runs out of memory.
+
 </details>
 
 <details>
@@ -450,4 +637,5 @@ In server streaming RPCs (`WatchOrders`), a client may disconnect, navigate away
 
 **Cryptographic Identity Isolation:**
 In an internal service mesh, IP addresses can be spoofed or reused across dynamic container lifecycles. With mTLS, every service presents an X.509 certificate signed by the internal cluster Certificate Authority. The receiving server validates the digital signature against the CA certificate and matches the `subjectAltName` (e.g., `DNS:orders`) against its authorized caller policy. Even if an attacker compromises a pod in the cluster, they cannot impersonate the Orders service without possessing its private key.
+
 </details>

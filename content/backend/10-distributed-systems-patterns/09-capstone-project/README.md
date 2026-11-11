@@ -1,7 +1,11 @@
 # Module 09: Capstone Project: High-Scale Distributed Order Processing Engine
 
-> **The Capstone Architecture Axiom**
-> Real-world distributed systems are not composed of isolated patterns. An idempotency key guards the gateway against network retries; a distributed saga orchestrates multi-service transactions with compensations; atomic conditional writes prevent overselling under high concurrency; an event-sourced log acts as the immutable source of truth; and CQRS projections serve blazing-fast read queries with read-your-writes guarantees.
+> **Prerequisites:** Idempotency Keys (`01`), Distributed Locking & Fencing (`02`), CQRS & Event Sourcing (`05`–`06`), and Distributed Sagas (`04`, `08`).  
+> **Estimated Reading Time:** 45 minutes  
+> **Target Audience:** Senior Backend Engineers, Distributed Systems Architects, Staff/Principal Engineers.
+
+> [!TIP]
+> **The Golden Rule of the Capstone Architecture:** Real-world distributed systems are not composed of isolated patterns. An idempotency key guards the gateway against network retries; a distributed saga orchestrates multi-service transactions with compensations; atomic conditional writes prevent overselling under high concurrency; an event-sourced log acts as the immutable source of truth; and CQRS projections serve fast read queries with read-your-writes guarantees.
 
 ```mermaid
 sequenceDiagram
@@ -18,8 +22,8 @@ sequenceDiagram
     Gateway->>Gateway: Verify Key & Payload Hash in Redis/DB
     Gateway->>Orchestrator: Dispatch CreateOrder Command
     Orchestrator->>EventStore: Append(OrderPlaced)
-    
-    Orchestrator->>PaymentSvc: T1: Capture Payment ($250.00)
+
+    Orchestrator->>PaymentSvc: T1: Capture Payment (USD 250.00)
     PaymentSvc-->>Orchestrator: 200 OK (charge_id: "ch_abc")
     Orchestrator->>EventStore: Append(PaymentCaptured)
 
@@ -42,22 +46,22 @@ This capstone integrates every pattern mastered in this track into an end-to-end
 ```mermaid
 flowchart TD
     subgraph Ingress["Ingress & Idempotency Boundary"]
-        C["Client Request"] -->|POST /orders| IKey["Idempotency Filter (Module 01)<br/>Hash verification & Deduping"]
+        C["Client Request"] -->|POST orders| IKey["Idempotency Filter (Module 01) - Hash verification & Deduping"]
     end
 
     subgraph Coordination["Saga Orchestration & Resilience"]
-        IKey -->|Valid Command| SO["Saga Coordinator (Module 04 / 08)<br/>Crash-Resilient State Machine"]
-        SO -->|T1: Authorize/Capture| PS["Payment Gateway"]
-        SO -->|T2: Conditional Reserve| IS["Inventory Store (Module 02)<br/>Atomic Fencing & Conditional Locks"]
+        IKey -->|Valid Command| SO["Saga Coordinator (Module 04 / 08) - Crash-Resilient State Machine"]
+        SO -->|T1 Authorize and Capture| PS["Payment Gateway"]
+        SO -->|T2 Conditional Reserve| IS["Inventory Store (Module 02) - Atomic Fencing & Conditional Locks"]
         SO -. Failure Compensate .-> C1["Refund Payment (C1)"]
         SO -. Failure Compensate .-> C2["Release Inventory (C2)"]
     end
 
     subgraph Persistence["Storage & Read Layer"]
-        SO -->|Append Events| ES[("Event Store (Module 06)<br/>Immutable Source of Truth")]
-        ES -->|Async CDC / Tail Log| PRJ["Projection Worker"]
-        PRJ -->|Materialize Views| RM[("CQRS Read Model (Module 05)<br/>order_summary")]
-        C -->|GET /orders/:id| RYW["Read-Your-Writes Cache Check"]
+        SO -->|Append Events| ES[("Event Store (Module 06) - Immutable Source of Truth")]
+        ES -->|Async CDC or Tail Log| PRJ["Projection Worker"]
+        PRJ -->|Materialize Views| RM[("CQRS Read Model (Module 05) - order_summary")]
+        C -->|GET order by id| RYW["Read-Your-Writes Cache Check"]
         RYW -->|Author Cache Hit| ES
         RYW -->|General Query| RM
     end
@@ -88,19 +92,19 @@ sequenceDiagram
 
     OrderA->>Orchestrator: Checkout SKU-99 (Qty: 1)
     OrderB->>Orchestrator: Checkout SKU-99 (Qty: 1)
-    
-    Orchestrator->>Payment: Charge Card A ($100) -> SUCCESS
-    Orchestrator->>Payment: Charge Card B ($100) -> SUCCESS
-    
+
+    Orchestrator->>Payment: Charge Card A (USD 100) -> SUCCESS
+    Orchestrator->>Payment: Charge Card B (USD 100) -> SUCCESS
+
     Note over Orchestrator,Inventory: Contended Step: Atomic Reservation
     Orchestrator->>Inventory: UPDATE stock SET reserved = reserved + 1 WHERE sku = 'SKU-99' AND (stock - reserved) >= 1
     Inventory-->>Orchestrator: Rows Affected: 1 (Order A Wins)
-    
+
     Orchestrator->>Inventory: UPDATE stock SET reserved = reserved + 1 WHERE sku = 'SKU-99' AND (stock - reserved) >= 1
     Inventory-->>Orchestrator: Rows Affected: 0 (Order B Loses: Out of Stock!)
-    
+
     Note over Orchestrator,Payment: Compensation Triggered for Order B
-    Orchestrator->>Payment: Refund Charge B ($100, Reason: OOS)
+    Orchestrator->>Payment: Refund Charge B (USD 100, Reason: OOS)
     Payment-->>Orchestrator: Refund Confirmed
     Orchestrator-->>OrderB: 409 Conflict: Sold Out (Payment Fully Refunded)
     Orchestrator-->>OrderA: 201 Created: Order Confirmed
@@ -109,6 +113,12 @@ sequenceDiagram
 ---
 
 ## 3. Production War Story: The Ghost Inventory Collapse
+
+| Field | Incident Details |
+| :--- | :--- |
+| **Severity** | **SEV-1** (1,400 Oversold Limited-Edition SKUs During Flash Sale) |
+| **Detection / Resolution Time** | Detected in 8 minutes via fulfillment mismatch alert / Mitigated in 35 minutes |
+| **Impact** | Oversold 1,400 units past physical stock, incurring \$280,000 in refunds and customer apology credits |
 
 ```mermaid
 sequenceDiagram
@@ -124,7 +134,7 @@ sequenceDiagram
     AppServer->>RedisLock: Node B acquires expired lock!
     AppServer->>MySQL: Node A wakes up and writes: reserved = reserved + 1
     AppServer->>MySQL: Node B writes: reserved = reserved + 1
-    Note over MySQL: Oversold by 1,400 pairs! Company owes $280,000 in refunds & apology coupons.
+    Note over MySQL: Oversold by 1,400 pairs! Company owes USD 280,000 in refunds & apology coupons.
 ```
 
 ### Incident Post-Mortem
@@ -153,7 +163,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -181,15 +190,15 @@ type CapstoneOrchestrator struct {
 func (co *CapstoneOrchestrator) ProcessOrder(ctx context.Context, cmd OrderCommand) (string, error) {
 	// Step 1: Idempotency Barrier Check
 	var existingResponse string
-	err := co.db.QueryRowContext(ctx, 
-		"SELECT response_body FROM idempotency_keys WHERE key = $1 AND expires_at > NOW()", 
+	err := co.db.QueryRowContext(ctx,
+		"SELECT response_body FROM idempotency_keys WHERE key = $1 AND expires_at > NOW()",
 		cmd.IdempotencyKey).Scan(&existingResponse)
-	if err == nil {
+	if err == nil && existingResponse != "" {
 		return existingResponse, nil // Return cached result
 	}
 
 	// Record initial pending idempotency claim
-	_, err = co.db.ExecContext(ctx, 
+	_, err = co.db.ExecContext(ctx,
 		"INSERT INTO idempotency_keys (key, status, created_at, expires_at) VALUES ($1, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')",
 		cmd.IdempotencyKey)
 	if err != nil {
@@ -205,7 +214,7 @@ func (co *CapstoneOrchestrator) ProcessOrder(ctx context.Context, cmd OrderComma
 
 	// Step 3: Saga T2 - Atomic Conditional Inventory Reservation (Prevent Oversell)
 	res, err := co.db.ExecContext(ctx,
-		`UPDATE inventory SET reserved = reserved + $1 
+		`UPDATE inventory SET reserved = reserved + $1
 		 WHERE sku = $2 AND (total_stock - reserved) >= $1`,
 		cmd.Quantity, cmd.SKU)
 	if err != nil {
@@ -225,7 +234,7 @@ func (co *CapstoneOrchestrator) ProcessOrder(ctx context.Context, cmd OrderComma
 	co.appendEvent(ctx, cmd.OrderID, "OrderConfirmed", `{"status":"COMPLETED"}`)
 	finalResponse := fmt.Sprintf(`{"status":"CONFIRMED","order_id":"%s","charge_id":"%s"}`, cmd.OrderID, chargeID)
 
-	co.db.ExecContext(ctx, 
+	_, _ = co.db.ExecContext(ctx,
 		"UPDATE idempotency_keys SET status = 'COMPLETED', response_body = $1 WHERE key = $2",
 		finalResponse, cmd.IdempotencyKey)
 
@@ -233,7 +242,7 @@ func (co *CapstoneOrchestrator) ProcessOrder(ctx context.Context, cmd OrderComma
 }
 
 func (co *CapstoneOrchestrator) appendEvent(ctx context.Context, orderID, eventType, payload string) {
-	co.db.ExecContext(ctx, 
+	_, _ = co.db.ExecContext(ctx,
 		"INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES ($1, $2, $3, NOW())",
 		orderID, eventType, payload)
 }
@@ -250,7 +259,7 @@ func (co *CapstoneOrchestrator) compensatePayment(chargeID string) {
 <!-- slide -->
 ```typescript
 // capstoneEngine.ts (Node.js / TypeScript Implementation)
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 
 export interface OrderCommand {
   idempotencyKey: string;
@@ -286,8 +295,8 @@ export class CapstoneOrchestrator {
 
       // 3. Saga Step 2: Atomic Inventory Reservation
       const updateResult = await client.query(
-        `UPDATE inventory 
-         SET reserved = reserved + $1 
+        `UPDATE inventory
+         SET reserved = reserved + $1
          WHERE sku = $2 AND (total_stock - reserved) >= $1`,
         [cmd.quantity, cmd.sku]
       );
@@ -295,7 +304,7 @@ export class CapstoneOrchestrator {
       if ((updateResult.rowCount ?? 0) === 0) {
         // Compensating Transaction (Refund)
         await this.compensateRefund(chargeId);
-        await this.appendEvent(client, cmd.orderId, 'OrderCancelled', { reason: 'stockout' });
+        await this.appendEvent(client, cmd.orderId, 'OrderFailedStockout', { reason: 'insufficient_inventory' });
         throw new Error('ERR_STOCKOUT: Inventory exhausted, payment refunded.');
       }
 
@@ -319,7 +328,7 @@ export class CapstoneOrchestrator {
     }
   }
 
-  private async appendEvent(client: any, orderId: string, type: string, payload: any) {
+  private async appendEvent(client: PoolClient, orderId: string, type: string, payload: Record<string, unknown>) {
     await client.query(
       'INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES ($1, $2, $3, NOW())',
       [orderId, type, JSON.stringify(payload)]
@@ -338,6 +347,7 @@ import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+
 class CapstoneOrchestrator:
     def __init__(self, dsn: str):
         self.dsn = dsn
@@ -348,7 +358,7 @@ class CapstoneOrchestrator:
                 # 1. Idempotency Key Gateway Check
                 cur.execute(
                     "SELECT response_body FROM idempotency_keys WHERE key = %s AND expires_at > NOW()",
-                    (cmd["idempotency_key"],)
+                    (cmd["idempotency_key"],),
                 )
                 row = cur.fetchone()
                 if row and row["response_body"]:
@@ -357,7 +367,7 @@ class CapstoneOrchestrator:
                 cur.execute(
                     "INSERT INTO idempotency_keys (key, status, created_at, expires_at) "
                     "VALUES (%s, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')",
-                    (cmd["idempotency_key"],)
+                    (cmd["idempotency_key"],),
                 )
 
                 # 2. Saga Step 1: Charge
@@ -367,31 +377,35 @@ class CapstoneOrchestrator:
                 # 3. Saga Step 2: Atomic Inventory Write
                 cur.execute(
                     """
-                    UPDATE inventory 
-                    SET reserved = reserved + %s 
+                    UPDATE inventory
+                    SET reserved = reserved + %s
                     WHERE sku = %s AND (total_stock - reserved) >= %s
                     """,
-                    (cmd["quantity"], cmd["sku"], cmd["quantity"])
+                    (cmd["quantity"], cmd["sku"], cmd["quantity"]),
                 )
                 if cur.rowcount == 0:
                     # Stockout detected: Compensating Transaction
                     self._compensate_refund(charge_id)
-                    self._append_event(cur, cmd["order_id"], "OrderCancelled", {"reason": "stockout"})
+                    self._append_event(
+                        cur, cmd["order_id"], "OrderFailedStockout", {"reason": "insufficient_inventory"}
+                    )
                     conn.commit()
                     raise ValueError("SKU out of stock. Payment has been refunded.")
 
-                self._append_event(cur, cmd["order_id"], "InventoryReserved", {"sku": cmd["sku"], "qty": cmd["quantity"]})
+                self._append_event(
+                    cur, cmd["order_id"], "InventoryReserved", {"sku": cmd["sku"], "qty": cmd["quantity"]}
+                )
                 self._append_event(cur, cmd["order_id"], "OrderConfirmed", {"status": "CONFIRMED"})
 
                 result = {
                     "status": "CONFIRMED",
                     "order_id": cmd["order_id"],
-                    "charge_id": charge_id
+                    "charge_id": charge_id,
                 }
 
                 cur.execute(
                     "UPDATE idempotency_keys SET status = 'COMPLETED', response_body = %s WHERE key = %s",
-                    (json.dumps(result), cmd["idempotency_key"])
+                    (json.dumps(result), cmd["idempotency_key"]),
                 )
                 conn.commit()
                 return result
@@ -399,11 +413,108 @@ class CapstoneOrchestrator:
     def _append_event(self, cur, order_id: str, event_type: str, payload: dict):
         cur.execute(
             "INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES (%s, %s, %s, NOW())",
-            (order_id, event_type, json.dumps(payload))
+            (order_id, event_type, json.dumps(payload)),
         )
 
     def _compensate_refund(self, charge_id: str):
         print(f"[COMPENSATION] Executing refund for {charge_id}")
+```
+<!-- slide -->
+```csharp
+// CapstoneEngine.cs (C# / .NET Implementation)
+using System.Text.Json;
+using Npgsql;
+
+public sealed record OrderCommand(string IdempotencyKey, string OrderId, string Sku, int Quantity, decimal Amount);
+
+public sealed class CapstoneOrchestrator(NpgsqlDataSource dataSource)
+{
+    public async Task<string> ProcessOrderAsync(OrderCommand cmd, CancellationToken ct = default)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+
+        // 1. Idempotency Barrier Check
+        await using (var checkCmd = new NpgsqlCommand(
+            "SELECT response_body FROM idempotency_keys WHERE key = @key AND expires_at > NOW()", conn))
+        {
+            checkCmd.Parameters.AddWithValue("key", cmd.IdempotencyKey);
+            var existing = await checkCmd.ExecuteScalarAsync(ct) as string;
+            if (!string.IsNullOrEmpty(existing))
+            {
+                return existing;
+            }
+        }
+
+        await using (var claimCmd = new NpgsqlCommand(
+            "INSERT INTO idempotency_keys (key, status, created_at, expires_at) " +
+            "VALUES (@key, 'PROCESSING', NOW(), NOW() + INTERVAL '1 hour')", conn))
+        {
+            claimCmd.Parameters.AddWithValue("key", cmd.IdempotencyKey);
+            await claimCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        // 2. Saga Step 1: Charge Payment
+        string chargeId = $"ch_{cmd.OrderId}";
+        await AppendEventAsync(conn, cmd.OrderId, "PaymentCaptured", new { charge_id = chargeId }, ct);
+
+        // 3. Saga Step 2: Atomic Conditional Inventory Reservation
+        int affected;
+        await using (var invCmd = new NpgsqlCommand(
+            "UPDATE inventory SET reserved = reserved + @qty " +
+            "WHERE sku = @sku AND (total_stock - reserved) >= @qty", conn))
+        {
+            invCmd.Parameters.AddWithValue("qty", cmd.Quantity);
+            invCmd.Parameters.AddWithValue("sku", cmd.Sku);
+            affected = await invCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (affected == 0)
+        {
+            // Stockout detected: Execute Compensating Refund
+            await CompensateRefundAsync(chargeId);
+            await AppendEventAsync(conn, cmd.OrderId, "OrderFailedStockout", new { reason = "insufficient_inventory" }, ct);
+            throw new InvalidOperationException("SKU out of stock. Payment has been refunded.");
+        }
+
+        await AppendEventAsync(conn, cmd.OrderId, "InventoryReserved", new { sku = cmd.Sku, qty = cmd.Quantity }, ct);
+        await AppendEventAsync(conn, cmd.OrderId, "OrderConfirmed", new { status = "CONFIRMED" }, ct);
+
+        string responsePayload = JsonSerializer.Serialize(new
+        {
+            status = "CONFIRMED",
+            order_id = cmd.OrderId,
+            charge_id = chargeId
+        });
+
+        await using (var completeCmd = new NpgsqlCommand(
+            "UPDATE idempotency_keys SET status = 'COMPLETED', response_body = @body WHERE key = @key", conn))
+        {
+            completeCmd.Parameters.AddWithValue("body", responsePayload);
+            completeCmd.Parameters.AddWithValue("key", cmd.IdempotencyKey);
+            await completeCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        return responsePayload;
+    }
+
+    private static async Task AppendEventAsync(
+        NpgsqlConnection conn, string orderId, string eventType, object payload, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "INSERT INTO event_store (order_id, event_type, payload, created_at) VALUES (@id, @type, @payload::jsonb, NOW())",
+            conn);
+        cmd.Parameters.AddWithValue("id", orderId);
+        cmd.Parameters.AddWithValue("type", eventType);
+        cmd.Parameters.AddWithValue("payload", JsonSerializer.Serialize(payload));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static Task CompensateRefundAsync(string chargeId)
+    {
+        Console.WriteLine($"[COMPENSATION] Executing refund for {chargeId}");
+        return Task.CompletedTask;
+    }
+}
 ```
 ````
 
@@ -453,6 +564,7 @@ curl.exe -i -X POST http://localhost:8000/orders \
   -d '{"order_id":"ord_101","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
 ```
 
+**Expected Output:**
 ```http
 HTTP/1.1 201 Created
 Content-Type: application/json
@@ -475,6 +587,7 @@ curl.exe -i -X POST http://localhost:8000/orders \
   -d '{"order_id":"ord_101","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
 ```
 
+**Expected Output:**
 ```http
 HTTP/1.1 200 OK
 Content-Type: application/json
@@ -498,6 +611,7 @@ curl.exe -i -X POST http://localhost:8000/orders \
   -d '{"order_id":"ord_102","sku":"LAPTOP-X1","quantity":1,"amount":1200.00}'
 ```
 
+**Expected Output:**
 ```http
 HTTP/1.1 409 Conflict
 Content-Type: application/json
@@ -515,6 +629,7 @@ Content-Type: application/json
 psql -U postgres -d order_capstone -c "SELECT id, order_id, event_type, payload FROM event_store ORDER BY id ASC;"
 ```
 
+**Expected Output:**
 ```text
  id | order_id |      event_type       |                  payload                  
 ----+----------+-----------------------+-------------------------------------------
@@ -534,6 +649,7 @@ psql -U postgres -d order_capstone -c "SELECT id, order_id, event_type, payload 
 
 **System Dynamic:**
 If a network partition or client timeout causes the client to retry while the first payment request is in-flight with Stripe, two concurrent worker threads could execute simultaneously. If the idempotency key is only stored *after* the payment succeeds, both threads will charge the credit card twice. Inserting a `PROCESSING` status row inside the database transaction first creates an exclusive mutual-exclusion lock on the key.
+
 </details>
 
 <details>
@@ -541,6 +657,7 @@ If a network partition or client timeout causes the client to retry while the fi
 
 **Failure Analysis:**
 Distributed locks rely on expiring leases (TTLs). If the worker process experiences a GC pause, event loop starvation, or database connection pool delay exceeding the lock TTL, the lock silently lapses. A second worker acquires the lock, and both write to the database concurrently, causing overselling. An in-database conditional update (`WHERE (total - reserved) >= requested`) leverages the database engine's internal row-level locks, guaranteeing linearizability regardless of application process pauses.
+
 </details>
 
 <details>
@@ -548,4 +665,5 @@ Distributed locks rely on expiring leases (TTLs). If the worker process experien
 
 **Architectural Guarantee:**
 Event projections consume the event log via an offset pointer (e.g., PostgreSQL replication slot, Kafka consumer offset, or monotonic auto-incrementing `id`). Because events are append-only and strictly ordered, a projection worker that crashes simply resumes reading from its last committed checkpoint offset. Even if the projection table is dropped or corrupted, it can be re-materialized from scratch by replaying the entire immutable event history from offset 0.
+
 </details>
