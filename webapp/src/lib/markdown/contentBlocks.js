@@ -1,4 +1,4 @@
-import { marked } from 'marked';
+import { parseMarkdown } from './math.js';
 import { stash } from './htmlStash.js';
 
 // Structured content blocks.
@@ -99,7 +99,7 @@ export function renderBlocks(md, store) {
     }
     i = j - 1;
 
-    const inner = marked.parse(body.join('\n').trim());
+    const inner = parseMarkdown(body.join('\n').trim());
     out.push(stash(
       store,
       `<div class="cblock cblock-${spec.cls}">`

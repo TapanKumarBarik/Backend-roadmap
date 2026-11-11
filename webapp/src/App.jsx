@@ -47,7 +47,7 @@ import AnnouncementBar from './components/common/AnnouncementBar.jsx';
 import { CaretIcon } from './components/common/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
-import CommandPalette from './components/palette/CommandPalette.jsx';
+const CommandPalette = lazy(() => import('./components/palette/CommandPalette.jsx'));
 import ScreenBoundary from './components/common/ScreenBoundary.jsx';
 import { useConfirm } from './components/ui/Dialog.jsx';
 import { Skeleton } from './components/ui/Skeleton.jsx';
@@ -800,18 +800,22 @@ export default function App() {
         />
       </div>
 
-      <CommandPalette
-        open={paletteOpen}
-        query={paletteQuery}
-        onQueryChange={setPaletteQuery}
-        onClose={closePalette}
-        searchItems={searchItems}
-        allTags={tags}
-        statusMap={statusMap}
-        onOpenFile={openFile}
-        onOpenPost={openPost}
-        actions={paletteActions}
-      />
+      {paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            open={paletteOpen}
+            query={paletteQuery}
+            onQueryChange={setPaletteQuery}
+            onClose={closePalette}
+            searchItems={searchItems}
+            allTags={tags}
+            statusMap={statusMap}
+            onOpenFile={openFile}
+            onOpenPost={openPost}
+            actions={paletteActions}
+          />
+        </Suspense>
+      )}
       {messageOpen && (
         <Suspense fallback={null}>
           <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />

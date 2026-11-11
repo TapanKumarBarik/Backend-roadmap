@@ -570,9 +570,9 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 /* task list checkboxes in md */
 #content input[type=checkbox] { margin-right: 7px; accent-color: var(--accent); }
 
-/* language tabs ({{tabs}}) */
+/* language tabs ({{tabs}} & ````carousel) */
 .tabs { border: 1px solid var(--border); border-radius: var(--r-md); margin: 0 0 18px; overflow: hidden; }
-.tab-buttons { display: flex; gap: 0; background: var(--bg-sunken); border-bottom: 1px solid var(--border); padding: 0 6px; }
+.tab-buttons { display: flex; flex-wrap: wrap; gap: 0; background: var(--bg-sunken); border-bottom: 1px solid var(--border); padding: 0 6px; }
 .tab-btn {
   font-size: 13px; font-weight: 600; padding: 9px 15px; border: none;
   background: transparent; color: var(--fg-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
@@ -581,6 +581,14 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-panes { padding: 14px 16px 2px; }
 .tab-pane > *:first-child { margin-top: 0; }
+
+/* KaTeX math blocks & inline expressions */
+#content .math-display {
+  display: block; overflow-x: auto; overflow-y: hidden;
+  margin: 14px 0; padding: 4px 0; text-align: center;
+}
+#content .math-display .katex-display { margin: 0; }
+#content .math-inline .katex { font-size: 1.04em; }
 
 /* ---------- finish bar ----------
    Closes the loop where the decision actually happens: at the end of the

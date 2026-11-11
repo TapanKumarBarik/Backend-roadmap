@@ -59,7 +59,7 @@ export function escapeSemicolons(source) {
       if (colon < 0) return line;
       const body = line.replace(/;\s*$/, ''); // a single closing ";" is a terminator, not text
       const tail = line.slice(body.length);
-      return body.slice(0, colon + 1) + body.slice(colon + 1).replace(/;/g, '#59;') + tail;
+      return body.slice(0, colon + 1) + body.slice(colon + 1).replace(/(?<!#\d+);/g, '#59;') + tail;
     })
     .join('\n');
 }

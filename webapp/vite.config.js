@@ -79,6 +79,8 @@ export default defineConfig({
     outDir: distDir,
     emptyOutDir: true,
     assetsDir: 'assets',
+    // CSP forbids `data:` in `font-src 'self'`, so KaTeX's small (<4 KB) .woff2 fonts must emit as `/assets/*` files instead of inline data URIs.
+    assetsInlineLimit: (filePath) => (/\.(woff2?|ttf|eot|otf)(\?.*)?$/i.test(filePath) ? false : undefined),
     // The app, and the small tools that are pages of their own (site.config.json -> tools): each an HTML entry that ends up at its own address in dist/.
     rollupOptions: {
       input: {

@@ -10,6 +10,13 @@ function highlightLater(code, lang) {
   highlighter.then((h) => { if (code.isConnected) h.highlight(code, lang); }).catch(() => { /* highlighting is optional */ });
 }
 
+let mathRenderer = null;
+function renderMathLater(root) {
+  if (!root.querySelector('[data-math]')) return;
+  if (!mathRenderer) mathRenderer = import('./mathRender.js');
+  mathRenderer.then((m) => { if (root.isConnected) m.renderMathElements(root); }).catch(() => { /* fallback text stays visible */ });
+}
+
 // Post-processes rendered markdown HTML in place: heading ids + permalink
 // anchors, code-block wrapping/copy-bar/conditional highlighting. Pure DOM
 // mutation only — no listeners attached here. Interactive bits (.anchor,
@@ -67,4 +74,7 @@ export function enhanceContent(root) {
     bar.innerHTML = `<span class="cb-lang">${escapeHtml(lang)}</span><button class="cb-copy" type="button">Copy</button>`;
     wrap.appendChild(bar);
   });
+
+  // After synchronous heading ID / TOC extraction so anchors never capture KaTeX's duplicate MathML text.
+  renderMathLater(root);
 }
