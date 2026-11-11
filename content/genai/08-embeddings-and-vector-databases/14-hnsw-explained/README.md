@@ -67,7 +67,7 @@ sequenceDiagram
     L1->>L0: Drop down to Layer 0 at Node C
     L0->>Queue: Initialize candidate queue with Node C
     loop Explore Layer 0 Graph (up to ef_search iterations)
-        Queue->>L0: Pop closest candidate; inspect its M_0 neighbors
+        Queue->>L0: Pop closest candidate#59; inspect its M_0 neighbors
         L0->>Queue: Push unvisited neighbors closer than furthest in queue
     end
     Queue-->>Client: Return top-k closest elements from priority queue
@@ -98,7 +98,7 @@ flowchart LR
         H2(("H2 (Farther, but diverse direction)"))
         H3(("H3 (Different sector)"))
         NewNode ===>|Primary Edge| H1
-        NewNode ===>|Kept: dist(X, H2) < dist(H1, H2)| H2
+        NewNode ===>|"Kept: dist(X, H2) < dist(H1, H2)"| H2
         NewNode ===>|Kept: Covers different quadrant| H3
     end
 ```
@@ -177,7 +177,7 @@ sequenceDiagram
         Note over HNSW: Worker memory buffers exceed maintenance_work_mem
     end
     OOM->>PG: Host physical memory exhausted -> SIGKILL
-    Note over Admin: Migration aborted; database down
+    Note over Admin: Migration aborted#59; database down
 ```
 
 #### Root Cause

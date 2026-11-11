@@ -162,7 +162,7 @@ sequenceDiagram
     Client->>GW: POST /v1/chat/completions ("Explain photosynthesis")
     GW->>TRT: Ingests tokens into TensorRT pipeline
     TRT->>CUDA: Launch Softmax reduction kernel
-    Note over CUDA: Fatal axis swap: Reduces along dim=-2 (columns)!<br/>Columns sum to 1.0; Rows sum to arbitrary floats [0.002 ... 18.4]
+    Note over CUDA: Fatal axis swap: Reduces along dim=-2 (columns)!<br/>Columns sum to 1.0#59; Rows sum to arbitrary floats [0.002 ... 18.4]
     CUDA->>TRT: Output matrix Y = P @ V has erratic vector norms
     Note over TRT: LayerNorm saturates! Softmax over vocab collapses to single token ID!
     TRT-->>GW: Emits: "the the the the the the..."

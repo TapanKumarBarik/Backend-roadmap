@@ -100,7 +100,7 @@ sequenceDiagram
 
     Note over Base: Base class shared by 45 business entities!
     Note over Base: Senior engineer adds automatic audit logging to Base.save():
-    Note over Base: "SELECT * FROM audit_lock FOR UPDATE;" added inside base save!
+    Note over Base: "SELECT * FROM audit_lock FOR UPDATE#59;" added inside base save!
     Cron->>Order: order.markShipped()
     Order->>Base: super.save()
     Base->>DB: Acquire exclusive pessimistic transaction lock on audit_lock table

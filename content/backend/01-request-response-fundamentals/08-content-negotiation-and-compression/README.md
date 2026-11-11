@@ -24,14 +24,14 @@ sequenceDiagram
     participant Origin as Backend Application
 
     Note over Client,Gateway: 1. CLIENT PROPOSES PREFERENCES (Quality Values q)
-    Client->>Gateway: GET /v1/analytics HTTP/1.1<br/>Accept: application/json, text/csv;q=0.5<br/>Accept-Encoding: br, gzip;q=0.8<br/>Accept-Language: fr-FR, en;q=0.7
+    Client->>Gateway: GET /v1/analytics HTTP/1.1<br/>Accept: application/json, text/csv#59;q=0.5<br/>Accept-Encoding: br, gzip#59;q=0.8<br/>Accept-Language: fr-FR, en#59;q=0.7
 
     Note over Gateway,Origin: 2. NEGOTIATION & SERIALIZATION
     Gateway->>Origin: Forward request with client capabilities
     Note over Origin: Server evaluates best match:<br/>1. Format: application/json (Highest q)<br/>2. Language: fr-FR (Supported)<br/>3. Compression: br (Brotli selected)
 
     Note over Origin,Client: 3. SERVER RESPONDS WITH CONCRETE ENCODING
-    Origin-->>Client: HTTP/1.1 200 OK<br/>Content-Type: application/json; charset=utf-8<br/>Content-Encoding: br<br/>Content-Language: fr-FR<br/>Vary: Accept, Accept-Encoding, Accept-Language<br/>[Brotli Compressed JSON Payload: 14 KB (was 110 KB)]
+    Origin-->>Client: HTTP/1.1 200 OK<br/>Content-Type: application/json#59; charset=utf-8<br/>Content-Encoding: br<br/>Content-Language: fr-FR<br/>Vary: Accept, Accept-Encoding, Accept-Language<br/>[Brotli Compressed JSON Payload: 14 KB (was 110 KB)]
 ```
 
 ---
@@ -115,7 +115,7 @@ sequenceDiagram
     participant Edge as Edge Reverse Proxy (Nginx)
     participant Origin as Asset Storage (S3 / Images)
 
-    Note over Edge: Misconfiguration: gzip_types *; (Compress ALL MIME types!)
+    Note over Edge: Misconfiguration: gzip_types *#59; (Compress ALL MIME types!)
     Users->>Edge: GET /assets/banner_4k.jpg (4.2 MB JPEG)
     Edge->>Origin: Fetch raw JPEG
     Origin-->>Edge: Returns 4.2 MB JPEG

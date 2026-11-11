@@ -90,7 +90,7 @@ sequenceDiagram
     Note over SRE,Repo: 45 commits were pushed to main in the last 48 hours!
     Note over SRE: Which commit was the stable build?
     Note over SRE: SRE spends 50 minutes reading commit messages to find stable build!
-    Note over Prod: Outage extends to 65 minutes; customer SLAs breached!
+    Note over Prod: Outage extends to 65 minutes#59; customer SLAs breached!
     Note over SRE: SEV-1: Mandatory SemVer annotated tagging policy enforced!
 ```
 

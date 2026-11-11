@@ -106,7 +106,7 @@ sequenceDiagram
     OOM->>OOM: System Out-Of-Memory! Trigger OOM-killer!
     OOM->>App: kill -9 (App killed)
     OOM->>Jd: kill -9 (systemd-journald killed!)
-    Note over RAM: Server locks up; SSH rejects new sessions!
+    Note over RAM: Server locks up#59; SSH rejects new sessions!
     Note over App: SEV-1: Hard node reset required via cloud console!
 ```
 

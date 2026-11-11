@@ -165,7 +165,7 @@ sequenceDiagram
     Note over Node1: Stop-The-World GC Pause (42,000ms)!
     
     Master->>Node1: Ping Node 1?
-    Node1--xMaster: [Blocked by JVM GC pause; no response]
+    Node1--xMaster: [Blocked by JVM GC pause#59; no response]
     Master->>Master: Mark Node 1 DEAD! Evacuate Shards!
     
     Note over Node2: Node 2 inherits Node 1 shards -> OutOfMemoryError!

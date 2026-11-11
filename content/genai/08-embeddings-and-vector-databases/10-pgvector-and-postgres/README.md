@@ -66,7 +66,7 @@ sequenceDiagram
     App->>Planner: SELECT id, title FROM chunks ORDER BY (1 - (embedding <=> $1)) DESC LIMIT 5
     Planner->>Planner: Expression detected in ORDER BY -> Vector Index unusable!
     Planner->>Heap: Parallel Seq Scan (reads 2,000,000 tuples across all workers)
-    Note over Heap: 100% CPU on all CPU cores; reads 4.8 GB from disk
+    Note over Heap: 100% CPU on all CPU cores#59; reads 4.8 GB from disk
     Heap-->>App: Query results returned in 1,420ms (P99 degraded!)
     end
 ```

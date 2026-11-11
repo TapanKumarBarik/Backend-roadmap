@@ -559,7 +559,7 @@ Sentence 2 -> 3: cos=0.9994 (Smooth)
 The embedding model vectorizes only the string passed into its tokenizer.
 - **Metadata-Only Failure**: If breadcrumbs are stored only in a database column (`metadata: {"path": "Security > API Keys"}`), the vector represents only `"The default expiration is 30 days."` The vector space has no coordinates corresponding to "Security" or "API Keys", causing cosine similarity to fall below the retrieval threshold for queries containing those domain terms.
 - **The Correct Architecture**: Prepend the breadcrumb path directly to the text payload that is embedded:
-  $$\text{Payload} = \text{"Context: Security > API Keys > Rotation Policy\n\nThe default expiration is 30 days."}$$
+  `Payload = "Context: Security > API Keys > Rotation Policy\n\nThe default expiration is 30 days."`
   The resulting vector incorporates the semantic authority of the ancestor headings, ensuring robust cosine alignment for general hierarchical queries.
 
 </details>

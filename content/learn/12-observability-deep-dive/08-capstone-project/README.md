@@ -91,7 +91,7 @@ sequenceDiagram
     DB-->>OrderSvc: ERROR: lock wait timeout exceeded
     OrderSvc-->>Gateway: HTTP 500 Internal Error
     Gateway-->>Client: HTTP 500 "Something went wrong"
-    Note over SRE: SRE inspects dashboard: average CPU is 20%.<br/>No alerts fire because alert was on CPU, not error rate.<br/>Traces show Gateway span only; Order Service span missing.<br/>Logs require searching 50 pods manually.
+    Note over SRE: SRE inspects dashboard: average CPU is 20%.<br/>No alerts fire because alert was on CPU, not error rate.<br/>Traces show Gateway span only#59; Order Service span missing.<br/>Logs require searching 50 pods manually.
 ```
 
 ### The Post-Mortem Resolution

@@ -190,10 +190,10 @@ sequenceDiagram
     PG->>HNSW: Scan HNSW index with default hnsw.ef_search = 40
     HNSW-->>PG: Returns 40 globally nearest neighbor tuples
     PG->>Table: Inspect 40 heap tuples for WHERE condition
-    Table-->>PG: 39 tuples belong to other orgs; 1 matches org_99
+    Table-->>PG: 39 tuples belong to other orgs#59; 1 matches org_99
     Note over PG: 40 candidates exhausted! Only 1 surviving match.
     PG-->>App: Returns 1 hit (Expected 10!)
-    Note over App: Client receives 1 result; retries 3x due to retry policy
+    Note over App: Client receives 1 result#59; retries 3x due to retry policy
     App->>PG: Retry Query x 3
     Note over PG: Active connection pool exhausted (CPU @ 100%)
 ```

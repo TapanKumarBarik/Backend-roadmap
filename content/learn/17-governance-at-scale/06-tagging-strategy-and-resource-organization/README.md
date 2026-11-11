@@ -585,7 +585,7 @@ The enforcement has two halves that map to two policy effects you already know f
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Why Backfilling Tags on Day 28 Left \$40,000 Unallocated in Billing</strong></summary>
+<summary><strong>Checkpoint 2: Why Backfilling Tags on Day 28 Left &#36;40,000 Unallocated in Billing</strong></summary>
 
 **Scenario:** Your platform team noticed 20 production databases lacked `CostCenter`, added the tags via a remediation task on the 28th of the month, and expected the monthly Cost Management report by `CostCenter` to drop "Unallocated" to \$0. Instead, 93% of that database spend still shows under Unallocated.
 

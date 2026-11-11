@@ -79,7 +79,7 @@ sequenceDiagram
     participant Gateway as Microservice Gateway
     participant UserDB as Central PostgreSQL DB
 
-    Note over Attacker,UserDB: Employee terminated at 09:00 UTC; DB account row set to ACTIVE=FALSE
+    Note over Attacker,UserDB: Employee terminated at 09:00 UTC#59; DB account row set to ACTIVE=FALSE
     Attacker->>Gateway: GET /v1/admin/export-users<br/>Authorization: Bearer <30-day JWT>
     Gateway->>Gateway: Cryptographic Verification (HMAC-SHA256)
     Note over Gateway: Signature is valid!<br/>exp timestamp is valid for 19 more days!<br/>Gateway NEVER checked PostgreSQL DB!

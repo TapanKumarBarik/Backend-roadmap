@@ -132,8 +132,8 @@ sequenceDiagram
 
     Note over Dev: Dev decides to clean up message layout alphabetically
     Dev->>Git: PR: Swaps field numbers in InvoiceMessage:
-    Note over Dev: Old: int64 amount_cents = 2; int64 tax_cents = 3;
-    Note over Dev: New: int64 amount_cents = 3; int64 tax_cents = 2;
+    Note over Dev: Old: int64 amount_cents = 2#59; int64 tax_cents = 3#59;
+    Note over Dev: New: int64 amount_cents = 3#59; int64 tax_cents = 2#59;
     Git-->>SvcA: SvcA builds with new schema
     Note over SvcB: SvcB continues running with old v2.0 schema!
     

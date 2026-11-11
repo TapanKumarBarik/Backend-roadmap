@@ -167,15 +167,15 @@ A release engineer triggered an 8-engine Azure Load Testing run against a stagin
 ```mermaid
 sequenceDiagram
     participant Eng as Release Engineer
-    participant ALT as ALT Engines (8 Instances)
+    participant LoadEngines as ALT Engines (8 Instances)
     participant Target as AKS Cluster (Unregistered App Component)
     participant Mon as Azure Monitor
 
-    Eng->>ALT: Start 8-engine test run (latency-only threshold)
-    ALT->>Target: Fires 1,600 VUs across 8 VMs
-    Target-->>ALT: p95 stays 310ms while Pod Memory hits 97%
+    Eng->>LoadEngines: Start 8-engine test run (latency-only threshold)
+    LoadEngines->>Target: Fires 1,600 VUs across 8 VMs
+    Target-->>LoadEngines: p95 stays 310ms while Pod Memory hits 97%
     Note over Target,Mon: App Component not linked to ALT test
-    ALT-->>Eng: Report shows PASS (no server-side memory criterion)
+    LoadEngines-->>Eng: Report shows PASS (no server-side memory criterion)
     Note over Target: 18m into real launch pods OOMKill continuously
 ```
 

@@ -104,7 +104,7 @@ sequenceDiagram
     Note over HostFS: Host Linux Kernel sees UID 0 write to /etc/shadow!
     Note over HostFS: Host /etc/shadow overwritten without resistance!
     Attacker->>Kernel: SSH into Host Machine as root with injected credentials
-    Note over Attacker: Host cluster node compromised; full infrastructure takeover!
+    Note over Attacker: Host cluster node compromised#59; full infrastructure takeover!
 ```
 
 ### The Incident

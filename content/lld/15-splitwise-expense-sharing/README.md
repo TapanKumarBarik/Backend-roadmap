@@ -37,8 +37,8 @@ flowchart LR
     Q1 --> K
     Q2 --> K
     K --> Store
-    Store -->|+30.00 (Alice owes Bob $30)| Q1
-    Store -->|-30.00 (Bob is owed $30 by Alice)| Q2
+    Store -->|"+30.00 (Alice owes Bob $30)"| Q1
+    Store -->|"-30.00 (Bob is owed $30 by Alice)"| Q2
 
     style Input fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
     style Canonicalizer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px

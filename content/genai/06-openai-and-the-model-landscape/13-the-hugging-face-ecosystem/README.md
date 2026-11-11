@@ -85,7 +85,7 @@ sequenceDiagram
     Pod->>Cluster: Ingests documents with new token layout
     Cluster-->>Pod: CRASH: Dimension mismatch (Vector length 1024 vs 1025)!
     Pod-->>K8s: Container Exit Code 1 (CrashLoopBackOff)
-    Note over K8s: Rolling deployment freezes; 50% cluster down.
+    Note over K8s: Rolling deployment freezes#59; 50% cluster down.
 ```
 
 ### The Architectural Hardening & Fix

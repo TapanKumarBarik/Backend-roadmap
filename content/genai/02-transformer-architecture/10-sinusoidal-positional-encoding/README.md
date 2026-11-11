@@ -108,7 +108,7 @@ sequenceDiagram
     Note over Kernel: Faulty kernel uses compressed exponent.<br/>High dimensions cycle every 4 tokens instead of 62,831!
     Kernel-->>Gateway: Output Positional Matrix PE [512, 1024]
     Gateway->>Model: Forward(Tokens + Aliased_PE)
-    Note over Model: Position 4 looks identical to Position 0 in dims 200-1024.<br/>Attention keys collide; causal coherence destroyed.
+    Note over Model: Position 4 looks identical to Position 0 in dims 200-1024.<br/>Attention keys collide#59; causal coherence destroyed.
     Model-->>Gateway: Corrupted Translated Text ("the the the...")
     Gateway-->>Client: HTTP 200 OK (Garbled Response)
 ```

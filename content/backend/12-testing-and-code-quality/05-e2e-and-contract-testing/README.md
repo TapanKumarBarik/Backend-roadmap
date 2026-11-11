@@ -37,7 +37,7 @@ flowchart TD
     App -->|Write User| DB
     App -->|Enqueue Welcome Email| Redis
     Redis -->|Dequeue| Worker
-    TestRunner -->|2. HTTP POST /v1/orders (with JWT)| Proxy
+    TestRunner -->|"2. HTTP POST /v1/orders (with JWT)"| Proxy
     Proxy -->|Forward| App
     App -->|Commit Order| DB
 

@@ -18,17 +18,17 @@ flowchart TD
     Proc["Running Process\n(e.g., EUID=1001 'app', EGID=1001 'app')"] --> Syscall["System Call\nopen('/etc/app/config.json', O_RDWR)"]
     Syscall --> DAC{"Kernel DAC Check\nTarget Inode: -rw-r----- 1 root app"}
 
-    DAC -->|Is EUID == Inode Owner (root)?| UserCheck{"Check Owner Bits (rw-)"}
-    DAC -->|Is EGID in Inode Group (app)?| GroupCheck{"Check Group Bits (r--)"}
+    DAC -->|"Is EUID == Inode Owner (root)?"| UserCheck{"Check Owner Bits (rw-)"}
+    DAC -->|"Is EGID in Inode Group (app)?"| GroupCheck{"Check Group Bits (r--)"}
     DAC -->|Neither Matches| OtherCheck{"Check Others Bits (---)"}
 
     UserCheck -->|Matches Request?| Allow["Permit Access (Syscall OK)"]
     UserCheck -->|Does Not Match| Deny["EACCES: Permission Denied"]
 
     GroupCheck -->|Requested Read?| Allow
-    GroupCheck -->|Requested Write (O_RDWR)?| Deny
+    GroupCheck -->|"Requested Write (O_RDWR)?"| Deny
 
-    OtherCheck -->|Bits are 0 (---)| Deny
+    OtherCheck -->|"Bits are 0 (---)"| Deny
 ```
 
 ### The Inode Evaluation Rule

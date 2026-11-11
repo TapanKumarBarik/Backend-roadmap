@@ -57,7 +57,7 @@ flowchart LR
     subgraph Production_Hardware["Physical GPU Execution"]
         ID["Integer Token ID: 2"]
         TBL["Contiguous DRAM/HBM Buffer"]
-        ID -->|Pointer Offset: id * d_model * sizeof(fp16)| Res2["Vector e_k in R^{d_model}"]
+        ID -->|"Pointer Offset: id * d_model * sizeof(fp16)"| Res2["Vector e_k in R^{d_model}"]
         TBL --> Res2
     end
 ```

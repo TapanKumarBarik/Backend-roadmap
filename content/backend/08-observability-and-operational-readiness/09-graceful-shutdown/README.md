@@ -35,7 +35,7 @@ sequenceDiagram
     Note over Ingress: Ingress stops routing NEW requests to Pod IP
     K8s->>Pod: 3. Kubelet sends SIGTERM signal
     Pod->>Pod: 4. Mark /ready endpoint as DOWN (HTTP 503)
-    Pod->>Pod: 5. Stop HTTP Listener; Drain in-flight requests (up to 20s)
+    Pod->>Pod: 5. Stop HTTP Listener#59; Drain in-flight requests (up to 20s)
     Pod->>DB: 6. Commit active transactions & close connection pools
     Pod->>Pod: 7. Flush structured logs and OpenTelemetry spans
     Pod-->>K8s: 8. Process exits cleanly (Exit Code 0)

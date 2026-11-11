@@ -108,7 +108,7 @@ sequenceDiagram
 
     Trader->>API: POST /v1/trades/buy (Apple AAPL 100 shares)
     K8s->>Workers: SIGTERM to Pod 1, 2, 3, 4 (Rolling Container Upgrade)
-    Note over Workers: Worker pods terminate; unsubscribe from Redis!
+    Note over Workers: Worker pods terminate#59; unsubscribe from Redis!
     Note over Redis: Active subscribers on channel trade_orders = 0!
     API->>Redis: PUBLISH trade_orders '{"trade_id": 9012, "symbol": "AAPL"}'
     Note over Redis: Subscribers = 0 -> Message DROPPED IMMEDIATELY!

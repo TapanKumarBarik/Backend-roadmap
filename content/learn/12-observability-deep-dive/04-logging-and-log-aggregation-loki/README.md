@@ -137,7 +137,7 @@ sequenceDiagram
     Note over Loki: Memory usage jumps from 4GB to 32GB per pod.<br/>WAL flush queues stall under chunk index thrash.
     K8s->>Loki: Ingester pod OOMKilled (Exit Code 137)
     Loki-->>Promtail: Connection refused / 503 Service Unavailable
-    Note over Promtail: Local buffers fill; logs dropped at the node buffer.
+    Note over Promtail: Local buffers fill#59; logs dropped at the node buffer.
     Dev->>Loki: Pager fires: "LokiDown - Zero Logs Ingested"
 ```
 

@@ -88,7 +88,7 @@ sequenceDiagram
     Note over NodeApp,Worker: After 48 hours of heavy traffic, 32,768 zombies accumulate!
     NodeApp->>Kernel: fork() -> spawn new worker
     Kernel-->>NodeApp: EAGAIN: Resource temporarily unavailable (Kernel pid_max exhausted!)
-    Note over Kernel: Host cannot spawn processes! Node health checks fail; node crashes!
+    Note over Kernel: Host cannot spawn processes! Node health checks fail#59; node crashes!
 ```
 
 ### The Incident

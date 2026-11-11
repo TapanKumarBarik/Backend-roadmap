@@ -84,7 +84,7 @@ sequenceDiagram
     InventorySvc-->>Envoy: Protobuf Response: { sku: "LAPTOP-X1", stock: 0 }
     Note over Envoy: Default Transcoder behavior: Omits default values!<br/>stock=0 is omitted from JSON output!
     Envoy-->>ReactClient: HTTP 200 OK: { "sku": "LAPTOP-X1" }
-    Note over ReactClient: Frontend logic: if (data.stock === 0) showSoldOut();<br/>data.stock is undefined!<br/>Undefined evaluates to false -> "In Stock - Order Now!"
+    Note over ReactClient: Frontend logic: if (data.stock === 0) showSoldOut()#59;<br/>data.stock is undefined!<br/>Undefined evaluates to false -> "In Stock - Order Now!"
     ReactClient->>Envoy: 1,200 Customers checkout out-of-stock laptops!
     Note over Envoy,InventorySvc: Disaster: Severe overselling & negative warehouse balance!
 ```

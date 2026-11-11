@@ -20,7 +20,7 @@ The modern Responses API decouples state storage into three distinct architectur
 flowchart TD
     subgraph Model1 ["1. Client-Held State (Stateless Server, store=false compatible)"]
         c1["Client Database stores all turns"]
-        c1 -->|POST /v1/responses<br/>input: [all past items + new turn]| r1["Responses API Engine"]
+        c1 -->|"POST /v1/responses<br/>input: [all past items + new turn]"| r1["Responses API Engine"]
         r1 -->|Full output items| c1
     end
 

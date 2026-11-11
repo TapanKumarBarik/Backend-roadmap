@@ -91,13 +91,13 @@ sequenceDiagram
 
     Alice->>Origin: git push origin staging (Shared team branch)
     Note over Alice: Alice decides to clean up history: runs git rebase -i
-    Note over Alice: Alice squashes 6 commits; all commit SHA-1 hashes change!
+    Note over Alice: Alice squashes 6 commits#59; all commit SHA-1 hashes change!
     Alice->>Origin: git push --force origin staging
     Note over Origin: Remote history overwritten! Old hashes deleted!
     Bob->>Origin: git pull origin staging
     Note over Bob: Git sees local commits and remote commits with DIFFERENT hashes!
     Note over Bob: Git attempts to merge both divergent histories together!
-    Note over Bob: 12 duplicate commits created; 85 merge conflicts erupt across team!
+    Note over Bob: 12 duplicate commits created#59; 85 merge conflicts erupt across team!
     Note over Alice,Bob: Emergency SEV-1: Staging branch locked for 3 hours to untangle!
 ```
 

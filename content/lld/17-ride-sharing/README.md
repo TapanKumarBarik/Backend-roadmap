@@ -33,7 +33,7 @@ flowchart TD
 
     R1 -->|Acquire Lock A| CellA
     R3 -.->|Contends for Lock A| CellA
-    R2 -->|Acquire Lock C (Parallel)| CellC
+    R2 -->|"Acquire Lock C (Parallel)"| CellC
 
     style Geo fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style Requests fill:#e1f5fe,stroke:#0288d1,stroke-width:2px

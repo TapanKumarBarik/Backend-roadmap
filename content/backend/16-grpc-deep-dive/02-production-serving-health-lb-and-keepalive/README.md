@@ -46,9 +46,9 @@ flowchart TD
 
     subgraph L7Balancing["Correct: L7 Stream Proxy / Envoy / Service Mesh"]
         C2["gRPC Client"] -->|Single TCP Connection| L7["L7 Proxy (Envoy / Istio / NGINX)"]
-        L7 -->|Stream 1 (RPC A)| B1["Pod 1 (33% Load)"]
-        L7 -->|Stream 2 (RPC B)| B2["Pod 2 (33% Load)"]
-        L7 -->|Stream 3 (RPC C)| B3["Pod 3 (33% Load)"]
+        L7 -->|"Stream 1 (RPC A)"| B1["Pod 1 (33% Load)"]
+        L7 -->|"Stream 2 (RPC B)"| B2["Pod 2 (33% Load)"]
+        L7 -->|"Stream 3 (RPC C)"| B3["Pod 3 (33% Load)"]
     end
 ```
 

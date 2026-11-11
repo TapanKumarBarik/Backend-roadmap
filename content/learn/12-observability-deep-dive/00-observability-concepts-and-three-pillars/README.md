@@ -31,7 +31,7 @@ sequenceDiagram
     Note over Tempo: Trace waterfall shows 2.2s spent in 'payment-db'<br/>Span: db.query 'SELECT * FROM wallets FOR UPDATE'
     Tempo-->>SRE: Downstream bottleneck isolated to payment-db container
     SRE->>Loki: Step 3: EXPLAIN — Filter logs by trace_id="4bf92f3577b34da6"
-    Loki-->>SRE: Log Line: "FATAL: deadlock detected on wallet_locks_pkey; connection dropped"
+    Loki-->>SRE: Log Line: "FATAL: deadlock detected on wallet_locks_pkey#59; connection dropped"
     SRE->>Code: Step 4: RESOLVE — Fix lock ordering in transaction handler!
 ```
 

@@ -126,7 +126,7 @@ sequenceDiagram
     participant Node2 as Node 2 (US-West Standby)
     participant ClientWest as West Coast Shoppers
 
-    Note over Node1,Node2: Healthy state: Node 1 is Leader; Node 2 is Standby
+    Note over Node1,Node2: Healthy state: Node 1 is Leader#59; Node 2 is Standby
     Note over WAN: Fiber cut between US-East and US-West!
     
     Node2->>Node1: HTTP Ping (Timeout!)

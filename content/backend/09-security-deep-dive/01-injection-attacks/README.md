@@ -59,8 +59,8 @@ sequenceDiagram
     PlanCache-->>PGServer: Cache Query Execution Plan (Statement Handle #42)
     PGServer-->>App: Parse Complete (Handle #42 Acknowledged)
     
-    Note over App,PGServer: Hostile Payload arrives: org_id = "104 OR 1=1; DROP TABLE users"
-    App->>PGServer: 2. Bind & Execute (COM_STMT_EXECUTE): Handle #42, Param[0] = "104 OR 1=1; DROP TABLE users"
+    Note over App,PGServer: Hostile Payload arrives: org_id = "104 OR 1=1#59; DROP TABLE users"
+    App->>PGServer: 2. Bind & Execute (COM_STMT_EXECUTE): Handle #42, Param[0] = "104 OR 1=1#59; DROP TABLE users"
     Note over PGServer: Parameter is treated as pure literal scalar byte array
     PGServer->>PlanCache: Execute Plan #42 with bound scalar parameter
     PGServer-->>App: Returns exactly 0 rows (No org matches that literal string)

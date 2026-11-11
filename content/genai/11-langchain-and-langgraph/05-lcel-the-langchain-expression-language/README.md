@@ -113,17 +113,17 @@ sequenceDiagram
     autonumber
     actor Users as Live Chat Users (22 concurrent)
     actor Cron as Bulk Tagging Cron (180 tickets)
-    participant Loop as FastAPI Asyncio Event Loop
+    participant AsyncLoop as FastAPI Asyncio Event Loop
     participant CRM as Slow CRM API (650ms)
     participant LLM as Primary LLM API (100 RPM Cap)
 
     Cron->>LLM: chain.abatch(180) with max_concurrency=None
     LLM-->>Cron: HTTP 429 Rate Limit Exceeded (all waves synchronized)
     Note over Cron: Retry without jitter re-fires burst together
-    Users->>Loop: 22 concurrent astream() requests
-    Loop->>CRM: async def RunnableLambda calls blocking requests.get()
-    Note over Loop: Main event loop frozen 650ms per request = 14.3s stall
-    Loop-->>Users: SSE TTFT 14.2s -> 504 Gateway Timeout
+    Users->>AsyncLoop: 22 concurrent astream() requests
+    AsyncLoop->>CRM: async def RunnableLambda calls blocking requests.get()
+    Note over AsyncLoop: Main event loop frozen 650ms per request = 14.3s stall
+    AsyncLoop-->>Users: SSE TTFT 14.2s -> 504 Gateway Timeout
 ```
 
 ### Root Cause Analysis

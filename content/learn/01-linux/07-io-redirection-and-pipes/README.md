@@ -36,8 +36,8 @@ flowchart LR
         DiskFile["File on Disk (errors.log)"]
     end
 
-    FD1_1 -->|write()| RingBuf
-    RingBuf -->|read()| FD0_2
+    FD1_1 -->|"write()"| RingBuf
+    RingBuf -->|"read()"| FD0_2
     FD2_1 -->|2>| DiskFile
     FD1_2 -->|stdout| Terminal
     FD2_2 -->|stderr| Terminal
@@ -108,7 +108,7 @@ sequenceDiagram
     Note over Script: BUT script lacks "set -e" or evaluates $? incorrectly!
     Script->>S3: aws s3 cp /backup/db.enc s3://backups/
     Note over S3: Uploads 0-byte corrupt file! Script logs: "Backup Succeeded!"
-    Note over Cron: 3 months later: Ransomware strikes; all backups found empty!
+    Note over Cron: 3 months later: Ransomware strikes#59; all backups found empty!
 ```
 
 ### The Incident

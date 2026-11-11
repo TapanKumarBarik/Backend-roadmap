@@ -49,7 +49,7 @@ flowchart LR
     end
 
     StreamView -->|Aggregate / Fold by Key| TableView
-    TableView -->|Emit Change Data Capture (CDC)| StreamView
+    TableView -->|"Emit Change Data Capture (CDC)"| StreamView
 ```
 
 ### Window Typology Matrix

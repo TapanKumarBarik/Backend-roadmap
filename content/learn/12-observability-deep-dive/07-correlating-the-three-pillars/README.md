@@ -25,7 +25,7 @@ flowchart TD
         Metrics -->|1. Click Exemplar Diamond| Traces
         Traces -->|2. Click 'Logs for this Span'| Logs
         Logs -->|3. Click Derived Field Link<br/>trace_id: 4bf92...| Traces
-        Logs -->|4. LogQL Metric Query<br/>sum(rate(...))| Metrics
+        Logs -->|"4. LogQL Metric Query<br/>sum(rate(...))"| Metrics
     end
 ```
 

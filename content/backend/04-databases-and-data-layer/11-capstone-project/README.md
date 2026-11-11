@@ -82,8 +82,8 @@ sequenceDiagram
     Svc->>DB: Tx 2: SELECT stock WHERE id = 101 -> 1
     Note over Svc: Both threads observe: 1 >= 1 -> Approved!
     
-    Svc->>DB: Tx 1: UPDATE stock = 1 - 1 WHERE id = 101; COMMIT;
-    Svc->>DB: Tx 2: UPDATE stock = 0 - 1 WHERE id = 101; COMMIT;
+    Svc->>DB: Tx 1: UPDATE stock = 1 - 1 WHERE id = 101#59; COMMIT#59;
+    Svc->>DB: Tx 2: UPDATE stock = 0 - 1 WHERE id = 101#59; COMMIT#59;
     Note over DB: DISASTER: Stock = -1! Two customers charged for 1 item! (Overselling)
 ```
 

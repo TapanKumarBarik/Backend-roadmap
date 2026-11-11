@@ -26,7 +26,7 @@ flowchart LR
     PubApp["Publisher App (orders-api)"] -->|POST localhost:3500/v1.0/publish/orderpubsub/orders| PubSidecar["Dapr Sidecar (Enforces publishingScopes)"]
     PubSidecar -->|AMQP via pubsub.azure.servicebus.topics + secretRef| SBTopic["Azure Service Bus Topic: orders"]
     SBTopic -->|Sub per consumerID / app-id| SubSidecar["Worker Dapr Sidecar (PeekLock Receiver)"]
-    SubSidecar -->|HTTP POST /orders (CloudEvent)| WorkerApp["Worker App (orders-worker)"]
+    SubSidecar -->|"HTTP POST /orders (CloudEvent)"| WorkerApp["Worker App (orders-worker)"]
     WorkerApp -->|200 SUCCESS| CompleteMsg["Dapr Calls SB Complete"]
     WorkerApp -->|5xx or RETRY| AbandonMsg["Dapr Calls SB Abandon"]
     WorkerApp -->|200 DROP| DeadLetterMsg["Dapr Calls SB DeadLetter / deadLetterTopic"]

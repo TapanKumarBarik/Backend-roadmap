@@ -46,9 +46,9 @@ flowchart TD
 flowchart LR
     qTraffic{"Monthly Token Volume?"}
     
-    qTraffic -->|Low / Variable (< 50M tokens/mo)| hosted["Serverless Hosted API<br/>(Together AI, Fireworks, vLLM Serverless)<br/>Zero Idle GPU Cost, Pay per Token"]
+    qTraffic -->|"Low / Variable (< 50M tokens/mo)"| hosted["Serverless Hosted API<br/>(Together AI, Fireworks, vLLM Serverless)<br/>Zero Idle GPU Cost, Pay per Token"]
     
-    qTraffic -->|High / Predictable (> 500M tokens/mo)| dedicated["Self-Hosted Reserved Hardware<br/>(8x H100 Node @ ~$20k/mo)<br/>Fixed Cost, Maximum Data Privacy & Low Latency"]
+    qTraffic -->|"High / Predictable (> 500M tokens/mo)"| dedicated["Self-Hosted Reserved Hardware<br/>(8x H100 Node @ ~$20k/mo)<br/>Fixed Cost, Maximum Data Privacy & Low Latency"]
 ```
 
 ---

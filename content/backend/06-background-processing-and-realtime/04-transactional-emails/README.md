@@ -34,7 +34,7 @@ sequenceDiagram
         DNS-->>Receiver: Public RSA/Ed25519 Key
         Note over Receiver: Verify cryptographic signature on email body & headers (PASS)
         Receiver->>DNS: Query DMARC policy (_dmarc.sender.com)
-        DNS-->>Receiver: v=DMARC1; p=reject; rua=mailto:dmarc@sender.com (ALIGNED)
+        DNS-->>Receiver: v=DMARC1#59; p=reject#59; rua=mailto:dmarc@sender.com (ALIGNED)
     end
 
     Receiver->>Inbox: Deliver directly to Primary Inbox
@@ -121,7 +121,7 @@ sequenceDiagram
     SMTP->>Gmail: Inbound TLS SMTP
     Note over Gmail: Anti-abuse scanners detect malicious script tags & header anomalies
     Gmail-->>Gmail: Flag sender domain as PHISHING / MALICIOUS!
-    Note over Gmail: Domain reputation dropped to zero; all user receipts sent to SPAM!
+    Note over Gmail: Domain reputation dropped to zero#59; all user receipts sent to SPAM!
 ```
 
 #### The Root Cause

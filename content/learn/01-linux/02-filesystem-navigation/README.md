@@ -92,7 +92,7 @@ sequenceDiagram
     Script->>Kernel: unlinkat("/", ["etc", "bin", "lib", "var"], AT_REMOVEDIR)
     Kernel->>FS: Unlink inode 2 (Root directory entries)
     Note over FS: Critical system libraries, glibc, and configs vanish!
-    Note over Kernel: Kernel panics on next page fault; servers drop offline globally!
+    Note over Kernel: Kernel panics on next page fault#59; servers drop offline globally!
 ```
 
 ### The Incident

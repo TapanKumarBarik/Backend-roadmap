@@ -26,7 +26,7 @@ flowchart TD
         TempScale --> RepPen["Repetition / Frequency Penalty Check"]
         RepPen --> FilterGate{"Sampling Strategy Gate"}
 
-        FilterGate -->|Greedy Search (T=0)| ArgMax["Argmax (Pick Top Token Directly)"]
+        FilterGate -->|"Greedy Search (T=0)"| ArgMax["Argmax (Pick Top Token Directly)"]
         FilterGate -->|Top-K Truncation| TopK["Keep Top K Tokens (e.g., K=40)"]
         FilterGate -->|Top-P Nucleus| TopP["Dynamic Cumulative Probability Pool (Σ p >= 0.90)"]
 

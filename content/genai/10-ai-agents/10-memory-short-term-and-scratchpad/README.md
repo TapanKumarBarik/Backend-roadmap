@@ -138,16 +138,16 @@ An emergency hotfix replaced slicing with `"summarize history into system_prompt
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Loop as Agent Runtime
+    participant AgentLoop as Agent Runtime
     participant Trimmer as Naive Window / Hotfix
     participant API as Model Provider API
 
-    Note over Loop,Trimmer: Step 8 emits 1 assistant message plus 3 tool responses
-    Loop->>Trimmer: Trim messages[-8:] before next completion
-    Trimmer-->>Loop: Drops assistant parent and leaves orphaned tool tc_5 at idx 1
-    Loop->>API: POST /chat/completions with orphaned role=tool
-    API-->>Loop: HTTP 400 Invalid tool_call_id sequence
-    Loop->>API: Naive retry loop fires 5x per failed thread (rate-limit storm)
+    Note over AgentLoop,Trimmer: Step 8 emits 1 assistant message plus 3 tool responses
+    AgentLoop->>Trimmer: Trim messages[-8:] before next completion
+    Trimmer-->>AgentLoop: Drops assistant parent and leaves orphaned tool tc_5 at idx 1
+    AgentLoop->>API: POST /chat/completions with orphaned role=tool
+    API-->>AgentLoop: HTTP 400 Invalid tool_call_id sequence
+    AgentLoop->>API: Naive retry loop fires 5x per failed thread (rate-limit storm)
     Note over Trimmer,API: Emergency hotfix mutates system prompt summary every turn
     Trimmer->>API: POST with dynamically rewritten index 0 prefix
     API-->>Trimmer: HTTP 200 OK but cached_tokens=0 (4.2x cost spike)

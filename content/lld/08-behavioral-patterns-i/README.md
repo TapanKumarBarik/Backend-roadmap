@@ -17,9 +17,9 @@ Behavioral patterns characterize the ways in which classes and objects interact 
 flowchart TD
     subgraph StrategyPattern["1. Strategy Pattern (Interchangeable Algorithms)"]
         ContextA["PaymentContext"] -->|Uses| IStrat["<<interface>>\nPaymentStrategy"]
-        IStrat <|.. S1["CreditCardStrategy"]
-        IStrat <|.. S2["CryptoStrategy"]
-        IStrat <|.. S3["PayPalStrategy"]
+        IStrat -.->|Implements| S1["CreditCardStrategy"]
+        IStrat -.->|Implements| S2["CryptoStrategy"]
+        IStrat -.->|Implements| S3["PayPalStrategy"]
     end
 
     subgraph ObserverPattern["2. Observer Pattern (1-to-Many Event Pub/Sub)"]
@@ -30,7 +30,7 @@ flowchart TD
 
     subgraph CommandPattern["3. Command Pattern (Actions as Objects)"]
         Invoker["Button / Scheduler"] --> Cmd["<<interface>>\nCommand\n+execute()\n+undo()"]
-        Cmd <|.. ConcreteCmd["ExecuteTradeCommand"]
+        Cmd -.->|Implements| ConcreteCmd["ExecuteTradeCommand"]
         ConcreteCmd --> Receiver["TradingEngine (Receiver)"]
     end
 

@@ -121,7 +121,7 @@ sequenceDiagram
     participant DB as Postgres Orders DB
 
     Dev->>Worker: Deploy Code Patch adding Feature Flag Check inside Workflow
-    Note over Worker: Code added: if (featureFlag.isEnabled()) { ActivityA(); }
+    Note over Worker: Code added: if (featureFlag.isEnabled()) { ActivityA()#59; }
     Cluster->>Worker: Deliver Pending WorkflowTask (Started on v1.1.0)
     Worker->>Worker: Replay Event History from v1.1.0
     Worker->>Worker: Evaluates featureFlag = TRUE -> Expects ActivityA in History!

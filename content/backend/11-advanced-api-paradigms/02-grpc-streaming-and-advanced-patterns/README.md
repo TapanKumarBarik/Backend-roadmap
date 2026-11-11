@@ -55,7 +55,7 @@ sequenceDiagram
     Note over Client: Client Deadline expires!
     Client->>SvcA: HTTP/2 RST_STREAM frame (Error: DEADLINE_EXCEEDED)
     SvcA->>SvcB: HTTP/2 RST_STREAM frame (Cancellation propagated downstream!)
-    Note over SvcB: SvcB context.Done() fires; immediately aborts database transaction!
+    Note over SvcB: SvcB context.Done() fires#59; immediately aborts database transaction!
     SvcB-->>SvcA: Error: DEADLINE_EXCEEDED
     SvcA-->>Client: Error: DEADLINE_EXCEEDED
 ```

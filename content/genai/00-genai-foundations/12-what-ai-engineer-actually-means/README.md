@@ -109,7 +109,7 @@ sequenceDiagram
     Note over Dev: "It worked on the 5 examples I tested in Playground!"
     User->>App: 10,000 real customer documents ingested
     User->>App: "Summarize this NDA and highlight liability clauses."
-    App-->>User: Emits a 2-sentence generic summary; completely misses liability cap!
+    App-->>User: Emits a 2-sentence generic summary#59; completely misses liability cap!
     Dev->>App: Tweaks system prompt: "You MUST highlight liability clauses in all caps!"
     Note over Dev: Pushes prompt directly to production without running regressions.
     User->>App: "What is the expiration date of this lease?"

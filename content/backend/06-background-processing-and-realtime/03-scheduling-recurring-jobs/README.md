@@ -31,7 +31,7 @@ sequenceDiagram
     and S2 attempts execution
         S2->>Redis: SET lock:cron:backup:2026-11-09 NX EX 3600
         Redis-->>S2: nil (Lock Refused: Key Already Exists)
-        Note over S2: Skip execution safely; log "Lock held by peer"
+        Note over S2: Skip execution safely#59; log "Lock held by peer"
     end
 
     Broker->>Worker: Dispatch single task "backup_database"

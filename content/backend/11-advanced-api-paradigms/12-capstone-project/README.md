@@ -35,7 +35,7 @@ flowchart LR
 
     Client -->|1. GraphQL Query: products + supplier| GraphQLBFF
     GraphQLBFF -->|2. RPC 1: ListProducts| CatalogSvc
-    GraphQLBFF -->|3. RPC 2: BatchGetSuppliers(ids)| CatalogSvc
+    GraphQLBFF -->|"3. RPC 2: BatchGetSuppliers(ids)"| CatalogSvc
     CatalogSvc --> DB
 
     style PublicBoundary fill:#e2e3e5,stroke:#6c757d,stroke-width:1px

@@ -107,7 +107,7 @@ sequenceDiagram
     Ingest->>Slicer: Raw slice: v[0:256]
     Note over Slicer: Sliced vector has uncalibrated norm: ||v_slice|| = 0.38 to 0.74
     Slicer->>DB: INSERT INTO products (vec) VALUES (v_slice)
-    Note over DB: Index assumes unit vectors; HNSW cosine metric distorted!
+    Note over DB: Index assumes unit vectors#59; HNSW cosine metric distorted!
     Search->>DB: Query with normalized 256-dim vector
     DB-->>Search: Corrupted distance calculation: Rank-1 candidate is random noise!
 ```

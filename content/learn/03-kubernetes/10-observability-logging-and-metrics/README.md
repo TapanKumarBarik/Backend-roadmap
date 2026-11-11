@@ -140,7 +140,7 @@ sequenceDiagram
     Cron->>NodeDisk: Worker had spawned 20 retry pods logging 50MB/sec of raw tracebacks
     NodeDisk->>NodeDisk: Disk fills to 95% capacity!
     Kubelet->>Kubelet: Detects DiskPressure eviction threshold exceeded!
-    Kubelet-->>SRE: Node marks NotReady; evicts all production pods!
+    Kubelet-->>SRE: Node marks NotReady#59; evicts all production pods!
     SRE->>Pod: kubectl logs -p worker-pod
     Pod-->>SRE: Output: <empty> (No logs buffered before SIGKILL)
 ```

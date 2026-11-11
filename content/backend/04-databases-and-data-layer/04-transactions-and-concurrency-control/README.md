@@ -68,18 +68,18 @@ sequenceDiagram
     participant DB as Postgres (REPEATABLE READ)
 
     Note over DB: On Call: [Alice, Bob] (Count = 2)
-    Alice->>DB: BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-    Bob->>DB: BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+    Alice->>DB: BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ#59;
+    Bob->>DB: BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ#59;
     
-    Alice->>DB: SELECT COUNT(*) WHERE active = true; -> Returns 2
-    Bob->>DB: SELECT COUNT(*) WHERE active = true; -> Returns 2
+    Alice->>DB: SELECT COUNT(*) WHERE active = true#59; -> Returns 2
+    Bob->>DB: SELECT COUNT(*) WHERE active = true#59; -> Returns 2
     Note over Alice,Bob: Invariant: Count >= 2. Both proceed to go off call!
 
-    Alice->>DB: UPDATE on_call SET active = false WHERE id = 'alice';
-    Alice->>DB: COMMIT; (Succeeds!)
+    Alice->>DB: UPDATE on_call SET active = false WHERE id = 'alice'#59;
+    Alice->>DB: COMMIT#59; (Succeeds!)
 
-    Bob->>DB: UPDATE on_call SET active = false WHERE id = 'bob';
-    Bob->>DB: COMMIT; (Succeeds! Different row, so no conflict detected!)
+    Bob->>DB: UPDATE on_call SET active = false WHERE id = 'bob'#59;
+    Bob->>DB: COMMIT#59; (Succeeds! Different row, so no conflict detected!)
     Note over DB: DISASTER: Count = 0! Zero physicians on call! (Write Skew)
 ```
 

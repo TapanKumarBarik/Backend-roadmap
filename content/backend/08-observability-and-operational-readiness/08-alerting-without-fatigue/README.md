@@ -157,7 +157,7 @@ sequenceDiagram
     end
     Note over SRE: SRE mutes phone notifications due to incessant false alarms
     
-    DB->>DB: Hardware storage controller stalls; DB goes down!
+    DB->>DB: Hardware storage controller stalls#59; DB goes down!
     Prom->>Slack: [CRITICAL] PrimaryDatabaseUnreachable!
     Note over Slack: Alert lands in muted channel next to 40 CPU alerts!
     Note over SRE: SRE sleeps through critical page

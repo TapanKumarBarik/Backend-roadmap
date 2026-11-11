@@ -33,7 +33,7 @@ flowchart TD
         Interfaces["Network Interfaces\n(eth0, wlan0, lo, docker0, veth)"]
     end
 
-    App <-->|read() / write() syscalls| SocketTable
+    App <-->|"read() / write() syscalls"| SocketTable
     SocketTable <--> TCP
     TCP <--> Netfilter
     Netfilter <--> Routing

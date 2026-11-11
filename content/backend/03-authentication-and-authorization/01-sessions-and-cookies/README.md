@@ -21,7 +21,7 @@ sequenceDiagram
     API->>API: Verify Password Hash (Argon2id)
     API->>API: Generate CSPRNG Session ID: "sess_8f2b...9a" (128-bit)
     API->>Cache: SETEX "sess_8f2b...9a" 86400 {"user_id": 42, "role": "admin"}
-    API-->>Client: 200 OK<br/>Set-Cookie: session_id=sess_8f2b...9a; HttpOnly; Secure; SameSite=Lax; Path=/
+    API-->>Client: 200 OK<br/>Set-Cookie: session_id=sess_8f2b...9a#59; HttpOnly#59; Secure#59; SameSite=Lax#59; Path=/
     
     Note over Client,API: 2. Authenticated Interaction
     Client->>API: GET /v1/user/profile<br/>Cookie: session_id=sess_8f2b...9a
@@ -32,7 +32,7 @@ sequenceDiagram
     Note over Client,API: 3. Instant Revocation / Logout
     Client->>API: POST /v1/auth/logout
     API->>Cache: DEL "sess_8f2b...9a"
-    API-->>Client: 200 OK<br/>Set-Cookie: session_id=; Max-Age=0; HttpOnly; Secure
+    API-->>Client: 200 OK<br/>Set-Cookie: session_id=#59; Max-Age=0#59; HttpOnly#59; Secure
 ```
 
 ---

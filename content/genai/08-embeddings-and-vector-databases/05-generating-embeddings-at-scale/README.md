@@ -130,7 +130,7 @@ sequenceDiagram
     Script->>API: Send Batch containing doc #3,841,202 (NUL byte)
     API-->>Script: HTTP 400 Bad Request
     Script-->>Airflow: Process crashed with uncaught error!
-    Note over DB: No atomic transaction committed; 0 vectors saved
+    Note over DB: No atomic transaction committed#59; 0 vectors saved
     Note over Airflow: Automatic Task Retry #1 Triggered (Restarts from Doc 1)
     Airflow->>Script: Re-run entire job from scratch
     Script->>API: Stream 3,840,000 documents AGAIN ($3,840 wasted)

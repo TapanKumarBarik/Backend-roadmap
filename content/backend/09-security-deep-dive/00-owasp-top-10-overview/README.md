@@ -128,7 +128,7 @@ sequenceDiagram
     Edge->>Attacker: Issues valid JWT (sub=104, role=user)
     loop Sequential Scraping Loop (100 req/sec)
         Attacker->>Edge: GET /api/v1/invoices/{id} (Iterating id 1 to 4,200,000)
-        Edge->>API: Valid JWT passed; request forwarded
+        Edge->>API: Valid JWT passed#59; request forwarded
         API->>AuthContext: Is token valid?
         AuthContext-->>API: YES (User 104 is authenticated)
         Note over API: Handler executes: SELECT * FROM invoices WHERE id = $id
@@ -616,7 +616,7 @@ D) An attacker must perform a Man-in-the-Middle (MITM) attack to alter the JavaS
 
 ### Checkpoint 3: Insecure Design vs. Implementation Bugs
 <details>
-<summary><strong>Scenario Assessment:</strong> A fintech application allows users to reset their forgotten password by entering their email address. The backend immediately generates a new temporary password and sends it to the user's phone via SMS. There is no rate limiter, no CAPTCHA, and no secondary confirmation required. An automated bot abuses this to flood thousands of users with SMS messages, generating an \$85,000 carrier bill. Which category does this represent?</summary>
+<summary><strong>Scenario Assessment:</strong> A fintech application allows users to reset their forgotten password by entering their email address. The backend immediately generates a new temporary password and sends it to the user's phone via SMS. There is no rate limiter, no CAPTCHA, and no secondary confirmation required. An automated bot abuses this to flood thousands of users with SMS messages, generating an &#36;85,000 carrier bill. Which category does this represent?</summary>
 
 ```
 Options:

@@ -88,14 +88,14 @@ sequenceDiagram
     Client->>Retry: ExecuteRequest("GET /orders")
     Retry->>Auth: ExecuteRequest()
     Note over Auth: Token expired! Refreshing token...
-    Note over Auth: Junior dev wrote: "if (tokenRefreshFails) return _pipeline.ExecuteRequest();"
+    Note over Auth: Junior dev wrote: "if (tokenRefreshFails) return _pipeline.ExecuteRequest()#59;"
     Auth->>Retry: ExecuteRequest() (Calls outer decorator!)
     Retry->>Auth: ExecuteRequest()
     Auth->>Retry: ExecuteRequest()
     Note over Retry,Auth: Infinite recursive decorator loop!
     Note over ClientCore: Call stack depth reaches 15,000 frames!
     Note over ClientCore: 💥 java.lang.StackOverflowError / Thread crash!
-    Note over Client: Service crashes with 500 Internal Error; cluster node dies!
+    Note over Client: Service crashes with 500 Internal Error#59; cluster node dies!
 ```
 
 ### The Incident

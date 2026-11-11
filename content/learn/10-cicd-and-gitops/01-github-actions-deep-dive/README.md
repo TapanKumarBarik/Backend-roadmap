@@ -37,7 +37,7 @@ flowchart TD
         end
     end
 
-    JobA -->|needs: [build-and-test]<br/>Explicit Artifact Handoff| JobB
+    JobA -->|"needs: [build-and-test]<br/>Explicit Artifact Handoff"| JobB
 ```
 
 ---
@@ -60,7 +60,7 @@ sequenceDiagram
     Note over Cloud: Validates token signature & verifies claim:<br/>repo:my-org/backend-api:ref:refs/heads/main
     Cloud-->>Runner: Returns temporary 15-minute STS session token
     Runner->>K8s: Authenticates with short-lived token & applies manifests
-    Note over Runner: Job finishes; temporary credentials expire immediately!
+    Note over Runner: Job finishes#59; temporary credentials expire immediately!
 ```
 
 ---

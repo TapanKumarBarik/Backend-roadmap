@@ -65,23 +65,23 @@ sequenceDiagram
     participant DB as PostgreSQL Database
 
     Client->>Resolver: POST /graphql { books(limit: 5) { title author { name } } }
-    Resolver->>DB: 1. SELECT * FROM books LIMIT 5;
+    Resolver->>DB: 1. SELECT * FROM books LIMIT 5#59;
     DB-->>Resolver: Returns 5 Books (Authors: ID 1, 2, 1, 3, 2)
     
     rect rgb(255, 220, 220)
     Note over Resolver,DB: VULNERABLE: Naive Resolver Execution (N+1 Storm)
-    Resolver->>DB: 2. SELECT * FROM authors WHERE id = 1;
-    Resolver->>DB: 3. SELECT * FROM authors WHERE id = 2;
-    Resolver->>DB: 4. SELECT * FROM authors WHERE id = 1; (Redundant!)
-    Resolver->>DB: 5. SELECT * FROM authors WHERE id = 3;
-    Resolver->>DB: 6. SELECT * FROM authors WHERE id = 2; (Redundant!)
+    Resolver->>DB: 2. SELECT * FROM authors WHERE id = 1#59;
+    Resolver->>DB: 3. SELECT * FROM authors WHERE id = 2#59;
+    Resolver->>DB: 4. SELECT * FROM authors WHERE id = 1#59; (Redundant!)
+    Resolver->>DB: 5. SELECT * FROM authors WHERE id = 3#59;
+    Resolver->>DB: 6. SELECT * FROM authors WHERE id = 2#59; (Redundant!)
     Note over DB: Total: 6 distinct database network round trips!
     end
 
     rect rgb(220, 255, 220)
     Note over Resolver,DB: HARDENED: DataLoader Batching & Deduplication
     Resolver->>Resolver: DataLoader coalesces unique author IDs: [1, 2, 3]
-    Resolver->>DB: 2. SELECT * FROM authors WHERE id IN (1, 2, 3);
+    Resolver->>DB: 2. SELECT * FROM authors WHERE id IN (1, 2, 3)#59;
     DB-->>Resolver: Returns 3 Author records in a single round trip
     Note over DB: Total: Exactly 2 database network round trips!
     end

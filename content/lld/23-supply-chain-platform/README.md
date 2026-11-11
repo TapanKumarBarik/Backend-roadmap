@@ -21,7 +21,7 @@ A modern supply chain platform coordinates four distinct operational subsystems:
 
 ```mermaid
 classDiagram
-    subgraph InventorySubsystem["Inventory Subsystem"]
+    namespace InventorySubsystem {
         class Warehouse {
             -String warehouseId
             -Location location
@@ -39,9 +39,9 @@ classDiagram
             +tryReserve(int qty) bool
             +addStock(int qty) void
         }
-    end
+    }
 
-    subgraph FulfillmentSubsystem["Order Fulfillment Subsystem"]
+    namespace FulfillmentSubsystem {
         class Order {
             -String orderId
             -List~OrderItem~ items
@@ -58,9 +58,9 @@ classDiagram
         class NearestWarehouseStrategy {
             +selectWarehouse(Order o, List~Warehouse~ warehouses) Warehouse
         }
-    end
+    }
 
-    subgraph LogisticsSubsystem["Logistics & Shipment Subsystem"]
+    namespace LogisticsSubsystem {
         class Shipment {
             -String trackingNumber
             -String orderId
@@ -69,7 +69,7 @@ classDiagram
             +dispatch() void
             +deliver() void
         }
-    end
+    }
 
     Warehouse "1" *-- "1..*" InventoryItem : Contains
     IFulfillmentStrategy <|.. NearestWarehouseStrategy : Implements

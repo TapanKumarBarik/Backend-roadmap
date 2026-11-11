@@ -49,20 +49,20 @@ A query with depth 3 can easily consume more server CPU and memory than a query 
 
 ```mermaid
 flowchart TD
-    subgraph Naive Scorer: Cost = 4 points
+    subgraph NaiveScorer["Naive Scorer: Cost = 4 points"]
         A1["Query.users (1 pt)"] --> B1["User.posts (1 pt)"]
         B1 --> C1["Post.comments (1 pt)"]
         C1 --> D1["Comment.author (1 pt)"]
     end
 
-    subgraph Multiplicative Scorer: Cost = 1,010,100 points
+    subgraph MultiplicativeScorer["Multiplicative Scorer: Cost = 1,010,100 points"]
         A2["Query.users(first: 100) [100 items]"] --> B2["User.posts(first: 100) [10,000 items]"]
         B2 --> C2["Post.comments(first: 100) [1,000,000 items]"]
         C2 --> D2["Comment.author [1,000,000 items]"]
     end
 
-    style Naive Scorer fill:#f8d7da,stroke:#dc3545,stroke-width:2px
-    style Multiplicative Scorer fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style NaiveScorer fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style MultiplicativeScorer fill:#d4edda,stroke:#28a745,stroke-width:2px
 ```
 
 ---

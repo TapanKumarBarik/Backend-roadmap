@@ -23,7 +23,7 @@ flowchart TD
 
     subgraph Validation["2. Input & Argument Validation"]
         ArgsCheck{"Validate Arguments\n[ $# -ge 2 ]"}
-        EnvCheck{"Verify Environment\n[ -n \"$DATABASE_URL\" ]"}
+        EnvCheck{"Verify Environment\n[ -n '$DATABASE_URL' ]"}
     end
 
     subgraph Execution["3. Core Idempotent Logic"]
@@ -33,7 +33,7 @@ flowchart TD
     end
 
     subgraph ExitPhase["4. Teardown Phase"]
-        Cleanup["cleanup() Execution\n(rm -rf \"$SCRATCH_DIR\", release locks)"]
+        Cleanup["cleanup() Execution\n(rm -rf '$SCRATCH_DIR', release locks)"]
         FinalExit["exit 0 (Success) / exit 1 (Failure)"]
     end
 

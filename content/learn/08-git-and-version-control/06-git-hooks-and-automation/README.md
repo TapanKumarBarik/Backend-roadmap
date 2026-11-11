@@ -95,10 +95,10 @@ sequenceDiagram
     Note over Git: --no-verify disables pre-commit hook! Secret scan NEVER executes!
     Git->>GitHub: git push origin main
     Note over GitHub: Remote lacks server-side push protection!
-    Scanner->>GitHub: Public commit event detected; scrapes STRIPE_SECRET_KEY in 45 seconds!
+    Scanner->>GitHub: Public commit event detected#59; scrapes STRIPE_SECRET_KEY in 45 seconds!
     Scanner->>Stripe: Execute 15,000 stolen credit card verification charges!
     Stripe-->>Dev: Account flagged for massive fraudulent card testing: $45,000 fine incurred!
-    Note over Dev: Emergency SEV-1: Revoke keys; dispute fraudulent transactions!
+    Note over Dev: Emergency SEV-1: Revoke keys#59; dispute fraudulent transactions!
 ```
 
 ### The Incident

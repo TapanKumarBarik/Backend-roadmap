@@ -36,7 +36,7 @@ sequenceDiagram
     participant Replica as Async Streaming Replica
 
     Author->>Router: POST /profile (Save New Bio)
-    Router->>Primary: UPDATE profiles SET bio=...; SELECT pg_current_wal_lsn()
+    Router->>Primary: UPDATE profiles SET bio=...#59; SELECT pg_current_wal_lsn()
     Primary-->>Router: Committed at WAL LSN = '0/1A04F00'
     Router-->>Author: 200 OK (Store LSN '0/1A04F00' in User Session/Cookie)
 

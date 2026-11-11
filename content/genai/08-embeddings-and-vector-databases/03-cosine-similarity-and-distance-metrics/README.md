@@ -58,7 +58,7 @@ sequenceDiagram
         Note over Engine: Cosine, L2, and Dot Product rank IDENTICALLY
     else If Vectors Have Variable Length
         Norm->>Engine: Full Cosine: sum(q_i * d_i) / (||q|| * ||d||)
-        Note over Engine: Magnitude discarded; angle preserved
+        Note over Engine: Magnitude discarded#59; angle preserved
     end
     Engine->>DB: Scan or traverse HNSW graph using chosen operator
     DB-->>App: Sorted Nearest Neighbor IDs

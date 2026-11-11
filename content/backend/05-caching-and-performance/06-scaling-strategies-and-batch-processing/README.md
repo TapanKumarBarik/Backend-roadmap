@@ -14,7 +14,7 @@ flowchart TD
     subgraph SyncPath ["Synchronous HTTP Request Path (< 20ms)"]
         Client["Client / User Agent"] -->|POST /v1/checkout| API["API Handler"]
         API -->|1. Fast DB Insert: status='PENDING'| DB[("PostgreSQL")]
-        API -->|2. Enqueue Job: {order_id, user_id}| Queue[("Background Queue\n(Redis / SQS / RabbitMQ)")]
+        API -->|"2. Enqueue Job: {order_id, user_id}"| Queue[("Background Queue\n(Redis / SQS / RabbitMQ)")]
         API -- 3. Immediate 202 Accepted --> Client
     end
 
@@ -78,8 +78,8 @@ sequenceDiagram
 
     Shopify->>API: 50,000 Incoming Orders Burst
     loop 50,000 times sequentially
-        API->>DB: INSERT INTO orders VALUES (1); COMMIT; (1.5ms)
-        API->>DB: INSERT INTO orders VALUES (2); COMMIT; (1.5ms)
+        API->>DB: INSERT INTO orders VALUES (1)#59; COMMIT#59; (1.5ms)
+        API->>DB: INSERT INTO orders VALUES (2)#59; COMMIT#59; (1.5ms)
     end
     Note over DB: 50,000 single fsync writes locks disk for 75 seconds!<br/>Incoming connections back up and time out!
     API-->>Shopify: 504 Gateway Timeout!

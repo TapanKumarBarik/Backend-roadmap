@@ -109,7 +109,7 @@ sequenceDiagram
     Note over VDB: Chunk 43 contains Step 3 (Delete old key) (cos = 0.41)
     VDB-->>RAG: Return Chunk 42 only
     RAG-->>Dev: "1. Generate new key, 2. Update Kubernetes secrets."
-    Dev->>IAM: Generates new key; leaves old key active!
+    Dev->>IAM: Generates new key#59; leaves old key active!
     Note over IAM: 2,400 Zombie Keys accumulate in production!
 ```
 

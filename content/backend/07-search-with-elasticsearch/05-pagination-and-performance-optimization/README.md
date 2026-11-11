@@ -32,8 +32,8 @@ flowchart TD
     end
 
     subgraph SearchAfter["Scalable 'search_after' Cursor Pattern"]
-        C2["Coordinating Node"] -->|Query: sort > [148.5, 'doc_992'] limit 10| S4["Shard 1: BKD index jump"]
-        C2 -->|Query: sort > [148.5, 'doc_992'] limit 10| S5["Shard 2: BKD index jump"]
+        C2["Coordinating Node"] -->|"Query: sort > [148.5, 'doc_992'] limit 10"| S4["Shard 1: BKD index jump"]
+        C2 -->|"Query: sort > [148.5, 'doc_992'] limit 10"| S5["Shard 2: BKD index jump"]
         
         S4 -->|Send ONLY 10 items| C2
         S5 -->|Send ONLY 10 items| C2
@@ -84,7 +84,7 @@ Indexing documents individually via single HTTP `POST` requests creates massive 
 
 ```mermaid
 flowchart LR
-    App["Application Workers"] -->|Batches of 1,000 docs (5-15MB)| Buffer["Ingest Node HTTP Buffer"]
+    App["Application Workers"] -->|"Batches of 1,000 docs (5-15MB)"| Buffer["Ingest Node HTTP Buffer"]
     Buffer --> Router["Routing by Document ID: hash(id) % shards"]
     Router --> P0["Primary Shard 0 (Append to Translog)"]
     Router --> P1["Primary Shard 1 (Append to Translog)"]

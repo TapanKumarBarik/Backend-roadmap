@@ -92,7 +92,7 @@ sequenceDiagram
     rect rgb(15, 23, 42)
         Note over Compose,App: Case B: Healthcheck Gated (condition: service_healthy)
         Compose->>DB: docker run postgres
-        Compose->>Compose: Block Web API launch; start healthcheck polling
+        Compose->>Compose: Block Web API launch#59; start healthcheck polling
         loop Every 3s (Healthcheck Evaluation)
             Compose->>DB: pg_isready -U postgres -d orders
             DB-->>Compose: Status 1 (Accepting connections? No)

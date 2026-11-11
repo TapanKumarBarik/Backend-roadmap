@@ -86,7 +86,7 @@ sequenceDiagram
     Gateway->>OldModel: Classifies in 25ms ($10/day total)
     Note over Gateway: "Modernization" project replaces classifier with LLM:
     Gateway->>NewModel: POST /v1/chat/completions (Full ticket in prompt)
-    Note over NewModel: Latency jumps from 25ms to 1,400ms.<br/>Upstream webhook queues fill up; timeouts occur.
+    Note over NewModel: Latency jumps from 25ms to 1,400ms.<br/>Upstream webhook queues fill up#59; timeouts occur.
     Finance->>Gateway: Billing Alert: OpenAI monthly spend reaches $28,000!
     Note over Gateway: Engineering rolls back to DistilBERT in 30 minutes.
 ```

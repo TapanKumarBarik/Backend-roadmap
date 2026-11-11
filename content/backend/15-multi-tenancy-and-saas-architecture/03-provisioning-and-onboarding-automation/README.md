@@ -167,7 +167,7 @@ sequenceDiagram
     participant Stripe as Stripe Billing Gateway
 
     Browser->>API1: POST /signup (Slug: "globex", Plan: "pro")
-    API1->>DB: CREATE SCHEMA tenant_globex; Run Migrations (Slow: 14s)
+    API1->>DB: CREATE SCHEMA tenant_globex#59; Run Migrations (Slow: 14s)
     
     Note over Browser: 10s HTTP Timeout Expires! Browser Retries!
     Browser->>API2: POST /signup (Slug: "globex", Plan: "pro") [RETRY]

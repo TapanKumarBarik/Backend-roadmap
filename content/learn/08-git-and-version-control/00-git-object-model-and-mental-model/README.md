@@ -108,7 +108,7 @@ sequenceDiagram
     Note over Attacker: Attacker extracts historical commit from 4 months ago:
     Note over Attacker: Finds deleted file: configs/aws_root_keys.json containing AWS_SECRET_ACCESS_KEY!
     Attacker->>Cloud: Authenticate as AWS root administrator
-    Note over Cloud: Attacker provisions 500 GPU crypto-mining instances; $80k bill accrued!
+    Note over Cloud: Attacker provisions 500 GPU crypto-mining instances#59; $80k bill accrued!
 ```
 
 ### The Incident

@@ -64,7 +64,7 @@ sequenceDiagram
     Gateway->>SessionStore: Fetch Session (User ID: 104)
     Gateway->>Handler: Forward Request with Session Context
     Note over Handler: Generate Cryptographic Nonce (CSP) + Synchronizer Token (CSRF)
-    Handler-->>Gateway: 200 OK + Header: Content-Security-Policy: script-src 'nonce-R4nd0m'<br/>Set-Cookie: __Host-csrf=TokenXYZ; SameSite=Lax; Secure<br/>HTML Body includes: <meta name="csrf-token" content="TokenXYZ">
+    Handler-->>Gateway: 200 OK + Header: Content-Security-Policy: script-src 'nonce-R4nd0m'<br/>Set-Cookie: __Host-csrf=TokenXYZ#59; SameSite=Lax#59; Secure<br/>HTML Body includes: <meta name="csrf-token" content="TokenXYZ">
     Gateway-->>Browser: Render Page with Injected CSRF Token & CSP Nonce
     
     Note over Browser: User triggers balance transfer mutation

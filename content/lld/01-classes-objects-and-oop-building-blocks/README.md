@@ -89,15 +89,15 @@ sequenceDiagram
     participant Account as BankAccount Entity
     participant DB as Production Database
 
-    Note over Account: Account has public field: public decimal Balance;
+    Note over Account: Account has public field: public decimal Balance#59;
     Attacker->>Promo: Apply $500 Promotional Coupon
     Note over Promo: Promo engine calculates discount:
-    Promo->>Account: account.Balance = account.Balance - 500;
+    Promo->>Account: account.Balance = account.Balance - 500#59;
     Note over Account: Initial balance was $10! Balance becomes -$490!
     Note over Account: Because field is public, zero validation occurred!
     Promo->>DB: Save account with negative balance
     Attacker->>Account: Withdraw remaining cash from ATM
-    Note over Account: Emergency SEV-1: Overdraft limits bypassed; $140,000 loss!
+    Note over Account: Emergency SEV-1: Overdraft limits bypassed#59; $140,000 loss!
 ```
 
 ### The Incident

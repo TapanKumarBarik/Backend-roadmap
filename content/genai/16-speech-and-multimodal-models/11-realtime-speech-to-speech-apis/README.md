@@ -554,7 +554,7 @@ A backend voice bridge receives audio over OpenAI Realtime WebSocket and sends `
 
 </details>
 
-<details><summary><strong>Checkpoint 2: Auditing why a 15-minute S2S support call costs \$3.80 instead of \$0.30</strong></summary>
+<details><summary><strong>Checkpoint 2: Auditing why a 15-minute S2S support call costs &#36;3.80 instead of &#36;0.30</strong></summary>
 
 Product expects voice calls to cost `~ \$0.02/min` (`\$0.30` per `15`-minute call) based on standard cascaded STT+LLM+TTS benchmarks, yet real `15`-minute native S2S calls average `\$3.80` (`\$0.25/min`). Identify the financial mechanism and two immediate fixes.
 

@@ -89,7 +89,7 @@ sequenceDiagram
     Sed->>Disk: Create temporary file: /etc/sedXXXXXX
     Sed->>Disk: Write updated content into /etc/sedXXXXXX
     Note over Disk: Disk hits 100% full capacity (ENOSPC: No space left on device)!
-    Note over Sed: Write terminates prematurely; temp file is incomplete!
+    Note over Sed: Write terminates prematurely#59; temp file is incomplete!
     Sed->>Disk: rename("/etc/sedXXXXXX", "/etc/app.env")
     Note over Disk: Atomic rename overwrites original app.env with truncated 0-byte file!
     Deployer->>Service: systemctl restart payment-api

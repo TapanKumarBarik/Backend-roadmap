@@ -79,16 +79,16 @@ sequenceDiagram
     participant DB as Postgres Database
 
     User->>H1: POST /orders/42/cancel
-    H1->>DB: SELECT * FROM orders WHERE id = 42; (Status: PENDING)
+    H1->>DB: SELECT * FROM orders WHERE id = 42#59; (Status: PENDING)
     Note over H1: Sets order.status = 'CANCELLED' in memory<br/>Calls 3rd-party Payment Refund API (Takes 4.0s)...
     
     User->>H2: POST /orders/42/pay (Concurrent Tab)
-    H2->>DB: SELECT * FROM orders WHERE id = 42; (Reads PENDING)
+    H2->>DB: SELECT * FROM orders WHERE id = 42#59; (Reads PENDING)
     H2->>H2: Charges Credit Card $450 OK!
-    H2->>DB: UPDATE orders SET status = 'PAID'; COMMIT;
+    H2->>DB: UPDATE orders SET status = 'PAID'#59; COMMIT#59;
     
     Note over H1: Refund API finishes after 4s!
-    H1->>DB: UPDATE orders SET status = 'CANCELLED'; COMMIT;
+    H1->>DB: UPDATE orders SET status = 'CANCELLED'#59; COMMIT#59;
     Note over DB: DISASTER: $450 collected, but order overwritten to CANCELLED!
 ```
 

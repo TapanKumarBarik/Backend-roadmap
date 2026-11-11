@@ -182,7 +182,7 @@ sequenceDiagram
     Note over Framework: Default framework handler catches unhandled error
     Framework-->>Attacker: Leaks full traceback + raw SQL + table "tbl_logistics_v2"
     Note over Attacker: Attacker analyzes leaked query & table structure
-    Attacker->>Framework: GET /api/v1/shipments?sort=customer_internal_id;--
+    Attacker->>Framework: GET /api/v1/shipments?sort=customer_internal_id#59;--
     Framework->>DB: Executes injected query
     DB-->>Framework: Dumps 45,000 customer records
     Framework-->>Attacker: Unauthorized data exfiltration

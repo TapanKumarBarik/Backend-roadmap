@@ -25,7 +25,7 @@ flowchart TD
     end
 
     subgraph WriteBehind ["3. Write-Behind (Write-Back) — Async High Write Throughput"]
-        WB_App["Application"] -->|Write Fast (<1ms)| WB_Cache[("In-Memory Queue/Cache")]
+        WB_App["Application"] -->|"Write Fast (<1ms)"| WB_Cache[("In-Memory Queue/Cache")]
         WB_Cache -.->|Asynchronous Batch Worker| WB_DB[("Database")]
         NoteWB["Risk: Unsynced writes lost if Cache node crashes!"]
     end

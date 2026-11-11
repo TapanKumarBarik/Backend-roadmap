@@ -76,7 +76,7 @@ sequenceDiagram
 
     Dev->>GH: `git commit -m "quick test" && git push origin main`
     Note over Dev: Commit contains: `api_key = "sk-proj-984..."` in test.py
-    GH->>Bot: Public commit pushed; bot webhook scrapes commit in 3.8 seconds!
+    GH->>Bot: Public commit pushed#59; bot webhook scrapes commit in 3.8 seconds!
     Bot->>OpenAI: Launches 50 parallel proxy servers using Dave's key
     Note over OpenAI: Bot floods high-throughput completions for LLM spam generation.<br/>Spends maximum tier limit ($10,000/hour).
     OpenAI->>CFO: Pager fires: Account credit threshold breached ($50,000).

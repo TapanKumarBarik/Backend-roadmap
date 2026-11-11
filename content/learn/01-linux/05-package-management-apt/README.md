@@ -37,11 +37,11 @@ flowchart TD
         Lib["/usr/lib/ (Shared Libraries)"]
     end
 
-    Sources -->|apt update (fetches Packages.gz)| Repo
+    Sources -->|"apt update (fetches Packages.gz)"| Repo
     Repo --> Lists
     Lists --> APT
     GPGKey -->|Cryptographic Verification| APT
-    APT -->|apt install (downloads .deb)| Dpkg
+    APT -->|"apt install (downloads .deb)"| Dpkg
     Dpkg --> DpkgDB
     Dpkg --> Targets
 ```

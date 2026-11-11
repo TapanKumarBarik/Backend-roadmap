@@ -31,7 +31,7 @@ sequenceDiagram
 
     Note over Engine: Query: irate(http_requests_total[5m])<br/>Window contains 20 samples
     Engine->>TSDB: Fetch samples across the 5-minute window
-    Note over Engine: Instantaneous Rate calculation:<br/>• Looks ONLY at the last two raw samples in the window!<br/>• Extremely fast and spiky; reveals momentary micro-bursts<br/>• UNFIT for alerts (causes alert flap)!
+    Note over Engine: Instantaneous Rate calculation:<br/>• Looks ONLY at the last two raw samples in the window!<br/>• Extremely fast and spiky#59; reveals momentary micro-bursts<br/>• UNFIT for alerts (causes alert flap)!
     Engine-->>Output: Returns instant burst slope
 ```
 

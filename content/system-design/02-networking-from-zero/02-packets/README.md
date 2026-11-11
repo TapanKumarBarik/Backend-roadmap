@@ -119,10 +119,10 @@ sequenceDiagram
     App->>VPN: "POST /login (300 B packet) -> Fits cleanly!"
     VPN->>Origin: "Delivered 200 OK!"
     App->>VPN: "POST /upload chunk (1,500 B with Dont-Fragment bit set!)"
-    Note over VPN: "1,500 B + 80 B tunnel header > 1,500 B! Cannot pass; emits ICMP Frag-Needed"
+    Note over VPN: "1,500 B + 80 B tunnel header > 1,500 B! Cannot pass#59; emits ICMP Frag-Needed"
     VPN--xFW: "ICMP Type 3 Code 4 (Please shrink to 1,420 B!)"
     Note over FW: "Firewall blindly blocks ALL ICMP traffic!"
-    Note over App: "Client never shrinks packet; retries exact 1,500 B forever until socket hangs!"
+    Note over App: "Client never shrinks packet#59; retries exact 1,500 B forever until socket hangs!"
 ```
 
 1. Engineers added an encrypted tunnel wrapping outgoing `1,500-byte` packets with an extra `80-byte` tunnel header, pushing total size to `1,580 B` and shrinking inner **Path MTU** to `1,420 B`.

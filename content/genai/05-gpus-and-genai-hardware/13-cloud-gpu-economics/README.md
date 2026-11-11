@@ -683,7 +683,7 @@ Success looks like: the arithmetic of two cases checked by hand in your write-up
 ### Scenario 1: Hourly Rate Discount vs. Batching & Utilization
 
 <details>
-<summary><strong>Question:</strong> Provider A offers an older GPU at \$1.00/hour (illustrative) that sustains 180 tokens/s at your target batch, while Provider B offers a higher-bandwidth GPU at \$2.00/hour sustaining 720 tokens/s. Both run at 50% busy fraction. Which is cheaper per million generated tokens, and by what factor?</summary>
+<summary><strong>Question:</strong> Provider A offers an older GPU at &#36;1.00/hour (illustrative) that sustains 180 tokens/s at your target batch, while Provider B offers a higher-bandwidth GPU at &#36;2.00/hour sustaining 720 tokens/s. Both run at 50% busy fraction. Which is cheaper per million generated tokens, and by what factor?</summary>
 
 **Answer:**
 Provider B is twice as cheap per million tokens despite costing twice as much per hour. Provider A emits $180 \times 3600 \times 0.50 = 324{,}000$ tokens/hour, costing **\$1.00** / $0.324 =$ **\$3.086** per 1M tokens. Provider B emits $720 \times 3600 \times 0.50 = 1{,}296{,}000$ tokens/hour, costing **\$2.00** / $1.296 =$ **\$1.543** per 1M tokens—a 50% unit cost reduction.
@@ -693,7 +693,7 @@ Provider B is twice as cheap per million tokens despite costing twice as much pe
 ### Scenario 2: Commitment Lock-In vs. Diurnal Traffic
 
 <details>
-<summary><strong>Question:</strong> Your internal coding assistant receives heavy traffic 9 hours per weekday (45 hours/week) and sits nearly idle evenings and weekends. Finance suggests a 1-year reserved instance offering a 40% hourly discount over on-demand (\$1.20/hr vs. \$2.00/hr). Should you buy the 1-year commitment instead of auto-scaling on-demand?</summary>
+<summary><strong>Question:</strong> Your internal coding assistant receives heavy traffic 9 hours per weekday (45 hours/week) and sits nearly idle evenings and weekends. Finance suggests a 1-year reserved instance offering a 40% hourly discount over on-demand (&#36;1.20/hr vs. &#36;2.00/hr). Should you buy the 1-year commitment instead of auto-scaling on-demand?</summary>
 
 **Answer:**
 No—auto-scaling on-demand wins heavily. A 1-year reservation bills all 168 hours per week ($168 \times$ **\$1.20** = **\$201.60/week**), whereas running on-demand only for the 45 active hours bills $45 \times$ **\$2.00** = **\$90.00/week** (plus minor EBS snapshot storage), cutting weekly compute spend by more than half.
@@ -703,7 +703,7 @@ No—auto-scaling on-demand wins heavily. A 1-year reservation bills all 168 hou
 ### Scenario 3: Spot Preemption Threshold Check
 
 <details>
-<summary><strong>Question:</strong> A batch offline summarization job runs on Spot GPUs priced at \$0.75/hr versus \$2.50/hr On-Demand. Interruptions arrive at $\lambda = 0.40\text{/hr}$, checkpoints run every $T = 1.0\text{ h}$, and restart + model load takes $R = 0.25\text{ h}$. Does Spot beat On-Demand?</summary>
+<summary><strong>Question:</strong> A batch offline summarization job runs on Spot GPUs priced at &#36;0.75/hr versus &#36;2.50/hr On-Demand. Interruptions arrive at $\lambda = 0.40\text{/hr}$, checkpoints run every $T = 1.0\text{ h}$, and restart + model load takes $R = 0.25\text{ h}$. Does Spot beat On-Demand?</summary>
 
 **Answer:**
 Spot requires $f > 0.75 / 2.50 = 0.30$. Computing $f = 1 / (1 + 0.40 \times (0.50 + 0.25)) = 1 / 1.30 = 0.769$, giving an effective spot cost of **\$0.75** / $0.769 =$ **\$0.975** per useful hour—still well below the **\$2.50** on-demand rate (with $\lambda \cdot T = 0.40$, inside the first-order model's safe zone).

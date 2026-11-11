@@ -56,7 +56,7 @@ sequenceDiagram
     participant PodB as API Pod B (Reader)
 
     User->>PodA: 1. POST /v1/config/banner {"active": false}
-    PodA->>DB: 2. UPDATE banner SET active = false; COMMIT;
+    PodA->>DB: 2. UPDATE banner SET active = false#59; COMMIT#59;
     PodA->>Redis: 3. DEL config:banner (L2 Invalidation)
     PodA->>Redis: 4. PUBLISH "cache:invalidate" "config:banner"
     

@@ -150,7 +150,7 @@ sequenceDiagram
     Kernel-->>Attacker: Grants block device write access
     Attacker->>HostOS: Injects root SSH key into host /etc/ssh/authorized_keys
     HostOS-->>Attacker: Root Access on Host VM Granted!
-    Note over HostOS: Cluster node compromised; lateral movement begins!
+    Note over HostOS: Cluster node compromised#59; lateral movement begins!
 ```
 
 - **The Resolution:** 

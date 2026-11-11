@@ -297,19 +297,19 @@ A distributed training team launched a 13B RLHF-PPO fine-tune using a newly refa
 sequenceDiagram
     autonumber
     participant Config as PPO Launcher YAML
-    participant Actor as Trainable Actor Policy
-    participant Ref as Reference Policy Pointer
+    participant ActorPolicy as Trainable Actor Policy
+    participant RefPolicy as Reference Policy Pointer
     participant RM as Frozen Reward Model
     participant Eval as Held-Out Perplexity Monitor
 
-    Config->>Actor: Initialize with unrecognized kl_penalty_coef key
-    Note over Ref: beta defaults to 0.0 and ref_model aliases actor weights
+    Config->>ActorPolicy: Initialize with unrecognized kl_penalty_coef key
+    Note over RefPolicy: beta defaults to 0.0 and ref_model aliases actor weights
     loop 1400 PPO Steps
-        Actor->>RM: Generate progressively distorted high-reward boilerplate
-        RM-->>Actor: Reward climbs from 1.2 to 8.9
-        Ref-->>Actor: Computes KL = 0.0 (no drift penalty applied)
+        ActorPolicy->>RM: Generate progressively distorted high-reward boilerplate
+        RM-->>ActorPolicy: Reward climbs from 1.2 to 8.9
+        RefPolicy-->>ActorPolicy: Computes KL = 0.0 (no drift penalty applied)
     end
-    Actor->>Eval: Evaluate step-1400 checkpoint on MMLU and MT-Bench
+    ActorPolicy->>Eval: Evaluate step-1400 checkpoint on MMLU and MT-Bench
     Eval-->>Config: ALERT SEV-1 - Coherence collapsed while training reward peaked
     Note over Config: Freeze explicit ref_model and enforce target_kl early-stop circuit breaker
 ```

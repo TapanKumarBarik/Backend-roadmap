@@ -45,7 +45,7 @@ flowchart TD
     SQLite_Embed -->|Local Disk| DB_File[("chroma.sqlite3")]
     HNSW_Embed -->|Local Disk| Bin_Files[("UUID / index_*.bin")]
 
-    App -->|HTTP / REST (gRPC)| Chroma_Client
+    App -->|"HTTP / REST (gRPC)"| Chroma_Client
     Chroma_Client --> FastAPI
     FastAPI --> SQLite_Server
     FastAPI --> HNSW_Server

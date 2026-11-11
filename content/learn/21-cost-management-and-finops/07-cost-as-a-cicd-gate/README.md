@@ -608,7 +608,7 @@ Running `infracost breakdown` alone on a large production Terraform stack prints
 
 </details>
 
-<details><summary><strong>Checkpoint 2: Reconciling a \$400 Estimate vs. a \$90 Actual Bill</strong></summary>
+<details><summary><strong>Checkpoint 2: Reconciling a &#36;400 Estimate vs. a &#36;90 Actual Bill</strong></summary>
 
 When a developer points out that Infracost estimated \$400/mo for an autoscaled or usage-based resource whose real Module 01 invoice was \$90/mo, explain that plan-time tools price declared capacity or `infracost-usage.yml` assumptions without runtime telemetry or existing Savings Plans. Update the usage file with historical actuals from Modules 01–02 to sharpen future estimates rather than discarding the gate.
 

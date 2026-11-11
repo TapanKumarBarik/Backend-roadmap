@@ -135,14 +135,14 @@ sequenceDiagram
 
     Mobile->>WS: Upgrade to WebSocket (Accepted)
     Note over WS: Socket stored in activeClients Set (Ref Count: 1)
-    Note over Mobile: Mobile user enters subway; cell tower drops signal abruptly!
+    Note over Mobile: Mobile user enters subway#59; cell tower drops signal abruptly!
     Note over Mobile,LB: No TCP FIN packet transmitted (Dirty Disconnection)
     Note over WS: Server does NOT run Ping/Pong keepalive!
     Note over WS: Socket remains in ESTABLISHED state indefinitely!
     Note over WS: 1,000s of users disconnect daily without FIN...
     WS->>Kernel: Request new socket for incoming trader
     Kernel-->>WS: ERROR EMFILE: Too many open files!
-    Note over WS: Process crashes; all 65,000 connections severed instantaneously!
+    Note over WS: Process crashes#59; all 65,000 connections severed instantaneously!
 ```
 
 #### The Root Cause

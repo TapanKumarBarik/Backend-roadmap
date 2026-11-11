@@ -110,7 +110,7 @@ sequenceDiagram
     Script->>Kernel: 15,000 child shell processes spawned in 12 seconds!
     Kernel-->>Host: EAGAIN: Resource temporarily unavailable (pid_max exhausted!)
     Note over Host: System locks completely! All SSH sessions terminated!
-    Note over Cron: SEV-1: Hard reboot required; operations blind during outage!
+    Note over Cron: SEV-1: Hard reboot required#59; operations blind during outage!
 ```
 
 ### The Incident

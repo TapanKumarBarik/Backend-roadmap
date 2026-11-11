@@ -74,12 +74,12 @@ sequenceDiagram
     User->>T1: POST /withdraw { amount: 100 }
     User->>T2: POST /withdraw { amount: 100 } (Concurrent)
 
-    T1->>DB: SELECT balance FROM accounts WHERE id = 42; -> $100
-    T2->>DB: SELECT balance FROM accounts WHERE id = 42; -> $100
+    T1->>DB: SELECT balance FROM accounts WHERE id = 42#59; -> $100
+    T2->>DB: SELECT balance FROM accounts WHERE id = 42#59; -> $100
     Note over T1,T2: Both threads verify: 100 >= 100 -> Check Passed!
 
-    T1->>DB: UPDATE accounts SET balance = 100 - 100 WHERE id = 42; (Balance = $0)
-    T2->>DB: UPDATE accounts SET balance = 0 - 100 WHERE id = 42; (Balance = -$100!)
+    T1->>DB: UPDATE accounts SET balance = 100 - 100 WHERE id = 42#59; (Balance = $0)
+    T2->>DB: UPDATE accounts SET balance = 0 - 100 WHERE id = 42#59; (Balance = -$100!)
     Note over DB: User withdrew $200 from a $100 account!
 ```
 

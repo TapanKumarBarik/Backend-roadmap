@@ -108,7 +108,7 @@ sequenceDiagram
     Note over Stripe: 10:00 AM: Attempt 1 fails (Card expired)
     Stripe->>API: Webhook: payment_failed (Delayed in transit by network proxy!)
     
-    Note over Stripe: 10:02 AM: User updates card; Attempt 2 succeeds!
+    Note over Stripe: 10:02 AM: User updates card#59; Attempt 2 succeeds!
     Stripe->>API: Webhook: payment_succeeded (Delivered in 200ms)
     API->>DB: UPDATE users SET status = 'active' WHERE id = 101 (Success!)
     
