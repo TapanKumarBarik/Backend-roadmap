@@ -1,120 +1,122 @@
 # Image Signing with cosign and Sigstore
 
-## Why this matters
+> **Prerequisites:** Supply-chain threat model & digest pinning (Module 00), SBOMs (Module 01), OIDC secretless CI (`10-ci-cd/07`), and secret-liability hygiene (`11-container-security/02`).  
+> **Estimated Reading Time:** 40 minutes  
+> **Target Audience:** Backend Engineers, Platform Engineers, Security Engineers, Kubernetes Cluster Operators.
 
-Module 00's second question was **is it authentic and unmodified?** — STRIDE's
-Tampering category, the exact gap track 11 module 01 previewed and said track
-18 owns. A signature is the answer: after building, you cryptographically prove
-*this exact image came from us and hasn't been altered*, and later (module 05)
-admission control refuses to run anything that can't prove it. This is the
-control that stops the poisoned-base and tampered-image attacks from module 00
-even when the image would scan clean, because a swapped image no longer carries
-a valid signature. This module makes signing real with **cosign**, and
-introduces the idea that changed the practice entirely — **keyless signing**,
-where you never manage a private key at all.
+> [!TIP]
+> **The Golden Rule of Image Signing:** Always sign the immutable **`@sha256:` digest** (never a mutable tag), standardize on **keyless Sigstore signing via CI OIDC** so no long-lived private key exists to leak or rotate, and pin **both `--certificate-identity` (or `-regexp`) and `--certificate-oidc-issuer`** at verification time — omitting either allows any valid Fulcio identity to sign your images.
 
-## Concepts
+---
+
+## Why This Matters
+
+Module 00's second question was **is it authentic and unmodified?** — STRIDE's Tampering category, the exact gap track 11 module 01 previewed and said track 18 owns. A signature is the answer: after building, you cryptographically prove *this exact image came from us and hasn't been altered*, and later (module 05) admission control refuses to run anything that can't prove it. This is the control that stops the poisoned-base and tampered-image attacks from module 00 even when the image would scan clean, because a swapped image no longer carries a valid signature. This module makes signing real with **cosign**, and introduces the idea that changed the practice entirely — **keyless signing**, where you never manage a private key at all.
+
+---
+
+## 1. Architectural Mental Model: Keyless Sigstore Signing & Verification
+
+Keyless signing replaces static, leak-prone signing keys with a short-lived ephemeral keypair bound to a verified OIDC workflow identity by **Fulcio**, stamped into **Rekor's** immutable transparency log so signatures stay verifiable years after the 10-minute certificate expires, and stored right alongside the image in your **OCI registry**:
+
+```mermaid
+flowchart LR
+    subgraph CI["CI Runner (Ephemeral Session)"]
+        Job["CI Job (OIDC JWT + Ephemeral Keypair)"]
+        Zero["Ephemeral Private Key Discarded"]
+        Job -->|4. Discards private key| Zero
+    end
+
+    subgraph Sigstore["Sigstore Public Good / Private Trust Infrastructure"]
+        Fulcio["Fulcio CA (Issues 10-min OIDC Cert)"]
+        Rekor["Rekor Transparency Log (Append-Only Audit + Timestamp)"]
+    end
+
+    subgraph Registry["OCI Registry & Verifier"]
+        OCI["OCI Registry (app@sha256 + sha256-digest.sig)"]
+        Verify["cosign verify (Pins Identity + Issuer + Rekor)"]
+        OCI -->|Reads image digest and .sig| Verify
+    end
+
+    Job -->|1. Sends OIDC token and pubkey| Fulcio
+    Fulcio -->|2. Returns short-lived cert| Job
+    Job -->|3. Logs cert + sig + digest| Rekor
+    Job -->|3b. Pushes .sig artifact| OCI
+    Rekor -->|Provides cryptographic inclusion proof| Verify
+```
 
 ### What signing an image actually does
 
-Signing binds a cryptographic signature to an image's **digest** — the
-immutable `sha256:` content identifier from module 00, *not* its tag. The
-signer computes a signature over the digest with a private key; anyone with the
-corresponding public key (or, for keyless, the transparency-log record) can
-**verify** that:
+Signing binds a cryptographic signature to an image's **digest** — the immutable `sha256:` content identifier from module 00, *not* its tag. The signer computes a signature over the digest with a private key; anyone with the corresponding public key (or, for keyless, the transparency-log record) can **verify** that:
 
-- the image content is exactly what was signed (integrity — any byte change
-  breaks it), and
+- the image content is exactly what was signed (integrity — any byte change breaks it), and
 - it was signed by a specific identity you trust (authenticity).
 
-Crucially, signing says **nothing** about whether the image is *safe* — a
-validly signed image can be riddled with CVEs. This is the "scanning vs
-signing" split track 11 drew, now from the signing side: scan answers "is it
-safe," signature answers "is it authentic." You need both, and module 05
-enforces both at admission time.
+Crucially, signing says **nothing** about whether the image is *safe* — a validly signed image can be riddled with CVEs. This is the "scanning vs signing" split track 11 drew, now from the signing side: scan answers "is it safe," signature answers "is it authentic." You need both, and module 05 enforces both at admission time.
 
 ### cosign and the Sigstore project
 
-**cosign** (from the **Sigstore** project, an OpenSSF effort) is the de-facto
-tool for signing container images and other OCI artifacts. It stores signatures
-**in the registry, alongside the image** — a signature is itself a small OCI
-object tagged by the image's digest — so your existing ACR/registry is also
-your signature store; there's no separate infrastructure. Sigstore has three
-pieces you'll meet:
+**cosign** (from the **Sigstore** project, an OpenSSF effort) is the de-facto tool for signing container images and other OCI artifacts. It stores signatures **in the registry, alongside the image** — a signature is itself a small OCI object tagged by the image's digest — so your existing ACR/registry is also your signature store; there's no separate infrastructure. Sigstore has three pieces you'll meet:
 
 - **cosign** — the CLI you run to sign and verify.
-- **Fulcio** — a certificate authority that issues *short-lived* signing
-  certificates tied to an identity (the heart of keyless, below).
-- **Rekor** — a public, append-only **transparency log** that records every
-  signature, so a signature can be verified later even though the certificate
-  that made it has long expired.
+- **Fulcio** — a certificate authority that issues *short-lived* signing certificates tied to an identity (the heart of keyless, below).
+- **Rekor** — a public, append-only **transparency log** that records every signature, so a signature can be verified later even though the certificate that made it has long expired.
 
-This mirrors track 10/11's OIDC theme: just as secretless CI traded long-lived
-credentials for short-lived, identity-scoped tokens, keyless signing trades a
-long-lived signing key for a short-lived, identity-bound certificate.
+This mirrors track 10/11's OIDC theme: just as secretless CI traded long-lived credentials for short-lived, identity-scoped tokens, keyless signing trades a long-lived signing key for a short-lived, identity-bound certificate.
 
 ### Traditional key-based signing (and why the key is the problem)
 
-The classic model: `cosign generate-key-pair` produces a private key
-(`cosign.key`) and public key (`cosign.pub`). You sign with the private key and
-distribute the public key to verifiers.
+The classic model: `cosign generate-key-pair` produces a private key (`cosign.key`) and public key (`cosign.pub`). You sign with the private key and distribute the public key to verifiers.
 
 - **Pro:** conceptually simple, no external services required, works air-gapped.
-- **Con — and it's the big one:** you now own a **long-lived private key**. It
-  must be stored somewhere (a KMS, a secret in CI), rotated, access-controlled,
-  and *never leaked*. A leaked signing key is catastrophic: an attacker can sign
-  malicious images that pass every verification. This is the same long-lived-
-  credential liability track 10 module 07 and track 11 module 02 warned about,
-  now applied to signing keys.
+- **Con — and it's the big one:** you now own a **long-lived private key**. It must be stored somewhere (a KMS, a secret in CI), rotated, access-controlled, and *never leaked*. A leaked signing key is catastrophic: an attacker can sign malicious images that pass every verification. This is the same long-lived-credential liability track 10 module 07 and track 11 module 02 warned about, now applied to signing keys.
 
-cosign supports key-based signing backed by a KMS (including Azure Key Vault),
-which mitigates but doesn't eliminate the "there is a standing key to protect"
-problem. Keyless removes the standing key entirely.
+cosign supports key-based signing backed by a KMS (including Azure Key Vault), which mitigates but doesn't eliminate the "there is a standing key to protect" problem. Keyless removes the standing key entirely.
 
 ### Keyless signing via OIDC identity
 
-**Keyless signing** eliminates the long-lived key. The flow, when your CI job
-signs:
+**Keyless signing** eliminates the long-lived key. The flow, when your CI job signs:
 
-1. cosign obtains an **OIDC identity token** — from GitHub Actions this is the
-   same workflow OIDC token you used in track 10 for secretless Azure login; for
-   a human it's an interactive "log in with Google/GitHub" flow.
-2. cosign sends that token to **Fulcio**, which verifies the identity and issues
-   a **short-lived certificate** (valid ~10 minutes) binding a freshly-generated
-   ephemeral key to that identity (e.g.
-   `repo:myorg/myrepo:ref:refs/heads/main` for a GitHub workflow).
-3. cosign signs the image digest with the ephemeral key and records the
-   signature + certificate in **Rekor**, the transparency log.
-4. The ephemeral private key is **discarded**. There is no key to leak, store,
-   or rotate.
+1. cosign obtains an **OIDC identity token** — from GitHub Actions this is the same workflow OIDC token you used in track 10 for secretless Azure login; for a human it's an interactive "log in with Google/GitHub" flow.
+2. cosign sends that token to **Fulcio**, which verifies the identity and issues a **short-lived certificate** (valid ~10 minutes) binding a freshly-generated ephemeral key to that identity (e.g. `repo:myorg/myrepo:ref:refs/heads/main` for a GitHub workflow).
+3. cosign signs the image digest with the ephemeral key and records the signature + certificate in **Rekor**, the transparency log.
+4. The ephemeral private key is **discarded**. There is no key to leak, store, or rotate.
 
-Verification later checks: the signature is valid, the certificate was issued by
-Fulcio, the signing **identity matches what you expect**, and the entry is in
-Rekor. This is the model this track and the capstone standardize on, because it
-matches the OIDC-based, keyless CI you already built in track 10 — the CI job's
-*identity* is what signs, not a secret it holds.
+Verification later checks: the signature is valid, the certificate was issued by Fulcio, the signing **identity matches what you expect**, and the entry is in Rekor. This is the model this track and the capstone standardize on, because it matches the OIDC-based, keyless CI you already built in track 10 — the CI job's *identity* is what signs, not a secret it holds.
 
 ### Verifying: identity is the policy
 
-For keyless, verification isn't "do I have the right public key?" — there's no
-standing key. Instead you assert **which identity** was allowed to sign, via two
-required checks:
+For keyless, verification isn't "do I have the right public key?" — there's no standing key. Instead you assert **which identity** was allowed to sign, via two required checks:
 
-- `--certificate-identity` (or `--certificate-identity-regexp`) — *who* signed,
-  e.g. the exact GitHub workflow URL/ref, or `you@example.com`.
-- `--certificate-oidc-issuer` — *which issuer* vouched for that identity, e.g.
-  `https://token.actions.githubusercontent.com` for GitHub Actions or
-  `https://accounts.google.com` for a Google login.
+- `--certificate-identity` (or `--certificate-identity-regexp`) — *who* signed, e.g. the exact GitHub workflow URL/ref, or `you@example.com`.
+- `--certificate-oidc-issuer` — *which issuer* vouched for that identity, e.g. `https://token.actions.githubusercontent.com` for GitHub Actions or `https://accounts.google.com` for a Google login.
 
-Both must be pinned. A signature that's cryptographically valid but was made by
-the *wrong* identity (or vouched for by the wrong issuer) must be **rejected** —
-otherwise anyone who can get *any* Fulcio certificate could sign your images.
-This identity-is-the-policy idea is exactly what module 05's admission controller
-encodes: "only images signed by *this* workflow identity may run." You'll
-deliberately trigger an identity-mismatch failure in the exercises, because
-getting this wrong is the most common keyless-verification bug.
+Both must be pinned. A signature that's cryptographically valid but was made by the *wrong* identity (or vouched for by the wrong issuer) must be **rejected** — otherwise anyone who can get *any* Fulcio certificate could sign your images. This identity-is-the-policy idea is exactly what module 05's admission controller encodes: "only images signed by *this* workflow identity may run." You'll deliberately trigger an identity-mismatch failure in the exercises, because getting this wrong is the most common keyless-verification bug.
 
-## Command reference
+---
+
+## 2. Taxonomic Comparison & Command Reference
+
+### Image Signing Modes Comparison
+
+| Dimension | Keyless OIDC (Fulcio + Rekor) | Cloud KMS (`azurekms://` / AWS KMS) | Static Local Keypair (`cosign.key`) |
+|---|---|---|---|
+| **Private Key Lifespan** | ~10 minutes in RAM, then discarded | Long-lived key inside HSM/Vault | Long-lived encrypted file on disk / CI secret |
+| **Secret Distribution / Rotation** | None (public TUF root + OIDC identity policy) | Distribute public key + manage KMS IAM & rotation | High operational toil; key leak requires fleet-wide re-key |
+| **Air-Gapped Support** | Requires private Sigstore or bundle offline verify | Works if KMS endpoint reachable | Full offline / air-gapped signing & verification |
+| **Verifier Policy Anchor** | `--certificate-identity` + `--certificate-oidc-issuer` | `--key azurekms://...` or exported `.pub` | `--key cosign.pub` |
+| **Recommended Role** | **Production CI/CD standard (Capstone)** | Regulated / private enterprise environments | Local learning labs & air-gapped bootstrap |
+
+### Sigstore Component Roles
+
+| Component / Artifact | Responsibility | Trust Verification Mechanism |
+|---|---|---|
+| **cosign CLI** | Generates signatures/attestations and verifies policy | Resolves digest, validates Fulcio chain & Rekor SET via TUF |
+| **Fulcio** | Short-lived OIDC code-signing Certificate Authority | Cert SAN holds OIDC subject; extension OIDs encode OIDC issuer |
+| **Rekor** | Public append-only Merkle transparency log | Signed Entry Timestamp (SET) proves signature existed within cert's 10-min window |
+| **`.sig` OCI Artifact** | Registry object named `sha256-<hex>.sig` | Travels inside ACR/Docker Registry alongside image manifest |
+
+### Command reference
 
 | Command | What it does | Example |
 |---|---|---|
@@ -131,45 +133,283 @@ getting this wrong is the most common keyless-verification bug.
 Flag breakdown for keyless verify:
 `cosign verify --certificate-identity-regexp 'https://github.com/myorg/.+' --certificate-oidc-issuer https://token.actions.githubusercontent.com myreg.azurecr.io/app:1.0`
 
-- `verify` — check signatures on an image and print the verified payload; exits
-  non-zero if no signature satisfies the checks (this is the gate module 05
-  automates).
-- `--certificate-identity-regexp 'https://github.com/myorg/.+'` — *who* is
-  allowed to have signed. Use the exact identity with `--certificate-identity`
-  when you can; the regexp form is for "any workflow in my org." Getting this
-  wrong (too loose, or not matching) is the #1 keyless failure.
-- `--certificate-oidc-issuer https://token.actions.githubusercontent.com` —
-  *which* OIDC issuer must have vouched for that identity. Pins the trust to
-  GitHub Actions' issuer specifically; a signature from the same identity string
-  but a different issuer is rejected.
-- `<image>` — the image to verify; cosign resolves its digest and looks up the
-  signature stored alongside it in the registry.
+- `verify` — check signatures on an image and print the verified payload; exits non-zero if no signature satisfies the checks (this is the gate module 05 automates).
+- `--certificate-identity-regexp 'https://github.com/myorg/.+'` — *who* is allowed to have signed. Use the exact identity with `--certificate-identity` when you can; the regexp form is for "any workflow in my org." Getting this wrong (too loose, or not matching) is the #1 keyless failure.
+- `--certificate-oidc-issuer https://token.actions.githubusercontent.com` — *which* OIDC issuer must have vouched for that identity. Pins the trust to GitHub Actions' issuer specifically; a signature from the same identity string but a different issuer is rejected.
+- `<image>` — the image to verify; cosign resolves its digest and looks up the signature stored alongside it in the registry.
 
 Flag breakdown for `cosign sign --key azurekms://<vault>.vault.azure.net/<key> <img@digest>`:
 
-- `--key azurekms://...` — sign using a key held in **Azure Key Vault** instead
-  of a local file, so the private key never leaves the KMS (the track 07/11 Key
-  Vault pattern applied to signing). Still a *standing* key — better protected
-  than a file, but not keyless.
-- `<img@digest>` — always sign the **digest**, not a tag, so the signature binds
-  to immutable content (module 00).
+- `--key azurekms://...` — sign using a key held in **Azure Key Vault** instead of a local file, so the private key never leaves the KMS (the track 07/11 Key Vault pattern applied to signing). Still a *standing* key — better protected than a file, but not keyless.
+- `<img@digest>` — always sign the **digest**, not a tag, so the signature binds to immutable content (module 00).
 
-## Hands-on exercises
+---
 
-cosign runs locally. You'll sign against a **local registry** so there's no
-Azure cost; the keyless-in-CI flow is demonstrated and explained (a real GitHub
-Actions run is the capstone).
+## 3. Production War Story Post-Mortem
+
+- **Incident:** `SEV-2` — Over-Permissive Regexp Identity Policy Permits External Fork Image Signature in Staging Cluster
+- **Detection / Resolution Time:** 3 hours via Rekor log anomaly alert / 45 minutes to tighten identity policy and redeploy
+- **Impact:** An unreviewed feature branch build signed from an external developer repository passed deployment verification in staging after an engineer relaxed identity matching with `--certificate-identity-regexp '.*ci\.yml.*'`.
+
+### What Happened
+
+To unblock a failing pipeline where a branch rename broke verification, an engineer modified the verification wrapper script to use `--certificate-identity-regexp '.*ci\.yml.*'` and omitted strict org/repository prefix anchoring. Days later, during a pen-test drill, an auditor pushed an image signed with a personal GitHub Actions workflow named `ci.yml` on an unrelated public repository (`attacker/sandbox/.github/workflows/ci.yml@refs/heads/main`). Because Fulcio validly signed the OIDC token from GitHub Actions and Rekor recorded it, the permissive verifier accepted the foreign image:
+
+```mermaid
+sequenceDiagram
+    participant Rogue as External GitHub Repo
+    participant Fulcio as Fulcio CA
+    participant Rekor as Rekor Log
+    participant Gate as Permissive Verifier
+    participant Stage as Staging Cluster
+
+    Rogue->>Fulcio: Authenticate with personal repo OIDC token (ci.yml)
+    Fulcio-->>Rogue: Issue valid 10-minute certificate
+    Rogue->>Rekor: Publish valid signature for rogue digest
+    Gate->>Gate: Verify regex .*ci.yml.* matches SAN
+    Gate-->>Stage: Admit rogue image (signature valid but wrong org)
+```
+
+### Root Cause Analysis
+
+1. **Unanchored identity regexp:** Using `.*ci\.yml.*` matched *any* repository path containing `ci.yml`, completely neutralizing organizational identity isolation.
+2. **Confusion between cryptographic validity and policy trust:** A valid Fulcio signature only proves *who* signed; without strict org, repo, workflow, and ref pinning, *anyone* with a GitHub account has a valid Fulcio certificate.
+
+### The Fix & Architectural Hardening
+
+1. Replaced all loose regular expressions with exact workflow and branch pins (`--certificate-identity 'https://github.com/myorg/payments/.github/workflows/release.yml@refs/heads/main'`) or strictly anchored organization prefixes (`^https://github\.com/myorg/`).
+2. Always paired identity pinning with `--certificate-oidc-issuer https://token.actions.githubusercontent.com` in both CI checks and admission policies (Module 05).
+
+---
+
+## 4. Multi-Language Production Implementation
+
+Before admitting an image in production, verification logic enforces four sequential guarantees: **(1)** tag resolution/validation against an immutable `@sha256:` digest, **(2)** cryptographic signature check over the digest payload, **(3)** strict Fulcio SAN `--certificate-identity` + `--certificate-oidc-issuer` match, and **(4)** Rekor Signed Entry Timestamp (`integratedTime`) falling inside Fulcio's 10-minute `[NotBefore, NotAfter]` validity window.
+
+````carousel
+```go
+package sigstoregate
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+)
+
+var digestRefRe = regexp.MustCompile(`^.+@sha256:[0-9a-f]{64}$`)
+
+type KeylessBundle struct {
+	ImageRef            string
+	SignedDigest        string
+	CertIdentitySAN     string
+	CertOidcIssuer      string
+	CertNotBefore       time.Time
+	CertNotAfter        time.Time
+	RekorIntegratedTime time.Time
+	SignatureValid      bool
+	RekorProofValid     bool
+}
+
+type VerifyPolicy struct {
+	AllowedIdentityPrefix string
+	RequiredOidcIssuer    string
+}
+
+func VerifyKeylessBundle(bundle KeylessBundle, policy VerifyPolicy) error {
+	if !digestRefRe.MatchString(bundle.ImageRef) {
+		return fmt.Errorf("image ref %q must be pinned by @sha256:<64-hex> digest", bundle.ImageRef)
+	}
+	actualDigest := strings.SplitN(bundle.ImageRef, "@", 2)[1]
+	if actualDigest != bundle.SignedDigest {
+		return fmt.Errorf("digest mismatch: requested %s, signature covers %s", actualDigest, bundle.SignedDigest)
+	}
+	if !bundle.SignatureValid || !bundle.RekorProofValid {
+		return errors.New("cryptographic signature or Rekor inclusion proof invalid")
+	}
+	if bundle.CertOidcIssuer != policy.RequiredOidcIssuer {
+		return fmt.Errorf("OIDC issuer mismatch: got %q, want %q", bundle.CertOidcIssuer, policy.RequiredOidcIssuer)
+	}
+	if !strings.HasPrefix(bundle.CertIdentitySAN, policy.AllowedIdentityPrefix) {
+		return fmt.Errorf("identity mismatch: %q rejected by policy prefix %q", bundle.CertIdentitySAN, policy.AllowedIdentityPrefix)
+	}
+	if bundle.RekorIntegratedTime.Before(bundle.CertNotBefore) || bundle.RekorIntegratedTime.After(bundle.CertNotAfter) {
+		return errors.New("Rekor integratedTime lies outside Fulcio ephemeral certificate validity window")
+	}
+	return nil
+}
+```
+<!-- slide -->
+```typescript
+const DIGEST_REF_RE = /^.+@sha256:[0-9a-f]{64}$/;
+
+export interface KeylessBundle {
+  imageRef: string;
+  signedDigest: string;
+  certIdentitySan: string;
+  certOidcIssuer: string;
+  certNotBefore: Date;
+  certNotAfter: Date;
+  rekorIntegratedTime: Date;
+  signatureValid: boolean;
+  rekorProofValid: boolean;
+}
+
+export interface VerifyPolicy {
+  exactIdentity?: string;
+  identityRegex?: RegExp;
+  requiredOidcIssuer: string;
+}
+
+export function verifyKeylessBundle(bundle: KeylessBundle, policy: VerifyPolicy): void {
+  if (!DIGEST_REF_RE.test(bundle.imageRef)) {
+    throw new Error(`Image ref '${bundle.imageRef}' must be pinned to @sha256:<64-hex>`);
+  }
+  const digest = bundle.imageRef.split("@", 2)[1];
+  if (digest !== bundle.signedDigest) {
+    throw new Error(`Digest mismatch: expected ${digest}, signature covers ${bundle.signedDigest}`);
+  }
+  if (!bundle.signatureValid || !bundle.rekorProofValid) {
+    throw new Error("Cryptographic signature or Rekor SET proof verification failed");
+  }
+  if (bundle.certOidcIssuer !== policy.requiredOidcIssuer) {
+    throw new Error(`Issuer mismatch: got '${bundle.certOidcIssuer}', expected '${policy.requiredOidcIssuer}'`);
+  }
+  const idMatches = policy.exactIdentity
+    ? bundle.certIdentitySan === policy.exactIdentity
+    : Boolean(policy.identityRegex?.test(bundle.certIdentitySan));
+  if (!idMatches) {
+    throw new Error(`Certificate identity '${bundle.certIdentitySan}' rejected by policy`);
+  }
+  if (
+    bundle.rekorIntegratedTime < bundle.certNotBefore ||
+    bundle.rekorIntegratedTime > bundle.certNotAfter
+  ) {
+    throw new Error("Rekor log timestamp lies outside ephemeral Fulcio certificate window");
+  }
+}
+```
+<!-- slide -->
+```python
+from dataclasses import dataclass
+from datetime import datetime
+import re
+
+DIGEST_REF_RE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class KeylessBundle:
+    image_ref: str
+    signed_digest: str
+    cert_identity_san: str
+    cert_oidc_issuer: str
+    cert_not_before: datetime
+    cert_not_after: datetime
+    rekor_integrated_time: datetime
+    signature_valid: bool
+    rekor_proof_valid: bool
+
+
+@dataclass(frozen=True)
+class VerifyPolicy:
+    identity_pattern: re.Pattern[str]
+    required_oidc_issuer: str
+
+
+def verify_keyless_bundle(bundle: KeylessBundle, policy: VerifyPolicy) -> None:
+    if not DIGEST_REF_RE.match(bundle.image_ref):
+        raise ValueError(f"Mutable ref rejected ({bundle.image_ref}): @sha256 digest required")
+    digest = bundle.image_ref.split("@", 1)[1]
+    if digest != bundle.signed_digest:
+        raise PermissionError(f"Digest mismatch: target {digest} != signed {bundle.signed_digest}")
+    if not (bundle.signature_valid and bundle.rekor_proof_valid):
+        raise PermissionError("Invalid signature or missing Rekor transparency proof")
+    if bundle.cert_oidc_issuer != policy.required_oidc_issuer:
+        raise PermissionError(
+            f"OIDC issuer mismatch: got {bundle.cert_oidc_issuer!r}, want {policy.required_oidc_issuer!r}"
+        )
+    if not policy.identity_pattern.fullmatch(bundle.cert_identity_san):
+        raise PermissionError(f"Certificate identity {bundle.cert_identity_san!r} denied by policy")
+    if not (bundle.cert_not_before <= bundle.rekor_integrated_time <= bundle.cert_not_after):
+        raise PermissionError("Rekor integratedTime falls outside Fulcio 10-minute certificate window")
+```
+<!-- slide -->
+```csharp
+using System.Text.RegularExpressions;
+
+namespace SupplyChain.Signing;
+
+public sealed record KeylessBundle(
+    string ImageRef,
+    string SignedDigest,
+    string CertIdentitySan,
+    string CertOidcIssuer,
+    DateTimeOffset CertNotBefore,
+    DateTimeOffset CertNotAfter,
+    DateTimeOffset RekorIntegratedTime,
+    bool SignatureValid,
+    bool RekorProofValid);
+
+public sealed record VerifyPolicy(Regex IdentityRegex, string RequiredOidcIssuer);
+
+public static partial class KeylessVerificationGate
+{
+    [GeneratedRegex("^.+@sha256:[0-9a-f]{64}$", RegexOptions.Compiled)]
+    private static partial Regex DigestRefRegex();
+
+    public static void Verify(KeylessBundle bundle, VerifyPolicy policy)
+    {
+        if (!DigestRefRegex().IsMatch(bundle.ImageRef))
+            throw new ArgumentException($"Image ref '{bundle.ImageRef}' must use an immutable @sha256 digest.");
+
+        var targetDigest = bundle.ImageRef.Split('@', 2)[1];
+        if (!string.Equals(targetDigest, bundle.SignedDigest, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException($"Digest mismatch: target {targetDigest}, signed {bundle.SignedDigest}.");
+
+        if (!bundle.SignatureValid || !bundle.RekorProofValid)
+            throw new UnauthorizedAccessException("Cryptographic signature or Rekor inclusion proof invalid.");
+
+        if (!string.Equals(bundle.CertOidcIssuer, policy.RequiredOidcIssuer, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException(
+                $"OIDC issuer mismatch: got '{bundle.CertOidcIssuer}', expected '{policy.RequiredOidcIssuer}'.");
+
+        if (!policy.IdentityRegex.IsMatch(bundle.CertIdentitySan))
+            throw new UnauthorizedAccessException($"Identity '{bundle.CertIdentitySan}' does not satisfy policy.");
+
+        if (bundle.RekorIntegratedTime < bundle.CertNotBefore || bundle.RekorIntegratedTime > bundle.CertNotAfter)
+            throw new UnauthorizedAccessException("Rekor log timestamp lies outside Fulcio certificate validity window.");
+    }
+}
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI Workflows
+
+cosign runs locally. You'll sign against a **local registry** so there's no Azure cost; the keyless-in-CI flow is demonstrated and explained (a real GitHub Actions run is the capstone).
 
 1. **(WSL2) Install cosign and start a local registry.**
+
    ```bash
    curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /tmp/cosign
    sudo install /tmp/cosign /usr/local/bin/cosign
    cosign version
    docker run -d -p 5000:5000 --name registry registry:2
    ```
+
+   **Expected Output:**
+
+   ```text
+   GitVersion:    v2.x.x
+   ```
+
    Expect a cosign version and a running local registry on `localhost:5000`.
 
 2. **(WSL2) Push an image and resolve its digest.**
+
    ```bash
    docker pull alpine:3.20
    docker tag alpine:3.20 localhost:5000/alpine:3.20
@@ -177,73 +417,104 @@ Actions run is the capstone).
    DIGEST=$(crane digest localhost:5000/alpine:3.20 2>/dev/null || docker inspect --format '{{index .RepoDigests 0}}' localhost:5000/alpine:3.20)
    echo "$DIGEST"
    ```
+
+   **Expected Output:**
+
+   ```text
+   sha256:beefdbd8a1da6d2915566fde36db9db0b524eb737fc57cd1367effd16dc0d06d
+   ```
+
    Expect a `sha256:...` digest. This is what you sign — never the tag.
 
 3. **(WSL2) Key-based signing: generate a key pair and sign.**
+
    ```bash
    COSIGN_PASSWORD="" cosign generate-key-pair
    cosign sign --key cosign.key --yes localhost:5000/alpine@${DIGEST#*@} 2>/dev/null || \
    cosign sign --key cosign.key --yes localhost:5000/alpine:3.20
    ```
-   Expect the signature to be pushed to the local registry next to the image.
-   You now hold `cosign.key` — a long-lived private key you must protect. Feel
-   the liability.
 
-4. **(WSL2) Verify the key-based signature — and watch it fail with the wrong
-   key.**
+   Expect the signature to be pushed to the local registry next to the image. You now hold `cosign.key` — a long-lived private key you must protect. Feel the liability.
+
+4. **(WSL2) Verify the key-based signature — and watch it fail with the wrong key.**
+
    ```bash
    cosign verify --key cosign.pub localhost:5000/alpine:3.20
    # Now generate a DIFFERENT key and verify with it:
    COSIGN_PASSWORD="" cosign generate-key-pair --output-key-prefix other
    cosign verify --key other.pub localhost:5000/alpine:3.20; echo "exit: $?"
    ```
-   Expect the first verify to **succeed** and the second to **fail** (non-zero
-   exit) — the signature was made by a different key. That pass/fail *is* the
-   integrity/authenticity check module 05 will automate.
+
+   **Expected Output:**
+
+   ```text
+   Verification for localhost:5000/alpine:3.20 --
+   The following checks were performed on each of these signatures:
+     - The cosign claims were validated
+     - The signatures were verified against the specified public key
+   ...
+   Error: no matching signatures: invalid signature when validating ASN.1 encoded signature
+   exit: 1
+   ```
+
+   Expect the first verify to **succeed** and the second to **fail** (non-zero exit) — the signature was made by a different key. That pass/fail *is* the integrity/authenticity check module 05 will automate.
 
 5. **(WSL2) Inspect where the signature lives.**
+
    ```bash
    cosign tree localhost:5000/alpine:3.20
    cosign triangulate localhost:5000/alpine:3.20
    ```
-   Expect `tree` to show a `Signatures` entry and `triangulate` to print a
-   `...sha256-<digest>.sig` ref. Signatures are ordinary OCI objects in your
-   registry — no separate signature server, exactly as Concepts said.
 
-6. **(WSL2) Break the signature by tampering, prove verify catches it.** Push a
-   *different* image to the same tag and re-verify against the old signature:
+   **Expected Output:**
+
+   ```text
+   📦 Supply Chain Security Related artifacts for an image: localhost:5000/alpine:3.20
+   └── 🔐 Signatures for an image tag: localhost:5000/alpine:sha256-...sig
+       └── 🍒 sha256:...
+   localhost:5000/alpine:sha256-....sig
+   ```
+
+   Expect `tree` to show a `Signatures` entry and `triangulate` to print a `...sha256-<digest>.sig` ref. Signatures are ordinary OCI objects in your registry — no separate signature server, exactly as Concepts said.
+
+6. **(WSL2) Break the signature by tampering, prove verify catches it.** Push a *different* image to the same tag and re-verify against the old signature:
+
    ```bash
    docker pull alpine:3.19
    docker tag alpine:3.19 localhost:5000/alpine:3.20
    docker push localhost:5000/alpine:3.20
    cosign verify --key cosign.pub localhost:5000/alpine:3.20; echo "exit: $?"
    ```
-   Expect verification to **fail** — the tag now points at content the signature
-   doesn't cover. This is the tampered/poisoned-image attack from module 00
-   being *caught by the signature*, precisely the thing scanning could not do.
 
-7. **(WSL2) Read the keyless flow you'll run in CI.** You won't run Fulcio/Rekor
-   against a local registry, so study the exact commands the capstone's GitHub
-   Actions job uses. In CI, with `id-token: write` permission (the track-10 OIDC
-   setup), signing is just:
+   **Expected Output:**
+
+   ```text
+   Error: no matching signatures: ...
+   exit: 1
+   ```
+
+   Expect verification to **fail** — the tag now points at content the signature doesn't cover. This is the tampered/poisoned-image attack from module 00 being *caught by the signature*, precisely the thing scanning could not do.
+
+7. **(WSL2) Read the keyless flow you'll run in CI.** You won't run Fulcio/Rekor against a local registry, so study the exact commands the capstone's GitHub Actions job uses. In CI, with `id-token: write` permission (the track-10 OIDC setup), signing is just:
+
    ```bash
    # In GitHub Actions — no key, no secret:
    cosign sign --yes myreg.azurecr.io/app@${DIGEST}
    ```
+
    and verification anywhere is:
+
    ```bash
    cosign verify \
      --certificate-identity-regexp 'https://github.com/YOURORG/YOURREPO/.+' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
      myreg.azurecr.io/app:1.0
    ```
-   Write down *why* there's no `--key` on either side: the CI job's OIDC
-   identity is what signs (Fulcio issues a 10-minute cert), and verification
-   trusts an *identity*, not a stored key.
 
-8. **Diagnose and fix: a keyless verification failing on identity mismatch.**
-   This is the #1 keyless bug. A teammate's verify fails even though the image
-   *is* validly signed by the CI workflow:
+   Write down *why* there's no `--key` on either side: the CI job's OIDC identity is what signs (Fulcio issues a 10-minute cert), and verification trusts an *identity*, not a stored key.
+
+8. **Diagnose and fix: a keyless verification failing on identity mismatch.** This is the #1 keyless bug. A teammate's verify fails even though the image *is* validly signed by the CI workflow:
+
    ```bash
    # Their (failing) command — wrong identity assumptions:
    cosign verify \
@@ -251,225 +522,157 @@ Actions run is the capstone).
      --certificate-oidc-issuer https://accounts.google.com \
      myreg.azurecr.io/app:1.0
    ```
-   Two things are wrong; diagnose both: (a) the branch is `main`, not `master`,
-   so the exact `--certificate-identity` string doesn't match the signer; and
-   (b) the issuer is Google, but the image was signed by a **GitHub Actions**
-   workflow, so `--certificate-oidc-issuer` must be
-   `https://token.actions.githubusercontent.com`. The correct command:
+
+   Two things are wrong; diagnose both: (a) the branch is `main`, not `master`, so the exact `--certificate-identity` string doesn't match the signer; and (b) the issuer is Google, but the image was signed by a **GitHub Actions** workflow, so `--certificate-oidc-issuer` must be `https://token.actions.githubusercontent.com`. The correct command:
+
    ```bash
    cosign verify \
      --certificate-identity 'https://github.com/YOURORG/YOURREPO/.github/workflows/ci.yml@refs/heads/main' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
      myreg.azurecr.io/app:1.0
    ```
-   The lesson: keyless verification failing is *usually not* a bad signature —
-   it's an identity/issuer expectation that doesn't match who actually signed.
-   When it fails, inspect the real signer with `cosign verify` output (or the
-   Rekor entry) and align your `--certificate-identity`/`--certificate-oidc-issuer`
-   to it, rather than assuming the signature is broken.
+
+   **Expected Output:**
+
+   ```text
+   Verification for myreg.azurecr.io/app:1.0 --
+   The following checks were performed on each of these signatures:
+     - The cosign claims were validated
+     - Existence of the claims in the transparency log was verified offline
+     - The code-signing certificate was verified using trusted certificate authority certificates
+   ```
+
+   The lesson: keyless verification failing is *usually not* a bad signature — it's an identity/issuer expectation that doesn't match who actually signed. When it fails, inspect the real signer with `cosign verify` output (or the Rekor entry) and align your `--certificate-identity`/`--certificate-oidc-issuer` to it, rather than assuming the signature is broken.
 
 9. **(WSL2) Clean up.**
+
    ```bash
    docker rm -f registry 2>/dev/null; true
    rm -f cosign.key cosign.pub other.key other.pub
    docker rmi localhost:5000/alpine:3.20 alpine:3.19 alpine:3.20 2>/dev/null; true
    ```
 
-## Independent challenge
+### Independent challenge
 
-No commands given — build it using this module plus track 10's OIDC-based
-secretless CI and module 00's digest reasoning. In prose or as a real workflow
-snippet, design the *signing step* of a pipeline: state exactly where signing
-belongs in the build → SBOM → scan → **sign** → push order (and why it signs a
-digest, not a tag), choose **keyless over key-based** and justify it in terms of
-the long-lived-credential liability from track 10/11, and write the precise
-`cosign verify` command a *consumer* would run — with the exact
-`--certificate-identity` and `--certificate-oidc-issuer` values for your repo.
-Then explain, in two sentences, what an attacker who compromised your registry
-(but not your CI identity) could and could not do — and why the signature is
-what limits them.
+No commands given — build it using this module plus track 10's OIDC-based secretless CI and module 00's digest reasoning. In prose or as a real workflow snippet, design the *signing step* of a pipeline: state exactly where signing belongs in the build → SBOM → scan → **sign** → push order (and why it signs a digest, not a tag), choose **keyless over key-based** and justify it in terms of the long-lived-credential liability from track 10/11, and write the precise `cosign verify` command a *consumer* would run — with the exact `--certificate-identity` and `--certificate-oidc-issuer` values for your repo. Then explain, in two sentences, what an attacker who compromised your registry (but not your CI identity) could and could not do — and why the signature is what limits them.
 
 <details>
 <summary>Stuck? One hint</summary>
 
-Signing goes *after* build/SBOM/scan and against the just-built `@sha256:`
-digest, so the thing you push is already signed. Keyless wins because there is
-no standing private key to leak, store, or rotate — the CI job's OIDC identity
-(track 10) is the signer, and Fulcio issues a 10-minute cert per run. The
-consumer's verify pins `--certificate-identity` to your exact workflow file+ref
-and `--certificate-oidc-issuer` to
-`https://token.actions.githubusercontent.com`. A registry-only attacker can
-swap or delete images, but can't produce a *valid signature for the new image*
-without your CI identity — so verification (and module 05's admission gate)
-rejects the swap.
+Signing goes *after* build/SBOM/scan and against the just-built `@sha256:` digest, so the thing you push is already signed. Keyless wins because there is no standing private key to leak, store, or rotate — the CI job's OIDC identity (track 10) is the signer, and Fulcio issues a 10-minute cert per run. The consumer's verify pins `--certificate-identity` to your exact workflow file+ref and `--certificate-oidc-issuer` to `https://token.actions.githubusercontent.com`. A registry-only attacker can swap or delete images, but can't produce a *valid signature for the new image* without your CI identity — so verification (and module 05's admission gate) rejects the swap.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Signing a tag instead of a digest.** Signatures bind to immutable content;
-  sign `app@sha256:...`. Signing `app:1.0` is ambiguous the moment the tag
-  moves.
-- **Verifying keyless without pinning identity *and* issuer.** A
-  cryptographically valid signature from the *wrong* identity must be rejected.
-  Both `--certificate-identity`/`-regexp` and `--certificate-oidc-issuer` are
-  required — omitting either is a hole an attacker walks through.
-- **Assuming a verify failure means a bad signature.** For keyless it's usually
-  an identity/issuer mismatch (exercise 8): wrong branch in the ref, or the
-  wrong issuer URL. Check who *actually* signed before assuming tampering.
-- **Treating a valid signature as "safe."** Signing proves authenticity, not
-  absence of CVEs. A signed image can be fully vulnerable — you still need the
-  scan gate (track 11). Different axes.
-- **Keeping a long-lived signing key in a CI secret.** That reintroduces exactly
-  the leak-prone credential keyless was designed to remove (track 10/11). Prefer
-  keyless; if you must use a key, put it in a KMS (Azure Key Vault), never a
-  plaintext secret.
-- **Forgetting signatures are OCI objects your registry GC can delete.** A
-  registry cleanup that prunes "untagged" manifests can delete signatures. Use
-  signature-aware retention so you don't orphan images from their proofs.
+## 6. Operational Validation Checkpoints
 
-## Checkpoint quiz
+<details>
+<summary><strong>Checkpoint 1: Verifying Six-Month-Old Images Signed with 10-Minute Fulcio Certs</strong></summary>
+
+**Scenario:** An engineer asks: "If Fulcio certificates expire after 10 minutes, why doesn't `cosign verify` fail on production images we built six months ago?"
+
+**Validation Answer:** Because **Rekor** issues a cryptographically signed timestamp (`integratedTime` / Signed Entry Timestamp) when the signature is recorded in the append-only transparency log. During verification, `cosign` checks that the Rekor log entry was created *within* the 10-minute `[NotBefore, NotAfter]` window of the Fulcio certificate — proving the ephemeral key was valid at the exact moment of signing without needing the cert to stay valid forever.
+
+</details>
+
+<details>
+<summary><strong>Checkpoint 2: Registry Retention Policy Breaks Signature Verification</strong></summary>
+
+**Scenario:** Every Sunday night, a container registry cleanup rule runs to "delete all untagged manifests older than 7 days." On Monday morning, Kubernetes admission control rejects previously working pods with `no matching signatures`. What happened?
+
+**Validation Answer:** `cosign` stores signatures as OCI artifacts referenced via digest-derived tags (`sha256-<hex>.sig`) or OCI referrers, which naive garbage-collection rules often treat as untagged/orphaned manifests and delete. Use an OCI-artifact-aware registry retention policy that protects `.sig` and `.att` referrers tied to active tags.
+
+</details>
+
+<details>
+<summary><strong>Checkpoint 3: Keyless Verification with Only `--certificate-identity`</strong></summary>
+
+**Scenario:** A CI helper script calls `cosign verify --certificate-identity 'https://github.com/myorg/app/.github/workflows/ci.yml@refs/heads/main'` without specifying `--certificate-oidc-issuer`. Why is this dangerous?
+
+**Validation Answer:** `cosign` requires *both* the identity and the OIDC issuer (`--certificate-oidc-issuer`) to anchor trust cleanly (modern cosign CLI flags actually enforce passing `--certificate-oidc-issuer` or `-regexp`). If an unpinned verifier only checked the subject string without verifying which identity provider signed the token, a spoofed or alternate OIDC issuer presenting the same subject claim could subvert trust.
+
+</details>
+
+---
+
+## Common Mistakes & Troubleshooting
+
+- **Signing a tag instead of a digest.** Signatures bind to immutable content; sign `app@sha256:...`. Signing `app:1.0` is ambiguous the moment the tag moves.
+- **Verifying keyless without pinning identity *and* issuer.** A cryptographically valid signature from the *wrong* identity must be rejected. Both `--certificate-identity`/`-regexp` and `--certificate-oidc-issuer` are required — omitting either is a hole an attacker walks through.
+- **Assuming a verify failure means a bad signature.** For keyless it's usually an identity/issuer mismatch (exercise 8): wrong branch in the ref, or the wrong issuer URL. Check who *actually* signed before assuming tampering.
+- **Treating a valid signature as "safe."** Signing proves authenticity, not absence of CVEs. A signed image can be fully vulnerable — you still need the scan gate (track 11). Different axes.
+- **Keeping a long-lived signing key in a CI secret.** That reintroduces exactly the leak-prone credential keyless was designed to remove (track 10/11). Prefer keyless; if you must use a key, put it in a KMS (Azure Key Vault), never a plaintext secret.
+- **Forgetting signatures are OCI objects your registry GC can delete.** A registry cleanup that prunes "untagged" manifests can delete signatures. Use signature-aware retention so you don't orphan images from their proofs.
+
+---
+
+## Checkpoint Quiz
 
 Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>
 
-1. What two things does verifying a signature prove, and what does it deliberately
-   *not* tell you?
-2. What are cosign, Fulcio, and Rekor, and what does each contribute to keyless
-   signing?
-3. Walk through the four steps of keyless signing from a CI job, and say what
-   happens to the private key at the end.
-4. Why is a long-lived signing key a liability, and how does keyless remove it?
-   Tie it to a concept from track 10 or 11.
-5. In keyless verification, what do `--certificate-identity` and
-   `--certificate-oidc-issuer` assert, and why must both be pinned?
+1. What two things does verifying a signature prove, and what does it deliberately *not* tell you?
+2. What are cosign, Fulcio, and Rekor, and what does each contribute to keyless signing?
+3. Walk through the four steps of keyless signing from a CI job, and say what happens to the private key at the end.
+4. Why is a long-lived signing key a liability, and how does keyless remove it? Tie it to a concept from track 10 or 11.
+5. In keyless verification, what do `--certificate-identity` and `--certificate-oidc-issuer` assert, and why must both be pinned?
 6. Why do you sign an image's digest rather than its tag?
-7. An attacker compromises your registry but not your CI's OIDC identity. What
-   can't they achieve, and which control stops them?
+7. An attacker compromises your registry but not your CI's OIDC identity. What can't they achieve, and which control stops them?
 
 </details>
 
 <details>
 <summary>Show answers</summary>
 
-1. It proves **integrity** (the image content is exactly what was signed — any
-   byte change breaks it) and **authenticity** (a specific trusted identity
-   signed it). It does *not* tell you the image is **safe/free of CVEs** —
-   that's scanning's job (track 11), a separate axis.
-2. **cosign** is the CLI that signs/verifies and stores signatures in the
-   registry beside the image. **Fulcio** is a CA that issues short-lived certs
-   binding an ephemeral key to a verified OIDC identity. **Rekor** is a public
-   append-only transparency log recording every signature so it's verifiable
-   after the cert expires.
-3. (1) cosign gets an OIDC identity token (the CI workflow token); (2) sends it
-   to Fulcio, which issues a ~10-minute cert binding an ephemeral key to that
-   identity; (3) cosign signs the image digest and records signature+cert in
-   Rekor; (4) the ephemeral private key is **discarded** — there's no key to
-   store, rotate, or leak.
-4. A long-lived key must be stored, rotated, and protected, and a leak lets an
-   attacker sign malicious images that pass verification — the same long-lived-
-   credential liability track 10 module 07 / track 11 module 02 flagged.
-   Keyless removes it by using a per-run ephemeral key tied to a short-lived,
-   identity-bound Fulcio cert, discarded after signing — mirroring OIDC
-   secretless CI.
-5. `--certificate-identity` asserts *who* signed (the exact workflow/ref or
-   email); `--certificate-oidc-issuer` asserts *which issuer* vouched for that
-   identity. Both must be pinned because a cryptographically valid signature
-   from the wrong identity or issuer must be rejected — otherwise anyone who can
-   obtain any Fulcio cert could sign your images.
-6. Because a signature binds to immutable content, and only the `sha256:` digest
-   names exact bytes; a tag is mutable (module 00) and can be repointed after
-   signing, so a tag-bound signature is ambiguous/forgeable-by-repoint.
-7. They can't produce a **valid signature for the swapped image** without your
-   CI OIDC identity, so `cosign verify` (and module 05's admission gate) rejects
-   the tampered image. The signature is the control that limits a registry-only
-   attacker.
+1. It proves **integrity** (the image content is exactly what was signed — any byte change breaks it) and **authenticity** (a specific trusted identity signed it). It does *not* tell you the image is **safe/free of CVEs** — that's scanning's job (track 11), a separate axis.
+2. **cosign** is the CLI that signs/verifies and stores signatures in the registry beside the image. **Fulcio** is a CA that issues short-lived certs binding an ephemeral key to a verified OIDC identity. **Rekor** is a public append-only transparency log recording every signature so it's verifiable after the cert expires.
+3. (1) cosign gets an OIDC identity token (the CI workflow token); (2) sends it to Fulcio, which issues a ~10-minute cert binding an ephemeral key to that identity; (3) cosign signs the image digest and records signature+cert in Rekor; (4) the ephemeral private key is **discarded** — there's no key to store, rotate, or leak.
+4. A long-lived key must be stored, rotated, and protected, and a leak lets an attacker sign malicious images that pass verification — the same long-lived-credential liability track 10 module 07 / track 11 module 02 flagged. Keyless removes it by using a per-run ephemeral key tied to a short-lived, identity-bound Fulcio cert, discarded after signing — mirroring OIDC secretless CI.
+5. `--certificate-identity` asserts *who* signed (the exact workflow/ref or email); `--certificate-oidc-issuer` asserts *which issuer* vouched for that identity. Both must be pinned because a cryptographically valid signature from the wrong identity or issuer must be rejected — otherwise anyone who can obtain any Fulcio cert could sign your images.
+6. Because a signature binds to immutable content, and only the `sha256:` digest names exact bytes; a tag is mutable (module 00) and can be repointed after signing, so a tag-bound signature is ambiguous/forgeable-by-repoint.
+7. They can't produce a **valid signature for the swapped image** without your CI OIDC identity, so `cosign verify` (and module 05's admission gate) rejects the tampered image. The signature is the control that limits a registry-only attacker.
 
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00–02 while attempting these — the point is
-to find out what actually stuck. These mix this track's first three modules with
-the baseline from track 11 (scanning, admission control) and track 10 (OIDC CI).
+## Cumulative Review
+
+Closed-book. Don't reopen modules 00–02 while attempting these — the point is to find out what actually stuck. These mix this track's first three modules with the baseline from track 11 (scanning, admission control) and track 10 (OIDC CI).
 
 <details>
 <summary>Show questions</summary>
 
-1. Name the three shapes of a supply-chain attack (module 00) and, for each,
-   whether an SBOM (01), a signature (02), or provenance (03) is the *primary*
-   defense.
-2. Track 11 said "scanning = is it safe, signing = is it authentic." Give a
-   concrete image that would *pass* one check and *fail* the other, in both
-   directions.
-3. State the three questions an image should answer for itself and the exact
-   artifact that answers each. Which have you built so far in this track?
-4. Explain why an SBOM generated by hand after the build, against a tag, can be
-   *stale*, and how binding to a digest and generating in CI fixes it.
-5. Contrast key-based and keyless signing on the single axis that matters most —
-   the standing private key — and connect keyless to the OIDC pattern you used
-   in track 10.
-6. A `cosign verify` keyless command fails. Give the two *most common* causes
-   from module 02 that are **not** "the signature is invalid," and how you'd
-   confirm each.
-7. Map each SLSA level (0–3, module 00) to what you'd have to *add* to your
-   pipeline to reach it, using the tools from modules 01–03.
-8. You're handed an image with a valid cosign signature and a clean Trivy scan.
-   Name two distinct supply-chain risks this *still* doesn't rule out, and which
-   later module (03/04/06/07) addresses each.
+1. Name the three shapes of a supply-chain attack (module 00) and, for each, whether an SBOM (01), a signature (02), or provenance (03) is the *primary* defense.
+2. Track 11 said "scanning = is it safe, signing = is it authentic." Give a concrete image that would *pass* one check and *fail* the other, in both directions.
+3. State the three questions an image should answer for itself and the exact artifact that answers each. Which have you built so far in this track?
+4. Explain why an SBOM generated by hand after the build, against a tag, can be *stale*, and how binding to a digest and generating in CI fixes it.
+5. Contrast key-based and keyless signing on the single axis that matters most — the standing private key — and connect keyless to the OIDC pattern you used in track 10.
+6. A `cosign verify` keyless command fails. Give the two *most common* causes from module 02 that are **not** "the signature is invalid," and how you'd confirm each.
+7. Map each SLSA level (0–3, module 00) to what you'd have to *add* to your pipeline to reach it, using the tools from modules 01–03.
+8. You're handed an image with a valid cosign signature and a clean Trivy scan. Name two distinct supply-chain risks this *still* doesn't rule out, and which later module (03/04/06/07) addresses each.
 
 </details>
 
 <details>
 <summary>Show answers</summary>
 
-1. **Compromised dependency** → primarily the **SBOM** (know it's present) plus
-   continuous scanning (04); **poisoned base image** → primarily the
-   **signature** + digest-pinning (reject unsigned/altered) and base hygiene
-   (06); **tampered build** → primarily **provenance** (03), which reveals a
-   subverted build a signature alone doesn't.
-2. Passes-scan-fails-signature: a freshly-built, CVE-free but *unsigned or
-   tampered* image (authentic? no). Passes-signature-fails-scan: an image your
-   CI validly signed months ago that now has newly-disclosed CRITICAL CVEs
-   (authentic yes, safe no). The two axes are independent.
-3. **What's in it?** → SBOM (built in 01). **Is it authentic/unmodified?** →
-   signature (built in 02). **How was it built?** → provenance attestation (03,
-   next). First two done, third pending.
-4. It's stale because the tag may point at a different image than the one the
-   SBOM was generated against, or the image changed after generation, so the
-   SBOM under/over-reports contents. Generating in the same CI step that builds
-   the final image and binding to its immutable `sha256:` digest guarantees the
-   SBOM describes exactly what shipped.
-5. Key-based leaves a **long-lived private key** you must store, rotate, and
-   protect — a leak lets an attacker forge signatures. Keyless has *no standing
-   key*: a per-run ephemeral key is bound to a short-lived Fulcio cert issued
-   against the CI job's OIDC identity, then discarded — the same "short-lived,
-   identity-scoped credential instead of a stored secret" idea as track 10's
-   OIDC login to Azure.
-6. (a) **Wrong `--certificate-identity`** — e.g. `master` vs `main`, or wrong
-   workflow path; (b) **wrong `--certificate-oidc-issuer`** — e.g. Google's
-   issuer when the signer was GitHub Actions. Confirm by inspecting the actual
-   Rekor/verify output to see the real signer identity and issuer, then align
-   your flags to it.
-7. **L0:** nothing (no provenance). **L1:** generate a provenance document at
-   build (module 03) — e.g. `--provenance` / a provenance attestation. **L2:**
-   have a *hosted* builder sign that provenance (GitHub's generator / keyless),
-   so it's unforgeable. **L3:** run the build in an isolated, hardened
-   environment so scripts can't falsify provenance. SBOM (01) and signature (02)
-   support these but the *level* is about provenance integrity.
-8. Among others: it could be built from a **compromised dependency** whose
-   payload isn't a published CVE (04 continuous scanning / 06 hygiene / 07
-   response), and its **provenance** could be absent so you can't prove *which*
-   build produced it (03). A valid signature + clean scan covers authenticity
-   and known-CVEs only.
+1. **Compromised dependency** → primarily the **SBOM** (know it's present) plus continuous scanning (04); **poisoned base image** → primarily the **signature** + digest-pinning (reject unsigned/altered) and base hygiene (06); **tampered build** → primarily **provenance** (03), which reveals a subverted build a signature alone doesn't.
+2. Passes-scan-fails-signature: a freshly-built, CVE-free but *unsigned or tampered* image (authentic? no). Passes-signature-fails-scan: an image your CI validly signed months ago that now has newly-disclosed CRITICAL CVEs (authentic yes, safe no). The two axes are independent.
+3. **What's in it?** → SBOM (built in 01). **Is it authentic/unmodified?** → signature (built in 02). **How was it built?** → provenance attestation (03, next). First two done, third pending.
+4. It's stale because the tag may point at a different image than the one the SBOM was generated against, or the image changed after generation, so the SBOM under/over-reports contents. Generating in the same CI step that builds the final image and binding to its immutable `sha256:` digest guarantees the SBOM describes exactly what shipped.
+5. Key-based leaves a **long-lived private key** you must store, rotate, and protect — a leak lets an attacker forge signatures. Keyless has *no standing key*: a per-run ephemeral key is bound to a short-lived Fulcio cert issued against the CI job's OIDC identity, then discarded — the same "short-lived, identity-scoped credential instead of a stored secret" idea as track 10's OIDC login to Azure.
+6. (a) **Wrong `--certificate-identity`** — e.g. `master` vs `main`, or wrong workflow path; (b) **wrong `--certificate-oidc-issuer`** — e.g. Google's issuer when the signer was GitHub Actions. Confirm by inspecting the actual Rekor/verify output to see the real signer identity and issuer, then align your flags to it.
+7. **L0:** nothing (no provenance). **L1:** generate a provenance document at build (module 03) — e.g. `--provenance` / a provenance attestation. **L2:** have a *hosted* builder sign that provenance (GitHub's generator / keyless), so it's unforgeable. **L3:** run the build in an isolated, hardened environment so scripts can't falsify provenance. SBOM (01) and signature (02) support these but the *level* is about provenance integrity.
+8. Among others: it could be built from a **compromised dependency** whose payload isn't a published CVE (04 continuous scanning / 06 hygiene / 07 response), and its **provenance** could be absent so you can't prove *which* build produced it (03). A valid signature + clean scan covers authenticity and known-CVEs only.
 
 </details>
 
+---
+
 ## Next
 
-Continue to
-[03-provenance-and-build-attestations](../03-provenance-and-build-attestations/README.md)
-— answer the third question, *how was it built?*, by generating SLSA provenance
-and attaching signed attestations (including your module-01 SBOM) to the image.
+Continue to [03-provenance-and-build-attestations](../03-provenance-and-build-attestations/README.md) — answer the third question, *how was it built?*, by generating SLSA provenance and attaching signed attestations (including your module-01 SBOM) to the image.
