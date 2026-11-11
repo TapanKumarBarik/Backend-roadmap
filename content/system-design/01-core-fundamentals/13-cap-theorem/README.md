@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 12: Scalability](../12-scalability/README.md).  
 > **Estimated Reading Time:** 30 minutes  
-> **Target Audience:** Backend engineers and distributed systems architects moving beyond the *"pick two of three"* myth to design precise partition behavior, quorums, and conflict-resolution strategies.
+> **Target Audience:** Backend engineers and distributed systems architects moving beyond the *"pick two of three"* myth to design precise partition behavior, quorums, and conflict-resolution strategies.  
+> **Free PDF Notes:** [Download SD-A-013.pdf](https://backendroadmap.com/notes/system-design/SD-A-013.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of the CAP Theorem:** Because physical networks drop packets, disconnect cables, and split zones unpredictably, **Partition Tolerance (P) is mandatory**—you cannot choose "CA" in any multi-node distributed system. When a partition splits a cluster, every operation must make an explicit trade-off: **CP (refuse/error on the minority side to uphold linearizability)** or **AP (keep accepting reads/writes on every reachable node and reconcile divergent versions later via a defined merge rule)**.

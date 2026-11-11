@@ -342,6 +342,12 @@ Modern cloud servers use **Virtual Hosting** (one IP address hosting hundreds of
 
 ---
 
+## Free PDF Notes
+
+Download these notes as a printable PDF, with every diagram and interview question: [SD-B-010: HTTP Fundamentals](https://backendroadmap.com/notes/system-design/SD-B-010.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you've mastered the wire framing, proceed to **[02-http-headers-deep-dive](../02-http-headers-deep-dive/README.md)** to categorize and master request, response, representation, and security headers.

@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 04: Non-Functional Requirements](../04-non-functional-requirements/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Software engineers and architects moving beyond *"it depends"* to defend architectural trade-offs quantitatively in technical reviews and interviews.
+> **Target Audience:** Software engineers and architects moving beyond *"it depends"* to defend architectural trade-offs quantitatively in technical reviews and interviews.  
+> **Free PDF Notes:** [Download SD-A-005.pdf](https://backendroadmap.com/notes/system-design/SD-A-005.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Architectural Trade-offs:** There is no zero-cost decision in distributed systems—every component improves one quality attribute while degrading another. Never end an answer with *"it depends."* Commit to a clear decision using the **Four-Part Justification Formula**: **(1) State the choice, (2) Anchor it in the ranked requirement, (3) Name the exact cost accepted, and (4) Specify the technical mitigation that bounds that cost.**

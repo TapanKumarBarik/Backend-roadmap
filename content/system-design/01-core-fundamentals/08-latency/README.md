@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 07: Horizontal Scaling](../07-horizontal-scaling/README.md).  
 > **Estimated Reading Time:** 28 minutes  
-> **Target Audience:** Backend engineers, performance architects, and SREs diagnosing $p_{99}$ tail latency, cross-region network bottlenecks, and microservice latency budgets.
+> **Target Audience:** Backend engineers, performance architects, and SREs diagnosing $p_{99}$ tail latency, cross-region network bottlenecks, and microservice latency budgets.  
+> **Free PDF Notes:** [Download SD-A-008.pdf](https://backendroadmap.com/notes/system-design/SD-A-008.pdf) · [Numbers Cheat Sheet SD-D-002.pdf](https://backendroadmap.com/notes/system-design/SD-D-002.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf) · [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Latency Engineering:** Never treat latency as a single monolithic timer—decompose every end-to-end request into **Network, Queueing, Processing, and I/O** delays, enforce explicit per-component $p_{99}$ budgets, and parallelize independent downstream calls. Moving an operation from RAM ($100\text{ ns}$) to a cross-region WAN call ($150\text{ ms}$) slows execution by a factor of **1,500,000$\times$**—eliminating unnecessary round-trips beats micro-optimizing CPU loops every time.

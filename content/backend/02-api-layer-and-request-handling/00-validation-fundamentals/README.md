@@ -344,6 +344,12 @@ However, they violate the **semantic business rule** that `check_out` must be st
 
 ---
 
+## Free PDF Notes
+
+Download these notes as a printable PDF, with every diagram and interview question: [SD-C-010: API Request Validation](https://backendroadmap.com/notes/system-design/SD-C-010.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered validation tiers and boundary enforcement, proceed to **[01-transformation-and-normalization](../01-transformation-and-normalization/README.md)** to master string trimming, case normalization, date canonicalization, and safe type coercion.

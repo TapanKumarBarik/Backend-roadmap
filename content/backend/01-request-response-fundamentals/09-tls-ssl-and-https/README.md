@@ -316,6 +316,12 @@ Clients that do not support SNI receive the server's default fallback certificat
 
 ---
 
+## Free PDF Notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview question: [SD-B-011: HTTPS & TLS 1.3 Handshake](https://backendroadmap.com/notes/system-design/SD-B-011.pdf), [SD-B-012: Certificates & PKI](https://backendroadmap.com/notes/system-design/SD-B-012.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered TLS and HTTPS transport security, proceed to **[10-routing-fundamentals](../10-routing-fundamentals/README.md)** to master trie-based request multiplexing, path parameters, and high-performance URL pattern matching.

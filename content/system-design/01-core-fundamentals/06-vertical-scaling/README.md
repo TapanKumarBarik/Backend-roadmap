@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 05: Trade-offs and How to Justify a Design](../05-trade-offs-and-how-to-justify-a-design/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend engineers and database reliability architects evaluating when to scale up hardware ("bigger box") versus when to re-architect for distributed horizontal scaling.
+> **Target Audience:** Backend engineers and database reliability architects evaluating when to scale up hardware ("bigger box") versus when to re-architect for distributed horizontal scaling.  
+> **Free PDF Notes:** [Download SD-A-006.pdf](https://backendroadmap.com/notes/system-design/SD-A-006.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Vertical Scaling:** Never dismiss vertical scaling ("scaling up") out of pride—resizing a stateful database from 8 vCPUs to 32 vCPUs requires zero code rewrites and frequently delivers the fastest, cheapest relief while buying months of architectural runway. However, **always know your exit trigger**: vertical scaling hits a hard silicon ceiling, follows a steep non-linear cost curve, requires careful failover to avoid resize downtime, and leaves your system with a Single Point of Failure (SPOF).

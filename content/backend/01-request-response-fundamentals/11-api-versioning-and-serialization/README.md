@@ -362,6 +362,12 @@ In Protocol Buffers, field tags must **never be reused**. When deprecating a fie
 
 ---
 
+## Free PDF Notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview question: [SD-C-006: API Versioning Without Breaking Clients](https://backendroadmap.com/notes/system-design/SD-C-006.pdf), [SD-C-023: API Backward Compatibility](https://backendroadmap.com/notes/system-design/SD-C-023.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered API versioning, deprecation lifecycle, and serialization boundaries, proceed to **[12-cdn-and-edge-caching](../12-cdn-and-edge-caching/README.md)** to master edge points of presence (PoPs), Anycast routing, Origin Shielding, and CDN cache invalidation.

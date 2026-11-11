@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 08: Latency](../08-latency/README.md).  
 > **Estimated Reading Time:** 28 minutes  
-> **Target Audience:** Backend engineers, capacity planners, and SREs sizing database connection pools, worker concurrency limits, and autoscaling headroom thresholds.
+> **Target Audience:** Backend engineers, capacity planners, and SREs sizing database connection pools, worker concurrency limits, and autoscaling headroom thresholds.  
+> **Free PDF Notes:** [Download SD-A-009.pdf](https://backendroadmap.com/notes/system-design/SD-A-009.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Capacity & Queueing:** **Little's Law ($L = \lambda \times W$)** mathematically couples Throughput ($\lambda$) and Latency ($W$) through Concurrency ($L$): if downstream latency doubles under constant traffic, in-flight requests double instantly—draining fixed thread/connection pools and triggering cascading collapse. Never target $95\%$ server utilization at peak; because queueing delay explodes proportionally to $\frac{1}{1 - \rho}$, run clusters below **$60-70\%$ peak utilization** and enforce explicit backpressure (`503 Service Unavailable`) before queues lock up.

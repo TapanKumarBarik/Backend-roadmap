@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 03: Functional Requirements](../03-functional-requirements/README.md).  
 > **Estimated Reading Time:** 28 minutes  
-> **Target Audience:** Backend engineers and distributed systems architects translating qualitative goals ("fast", "reliable") into measurable SLOs and quantitative design constraints.
+> **Target Audience:** Backend engineers and distributed systems architects translating qualitative goals ("fast", "reliable") into measurable SLOs and quantitative design constraints.  
+> **Free PDF Notes:** [Download SD-A-004.pdf](https://backendroadmap.com/notes/system-design/SD-A-004.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Non-Functional Requirements:** Functional requirements tell you what endpoints exist, but **Non-Functional Requirements (NFRs)** determine your physical architecture. Never accept vague adjectives like *"fast"* or *"never goes down"*—convert every quality attribute into concrete numbers (e.g., `p99 < 150ms at 20,000 RPS`, `99.99% availability`, `zero acknowledged write loss`), and tailor consistency levels per feature rather than imposing strong consistency universally.

@@ -335,6 +335,12 @@ If business rules change to allow cancellation under new conditions, the backend
 
 ---
 
+## Free PDF Notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview question: [SD-C-001: REST Principles](https://backendroadmap.com/notes/system-design/SD-C-001.pdf), [SD-C-005: API Resource Modeling & URI Design](https://backendroadmap.com/notes/system-design/SD-C-005.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered RESTful resource modeling and Richardson Maturity concepts, proceed to **[09-openapi-standards](../09-openapi-standards/README.md)** to master OpenAPI 3.1 contracts, contract-first design, Swagger UI, and automated client SDK generation.

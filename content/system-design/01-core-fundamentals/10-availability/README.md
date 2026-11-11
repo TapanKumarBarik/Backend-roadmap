@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 09: Throughput and Little's Law](../09-throughput-and-littles-law/README.md).  
 > **Estimated Reading Time:** 26 minutes  
-> **Target Audience:** Backend engineers, reliability engineers (SREs), and architects calculating availability SLAs, designing Multi-AZ failover systems, and eliminating correlated failure domains.
+> **Target Audience:** Backend engineers, reliability engineers (SREs), and architects calculating availability SLAs, designing Multi-AZ failover systems, and eliminating correlated failure domains.  
+> **Free PDF Notes:** [Download SD-A-010.pdf](https://backendroadmap.com/notes/system-design/SD-A-010.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of High Availability:** Availability ($\frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}$) drops cumulatively for every synchronous service added in **series** and compounds dramatically only when **independent** redundant replicas operate in **parallel**. Cutting Mean Time to Recovery (**MTTR**) from 60 minutes to 3 minutes delivers $10\times$ higher availability far more cheaply than trying to prevent hardware from ever failing—provided your redundant zones do not share correlated failures (shared config, shared power, or shared DNS).

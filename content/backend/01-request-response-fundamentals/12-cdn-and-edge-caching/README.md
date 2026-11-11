@@ -307,6 +307,12 @@ During a DDoS attack originating from 1,000,000 compromised botnet devices world
 
 ---
 
+## Free PDF Notes
+
+Download these notes as a printable PDF, with every diagram and interview question: [SD-B-018: CDNs Explained](https://backendroadmap.com/notes/system-design/SD-B-018.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered CDNs, Anycast routing, and edge cache management, proceed to the **[13-capstone-project](../13-capstone-project/README.md)** to build and validate the production-grade HTTP Request-Response engine synthesizing all 12 modules.

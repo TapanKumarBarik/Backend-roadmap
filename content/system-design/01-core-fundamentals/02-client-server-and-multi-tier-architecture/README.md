@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 01: What Is System Design? HLD vs LLD](../01-what-is-system-design/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend engineers, system designers, and architects structuring scalable Presentation, Application, and Data tiers.
+> **Target Audience:** Backend engineers, system designers, and architects structuring scalable Presentation, Application, and Data tiers.  
+> **Free PDF Notes:** [Download SD-A-002.pdf](https://backendroadmap.com/notes/system-design/SD-A-002.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Multi-Tier Architecture:** Isolate presentation, stateless business logic, and stateful storage behind strict network boundaries so each tier can scale, deploy, and harden independently. Never autoscale a stateless application tier to compensate for an overloaded data tier—doubling application workers multiplies database connection contention and accelerates cascading collapse.

@@ -351,6 +351,12 @@ The API layer must filter out soft-deleted records and return `404 Not Found` so
 
 ---
 
+## Free PDF Notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview question: [SD-C-007: API Pagination](https://backendroadmap.com/notes/system-design/SD-C-007.pdf), [SD-C-008: API Filtering, Sorting & Field Selection Without Table Scans](https://backendroadmap.com/notes/system-design/SD-C-008.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered production CRUD operations, keyset pagination, and partial updates, proceed to **[08-restful-architecture-and-best-practices](../08-restful-architecture-and-best-practices/README.md)** to master Richardson Maturity Model, HATEOAS, REST resource naming conventions, and sub-resource modeling.

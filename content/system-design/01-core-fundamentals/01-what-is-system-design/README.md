@@ -2,7 +2,8 @@
 
 > **Prerequisites:** None (Foundational lesson; assumes basic familiarity with HTTP and any backend language).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Software engineers and architects preparing for High-Level Design (HLD) and Low-Level Design (LLD) system design interviews.
+> **Target Audience:** Software engineers and architects preparing for High-Level Design (HLD) and Low-Level Design (LLD) system design interviews.  
+> **Free PDF Notes:** [Download SD-A-001.pdf](https://backendroadmap.com/notes/system-design/SD-A-001.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of System Design:** System design is not reciting buzzwords or drawing complex distributed systems from memory—it is turning concrete functional and non-functional requirements into justified architectural choices. Never introduce a new component (cache, queue, replica, or CDN) until an explicit scale, latency, or durability number forces you to pay its operational and consistency cost.

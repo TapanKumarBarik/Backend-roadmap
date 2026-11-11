@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 02: Client-Server and Multi-Tier Architecture](../02-client-server-and-multi-tier-architecture/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Software engineers and architects transforming vague product prompts into bounded, testable system specifications.
+> **Target Audience:** Software engineers and architects transforming vague product prompts into bounded, testable system specifications.  
+> **Free PDF Notes:** [Download SD-A-003.pdf](https://backendroadmap.com/notes/system-design/SD-A-003.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Functional Scoping:** Functional requirements define **what** the system does as explicit user actions, never how fast or scalable it runs. Always bound a system design interview to **3–5 core P0 use cases** before drawing a single architectural box—explicitly park secondary features out loud so you can build deep technical rigor on the critical path instead of sketching a shallow diagram of 15 features.

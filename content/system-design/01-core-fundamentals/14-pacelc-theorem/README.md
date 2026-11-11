@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 13: CAP Theorem](../13-cap-theorem/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend engineers and architects optimizing normal-operation **Latency vs. Consistency** trade-offs across replicated databases and multi-region deployments.
+> **Target Audience:** Backend engineers and architects optimizing normal-operation **Latency vs. Consistency** trade-offs across replicated databases and multi-region deployments.  
+> **Free PDF Notes:** [Download SD-A-014.pdf](https://backendroadmap.com/notes/system-design/SD-A-014.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of PACELC:** Network partitions are rare, brief incidents—CAP governs less than $0.1\%$ of your cluster's lifetime. **PACELC** (Daniel Abadi, 2010) captures the $99.9\%$ everyday reality: **if Partitioned (P), trade Availability (A) vs. Consistency (C); Else (E), when the network is completely healthy, you still must trade Latency (L) vs. Consistency (C)** because coordinating replicas across network links always costs round-trip time.

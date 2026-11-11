@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 06: Vertical Scaling](../06-vertical-scaling/README.md).  
 > **Estimated Reading Time:** 26 minutes  
-> **Target Audience:** Backend engineers and cloud architects building elastic, stateless application clusters and horizontally partitioned data topologies.
+> **Target Audience:** Backend engineers and cloud architects building elastic, stateless application clusters and horizontally partitioned data topologies.  
+> **Free PDF Notes:** [Download SD-A-007.pdf](https://backendroadmap.com/notes/system-design/SD-A-007.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Horizontal Scaling:** Application servers scale horizontally almost effortlessly **only when they are completely stateless**—holding zero user sessions, uploaded files, or local memory locks. Never mask stateful bugs using sticky load balancer sessions; extract state cleanly into Redis, Object Storage, or signed JWTs, and remember that read replicas scale reads horizontally while **only sharding scales writes**.

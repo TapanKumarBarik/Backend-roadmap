@@ -346,6 +346,12 @@ If the comparison engine detects a **breaking change** (such as removing a field
 
 ---
 
+## Free PDF Notes
+
+Download these notes as a printable PDF, with every diagram and interview question: [SD-C-022: API Contracts & OpenAPI](https://backendroadmap.com/notes/system-design/SD-C-022.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
+---
+
 ## Next Step
 
 Now that you have mastered OpenAPI specifications, contract testing, and schema documentation, proceed to the **[10-capstone-project](../10-capstone-project/README.md)** to build and validate the complete Production API Layer and Request Handling engine synthesizing all 10 modules.

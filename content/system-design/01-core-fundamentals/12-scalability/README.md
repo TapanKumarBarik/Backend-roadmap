@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 11: Reliability, Availability and Durability](../11-reliability-availability-and-durability/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend engineers and architects sizing distributed systems around true load parameters, fan-out amplification, and Amdahl's Law concurrency bounds.
+> **Target Audience:** Backend engineers and architects sizing distributed systems around true load parameters, fan-out amplification, and Amdahl's Law concurrency bounds.  
+> **Free PDF Notes:** [Download SD-A-012.pdf](https://backendroadmap.com/notes/system-design/SD-A-012.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Scalability:** Scalability is not an adjective ("make it scalable"); it is the **marginal slope** linking added hardware to increased capacity. Always identify the true cost-driving **load parameter** first (often **fan-out amplification**, data volume, or concurrent sockets rather than raw RPS), and ruthlessly eliminate the **serial fraction $s$**—because by Amdahl's Law, if $5\%$ of work stays serialized on a global lock or single primary database, adding 1,000 servers can never exceed a $20\times$ speedup.

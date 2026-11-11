@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 10: Availability](../10-availability/README.md).  
 > **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Software engineers and architects distinguishing uptime metrics from correctness guarantees and zero-data-loss storage engineering.
+> **Target Audience:** Software engineers and architects distinguishing uptime metrics from correctness guarantees and zero-data-loss storage engineering.  
+> **Free PDF Notes:** [Download SD-A-011.pdf](https://backendroadmap.com/notes/system-design/SD-A-011.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Operational Guarantees:** Availability measures whether a service **responds** right now; reliability measures whether those responses stay **correct over time**; durability measures whether **acknowledged data survives hardware and site loss**. Never equate a `99.99%` HTTP `200 OK` dashboard with a reliable or durable system—an application can return `200 OK` in `2ms` while corrupting balances or silently dropping every write.

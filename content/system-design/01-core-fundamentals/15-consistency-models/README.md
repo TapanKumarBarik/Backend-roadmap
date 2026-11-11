@@ -2,7 +2,8 @@
 
 > **Prerequisites:** [Lesson 14: PACELC Theorem](../14-pacelc-theorem/README.md).  
 > **Estimated Reading Time:** 30 minutes  
-> **Target Audience:** Backend and platform engineers choosing exact per-operation consistency guarantees—from strict Linearizability and Causal Ordering down to WAL-LSN Read-Your-Writes session routing.
+> **Target Audience:** Backend and platform engineers choosing exact per-operation consistency guarantees—from strict Linearizability and Causal Ordering down to WAL-LSN Read-Your-Writes session routing.  
+> **Free PDF Notes:** [Download SD-A-015.pdf](https://backendroadmap.com/notes/system-design/SD-A-015.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
 > [!TIP]
 > **The Golden Rule of Consistency Modeling:** Consistency is never a binary toggle—it is a costed **spectrum** running from **Linearizable** (real-time single-copy illusion, highest coordination latency) down through **Sequential**, **Causal**, and **Eventual** consistency (cheapest, highest availability). Always select the weakest model that protects business invariants **per operation**, and shield individual user UX on cheap asynchronous replicas using **session guarantees** like **Read-Your-Writes** and **Monotonic Reads**.
