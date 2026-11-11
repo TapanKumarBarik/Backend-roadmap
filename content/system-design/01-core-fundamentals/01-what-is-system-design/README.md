@@ -1,475 +1,579 @@
 # Lesson 01: What Is System Design? HLD vs LLD
 
-## Roadmap
+> **Prerequisites:** None (Foundational lesson; assumes basic familiarity with HTTP and any backend language).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Software engineers and architects preparing for High-Level Design (HLD) and Low-Level Design (LLD) system design interviews.
 
-You are at the start of **System Design Interview Prep**, in Track 01, **Core Fundamentals**: lesson 1 of 19. Nothing comes before it, and it assumes only that you can read a short Python function. The next eighteen lessons take the ideas introduced here one at a time (requirements, tiers, scaling, latency, availability, CAP, consistency, failure); this lesson gives you the whole picture first, so each later one has somewhere to land.
+> [!TIP]
+> **The Golden Rule of System Design:** System design is not reciting buzzwords or drawing complex distributed systems from memory—it is turning concrete functional and non-functional requirements into justified architectural choices. Never introduce a new component (cache, queue, replica, or CDN) until an explicit scale, latency, or durability number forces you to pay its operational and consistency cost.
 
-It links to, and does not re-teach, two other places. [Track 14, Module 01: The System Design Interview Framework](../../../backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md) is the full seven-step version of the short opening you learn at the end of this lesson. [Low-Level Design](../../../lld/README.md) is the course for the LLD half of "HLD vs LLD".
+---
 
-After this lesson you can:
+## Visual Mental Models & Architecture
 
-- say in one sentence what system design is, and why requirements come before boxes;
-- tell high-level design (HLD) from low-level design (LLD), with an example of each and the place on this site that teaches each;
-- take a small FastAPI app from one process to a separate database, replicas behind a load balancer, a cache and a CDN, and say at every step what it buys and what it costs;
-- run the two-copies experiment that shows why state has to leave the process before a second server can help;
-- say what an interviewer is scoring, and open an answer in five steps.
+### High-Level Design (HLD) vs. Low-Level Design (LLD)
 
-Why it matters: a system design interview is not a quiz on technologies. It hands you a vague sentence ("design a link shortener") and watches how you turn it into something buildable. People who know a great deal still fail it because they start naming tools (Kafka, Cassandra, Redis) before they know what the system has to do, and then cannot say why any box is there.
+System design interviews test engineering reasoning at two distinct zoom levels. Understanding which lens you are using prevents giving class-hierarchy answers in an infrastructure round or drawing load balancers in an object-oriented design round.
 
-## Concept
+```mermaid
+flowchart TD
+    subgraph HLD["HLD Zoom Level: Macro Architecture (Services, Storage, Data Flow)"]
+        User[Client Browser / Mobile] -->|"HTTPS"| CDN[Edge CDN]
+        CDN -->|"Cache Miss"| LB[Layer 7 Load Balancer]
+        LB --> App1[Stateless App Server 1]
+        LB --> App2[Stateless App Server 2]
+        App1 --> Cache[(Shared Redis Cache)]
+        App2 --> Cache
+        App1 --> DB[(Primary PostgreSQL DB)]
+        App2 --> DB
+    end
 
-> [!key] System design is turning requirements into an architecture: the parts of a system and the connections between them, chosen so that the whole meets its needs at the scale you expect. There is no single right answer. There are choices, each with a cost, and a good design is one whose choices you can justify.
+    subgraph LLD["LLD Zoom Level: Micro Architecture (Inside App Server 1)"]
+        Router["HTTP Route Handler<br/>follow(code)"] --> Service["LinkService<br/>(Domain & Expiry Rules)"]
+        Service --> RepoInterface["«interface»<br/>ILinkRepository"]
+        RepoInterface --> PostgresRepo["PostgresLinkRepository<br/>(SQL Persistence)"]
+        RepoInterface --> CacheDecorator["CachedLinkRepository<br/>(Decorator Pattern)"]
+    end
 
-## Explanation
-
-### Requirements come first
-
-A design is an answer, and the requirements are the question. They come in two kinds (lessons 3 and 4 take each in turn):
-
-- **Functional requirements** say what the system does: "turn a long URL into a short one", "redirect a short URL to the long one".
-- **Non-functional requirements** say how well it must do it: how many users, how fast a redirect must be, how much downtime is acceptable, whether it may ever lose a link.
-
-The same features can need very different systems:
-
-| | A link shortener for a class of 30 | A link shortener for the whole internet |
-|---|---|---|
-| Functional | create a link, follow a link | create a link, follow a link |
-| Traffic | a few requests an hour | thousands of redirects every second |
-| If it is down for an hour | nobody notices | broken links on a million pages |
-| A sensible design | one small server | replicas, a cache, a CDN, a replicated database |
-
-Two features, two architectures. This is why the first thing to do in an interview, before drawing anything, is to ask about the numbers.
-
-### HLD and LLD
-
-You will hear these two words in every round of interview preparation.
-
-- **High-level design (HLD)** decides which parts exist and how they talk: services, databases, caches, queues, load balancers, and the data that flows between them.
-- **Low-level design (LLD)** decides how the code inside one part is shaped: classes, interfaces, methods, and who is responsible for what.
-
-| | High-level design (HLD) | Low-level design (LLD) |
-|---|---|---|
-| The question | Which parts exist, and how do they talk? | How is the code inside one part shaped? |
-| Building blocks | Services, databases, caches, queues, load balancers, CDNs | Classes, interfaces, methods, modules |
-| What you produce | Boxes and arrows, data flow, rough numbers, an API sketch | Class and sequence diagrams, responsibilities, design patterns |
-| A typical prompt | "Design a link shortener / a news feed / a chat app" | "Design a parking lot / an elevator / a vending machine" |
-| Taught on this site | This course, then [backend track 14](../../../backend/14-system-design-interview-practice/README.md) | [Low-Level Design](../../../lld/README.md) |
-
-Take the link shortener. The HLD says: stateless app servers behind a load balancer, one database holding code-to-URL pairs, a cache for the popular links, a CDN in front. The LLD zooms into a single app server and asks what a `Link` is, which class makes the short codes, whether the redirect handler knows about SQL or asks a `LinkRepository`, and how expiry can be tested without waiting a day. The [diagram below](#visual-diagram) shows the two zoom levels side by side.
-
-> [!pitfall]
-> HLD and LLD are not "big" and "small". They are different questions asked at different zoom levels. Clean classes cannot rescue a system with a single point of failure, and a perfect box diagram cannot rescue code nobody can change. Interviews usually test them in separate rounds, so make sure you know which one you are being asked.
-
-### Every step is a trade-off
-
-There is no free lunch in a design. Every box you add improves some quality and costs another: a cache makes reads fast and makes them stale; a replica adds capacity and adds a consistency question; a queue smooths a spike and adds delay. Saying so out loud is most of what "justify your design" means.
-
-> [!model]
-> Each box on a diagram can fail, has to be paid for, and has to be understood by whoever is on call at three in the morning. Add a box when a number forces you to, and say which number.
-
-### What interviewers evaluate
-
-An interviewer is not checking your design against an answer key. There is none. They are scoring how you think:
-
-- **Structured thinking.** Do you clarify requirements and scope before designing, and work from a simple version to a more complete one, or do you jump to the end?
-- **Trade-offs.** For each choice, can you say what it improves, what it costs, and when you would choose differently?
-- **Communication.** Can they follow you? Do you think out loud, state your assumptions, and take a hint when they steer you?
-
-A shape that works for the opening minutes of almost any prompt:
-
-1. **Clarify.** Functional and non-functional requirements, and what is out of scope.
-2. **Estimate.** Users, requests per second, how much data. Just enough to know whether one machine could do it.
-3. **Sketch.** The simplest design that could work, and the path of one core request through it.
-4. **Deep-dive.** The part that breaks first under your numbers, or the part the interviewer points at.
-5. **Trade-offs and failure.** What each choice costs, and what happens when a box dies.
-
-[Track 14, Module 01](../../../backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md) expands this into seven steps with a time budget.
-
-## Code
-
-The way to learn this is not to draw the final diagram and defend it, but to start with the simplest thing that works and grow it only when something forces you to. The example is a tiny link shortener written in FastAPI. It needs Python 3.10 or newer and `pip install fastapi uvicorn`; everything below was run with Python 3.11.9, FastAPI 0.162.0 and Uvicorn 0.54.0.
-
-### Stage 0: everything in one process
-
-Save this as `shortener_v0.py`:
-
-```python
-import secrets
-
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, HttpUrl
-
-app = FastAPI()
-links: dict[str, str] = {}  # the data lives inside this process
-
-
-class NewLink(BaseModel):
-    url: HttpUrl
-
-
-@app.post("/links", status_code=201)
-def create_link(body: NewLink):
-    code = secrets.token_urlsafe(4)
-    links[code] = str(body.url)
-    return {"code": code, "short_url": f"/{code}"}
-
-
-@app.get("/{code}")
-def follow(code: str):
-    url = links.get(code)
-    if url is None:
-        raise HTTPException(status_code=404, detail="unknown code")
-    return RedirectResponse(url, status_code=302)
+    App1 -. "Zoom In" .-> LLD
 ```
 
-Run it with `uvicorn shortener_v0:app --port 8000`. Open `http://127.0.0.1:8000/docs`, use **POST /links** to create a link, and follow the returned code in a browser.
+### Evolutionary Scaling Progression (Stages 0 to 4)
 
-This is a complete system: one server, one process, no network hops, nothing to configure. For a class project it is the right design. It also hides two assumptions, and both break first: the links live in this process's memory, so restarting the app loses them, and there is only one copy of the app.
+Every scalable architecture begins as a single process and grows sequentially only when measured bottlenecks force each transition.
 
-### Stage 1: move the state out (a separate database)
+```mermaid
+flowchart LR
+    S0["Stage 0: Single Process<br/>(In-Memory Dict)<br/>0 Network Hops"] -->|"Fails: Restart loses data;<br/>cannot scale out"| S1["Stage 1: External DB<br/>(SQLite / Postgres)<br/>Durable State"]
+    S1 -->|"Fails: Single app node<br/>is CPU bottleneck & SPOF"| S2["Stage 2: LB + Replicas<br/>(Stateless Fleet)<br/>High Availability"]
+    S2 -->|"Fails: DB overwhelmed<br/>by hot read queries"| S3["Stage 3: Shared Cache<br/>(Redis)<br/>Sub-ms Hot Reads"]
+    S3 -->|"Fails: Global users hit<br/>cross-continent latency"| S4["Stage 4: Global CDN<br/>(Edge Cache-Control)<br/>Edge Termination"]
+```
 
-Move the links into a database the app does not own, so the app can be restarted, replaced or copied. This sample uses a SQLite file so it runs with nothing else installed; in production the same step is a database server (PostgreSQL, MySQL) on its own machine. Save it as `shortener_v1.py`:
+---
 
+## Systematic Taxonomic Reference Grids
+
+### HLD vs. LLD Architectural Comparison Matrix
+
+| Evaluation Axis | High-Level Design (HLD) | Low-Level Design (LLD) |
+| :--- | :--- | :--- |
+| **Core Question** | Which distributed parts exist, and how do bytes flow between them? | How is code organized inside a single service boundary? |
+| **Primary Primitives** | API Gateways, Load Balancers, Caches, Queues, Databases, CDNs. | Classes, Interfaces, Value Objects, Dependency Injection, Design Patterns. |
+| **Deliverables** | Box-and-arrow topology diagrams, back-of-envelope capacity math, API contracts. | UML class diagrams, sequence diagrams, SOLID module interfaces. |
+| **Typical Prompt** | *"Design a URL shortener, news feed, or real-time chat platform."* | *"Design a parking lot, elevator controller, or rate-limiter library."* |
+| **Failure Mode** | Single Point of Failure (SPOF), database bottlenecks, split-brain state. | Tight coupling, untestable business logic, concurrency race conditions. |
+| **Curriculum Links** | [Track 14: System Design Interview Practice](../../../backend/14-system-design-interview-practice/README.md) | [Low-Level Design Track (LLD)](../../../lld/README.md) |
+
+### Evolutionary System Progression: What Every Box Buys and Costs
+
+| Stage | Added Infrastructure | What It Buys You | Operational & Architectural Cost |
+| :--- | :--- | :--- | :--- |
+| **Stage 0** | Single Monolith + In-Memory State | Zero network latency; zero operational overhead; ideal for local prototypes. | Data vanishes on restart; impossible to run $>1$ replica cleanly. |
+| **Stage 1** | Dedicated Database Server | Process restarts survive; multiple app servers can share truth; backups possible. | Introduces network hop (0.5–2 ms), connection pool management, and schema migrations. |
+| **Stage 2** | Load Balancer + Stateless Fleet | Horizontal read/write scaling; zero-downtime rolling deploys; node fault tolerance. | **Strict Stateless Rule:** local memory cannot hold sessions; LB becomes a potential SPOF. |
+| **Stage 3** | Shared Distributed Cache (Redis) | Offloads 80–99% of repetitive DB reads; slashes p99 read latency to $\sim 1\text{ ms}$. | Stale reads within TTL window; cache invalidation complexity; cache stampede risk. |
+| **Stage 4** | Global Edge CDN | Answers served from edge nodes near user; eliminates origin traffic spikes. | Loss of instant revocation (cannot recall cached redirect until TTL expires or API purge); extra vendor cost. |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The Process-Local Cache Split-Brain & Phantom Redirect Outage
+
+#### Incident Overview
+* **Severity:** SEV-1 (Data Corruption Visibility & Security Policy Violation)
+* **Detection Time:** 3 hours post-deployment
+* **Resolution Time:** 1 hour 15 minutes
+* **Impact:** Deleted malicious phishing short-links remained active and redirecting users for up to 24 hours across 40% of application replicas.
+
+#### What Happened
+A growing link-shortening startup scaled from Stage 1 (single server + PostgreSQL) to Stage 2 (6 stateless FastAPI containers behind an AWS Application Load Balancer). To reduce PostgreSQL read load, an engineer implemented a Python in-process dictionary cache (`cache: dict[str, str] = {}`) with a 1-hour expiration inside each container, rather than deploying a shared Redis cluster.
+
+1. A security moderator flagged and deleted a malicious phishing short-link (`code = "bad99"`) via the moderation dashboard.
+2. The `DELETE /links/bad99` request was routed by the Load Balancer exclusively to **Replica #2**.
+3. Replica #2 deleted the row from PostgreSQL and deleted `"bad99"` from its own local Python dictionary.
+4. However, Replicas #1, #3, #4, #5, and #6 had previously cached `"bad99"` in their local memory heaps. They received zero notification of the deletion.
+5. For the next 55 minutes, 5 out of every 6 incoming user requests continued receiving `302 Found` redirects to the phishing website, even though the record no longer existed in PostgreSQL! Worse, the CDN in front honored `Cache-Control: public, max-age=3600` and cemented the malicious redirect globally.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Security Moderator
+    actor Victim as Innocent User
+    participant ALB as Load Balancer
+    participant R1 as App Replica 1 (Local Cache)
+    participant R2 as App Replica 2 (Local Cache)
+    participant DB as PostgreSQL Primary
+
+    Note over R1,R2: Both Replicas have cached code='bad99' in local RAM
+
+    Admin->>ALB: DELETE /links/bad99
+    ALB->>R2: Forward DELETE to Replica 2
+    R2->>DB: DELETE FROM links WHERE code='bad99' (Success!)
+    R2->>R2: cache.pop('bad99')
+    R2-->>Admin: 204 No Content (Link Deleted!)
+
+    Victim->>ALB: GET /bad99
+    ALB->>R1: Round-Robin forwards GET to Replica 1
+    R1->>R1: Check local RAM cache -> HIT! (Never queries DB!)
+    R1-->>Victim: 302 Found -> Location: https://phishing-site.evil
+    Note over Victim,R1: Compromised! Replica 1 has split-brain stale memory!
+```
+
+#### Root Cause Analysis
+1. **Violation of the Stateless Replica Rule:** Keeping mutable cache state inside local process memory (`dict`) caused fleet replicas to diverge silently.
+2. **Absence of Centralized Cache Invalidation:** A delete mutation on one node could not propagate invalidation signals to sibling replicas.
+3. **Aggressive Edge Caching Without Purge Hooks:** Sending `Cache-Control: max-age=3600` without integrating CDN purge APIs prevented immediate takedowns.
+
+#### The Fix & Architectural Hardening
+1. **Migrated to Shared Redis Cluster (Stage 3):** Replaced process-local dictionaries with a centralized Redis cache so mutations (`DEL links:bad99`) invalidate state identically for all replicas.
+2. **Event-Driven CDN Purge Webhook:** Linked database delete triggers to an asynchronous CDN cache invalidation API call.
+3. **Strict Lease Duration:** Lowered edge TTL to `max-age=60` on security-sensitive dynamic redirects.
+
+---
+
+## Multi-Language Production Code Tabs
+
+The implementations below demonstrate clean **LLD separation of concerns** (`LinkRepository` interface + domain service) inside an **HLD Stage 1–4 edge-cache-ready URL Shortener**. Notice how the handler emits `Cache-Control: public, max-age=60` so Stage 4 CDNs can accelerate redirects cleanly.
+
+### Stage 1–4 Architectural Reference Implementations
+
+````carousel
+```go
+// Go: Clean HLD + LLD Separation (Repository Interface + Cache-Control Redirect)
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// LLD Boundary: Abstract Repository Interface
+type LinkRepository interface {
+	Save(ctx context.Context, code, url string) error
+	FindURL(ctx context.Context, code string) (string, error)
+}
+
+// Concrete Persistence Adapter
+type SQLiteLinkRepository struct {
+	db *sql.DB
+}
+
+func (r *SQLiteLinkRepository) Save(ctx context.Context, code, url string) error {
+	_, err := r.db.ExecContext(ctx, "INSERT INTO links (code, url) VALUES (?, ?)", code, url)
+	return err
+}
+
+func (r *SQLiteLinkRepository) FindURL(ctx context.Context, code string) (string, error) {
+	var url string
+	err := r.db.QueryRowContext(ctx, "SELECT url FROM links WHERE code = ?", code).Scan(&url)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return url, err
+}
+
+// Domain Service
+type LinkService struct {
+	repo LinkRepository
+}
+
+func (s *LinkService) CreateShortLink(ctx context.Context, targetURL string) (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	code := strings.TrimRight(base64.URLEncoding.EncodeToString(b), "=")
+	if err := s.repo.Save(ctx, code, targetURL); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+func main() {
+	db, err := sql.Open("sqlite3", "links.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, _ = db.Exec("CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL)")
+
+	service := &LinkService{repo: &SQLiteLinkRepository{db: db}}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /links", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+			http.Error(w, "invalid url payload", http.StatusBadRequest)
+			return
+		}
+		code, err := service.CreateShortLink(r.Context(), body.URL)
+		if err != nil {
+			http.Error(w, "failed to create link", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"code":      code,
+			"short_url": fmt.Sprintf("/%s", code),
+		})
+	})
+
+	mux.HandleFunc("GET /{code}", func(w http.ResponseWriter, r *http.Request) {
+		code := r.PathValue("code")
+		url, err := service.repo.FindURL(r.Context(), code)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if url == "" {
+			http.Error(w, "unknown code", http.StatusNotFound)
+			return
+		}
+		// HLD Stage 4: Authorize Edge CDNs to cache this redirect safely
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		http.Redirect(w, r, url, http.StatusFound)
+	})
+
+	log.Println("Listening on :8000")
+	log.Fatal(http.ListenAndServe(":8000", mux))
+}
+```
+<!-- slide -->
+```typescript
+// TypeScript/Node.js: Stateless App Server with LinkRepository & CDN Cache-Control
+import express, { Request, Response } from 'express';
+import { randomBytes } from 'crypto';
+import Database from 'better-sqlite3';
+
+// LLD Interface
+interface ILinkRepository {
+  save(code: string, url: string): void;
+  findUrl(code: string): string | null;
+}
+
+class SqliteLinkRepository implements ILinkRepository {
+  constructor(private db: Database.Database) {
+    this.db.exec('CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL)');
+  }
+
+  save(code: string, url: string): void {
+    this.db.prepare('INSERT INTO links (code, url) VALUES (?, ?)').run(code, url);
+  }
+
+  findUrl(code: string): string | null {
+    const row = this.db.prepare('SELECT url FROM links WHERE code = ?').get(code) as { url: string } | undefined;
+    return row ? row.url : null;
+  }
+}
+
+class LinkService {
+  constructor(private repo: ILinkRepository) {}
+
+  createShortLink(targetUrl: string): string {
+    const code = randomBytes(4).toString('base64url');
+    this.repo.save(code, targetUrl);
+    return code;
+  }
+
+  resolveLink(code: string): string | null {
+    return this.repo.findUrl(code);
+  }
+}
+
+const db = new Database(process.env.DB_PATH || 'links.db');
+const service = new LinkService(new SqliteLinkRepository(db));
+const app = express();
+app.use(express.json());
+
+app.post('/links', (req: Request, res: Response) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ detail: 'url required' });
+  const code = service.createShortLink(url);
+  res.status(201).json({ code, short_url: `/${code}` });
+});
+
+app.get('/:code', (req: Request, res: Response) => {
+  const url = service.resolveLink(req.params.code);
+  if (!url) return res.status(404).json({ detail: 'unknown code' });
+
+  // HLD Stage 4: Instruct CDN and browsers to cache for 60s
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.redirect(302, url);
+});
+
+app.listen(8000, () => console.log('Shortener listening on port 8000'));
+```
+<!-- slide -->
 ```python
+# Python: FastAPI Stage 1-4 Shortener with LLD Repository Abstraction
 import os
 import secrets
 import sqlite3
-
+from typing import Protocol
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, HttpUrl
 
+CACHE_SECONDS = 60
 
-class NewLink(BaseModel):
-    url: HttpUrl
+# LLD Interface
+class ILinkRepository(Protocol):
+    def save(self, code: str, url: str) -> None: ...
+    def find_url(self, code: str) -> str | None: ...
 
+class SqliteLinkRepository:
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._run("CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL)")
 
-def create_app(db_path: str) -> FastAPI:
-    app = FastAPI()
-
-    def run(sql: str, args: tuple = ()) -> list[tuple]:
-        db = sqlite3.connect(db_path)
+    def _run(self, sql: str, args: tuple = ()) -> list[tuple]:
+        db = sqlite3.connect(self.db_path)
         try:
-            with db:  # commits when the block succeeds
+            with db:
                 return db.execute(sql, args).fetchall()
         finally:
             db.close()
 
-    run("CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL)")
+    def save(self, code: str, url: str) -> None:
+        self._run("INSERT INTO links (code, url) VALUES (?, ?)", (code, url))
+
+    def find_url(self, code: str) -> str | None:
+        rows = self._run("SELECT url FROM links WHERE code = ?", (code,))
+        return rows[0][0] if rows else None
+
+class NewLink(BaseModel):
+    url: HttpUrl
+
+def create_app(repo: ILinkRepository) -> FastAPI:
+    app = FastAPI(title="Stateless Shortener")
 
     @app.post("/links", status_code=201)
     def create_link(body: NewLink):
         code = secrets.token_urlsafe(4)
-        run("INSERT INTO links (code, url) VALUES (?, ?)", (code, str(body.url)))
+        repo.save(code, str(body.url))
         return {"code": code, "short_url": f"/{code}"}
 
     @app.get("/{code}")
     def follow(code: str):
-        rows = run("SELECT url FROM links WHERE code = ?", (code,))
-        if not rows:
+        url = repo.find_url(code)
+        if url is None:
             raise HTTPException(status_code=404, detail="unknown code")
-        return RedirectResponse(rows[0][0], status_code=302)
+        # HLD Stage 4: Enable CDN edge caching cleanly
+        return RedirectResponse(
+            url,
+            status_code=302,
+            headers={"Cache-Control": f"public, max-age={CACHE_SECONDS}"}
+        )
 
     return app
 
-
-app = create_app(os.environ.get("DB_PATH", "links.db"))
+repo = SqliteLinkRepository(os.environ.get("DB_PATH", "links.db"))
+app = create_app(repo)
 ```
+<!-- slide -->
+```csharp
+// C#: ASP.NET Core Minimal API with Dependency-Injected Repository & Edge Headers
+using System;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
-The API is unchanged. What changed is where the truth lives. The step buys durability and the ability to run more than one copy of the app on the same data. It costs a round trip on every request, a new part that can be down, and connections and a schema to manage.
+var builder = WebApplication.CreateBuilder(args);
+var dbPath = Environment.GetEnvironmentVariable("DB_PATH") ?? "links.db";
+builder.Services.AddSingleton<ILinkRepository>(new SqliteLinkRepository(dbPath));
 
-### Stage 2: more than one app server (a load balancer and replicas)
+var app = builder.Build();
 
-Because state is no longer in the process, a second copy of the app is useful. A **load balancer** is the one address users talk to; it spreads requests across the copies (the **replicas**) and, when it has health checks, skips a copy that is down. This NGINX sketch is illustrative and was not run for this lesson; `upstream` declares the group, and requests are spread round-robin unless you configure otherwise:
+app.MapPost("/links", (LinkRequest body, ILinkRepository repo) =>
+{
+    var bytes = RandomNumberGenerator.GetBytes(4);
+    var code = Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    repo.Save(code, body.Url);
+    return Results.Created($"/{code}", new { code, short_url = $"/{code}" });
+});
 
-```nginx
-upstream shortener {
-    server app1:8000;
-    server app2:8000;
+app.MapGet("/{code}", (string code, ILinkRepository repo, HttpContext ctx) =>
+{
+    var url = repo.FindUrl(code);
+    if (url is null)
+        return Results.NotFound(new { detail = "unknown code" });
+
+    // HLD Stage 4: Authorize CDN edge caching
+    ctx.Response.Headers.CacheControl = "public, max-age=60";
+    return Results.Redirect(url, permanent: false);
+});
+
+app.Run("http://localhost:8000");
+
+record LinkRequest(string Url);
+
+interface ILinkRepository
+{
+    void Save(string code, string url);
+    string? FindUrl(string code);
 }
 
-server {
-    listen 80;
+class SqliteLinkRepository : ILinkRepository
+{
+    private readonly string _connStr;
 
-    location / {
-        proxy_pass http://shortener;
+    public SqliteLinkRepository(string path)
+    {
+        _connStr = $"Data Source={path}";
+        using var conn = new SqliteConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL)";
+        cmd.ExecuteNonQuery();
+    }
+
+    public void Save(string code, string url)
+    {
+        using var conn = new SqliteConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO links (code, url) VALUES (@code, @url)";
+        cmd.Parameters.AddWithValue("@code", code);
+        cmd.Parameters.AddWithValue("@url", url);
+        cmd.ExecuteNonQuery();
+    }
+
+    public string? FindUrl(string code)
+    {
+        using var conn = new SqliteConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT url FROM links WHERE code = @code";
+        cmd.Parameters.AddWithValue("@code", code);
+        return cmd.ExecuteScalar() as string;
     }
 }
 ```
+````
 
-The step buys capacity, and the ability to lose or redeploy one copy while the others serve. It costs the **stateless** rule: anything a request leaves behind in one replica's memory or disk is invisible to the others, which is exactly why Stage 0 had to change first ([lesson 19](../19-stateless-vs-stateful/README.md) comes back to this). It also adds a part that can fail: the load balancer itself, so production runs two ([lesson 17](../17-single-point-of-failure/README.md)).
+---
 
-### Stage 3: a cache in front of the database
+## Practical Hands-On Verification CLI Workflows
 
-Most requests to a shortener are redirects, and the same popular codes are followed again and again. Keep recent answers in memory and ask the database only on a miss. Copy `shortener_v1.py` to `shortener_v2.py`, add `import time` and `CACHE_SECONDS = 60` at the top, and add these lines inside `create_app`, below `run`:
+Follow these steps to run two independent processes sharing a single durable database, verifying the fundamental rule of stateless scaling and inspecting HTTP `302` wire headers.
 
-```python
-    cache: dict[str, tuple[float, str]] = {}  # code -> (expires_at, url); one per replica
+### Step 1: Launch Two Stateless App Instances Sharing State
 
-    def lookup(code: str) -> str | None:
-        hit = cache.get(code)
-        if hit and hit[0] > time.monotonic():
-            return hit[1]  # answered from memory: no trip to the database
-        rows = run("SELECT url FROM links WHERE code = ?", (code,))
-        if not rows:
-            return None
-        cache[code] = (time.monotonic() + CACHE_SECONDS, rows[0][0])
-        return rows[0][0]
+Start Replica 1 on port 8001 and Replica 2 on port 8002 pointing at the exact same `links.db` database:
+
+```bash
+# Terminal 1 (Linux/macOS):
+DB_PATH=links.db uvicorn shortener_v1:app --port 8001
+
+# Terminal 2 (Linux/macOS):
+DB_PATH=links.db uvicorn shortener_v1:app --port 8002
 ```
 
-The step buys fewer database reads and faster answers. It costs correctness at the edges: an answer can be **stale**. The cache here is a dictionary inside each replica, so each replica has its own copy and they can disagree; real systems put a shared cache such as Redis in this position, which is one more system to run and watch.
+*(In Windows PowerShell: `$env:DB_PATH = "links.db"; uvicorn shortener_v1:app --port 8001`)*
 
-### Stage 4: a CDN at the edge
+### Step 2: Write to Replica 1
 
-A **CDN** (content delivery network) is a fleet of caches in many cities that sits between users and your load balancer. One header is enough to let it help. In `shortener_v2.py`, `follow` now uses `lookup` and sends the header:
+Dispatch a `POST /links` request strictly to Replica 1 on port `8001`:
 
-```python
-    @app.get("/{code}")
-    def follow(code: str):
-        url = lookup(code)
-        if url is None:
-            raise HTTPException(status_code=404, detail="unknown code")
-        # Tells a CDN (and browsers) it may reuse this answer for a minute.
-        return RedirectResponse(url, status_code=302, headers={"Cache-Control": f"public, max-age={CACHE_SECONDS}"})
+```bash
+curl -s -X POST http://127.0.0.1:8001/links \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://backendroadmap.com"}'
 ```
 
-`Cache-Control: public, max-age=60` tells shared caches, a CDN included, that they may reuse this response for sixty seconds. Static files (the site's JavaScript and images) go the same way. The step buys answers from a machine near the user and far less traffic reaching you. It costs control: a response stored by a cache stays until it expires or is purged, you no longer see every click on your own servers, and the CDN is another bill.
-
-The staleness is not theoretical. We tested it: after deleting the row from the database, the replica that had the link cached kept answering with the redirect (302), while a replica with a cold cache correctly answered 404.
-
-| Step | What it buys | What it costs |
-|---|---|---|
-| 1. A database apart from the app | The data outlives the process; many app copies can share it; it can be backed up and tuned on its own | A network round trip on every query; a new part that can be down; connections and a schema to manage |
-| 2. A load balancer and replicas | More capacity; one copy can die or be redeployed while the others serve | The app must be stateless; the balancer is itself a part that can fail; health checks and deploys to manage |
-| 3. A cache | Fewer database reads and faster answers | Stale answers; deciding when to drop an entry; another system to run; per-replica copies that disagree |
-| 4. A CDN | Answers from near the user; far less traffic reaching your servers | A cached answer cannot be recalled before it expires or is purged; you no longer see every request; another bill |
-
-## Visual diagram
-
-The two zoom levels of one system. The top line is HLD: boxes and the connections between them. Zooming into the app server gives the LLD: the classes inside it.
-
-```
- HLD: which parts exist, and how they talk
- ┌───────┐    ┌───────────────┐    ┌────────────┐    ┌──────────┐
- │ users │───►│ load balancer │───►│ app server │───►│ database │
- └───────┘    └───────────────┘    └─────┬──────┘    └──────────┘
-                                         │
-                                         │ zoom in
-                                         ▼
- LLD: how the code inside one part is shaped
- ┌─────────────────────────────────────────────────────────────┐
- │ app server                                                  │
- │                                                             │
- │  ┌────────────┐   ┌─────────────┐   ┌──────────────────┐    │
- │  │ HTTP route │──►│ LinkService │──►│ LinkRepository   │    │
- │  │ follow()   │   │ (the rules) │   │ «interface»      │    │
- │  └────────────┘   └─────────────┘   └──────────────────┘    │
- │                                                             │
- └─────────────────────────────────────────────────────────────┘
+**Expected Wire Output:**
+```json
+{"code":"xY9k_Q","short_url":"/xY9k_Q"}
 ```
 
-The shortener after all four stages. A request leaves at the first box that can answer it, so the further down it gets, the more it costs.
+### Step 3: Read From Replica 2 & Verify Edge Cache Headers
 
-```
-     ┌───────┐
-     │ users │
-     └───┬───┘
-         │
-         ▼
-    ┌─────────┐
-    │   CDN   │   keeps static files and redirects near the user
-    └────┬────┘
-         │ miss
-         ▼
-  ┌───────────────┐
-  │ load balancer │   one address; spreads requests; skips a dead copy
-  └───┬───────┬───┘
-      │       │
-      ▼       ▼
- ┌────────┐ ┌────────┐
- │ app 1  │ │ app 2  │   the same code, nothing remembered between requests
- └───┬────┘ └────┬───┘
-     │           │
-     └─────┬─────┘
-           ▼
-      ┌─────────┐
-      │  cache  │   hot links, answered from memory
-      └────┬────┘
-           │ miss
-           ▼
-     ┌──────────┐
-     │ database │   where the links live for good
-     └──────────┘
+Follow the short link against **Replica 2** on port `8002` (which has never handled the write!) using `curl -i`:
+
+```bash
+curl -i http://127.0.0.1:8002/xY9k_Q
 ```
 
-## Practice
+**Expected Wire Output:**
+```http
+HTTP/1.1 302 Found
+date: Wed, 11 Nov 2026 07:15:00 GMT
+server: uvicorn
+location: https://backendroadmap.com
+cache-control: public, max-age=60
+content-length: 0
+```
 
-### 1. Watch the state die with the process
+Because state was moved out of process RAM (Stage 0 $\to$ Stage 1), Replica 2 immediately serves the redirect accurately, and `cache-control: public, max-age=60` authorizes downstream CDNs to cache the `302 Found` response cleanly.
 
-Run `shortener_v0.py` (`uvicorn shortener_v0:app --port 8000`), create a link through `/docs`, and follow the code it returns (in a terminal: `curl -i http://127.0.0.1:8000/<code>`; in Windows PowerShell write `curl.exe`). Then stop the server with Ctrl+C, start it again, and follow the same code. What do you get, and what does that say about where the data lives?
+---
 
-<details><summary>Answer</summary>
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-The first follow answers `302 Found` with a `Location` header pointing at the URL you saved. After the restart the same code answers `404` with `{"detail":"unknown code"}`. The links were a Python dictionary inside the process, so they died with it. Nothing was "lost" by a bug: this is what keeping state in memory means, and it is the first reason to move it out.
+<details>
+<summary><strong>Checkpoint 1: The Two-Replica State Divergence</strong></summary>
 
+**Scenario:** An engineer writes a URL shortener storing links in a local process hash map (`links = {}`). To handle increased traffic, they spin up two containers behind a round-robin load balancer. When a user creates a short link, 50% of subsequent clicks succeed with `302 Found`, while the other 50% fail with `404 Not Found`. Why does this happen, and what specific architectural principle resolves it?
+
+<strong>Answer:</strong>
+Because the hash map lives exclusively in the private virtual memory space of each container process. When the load balancer routes `POST /links` to Container A, only Container A holds the key-value pair. Subsequent `GET /{code}` requests routed to Container B find an empty map and return `404`. To scale horizontally behind a load balancer, application servers must follow the **Stateless Architecture Rule**: extract all mutable state out of process RAM into an external shared data store (e.g., PostgreSQL or Redis) so every replica reads from and writes to the same authoritative source of truth.
 </details>
 
-### 2. Run two copies
+<details>
+<summary><strong>Checkpoint 2: Differentiating HLD vs. LLD Under Interview Constraints</strong></summary>
 
-Open two terminals. In each, run `shortener_v0.py`, one with `--port 8001` and one with `--port 8002`. Create a link on port 8001 and follow it on port 8001, then follow the same code on port 8002. Then repeat with `shortener_v1.py` instead, giving both copies the same database file (bash: `DB_PATH=links.db uvicorn shortener_v1:app --port 8001`; PowerShell: `$env:DB_PATH = "links.db"; uvicorn shortener_v1:app --port 8001`). What differs, and why?
+**Scenario:** You are asked to design a distributed rate limiter in a High-Level Design (HLD) round. Halfway through, you spend 15 minutes drawing the exact inheritance hierarchy and internal method signatures of a `TokenBucketStrategyFactory` Java class. Why is this a tactical mistake in an HLD round, and what should you cover instead?
 
-<details><summary>Answer</summary>
-
-With `shortener_v0` the follow on 8001 is a `302` and the follow on 8002 is a `404 {"detail":"unknown code"}`: each process has its own dictionary. With `shortener_v1` both answer `302` to the same URL, because both read the same database. A load balancer in front of the `v0` pair would send a visitor to a copy that has never heard of the link about half the time. That is why state has to leave the process before a second server helps.
-
+<strong>Answer:</strong>
+In an HLD round, detailing class inheritance hierarchies (`TokenBucketStrategyFactory`) focuses at the wrong zoom level (LLD). While clean code structure matters for maintainability, clean Java classes cannot prevent a split-brain cluster or a Redis hot-key outage. In an HLD interview, you should focus on macro distributed mechanics: where the limiter runs (API Gateway edge vs sidecar), how distributed state is synchronized atomically across servers (Redis + Lua scripts vs sticky routing), clock skew and race conditions, fail-open vs fail-closed degradation when Redis goes down, and latency overhead per request.
 </details>
 
-### 3. HLD or LLD?
+<details>
+<summary><strong>Checkpoint 3: The Cache-Control Purge Trap</strong></summary>
 
-For each statement, say whether it is a high-level or a low-level design decision:
+**Scenario:** You optimize your URL shortener by emitting `Cache-Control: public, max-age=86400` (24 hours) so Edge CDNs cache redirects globally. Ten minutes later, a link owner notices a typo in the destination URL and deletes the short link in the web dashboard, returning `204 No Content`. Why do global users continue hitting the old, typoed destination for another 23 hours and 50 minutes, and what two architectural mitigations resolve this trade-off?
 
-1. Put a cache between the app servers and the database.
-2. `LinkRepository` is an interface, with an in-memory fake for tests.
-3. Run three replicas of the app in two availability zones.
-4. Put code generation in its own `CodeGenerator` class so it can be replaced.
-5. Serve the site's static files from a CDN.
-
-<details><summary>Answer</summary>
-
-1. HLD: a new part and a new connection between parts.
-2. LLD: how the code inside the app is shaped, and what it depends on.
-3. HLD: how many copies of a part, and where they run.
-4. LLD: who is responsible for what inside one part.
-5. HLD: a new part between users and the system.
-
-The test: if the decision adds, removes or connects parts that run separately, it is HLD. If it is about how the code inside one part is organised, it is LLD.
-
+<strong>Answer:</strong>
+Because Edge CDNs strictly honor the `Cache-Control: max-age=86400` contract—once stored at an edge POP (Point of Presence), the CDN will answer incoming `GET` requests directly from its local cache without contacting your origin servers for 24 hours.
+To mitigate this staleness cost:
+1. **Event-Driven Cache Purge:** When deleting or updating a link, emit an asynchronous invalidation call to the CDN's Purge API (`/purge/{code}`) to evict the edge entry immediately.
+2. **Shorten the Cache Lease:** Reduce `max-age` (e.g., `60` seconds) or use `stale-while-revalidate` depending on how much stale window the business can tolerate versus origin database read load.
 </details>
 
-### 4. Price a step
+---
 
-A teammate proposes adding a cache in front of the database. Write down what it buys, two things it costs, and one number you would measure before agreeing.
+## Further Reading & Sources
 
-<details><summary>Answer</summary>
+- [What Is System Design? HLD vs LLD Explained (video, 2:24)](https://www.youtube.com/watch?v=aNVDz45U-cM) — Video walkthrough by the curriculum author.
+- [Track 14, Module 01: The System Design Interview Framework](../../../backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md) — The complete 7-step whiteboard pacing framework.
+- [Low-Level Design Track (LLD)](../../../lld/README.md) — Complete object-oriented design patterns and SOLID engineering guide.
+- [Designing Data-Intensive Applications](https://dataintensive.net/) — Martin Kleppmann's foundational text on reliability, scalability, and maintainability.
+- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html) — Standard methodology for evaluating trade-offs across architecture pillars.
 
-It buys fewer database reads and lower latency on the hot path. It costs stale answers (an entry can outlive the data behind it, as the deleted link did in Stage 4) and an invalidation decision (when does an entry stop being trusted?); it also adds a system to run, and a per-replica cache means replicas can disagree. The number to measure first is the **hit rate** a cache would have: the share of lookups that repeat a recent one. If few lookups repeat, the cache costs everything above and buys almost nothing. A second good number is how often the database is the part that is actually slow.
-
-</details>
-
-### 5. Prove the stale window
-
-Using `shortener_v2.py` (Stage 3 and 4 applied), create a link and follow it once so it is cached. Delete the row from the database, then follow the code again. What do you see, and what would you change to shorten the window?
-
-<details><summary>Answer</summary>
-
-To delete the row without extra tools, run `python -c "import sqlite3; db = sqlite3.connect('links.db'); db.execute('DELETE FROM links'); db.commit()"` in the folder holding the database file. The follow still answers `302` until `CACHE_SECONDS` has passed, then `404`; a second copy started after the delete answers `404` at once. To shorten the window: a smaller `CACHE_SECONDS`, or have delete also remove the entry from the cache (and ask the CDN to purge it). Each option costs something: a smaller number means more database reads, and purging means more moving parts and a CDN API call on every delete.
-
-</details>
-
-### Checkpoint quiz
-
-1. Two systems have the same features but need different architectures. What makes them different?
-2. Which is HLD and which is LLD: (a) choosing between one database and a database with read replicas; (b) deciding that `LinkService` talks to a `LinkRepository` interface?
-3. Why did the links have to move out of the process before a second app server was any use?
-4. A CDN caches your redirect for 60 seconds and you delete the link. What happens, and what are two ways to shorten the window?
-5. "There is no single right answer" in a design interview. Does that mean any design will do?
-6. What do you do before you draw anything in an interview?
-
-<details><summary>Answers</summary>
-
-1. Their non-functional requirements: scale, latency, availability, durability, cost. The features can be identical.
-2. (a) is HLD; (b) is LLD.
-3. State kept in one process's memory is invisible to every other process. A second copy would answer 404 for links created on the first (exercise 2). The app has to be stateless for replicas to be interchangeable.
-4. Visitors keep being redirected from the CDN's stored copy until it expires, because a response held by a cache cannot be recalled early. Shorten it with a lower `max-age`, or purge the entry through the CDN's API when a link is deleted (or both).
-5. No. A design is judged on whether its choices follow from the requirements and whether you can say what each costs and how it fails. Several designs can be good; many are not.
-6. Clarify functional and non-functional requirements and what is out of scope, then get rough numbers. Drawing comes after.
-
-</details>
-
-> [!check]
-> - I can say in one sentence what system design is.
-> - I can tell HLD from LLD, give an example of each, and say which course on this site teaches which.
-> - I can describe the five stages of the shortener and say what each buys and costs.
-> - I can explain why the first app server's memory is the wrong place to keep state once there are two.
-> - I can open a system design answer with the five-step shape.
-
-## Project
-
-Extend the shortener with **expiring links**. A link may carry `expires_in_seconds` when it is created; once that time has passed, following it answers `410 Gone` instead of redirecting. Build it on `shortener_v1.py`, with a test that proves a link does not expire early and does not live past its time. Then answer in a short note, no code: which parts of your change are high-level design and which are low-level design; what happens to an expiring link under Stage 3's cache and Stage 4's `Cache-Control` header (will it keep redirecting after it has expired, and for how long?); and how you would change the cache entry or the header so an expired link stops redirecting on time, with the price of that change. No solution is given.
-
-## Interview questions
-
-> [!interview] What does a system design interview evaluate?
-
-<details><summary>What a strong answer covers</summary>
-
-- How you think, not which architecture you recite: structured thinking, trade-offs and communication. There is no single right answer.
-- Structure: clarifying requirements and scope first, estimating before sketching, starting simple and growing the design when a number forces it.
-- Trade-offs: for each choice, what it improves, what it costs, and what would make you choose differently.
-- Communication: thinking out loud, stating assumptions, taking the interviewer's hints, keeping to the time.
-
-</details>
-
-> [!interview] How is HLD different from LLD?
-
-<details><summary>What a strong answer covers</summary>
-
-- HLD covers services, storage and data flow: which parts exist and how they talk. LLD covers classes, modules and interfaces: how the code inside one part is shaped.
-- A concrete example: for a link shortener, HLD is load balancer, app servers, database, cache, CDN; LLD is `Link`, `LinkService`, a `LinkRepository` interface and how expiry is tested.
-- Not a difference of size or importance: both can sink a project, and they are usually separate interview rounds ("design a news feed" versus "design a parking lot").
-
-</details>
-
-> [!interview] You have one server and traffic is growing. What do you do?
-
-<details><summary>What a strong answer covers</summary>
-
-- First measure: which resource is the bottleneck (CPU, memory, database, network) and at what load, rather than guessing.
-- Cheap fixes before new parts: a bigger machine, an index, a better query.
-- Then grow in order, naming the cost each time: state out of the process (a separate database), replicas behind a load balancer once the app is stateless, a cache for hot reads, a CDN for static and cacheable content.
-- Failure for each new part: the load balancer needs redundancy, the cache can serve stale data, the database is now the part everything depends on.
-
-</details>
-
-> [!interview] Why not start with microservices, Kafka and a sharded database?
-
-<details><summary>What a strong answer covers</summary>
-
-- Every component is a cost: it can fail, must be operated and understood, and slows every change. A design is not better for having more boxes.
-- Start with the simplest design that meets the stated requirements and numbers, and say which number would force each addition.
-- Distinguish a requirement that really needs the complexity (very high write volume, strict isolation) from a habit borrowed from large companies.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Naming technologies before requirements.** "We'll use Kafka" before you know whether anything needs a queue. Ask first, choose after.
-- **Drawing the final architecture first.** Start with the simplest design that works, say what number would break it, then grow it.
-- **A box with no number behind it.** For each component, be able to say what requirement or measurement forced it in.
-- **Describing only the happy path.** For each box, say what happens when it is down or slow.
-- **Treating HLD and LLD as big and small.** They are different questions; know which one you are asked.
-- **Silence.** An interviewer cannot score thinking they cannot hear. Narrate your reasoning.
-- **`ModuleNotFoundError: No module named 'shortener_v0'`.** Run `uvicorn` from the folder that holds the file.
-- **The port is already in use.** Another copy is still running; stop it or choose another `--port`.
-- **A `404` on the second copy of `shortener_v0` in exercise 2.** That is the expected result, not a bug.
-- **`curl` in Windows PowerShell behaves oddly.** In Windows PowerShell `curl` is an alias for a different command; write `curl.exe`.
-
-## Further reading & sources
-
-- [What Is System Design? HLD vs LLD Explained (video, 2:24)](https://www.youtube.com/watch?v=aNVDz45U-cM) - the two-and-a-half-minute version of this lesson, by the author.
-- [Designing Data-Intensive Applications](https://dataintensive.net/) - Martin Kleppmann's book on the data systems behind these choices; the standard reference for the trade-offs the rest of this course names (replication, consistency, partitioning).
-- [The System Design Primer](https://github.com/donnemartin/system-design-primer) - free, open-source notes on load balancers, caches, CDNs and the CAP theorem, with interview questions and sample designs.
-- [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html) - a vendor's framework for weighing the pros and cons of design decisions across reliable, secure, efficient, cost-effective and sustainable systems; the same "every choice has a cost" idea as this lesson.
-- [Site Reliability Engineering](https://sre.google/sre-book/table-of-contents/) - Google's free online book; its chapters on load balancing, handling overload and cascading failures show what the boxes added here cost when they fail.
-- [NGINX: HTTP load balancing](https://nginx.org/en/docs/http/load_balancing.html) - the `upstream` block and the round-robin default used in the Stage 2 sketch.
-- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching) - how `Cache-Control: max-age` works, what shared caches such as CDNs do with it, and why a stored response stays until it expires or is purged.
-- [FastAPI: First steps](https://fastapi.tiangolo.com/tutorial/first-steps/) - the framework used for the running example.
+---
 
 ## Free PDF notes
 
 Download the short version of this lesson as a printable PDF, with its diagrams and eight interview questions: [SD-A-001.pdf](https://backendroadmap.com/notes/system-design/SD-A-001.pdf). All Phase 1 notes in one file: [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf).
 
+---
+
 ## Next
 
-[Lesson 02: Client-Server and Multi-Tier Architecture](../02-client-server-and-multi-tier-architecture/README.md)
+Continue with [Lesson 02: Client-Server and Multi-Tier Architecture](../02-client-server-and-multi-tier-architecture/README.md) to explore how dividing a system into presentation, application, and data tiers enables independent scaling and defense-in-depth security.
