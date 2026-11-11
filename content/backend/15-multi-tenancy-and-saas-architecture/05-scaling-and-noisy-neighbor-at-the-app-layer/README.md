@@ -781,6 +781,7 @@ Rate limiting and quotas fail here because the customer is **not violating any v
 ## Further Reading & Sources
 
 - [Track 09, Backend: Security Deep Dive](../../09-security-deep-dive/README.md) — Rate limiting fundamentals and security defenses.
+- [Module 10, 04-databases-and-data-layer](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md) — The database-layer half of the noisy-neighbor problem this module addresses at the application layer.
 - [Track 05, Backend: Caching and Performance](../../05-caching-and-performance/README.md) — Redis distributed lock patterns and high-performance caching.
 - [AWS Well-Architected Framework: SaaS Tenant Isolation](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html) — Tiered and siloed infrastructure patterns.
 

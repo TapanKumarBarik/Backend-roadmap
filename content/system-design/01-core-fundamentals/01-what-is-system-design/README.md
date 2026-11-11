@@ -11,9 +11,13 @@
 
 ## Visual Mental Models & Architecture
 
+### Visual Diagram
+
+<a id="visual-diagram"></a>
+
 ### High-Level Design (HLD) vs. Low-Level Design (LLD)
 
-System design interviews test engineering reasoning at two distinct zoom levels. Understanding which lens you are using prevents giving class-hierarchy answers in an infrastructure round or drawing load balancers in an object-oriented design round.
+System design interviews test engineering reasoning at two distinct zoom levels. Understanding which lens you are using prevents giving class-hierarchy answers in an infrastructure round or drawing load balancers in an object-oriented design round (see the [diagram below](#visual-diagram)).
 
 ```mermaid
 flowchart TD
@@ -71,7 +75,7 @@ flowchart LR
 | :--- | :--- | :--- | :--- |
 | **Stage 0** | Single Monolith + In-Memory State | Zero network latency; zero operational overhead; ideal for local prototypes. | Data vanishes on restart; impossible to run $>1$ replica cleanly. |
 | **Stage 1** | Dedicated Database Server | Process restarts survive; multiple app servers can share truth; backups possible. | Introduces network hop (0.5–2 ms), connection pool management, and schema migrations. |
-| **Stage 2** | Load Balancer + Stateless Fleet | Horizontal read/write scaling; zero-downtime rolling deploys; node fault tolerance. | **Strict Stateless Rule:** local memory cannot hold sessions; LB becomes a potential SPOF. |
+| **Stage 2** | Load Balancer + Stateless Fleet | Horizontal read/write scaling; zero-downtime rolling deploys; node fault tolerance. | **Strict Stateless Rule** ([Lesson 19](../19-stateless-vs-stateful/README.md)): local memory cannot hold sessions; LB becomes a potential SPOF ([Lesson 17](../17-single-point-of-failure/README.md)). |
 | **Stage 3** | Shared Distributed Cache (Redis) | Offloads 80–99% of repetitive DB reads; slashes p99 read latency to $\sim 1\text{ ms}$. | Stale reads within TTL window; cache invalidation complexity; cache stampede risk. |
 | **Stage 4** | Global Edge CDN | Answers served from edge nodes near user; eliminates origin traffic spikes. | Loss of instant revocation (cannot recall cached redirect until TTL expires or API purge); extra vendor cost. |
 
@@ -564,7 +568,12 @@ To mitigate this staleness cost:
 - [Track 14, Module 01: The System Design Interview Framework](../../../backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md) — The complete 7-step whiteboard pacing framework.
 - [Low-Level Design Track (LLD)](../../../lld/README.md) — Complete object-oriented design patterns and SOLID engineering guide.
 - [Designing Data-Intensive Applications](https://dataintensive.net/) — Martin Kleppmann's foundational text on reliability, scalability, and maintainability.
+- [The System Design Primer](https://github.com/donnemartin/system-design-primer) — Free, open-source notes on load balancers, caches, CDNs, and the CAP theorem, with interview questions and sample designs.
 - [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html) — Standard methodology for evaluating trade-offs across architecture pillars.
+- [Site Reliability Engineering](https://sre.google/sre-book/table-of-contents/) — Google's free online book covering load balancing, handling overload, and cascading failures.
+- [NGINX: HTTP Load Balancing](https://nginx.org/en/docs/http/load_balancing.html) — The `upstream` block and round-robin defaults used in Stage 2 scaling.
+- [MDN: HTTP Caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching) — How `Cache-Control: max-age` works, what shared CDN caches do with it, and invalidation windows.
+- [FastAPI: First Steps](https://fastapi.tiangolo.com/tutorial/first-steps/) — The Python web framework used in the reference shortener service.
 
 ---
 
