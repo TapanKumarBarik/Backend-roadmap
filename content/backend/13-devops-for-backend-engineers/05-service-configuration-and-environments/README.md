@@ -1,6 +1,6 @@
 # Module 05: Service Configuration and Environments
 
-> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [01-the-12-factor-app-in-a-container](../01-the-12-factor-app-in-a-container/README.md), and [Config and Secrets Management](../../08-observability-and-operational-readiness/02-configuration-and-secrets-management/README.md).  
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [01-the-12-factor-app-in-a-container](../01-the-12-factor-app-in-a-container/README.md), and [Config Management Fundamentals](../../08-observability-and-operational-readiness/02-config-management-fundamentals/README.md).  
 > **Estimated Reading Time:** 28 minutes  
 > **Target Audience:** Backend engineers and cloud infrastructure architects managing multi-environment configurations, zero-trust secrets injection, and runtime feature toggling.
 

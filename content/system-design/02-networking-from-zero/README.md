@@ -33,31 +33,31 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 09 | [TCP part 2: the three-way handshake (SYN, SYN-ACK, ACK)](09-tcp-three-way-handshake/README.md) | available |
 | 10 | [TCP part 3: flow control and congestion control](10-tcp-flow-and-congestion-control/README.md) | available |
 | 11 | [TCP part 4: closing, RST, TIME_WAIT and running out of ports](11-tcp-closing-time-wait-and-ports/README.md) | available |
-| 12 | UDP vs TCP: when speed beats reliability | coming soon |
+| 12 | [UDP vs TCP: when speed beats reliability](12-udp-vs-tcp/README.md) | available |
 | | **IP in depth** | |
-| 13 | Subnets and CIDR: neighbourhoods of addresses | coming soon |
-| 14 | Routing and NAT: how packets find their way, and why your phone shares one public address | coming soon |
+| 13 | [Subnets and CIDR: neighbourhoods of addresses](13-subnets-and-cidr/README.md) | available |
+| 14 | [Routing and NAT: how packets find their way, and why your phone shares one public address](14-routing-and-nat/README.md) | available |
 | | **DNS** | |
-| 15 | DNS part 1: the phone book of the internet, one lookup step by step | coming soon |
+| 15 | [DNS part 1: the phone book of the internet, one lookup step by step](15-dns-lookup-step-by-step/README.md) | available |
 | 16 | [DNS part 2: records, TTL and safe migrations](16-dns-records-ttl-and-migrations/README.md) | available |
-| 17 | DNS traffic management: GeoDNS, weighted, failover, anycast | coming soon |
+| 17 | [DNS traffic management: GeoDNS, weighted, failover, anycast](17-dns-traffic-management/README.md) | available |
 | | **HTTP** | |
-| 18 | HTTP part 1: requests, responses and methods | coming soon |
+| 18 | [HTTP part 1: requests, responses and methods](18-http-requests-responses-and-methods/README.md) | available |
 | 19 | [HTTP part 2: status codes, 401 vs 403, caching and ETags](19-http-status-codes-and-caching/README.md) | available |
 | | **Security on the wire** | |
 | 20 | [Why encryption: public and private keys, the padlock picture](20-why-encryption-public-and-private-keys/README.md) | available |
-| 21 | The TLS 1.3 handshake step by step | coming soon |
-| 22 | Certificates and PKI: why your browser trusts a site it has never met | coming soon |
+| 21 | [The TLS 1.3 handshake step by step](21-tls-1-3-handshake/README.md) | available |
+| 22 | [Certificates and PKI: why your browser trusts a site it has never met](22-certificates-and-pki/README.md) | available |
 | | **Modern web** | |
-| 23 | HTTP/1.1 vs HTTP/2 vs HTTP/3, and head-of-line blocking from scratch | coming soon |
-| 24 | WebSockets | coming soon |
-| 25 | SSE vs long polling vs WebSockets | coming soon |
-| 26 | HTTP streaming, chunked transfer and backpressure | coming soon |
+| 23 | [HTTP/1.1 vs HTTP/2 vs HTTP/3, and head-of-line blocking from scratch](23-http-1-1-vs-http-2-vs-http-3/README.md) | available |
+| 24 | [WebSockets](24-websockets/README.md) | available |
+| 25 | [SSE vs long polling vs WebSockets](25-sse-vs-long-polling-vs-websockets/README.md) | available |
+| 26 | [HTTP streaming, chunked transfer and backpressure](26-http-streaming-and-backpressure/README.md) | available |
 | | **Infrastructure** | |
-| 27 | Forward and reverse proxies | coming soon |
-| 28 | CDNs | coming soon |
-| 29 | Connection pooling and keep-alive | coming soon |
-| 30 | Timeouts: connect, read, deadlines and the random 502 | coming soon |
+| 27 | [Forward and reverse proxies](27-forward-and-reverse-proxies/README.md) | available |
+| 28 | [CDNs](28-cdns/README.md) | available |
+| 29 | [Connection pooling and keep-alive](29-connection-pooling-and-keep-alive/README.md) | available |
+| 30 | [Timeouts: connect, read, deadlines and the random 502](30-timeouts-and-502s/README.md) | available |
 
 ## How to use it
 

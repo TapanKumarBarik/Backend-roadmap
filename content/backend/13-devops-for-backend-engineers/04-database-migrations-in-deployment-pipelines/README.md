@@ -1,6 +1,6 @@
 # Module 04: Database Migrations in Deployment Pipelines
 
-> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [03-deployment-strategies](../03-deployment-strategies/README.md), and [Databases and Data Layer](../../04-databases-and-data-layer/00-database-fundamentals/README.md).  
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [03-deployment-strategies](../03-deployment-strategies/README.md), and [Databases and Data Layer](../../04-databases-and-data-layer/00-relational-vs-non-relational/README.md).  
 > **Estimated Reading Time:** 32 minutes  
 > **Target Audience:** Backend engineers, data platform engineers, and site reliability engineers designing zero-downtime schema evolution and automated deployment migration workflows.
 

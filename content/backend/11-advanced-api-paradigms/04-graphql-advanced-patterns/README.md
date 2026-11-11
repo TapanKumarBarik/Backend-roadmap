@@ -1,6 +1,6 @@
 # Module 04: GraphQL Advanced Patterns (Subscriptions, Relay Pagination, and Field Authorization)
 
-> **Prerequisites**: [Module 03: GraphQL Fundamentals](../03-graphql-fundamentals/README.md), [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md), and WebSocket connection management concepts.  
+> **Prerequisites**: [Module 03: GraphQL Fundamentals](../03-graphql-fundamentals/README.md), [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md), and WebSocket connection management concepts.  
 > **Estimated Reading Time**: 35 minutes.  
 > **Target Audience**: Senior Backend Engineers, Full-Stack Architects, and Enterprise API Developers.
 

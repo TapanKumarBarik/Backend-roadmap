@@ -285,4 +285,4 @@ If both headers are present, modern HTTP clients and reverse proxies will reject
 
 Congratulations! You have successfully mastered and synthesized the complete **Request-Response Fundamentals** step.
 
-Proceed to **[Track 02: RESTful API Design & Advanced Architecture](../../02-rest-apis/README.md)** to build high-scale, production-ready distributed API systems.
+Proceed to **[Track 02: API Layer & Request Handling](../../02-api-layer-and-request-handling/README.md)** to build high-scale, production-ready distributed API systems.

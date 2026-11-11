@@ -1,6 +1,7 @@
 # Module 00: Producer Internals — Acks, Idempotence and Partitioning
 
-> **The Golden Rule of Kafka Producer Durability**
+> [!TIP]
+> **The Golden Rule of Kafka Producer Durability:**
 > `produce()` does not mean "sent"—it buffers in memory asynchronously. Without an explicit `flush()` on shutdown, buffered messages vanish. Durability is a three-way contract: `acks=all` on the producer, `min.insync.replicas=2`, and `replication.factor=3` on the topic. Always set `enable.idempotence=true` to guarantee exactly-once per-partition delivery and strict ordering without throttling in-flight requests.
 
 ```mermaid

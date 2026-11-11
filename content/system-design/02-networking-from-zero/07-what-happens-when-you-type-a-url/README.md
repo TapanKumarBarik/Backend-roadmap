@@ -122,7 +122,7 @@ Say a round trip to the server takes `50 ms`.
 
 That's the quarter of a second from the start.
 
-Notice: most of that time isn't data; it's waiting for replies. That's why the speed of light, and the distance to the server, matter so much, and why CDNs, servers close to you, exist (lesson 28).
+Notice: most of that time isn't data; it's waiting for replies. That's why the speed of light, and the distance to the server, matter so much, and why CDNs, servers close to you, exist ([lesson 28](../28-cdns/README.md)).
 
 ![A bar of five 50-millisecond blocks: DNS, TCP, TLS 1.3, HTTP and the server's work, about 250 milliseconds in all.](images/figure-6.svg)
 
@@ -481,7 +481,7 @@ openssl s_client -connect backendroadmap.com:443 -servername backendroadmap.com 
 
 <details><summary>Answer</summary>
 
-Usually three of the four. DNS is cached, so no lookup. And the connection is kept open, so no TCP or TLS handshake. Only the HTTP request remains: one round trip instead of four. That's why keeping connections open matters so much (lesson 29).
+Usually three of the four. DNS is cached, so no lookup. And the connection is kept open, so no TCP or TLS handshake. Only the HTTP request remains: one round trip instead of four. That's why keeping connections open matters so much ([lesson 29](../29-connection-pooling-and-keep-alive/README.md)).
 
 ![Four boxes: DNS crossed out as cached, TCP and TLS handshakes crossed out as connection kept open, and HTTP still needed: one round trip instead of four.](images/figure-8.svg)
 

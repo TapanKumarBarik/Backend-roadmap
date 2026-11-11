@@ -108,7 +108,7 @@ flowchart TD
     F --> G["0 new TIME_WAIT locks per query - Healthy Latency"]
 ```
 
-**The fixes, best first.** Reuse connections: open a few and send many requests over each, with keep-alive and connection pools (lesson 29). Widen the port range. Let Linux safely reuse ports in `TIME_WAIT` for new outgoing connections, with `tcp_tw_reuse`. Spread the calls over more server addresses.
+**The fixes, best first.** Reuse connections: open a few and send many requests over each, with keep-alive and connection pools ([lesson 29](../29-connection-pooling-and-keep-alive/README.md)). Widen the port range. Let Linux safely reuse ports in `TIME_WAIT` for new outgoing connections, with `tcp_tw_reuse`. Spread the calls over more server addresses.
 
 | You see | It means | Do this |
 | :--- | :--- | :--- |
@@ -491,4 +491,4 @@ Download these notes as a printable PDF, with every picture, the port arithmetic
 
 ## Next
 
-Next comes lesson 12, UDP vs TCP: when speed matters more than reliability, and why video calls and games often choose UDP (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 12, UDP vs TCP](../12-udp-vs-tcp/README.md): when speed matters more than reliability, and why video calls and games often choose UDP. See [the track overview](../README.md) for the whole series.

@@ -1,6 +1,6 @@
 # Module 01: The 12-Factor App in a Container
 
-> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [The 12-Factor App](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md), and [Graceful Shutdown](../../08-observability-and-operational-readiness/09-graceful-shutdown-and-connection-draining/README.md).  
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [The 12-Factor App](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md), and [Graceful Shutdown](../../08-observability-and-operational-readiness/09-graceful-shutdown/README.md).  
 > **Estimated Reading Time:** 28 minutes  
 > **Target Audience:** Backend engineers and systems architects designing microservices for elastic, multi-replica container orchestration environments.
 

@@ -1,6 +1,6 @@
 # Lesson 19: HTTP Part 2, Status Codes, 401 vs 403, Caching and ETags
 
-> **Prerequisites:** Lesson 18 (HTTP requests and responses), [Lesson 16: DNS Records, TTL and Safe Migrations](../16-dns-records-ttl-and-migrations/README.md), and [Networking From Zero Overview](../README.md) (Lesson 19 of 30).  
+> **Prerequisites:** [Lesson 18: HTTP Part 1, Requests, Responses and Methods](../18-http-requests-responses-and-methods/README.md), [Lesson 16: DNS Records, TTL and Safe Migrations](../16-dns-records-ttl-and-migrations/README.md), and [Networking From Zero Overview](../README.md) (Lesson 19 of 30).  
 > **Estimated Reading Time:** 25 minutes  
 > **Target Audience:** Backend and full-stack engineers designing resilient HTTP APIs, retry logic, authentication responses (`401` vs `403`), CDN `Cache-Control` policies, and conditional `ETag`/`304` validation.  
 > **Free PDF Notes:** [Download SD-N-019.pdf](https://backendroadmap.com/notes/system-design/SD-N-019.pdf)
@@ -29,7 +29,7 @@
 
 ### The Question: What Is the Server Telling You?
 
-Your app shows “something went wrong”, but the server sent a number: `403`. Another time, `503`. Each number tells you exactly where to look, and one header can make a page load with almost no data at all. In lesson 18 we met HTTP requests and responses; today, the status codes and HTTP caching.
+Your app shows “something went wrong”, but the server sent a number: `403`. Another time, `503`. Each number tells you exactly where to look, and one header can make a page load with almost no data at all. In [lesson 18](../18-http-requests-responses-and-methods/README.md) we met HTTP requests and responses; today, the status codes and HTTP caching.
 
 ### An Everyday Picture First: The Post Office Counter
 

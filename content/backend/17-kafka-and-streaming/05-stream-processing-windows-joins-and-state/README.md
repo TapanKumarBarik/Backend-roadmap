@@ -1,6 +1,7 @@
 # Module 05: Stream Processing — Windows, Joins and State
 
-> **The Golden Rule of Stream Processing**
+> [!TIP]
+> **The Golden Rule of Stream Processing:**
 > Aggregations and windowed joins must always be evaluated in **Event Time** (the business timestamp carried in the message payload)—never in processing time. Processing time breaks replayability: re-running yesterday's stream against today's system clock will produce conflicting calculations. Always configure an explicit grace period to accommodate out-of-order late arrivals, track watermarks as the minimum across assigned partitions, and emit a dedicated metric for late-dropped records.
 
 ```mermaid

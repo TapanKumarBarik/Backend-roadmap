@@ -445,5 +445,5 @@ X-Cache-Status: HIT
 ## Next Steps
 
 Congratulations! You have completed **Track 1: Production Core** (all 5 steps, 56 modules). Advance to **Track 2: High-Scale & Distributed Systems**:
-[../../10-distributed-systems/00-distributed-systems-fundamentals/README.md](../../10-distributed-systems/00-distributed-systems-fundamentals/README.md)
+[../../10-distributed-systems-patterns/README.md](../../10-distributed-systems-patterns/README.md)
 Master gRPC and Protocol Buffers, Kafka event streaming, distributed consensus (Raft/Paxos), distributed locking (Redlock), and database sharding architectures.

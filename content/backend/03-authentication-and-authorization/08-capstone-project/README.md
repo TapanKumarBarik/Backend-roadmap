@@ -474,5 +474,5 @@ WWW-Authenticate: Bearer error="unauthorized"
 ## Next Steps
 
 Congratulations! You have completed **Step 3: Authentication and Authorization**. Next, advance to **Step 4: Databases and Data Layer**:
-[../../04-databases-and-data-layer/00-db-fundamentals/README.md](../../04-databases-and-data-layer/00-db-fundamentals/README.md)
+[../../04-databases-and-data-layer/00-relational-vs-non-relational/README.md](../../04-databases-and-data-layer/00-relational-vs-non-relational/README.md)
 Master ACID transaction isolation levels, connection pooling under high load, B-Tree and GIN indexing, deadlock mitigation, and zero-downtime database schema migrations.

@@ -1,6 +1,7 @@
 # Module 04: Retention, Compaction and Topics as State
 
-> **The Golden Rule of Kafka Retention & Compaction**
+> [!TIP]
+> **The Golden Rule of Kafka Retention & Compaction:**
 > Kafka retention and compaction policies are enforced exclusively on *closed* segments—the active segment currently being written to is never deleted or compacted regardless of `retention.ms`. To avoid runaway disk bloat on low-throughput partitions, always configure `segment.ms` alongside `retention.ms`. When using compacted topics as state, producing a record with a `null` value is a tombstone that permanently deletes the key after `delete.retention.ms`.
 
 ```mermaid

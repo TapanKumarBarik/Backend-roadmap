@@ -1,6 +1,6 @@
 # Lesson 16: DNS Part 2, Records, TTL and Safe Migrations
 
-> **Prerequisites:** Lesson 15 (tracing one DNS lookup step by step) and [Networking From Zero Overview](../README.md) (Lesson 16 of 30).  
+> **Prerequisites:** [Lesson 15: DNS Part 1, Tracing One Lookup Step by Step](../15-dns-lookup-step-by-step/README.md) and [Networking From Zero Overview](../README.md) (Lesson 16 of 30).  
 > **Estimated Reading Time:** 25 minutes  
 > **Target Audience:** Backend and platform engineers planning zero-downtime IP/CDN cutovers, managing `A`/`AAAA`/`CNAME`/`MX`/`TXT`/`NS` records, and avoiding resolver cache and negative-caching traps.  
 > **Free PDF Notes:** [Download SD-N-016.pdf](https://backendroadmap.com/notes/system-design/SD-N-016.pdf)
@@ -29,7 +29,7 @@
 
 ### The Question: Why Do Some Users Still See the Old Site?
 
-You move your website to a new server and update DNS. Half your users see the new site; the other half still reach the old one, for hours. Nothing is broken. In lesson 15 we followed one DNS lookup. Today: what DNS actually stores, the records, and the one number that decides how long the world remembers them, the TTL. Then, how to change DNS without anyone noticing.
+You move your website to a new server and update DNS. Half your users see the new site; the other half still reach the old one, for hours. Nothing is broken. In [lesson 15](../15-dns-lookup-step-by-step/README.md) we followed one DNS lookup. Today: what DNS actually stores, the records, and the one number that decides how long the world remembers them, the TTL. Then, how to change DNS without anyone noticing.
 
 ### An Everyday Picture First: A Number on Sticky Notes
 
@@ -552,4 +552,4 @@ Download these notes as a printable PDF, with every picture, the migration check
 
 ## Next
 
-Next comes lesson 17, DNS traffic management: how one name can send each user to the nearest, healthiest server (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 17, DNS traffic management](../17-dns-traffic-management/README.md): how one name can send each user to the nearest, healthiest server. See [the track overview](../README.md) for the whole series.

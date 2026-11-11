@@ -1,6 +1,6 @@
 # 00 - CI/CD Concepts & Pipeline Anatomy
 
-> **Prerequisites**: [01 - Linux & Git Fundamentals](../../01-linux-and-git/00-shell-scripting-and-bash/README.md), [02 - Docker Containerization](../../02-docker/00-setup-docker-desktop-wsl2/README.md).  
+> **Prerequisites**: [01 - Linux (Bash Scripting)](../../01-linux/09-bash-scripting/README.md), [02 - Docker Containerization](../../02-docker/00-setup-docker-desktop-wsl2/README.md).  
 > **Target Audience**: DevOps Engineers, Site Reliability Engineers, and Senior Software Developers building enterprise release engineering pipelines and automated delivery systems.  
 > **Estimated Deep-Dive Time**: 40 minutes.
 

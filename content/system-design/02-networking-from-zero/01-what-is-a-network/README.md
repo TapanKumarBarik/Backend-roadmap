@@ -107,7 +107,7 @@ Latency is governed primarily by **round trips (RTT)** rather than raw bandwidth
 | **Dominant Bottleneck** | Round-trip serialization | Bandwidth + RTT balance | Buying faster Mbps barely helps if RTT count stays high! |
 
 > [!NOTE]
-> **Why Parallelism Changes Everything:** Browsers historically opened up to `6` parallel connections under HTTP/1.1 so `40` assets finish in `7` rounds (`~350 ms`) instead of `40` serialized rounds (`2,000 ms`). Modern **HTTP/2** (covered in Lesson 23) multiplexes dozens of requests concurrently over a **single** network connection, avoiding per-connection setup overhead altogether.
+> **Why Parallelism Changes Everything:** Browsers historically opened up to `6` parallel connections under HTTP/1.1 so `40` assets finish in `7` rounds (`~350 ms`) instead of `40` serialized rounds (`2,000 ms`). Modern **HTTP/2** (covered in [Lesson 23](../23-http-1-1-vs-http-2-vs-http-3/README.md)) multiplexes dozens of requests concurrently over a **single** network connection, avoiding per-connection setup overhead altogether.
 
 ### Client-vs-Server Architectural Matrix
 

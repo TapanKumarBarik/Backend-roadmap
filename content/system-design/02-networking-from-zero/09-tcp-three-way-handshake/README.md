@@ -114,7 +114,7 @@ The handshake costs **one round trip** before any data. Your phone can send its 
 | India → Singapore | about `60 ms` |
 | India → US east coast | about `200` to `250 ms` |
 
-You pay it once per connection, which is why opening connections is expensive, and reusing them matters (lesson 29).
+You pay it once per connection, which is why opening connections is expensive, and reusing them matters ([lesson 29](../29-connection-pooling-and-keep-alive/README.md)).
 
 ![Left: a ladder diagram, SYN, SYN-ACK and then ACK with the first data, with the first two braced as one round trip. Right: bars for one round trip, a few milliseconds in the same city, about 60 ms from India to Singapore, about 200 to 250 ms from India to the US east coast.](images/figure-5.svg)
 
@@ -525,8 +525,8 @@ During a massive `SYN` flood from spoofed source IPs, `net.ipv4.tcp_max_syn_back
 
 ## Common Mistakes & Troubleshooting
 
-- **"There's a handshake for every request."** No. It happens once per connection, and many requests can reuse it (lesson 29).
-- **"The handshake makes the connection secure."** No. It only agrees numbers. Encryption is TLS, which starts after it (lesson 21).
+- **"There's a handshake for every request."** No. It happens once per connection, and many requests can reuse it ([lesson 29](../29-connection-pooling-and-keep-alive/README.md)).
+- **"The handshake makes the connection secure."** No. It only agrees numbers. Encryption is TLS, which starts after it ([lesson 21](../21-tls-1-3-handshake/README.md)).
 - **"ACK 4,001 means 4,001 bytes were received."** No. It means: the next number I expect is `4,001`.
 - **Setting only HTTP read timeouts without a TCP connect timeout.** Read timeouts do not start until the handshake finishes; an un-bounded `connect()` against a silently dropped IP stalls threads for `~127 s` (`tcp_syn_retries=6`).
 

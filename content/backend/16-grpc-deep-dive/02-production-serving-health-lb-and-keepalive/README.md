@@ -1,6 +1,7 @@
 # Module 02: Production Serving — Health, Load Balancing and Keepalive
 
-> **The Golden Rule of Production gRPC Serving**
+> [!TIP]
+> **The Golden Rule of Production gRPC Serving:**
 > gRPC multiplexes all RPCs over long-lived HTTP/2 TCP connections. L4 load balancers make routing decisions per-connection, resulting in 100% of traffic pinning to a single backend replica while other pods idle. To serve gRPC reliably in production, you must enforce L7 per-stream load balancing (or client-side DNS round-robin across headless services), implement the standard `grpc.health.v1.Health` protocol, and execute phased graceful shutdowns that allow load balancers to deregister the pod before closing sockets.
 
 ```mermaid

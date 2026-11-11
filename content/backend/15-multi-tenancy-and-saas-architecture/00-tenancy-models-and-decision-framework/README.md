@@ -1,6 +1,6 @@
 # Module 00: Tenancy Models and the Decision Framework
 
-> **Prerequisites:** [Databases and Data Layer](../../04-databases-and-data-layer/00-database-fundamentals/README.md), [Multi-Tenancy Patterns](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
+> **Prerequisites:** [Databases and Data Layer](../../04-databases-and-data-layer/00-relational-vs-non-relational/README.md), [Multi-Tenancy Patterns](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
 > **Estimated Reading Time:** 28 minutes  
 > **Target Audience:** Backend engineers, software architects, and engineering leaders designing scalable, secure multi-tenant B2B SaaS platforms.
 

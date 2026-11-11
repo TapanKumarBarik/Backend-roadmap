@@ -1,6 +1,6 @@
 # Module 02: XSS and CSRF Defense
 
-> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Module 01: Injection Attacks](../01-injection-attacks/README.md), and [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md).  
+> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Module 01: Injection Attacks](../01-injection-attacks/README.md), and [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md).  
 > **Estimated Reading Time**: 40 minutes.  
 > **Target Audience**: Full-Stack Developers, Backend Engineers, and Security Architecture Engineers.
 

@@ -1,6 +1,7 @@
 # Module 06: Operating Kafka — Lag, Sizing and Reliability
 
-> **The Golden Rule of Kafka Production Operations**
+> [!TIP]
+> **The Golden Rule of Kafka Production Operations:**
 > Never monitor consumer lag as an aggregate group record count—a single poisoned partition will freeze while 49 healthy partitions mask the failure. Always evaluate lag **per-partition converted to time** ($\text{lag\_seconds} = \text{lag\_records} / \text{processing\_rate}$) and alert on its derivative ($\text{deriv}(\text{lag}) > 0$). To prevent infinite partition blockades, classify transient vs. permanent errors and route unparseable poison pills to a Dead-Letter Queue (DLQ) with rich diagnostic headers.
 
 ```mermaid

@@ -1,6 +1,7 @@
 # Module 01: Security — TLS, mTLS and Auth
 
-> **The Golden Rule of gRPC Security**
+> [!TIP]
+> **The Golden Rule of gRPC Security:**
 > Channel credentials verify the transport pipe and peer identity at connection time via TLS/mTLS; call credentials authenticate the caller per-RPC via metadata. Never conflate the two: mTLS proves which *service* is talking, while a signed JWT in metadata proves which *end-user* they are acting on behalf of. Always fail closed in auth interceptors and exempt `/grpc.health.v1.Health/Check` to prevent cluster-wide health probe blackouts.
 
 ```mermaid

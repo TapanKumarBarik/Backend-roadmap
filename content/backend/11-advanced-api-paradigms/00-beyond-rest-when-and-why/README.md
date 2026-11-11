@@ -1,6 +1,6 @@
 # Module 00: Beyond REST — When and Why
 
-> **Prerequisites**: [Track 02: HTTP Request-Response Fundamentals](../../01-request-response-fundamentals/README.md), [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md), and distributed systems networking concepts.  
+> **Prerequisites**: [Track 01: Request-Response Fundamentals](../../01-request-response-fundamentals/README.md), [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md), and distributed systems networking concepts.  
 > **Estimated Reading Time**: 35 minutes.  
 > **Target Audience**: Senior Backend Engineers, API Designers, and Enterprise Systems Architects.
 

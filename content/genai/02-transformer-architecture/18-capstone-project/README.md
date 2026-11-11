@@ -419,4 +419,4 @@ Because natural languages have strong unigram and lexical co-occurrence statisti
 
 ## Next Track
 
-Congratulations! You have completed **Track 02: Transformer Architecture**. Proceed to [Track 03: Pretraining and Fine-Tuning](../../03-pretraining-and-fine-tuning/README.md) or explore [Track 04: AI Systems & Serving](../../04-ai-systems-and-serving/README.md).
+Congratulations! You have completed **Track 02: Transformer Architecture**. Proceed to [Track 03: Landmark Models — BERT, GPT and MoE](../../03-landmark-models-bert-gpt-and-moe/README.md) or [Track 04: Training, Fine-Tuning and Alignment](../../04-training-fine-tuning-and-alignment/README.md).

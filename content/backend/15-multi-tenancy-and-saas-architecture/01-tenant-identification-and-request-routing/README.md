@@ -1,6 +1,6 @@
 # Module 01: Tenant Identification and Request Routing
 
-> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [API Layer and Request Handling](../../02-api-layer-and-request-handling/02-middleware-and-request-pipelines/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
+> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [Middleware Fundamentals](../../02-api-layer-and-request-handling/03-middleware-fundamentals/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
 > **Estimated Reading Time:** 28 minutes  
 > **Target Audience:** Backend engineers and API architects implementing front-door multi-tenant request resolution and context propagation pipelines.
 

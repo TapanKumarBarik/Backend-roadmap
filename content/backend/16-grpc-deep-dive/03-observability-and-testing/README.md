@@ -1,6 +1,7 @@
 # Module 03: Observability and Testing
 
-> **The Golden Rule of gRPC Observability & Testing**
+> [!TIP]
+> **The Golden Rule of gRPC Observability & Testing:**
 > Because gRPC lacks URL paths, `handler_call_details.method` is your primary grouping key for logs, metrics, and traces. Never test gRPC by calling servicer classes directly with mocked contexts—always execute tests against a real in-process gRPC server bound to ephemeral port `localhost:0`. Always wrap streaming handlers by consuming the generator in a `finally` block, and record status codes dynamically to prevent silent dashboard blind spots.
 
 ```mermaid

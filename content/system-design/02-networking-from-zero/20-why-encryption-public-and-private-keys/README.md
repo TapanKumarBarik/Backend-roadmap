@@ -101,7 +101,7 @@ sequenceDiagram
     S-->>C: Encrypted 200 OK JSON (AES-256-GCM using S_key)
 ```
 
-**The other way round: signatures.** The server can sign something with its private key, like a wax seal. Anyone with the public key can check the seal is real. That proves who sent it, and it's the base of certificates, in lesson 22.
+**The other way round: signatures.** The server can sign something with its private key, like a wax seal. Anyone with the public key can check the seal is real. That proves who sent it, and it's the base of certificates, in [lesson 22](../22-certificates-and-pki/README.md).
 
 **Real numbers.** An `AES` key is `128` or `256` bits. An `RSA` key is usually `2,048` bits, and an elliptic curve key (`X25519` / `P-256`) just `256`. Guessing a `128`-bit key means up to `2^128` (`~3.4 × 10^38`) tries: even with every computer on Earth, that takes far longer than the age of the universe.
 
@@ -433,7 +433,7 @@ The router can see the **IP addresses** and the **domain name** `jobs.competitor
 
 - **A leaked private key:** Anyone who has it can pretend to be your server. With old setups, they could even unlock traffic recorded months ago. That's why TLS 1.3 makes fresh keys for every connection: **forward secrecy**.
 - **Home-made encryption:** Base64 is not encryption: anyone can decode it in a second. A clever scheme you invented is almost always broken. Use standard, well-tested libraries.
-- **Encrypting to the wrong person:** If an attacker swaps in their own public key, you lock your secret for the attacker: a man in the middle. Encryption alone doesn't say who you're talking to. Certificates fix that, in lesson 22.
+- **Encrypting to the wrong person:** If an attacker swaps in their own public key, you lock your secret for the attacker: a man in the middle. Encryption alone doesn't say who you're talking to. Certificates fix that, in [lesson 22](../22-certificates-and-pki/README.md).
 
 ### Common Myths
 
@@ -527,4 +527,4 @@ Download these notes as a printable PDF, with every picture, the padlock picture
 
 ## Next
 
-Next comes lesson 21, HTTPS and the TLS handshake, step by step (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 21, the TLS 1.3 handshake step by step](../21-tls-1-3-handshake/README.md): how HTTPS sets up forward-secret keys in one round trip. See [the track overview](../README.md) for the whole series.

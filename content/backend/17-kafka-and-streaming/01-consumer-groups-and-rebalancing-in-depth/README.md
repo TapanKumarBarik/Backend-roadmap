@@ -1,6 +1,7 @@
 # Module 01: Consumer Groups and Rebalancing in Depth
 
-> **The Golden Rule of Kafka Consumer Groups**
+> [!TIP]
+> **The Golden Rule of Kafka Consumer Groups:**
 > Heartbeats are transmitted by a background thread and only prove the process is alive; they will NOT prevent eviction if your main processing thread blocks. To prevent catastrophic rebalance storms, satisfy the golden inequality: $\text{max.poll.records} \times \text{per-record processing time} < \text{max.poll.interval.ms}$. Always configure `cooperative-sticky` assignment to eliminate stop-the-world pauses, and use `group.instance.id` to survive rolling container deploys with zero rebalances.
 
 ```mermaid

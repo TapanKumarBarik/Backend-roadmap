@@ -1,6 +1,7 @@
 # Module 02: Delivery Semantics and Exactly-Once
 
-> **The Golden Rule of Kafka Delivery Semantics**
+> [!TIP]
+> **The Golden Rule of Kafka Delivery Semantics:**
 > Kafka transactions guarantee Exactly-Once Semantics (EOS) strictly within the Kafka-to-Kafka boundary (consume $\to$ transform $\to$ produce $\to$ commit offset). They do NOT roll back external database writes, credit card charges, or third-party webhooks. For external side effects, the correct production architecture is at-least-once delivery paired with an idempotent consumer backed by a unique database constraint (`ON CONFLICT DO NOTHING`). Always set `isolation.level = read_committed` on downstream consumers to prevent reading uncommitted or aborted batches.
 
 ```mermaid

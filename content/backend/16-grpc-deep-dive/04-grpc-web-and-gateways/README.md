@@ -1,6 +1,7 @@
 # Module 04: gRPC-Web, Gateways and Interop
 
-> **The Golden Rule of gRPC Web & Interoperability**
+> [!TIP]
+> **The Golden Rule of gRPC Web & Interoperability:**
 > Web browsers cannot communicate via native gRPC because browser networking APIs (`fetch`, `XHR`) cannot read HTTP/2 trailer frames or write request bodies incrementally. To expose gRPC to the web, you must either bridge through a gRPC-Web proxy (which encodes trailers into a framed chunk in the response body) or transcode to REST via `google.api.http` annotations. When transcoding to JSON, always enable `always_print_primitive_fields: true` to prevent proto3 default zero-values from vanishing from client JSON payloads.
 
 ```mermaid

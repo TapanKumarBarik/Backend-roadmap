@@ -43,6 +43,28 @@ const SOON = findSoonLecture();
 const SOON_LECTURE = SOON?.url;
 const NO_SOON = { skip: SOON ? false : 'every lecture with a video has its text now' };
 
+// Same dynamic lookup for an unwritten module that has no video yet: when every module is written, skip the E2E check
+// (unit tests keep the noindex/omission rule itself).
+function findUnwrittenNoVideo() {
+  const { tree } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'docs-index.json'), 'utf8'));
+  const { videos } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
+  const withVideo = new Set(videos.map((v) => v.file));
+  let found = null;
+  (function walk(nodes) {
+    for (const node of nodes || []) {
+      if (found) return;
+      if (node.file && node.planned && !withVideo.has(node.file)) {
+        found = `/${node.file.replace(/README\.md$/, '')}`;
+        return;
+      }
+      walk(node.children);
+    }
+  })(tree);
+  return found;
+}
+const UNWRITTEN_NO_VIDEO = findUnwrittenNoVideo();
+const NO_UNWRITTEN = { skip: UNWRITTEN_NO_VIDEO ? false : 'all modules are written now' };
+
 let browser;
 before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
@@ -343,8 +365,8 @@ test('a lecture whose text is not written yet is a page about its video: indexed
   assert.match(builtPage(track), new RegExp(`<a href="${SOON_LECTURE}">`), 'and its track links to it, so a crawler can find it');
 });
 
-test('an unwritten module with no video stays out of search results and keeps the site picture', () => {
-  const unwritten = '/genai/09-retrieval-augmented-generation/00-why-rag-exists/';
+test('an unwritten module with no video stays out of search results and keeps the site picture', NO_UNWRITTEN, () => {
+  const unwritten = UNWRITTEN_NO_VIDEO;
   const html = builtPage(unwritten);
   assert.match(html, /<meta name="robots" content="noindex, follow">/);
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dist', 'sitemap.xml'), 'utf8'), new RegExp(`<loc>${config.site.url}${unwritten}</loc>`));

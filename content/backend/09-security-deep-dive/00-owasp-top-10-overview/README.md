@@ -1,6 +1,6 @@
 # Module 00: The OWASP Top 10 as a Way of Thinking
 
-> **Prerequisites**: [Track 03: Authentication & Authorization](../../03-auth-and-access-control/README.md) (AuthN/AuthZ, JWTs, sessions, RBAC/ABAC).  
+> **Prerequisites**: [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md) (AuthN/AuthZ, JWTs, sessions, RBAC/ABAC).  
 > **Estimated Reading Time**: 35 minutes.  
 > **Target Audience**: Backend Engineers, Platform Engineers, and Application Security Practitioners.
 

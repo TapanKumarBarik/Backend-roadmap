@@ -170,7 +170,7 @@ sequenceDiagram
 #### The Fix & Architectural Hardening
 1. **Re-Enabled Persistent HTTP/Redis Connection Pools + Keep-Alives:** Replaced per-request sockets with `64` persistent long-lived connections (`500` RPS carried effortlessly across `64` steady 4-tuples instead of `30,000` churning ones!).
 2. **Widened Ephemeral Port Range (`ip_local_port_range = 10240 65535`):** Raised headroom on high-egress proxies as defense in depth, paired with Prometheus alerting when `TIME_WAIT` sockets exceed `50%` of local port supply.
-3. **Multiple Local Client IPs or Sharded Targets for Massive Gateways:** High-scale load balancers (Lesson 29) assign multiple outbound source IPs when single-IP `~55K` limits are reached.
+3. **Multiple Local Client IPs or Sharded Targets for Massive Gateways:** High-scale load balancers ([Lesson 29](../29-connection-pooling-and-keep-alive/README.md)) assign multiple outbound source IPs when single-IP `~55K` limits are reached.
 
 ---
 

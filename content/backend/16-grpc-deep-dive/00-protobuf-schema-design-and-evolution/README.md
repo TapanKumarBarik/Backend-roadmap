@@ -1,6 +1,7 @@
 # Module 00: Protobuf Schema Design and Evolution
 
-> **The Golden Rule of Protocol Buffers**
+> [!TIP]
+> **The Golden Rule of Protocol Buffers:**
 > The wire format transmits field numbers and wire types—never field names. Renaming a field is wire-compatible, but reusing or altering a field number is a catastrophic silent data corruption bug. Always reserve deleted field numbers and names, enforce explicit presence with `optional`, and version your packages (`v1`, `v2`) to prevent runtime disasters.
 
 ```mermaid

@@ -1,6 +1,7 @@
 # Module 08: Durable Workflow Orchestration
 
-> **The Golden Rule of Durable Orchestration**
+> [!TIP]
+> **The Golden Rule of Durable Orchestration:**
 > Workflows must be 100% deterministic functions of their event history, while activities encapsulate all side effects, I/O, and non-determinism. Never query the real clock, generate unseeded randomness, or make direct network calls inside a workflow definition—the engine replays workflow code from step zero on every recovery.
 
 ```mermaid

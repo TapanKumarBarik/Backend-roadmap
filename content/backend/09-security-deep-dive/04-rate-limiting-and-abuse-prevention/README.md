@@ -1,6 +1,6 @@
 # Module 04: Rate Limiting and Abuse Prevention
 
-> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md), and [Track 06: Redis Caching Fundamentals](../../06-background-processing-and-realtime/README.md).  
+> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md), and [Track 06: Background Processing & Realtime](../../06-background-processing-and-realtime/README.md).  
 > **Estimated Reading Time**: 35 minutes.  
 > **Target Audience**: Backend Engineers, API Gateway Architects, and Distributed Systems Engineers.
 

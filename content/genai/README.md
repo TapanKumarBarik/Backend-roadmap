@@ -61,21 +61,21 @@ Same convention as `backend/` and `learn/`:
 |---|-------|-----------------|
 | 00 | [GenAI Foundations](00-genai-foundations/README.md) | What generative AI actually is, how we got from rule-based systems to transformers, capabilities/limits, the shape of the modern GenAI stack |
 | 01 | [Tokens & Language Modeling](01-tokens-and-language-modeling/README.md) | What a token is, tokenization algorithms (BPE), vocabularies and context windows, next-token prediction, embeddings as vectors |
-| 02 | Transformer Architecture | Attention, self-attention step by step, multi-head attention, positional encoding, the full transformer block, encoder-only vs. decoder-only vs. encoder-decoder |
-| 03 | Landmark Models — BERT, GPT & MoE | Masked language modeling (BERT), causal language modeling (GPT), how GPT-1 through GPT-4 actually differ, why decoder-only architectures won, Mixture-of-Experts (MoE) models |
-| 04 | Training, Fine-Tuning & Alignment | Pretraining at a glance, supervised fine-tuning, RLHF/DPO, parameter-efficient fine-tuning (LoRA/QLoRA), quantization |
-| 05 | GPUs & GenAI Hardware | Why GPUs and not CPUs, GPU architecture for software engineers, VRAM and the real bottleneck, mixed precision, distributed training basics |
-| 06 | OpenAI & the Model Landscape | The OpenAI API, model families and how to choose one, function calling/structured outputs, the wider landscape (Anthropic, Google, open-weight models), small language models (SLMs) and on-device AI, pricing and context windows |
-| 07 | Prompt Engineering | Anatomy of a good prompt, few-shot and chain-of-thought, system prompts, structured/JSON outputs, prompt injection |
-| 08 | Embeddings & Vector Databases | Embedding models and similarity, chunking strategies, vector database overview, approximate nearest neighbor search, picking/operating a vector DB |
-| 09 | Retrieval-Augmented Generation (RAG) | RAG architecture, retrieval strategies and hybrid search, reranking, evaluating RAG systems, common failure modes |
-| 10 | AI Agents | What an agent actually is, the ReAct loop, tool/function calling for agents, planning and memory, single-agent design patterns — built by hand, no framework yet |
-| 11 | LangChain & LangGraph | The framework layer for what track 10 just built by hand: LangChain's core abstractions, chains and memory, tools and retrievers, LangGraph's graph model, state/cycles/checkpointing |
-| 12 | Agent Orchestration & Multi-Agent Systems | Why multi-agent, orchestrator-worker patterns, supervisor/swarm patterns, inter-agent communication, framework comparison |
-| 13 | Model Context Protocol (MCP) | What MCP is and why it exists, host/client/server architecture, building an MCP server, MCP vs. function calling, the ecosystem |
-| 14 | Inference & Serving — vLLM | The serving problem, KV cache and continuous batching, PagedAttention and vLLM, quantized/multi-GPU serving, choosing a serving stack |
-| 15 | Evaluation, Observability & Safety | Evaluating LLM outputs, hallucination detection, guardrails, observability/tracing for agents, cost monitoring |
-| 16 | Speech & Multimodal Models | Speech recognition (Whisper-style STT), text-to-speech, realtime speech-to-speech voice agents, vision/multimodal LLMs |
+| 02 | [Transformer Architecture](02-transformer-architecture/README.md) | Attention, self-attention step by step, multi-head attention, positional encoding, the full transformer block, encoder-only vs. decoder-only vs. encoder-decoder |
+| 03 | [Landmark Models — BERT, GPT & MoE](03-landmark-models-bert-gpt-and-moe/README.md) | Masked language modeling (BERT), causal language modeling (GPT), how GPT-1 through GPT-4 actually differ, why decoder-only architectures won, Mixture-of-Experts (MoE) models |
+| 04 | [Training, Fine-Tuning & Alignment](04-training-fine-tuning-and-alignment/README.md) | Pretraining at a glance, supervised fine-tuning, RLHF/DPO, parameter-efficient fine-tuning (LoRA/QLoRA), quantization |
+| 05 | [GPUs & GenAI Hardware](05-gpus-and-genai-hardware/README.md) | Why GPUs and not CPUs, GPU architecture for software engineers, VRAM and the real bottleneck, mixed precision, distributed training basics |
+| 06 | [OpenAI & the Model Landscape](06-openai-and-the-model-landscape/README.md) | The OpenAI API, model families and how to choose one, function calling/structured outputs, the wider landscape (Anthropic, Google, open-weight models), small language models (SLMs) and on-device AI, pricing and context windows |
+| 07 | [Prompt Engineering](07-prompt-engineering/README.md) | Anatomy of a good prompt, few-shot and chain-of-thought, system prompts, structured/JSON outputs, prompt injection |
+| 08 | [Embeddings & Vector Databases](08-embeddings-and-vector-databases/README.md) | Embedding models and similarity, chunking strategies, vector database overview, approximate nearest neighbor search, picking/operating a vector DB |
+| 09 | [Retrieval-Augmented Generation (RAG)](09-retrieval-augmented-generation/README.md) | RAG architecture, retrieval strategies and hybrid search, reranking, evaluating RAG systems, common failure modes |
+| 10 | [AI Agents](10-ai-agents/README.md) | What an agent actually is, the ReAct loop, tool/function calling for agents, planning and memory, single-agent design patterns — built by hand, no framework yet |
+| 11 | [LangChain & LangGraph](11-langchain-and-langgraph/README.md) | The framework layer for what track 10 just built by hand: LangChain's core abstractions, chains and memory, tools and retrievers, LangGraph's graph model, state/cycles/checkpointing |
+| 12 | [Agent Orchestration & Multi-Agent Systems](12-agent-orchestration-and-multi-agent-systems/README.md) | Why multi-agent, orchestrator-worker patterns, supervisor/swarm patterns, inter-agent communication, framework comparison |
+| 13 | [Model Context Protocol (MCP)](13-model-context-protocol-mcp/README.md) | What MCP is and why it exists, host/client/server architecture, building an MCP server, MCP vs. function calling, the ecosystem |
+| 14 | [Inference & Serving — vLLM](14-inference-and-serving-vllm/README.md) | The serving problem, KV cache and continuous batching, PagedAttention and vLLM, quantized/multi-GPU serving, choosing a serving stack |
+| 15 | [Evaluation, Observability & Safety](15-evaluation-observability-and-safety/README.md) | Evaluating LLM outputs, hallucination detection, guardrails, observability/tracing for agents, cost monitoring |
+| 16 | [Speech & Multimodal Models](16-speech-and-multimodal-models/README.md) | Speech recognition (Whisper-style STT), text-to-speech, realtime speech-to-speech voice agents, vision/multimodal LLMs |
 
 By the end of track 15 (with track 16 as an optional modality extension), you should be able to design an agentic RAG system,
 justify every architectural choice in it (retrieval strategy, agent

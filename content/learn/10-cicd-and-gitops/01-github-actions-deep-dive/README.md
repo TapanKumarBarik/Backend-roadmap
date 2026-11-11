@@ -1,6 +1,6 @@
 # 01 - GitHub Actions Deep Dive
 
-> **Prerequisites**: [00 - CI/CD Concepts & Pipeline Anatomy](../00-cicd-concepts-and-pipeline-anatomy/README.md), [01 - Linux & Git Fundamentals](../../01-linux-and-git/00-shell-scripting-and-bash/README.md).  
+> **Prerequisites**: [00 - CI/CD Concepts & Pipeline Anatomy](../00-cicd-concepts-and-pipeline-anatomy/README.md), [01 - Linux (Bash Scripting)](../../01-linux/09-bash-scripting/README.md).  
 > **Target Audience**: DevOps Engineers, Platform Engineers, and Backend Systems Developers architecting declarative, secure, multi-job automation pipelines.  
 > **Estimated Deep-Dive Time**: 40 minutes.
 

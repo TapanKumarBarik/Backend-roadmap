@@ -664,5 +664,5 @@ ETag: "w/etag-ord-12345"
 ## Next Steps
 
 Congratulations! You have completed **Step 2: API Layer & Request Handling**. Next, advance to **Step 3: Authentication and Authorization**:
-[../../03-authentication-and-authorization/00-auth-fundamentals/README.md](../../03-authentication-and-authorization/00-auth-fundamentals/README.md)
+[../../03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless/README.md](../../03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless/README.md)
 Master password hashing (Argon2id), secure session cookies, JWT validation attacks, OAuth 2.0 / OIDC flows, and fine-grained RBAC/ABAC authorization.

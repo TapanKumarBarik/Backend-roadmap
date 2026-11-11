@@ -1,6 +1,7 @@
 # Module 05: Performance and Benchmarking
 
-> **The Golden Rule of gRPC Benchmarking**
+> [!TIP]
+> **The Golden Rule of gRPC Benchmarking:**
 > "gRPC is 10× faster than REST" is an industry myth born of flawed benchmarks that compare persistent gRPC channels against unpooled HTTP/1.1 connections. In real-world systems where handlers query a database, serialization is negligible (~0.3ms vs ~25ms SQL latency). Never measure closed-loop concurrency alone (which conceals tail queueing via self-throttling)—always benchmark open-loop load (`ghz --rps`), report p95/p99 percentiles instead of means, and verify zero error rates before trusting throughput numbers.
 
 ```mermaid

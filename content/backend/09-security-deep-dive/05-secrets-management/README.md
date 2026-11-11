@@ -1,6 +1,6 @@
 # Module 05: Secrets Management and Zero-Downtime Rotation
 
-> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md), and asymmetric/symmetric cryptographic fundamentals.  
+> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Track 03: Authentication & Authorization](../../03-authentication-and-authorization/README.md), and asymmetric/symmetric cryptographic fundamentals.  
 > **Estimated Reading Time**: 35 minutes.  
 > **Target Audience**: Backend Engineers, Platform Engineers, and DevSecOps Practitioners.
 

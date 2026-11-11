@@ -1,6 +1,7 @@
 # Module 03: Schemas and Evolution with Schema Registry
 
-> **The Golden Rule of Event Schema Evolution**
+> [!TIP]
+> **The Golden Rule of Event Schema Evolution:**
 > Retained Kafka log records are immutable. A schema change must remain backward-compatible with every record version ever written that still resides within retention. Always configure `BACKWARD_TRANSITIVE` compatibility to prevent incremental drift across versions, enforce defaults on all newly added fields, and deploy consumers *before* producers. When multiple event types share a single topic to preserve ordering, use `TopicRecordNameStrategy`.
 
 ```mermaid
