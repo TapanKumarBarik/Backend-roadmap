@@ -1,233 +1,557 @@
 # Lesson 04: Ports and Sockets: Which App Gets the Packet
 
-## Roadmap
+> **Prerequisites:** [Lesson 03: IP Addresses](../03-ip-addresses/README.md) ([Track Overview](../README.md)).  
+> **Estimated Reading Time:** 24 minutes  
+> **Target Audience:** Developers understanding how multiple apps share one machine's IP and backend engineers diagnosing `EADDRINUSE`, ephemeral port exhaustion, `TIME_WAIT` storms, and socket/4-tuple limits in high-concurrency proxies.  
+> **Free PDF Notes:** [Download SD-N-004.pdf](https://backendroadmap.com/notes/system-design/SD-N-004.pdf)
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 4 of 30. It builds on [lesson 3](../03-ip-addresses/README.md), where the IP address gets a packet to the right device, like the address that gets a courier to the right flat. The next lesson is [protocols and layers](../05-protocols-and-layers/README.md). See [the track overview](../README.md) for the whole plan.
+> [!TIP]
+> **The Golden Rule of Ports & Sockets:** An **IP address** delivers packets to the right **device**, while a **16-bit port (`0–65,535`)** delivers them to the exact **application** inside it. Every active TCP connection is uniquely identified by a **4-tuple**—`(source IP, source port, destination IP, destination port)`—which lets one web server listening on port `443` handle millions of simultaneous users without collisions, **as long as outbound proxy hosts don't burn through their finite ephemeral port pool!**
 
-These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-004.pdf](https://backendroadmap.com/notes/system-design/SD-N-004.pdf).
+---
 
-## Concept
+## Words You'll Meet Today
 
-> [!key] The IP address gets a packet to the device; the port, a 16-bit number from 0 to 65,535, gets it to one app on that device. Servers listen on well-known ports such as 443, clients are lent a random high (ephemeral) port, and a connection is a pair of sockets: four values (client IP, client port, server IP, server port) that make it unique.
+| Word | Everyday Meaning | Role in a Live Network |
+| :--- | :--- | :--- |
+| **Port** | A `16-bit` number (`0–65,535`) identifying a specific application or service on a machine. | Appends after the IP (`192.168.1.5:443`) inside TCP/UDP headers. |
+| **Socket** | One endpoint of a live connection: an IP address paired with a port number. | Kernel handle (`file descriptor` on Linux) backing reads/writes to the network. |
+| **Listening** | A server app waiting passively on an assigned port for incoming clients. | `listen()` puts a port in `LISTEN` state (`nginx` on `:443`, Postgres on `:5432`). |
+| **Protocol** | The agreed conversation language (e.g., `TCP` or `UDP`). | TCP port `53` and UDP port `53` are **distinct independent mailboxes**! |
+| **Well-Known Port** | Standardized port (`0–1023`) reserved for core internet services. | `:80` HTTP, `:443` HTTPS, `:22` SSH, `:53` DNS, `:25` SMTP. |
+| **Ephemeral Port** | Temporary short-lived client port picked automatically by the OS for one outbound call. | Linux default: `32,768–60,999` (`28,232` ports); IANA standard: `49,152–65,535`. |
+| **Connection** | Paired conversation defined by two sockets (the **4-tuple**). | `(src_ip, src_port, dst_ip, dst_port)` keeps tabs/clients separate cleanly. |
+| **Address Already in Use** | OS error (`EADDRINUSE`) thrown when two processes attempt to listen on the same IP + port + protocol. | Requires stopping the existing process, choosing another port, or tuning `SO_REUSEADDR`/`SO_REUSEPORT`. |
 
-## Words you'll meet today
+---
 
-| Word | In plain words |
-|---|---|
-| **Port** | a number (0 to 65,535) that names one app on a device |
-| **Socket** | one end of a conversation: an IP address plus a port |
-| **Listening** | an app waiting for packets on its port |
-| **Protocol** | agreed rules for talking; TCP and UDP are the two main ones |
-| **Well-known port** | a fixed number for a common service, 0 to 1023 (443 is HTTPS) |
-| **Ephemeral port** | a high random port lent to a client for one conversation |
-| **Connection** | a pair of sockets: client IP and port, server IP and port |
-| **Address already in use** | the error you get when a second app tries to listen on a taken port |
+## Visual Mental Models & Architecture
 
-## The question: which app gets the packet?
+### The Flat With Multiple People Inside
 
-Your phone is running WhatsApp, Chrome and Spotify, all at the same time. A message arrives, a web page arrives, a song arrives.
+In [Lesson 03](../03-ip-addresses/README.md), we mapped the IP address to **flat `5`** inside an apartment building. Now look inside flat `5`: **Mom, the kid, and Grandpa** all live there! If a parcel reads only `"flat 5"`, nobody knows whose hands to put it in—you write **"Priya — flat 5"** or **"Arjun — flat 5"** on the envelope.
 
-But in lesson 3, we saw that your phone has one IP address. All three apps share it. So when a packet arrives, how does the phone know which app it's for?
+On one computer running a web server, database, SSH daemon, and background worker simultaneously, **the IP address finds flat `5`, and the port number is the person's name on the envelope**:
 
-## An everyday picture first: the people inside the flat
-
-In lesson 3, the address got the courier to one flat. But a flat has people in it: Mom, the kid, and Grandpa.
-
-The courier brings a bank letter and a parcel. The flat number gets both to the door. The **name** on each one says who inside wants it. The letter is for Mom. The parcel is for the kid.
-
-And someone must be home, waiting for it. If nobody with that name lives here, the letter can't be delivered.
-
-![A purple flat 5 with Mom, a kid and Grandpa. A bank letter says for: Mom and a parcel says for: kid. On the right: the flat is your device, found by its IP address; the people are the apps; the name on the envelope is the port number; someone at home waiting is an app listening on its port.](images/figure-1.svg)
+![Figure 1. The flat (lesson 3's device) has people inside: the apps. The name on each envelope is the port, so the right person gets it.](images/figure-1.svg)
 
 *Figure 1. The flat (lesson 3's device) has people inside: the apps. The name on each envelope is the port, so the right person gets it.*
 
-## Now the real thing
+When your browser opens [`https://backendroadmap.com`](https://backendroadmap.com), it secretly connects to **`backendroadmap.com:443`**—IP gets the packet onto the host, and `:443` tells the OS kernel *"hand this to the HTTPS web server."*
 
-| The flat | In a network |
-|---|---|
-| The flat | your device, found by its **IP address** ([lesson 3](../03-ip-addresses/README.md)) |
-| The people inside | the **apps** running on it |
-| The name on the envelope | the **port number**, written in each packet's header |
-| Someone at home, waiting | an app **listening** on its port |
-
-So every packet carries two things. The IP address, to reach the device. And the port, to reach one app on it. Together they say: this device, this app.
-
-## What a port looks like
-
-A port is just a number, written after the address with a colon. So `192.168.1.5:443` means: that device, port 443.
-
-A port is stored in 16 bits. 2 to the power 16 is 65,536. So ports go from **0 to 65,535**: over 65,000 possible ports on every device.
-
-![The text 192.168.1.5:443 with the address in blue, braced as the device, and 443 in orange, braced as the app. Below, sixteen cells of zeros (port 0) and sixteen cells of ones (port 65,535).](images/figure-2.svg)
+![Figure 2. Anatomy of 192.168.1.5:443: the IP address finds the device, the port after the colon finds the app. A port is 16 bits, 0 to 65,535.](images/figure-2.svg)
 
 *Figure 2. Anatomy of 192.168.1.5:443: the IP address finds the device, the port after the colon finds the app. A port is 16 bits, 0 to 65,535.*
 
-The low ones, **0 to 1023**, are **well-known ports**, fixed for common services:
+### One Server Port, Many Simultaneous Connections (The 4-Tuple!)
 
-| Port | Service | What it's for |
-|---|---|---|
-| **80** | HTTP | the web |
-| **443** | HTTPS | the secure web |
-| **22** | SSH | logging in to a server |
-| **53** | DNS | looking up names (lessons 15 to 17) |
-| **25** | SMTP | sending email between mail servers |
+A **socket** is one end of a conversation (`IP + port`). An entire live **connection** pairs **both sockets**—creating a **4-tuple**:
 
-That's why you never type a port. Open a web address, and the browser uses 443 by itself: `https://backendroadmap.com` means `backendroadmap.com:443`.
-
-## Listening, and the protocol
-
-On a server, an app opens a port and waits. That's called **listening**, like Mom at home, waiting for her letter. A web server listens on 443, and a packet for port 443 goes to it, and only to it.
-
-One more detail. Each port belongs to a **protocol**: TCP or UDP, two sets of rules for sending data. Port 53 over TCP and port 53 over UDP are separate. You'll meet TCP in lessons 8 to 11 ([lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out) and UDP in lesson 12.
-
-## Your side: an ephemeral port
-
-Your browser isn't a well-known service. So when it connects, your laptop lends it a port: a high random number, for example **51,234**. It's called an **ephemeral port**, because it lasts only as long as the conversation.
-
-They come from a high range. The official one is **49,152 to 65,535**. Linux uses **32,768 to 60,999** by default, which is 28,232 ports.
-
-![A number line from 0 to 65,535. A thin green band at the start is the well-known ports, 0 to 1023. A blue band from 49,152 to 65,535 is the official ephemeral range. A purple band below, from 32,768 to 60,999, is the Linux default. An orange marker shows 51,234.](images/figure-3.svg)
-
-*Figure 3. All 65,536 ports on one line, to scale: well-known 0 to 1023 at the very start, the official ephemeral range 49,152 to 65,535, and the Linux default 32,768 to 60,999.*
-
-> [!tip] **See them yourself.** On Windows, Mac or Linux, type `netstat -an` (on Linux, `ss -tan` works too). Each line is one socket: an address, a colon and a port. Lines that say `LISTEN` are apps waiting on their port; the others are live connections, with your side's high ephemeral port.
-
-## Sockets and connections
-
-A **socket** is one end of a conversation: an IP address plus a port. Your laptop's end is `203.0.113.7:51234`. The server's end is `198.51.100.10:443`.
-
-A **connection** is the pair of sockets: four values. Client IP, client port, server IP, server port. No two connections share all four.
-
-![Your laptop with the socket 203.0.113.7:51234 in blue, a dashed line labelled one conversation, and the server with the socket 198.51.100.10:443 in green. Below, the four values: client IP 203.0.113.7, client port 51234, server IP 198.51.100.10, server port 443.](images/figure-4.svg)
+![Figure 4. A socket is one end of a conversation, an IP address plus a port. A connection is the pair of sockets: four values.](images/figure-4.svg)
 
 *Figure 4. A socket is one end of a conversation, an IP address plus a port. A connection is the pair of sockets: four values.*
 
-So one server port can serve many people. Your second tab gets another port: 51,235. A friend connects from a different address. Same server port, but every connection is unique:
+How does **one** Nginx instance listening strictly on `:443` serve two tabs from your laptop AND your friend's phone at the exact same millisecond? Because **every 4-tuple row in the kernel table differs in at least one column**:
 
-| Connection | Client IP | Client port | Server IP | Server port |
-|---|---|---|---|---|
-| your tab 1 | 203.0.113.7 | 51234 | 198.51.100.10 | 443 |
-| your tab 2 | 203.0.113.7 | **51235** | 198.51.100.10 | 443 |
-| a friend | **192.0.2.25** | 50112 | 198.51.100.10 | 443 |
-
-![A table of three connections to 198.51.100.10 port 443: tab 1 from 203.0.113.7 port 51234, tab 2 from 203.0.113.7 port 51235, and a friend from 192.0.2.25 port 50112. The differing value in each row is orange. The server port column is braced as the same.](images/figure-5.svg)
+![Figure 5. One server port serves many connections: a second tab gets another client port, a friend has another address, and every four-value row is still unique.](images/figure-5.svg)
 
 *Figure 5. One server port serves many connections: a second tab gets another client port, a friend has another address, and every four-value row is still unique.*
 
-## Step by step: one request
+| Connection | Client Socket (`src_ip : src_port`) | Server Socket (`dst_ip : dst_port`) | Unique 4-Tuple? |
+| :--- | :--- | :--- | :--- |
+| **Tab #1 (You)** | `203.0.113.7:51234` | `198.51.100.10:443` | Unique (`51234`) |
+| **Tab #2 (You)** | `203.0.113.7:51235` | `198.51.100.10:443` | Unique (`51235`) |
+| **Friend's Phone** | `192.0.2.25:50112` | `198.51.100.10:443` | Unique (`192.0.2.25` + `50112`) |
 
-Let's follow one request. Each step has a job.
+### Step-by-Step Lifecycle of One Request
 
-1. **Listen.** The web server starts, and listens on 443. The job: be ready before anyone calls.
-2. **Get a port.** Your browser asks for a socket, and gets port 51,234. The job: give the reply a way back to this one app.
-3. **Send.** The packet goes out, from `203.0.113.7:51234` to `198.51.100.10:443`. The server reads the port, and hands it to the web server. The job: carry both ends, so each side knows where to reply.
-4. **Reply.** The reply comes back with the ports swapped: from 443, to 51,234. Your laptop reads the port, and gives it to the browser. Not to WhatsApp, not to Spotify. The job: the right app, every time.
-
-![Left: a laptop at 203.0.113.7 running a browser, WhatsApp and Spotify; the browser has port 51234. Middle: the internet. Right: a server at 198.51.100.10 with a web server listening on port 443. A blue request arrow goes right and a green reply arrow comes back. Four numbered steps are listed below.](images/figure-6.svg)
+![Figure 6. One request, step by step: listen, get a port, send, reply. The ports in the header pick the app at each end.](images/figure-6.svg)
 
 *Figure 6. One request, step by step: listen, get a port, send, reply. The ports in the header pick the app at each end.*
 
-> [!note] **For the curious.** At home, your router also rewrites the port as it shares one public address, so the server may see a different client port. That's NAT, lesson 14. The addresses 203.0.113.7, 198.51.100.10 and 192.0.2.25 come from ranges reserved for examples in documentation (RFC 5737), so they belong to nobody real.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor App as "Client App (Browser Tab)"
+    participant ClientOS as "Client OS Kernel"
+    participant ServerOS as "Server OS Kernel (198.51.100.10)"
+    participant ServerApp as "Server Process (Listening on :443)"
 
-## What goes wrong
+    Note over ServerApp,ServerOS: Step 1: Server binds and listens on TCP :443
+    ServerApp->>ServerOS: "bind(0.0.0.0:443) + listen()"
+    Note over App,ClientOS: Step 2: Client opens outbound socket
+    App->>ClientOS: "connect(198.51.100.10:443)"
+    ClientOS->>ClientOS: "Auto-assign ephemeral port 51234"
+    Note over ClientOS,ServerOS: Step 3: Send packet carrying src=51234, dst=443
+    ClientOS->>ServerOS: "Packet [src 203.0.113.7:51234 -> dst 198.51.100.10:443]"
+    ServerOS->>ServerApp: "Route via :443 listener to ServerApp"
+    Note over ServerApp,ClientOS: Step 4: Reply reverses src and dst ports!
+    ServerApp->>ServerOS: "Write HTTP response onto 4-tuple socket"
+    ServerOS->>ClientOS: "Packet [src 198.51.100.10:443 -> dst 203.0.113.7:51234]"
+    ClientOS->>App: "Lookup 4-tuple -> wake exact Browser Tab holding :51234!"
+```
 
-- **Port already in use.** You start a web server on port 8080. Then you start a second one, also on 8080. It fails: `address already in use`. One port, one listener; otherwise, the system couldn't know which app gets the packet. The fix: stop the old one, or pick another port.
-- **Running out of ports.** Linux has about 28,000 ephemeral ports. A busy server that opens a new connection to its database for every request can use them all, because closed ones stay reserved for a while. New connections fail. Why, and the fix, is lesson 11 (and reusing connections is lesson 29).
+---
 
-![Left: web server 1 listens on port 8080; web server 2, in red, also tries port 8080 and gets the error address already in use. Right: a busy app server opens many connections to a database, and a bar of about 28,000 ephemeral ports fills up in red, so new connections fail.](images/figure-7.svg)
+## Real Numbers & Systematic Reference Grids
+
+A port field inside TCP and UDP packet headers is **`16 bits`**, permitting exactly **$2^{16} = 65{,}536$** distinct values (`0` through `65,535`). Those `65,536` ports partition cleanly into three operational zones:
+
+![Figure 3. All 65,536 ports on one line, to scale: well-known 0 to 1023 at the very start, the official ephemeral range 49,152 to 65,535, and the Linux default 32,768 to 60,999.](images/figure-3.svg)
+
+*Figure 3. All 65,536 ports on one line, to scale: well-known 0 to 1023 at the very start, the official ephemeral range 49,152 to 65,535, and the Linux default 32,768 to 60,999.*
+
+### The `65,536`-Port Map & OS Ephemeral Ranges
+
+| Port Range | Category | Count | Real-World Usage & OS Rules |
+| :--- | :--- | :--- | :--- |
+| **`0–1023`** | **Well-Known / System Ports** | `1,024` | Standard services (`22` SSH, `25` SMTP, `53` DNS, `80` HTTP, `443` HTTPS). Linux requires root or `CAP_NET_BIND_SERVICE` to bind. |
+| **`1024–49151`** | **Registered / User Ports** | `48,128` | Application servers & databases (`3000` dev web, `3306` MySQL, `5432` PostgreSQL, `6379` Redis, `8080` HTTP alt). |
+| **`49152–65535`** | **IANA Ephemeral / Dynamic** | `16,384` | Official IANA dynamic outbound range (also Windows/macOS modern default). |
+| **`32768–60999`** | **Linux Default Ephemeral** | **`28,232`** | Default `ip_local_port_range` on Linux—controls max simultaneous outbound connections to **one** fixed destination IP:port! |
+
+### Essential Well-Known Service Ports Cheat Sheet
+
+| Port | Transport Protocol | Service | Operational Notes |
+| :--- | :--- | :--- | :--- |
+| **`22`** | TCP | **SSH** | Encrypted remote administration shell. |
+| **`25`** | TCP | **SMTP** | Server-to-server email delivery relay. |
+| **`53`** | **UDP + TCP** | **DNS** | UDP for fast small lookups; TCP fallback for large responses (`DNSSEC` / zone transfers)—held as separate mailboxes! |
+| **`80`** | TCP | **HTTP** | Unencrypted web traffic (typically `301` redirects immediately to `:443`). |
+| **`443`** | TCP (HTTP/1.1, H2) / UDP (H3) | **HTTPS (TLS)** | Encrypted web & API traffic (`HTTP/3` QUIC runs over UDP `:443`, covered in Lesson 05/23). |
+
+---
+
+## What Goes Wrong & Production War Story Post-Mortem
+
+Two classic port failures strike engineering teams repeatedly:
+
+![Figure 7. What goes wrong: two apps trying to listen on one port (address already in use), and a busy client using up its ephemeral ports.](images/figure-7.svg)
 
 *Figure 7. What goes wrong: two apps trying to listen on one port (address already in use), and a busy client using up its ephemeral ports.*
 
-## Pause and think
+1. **Two listeners on the same port (`EADDRINUSE`):** Launching a second dev server on `:8080` while an older background worker still owns `:8080` fails cleanly at `bind()`.
+2. **Ephemeral port exhaustion (`EADDRNOTAVAIL`):** When one busy proxy/client opens thousands of short-lived connections per second to **one fixed server** (e.g., `10.0.1.50:6379`), every closed TCP socket lingers in **`TIME_WAIT`** (typically `60 seconds` on Linux, covered deeply in Lesson 11) before its ephemeral port frees back to the pool—exhausting all **`28,232` ports** at just **`~470` new connections/sec**!
 
-> [!exercise] A shop's server listens on port 443. 100,000 phones connect at the same time. Does it need 100,000 ports? Decide before you open the answer.
+### SEV-1 Post-Mortem: The Reverse Proxy That Exhausted `28,232` Ephemeral Ports Against Redis
 
-<details><summary>Answer</summary>
+#### Incident Overview
+* **Severity:** SEV-1 (`100%` Checkout Failure With `connect: cannot assign requested address`)
+* **Detection Time:** `4 minutes` after a library upgrade silently disabled Redis connection pooling
+* **Resolution Time:** `26 minutes`
+* **Impact:** Our API gateway maintained under `500` concurrent requests/sec (`~480` RPS), yet outbound calls to a single internal Redis host (`10.20.1.50:6379`) collapsed with `EADDRNOTAVAIL` despite Redis CPU sitting at `4%`!
 
-No. They all use the same server port, 443. Each connection is still unique, because the client's address or port is different. One port, 100,000 different pairs.
+#### What Happened
+```mermaid
+sequenceDiagram
+    autonumber
+    actor API as "API Proxy Host (28,232 Linux Ephemeral Ports)"
+    participant Kernel as "Proxy OS TCP Stack"
+    participant Redis as "Single Redis Endpoint (10.20.1.50:6379)"
 
-![Eighteen small blue phones stand for 100,000 phones. Green arrows from them all point to port 443 on the shop's server. Text: no, one port is enough; each connection differs in the client's address or port.](images/figure-8.svg)
+    Note over API,Redis: Library bug opens & closes brand-new TCP connection PER request (500/sec)!
+    API->>Kernel: "Request #1 -> Pick ephemeral :32768 -> connect 10.20.1.50:6379"
+    Kernel->>Redis: "Fetch key + close()"
+    Kernel->>Kernel: "Port :32768 enters TIME_WAIT lock for 60 seconds!"
+    Note over Kernel: "500 new conn/sec x 60s = 30,000 ports locked > 28,232 cap!"
+    API->>Kernel: "Request #28,233 -> Need free ephemeral port!"
+    Kernel--xAPI: "EADDRNOTAVAIL (Cannot assign requested address!)"
+```
+
+1. An upgraded SDK wrapper opened a **fresh TCP connection per HTTP request** (`conn = connect(); get(); close()`) instead of reusing a persistent connection pool.
+2. Each closed TCP connection to `10.20.1.50:6379` held its client ephemeral port in `TIME_WAIT` for `60 seconds`.
+3. `500 requests/sec × 60 seconds = 30,000` locked 4-tuples—crossing Linux's `28,232` (`32,768–60,999`) ephemeral ceiling!
+4. Every new outbound request crashed immediately inside the proxy OS kernel before even hitting the wire (`Redis` itself stayed `96%` idle!).
+
+#### Root Cause Analysis
+1. **Disabled TCP Connection Pooling:** Opening/closing ephemeral 4-tuples per call turned `500 RPS` into `30,000` locked `TIME_WAIT` sockets inside 60 seconds.
+2. **All Traffic Funnelled Toward One Single Fixed `(IP, Port)` Target:** Because destination `10.20.1.50:6379` was identical for every call, only **`source_port`** could vary across the 4-tuple—capping concurrency strictly at `ip_local_port_range`!
+
+#### The Fix & Architectural Hardening
+1. **Re-Enabled Persistent HTTP/Redis Connection Pools + Keep-Alives:** Replaced per-request sockets with `64` persistent long-lived connections (`500` RPS carried effortlessly across `64` steady 4-tuples instead of `30,000` churning ones!).
+2. **Widened Ephemeral Port Range (`ip_local_port_range = 10240 65535`):** Raised headroom on high-egress proxies as defense in depth, paired with Prometheus alerting when `TIME_WAIT` sockets exceed `50%` of local port supply.
+3. **Multiple Local Client IPs or Sharded Targets for Massive Gateways:** High-scale load balancers (Lesson 29) assign multiple outbound source IPs when single-IP `~55K` limits are reached.
+
+---
+
+## Multi-Language Production Implementation: Safe Port Binding (`SO_REUSEADDR`) & 4-Tuple Connection Table Tracker
+
+Each implementation demonstrates two fundamental socket/port patterns: **(1)** gracefully catching **`EADDRINUSE`** (`address already in use`) when binding a listener while enabling socket reuse properly, and **(2)** modeling a kernel **4-tuple router + ephemeral port allocator** that isolates concurrent connections to the exact same server port (`:443`) and signals exhaustion cleanly.
+
+````carousel
+```go
+package socklab
+
+import (
+	"errors"
+	"fmt"
+	"net"
+)
+
+type FourTuple struct {
+	SrcIP   string
+	SrcPort int
+	DstIP   string
+	DstPort int
+}
+
+type ConnectionTable struct {
+	active     map[FourTuple]string
+	nextPort   int
+	maxPort    int
+}
+
+func NewConnectionTable(ephemeralStart, ephemeralEnd int) *ConnectionTable {
+	return &ConnectionTable{
+		active:   make(map[FourTuple]string),
+		nextPort: ephemeralStart,
+		maxPort:  ephemeralEnd,
+	}
+}
+
+func (t *ConnectionTable) OpenClientConnection(clientIP, serverIP string, serverPort int, handler string) (FourTuple, error) {
+	for port := t.nextPort; port <= t.maxPort; port++ {
+		tuple := FourTuple{SrcIP: clientIP, SrcPort: port, DstIP: serverIP, DstPort: serverPort}
+		if _, exists := t.active[tuple]; !exists {
+			t.active[tuple] = handler
+			t.nextPort = port + 1
+			return tuple, nil
+		}
+	}
+	return FourTuple{}, errors.New("EADDRNOTAVAIL: ephemeral ports exhausted for target socket")
+}
+
+// ListenSafely attempts to bind a port and reports clear diagnostics if already taken.
+func ListenSafely(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed binding %s (check for EADDRINUSE): %w", addr, err)
+	}
+	return ln, nil
+}
+```
+<!-- slide -->
+```typescript
+import * as net from "node:net";
+
+export interface FourTuple {
+  srcIp: string;
+  srcPort: number;
+  dstIp: string;
+  dstPort: number;
+}
+
+export class KernelConnectionTable {
+  private readonly table = new Map<string, string>();
+  private cursor: number;
+
+  constructor(private readonly startPort = 32768, private readonly endPort = 60999) {
+    this.cursor = startPort;
+  }
+
+  private key(t: FourTuple): string {
+    return `${t.srcIp}:${t.srcPort}->${t.dstIp}:${t.dstPort}`;
+  }
+
+  openOutbound(clientIp: string, serverIp: string, serverPort: number, tabName: string): FourTuple {
+    const capacity = this.endPort - this.startPort + 1;
+    for (let i = 0; i < capacity; i++) {
+      const port = this.startPort + ((this.cursor - this.startPort + i) % capacity);
+      const tuple: FourTuple = { srcIp: clientIp, srcPort: port, dstIp: serverIp, dstPort: serverPort };
+      const k = this.key(tuple);
+      if (!this.table.has(k)) {
+        this.table.set(k, tabName);
+        this.cursor = port + 1;
+        return tuple;
+      }
+    }
+    throw new Error(`EADDRNOTAVAIL: all ${capacity} ephemeral ports busy against ${serverIp}:${serverPort}`);
+  }
+}
+
+export function tryBindPort(port: number): Promise<net.Server> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        reject(new Error(`Port ${port} is already bound by another process!`));
+      } else {
+        reject(err);
+      }
+    });
+    srv.listen(port, "127.0.0.1", () => resolve(srv));
+  });
+}
+```
+<!-- slide -->
+```python
+import socket
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class FourTuple:
+    src_ip: str
+    src_port: int
+    dst_ip: str
+    dst_port: int
+
+
+class SocketDemuxTable:
+    def __init__(self, start_port: int = 32768, end_port: int = 60999) -> None:
+        self.start = start_port
+        self.end = end_port
+        self._table: dict[FourTuple, str] = {}
+
+    def open_connection(self, client_ip: str, server_ip: str, server_port: int, app_label: str) -> FourTuple:
+        for port in range(self.start, self.end + 1):
+            t = FourTuple(client_ip, port, server_ip, server_port)
+            if t not in self._table:
+                self._table[t] = app_label
+                return t
+        raise OSError("EADDRNOTAVAIL: Ephemeral port pool exhausted for destination")
+
+
+def bind_port_safely(port: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("127.0.0.1", port))
+        sock.listen(16)
+        return sock
+    except OSError as exc:
+        sock.close()
+        raise RuntimeError(f"Cannot bind 127.0.0.1:{port} (already in use or restricted): {exc}") from exc
+```
+<!-- slide -->
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
+
+public readonly record struct FourTuple(string SrcIp, int SrcPort, string DstIp, int DstPort);
+
+public sealed class EphemeralPortAllocator(int minPort = 32768, int maxPort = 60999)
+{
+    private readonly Dictionary<FourTuple, string> _connections = new();
+
+    public FourTuple Allocate(string clientIp, string serverIp, int serverPort, string sessionName)
+    {
+        for (int p = minPort; p <= maxPort; p++)
+        {
+            var tuple = new FourTuple(clientIp, p, serverIp, serverPort);
+            if (!_connections.ContainsKey(tuple))
+            {
+                _connections[tuple] = sessionName;
+                return tuple;
+            }
+        }
+        throw new SocketException((int)SocketError.AddressNotAvailable);
+    }
+
+    public static TcpListener BindSafely(int port)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            listener.Start();
+            return listener;
+        }
+        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+        {
+            throw new InvalidOperationException($"Port {port} is already bound (AddressAlreadyInUse).", ex);
+        }
+    }
+}
+```
+````
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+Watch **live OS ephemeral ports, 4-tuples, and `EADDRINUSE`** locally with Python's built-in socket module—and inspect real open sockets on your machine via `ss` / `netstat`.
+
+### Step 1: Observe Live 4-Tuple Sockets & Trigger Real `EADDRINUSE` Safely
+
+```bash
+# Inspect currently open listening & active sockets on your OS:
+# Linux:          ss -tan
+# macOS/Windows:  netstat -an
+
+python3 - <<'EOF'
+import socket
+
+# 1. Start a listening server on an OS-assigned free loopback port
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.bind(("127.0.0.1", 0))
+srv.listen(4)
+srv_ip, srv_port = srv.getsockname()
+print(f"Server listening on socket: {srv_ip}:{srv_port}")
+
+# 2. Open two parallel client tabs against the SAME server port
+c1 = socket.create_connection((srv_ip, srv_port))
+c2 = socket.create_connection((srv_ip, srv_port))
+print(f"Tab #1 4-tuple: {c1.getsockname()[0]}:{c1.getsockname()[1]} -> {srv_ip}:{srv_port}")
+print(f"Tab #2 4-tuple: {c2.getsockname()[0]}:{c2.getsockname()[1]} -> {srv_ip}:{srv_port}")
+
+# 3. Attempt a duplicate listener on the exact same port (triggers Address Already In Use!)
+dup = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    dup.bind((srv_ip, srv_port))
+except OSError as err:
+    print(f"Duplicate bind rejected safely: errno={err.errno} ({err.strerror})")
+finally:
+    for s in (dup, c1, c2, srv): s.close()
+EOF
+```
+
+**Expected Output:**
+```text
+Server listening on socket: 127.0.0.1:41932
+Tab #1 4-tuple: 127.0.0.1:54810 -> 127.0.0.1:41932
+Tab #2 4-tuple: 127.0.0.1:54812 -> 127.0.0.1:41932
+Duplicate bind rejected safely: errno=98 (Address already in use)
+```
+
+---
+
+## Pause and Think & Validation Checkpoints
+
+### Pause and Think
+
+An active web server handles `100,000` mobile phone connections simultaneously on a single server listening port (`443`). How can **one port** serve `100,000` different phones without mixing up messages?
+
+<details>
+<summary><strong>Click to see the answer</strong></summary>
+
+**A connection is identified by the full four-value tuple (`client IP, client port, server IP, server port`) — not by server port alone.** All `100,000` connections share the same right half (`server_ip : 443`), yet every phone carries a different client IP (and/or a different client ephemeral port when behind shared carrier NAT). Because every 4-tuple row in the server kernel's socket table is unique, the OS demultiplexes all `100,000` streams to their exact handles cleanly.
+
+![Figure 8. 100,000 phones can all connect to port 443; each four-value pair is different, so one server port is enough.](images/figure-8.svg)
 
 *Figure 8. 100,000 phones can all connect to port 443; each four-value pair is different, so one server port is enough.*
 
 </details>
 
-## Common mistakes
+### Operational Validation Checkpoints (Scenario Quizzes)
 
-- **"A server needs a new port for every client."** No. Every client connects to the same listening port; the four values keep the connections apart.
-- **"A port and a socket are the same thing."** No. A port is just a number, 0 to 65,535. A socket is an IP address plus a port: one end of a conversation.
+<details>
+<summary><strong>Checkpoint 1: Same Port `53` Running on Both UDP and TCP</strong></summary>
 
-## Recap in three lines
+**Scenario:** You run `ss -tulnp` on a DNS resolver container and notice `coredns` bound to `0.0.0.0:53` on **UDP** AND `0.0.0.0:53` on **TCP** simultaneously without throwing `Address already in use`. Is the OS broken?
 
-1. The IP address finds the device, and the port, a number from 0 to 65,535, finds the app.
-2. Servers listen on well-known ports, like 443, and clients get a random high port.
-3. A socket is an IP address plus a port, and a connection is a pair of sockets: four values.
+<strong>Answer:</strong>
+No! Socket bindings are scoped by **`(protocol, local_ip, local_port)`**. TCP port `53` and UDP port `53` live in completely separate transport port spaces inside the kernel—so one daemon can bind both cleanly to serve tiny fast UDP queries alongside larger TCP DNS responses.
+</details>
 
-## Interview questions
+<details>
+<summary><strong>Checkpoint 2: Why Dev Server Fails With `EADDRINUSE` After a Crash-Restart</strong></summary>
 
-Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it) and **Tricky** (the follow-ups interviewers use to go deeper). Each answer is what to say in about 30 seconds. Answer out loud before you open it.
+**Scenario:** You stop a Node/Go HTTP server (`:3000`) mid-request and immediately rerun it 1 second later, only to see `listen tcp :3000: bind: address already in use`. Or a zombie previous instance was still running. What two root causes explain this?
 
-> [!interview] What is a port, and why do we need one if we already have an IP address? (Basic)
+<strong>Answer:</strong>
+Either **(1)** another orphaned process is still running and bound to `:3000` (`lsof -i :3000` / `ss -tlp` reveals it), OR **(2)** old client sockets from the crashed process linger briefly in **`TIME_WAIT`** without `SO_REUSEADDR` enabled on the listening socket.
+</details>
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Checkpoint 3: Calculating Ephemeral Ceiling Against One Upstream Endpoint</strong></summary>
 
-A port is a 16-bit number that identifies an app on a host, so many apps can share one IP address. Servers listen on well-known ports, like 80, 443 and 22, and clients use ephemeral ports. A connection is identified by four values: client IP and port, server IP and port. That's why one server port can serve many clients.
+**Scenario:** A proxy runs on default Linux (`ip_local_port_range = 32768 60999`) with **1 outbound public IP** and talks without connection pooling to **1 Redis node** (`10.0.1.5:6379`). Closed sockets stay in `TIME_WAIT` for `60 s`. What is the hard maximum sustainable new-connection rate before `EADDRNOTAVAIL` strikes?
+
+<strong>Answer:</strong>
+Available ephemeral ports = `60,999 - 32,768 + 1 = 28,232`. Spread across a `60`-second `TIME_WAIT` window: `28,232 ÷ 60 ≈ 470.5` new connections/sec! Exceeding ~`470` new unpooled connections per second against that single `(dst_ip, dst_port)` saturates every 4-tuple. Connection pooling fixes it permanently!
+</details>
+
+---
+
+## Interview Practice Questions
+
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
+
+<details>
+<summary><strong>1. What is the difference between an IP address and a port? (Basic)</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+An **IP address** identifies the **device (host)** on the network; a **port** (`0–65,535`) identifies the **specific application/mailbox** inside that device (`192.168.1.5:443`). Both are required for a packet to reach the right program on the right machine.
 
 </details>
 
-> [!interview] What is a socket, and what identifies a connection? (Basic)
+<details>
+<summary><strong>2. What is a socket, and how is a connection identified? (Basic)</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-A socket is one end of a conversation: an IP address plus a port, such as 203.0.113.7:51234. A connection is a pair of sockets, so it is identified by four values: client IP, client port, server IP and server port, plus the protocol, TCP or UDP. No two live connections share all of them.
-
-</details>
-
-> [!interview] What are well-known ports and ephemeral ports? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Well-known ports, 0 to 1023, are fixed for common services: 80 HTTP, 443 HTTPS, 22 SSH, 53 DNS, 25 SMTP. Servers listen on them so clients know where to connect. A client is lent an ephemeral port, a high random number, for one conversation: the official range is 49,152 to 65,535, and Linux uses 32,768 to 60,999 by default.
+<strong>What a strong answer covers:</strong>
+A **socket** is one endpoint of communication (`IP + port`, e.g., `203.0.113.7:51234`). An active connection is uniquely identified by **the pair of sockets — the 4-tuple**: `(client IP, client port, server IP, server port)`.
 
 </details>
 
-> [!interview] You start your app and get "address already in use". What happened, and what do you do? (Scenario)
+<details>
+<summary><strong>3. Name three well-known ports and what uses them. (Basic)</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Another process is already listening on that port, maybe an old copy of your app. Only one app can listen on a given IP address and port, otherwise the system could not tell which one gets the packet. Find and stop the old process, or start your app on a different port.
-
-</details>
-
-> [!interview] How can one server port, 443, serve 100,000 clients at once? (Tricky)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The server does not need a port per client. Each connection is the four values, and while the server IP and port are the same for all of them, the client IP or client port is different in every one, so each connection is still unique. The limits are memory, file handles and CPU, not the port number.
+<strong>What a strong answer covers:</strong>
+Port **`80`** for plain **HTTP**, port **`443`** for encrypted **HTTPS**, and port **`22`** for **SSH** remote shells (plus **`53`** for DNS and **`25`** for SMTP email transfer). Well-known ports sit in `0–1,023`.
 
 </details>
 
-> [!interview] Can a client run out of ports? (Tricky)
+<details>
+<summary><strong>4. You try to start two copies of your server on port `8080`, and the second fails with "address already in use". Why, and how do you fix it? (Scenario)</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Yes. A client has only a few tens of thousands of ephemeral ports, about 28,000 on Linux by default, for connections to one server address and port. A busy service that opens a new connection for every request, while closed ones stay reserved for a while (TIME_WAIT), can use them all, and new connections fail. The fixes, such as reusing connections, are in lessons 11 and 29.
+<strong>What a strong answer covers:</strong>
+The operating system routes arriving packets per `(protocol, IP, port)`. If two unrelated servers simultaneously listened on `0.0.0.0:8080`, the kernel wouldn't know which app owns incoming requests—so it throws **`EADDRINUSE`**. Fix by stopping the existing listener (`ss`/`lsof`), running the second server on another port (e.g., `:8081`), or placing a reverse proxy (`Nginx`) in front. *(Note: worker pre-fork architectures can also intentionally share one bound port using `SO_REUSEPORT`.)*
 
 </details>
 
-## Free PDF notes
+<details>
+<summary><strong>5. A port is 16 bits, so there are only 65,536 ports. How can a server handle a million concurrent connections on port 443? (Tricky)</strong></summary>
 
-Download these notes as a printable PDF, with every picture, the port tables and the interview answers: [SD-N-004.pdf](https://backendroadmap.com/notes/system-design/SD-N-004.pdf).
+<strong>What a strong answer covers:</strong>
+The `65,536` limit applies to **distinct local port numbers**, NOT to incoming connections on a server listener! Every TCP connection is keyed by its full **4-tuple** (`client IP, client port, server IP, server port`). One listener on `:443` accepts millions of connections because each client contributes a distinct `client IP + client port` combination (`~4.3B IPs × ~28K–65K ports`). The real server limits become **RAM, CPU, and file descriptors (`ulimit -n`)**, not port count. *(See Lessons 11 and 29 for `TIME_WAIT` & Linux limits!)*
+
+</details>
+
+<details>
+<summary><strong>6. Your API gateway acts as a client calling one internal database server on port `5432`, opening a brand-new connection per request. Why might it run out of ports at 500 req/s? (Tricky)</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+In that outbound direction, `server_ip`, `server_port (:5432)`, and `client_ip` are **fixed**—leaving ONLY **`client ephemeral port`** to vary (`28,232` default ports on Linux `32,768–60,999`). Worse, closed connections remain locked in **`TIME_WAIT`** for `60 seconds` before recycling (building directly on TCP mechanics from [Lesson 08](../08-tcp-sequence-numbers-and-acks/README.md) and Lesson 11). `500 req/s × 60 s = 30,000` locked ports > `28,232` available—so new calls crash with `EADDRNOTAVAIL`. **Fix:** maintain persistent connection pools (keep-alives) instead of churning TCP sockets per request.
+
+</details>
+
+---
+
+## Common Mistakes & Troubleshooting
+
+- **Assuming each user connection consumes a separate server port:** A listening server holds only **one port** (`:443`) regardless of whether `10` or `1,000,000` clients connect; only the 4-tuple table grows.
+- **Forgetting TCP and UDP port spaces are separate:** Binding TCP `:53` never blocks UDP `:53` (and vice versa).
+- **Opening/closing raw TCP connections per request inside a proxy or backend client:** Guarantees `TIME_WAIT` ephemeral port exhaustion under load—always use persistent HTTP/DB connection pools.
+
+---
+
+## Recap in Three Lines
+
+1. An **IP address** reaches the **device**; a **16-bit port (`0–65,535`)** delivers the packet to the right **application** inside it.
+2. One socket is `IP + port`, and every connection is uniquely keyed by the **4-tuple** (`client IP, client port, server IP, server port`)—letting one `:443` server serve millions concurrently.
+3. Servers wait on **well-known/registered ports**, while clients use **ephemeral ports** (`32,768–60,999` on Linux)—so high-throughput clients must pool connections to avoid ephemeral port exhaustion.
+
+---
 
 ## Sources
 
-- [RFC 9293: Transmission Control Protocol (TCP)](https://www.rfc-editor.org/rfc/rfc9293), ports and the four values that identify a connection.
-- [RFC 768: User Datagram Protocol](https://www.rfc-editor.org/rfc/rfc768), UDP's own source and destination ports.
-- [RFC 6335: IANA Procedures for the Management of the Service Name and Transport Protocol Port Number Registry](https://www.rfc-editor.org/rfc/rfc6335), the three port ranges (0 to 1023, 1024 to 49151, 49152 to 65535).
-- [IANA Service Name and Transport Protocol Port Number Registry](https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml), the list of well-known ports.
-- [RFC 6056: Recommendations for Transport-Protocol Port Randomization](https://www.rfc-editor.org/rfc/rfc6056), how clients pick ephemeral ports.
-- [RFC 5737: IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737), the example addresses used here.
+- [RFC 9293: Transmission Control Protocol (TCP)](https://www.rfc-editor.org/rfc/rfc9293) — `16-bit` TCP ports, socket pairs, and TCP connection 4-tuple identification.
+- [RFC 768: User Datagram Protocol](https://www.rfc-editor.org/rfc/rfc768) — `16-bit` UDP source/destination port header format.
+- [RFC 6335: IANA Procedures for the Management of the Service Name and Transport Protocol Port Number Registry](https://www.rfc-editor.org/rfc/rfc6335) — defines System (`0–1023`), User (`1024–49151`), and Dynamic/Private (`49152–65535`) ranges.
+- [IANA Service Name and Transport Protocol Port Number Registry](https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml) — official live directory of well-known and registered ports.
+- [RFC 6056: Recommendations for Transport-Protocol Port Randomization](https://www.rfc-editor.org/rfc/rfc6056) — ephemeral port allocation guidance (`32768–60999` Linux convention noted alongside IANA range).
+- [RFC 5737: IPv4 Address Blocks Reserved for Documentation](https://www.rfc-editor.org/rfc/rfc5737) — `192.0.2.0/24`, `198.51.100.0/24`, and `203.0.113.0/24` documentation ranges used in examples.
+
+---
+
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram: [SD-N-004.pdf](https://backendroadmap.com/notes/system-design/SD-N-004.pdf).
+
+---
 
 ## Next
 
-Next comes [lesson 5, protocols and layers](../05-protocols-and-layers/README.md): how do the two sides agree on what each packet means? Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Continue with [Lesson 05: Protocols and Layers: Agreed Languages, and Why We Stack Them](../05-protocols-and-layers/README.md) to see how HTTP messages, TCP segments, IP packets, and Ethernet/Wi-Fi frames stack seamlessly via encapsulation so you can swap wires without rewriting apps.
