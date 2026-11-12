@@ -59,7 +59,7 @@ function contrast(a, b) {
 }
 
 const SURFACES = ['--bg', '--bg-sunken', '--bg-raised'];
-const TEXT = ['--fg', '--fg-muted', '--fg-subtle', '--signal', '--link', '--link-visited', '--danger'];
+const TEXT = ['--fg', '--fg-muted', '--fg-subtle', '--signal', '--link', '--link-visited', '--danger', '--reward-ink'];
 
 for (const [name, tokens] of [['light', light], ['dark', dark]]) {
   test(`${name} theme: every text colour is readable (4.5:1) on every surface`, () => {
@@ -76,6 +76,12 @@ for (const [name, tokens] of [['light', light], ['dark', dark]]) {
   test(`${name} theme: signal text on its own tint, and text on a solid signal fill, are readable`, () => {
     assert.ok(contrast(tokens['--signal'], tokens['--signal-bg']) >= 4.5, 'signal text on --signal-bg');
     assert.ok(contrast(tokens['--on-signal'], tokens['--signal']) >= 4.5, 'text on a solid --signal fill');
+  });
+
+  test(`${name} theme: the reward amber reads as text on its own tint, and as a drawn mark (a flame, an outline) on every surface`, () => {
+    assert.ok(contrast(tokens['--reward-ink'], tokens['--reward-bg']) >= 4.5, '--reward-ink on --reward-bg');
+    assert.ok(contrast(tokens['--on-reward'], tokens['--reward']) >= 4.5, 'text on a solid --reward fill');
+    for (const surface of SURFACES) assert.ok(contrast(tokens['--reward-strong'], tokens[surface]) >= 3, `--reward-strong on ${surface} ${tokens[surface]}`);
   });
 
   test(`${name} theme: the edge of a control (--border-strong) is visible (3:1) against every surface`, () => {

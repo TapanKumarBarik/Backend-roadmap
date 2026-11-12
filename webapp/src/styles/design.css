@@ -32,3 +32,10 @@
   #root .dz h1 { font-size: var(--text-3xl); }
   #root .dz-type-row, #root .dz-space-row { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* the game's icons */
+#root .dz-glyphs-h { margin: var(--space-6) 0 var(--space-3); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-subtle); }
+#root .dz-glyphs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--space-3); }
+#root .dz-glyph { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised); color: var(--fg); }
+#root .dz-glyph svg { width: 30px; height: 30px; }
+#root .dz-glyph code { font-size: 11px; color: var(--fg-muted); }

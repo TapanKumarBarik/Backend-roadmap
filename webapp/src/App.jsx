@@ -148,13 +148,25 @@ export default function App() {
   const { path, heading, navigate, goHome } = useHashRoute();
   const { theme, cycleTheme } = useTheme();
   const { user, loading: authLoading, login, logout } = useAuth();
-  const { statusMap, timeMap, setStatus, reset, importStatuses } = useProgressStore(user);
+  const { statusMap, timeMap, setStatus: storeStatus, reset, importStatuses } = useProgressStore(user);
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
   const activity = useCommentActivity(user);
   const communityActivity = useCommunityActivity(); // { posts, questions }: what is new in each tab
   const toast = useToast();
   const confirm = useConfirm();
+  // Every mark goes through here, so that finishing something can pay out (XP, a level, a badge: lib/game, components/game). What it earns is worked
+  // out in a chunk of its own, fetched the first time something is finished.
+  const setStatus = useCallback((file, status) => {
+    storeStatus(file, status);
+    if (status !== 'done' || statusMap[file] === 'done') return;
+    Promise.all([import('./lib/game/celebrate.js'), import('./components/game/Reward.jsx')])
+      .then(([{ rewardFor }, { showReward }]) => {
+        const reward = rewardFor({ path: file, status, statusMap, timeMap, treeData, paths, serverStreak: streak });
+        if (reward) showReward(toast, reward);
+      })
+      .catch(() => { /* the reward is a nicety: a failed chunk must never get in the way of the mark */ });
+  }, [storeStatus, statusMap, timeMap, treeData, paths, streak, toast]);
   useSidebarResize();
   // The right rail is display:none below 1180px, so notes have to fall back
   // into the article there. Deciding here — rather than rendering both and
@@ -724,6 +736,7 @@ export default function App() {
             <MainColumn
               community={community}
               practice={practiceNav}
+              streak={streak}
               currentFile={currentFile}
               node={currentFile ? nodeByFile[currentFile] : null}
               statusMap={statusMap}

@@ -382,7 +382,9 @@
     "dismissedNotices": "docs.dismissedNotices",
     "readingPrefs": "docs.readingPrefs",
     "areaPick": "docs.areaPick",
-    "netlab": "docs.netlab"
+    "netlab": "docs.netlab",
+    "dailyGoal": "docs.dailyGoal",
+    "codeDraft": "docs.code."
   },
   "assistant": {
     "maxInputChars": 12000,
@@ -418,7 +420,10 @@
       "WorkspaceView": 210,
       "AdminDashboard": 16,
       "BlogsView": 12,
-      "PostView": 14
+      "PostView": 14,
+      "PathDashboard": 20,
+      "PathPicker": 14,
+      "Reward": 12
     }
   },
   "screenshots": {

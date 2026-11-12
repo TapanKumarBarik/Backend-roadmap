@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import '../../styles/design.css';
+import '../../styles/game.css';
+import Crest from '../game/Crest.jsx';
+import { Glyph, GLYPH_NAMES } from '../game/glyphs.jsx';
 import { Button, IconButton } from '../ui/Button.jsx';
 import { TextField, SelectField } from '../ui/Field.jsx';
 import { Chip, ChoiceChip, Badge } from '../ui/Chip.jsx';
@@ -21,7 +24,8 @@ const COLOURS = [
   ['Text', ['--fg', '--fg-muted', '--fg-subtle']],
   ['Lines', ['--border-subtle', '--border', '--border-strong']],
   ['State (the one accent)', ['--signal', '--signal-bg', '--signal-line', '--done', '--danger']],
-  ['Links', ['--link', '--link-visited']]
+  ['Links', ['--link', '--link-visited']],
+  ['Reward (only ever for what has been earned)', ['--reward', '--reward-strong', '--reward-ink', '--reward-bg', '--reward-line', '--on-reward']]
 ];
 const TYPE = ['--text-4xl', '--text-3xl', '--text-2xl', '--text-xl', '--text-lg', '--text-md', '--text-base', '--text-sm', '--text-xs', '--text-2xs'];
 const SPACE = ['--space-1', '--space-2', '--space-3', '--space-4', '--space-5', '--space-6', '--space-8', '--space-10', '--space-12', '--space-16'];
@@ -194,6 +198,24 @@ export default function DesignView() {
         <Dialog open={sheet} onClose={() => setSheet(false)} title="A sheet" sheet size="sm" description="On a phone this slides up from the bottom edge.">
           <Button variant="primary" onClick={() => setSheet(false)}>Done</Button>
         </Dialog>
+      </Section>
+
+      <Section id="game" title="The learning game" note="Amber is only ever for what the reader has earned (XP, a streak, a badge, a capstone); violet is where they are and what is next; solid ink is what is done. The icons are drawn in the site's own line style, 24 units, round caps: nothing is borrowed from a brand.">
+        <div className="dz-row">
+          <Crest glyph="server" ratio={0.62} size={92} label="62%"><span className="gm-crest-pct" aria-hidden="true">62%</span></Crest>
+          <Crest glyph="trophy" ratio={1} tone="reward" size={92} label="Done" />
+          <Crest ratio={0.5} size={52} label="Goal"><span className="gm-goal-n" aria-hidden="true">1/2</span></Crest>
+          <span className="gm-xp-chip">+25 XP</span>
+          <span className="gm-chip is-here">You are here</span>
+          <span className="gm-chip is-boss">Capstone</span>
+          <span className="gm-chip is-cleared">Cleared</span>
+          <span className="gm-hex" aria-hidden="true">4</span>
+        </div>
+        <div className="gm-xpbar" style={{ maxWidth: 360 }}><i style={{ width: '58%' }} /></div>
+        <h3 className="dz-glyphs-h">Icons ({GLYPH_NAMES.length})</h3>
+        <div className="dz-glyphs">
+          {GLYPH_NAMES.map((name) => <div key={name} className="dz-glyph"><Glyph name={name} /><code>{name}</code></div>)}
+        </div>
       </Section>
 
       <Section id="loading" title="Loading and empty">

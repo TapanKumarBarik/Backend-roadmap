@@ -39,6 +39,15 @@
      bright amber in light mode and the deep one on the light dark-mode mark. */
   --mark-dot: #e9a053;
   --danger: #a3301c;
+  /* Reward: the amber of the logo's dot, for what you earn (XP, a streak, a badge, a trophy). The violet is for where you are and what you do next;
+     the amber is only ever for what you have got. --reward fills (a bar, a tile), --reward-strong draws (a flame, an outline: 3:1 on every surface),
+     --reward-ink is the only one for text (4.5:1 on paper and on --reward-bg). */
+  --reward: #e9a053;
+  --reward-strong: #c26f0d;
+  --reward-ink: #8a4b05;
+  --reward-bg: #fdf0dc;
+  --reward-line: #efc48d;
+  --on-reward: #2a1700;   /* text on a solid --reward fill */
   /* The one deliberate exception to the monochrome palette: hyperlinks.
      Blue + underline is the universal affordance — the UI chrome stays B&W. */
   --link: #5a1fe0;
@@ -108,6 +117,7 @@ html[data-theme="auto"] { color-scheme: light; }
        #e9a053 sits outside the dark lightness band, so the fill steps down. */
     --chart-accent: #9d7bff; --chart-muted: #6e7887; --chart-grid: #252b35;
     --danger: #e08a76;
+    --reward: #f0b35f; --reward-strong: #f0b35f; --reward-ink: #f3c27a; --reward-bg: #2a2012; --reward-line: #5b4320; --on-reward: #241600;
     --link: #b69cff; --link-visited: #e0a3ec;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
     --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
@@ -129,6 +139,7 @@ html[data-theme="dark"] {
      an explicit dark toggle must not fall through to the light fills. */
   --chart-accent: #9d7bff; --chart-muted: #6e7887; --chart-grid: #252b35;
   --danger: #e08a76;
+  --reward: #f0b35f; --reward-strong: #f0b35f; --reward-ink: #f3c27a; --reward-bg: #2a2012; --reward-line: #5b4320; --on-reward: #241600;
   --link: #b69cff; --link-visited: #e0a3ec;
   --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
   --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);

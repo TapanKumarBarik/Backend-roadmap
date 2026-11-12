@@ -14,7 +14,7 @@ export default function MainColumn({
   counts, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
   indexLoading, indexError, onReloadIndex, videoData, onOpenVideos, onOpenIncident,
-  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath, community, practice
+  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath, community, practice, streak
 }) {
   const mainRef = useRef(null);
 
@@ -99,6 +99,8 @@ export default function MainColumn({
                     user={user}
                     allTags={allTags}
                     flatFiles={flatFiles}
+                    videoData={videoData}
+                    streak={streak}
                     bookmarks={bookmarks}
                     onOpenFile={onOpenFile}
                     onOpenPalette={onOpenPalette}

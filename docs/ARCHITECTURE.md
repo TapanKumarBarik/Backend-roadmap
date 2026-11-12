@@ -28,6 +28,7 @@ tests/e2e/      browser tests of the built site, signed out and signed in
 docs/           this folder
 .github/        CI: one shared action (actions/verify), the deploy and the pull-request workflows, Dependabot, CODEOWNERS
 site.config.json   the one place that names things (see "Configuration")
+game.config.json   the rules of the learning game: XP, levels, badges, icon rules (its own file: site.config.json is in the first download)
 wrangler.jsonc  the Cloudflare project: the database binding, variables, where migrations live
 dist/           the built site, git-ignored. The only thing ever deployed
 screenshots/    local development screenshots, git-ignored (see "Screenshots")

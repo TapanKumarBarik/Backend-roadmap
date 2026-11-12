@@ -9,6 +9,7 @@ This repository is private and proprietary. See [LICENSE](LICENSE).
 | Folder | What it holds |
 |---|---|
 | `content/` | The curriculum, one folder per module with its `README.md` (and `images/`). Seven areas: `backend`, `system-design`, `ml`, `neural-networks`, `genai`, `learn` (Linux to Cloud) and `lld`, described in `site.config.json` (`content.areas`). Also `practice/` (quizzes, exercises, interview and coding questions), `paths.json`. |
+| `game.config.json` | The rules of the learning game (XP, levels, badges, which icon draws what) ([docs/DESIGN.md](docs/DESIGN.md)). |
 | `content/videos.json` | The YouTube videos and the module each one belongs to ([docs/VIDEOS.md](docs/VIDEOS.md)). |
 | `webapp/` | The React + Vite app that serves the site; `webapp/public/notes/` holds the free PDF notes. |
 | `api/`, `functions/` | The API on Cloudflare Pages Functions (accounts, progress, community, admin). |

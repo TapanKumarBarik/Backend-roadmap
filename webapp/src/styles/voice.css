@@ -143,7 +143,7 @@
   line-height: 1.08;
 }
 
-#root :is(.lp-sec h2, .lp-account h2, .lpath-picker-head h2, .lpath-head h2, .lpath-done h2, .vid-head h2, #empty h2) {
+#root :is(.lp-sec h2, .lp-account h2, .lpath-picker-head h2, .lpath-done h2, .vid-head h2, #empty h2) {
   font-family: var(--sans);
   text-transform: none;
   letter-spacing: -.02em;

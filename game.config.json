@@ -1,0 +1,501 @@
+{
+  "_about": "The rules of the learning game. Everything is derived from the progress a reader already has: modules marked done, and the day each mark was made (practice work is saved the same way, under the keys below, so it syncs with the account like a module does). XP is paid for a module, a capstone (on top of its module), a whole track, a whole learning path, a coding problem and a daily drill. Levels are the XP needed to reach them. A badge is earned when its stat reaches atLeast; the stats are modules, capstones, tracks, paths, problems, drills and streak (days in a row). Do not change keys: they are stored in readers' progress. This file is read only by the learning game (webapp/src/config/game.js), which is why it is not part of site.config.json: that file is in every visitor's first download.",
+  "keys": {
+    "code": "practice/code/",
+    "drill": "practice/drill/"
+  },
+  "xp": {
+    "module": 10,
+    "capstone": 15,
+    "track": 40,
+    "path": 150,
+    "problem": 15,
+    "drill": 15
+  },
+  "capstonePattern": "capstone",
+  "dailyGoal": {
+    "default": 1,
+    "choices": [
+      1,
+      2,
+      3
+    ]
+  },
+  "weekStartsOn": 1,
+  "levels": [
+    {
+      "xp": 0,
+      "name": "Intern"
+    },
+    {
+      "xp": 60,
+      "name": "Junior"
+    },
+    {
+      "xp": 150,
+      "name": "Developer"
+    },
+    {
+      "xp": 300,
+      "name": "Engineer"
+    },
+    {
+      "xp": 550,
+      "name": "Senior"
+    },
+    {
+      "xp": 900,
+      "name": "Staff"
+    },
+    {
+      "xp": 1400,
+      "name": "Principal"
+    },
+    {
+      "xp": 2100,
+      "name": "Architect"
+    },
+    {
+      "xp": 3200,
+      "name": "Distinguished"
+    },
+    {
+      "xp": 5000,
+      "name": "Legend"
+    }
+  ],
+  "badges": [
+    {
+      "id": "first-step",
+      "title": "First step",
+      "hint": "Finish your first module",
+      "glyph": "flag",
+      "stat": "modules",
+      "atLeast": 1
+    },
+    {
+      "id": "warming-up",
+      "title": "Warming up",
+      "hint": "Finish 10 modules",
+      "glyph": "bolt",
+      "stat": "modules",
+      "atLeast": 10
+    },
+    {
+      "id": "half-century",
+      "title": "Half century",
+      "hint": "Finish 50 modules",
+      "glyph": "star",
+      "stat": "modules",
+      "atLeast": 50
+    },
+    {
+      "id": "centurion",
+      "title": "Centurion",
+      "hint": "Finish 100 modules",
+      "glyph": "trophy",
+      "stat": "modules",
+      "atLeast": 100
+    },
+    {
+      "id": "on-a-roll",
+      "title": "On a roll",
+      "hint": "Keep a 3-day streak",
+      "glyph": "flame",
+      "stat": "streak",
+      "atLeast": 3
+    },
+    {
+      "id": "week-warrior",
+      "title": "Week warrior",
+      "hint": "Keep a 7-day streak",
+      "glyph": "calendar",
+      "stat": "streak",
+      "atLeast": 7
+    },
+    {
+      "id": "unstoppable",
+      "title": "Unstoppable",
+      "hint": "Keep a 30-day streak",
+      "glyph": "rocket",
+      "stat": "streak",
+      "atLeast": 30
+    },
+    {
+      "id": "track-cleared",
+      "title": "Track cleared",
+      "hint": "Finish every module of a track",
+      "glyph": "map",
+      "stat": "tracks",
+      "atLeast": 1
+    },
+    {
+      "id": "boss-down",
+      "title": "Boss down",
+      "hint": "Finish a capstone project",
+      "glyph": "target",
+      "stat": "capstones",
+      "atLeast": 1
+    },
+    {
+      "id": "path-finisher",
+      "title": "Path finisher",
+      "hint": "Finish a whole learning path",
+      "glyph": "crown",
+      "stat": "paths",
+      "atLeast": 1
+    },
+    {
+      "id": "problem-solver",
+      "title": "Problem solver",
+      "hint": "Solve a coding problem",
+      "glyph": "code",
+      "stat": "problems",
+      "atLeast": 1
+    },
+    {
+      "id": "ten-solved",
+      "title": "Ten solved",
+      "hint": "Solve 10 coding problems",
+      "glyph": "terminal",
+      "stat": "problems",
+      "atLeast": 10
+    },
+    {
+      "id": "drill-sergeant",
+      "title": "Drill sergeant",
+      "hint": "Finish 5 daily drills",
+      "glyph": "repeat",
+      "stat": "drills",
+      "atLeast": 5
+    }
+  ],
+  "glyphs": {
+    "default": "book",
+    "_about": "Which icon draws a path, a track or a step: the first rule whose words appear in its title (or topic) wins, so list the specific rules before the general ones. A word matches at the start of a word (\"cach\" finds caching); a word ending in $ must be the whole word.",
+    "rules": [
+      {
+        "glyph": "helm",
+        "match": [
+          "kubernetes",
+          "k8s",
+          "helm"
+        ]
+      },
+      {
+        "glyph": "cube",
+        "match": [
+          "docker",
+          "container"
+        ]
+      },
+      {
+        "glyph": "branch",
+        "match": [
+          "git ",
+          "git$",
+          "version control",
+          "github"
+        ]
+      },
+      {
+        "glyph": "pipeline",
+        "match": [
+          "ci/cd",
+          "cicd",
+          "pipeline",
+          "gitops",
+          "deployment"
+        ]
+      },
+      {
+        "glyph": "terminal",
+        "match": [
+          "linux",
+          "shell",
+          "bash",
+          "command line"
+        ]
+      },
+      {
+        "glyph": "cloud",
+        "match": [
+          "cloud",
+          "azure",
+          "aws",
+          "gcp",
+          "terraform",
+          "serverless"
+        ]
+      },
+      {
+        "glyph": "nodes",
+        "match": [
+          "neural",
+          "deep learning",
+          "backprop",
+          "convolution",
+          "diffusion",
+          "autoencoder",
+          "recurrent"
+        ]
+      },
+      {
+        "glyph": "vector",
+        "match": [
+          "embedding",
+          "vector",
+          "retrieval",
+          "rag$",
+          "semantic"
+        ]
+      },
+      {
+        "glyph": "chip",
+        "match": [
+          "transformer",
+          "language model",
+          "llm",
+          "openai",
+          "token",
+          "genai",
+          "prompt"
+        ]
+      },
+      {
+        "glyph": "spark",
+        "match": [
+          "ai backend",
+          "generative",
+          "ai$"
+        ]
+      },
+      {
+        "glyph": "sigma",
+        "match": [
+          "math",
+          "linear algebra",
+          "probability",
+          "calculus"
+        ]
+      },
+      {
+        "glyph": "chart",
+        "match": [
+          "machine learning",
+          "ml$",
+          "mlops",
+          "data science",
+          "data stack",
+          "eda$",
+          "exploratory",
+          "pandas",
+          "numpy",
+          "statistic",
+          "regression",
+          "linear model",
+          "svm$",
+          "boosting",
+          "supervised",
+          "unsupervised",
+          "anomaly",
+          "feature",
+          "recommender",
+          "reinforcement"
+        ]
+      },
+      {
+        "glyph": "clock",
+        "match": [
+          "time series",
+          "forecast",
+          "schedul"
+        ]
+      },
+      {
+        "glyph": "eye",
+        "match": [
+          "observab",
+          "monitor",
+          "logging",
+          "tracing",
+          "metrics",
+          "sre$",
+          "sre "
+        ]
+      },
+      {
+        "glyph": "bell",
+        "match": [
+          "alert",
+          "incident",
+          "on-call",
+          "reliab"
+        ]
+      },
+      {
+        "glyph": "shield",
+        "match": [
+          "security",
+          "threat",
+          "hardening",
+          "zero trust"
+        ]
+      },
+      {
+        "glyph": "lock",
+        "match": [
+          "auth",
+          "oauth",
+          "jwt",
+          "session",
+          "encryption",
+          "tls",
+          "ssl"
+        ]
+      },
+      {
+        "glyph": "key",
+        "match": [
+          "secret",
+          "config",
+          "credential"
+        ]
+      },
+      {
+        "glyph": "queue",
+        "match": [
+          "queue",
+          "background",
+          "messaging",
+          "kafka",
+          "streaming",
+          "event",
+          "realtime",
+          "real-time",
+          "websocket"
+        ]
+      },
+      {
+        "glyph": "bolt",
+        "match": [
+          "cach",
+          "performance",
+          "latency",
+          "speed"
+        ]
+      },
+      {
+        "glyph": "gauge",
+        "match": [
+          "scal",
+          "load balanc",
+          "capacity",
+          "throughput"
+        ]
+      },
+      {
+        "glyph": "target",
+        "match": [
+          "interview",
+          "practice"
+        ]
+      },
+      {
+        "glyph": "network",
+        "match": [
+          "distributed",
+          "consensus",
+          "replication",
+          "microservice",
+          "system design"
+        ]
+      },
+      {
+        "glyph": "database",
+        "match": [
+          "database",
+          "sql",
+          "postgres",
+          "data layer",
+          "storage",
+          "nosql"
+        ]
+      },
+      {
+        "glyph": "plug",
+        "match": [
+          "api",
+          "rest",
+          "graphql",
+          "grpc",
+          "protobuf",
+          "webhook"
+        ]
+      },
+      {
+        "glyph": "globe",
+        "match": [
+          "http",
+          "request",
+          "response",
+          "web",
+          "browser",
+          "cors",
+          "dns",
+          "cdn",
+          "network"
+        ]
+      },
+      {
+        "glyph": "blocks",
+        "match": [
+          "oop",
+          "object-oriented",
+          "object oriented",
+          "solid",
+          "low-level",
+          "low level",
+          "lld",
+          "design pattern",
+          "class"
+        ]
+      },
+      {
+        "glyph": "layers",
+        "match": [
+          "architecture",
+          "clean",
+          "layer"
+        ]
+      },
+      {
+        "glyph": "flask",
+        "match": [
+          "testing",
+          "test ",
+          "experiment"
+        ]
+      },
+      {
+        "glyph": "code",
+        "match": [
+          "python",
+          "programming",
+          "coding",
+          "algorithm",
+          "data structure"
+        ]
+      },
+      {
+        "glyph": "server",
+        "match": [
+          "server",
+          "backend",
+          "production",
+          "service"
+        ]
+      }
+    ]
+  }
+}
