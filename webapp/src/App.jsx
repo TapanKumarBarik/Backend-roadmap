@@ -662,7 +662,7 @@ export default function App() {
                     onOpenPath={openPathPage}
                   />
                 )}
-                {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} statusMap={statusMap} onMark={setStatus} />}
+                {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} onOpenPath={openPathPage} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} statusMap={statusMap} onMark={setStatus} />}
                 {isMeRoute && (
                   <MyLearningView
                     user={user}

@@ -7,6 +7,7 @@ import { invalidateAdminCache } from '../lib/admin.js';
 import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
 import { OWNER_EMAIL, createEnv, signedInAs } from './helpers.js';
 import practiceContent from '../generated/practice-content.json' with { type: 'json' };
+import game from '../../game.config.json' with { type: 'json' };
 
 let env;
 let ada;
@@ -76,7 +77,7 @@ test('coding problems are listed, served without their solution, and the solutio
 });
 
 test('a SQL problem comes with its data and the tables it expects, never its solution, and says it is SQL', async () => {
-  const [slug] = Object.entries(practiceContent.code).filter(([, p]) => p.language === 'sql').map(([s]) => s);
+  const [slug] = Object.entries(/** @type {Record<string, any>} */ (practiceContent.code)).filter(([, p]) => p.language === 'sql').map(([s]) => s);
   assert.ok(slug, 'there are SQL problems');
   const { json } = await call(null, 'GET', '/practice/catalog');
   assert.equal(json.code.find((c) => c.slug === slug).language, 'sql');
@@ -132,6 +133,61 @@ test("a solved problem and a finished drill are saved as progress like a module,
   const users = await call(owner, 'GET', '/manage/users');
   assert.equal(users.status, 200);
   assert.equal(users.json.users.find((u) => u.email === 'ada@example.com').progress, 1, 'one module, not three marks');
+});
+
+test('questions are served by their key without answers, and what was chosen is checked on the server', async () => {
+  const slug = Object.keys(practiceContent.quizzes)[0];
+  const quiz = practiceContent.quizzes[slug];
+  const [first, second] = quiz.questions;
+  const keys = `${slug}/${first.id},${slug}/${second.id},${slug}/nope,nosuchquiz/q1`;
+  const { json, raw } = await call(null, 'GET', `/practice/questions?keys=${encodeURIComponent(keys)}`);
+  assert.deepEqual(json.questions.map((q) => q.key), [`${slug}/${first.id}`, `${slug}/${second.id}`]);
+  assert.deepEqual(json.missing, [`${slug}/nope`, 'nosuchquiz/q1']);
+  assert.ok(json.questions.every((q) => q.text && q.options.length >= 2 && q.quizTitle === quiz.title));
+  assert.doesNotMatch(raw, /"answer"|"explanation"/, 'no answer is sent with a question');
+
+  const right = await call(null, 'POST', '/practice/questions/check', { answers: { [`${slug}/${first.id}`]: first.answer, [`${slug}/${second.id}`]: [], [`${slug}/gone`]: ['a'] } });
+  assert.equal(right.status, 200);
+  assert.deepEqual(right.json.results.map((r) => [r.key, r.correct]), [[`${slug}/${first.id}`, true], [`${slug}/${second.id}`, false]], 'a key that is not a question is left out');
+  assert.deepEqual(right.json.results[0].answer, first.answer);
+  assert.equal(right.json.results[0].explanation, first.explanation);
+  assert.equal((await call(null, 'POST', '/practice/questions/check', { answers: {} })).status, 400);
+  assert.equal((await call(null, 'POST', '/practice/questions/check', {})).status, 400);
+  assert.equal((await call(null, 'POST', '/practice/questions/check', { answers: Object.fromEntries(Array.from({ length: 41 }, (_, i) => [`a/${i}`, []])) })).status, 400, 'at most 40 at a time');
+});
+
+test('the level check asks everyone the same few questions in each area, and every area has quizzes to ask them from', async () => {
+  const { json, raw } = await call(null, 'GET', '/practice/level-check');
+  assert.deepEqual(json.areas.map((a) => a.id), game.levelCheck.areas.map((a) => a.id));
+  for (const area of json.areas) {
+    const rules = game.levelCheck.areas.find((a) => a.id === area.id);
+    assert.equal(area.questions.length, rules.questions, `${area.id}: as many questions as the rules say`);
+    assert.ok(area.questions.every((q) => rules.quizTopics.includes(q.topic)), `${area.id}: only its own topics`);
+    assert.ok(rules.path && rules.plan, `${area.id}: a path and a plan to recommend`);
+    assert.ok(practiceContent.plans[rules.plan], `${area.id}: the plan ${rules.plan} exists`);
+  }
+  assert.doesNotMatch(raw, /"answer"|"explanation"/);
+  assert.deepEqual((await call(ada, 'GET', '/practice/level-check')).json, json, 'the same for everyone');
+  const keys = json.areas.flatMap((a) => a.questions.map((q) => q.key));
+  assert.equal(new Set(keys).size, keys.length, 'no question twice');
+});
+
+test('a mock interview is chosen by its seed for a track: questions and coding problems of that track, the same for the same seed', async () => {
+  for (const track of game.mock.tracks) {
+    const { status, json, raw } = await call(null, 'GET', `/practice/mock?track=${track.id}&seed=abc123xyz`);
+    assert.equal(status, 200, track.id);
+    assert.deepEqual(json.track, { id: track.id, label: track.label, minutes: track.minutes });
+    assert.equal(json.questions.length, track.questions, `${track.id}: its number of questions`);
+    assert.ok(json.questions.every((q) => track.quizTopics.includes(q.topic)), `${track.id}: only its topics`);
+    assert.equal(json.problems.length, track.problems, `${track.id}: its number of problems`);
+    assert.ok(json.problems.every((slug) => track.codeTopics.includes(practiceContent.code[slug].topic)), `${track.id}: problems of its topics`);
+    assert.doesNotMatch(raw, /"answer"|"explanation"|"solution"/);
+    assert.deepEqual((await call(null, 'GET', `/practice/mock?track=${track.id}&seed=abc123xyz`)).json, json, `${track.id}: the same seed, the same interview`);
+    assert.notDeepEqual((await call(null, 'GET', `/practice/mock?track=${track.id}&seed=other456`)).json.questions.map((q) => q.key), json.questions.map((q) => q.key), `${track.id}: another seed, other questions`);
+  }
+  assert.equal((await call(null, 'GET', '/practice/mock?track=nope&seed=abc123xyz')).status, 400);
+  assert.equal((await call(null, 'GET', '/practice/mock?track=backend&seed=')).status, 400);
+  assert.equal((await call(null, 'GET', '/practice/mock?track=backend&seed=NOT-A-SEED!')).status, 400);
 });
 
 test('a try is scored on the server for single, multiple and true/false questions, and the answers come back with it', async () => {

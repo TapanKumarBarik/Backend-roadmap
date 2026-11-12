@@ -16,17 +16,21 @@ export const questionKey = (item) => `${item.quiz}/${item.id}`;
  * a mix of subjects, and letting that limit go only when there are too few quizzes to fill the drill. [{ quiz, id }]
  */
 export function pickDrill(quizzes, day, { questions, maxPerQuiz }) {
-  const order = shuffled(questionPool(quizzes), day * 2246822519 + 3266489917);
+  return takeMixed(shuffled(questionPool(quizzes), day * 2246822519 + 3266489917), questions, maxPerQuiz);
+}
+
+/** The first `count` of the questions in `order`, taking at most `maxPerQuiz` from any one quiz, and letting that limit go only when there are too few quizzes. */
+export function takeMixed(order, count, maxPerQuiz) {
   const taken = [];
   const perQuiz = new Map();
   for (const item of order) {
-    if (taken.length === questions) break;
+    if (taken.length === count) break;
     if ((perQuiz.get(item.quiz) || 0) >= maxPerQuiz) continue;
     perQuiz.set(item.quiz, (perQuiz.get(item.quiz) || 0) + 1);
     taken.push(item);
   }
   for (const item of order) {
-    if (taken.length === questions) break;
+    if (taken.length === count) break;
     if (!taken.includes(item)) taken.push(item);
   }
   return taken;

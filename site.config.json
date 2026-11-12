@@ -370,9 +370,17 @@
     "modules": "__future__ abc argparse array ast base64 binascii bisect calendar cmath collections colorsys contextlib copy csv dataclasses datetime decimal difflib enum fractions functools gc gzip hashlib heapq hmac html inspect io itertools json keyword logging math numbers operator os pathlib pprint queue random re secrets shlex statistics string struct sys textwrap time timeit traceback types typing unicodedata unittest urllib uuid warnings weakref zlib"
   },
   "progressKeys": {
-    "_about": "How a piece of practice is saved in a reader's progress, next to the modules: a coding problem solved is `<code><slug>`, a daily drill finished is `<drill><day>`. They are stored in readers' progress (browser and server), so they never change.",
+    "_about": "How a piece of practice is saved in a reader's progress, next to the modules: a coding problem solved is `<code><slug>`, a daily drill finished is `<drill><day>`, a quiz passed is `<quiz><slug>`, a mock interview finished is `<mock><track>/<time>`, a study plan finished is `<plan><id>`. They are stored in readers' progress (browser and server), so they never change.",
     "code": "practice/code/",
-    "drill": "practice/drill/"
+    "drill": "practice/drill/",
+    "quiz": "practice/quiz/",
+    "mock": "practice/mock/",
+    "plan": "practice/plan/"
+  },
+  "review": {
+    "_about": "The spaced review of what a reader missed and the coding problems they solved (webapp/src/lib/practice/review.js): the days until an item is due again, from the first box to the last (a right answer moves it on, a wrong one back to the first), and how many items come in one session. Here, not in game.config.json, because the screens that feed the review must not carry the whole game.",
+    "intervalsDays": [1, 3, 7, 14, 30],
+    "sessionSize": 8
   },
   "storage": {
     "lastFile": "docs.lastFile",
@@ -394,7 +402,12 @@
     "areaPick": "docs.areaPick",
     "netlab": "docs.netlab",
     "dailyGoal": "docs.dailyGoal",
-    "codeDraft": "docs.code."
+    "codeDraft": "docs.code.",
+    "plan": "docs.plan",
+    "review": "docs.review",
+    "levelCheck": "docs.levelCheck",
+    "mockRun": "docs.mockRun",
+    "mockHistory": "docs.mockHistory"
   },
   "assistant": {
     "maxInputChars": 12000,
@@ -434,9 +447,9 @@
       "PathDashboard": 20,
       "PathPicker": 14,
       "Reward": 12,
-      "PracticeView": 24,
-      "CodeProblemView": 32,
-      "DrillView": 26
+      "PracticeView": 27,
+      "CodeProblemView": 36,
+      "DrillView": 29
     }
   },
   "screenshots": {

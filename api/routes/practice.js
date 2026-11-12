@@ -16,6 +16,7 @@ import { checkRateLimit } from '../lib/rateLimit.js';
 import { audit } from '../lib/audit.js';
 import game from '../../game.config.json' with { type: 'json' };
 import { pickDrill, questionKey } from '../../webapp/src/lib/practice/drill.js';
+import { pickProblems, pickQuestions } from '../../webapp/src/lib/practice/picks.js';
 import { dayFromName, dayName, dayNumber } from '../../webapp/src/lib/practice/days.js';
 import { timeId } from '../lib/util.js';
 import { safeImageSrc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
@@ -49,13 +50,21 @@ const interviewCards = (section) => Object.entries(practice.interview)
   .filter(([, i]) => (/** @type {{ section?: string }} */ (i).section || 'concepts') === section)
   .map(([slug, i]) => card(slug, i, { questions: i.questions.length }));
 
+// The study plans: a card for each (how many days and things to do), and the whole plan when one is opened. It is the same for everyone.
+const plansOf = () => /** @type {Record<string, any>} */ (practice.plans || {});
+router.get('/practice/plans/:slug', (c) => {
+  const plan = plansOf()[c.req.param('slug')];
+  return plan ? c.json({ slug: c.req.param('slug'), ...plan }) : notFound(c);
+});
+
 router.get('/practice/catalog', (c) => c.json({
   quizzes: Object.entries(practice.quizzes).map(([slug, q]) => card(slug, q, { description: q.description, questions: q.questions.length })),
   exercises: Object.entries(practice.exercises).map(([slug, e]) => card(slug, e, { description: e.brief })),
   interview: interviewCards('concepts'),
   coding: interviewCards('coding'),
   // `tests` is how many checks a problem runs: a Python problem's tests, or a SQL problem's runs (the data as it is, and each variant of it)
-  code: Object.entries(codeProblemsOf()).map(([slug, p]) => card(slug, p, { description: p.description, tests: (p.tests || p.expected).length, language: p.language || 'python' }))
+  code: Object.entries(codeProblemsOf()).map(([slug, p]) => card(slug, p, { description: p.description, tests: (p.tests || p.expected).length, language: p.language || 'python' })),
+  plans: Object.entries(plansOf()).map(([slug, p]) => card(slug, p, { description: p.description, days: p.days.length, items: p.days.reduce((n, d) => n + d.items.length, 0) }))
 }));
 
 router.get('/practice/quizzes/:slug', (c) => {
@@ -160,6 +169,70 @@ router.get('/practice/drill', (c) => {
       key: questionKey(item), quiz: item.quiz, quizTitle: quiz.title, topic: quiz.topic, id: question.id, type: question.type, text: question.text,
       options: question.options, choose: question.type === 'multiple' ? 'any' : 'one'
     }))
+  });
+});
+
+/* ------------------------------------------------------------------------- questions by key: the level check, mock interviews, review */
+
+// A question is named by its quiz and its id ("http-caching/q1", as the drill names them). The level check, a mock interview and the review queue all ask for
+// questions without answers and check what was chosen here, so an answer never reaches the browser before it has been given.
+const QUESTIONS_AT_ONCE = 40;
+const publicQuestion = (slug, quiz, question) => ({
+  key: `${slug}/${question.id}`, quiz: slug, quizTitle: quiz.title, topic: quiz.topic, id: question.id, type: question.type, text: question.text,
+  options: question.options, choose: question.type === 'multiple' ? 'any' : 'one'
+});
+/** The quiz and the question a key names, or null. */
+function questionByKey(key) {
+  const [slug, id] = String(key).split('/');
+  const quiz = practice.quizzes[slug];
+  const question = quiz && quiz.questions.find((q) => q.id === id);
+  return question ? { slug, quiz, question } : null;
+}
+const asQuestions = (picked) => picked.map(({ quiz, id }) => publicQuestion(quiz, practice.quizzes[quiz], practice.quizzes[quiz].questions.find((q) => q.id === id)));
+
+router.get('/practice/questions', (c) => {
+  const keys = String(c.req.query('keys') || '').split(',').filter(Boolean).slice(0, QUESTIONS_AT_ONCE);
+  const found = keys.map(questionByKey);
+  return c.json({ questions: found.filter(Boolean).map(({ slug, quiz, question }) => publicQuestion(slug, quiz, question)), missing: keys.filter((_, i) => !found[i]) });
+});
+
+// What the answers to some questions were, and why: { answers: { key: [optionId] } } gives { results: [{ key, correct, answer, explanation }] }.
+router.post('/practice/questions/check', async (c) => {
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const given = body && typeof body.answers === 'object' && body.answers && !Array.isArray(body.answers) ? body.answers : null;
+  const keys = given ? Object.keys(given) : [];
+  if (!keys.length || keys.length > QUESTIONS_AT_ONCE) return c.json({ error: `answers are required, for at most ${QUESTIONS_AT_ONCE} questions` }, 400);
+  const results = keys.flatMap((key) => {
+    const found = questionByKey(key);
+    if (!found) return [];
+    const chosen = Array.isArray(given[key]) ? [...new Set(given[key].filter((id) => typeof id === 'string'))].filter((id) => found.question.options.some((o) => o.id === id)) : [];
+    return [{ key, correct: sameSet(chosen, found.question.answer), answer: found.question.answer, explanation: found.question.explanation }];
+  });
+  return c.json({ results });
+});
+
+// The level check: the same questions for everyone (game.config.json -> levelCheck), a few from each area, drawn from the quizzes by topic.
+router.get('/practice/level-check', (c) => c.json({
+  areas: game.levelCheck.areas.map((area) => ({
+    id: area.id, label: area.label,
+    questions: asQuestions(pickQuestions(practice.quizzes, { topics: area.quizTopics, count: area.questions, seed: `${game.levelCheck.seed}/${area.id}`, maxPerQuiz: game.levelCheck.maxPerQuiz }))
+  }))
+}));
+
+// A mock interview: questions and coding problems for a track (game.config.json -> mock), chosen by the seed the page made up for this try, so a reload
+// of the same try shows the same interview and the next try another.
+const MOCK_SEED = /^[a-z0-9]{4,40}$/;
+router.get('/practice/mock', (c) => {
+  const track = game.mock.tracks.find((t) => t.id === c.req.query('track'));
+  if (!track) return c.json({ error: 'no such track' }, 400);
+  const seed = String(c.req.query('seed') || '');
+  if (!MOCK_SEED.test(seed)) return c.json({ error: 'a seed is 4 to 40 lower-case letters and digits' }, 400);
+  const problems = Object.entries(codeProblemsOf()).map(([slug, p]) => ({ slug, topic: p.topic, difficulty: p.difficulty }));
+  return c.json({
+    track: { id: track.id, label: track.label, minutes: track.minutes },
+    questions: asQuestions(pickQuestions(practice.quizzes, { topics: track.quizTopics, count: track.questions, seed: `${seed}/${track.id}`, maxPerQuiz: game.mock.maxPerQuiz })),
+    problems: pickProblems(problems, { topics: track.codeTopics, count: track.problems, seed: `${seed}/${track.id}`, levels: track.levels }).map((p) => p.slug)
   });
 });
 

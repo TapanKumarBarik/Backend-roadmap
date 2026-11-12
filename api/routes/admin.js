@@ -12,6 +12,9 @@ import { audit } from '../lib/audit.js';
 import { STORAGE_ACCOUNT } from '../lib/blob.js';
 import site from '../../site.config.json' with { type: 'json' };
 
+// The progress keys of practice (site.config.json -> progressKeys) as the progress table holds them: what a count of a reader's modules must leave out.
+const PRACTICE_PREFIXES = ['code', 'drill', 'quiz', 'mock', 'plan'].map((name) => site.progressKeys[name]);
+
 const admin = createRouter();
 
 const DAILY_WINDOW = 30;
@@ -53,8 +56,8 @@ admin.get('/manage/users', async (c) => {
   };
 
   const [progress, notes, bookmarks, commentCounts] = await Promise.all([
-    // modules only: a solved coding problem or a finished drill is saved in the same table (site.config.json -> progressKeys), and is not a module
-    groupCount('SELECT user_id AS k, COUNT(*) AS n FROM module_progress WHERE path NOT LIKE ?1 AND path NOT LIKE ?2 GROUP BY user_id', `${site.progressKeys.code}%`, `${site.progressKeys.drill}%`),
+    // modules only: a solved coding problem, a finished drill, a quiz passed, a mock and a plan finished are saved in the same table (site.config.json -> progressKeys), and are not modules
+    groupCount(`SELECT user_id AS k, COUNT(*) AS n FROM module_progress WHERE ${PRACTICE_PREFIXES.map((_, i) => `path NOT LIKE ?${i + 1}`).join(' AND ')} GROUP BY user_id`, ...PRACTICE_PREFIXES.map((prefix) => `${prefix}%`)),
     groupCount('SELECT user_id AS k, COUNT(*) AS n FROM notes GROUP BY user_id'),
     groupCount('SELECT user_id AS k, COUNT(*) AS n FROM bookmarks GROUP BY user_id'),
     groupCount(`SELECT user_id AS k, COUNT(*) AS n FROM comments WHERE user_id IS NOT NULL AND user_id != '' GROUP BY user_id`)

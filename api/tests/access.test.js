@@ -28,6 +28,11 @@ const PUBLIC = [
   'POST /api/practice/quizzes/:slug/attempts',
   'GET /api/practice/drill',
   'POST /api/practice/drill/check', // the drill is for everyone; nothing is kept
+  'GET /api/practice/plans/:slug', // a study plan is content, the same for everyone
+  'GET /api/practice/questions', // the level check, a mock interview and the review ask for questions without answers...
+  'POST /api/practice/questions/check', // ...and check what was chosen; nothing is kept
+  'GET /api/practice/level-check',
+  'GET /api/practice/mock',
   'GET /api/practice/daily-incident',
   'POST /api/practice/daily-incident/attempt', // signed out, the answer is shown and nothing is saved, as with a quiz
   'GET /api/announcements',

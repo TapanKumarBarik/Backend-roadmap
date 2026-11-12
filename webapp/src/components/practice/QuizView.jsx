@@ -3,6 +3,11 @@ import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchQuiz, submitQuizAttempt } from '../../lib/practiceApi.js';
 import { friendlyMessage } from '../../lib/errors.js';
 import { useLoader } from '../../hooks/useLoader.js';
+import { useReview } from '../../hooks/useReview.js';
+import { quizKey } from '../../lib/practice/progressKeys.js';
+import { percentOf } from '../../lib/practice/questions.js';
+import { questionItem } from '../../lib/practice/review.js';
+import { GAME } from '../../config/game.js';
 import { DIFFICULTY, QUIZ } from '../../config/practice.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
@@ -18,8 +23,9 @@ import '../../styles/quizsteps.css';
 // them all on one page instead. The explanations still come only with the score, so nothing is held back that a step could show.
 const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
-export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, nodeByFile }) {
+export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, nodeByFile, statusMap = {}, onMark = () => {} }) {
   const { data: quiz, error, reload } = useLoader(() => fetchQuiz(slug), [slug]);
+  const review = useReview();
   usePageTitle(quiz && quiz.title);
   const [chosen, setChosen] = useState({});
   const [result, setResult] = useState(null);
@@ -41,7 +47,18 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
   async function check() {
     setBusy(true);
     setProblem('');
-    try { setResult(await submitQuizAttempt(slug, chosen, only)); window.document.getElementById('main')?.scrollTo({ top: 0 }); } catch (err) { setProblem(friendlyMessage(err)); } finally { setBusy(false); }
+    try {
+      const scored = await submitQuizAttempt(slug, chosen, only);
+      setResult(scored);
+      window.document.getElementById('main')?.scrollTo({ top: 0 });
+      // what was missed comes back in the review, and a right answer to a question that was missed moves it on
+      for (const r of scored.results) review.answered(questionItem(`${slug}/${r.id}`), r.correct);
+      // passing the whole quiz is progress (XP, a badge, the streak); a try below the pass mark is "tried"
+      if (!only) {
+        const key = quizKey(slug);
+        if (percentOf(scored.score, scored.max) >= GAME.quiz.passPercent) { if (statusMap[key] !== 'done') onMark(key, 'done'); } else if (!statusMap[key]) onMark(key, 'wip');
+      }
+    } catch (err) { setProblem(friendlyMessage(err)); } finally { setBusy(false); }
   }
   // The timer calls the latest check (what has been answered so far), not the one from when it started.
   const checkRef = useRef(check);

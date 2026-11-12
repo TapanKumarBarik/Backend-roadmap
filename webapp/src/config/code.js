@@ -201,6 +201,7 @@ export const DISCUSS = {
 
 export const CODE = {
   back: '← All practice',
+  backToInterview: '← Back to the interview',
   editorLabel: 'Your Python code',
   tests: (n) => `${n} tests`,
   solved: 'Solved',

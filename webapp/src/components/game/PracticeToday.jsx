@@ -1,4 +1,7 @@
 import { useMemo } from 'react';
+import { useActivePlan } from '../../hooks/useActivePlan.js';
+import { useReview } from '../../hooks/useReview.js';
+import { TOOLS } from '../../config/toolsHub.js';
 import { Glyph } from './glyphs.jsx';
 import { TickIcon } from '../common/icons.jsx';
 import { dailyProblem } from '../../lib/practice/codeProgress.js';
@@ -25,12 +28,22 @@ function Row({ glyph, title, meta, done, doneLabel, label, onOpen }) {
 export default function PracticeToday({ catalog, statusMap, onOpen }) {
   const today = dayNumber();
   const daily = useMemo(() => (catalog && catalog.code ? dailyProblem(catalog.code, today, GAME.dailyProblem.levels) : null), [catalog, today]);
+  const active = useActivePlan(statusMap);
+  const { counts } = useReview();
   if (!catalog || !daily) return null;
   return (
     <section className="gm-today" aria-label={COPY.heading}>
       <h3 className="gm-today-h">{COPY.heading}</h3>
       <Row glyph="bolt" title={COPY.drill} meta={COPY.drillMeta(GAME.drill.questions, GAME.xp.drill)} done={statusMap[drillKey(dayName())] === 'done'} doneLabel={COPY.done} label={COPY.start} onOpen={() => onOpen('drill')} />
       <Row glyph="code" title={COPY.daily} meta={COPY.dailyMeta(daily.title, GAME.xp.problem)} done={statusMap[codeKey(daily.slug)] === 'done'} doneLabel={COPY.solved} label={COPY.solve} onOpen={() => onOpen(`code/${daily.slug}`)} />
+      {active.plan && (
+        <Row
+          glyph="calendar" title={TOOLS.plan.title}
+          meta={`${active.plan.title} · ${active.progress.complete ? TOOLS.plan.finished : TOOLS.plan.day(active.scheduled, active.plan.days.length)}${active.behind > 0 ? ` · ${TOOLS.plan.behind(active.behind)}` : ''}`}
+          done={active.progress.complete} doneLabel={TOOLS.plan.finished} label={TOOLS.plan.open} onOpen={() => onOpen(`plan/${active.plan.slug}`)}
+        />
+      )}
+      {counts.due > 0 && <Row glyph="repeat" title={TOOLS.review.title} meta={TOOLS.review.due(counts.due)} done={false} doneLabel="" label={TOOLS.review.start} onOpen={() => onOpen('review')} />}
     </section>
   );
 }

@@ -1,0 +1,263 @@
+{
+  "title": "SQL for developers in 14 days",
+  "topic": "sql",
+  "difficulty": "beginner",
+  "description": "Learn SQL by writing it: querying, joins, aggregates, subqueries, window functions and recursive queries on small datasets, ending with SQL for application and ML data.",
+  "audience": "Developers who use an ORM and want to be comfortable with the SQL under it. Each day is two or three queries to write in the browser.",
+  "days": [
+    {
+      "title": "Querying",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "sql-joins-and-grouping"
+        },
+        {
+          "kind": "code",
+          "ref": "cheap-products"
+        },
+        {
+          "kind": "code",
+          "ref": "customers-without-email"
+        },
+        {
+          "kind": "code",
+          "ref": "search-products-by-name"
+        }
+      ]
+    },
+    {
+      "title": "Sorting, ranges and CASE",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "top-three-products"
+        },
+        {
+          "kind": "code",
+          "ref": "orders-in-a-month"
+        },
+        {
+          "kind": "code",
+          "ref": "price-bands"
+        },
+        {
+          "kind": "code",
+          "ref": "customer-labels"
+        }
+      ]
+    },
+    {
+      "title": "Joins",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "orders-per-customer"
+        },
+        {
+          "kind": "code",
+          "ref": "customers-with-no-orders"
+        },
+        {
+          "kind": "code",
+          "ref": "products-never-ordered"
+        }
+      ]
+    },
+    {
+      "title": "Aggregates",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "revenue-per-category"
+        },
+        {
+          "kind": "code",
+          "ref": "repeat-customers"
+        },
+        {
+          "kind": "code",
+          "ref": "department-headcount"
+        }
+      ]
+    },
+    {
+      "title": "Aggregating twice",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "average-order-value-by-country"
+        },
+        {
+          "kind": "code",
+          "ref": "departments-above-company-average"
+        }
+      ]
+    },
+    {
+      "title": "Self-joins and indexes",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "database-indexes"
+        },
+        {
+          "kind": "code",
+          "ref": "employees-and-managers"
+        },
+        {
+          "kind": "code",
+          "ref": "earning-more-than-the-manager"
+        }
+      ]
+    },
+    {
+      "title": "Subqueries",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "second-highest-salary"
+        },
+        {
+          "kind": "code",
+          "ref": "first-order-per-customer"
+        }
+      ]
+    },
+    {
+      "title": "Window functions",
+      "items": [
+        {
+          "kind": "quiz",
+          "ref": "sql-window-functions-and-query-tuning"
+        },
+        {
+          "kind": "code",
+          "ref": "rank-salaries-in-department"
+        },
+        {
+          "kind": "code",
+          "ref": "top-earner-per-department"
+        }
+      ]
+    },
+    {
+      "title": "Windows over time",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "running-revenue"
+        },
+        {
+          "kind": "code",
+          "ref": "month-over-month-growth"
+        },
+        {
+          "kind": "code",
+          "ref": "top-two-products-per-category"
+        }
+      ]
+    },
+    {
+      "title": "Recursive queries",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "org-chart-levels"
+        },
+        {
+          "kind": "code",
+          "ref": "everyone-under-a-manager"
+        }
+      ]
+    },
+    {
+      "title": "Product analytics",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "daily-active-users"
+        },
+        {
+          "kind": "code",
+          "ref": "signup-funnel"
+        },
+        {
+          "kind": "code",
+          "ref": "sessionize-events-sql"
+        }
+      ]
+    },
+    {
+      "title": "SQL for a GenAI app",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "cost-per-feature"
+        },
+        {
+          "kind": "code",
+          "ref": "error-rate-by-model"
+        },
+        {
+          "kind": "code",
+          "ref": "top-users-by-tokens"
+        },
+        {
+          "kind": "code",
+          "ref": "cost-from-the-price-table"
+        }
+      ]
+    },
+    {
+      "title": "Latency, feedback and cost over time",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "thumbs-down-rate-by-feature"
+        },
+        {
+          "kind": "code",
+          "ref": "p95-latency-per-model"
+        },
+        {
+          "kind": "code",
+          "ref": "daily-cost-moving-average"
+        }
+      ]
+    },
+    {
+      "title": "ML experiments, and a mock",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "best-run-per-experiment"
+        },
+        {
+          "kind": "code",
+          "ref": "early-stopping-epoch"
+        },
+        {
+          "kind": "code",
+          "ref": "failed-run-share"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
+        },
+        {
+          "kind": "mock",
+          "ref": "sql"
+        }
+      ]
+    }
+  ]
+}

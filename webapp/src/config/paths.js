@@ -64,6 +64,17 @@ export const LISTING_COPY = {
   practiceLead: 'Write and run Python and SQL in your browser, check what you know with quizzes, work through exercises, and rehearse the questions interviews ask, from backend concepts to coding problems with worked solutions.',
   practiceDescription: (quizzes, exercises, interview, coding, code) => `${code} Python and SQL coding problems you solve and test in the browser, ${quizzes} quizzes, ${exercises} exercises, ${interview} backend interview question sets and ${coding} coding interview question sets with worked solutions.`,
   codeProblems: 'Code practice',
+  studyPlans: 'Study plans',
+  planTitle: (title) => `${title}: a day-by-day study plan`,
+  planDescription: (plan) => `${plan.description} ${plan.days.length} days, ${plan.days.reduce((n, d) => n + d.items.length, 0)} things to do, each day with its lessons, problems and quizzes.`,
+  planDays: 'The days',
+  planRun: 'Open this page with JavaScript on to follow the plan: what you finish is ticked off from your progress.',
+  toolsTitle: { level: 'Find your level', mock: 'Mock interview', review: 'Review' },
+  toolsLead: {
+    level: 'A five-minute test across backend, DevOps, Python and GenAI that says where to start.',
+    mock: 'A timed mock interview with questions and coding problems for a track, no hints, and a scorecard at the end.',
+    review: 'The problems you solved and the questions you missed, back after a day, three, seven, fourteen and thirty days.'
+  },
   quizzes: 'Quizzes',
   exercises: 'Exercises',
   interviewSets: 'Interview preparation',

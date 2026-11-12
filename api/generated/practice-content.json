@@ -21341,6 +21341,1982 @@
    "explanation": "**The idea.** Go through the items one at a time and keep `best[c]`, the most value that fits in capacity `c` using the items looked at so far. For a new item of weight `w` and value `v`, every capacity `c >= w` has two options: leave the item (`best[c]` stays as it is) or take it, which leaves `c - w` for the earlier items: `best[c - w] + v`. Keep the larger.\n\n**The detail that makes it 0/1.** Loop the capacity from high to low. Then `best[c - w]` still holds the answer *without* the current item. Looping upwards would let the same item be added again in the same pass, which is the unbounded knapsack, where every item may be taken any number of times.\n\n**Complexity.** O(items × capacity) time and O(capacity) space. That is *pseudo-polynomial*: polynomial in the value of the capacity, not in the number of digits needed to write it, and the general problem is still NP-hard. The same table answers \"does some subset add up to X?\" and \"can this list be split into two equal halves?\"."
   }
  },
+ "plans": {
+  "algorithms-python-21": {
+   "title": "Algorithms in Python: 21 days",
+   "topic": "algorithms",
+   "difficulty": "intermediate",
+   "description": "The patterns behind most coding interview problems, three problems a day: arrays and hashing, two pointers, stacks and heaps, binary search, lists and trees, graphs, dynamic programming and strings.",
+   "audience": "Anyone who can write Python and wants to get fast at problems. Each day is about an hour, easiest problems first within a topic, and the last day is a mock interview.",
+   "days": [
+    {
+     "title": "Arrays and hashing: day 1 of 3",
+     "items": [
+      {
+       "kind": "quiz",
+       "ref": "big-o-and-data-structures"
+      },
+      {
+       "kind": "code",
+       "ref": "contains-duplicate"
+      },
+      {
+       "kind": "code",
+       "ref": "majority-element"
+      },
+      {
+       "kind": "code",
+       "ref": "two-sum"
+      }
+     ]
+    },
+    {
+     "title": "Arrays and hashing: day 2 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "valid-anagram"
+      },
+      {
+       "kind": "code",
+       "ref": "group-anagrams"
+      },
+      {
+       "kind": "code",
+       "ref": "longest-consecutive-sequence"
+      }
+     ]
+    },
+    {
+     "title": "Arrays and hashing: day 3 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "product-of-array-except-self"
+      },
+      {
+       "kind": "code",
+       "ref": "rotate-array"
+      },
+      {
+       "kind": "code",
+       "ref": "set-matrix-zeroes"
+      }
+     ]
+    },
+    {
+     "title": "Two pointers and sliding windows: day 1 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "best-time-to-buy-and-sell-stock"
+      },
+      {
+       "kind": "code",
+       "ref": "merge-sorted-array"
+      },
+      {
+       "kind": "code",
+       "ref": "move-zeroes"
+      }
+     ]
+    },
+    {
+     "title": "Two pointers and sliding windows: day 2 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "valid-palindrome"
+      },
+      {
+       "kind": "code",
+       "ref": "container-with-most-water"
+      },
+      {
+       "kind": "code",
+       "ref": "longest-substring-without-repeating-characters"
+      }
+     ]
+    },
+    {
+     "title": "Stacks, heaps and intervals: day 1 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "valid-parentheses"
+      },
+      {
+       "kind": "code",
+       "ref": "daily-temperatures"
+      },
+      {
+       "kind": "code",
+       "ref": "kth-largest-element"
+      }
+     ]
+    },
+    {
+     "title": "Stacks, heaps and intervals: day 2 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "meeting-rooms-ii"
+      },
+      {
+       "kind": "code",
+       "ref": "merge-intervals"
+      },
+      {
+       "kind": "code",
+       "ref": "min-stack"
+      }
+     ]
+    },
+    {
+     "title": "Binary search and sorting: day 1 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "binary-search"
+      },
+      {
+       "kind": "code",
+       "ref": "integer-square-root"
+      },
+      {
+       "kind": "code",
+       "ref": "find-first-and-last-position"
+      }
+     ]
+    },
+    {
+     "title": "Binary search and sorting: day 2 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "find-minimum-in-rotated-sorted-array"
+      },
+      {
+       "kind": "code",
+       "ref": "search-in-rotated-sorted-array"
+      },
+      {
+       "kind": "code",
+       "ref": "sort-colors"
+      }
+     ]
+    },
+    {
+     "title": "Linked lists and trees: day 1 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "invert-binary-tree"
+      },
+      {
+       "kind": "code",
+       "ref": "maximum-depth-of-binary-tree"
+      },
+      {
+       "kind": "code",
+       "ref": "merge-two-sorted-lists"
+      }
+     ]
+    },
+    {
+     "title": "Linked lists and trees: day 2 of 3",
+     "items": [
+      {
+       "kind": "quiz",
+       "ref": "python-gotchas-and-idioms"
+      },
+      {
+       "kind": "code",
+       "ref": "middle-of-linked-list"
+      },
+      {
+       "kind": "code",
+       "ref": "path-sum"
+      },
+      {
+       "kind": "code",
+       "ref": "reverse-linked-list"
+      }
+     ]
+    },
+    {
+     "title": "Linked lists and trees: day 3 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "add-two-numbers"
+      },
+      {
+       "kind": "code",
+       "ref": "binary-tree-diameter"
+      },
+      {
+       "kind": "code",
+       "ref": "binary-tree-level-order-traversal"
+      }
+     ]
+    },
+    {
+     "title": "Graphs and backtracking: day 1 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "clone-graph"
+      },
+      {
+       "kind": "code",
+       "ref": "combination-sum"
+      },
+      {
+       "kind": "code",
+       "ref": "is-bipartite-graph"
+      }
+     ]
+    },
+    {
+     "title": "Graphs and backtracking: day 2 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "number-of-islands"
+      },
+      {
+       "kind": "code",
+       "ref": "permutations"
+      },
+      {
+       "kind": "code",
+       "ref": "rotting-oranges"
+      }
+     ]
+    },
+    {
+     "title": "Graphs and backtracking: day 3 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "shortest-path-in-a-grid"
+      },
+      {
+       "kind": "code",
+       "ref": "subsets"
+      },
+      {
+       "kind": "code",
+       "ref": "union-find"
+      }
+     ]
+    },
+    {
+     "title": "Dynamic programming: day 1 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "climbing-stairs"
+      },
+      {
+       "kind": "code",
+       "ref": "unique-paths"
+      },
+      {
+       "kind": "code",
+       "ref": "coin-change"
+      }
+     ]
+    },
+    {
+     "title": "Dynamic programming: day 2 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "decode-ways"
+      },
+      {
+       "kind": "code",
+       "ref": "house-robber"
+      },
+      {
+       "kind": "code",
+       "ref": "jump-game"
+      }
+     ]
+    },
+    {
+     "title": "Dynamic programming: day 3 of 3",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "longest-common-subsequence"
+      },
+      {
+       "kind": "code",
+       "ref": "longest-increasing-subsequence"
+      },
+      {
+       "kind": "code",
+       "ref": "partition-equal-subset-sum"
+      }
+     ]
+    },
+    {
+     "title": "Strings and parsing: day 1 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "compare-version-numbers"
+      },
+      {
+       "kind": "code",
+       "ref": "is-subsequence"
+      },
+      {
+       "kind": "code",
+       "ref": "longest-common-prefix"
+      }
+     ]
+    },
+    {
+     "title": "Strings and parsing: day 2 of 2",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "parse-cookie-header"
+      },
+      {
+       "kind": "code",
+       "ref": "run-length-encoding"
+      },
+      {
+       "kind": "code",
+       "ref": "csv-line-parser"
+      }
+     ]
+    },
+    {
+     "title": "Mock interview day",
+     "items": [
+      {
+       "kind": "mock",
+       "ref": "algorithms"
+      }
+     ]
+    }
+   ]
+  },
+  "backend-crash-14": {
+   "title": "Backend crash course in 14 days",
+   "topic": "backend",
+   "difficulty": "intermediate",
+   "description": "The core of a backend interview in two weeks: HTTP and APIs, SQL and transactions, auth and security, queues, concurrency, distributed systems and system design.",
+   "audience": "Developers short on time. Each day is one or two lessons, a quiz and a problem, and the last day is a mock interview.",
+   "days": [
+    {
+     "title": "HTTP and REST",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "http-methods-status-codes-and-rest"
+      },
+      {
+       "kind": "code",
+       "ref": "two-sum"
+      }
+     ]
+    },
+    {
+     "title": "Caching",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/06-http-caching/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/05-caching-and-performance/01-caching-strategies/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "caching-strategies-and-eviction"
+      },
+      {
+       "kind": "code",
+       "ref": "lru-cache"
+      }
+     ]
+    },
+    {
+     "title": "Designing an API",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "api-design-pagination-versioning-and-errors"
+      },
+      {
+       "kind": "code",
+       "ref": "group-anagrams"
+      }
+     ]
+    },
+    {
+     "title": "SQL and indexes",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "sql-joins-and-grouping"
+      },
+      {
+       "kind": "quiz",
+       "ref": "database-indexes"
+      },
+      {
+       "kind": "code",
+       "ref": "orders-per-customer"
+      }
+     ]
+    },
+    {
+     "title": "Transactions",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "transactions-and-isolation-levels"
+      },
+      {
+       "kind": "code",
+       "ref": "merge-intervals"
+      }
+     ]
+    },
+    {
+     "title": "Authentication",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "sessions-and-cookies"
+      },
+      {
+       "kind": "quiz",
+       "ref": "jwt-oauth-and-oidc"
+      },
+      {
+       "kind": "code",
+       "ref": "valid-parentheses"
+      }
+     ]
+    },
+    {
+     "title": "Security",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "web-security-owasp-top-10"
+      },
+      {
+       "kind": "quiz",
+       "ref": "cors-csrf-and-xss"
+      },
+      {
+       "kind": "code",
+       "ref": "fix-query-building"
+      }
+     ]
+    },
+    {
+     "title": "Queues and background jobs",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "message-queues-and-event-streaming"
+      },
+      {
+       "kind": "code",
+       "ref": "bounded-queue"
+      }
+     ]
+    },
+    {
+     "title": "Concurrency",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "concurrency-async-and-race-conditions"
+      },
+      {
+       "kind": "code",
+       "ref": "fix-check-then-act"
+      }
+     ]
+    },
+    {
+     "title": "Retries, idempotency and rate limiting",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "idempotency-and-retries"
+      },
+      {
+       "kind": "code",
+       "ref": "token-bucket-rate-limiter"
+      }
+     ]
+    },
+    {
+     "title": "Replication, sharding and CAP",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "replication-and-sharding"
+      },
+      {
+       "kind": "quiz",
+       "ref": "cap-and-consistency-models"
+      },
+      {
+       "kind": "code",
+       "ref": "consistent-hash-ring"
+      }
+     ]
+    },
+    {
+     "title": "Distributed patterns",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "microservice-patterns-saga-outbox-and-cqrs"
+      },
+      {
+       "kind": "code",
+       "ref": "saga-runner"
+      }
+     ]
+    },
+    {
+     "title": "System design",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "capacity-estimation-back-of-envelope"
+      },
+      {
+       "kind": "quiz",
+       "ref": "system-design-availability-latency-and-spof"
+      },
+      {
+       "kind": "code",
+       "ref": "base62-url-shortener"
+      }
+     ]
+    },
+    {
+     "title": "Mock interview day",
+     "items": [
+      {
+       "kind": "mock",
+       "ref": "backend"
+      }
+     ]
+    }
+   ]
+  },
+  "backend-interview-30": {
+   "title": "Backend interview in 30 days",
+   "topic": "backend",
+   "difficulty": "intermediate",
+   "description": "A month of one focused session a day: HTTP, APIs, databases and SQL, auth and security, caching, queues, distributed systems and system design, ending in a mock interview.",
+   "audience": "Developers who know one backend language and have an interview coming. Each day is about an hour: a lesson to read, a quiz or two, and a coding problem or two.",
+   "days": [
+    {
+     "title": "HTTP in one sitting",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/01-http-protocol-basics/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "two-sum"
+      }
+     ]
+    },
+    {
+     "title": "Methods, status codes and REST",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/05-http-responses-and-status-codes/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "http-methods-status-codes-and-rest"
+      },
+      {
+       "kind": "code",
+       "ref": "valid-anagram"
+      }
+     ]
+    },
+    {
+     "title": "HTTP caching",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/01-request-response-fundamentals/06-http-caching/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "http-caching"
+      },
+      {
+       "kind": "code",
+       "ref": "contains-duplicate"
+      }
+     ]
+    },
+    {
+     "title": "Designing an API",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "api-design-pagination-versioning-and-errors"
+      },
+      {
+       "kind": "code",
+       "ref": "group-anagrams"
+      }
+     ]
+    },
+    {
+     "title": "Validation and middleware",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/02-api-layer-and-request-handling/03-middleware-fundamentals/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "valid-parentheses"
+      },
+      {
+       "kind": "code",
+       "ref": "parse-query-string"
+      }
+     ]
+    },
+    {
+     "title": "SQL: querying",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "sql-joins-and-grouping"
+      },
+      {
+       "kind": "code",
+       "ref": "cheap-products"
+      },
+      {
+       "kind": "code",
+       "ref": "customers-without-email"
+      }
+     ]
+    },
+    {
+     "title": "SQL: joins and aggregates",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "orders-per-customer"
+      },
+      {
+       "kind": "code",
+       "ref": "customers-with-no-orders"
+      },
+      {
+       "kind": "code",
+       "ref": "revenue-per-category"
+      }
+     ]
+    },
+    {
+     "title": "Schema design and indexes",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "database-indexes"
+      },
+      {
+       "kind": "code",
+       "ref": "binary-search"
+      }
+     ]
+    },
+    {
+     "title": "Transactions and isolation",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "transactions-and-isolation-levels"
+      },
+      {
+       "kind": "code",
+       "ref": "merge-intervals"
+      }
+     ]
+    },
+    {
+     "title": "Query tuning and connection pools",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "repeat-customers"
+      },
+      {
+       "kind": "code",
+       "ref": "second-highest-salary"
+      }
+     ]
+    },
+    {
+     "title": "Sessions and cookies",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "sessions-and-cookies"
+      },
+      {
+       "kind": "code",
+       "ref": "top-k-frequent-elements"
+      }
+     ]
+    },
+    {
+     "title": "JWT",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "longest-substring-without-repeating-characters"
+      }
+     ]
+    },
+    {
+     "title": "OAuth2 and OIDC",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/03-authentication-and-authorization/03-oauth2-and-oidc/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "jwt-oauth-and-oidc"
+      },
+      {
+       "kind": "code",
+       "ref": "valid-ipv4-address"
+      }
+     ]
+    },
+    {
+     "title": "The OWASP Top 10",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "web-security-owasp-top-10"
+      },
+      {
+       "kind": "code",
+       "ref": "fix-query-building"
+      }
+     ]
+    },
+    {
+     "title": "XSS, CSRF and CORS",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/09-security-deep-dive/02-xss-and-csrf/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "cors-csrf-and-xss"
+      },
+      {
+       "kind": "code",
+       "ref": "normalize-url-path"
+      }
+     ]
+    },
+    {
+     "title": "Caching strategies",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/05-caching-and-performance/01-caching-strategies/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "caching-strategies-and-eviction"
+      },
+      {
+       "kind": "code",
+       "ref": "lru-cache"
+      }
+     ]
+    },
+    {
+     "title": "Eviction, invalidation and Redis",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "redis-data-structures-and-patterns"
+      },
+      {
+       "kind": "code",
+       "ref": "ttl-cache"
+      }
+     ]
+    },
+    {
+     "title": "Concurrency",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "concurrency-async-and-race-conditions"
+      },
+      {
+       "kind": "code",
+       "ref": "fix-check-then-act"
+      }
+     ]
+    },
+    {
+     "title": "Queues and background jobs",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "message-queues-and-event-streaming"
+      },
+      {
+       "kind": "code",
+       "ref": "bounded-queue"
+      }
+     ]
+    },
+    {
+     "title": "Rate limiting",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "token-bucket-rate-limiter"
+      },
+      {
+       "kind": "code",
+       "ref": "sliding-window-rate-limiter"
+      }
+     ]
+    },
+    {
+     "title": "Retries and idempotency",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "idempotency-and-retries"
+      },
+      {
+       "kind": "code",
+       "ref": "retry-with-backoff"
+      }
+     ]
+    },
+    {
+     "title": "Replication and sharding",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "replication-and-sharding"
+      },
+      {
+       "kind": "code",
+       "ref": "consistent-hash-ring"
+      }
+     ]
+    },
+    {
+     "title": "ACID, CAP and consistency",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/01-acid-and-cap-theorem/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "cap-and-consistency-models"
+      },
+      {
+       "kind": "code",
+       "ref": "lamport-clock"
+      }
+     ]
+    },
+    {
+     "title": "Sagas, the outbox and CQRS",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "microservice-patterns-saga-outbox-and-cqrs"
+      },
+      {
+       "kind": "code",
+       "ref": "saga-runner"
+      }
+     ]
+    },
+    {
+     "title": "How to answer a system design question",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "capacity-estimation-back-of-envelope"
+      },
+      {
+       "kind": "code",
+       "ref": "base62-url-shortener"
+      }
+     ]
+    },
+    {
+     "title": "Design a URL shortener and a rate limiter",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "snowflake-id-generator"
+      }
+     ]
+    },
+    {
+     "title": "Observability",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "observability-logs-metrics-and-traces"
+      },
+      {
+       "kind": "code",
+       "ref": "latency-percentiles"
+      }
+     ]
+    },
+    {
+     "title": "Testing",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/12-testing-and-code-quality/00-testing-fundamentals-and-the-test-pyramid/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "testing-strategies-for-backends"
+      },
+      {
+       "kind": "code",
+       "ref": "fix-stale-cache"
+      }
+     ]
+    },
+    {
+     "title": "Deploying safely",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "ci-cd-and-deployment-strategies"
+      },
+      {
+       "kind": "code",
+       "ref": "event-bus"
+      }
+     ]
+    },
+    {
+     "title": "Mock interview day",
+     "items": [
+      {
+       "kind": "mock",
+       "ref": "backend"
+      },
+      {
+       "kind": "quiz",
+       "ref": "system-design-availability-latency-and-spof"
+      }
+     ]
+    }
+   ]
+  },
+  "genai-engineer-30": {
+   "title": "GenAI engineer in 30 days",
+   "topic": "genai",
+   "difficulty": "intermediate",
+   "description": "From tokens and attention to RAG, agents, serving and evaluation: read the lessons, then build the pieces yourself in the coding problems.",
+   "audience": "Developers who build with language models, or want to. Each day is a couple of lessons and a problem where you write the thing the lesson explains.",
+   "days": [
+    {
+     "title": "What generative AI is",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/00-genai-foundations/00-what-is-generative-ai/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/00-genai-foundations/08-how-llms-actually-generate-text/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Tokens",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/01-tokens-and-language-modeling/00-what-is-a-token/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/01-tokens-and-language-modeling/03-byte-pair-encoding-explained/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Sampling",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "softmax"
+      },
+      {
+       "kind": "code",
+       "ref": "top-k-top-p-sampling"
+      }
+     ]
+    },
+    {
+     "title": "Build a tokenizer",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/01-tokens-and-language-modeling/04-building-a-bpe-tokenizer-from-scratch/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "byte-pair-encoding"
+      }
+     ]
+    },
+    {
+     "title": "Attention",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/02-transformer-architecture/03-what-attention-actually-computes/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/02-transformer-architecture/06-scaled-dot-product-attention/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "tokens-attention-transformers"
+      },
+      {
+       "kind": "code",
+       "ref": "scaled-dot-product-attention"
+      }
+     ]
+    },
+    {
+     "title": "Position and the network around attention",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/02-transformer-architecture/10-sinusoidal-positional-encoding/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "sinusoidal-positional-encoding"
+      },
+      {
+       "kind": "code",
+       "ref": "mlp-forward-pass"
+      }
+     ]
+    },
+    {
+     "title": "Pretraining and landmark models",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/03-landmark-models-bert-gpt-and-moe/00-the-pretraining-paradigm/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/03-landmark-models-bert-gpt-and-moe/10-why-decoder-only-won/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Training and fine-tuning",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/04-training-fine-tuning-and-alignment/00-the-training-pipeline-end-to-end/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/04-training-fine-tuning-and-alignment/12-lora-low-rank-adaptation/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Fine-tune, prompt or retrieve?",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "precision-recall-f1"
+      }
+     ]
+    },
+    {
+     "title": "The OpenAI API",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/06-openai-and-the-model-landscape/00-the-openai-api-your-first-call/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/06-openai-and-the-model-landscape/01-chat-completions-deep-dive/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Structured outputs",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/06-openai-and-the-model-landscape/07-structured-outputs-and-json-schema/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/07-prompt-engineering/08-structured-output-prompting/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "extract-json-from-llm-output"
+      }
+     ]
+    },
+    {
+     "title": "Prompts as code",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/07-prompt-engineering/01-anatomy-of-a-good-prompt/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/07-prompt-engineering/07-prompt-templates-and-variables/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "prompt-template-renderer"
+      }
+     ]
+    },
+    {
+     "title": "Embeddings",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "embeddings-and-vector-search"
+      },
+      {
+       "kind": "code",
+       "ref": "cosine-similarity-search"
+      }
+     ]
+    },
+    {
+     "title": "Chunking",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "fixed-size-chunking"
+      }
+     ]
+    },
+    {
+     "title": "Vector databases",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/08-embeddings-and-vector-databases/10-pgvector-and-postgres/README.md"
+      }
+     ]
+    },
+    {
+     "title": "RAG end to end",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/09-retrieval-augmented-generation/00-why-rag-exists/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "rag-fundamentals"
+      }
+     ]
+    },
+    {
+     "title": "Keyword search and BM25",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/09-retrieval-augmented-generation/06-keyword-search-and-bm25/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "bm25-ranking"
+      }
+     ]
+    },
+    {
+     "title": "Hybrid search",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/09-retrieval-augmented-generation/07-hybrid-search/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "reciprocal-rank-fusion"
+      }
+     ]
+    },
+    {
+     "title": "Context assembly",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "context-budget-packer"
+      }
+     ]
+    },
+    {
+     "title": "Agents",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/10-ai-agents/00-what-makes-something-an-agent/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/10-ai-agents/02-the-react-loop/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Tools",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/10-ai-agents/04-tools-definition-and-schemas/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/10-ai-agents/05-tool-calling-with-the-openai-api/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "prompting-and-tool-calling"
+      }
+     ]
+    },
+    {
+     "title": "The agent loop",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/10-ai-agents/07-the-agent-loop-termination-and-limits/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "agent-tool-loop"
+      }
+     ]
+    },
+    {
+     "title": "Orchestration frameworks",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/11-langchain-and-langgraph/01-langchain-architecture-overview/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/11-langchain-and-langgraph/11-why-langgraph-the-limits-of-chains/README.md"
+      }
+     ]
+    },
+    {
+     "title": "The Model Context Protocol",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/13-model-context-protocol-mcp/00-what-mcp-is-and-why-it-exists/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/13-model-context-protocol-mcp/08-primitive-tools/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Serving: the KV cache",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/14-inference-and-serving-vllm/03-the-kv-cache/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/14-inference-and-serving-vllm/04-kv-cache-memory-math/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "kv-cache-and-gpu-memory"
+      },
+      {
+       "kind": "code",
+       "ref": "kv-cache-memory"
+      }
+     ]
+    },
+    {
+     "title": "Batching and vLLM",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/14-inference-and-serving-vllm/06-continuous-batching/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/14-inference-and-serving-vllm/07-pagedattention/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Evaluation",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/15-evaluation-observability-and-safety/00-why-genai-evaluation-is-hard/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "pass-at-k"
+      }
+     ]
+    },
+    {
+     "title": "Hallucination and guardrails",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/15-evaluation-observability-and-safety/07-hallucination-causes/README.md"
+      },
+      {
+       "kind": "lesson",
+       "ref": "genai/15-evaluation-observability-and-safety/10-guardrails-input-filtering/README.md"
+      }
+     ]
+    },
+    {
+     "title": "Cost and observability",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization/README.md"
+      },
+      {
+       "kind": "code",
+       "ref": "cost-per-feature"
+      },
+      {
+       "kind": "code",
+       "ref": "error-rate-by-model"
+      }
+     ]
+    },
+    {
+     "title": "Mock interview day",
+     "items": [
+      {
+       "kind": "mock",
+       "ref": "genai"
+      }
+     ]
+    }
+   ]
+  },
+  "ml-from-scratch-7": {
+   "title": "Machine learning from scratch in 7 days",
+   "topic": "ml",
+   "difficulty": "intermediate",
+   "description": "Write the building blocks of machine learning yourself in plain Python: softmax, metrics, validation, linear and logistic models, k-means, nearest neighbours, trees and ranking.",
+   "audience": "Developers who use machine learning libraries and want to know what they do. Two problems a day, no libraries, no lessons to read: the problems explain themselves.",
+   "days": [
+    {
+     "title": "Softmax and a neural network",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "softmax"
+      },
+      {
+       "kind": "code",
+       "ref": "mlp-forward-pass"
+      }
+     ]
+    },
+    {
+     "title": "Judging a classifier",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "precision-recall-f1"
+      },
+      {
+       "kind": "code",
+       "ref": "roc-auc"
+      }
+     ]
+    },
+    {
+     "title": "Validation without leakage",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "k-fold-indices"
+      },
+      {
+       "kind": "code",
+       "ref": "standard-scaler"
+      }
+     ]
+    },
+    {
+     "title": "Learning by gradient descent",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "linear-regression-gradient-descent"
+      },
+      {
+       "kind": "code",
+       "ref": "logistic-regression-step"
+      }
+     ]
+    },
+    {
+     "title": "Clusters and neighbours",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "k-means"
+      },
+      {
+       "kind": "code",
+       "ref": "knn-classifier"
+      }
+     ]
+    },
+    {
+     "title": "Trees and ranking",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "gini-best-split"
+      },
+      {
+       "kind": "code",
+       "ref": "ndcg-at-k"
+      }
+     ]
+    },
+    {
+     "title": "Drift and similarity",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "population-stability-index"
+      },
+      {
+       "kind": "code",
+       "ref": "cosine-similarity-search"
+      }
+     ]
+    }
+   ]
+  },
+  "sql-for-developers-14": {
+   "title": "SQL for developers in 14 days",
+   "topic": "sql",
+   "difficulty": "beginner",
+   "description": "Learn SQL by writing it: querying, joins, aggregates, subqueries, window functions and recursive queries on small datasets, ending with SQL for application and ML data.",
+   "audience": "Developers who use an ORM and want to be comfortable with the SQL under it. Each day is two or three queries to write in the browser.",
+   "days": [
+    {
+     "title": "Querying",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "sql-joins-and-grouping"
+      },
+      {
+       "kind": "code",
+       "ref": "cheap-products"
+      },
+      {
+       "kind": "code",
+       "ref": "customers-without-email"
+      },
+      {
+       "kind": "code",
+       "ref": "search-products-by-name"
+      }
+     ]
+    },
+    {
+     "title": "Sorting, ranges and CASE",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "top-three-products"
+      },
+      {
+       "kind": "code",
+       "ref": "orders-in-a-month"
+      },
+      {
+       "kind": "code",
+       "ref": "price-bands"
+      },
+      {
+       "kind": "code",
+       "ref": "customer-labels"
+      }
+     ]
+    },
+    {
+     "title": "Joins",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "orders-per-customer"
+      },
+      {
+       "kind": "code",
+       "ref": "customers-with-no-orders"
+      },
+      {
+       "kind": "code",
+       "ref": "products-never-ordered"
+      }
+     ]
+    },
+    {
+     "title": "Aggregates",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "revenue-per-category"
+      },
+      {
+       "kind": "code",
+       "ref": "repeat-customers"
+      },
+      {
+       "kind": "code",
+       "ref": "department-headcount"
+      }
+     ]
+    },
+    {
+     "title": "Aggregating twice",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "average-order-value-by-country"
+      },
+      {
+       "kind": "code",
+       "ref": "departments-above-company-average"
+      }
+     ]
+    },
+    {
+     "title": "Self-joins and indexes",
+     "items": [
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+      },
+      {
+       "kind": "quiz",
+       "ref": "database-indexes"
+      },
+      {
+       "kind": "code",
+       "ref": "employees-and-managers"
+      },
+      {
+       "kind": "code",
+       "ref": "earning-more-than-the-manager"
+      }
+     ]
+    },
+    {
+     "title": "Subqueries",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "second-highest-salary"
+      },
+      {
+       "kind": "code",
+       "ref": "first-order-per-customer"
+      }
+     ]
+    },
+    {
+     "title": "Window functions",
+     "items": [
+      {
+       "kind": "quiz",
+       "ref": "sql-window-functions-and-query-tuning"
+      },
+      {
+       "kind": "code",
+       "ref": "rank-salaries-in-department"
+      },
+      {
+       "kind": "code",
+       "ref": "top-earner-per-department"
+      }
+     ]
+    },
+    {
+     "title": "Windows over time",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "running-revenue"
+      },
+      {
+       "kind": "code",
+       "ref": "month-over-month-growth"
+      },
+      {
+       "kind": "code",
+       "ref": "top-two-products-per-category"
+      }
+     ]
+    },
+    {
+     "title": "Recursive queries",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "org-chart-levels"
+      },
+      {
+       "kind": "code",
+       "ref": "everyone-under-a-manager"
+      }
+     ]
+    },
+    {
+     "title": "Product analytics",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "daily-active-users"
+      },
+      {
+       "kind": "code",
+       "ref": "signup-funnel"
+      },
+      {
+       "kind": "code",
+       "ref": "sessionize-events-sql"
+      }
+     ]
+    },
+    {
+     "title": "SQL for a GenAI app",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "cost-per-feature"
+      },
+      {
+       "kind": "code",
+       "ref": "error-rate-by-model"
+      },
+      {
+       "kind": "code",
+       "ref": "top-users-by-tokens"
+      },
+      {
+       "kind": "code",
+       "ref": "cost-from-the-price-table"
+      }
+     ]
+    },
+    {
+     "title": "Latency, feedback and cost over time",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "thumbs-down-rate-by-feature"
+      },
+      {
+       "kind": "code",
+       "ref": "p95-latency-per-model"
+      },
+      {
+       "kind": "code",
+       "ref": "daily-cost-moving-average"
+      }
+     ]
+    },
+    {
+     "title": "ML experiments, and a mock",
+     "items": [
+      {
+       "kind": "code",
+       "ref": "best-run-per-experiment"
+      },
+      {
+       "kind": "code",
+       "ref": "early-stopping-epoch"
+      },
+      {
+       "kind": "code",
+       "ref": "failed-run-share"
+      },
+      {
+       "kind": "lesson",
+       "ref": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
+      },
+      {
+       "kind": "mock",
+       "ref": "sql"
+      }
+     ]
+    }
+   ]
+  }
+ },
  "sqlData": {
   "company": "-- A company: its departments and its employees, each with the employee they report to. Dates are text, YYYY-MM-DD.\n-- Made by scripts/dev/make-sql-data.py: do not edit by hand.\n\nCREATE TABLE departments (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n);\nINSERT INTO departments VALUES\n  (1, 'Engineering'),\n  (2, 'Product'),\n  (3, 'Sales'),\n  (4, 'Support'),\n  (5, 'Legal');\n\nCREATE TABLE employees (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  dept_id INTEGER REFERENCES departments(id),  -- NULL for people in no department\n  manager_id INTEGER REFERENCES employees(id),  -- NULL for the head of the company\n  salary INTEGER NOT NULL,\n  hired_on TEXT NOT NULL\n);\nINSERT INTO employees VALUES\n  (1, 'Maya Chen', NULL, NULL, 250000, '2019-01-10'),\n  (2, 'Omar Haddad', 1, 1, 190000, '2019-03-04'),\n  (3, 'Priya Nair', 2, 1, 185000, '2019-06-17'),\n  (4, 'Lucas Meyer', 3, 1, 170000, '2020-02-01'),\n  (5, 'Sofia Rossi', 1, 2, 150000, '2020-05-11'),\n  (6, 'Ethan Brooks', 1, 5, 120000, '2021-01-18'),\n  (7, 'Aiko Tanaka', 1, 5, 120000, '2021-04-26'),\n  (8, 'Noah Kim', 1, 5, 105000, '2022-09-05'),\n  (9, 'Zara Ali', 1, 5, 155000, '2020-11-23'),\n  (10, 'Hugo Martin', 2, 3, 98000, '2022-02-14'),\n  (11, 'Isla Novak', 2, 3, 112000, '2021-08-30'),\n  (12, 'Mateo Silva', 3, 4, 90000, '2022-06-06'),\n  (13, 'Chloe Dubois', 3, 4, 90000, '2023-01-09'),\n  (14, 'Ravi Patel', 3, 4, 85000, '2023-04-17'),\n  (15, 'Elena Popov', 4, 3, 80000, '2021-10-11'),\n  (16, 'Tom Becker', 4, 15, 62000, '2023-07-03'),\n  (17, 'Nina Costa', 4, 15, 60000, '2024-02-12'),\n  (18, 'Felix Wagner', NULL, 2, 70000, '2024-05-20');\n",
   "events": "-- Product analytics: the users of an app, and what they did and when. Times are text, YYYY-MM-DD HH:MM:SS.\n-- Made by scripts/dev/make-sql-data.py: do not edit by hand.\n\nCREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  plan TEXT NOT NULL,  -- free, pro or team\n  signed_up TEXT NOT NULL\n);\nINSERT INTO users VALUES\n  (1, 'Ada', 'pro', '2025-02-03'),\n  (2, 'Alan', 'free', '2025-02-03'),\n  (3, 'Grace', 'team', '2025-02-04'),\n  (4, 'Linus', 'free', '2025-02-04'),\n  (5, 'Margaret', 'pro', '2025-02-05'),\n  (6, 'Dennis', 'free', '2025-02-06'),\n  (7, 'Barbara', 'pro', '2025-02-06'),\n  (8, 'Ken', 'free', '2025-02-07'),\n  (9, 'Radia', 'team', '2025-02-07'),\n  (10, 'Tim', 'free', '2025-02-10'),\n  (11, 'Donald', 'free', '2025-02-10'),\n  (12, 'Edsger', 'pro', '2025-02-11');\n\nCREATE TABLE events (\n  id INTEGER PRIMARY KEY,\n  user_id INTEGER NOT NULL REFERENCES users(id),\n  name TEXT NOT NULL,  -- signup, login, view_pricing, start_trial, purchase or export\n  at TEXT NOT NULL  -- YYYY-MM-DD HH:MM:SS\n);\nINSERT INTO events VALUES\n  (1, 1, 'signup', '2025-02-03 10:59:00'),\n  (2, 2, 'signup', '2025-02-03 11:11:00'),\n  (3, 1, 'view_pricing', '2025-02-03 11:49:00'),\n  (4, 4, 'signup', '2025-02-04 09:35:00'),\n  (5, 3, 'view_pricing', '2025-02-04 10:01:00'),\n  (6, 4, 'view_pricing', '2025-02-04 11:33:00'),\n  (7, 3, 'signup', '2025-02-04 12:25:00'),\n  (8, 3, 'start_trial', '2025-02-04 14:51:00'),\n  (9, 1, 'start_trial', '2025-02-04 14:57:00'),\n  (10, 2, 'login', '2025-02-05 09:11:00'),\n  (11, 2, 'view_pricing', '2025-02-05 09:36:00'),\n  (12, 2, 'export', '2025-02-05 10:01:00'),\n  (13, 5, 'signup', '2025-02-05 10:21:00'),\n  (14, 5, 'view_pricing', '2025-02-05 12:35:00'),\n  (15, 2, 'login', '2025-02-05 14:01:00'),\n  (16, 6, 'signup', '2025-02-06 11:51:00'),\n  (17, 7, 'view_pricing', '2025-02-06 11:53:00'),\n  (18, 7, 'signup', '2025-02-06 12:39:00'),\n  (19, 7, 'start_trial', '2025-02-06 14:11:00'),\n  (20, 5, 'login', '2025-02-06 20:34:00'),\n  (21, 5, 'login', '2025-02-07 00:34:00'),\n  (22, 3, 'login', '2025-02-07 08:34:00'),\n  (23, 3, 'export', '2025-02-07 08:36:00'),\n  (24, 3, 'login', '2025-02-07 08:38:00'),\n  (25, 3, 'view_pricing', '2025-02-07 08:50:00'),\n  (26, 8, 'signup', '2025-02-07 09:13:00'),\n  (27, 9, 'signup', '2025-02-07 10:02:00'),\n  (28, 3, 'login', '2025-02-07 10:20:00'),\n  (29, 9, 'view_pricing', '2025-02-07 10:42:00'),\n  (30, 8, 'view_pricing', '2025-02-07 12:27:00'),\n  (31, 5, 'start_trial', '2025-02-07 14:53:00'),\n  (32, 1, 'purchase', '2025-02-07 16:01:00'),\n  (33, 5, 'login', '2025-02-07 17:17:00'),\n  (34, 7, 'login', '2025-02-07 20:10:00'),\n  (35, 5, 'login', '2025-02-08 08:09:00'),\n  (36, 5, 'export', '2025-02-08 08:13:00'),\n  (37, 5, 'login', '2025-02-08 08:17:00'),\n  (38, 6, 'login', '2025-02-08 08:26:00'),\n  (39, 5, 'export', '2025-02-08 08:29:00'),\n  (40, 6, 'export', '2025-02-08 08:51:00'),\n  (41, 1, 'login', '2025-02-08 09:12:00'),\n  (42, 6, 'export', '2025-02-08 09:16:00'),\n  (43, 6, 'login', '2025-02-08 09:18:00'),\n  (44, 1, 'export', '2025-02-08 09:24:00'),\n  (45, 1, 'login', '2025-02-08 09:28:00'),\n  (46, 6, 'login', '2025-02-08 10:48:00'),\n  (47, 9, 'start_trial', '2025-02-08 14:28:00'),\n  (48, 1, 'login', '2025-02-09 08:05:00'),\n  (49, 1, 'export', '2025-02-09 08:17:00'),\n  (50, 1, 'login', '2025-02-09 08:42:00'),\n  (51, 1, 'export', '2025-02-09 08:51:00'),\n  (52, 1, 'login', '2025-02-09 09:22:00'),\n  (53, 3, 'purchase', '2025-02-09 16:43:00'),\n  (54, 2, 'login', '2025-02-10 08:36:00'),\n  (55, 2, 'export', '2025-02-10 09:01:00'),\n  (56, 7, 'login', '2025-02-10 09:01:00'),\n  (57, 2, 'export', '2025-02-10 09:26:00'),\n  (58, 7, 'view_pricing', '2025-02-10 09:26:00'),\n  (59, 6, 'login', '2025-02-10 09:32:00'),\n  (60, 6, 'login', '2025-02-10 09:34:00'),\n  (61, 6, 'export', '2025-02-10 09:36:00'),\n  (62, 2, 'login', '2025-02-10 10:56:00'),\n  (63, 10, 'signup', '2025-02-10 11:51:00'),\n  (64, 11, 'signup', '2025-02-10 12:42:00'),\n  (65, 11, 'view_pricing', '2025-02-10 12:46:00'),\n  (66, 5, 'login', '2025-02-10 13:30:00'),\n  (67, 5, 'export', '2025-02-10 13:55:00'),\n  (68, 5, 'login', '2025-02-10 14:26:00'),\n  (69, 8, 'login', '2025-02-10 20:27:00'),\n  (70, 8, 'view_pricing', '2025-02-10 20:52:00'),\n  (71, 8, 'export', '2025-02-10 21:17:00'),\n  (72, 12, 'login', '2025-02-11 09:13:00'),\n  (73, 12, 'view_pricing', '2025-02-11 09:15:00'),\n  (74, 12, 'view_pricing', '2025-02-11 09:19:00'),\n  (75, 12, 'signup', '2025-02-11 09:32:00'),\n  (76, 12, 'view_pricing', '2025-02-11 10:35:00'),\n  (77, 6, 'login', '2025-02-11 17:00:00'),\n  (78, 10, 'login', '2025-02-11 17:09:00'),\n  (79, 10, 'export', '2025-02-11 17:11:00'),\n  (80, 6, 'login', '2025-02-11 17:31:00'),\n  (81, 10, 'view_pricing', '2025-02-11 17:36:00'),\n  (82, 1, 'login', '2025-02-11 20:23:00'),\n  (83, 1, 'view_pricing', '2025-02-11 20:48:00'),\n  (84, 11, 'login', '2025-02-12 09:13:00'),\n  (85, 11, 'view_pricing', '2025-02-12 09:15:00'),\n  (86, 4, 'login', '2025-02-12 09:16:00'),\n  (87, 11, 'export', '2025-02-12 09:24:00'),\n  (88, 6, 'login', '2025-02-12 09:36:00'),\n  (89, 6, 'login', '2025-02-12 09:38:00'),\n  (90, 6, 'export', '2025-02-12 09:40:00'),\n  (91, 6, 'export', '2025-02-12 09:44:00'),\n  (92, 11, 'login', '2025-02-12 09:49:00'),\n  (93, 12, 'start_trial', '2025-02-12 14:00:00'),\n  (94, 9, 'login', '2025-02-12 17:01:00'),\n  (95, 9, 'view_pricing', '2025-02-12 17:26:00'),\n  (96, 9, 'view_pricing', '2025-02-12 17:38:00'),\n  (97, 9, 'export', '2025-02-12 17:50:00'),\n  (98, 2, 'login', '2025-02-12 20:19:00'),\n  (99, 2, 'view_pricing', '2025-02-12 20:44:00'),\n  (100, 2, 'view_pricing', '2025-02-12 20:53:00'),\n  (101, 2, 'export', '2025-02-12 20:55:00'),\n  (102, 9, 'login', '2025-02-13 08:25:00'),\n  (103, 9, 'export', '2025-02-13 08:34:00'),\n  (104, 9, 'login', '2025-02-13 08:36:00'),\n  (105, 9, 'export', '2025-02-13 08:48:00'),\n  (106, 2, 'login', '2025-02-13 17:15:00'),\n  (107, 2, 'view_pricing', '2025-02-13 17:40:00'),\n  (108, 2, 'export', '2025-02-13 18:05:00'),\n  (109, 4, 'login', '2025-02-15 08:28:00'),\n  (110, 12, 'login', '2025-02-15 08:39:00'),\n  (111, 4, 'view_pricing', '2025-02-15 08:40:00'),\n  (112, 5, 'login', '2025-02-15 09:03:00'),\n  (113, 12, 'view_pricing', '2025-02-15 09:04:00'),\n  (114, 4, 'login', '2025-02-15 09:05:00'),\n  (115, 12, 'view_pricing', '2025-02-15 09:08:00'),\n  (116, 12, 'export', '2025-02-15 09:10:00'),\n  (117, 5, 'export', '2025-02-15 09:15:00'),\n  (118, 8, 'login', '2025-02-15 09:22:00'),\n  (119, 5, 'login', '2025-02-15 09:27:00'),\n  (120, 2, 'login', '2025-02-15 09:28:00'),\n  (121, 8, 'export', '2025-02-15 09:31:00'),\n  (122, 5, 'export', '2025-02-15 09:36:00'),\n  (123, 8, 'login', '2025-02-15 09:43:00'),\n  (124, 4, 'login', '2025-02-15 09:50:00'),\n  (125, 8, 'view_pricing', '2025-02-15 09:52:00'),\n  (126, 2, 'login', '2025-02-15 13:28:00'),\n  (127, 7, 'login', '2025-02-15 13:30:00'),\n  (128, 7, 'export', '2025-02-15 13:55:00'),\n  (129, 7, 'export', '2025-02-15 13:57:00'),\n  (130, 12, 'login', '2025-02-16 08:37:00'),\n  (131, 12, 'login', '2025-02-16 08:39:00'),\n  (132, 7, 'login', '2025-02-16 09:22:00'),\n  (133, 10, 'login', '2025-02-16 09:22:00'),\n  (134, 10, 'export', '2025-02-16 09:31:00'),\n  (135, 10, 'login', '2025-02-16 09:43:00'),\n  (136, 7, 'login', '2025-02-16 10:07:00'),\n  (137, 9, 'login', '2025-02-16 13:10:00'),\n  (138, 9, 'export', '2025-02-16 13:35:00'),\n  (139, 1, 'login', '2025-02-16 13:36:00'),\n  (140, 1, 'export', '2025-02-16 14:01:00'),\n  (141, 1, 'export', '2025-02-16 14:10:00'),\n  (142, 3, 'login', '2025-02-16 17:35:00'),\n  (143, 3, 'export', '2025-02-16 17:47:00'),\n  (144, 3, 'login', '2025-02-16 18:18:00'),\n  (145, 8, 'login', '2025-02-16 20:10:00'),\n  (146, 4, 'login', '2025-02-16 20:18:00'),\n  (147, 8, 'login', '2025-02-16 20:19:00'),\n  (148, 4, 'export', '2025-02-16 20:30:00'),\n  (149, 4, 'export', '2025-02-16 20:55:00'),\n  (150, 4, 'export', '2025-02-16 21:04:00'),\n  (151, 4, 'login', '2025-02-16 21:49:00'),\n  (152, 7, 'purchase', '2025-02-18 16:39:00'),\n  (153, 10, 'login', '2025-02-18 20:18:00'),\n  (154, 10, 'view_pricing', '2025-02-18 20:20:00'),\n  (155, 10, 'view_pricing', '2025-02-18 20:45:00'),\n  (156, 10, 'login', '2025-02-18 21:30:00'),\n  (157, 8, 'login', '2025-02-19 08:20:00'),\n  (158, 8, 'view_pricing', '2025-02-19 08:32:00'),\n  (159, 8, 'login', '2025-02-19 08:57:00'),\n  (160, 8, 'view_pricing', '2025-02-19 09:06:00'),\n  (161, 12, 'login', '2025-02-20 09:32:00'),\n  (162, 12, 'export', '2025-02-20 09:41:00'),\n  (163, 12, 'view_pricing', '2025-02-20 09:45:00'),\n  (164, 12, 'login', '2025-02-20 09:54:00'),\n  (165, 11, 'login', '2025-02-20 20:36:00'),\n  (166, 11, 'export', '2025-02-20 20:38:00'),\n  (167, 11, 'view_pricing', '2025-02-20 20:42:00'),\n  (168, 11, 'export', '2025-02-20 20:44:00'),\n  (169, 10, 'login', '2025-02-21 08:19:00'),\n  (170, 10, 'export', '2025-02-21 08:21:00'),\n  (171, 10, 'export', '2025-02-21 08:23:00'),\n  (172, 12, 'login', '2025-02-21 09:35:00'),\n  (173, 12, 'export', '2025-02-21 09:44:00'),\n  (174, 10, 'login', '2025-02-22 08:32:00'),\n  (175, 10, 'login', '2025-02-22 08:41:00'),\n  (176, 10, 'view_pricing', '2025-02-22 08:43:00'),\n  (177, 12, 'purchase', '2025-02-24 16:05:00');\n",

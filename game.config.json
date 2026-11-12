@@ -1,12 +1,53 @@
 {
-  "_about": "The rules of the learning game. Everything is derived from the progress a reader already has: modules marked done, and the day each mark was made (practice work is saved the same way, under the progress keys in site.config.json, so it syncs with the account like a module does). XP is paid for a module, a capstone (on top of its module), a whole track, a whole learning path, a coding problem and a daily drill. Levels are the XP needed to reach them. A badge is earned when its stat reaches atLeast; the stats are modules, capstones, tracks, paths, problems, drills and streak (days in a row). The progress keys (site.config.json -> progressKeys) are stored in readers' progress and never change. This file is read only by the learning game (webapp/src/config/game.js), which is why it is not part of site.config.json: that file is in every visitor's first download.",
+  "_about": "The rules of the learning game. Everything is derived from the progress a reader already has: modules marked done, and the day each mark was made (practice work is saved the same way, under the progress keys in site.config.json, so it syncs with the account like a module does). XP is paid for a module, a capstone (on top of its module), a whole track, a whole learning path, a coding problem, a daily drill, a quiz passed, a mock interview finished and a study plan finished. Levels are the XP needed to reach them. A badge is earned when its stat reaches atLeast; the stats are modules, capstones, tracks, paths, problems, drills, quizzes, mocks, plans and streak (days in a row). A quiz is passed (and paid for) from `quiz.passPercent` right. `levelCheck` the five-minute test that recommends where to start (the questions by area, drawn from the quizzes by topic, and the recommended path and plan for each area), `mock` the mock interviews (a track is quiz topics and coding topics, how many of each, how long it takes). The progress keys (site.config.json -> progressKeys) are stored in readers' progress and never change. This file is read only by the learning game (webapp/src/config/game.js), which is why it is not part of site.config.json: that file is in every visitor's first download.",
   "xp": {
     "module": 10,
     "capstone": 15,
     "track": 40,
     "path": 150,
     "problem": 15,
-    "drill": 15
+    "drill": 15,
+    "quiz": 10,
+    "mock": 25,
+    "plan": 100
+  },
+  "quiz": { "passPercent": 70 },
+  "levelCheck": {
+    "seed": "level-check-1",
+    "maxPerQuiz": 2,
+    "bandsFromPercent": [0, 50, 80],
+    "areas": [
+      { "id": "backend", "label": "Backend fundamentals", "questions": 5, "quizTopics": ["http", "api-design", "authentication", "security", "databases", "caching", "concurrency", "messaging", "observability", "testing", "distributed-systems", "system-design"], "path": "backend-foundations", "plan": "backend-interview-30" },
+      { "id": "devops", "label": "DevOps and infrastructure", "questions": 3, "quizTopics": ["docker", "kubernetes", "devops", "linux", "git", "networking", "azure"], "path": "docker-and-kubernetes", "plan": "backend-crash-14" },
+      { "id": "python", "label": "Python and algorithms", "questions": 3, "quizTopics": ["python", "algorithms"], "path": "backend-foundations", "plan": "algorithms-python-21" },
+      { "id": "genai", "label": "GenAI engineering", "questions": 4, "quizTopics": ["genai", "embeddings", "rag", "agents", "inference"], "path": "ai-backend", "plan": "genai-engineer-30" }
+    ]
+  },
+  "mock": {
+    "maxPerQuiz": 3,
+    "readyPercent": 70,
+    "tracks": [
+      {
+        "id": "backend", "label": "Backend engineer", "minutes": 60, "questions": 8, "problems": 2, "levels": ["intermediate", "intermediate"],
+        "quizTopics": ["http", "api-design", "authentication", "security", "databases", "caching", "concurrency", "messaging", "observability", "testing", "distributed-systems", "system-design"],
+        "codeTopics": ["arrays-and-hashing", "strings-and-parsing", "backend-coding", "caching-and-limits", "apis-and-data", "debugging", "distributed-systems", "data-processing"]
+      },
+      {
+        "id": "algorithms", "label": "Python and algorithms", "minutes": 60, "questions": 4, "problems": 3, "levels": ["beginner", "intermediate", "advanced"],
+        "quizTopics": ["python", "algorithms"],
+        "codeTopics": ["arrays-and-hashing", "two-pointers-and-sliding-window", "stacks-heaps-and-intervals", "linked-lists-and-trees", "binary-search-and-sorting", "graphs-and-backtracking", "dynamic-programming", "strings-and-parsing", "math-and-bits"]
+      },
+      {
+        "id": "genai", "label": "GenAI engineer", "minutes": 60, "questions": 8, "problems": 2, "levels": ["intermediate", "advanced"],
+        "quizTopics": ["genai", "embeddings", "rag", "agents", "inference"],
+        "codeTopics": ["llm-and-genai", "ml-from-scratch"]
+      },
+      {
+        "id": "sql", "label": "SQL and data", "minutes": 45, "questions": 6, "problems": 3, "levels": ["beginner", "intermediate", "advanced"],
+        "quizTopics": ["databases"],
+        "codeTopics": ["sql-querying", "sql-joins-aggregates", "sql-subqueries-windows", "sql-genai-ml-data"]
+      }
+    ]
   },
   "capstonePattern": "capstone",
   "drill": { "questions": 5, "maxPerQuiz": 2 },
@@ -207,6 +248,30 @@
       "glyph": "crown",
       "stat": "drills",
       "atLeast": 30
+    },
+    {
+      "id": "quiz-whiz",
+      "title": "Quiz whiz",
+      "hint": "Pass 5 quizzes",
+      "glyph": "bulb",
+      "stat": "quizzes",
+      "atLeast": 5
+    },
+    {
+      "id": "interview-ready",
+      "title": "Interview ready",
+      "hint": "Finish a mock interview",
+      "glyph": "users",
+      "stat": "mocks",
+      "atLeast": 1
+    },
+    {
+      "id": "plan-finisher",
+      "title": "Plan finisher",
+      "hint": "Finish a study plan",
+      "glyph": "calendar",
+      "stat": "plans",
+      "atLeast": 1
     }
   ],
   "glyphs": {

@@ -37,6 +37,21 @@ export const fetchDrill = async (day) => answer(await fetch(day ? `/api/practice
 /** Checks one answer of a drill: { correct, answer, explanation }. `chosen` is the option ids picked. */
 export const checkDrillAnswer = async (day, key, chosen) => answer(await send('POST', '/api/practice/drill/check', { day, key, chosen }), 'failed to check your answer');
 
+/** A study plan: { slug, title, topic, difficulty, description, audience, days: [{ title, items: [{ kind, ref }] }] }. */
+export const fetchPlan = async (slug) => answer(await fetch(`/api/practice/plans/${encodeURIComponent(slug)}`), 'failed to load the plan');
+
+/** Questions by their keys ("quiz/id"), without answers: { questions: [{ key, quiz, quizTitle, topic, id, type, text, options, choose }], missing: [key] }. */
+export const fetchQuestions = async (keys) => answer(await fetch(`/api/practice/questions?keys=${encodeURIComponent(keys.join(','))}`), 'failed to load the questions');
+
+/** What the answers to some questions were: `answers` is { key: [optionId] }; gives { results: [{ key, correct, answer, explanation }] }. */
+export const checkQuestions = async (answers) => answer(await send('POST', '/api/practice/questions/check', { answers }), 'failed to check your answers');
+
+/** The level check: { areas: [{ id, label, questions: [...] }] }, the same for everyone. */
+export const fetchLevelCheck = async () => answer(await fetch('/api/practice/level-check'), 'failed to load the level check');
+
+/** A mock interview for a track, chosen by `seed`: { track: { id, label, minutes }, questions: [...], problems: [slug] }. */
+export const fetchMock = async (track, seed) => answer(await fetch(`/api/practice/mock?track=${encodeURIComponent(track)}&seed=${encodeURIComponent(seed)}`), 'failed to start the interview');
+
 /** Where the signed-in reader is weak: { topics: [{ topic, correct, total, percent }], missed: [{ quiz, title, question, text }] }. */
 export const fetchWeakAreas = async () => answer(await fetch('/api/practice/weak-areas'), 'failed to load your weak areas');
 

@@ -157,6 +157,7 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
   const exercises = entries(practice.exercises);
   const interview = entries(practice.interview);
   const code = entries(practice.code);
+  const plans = entries(practice.plans || {});
   const isCoding = ([, s]) => s.section === 'coding';
   const concepts = interview.filter((e) => !isCoding(e));
   const coding = interview.filter(isCoding);
@@ -171,6 +172,7 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     description: indexDescription,
     body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(LISTING_COPY.practiceTitle)}</h1><p>${esc(LISTING_COPY.practiceLead)}</p></header>`
       + `<section><h2>${esc(LISTING_COPY.codeProblems)}</h2><ul>${code.map(([slug, p]) => itemLink('code', slug, p.title, ` <small>${level(p)}</small>`)).join('')}</ul></section>`
+      + (plans.length ? `<section><h2>${esc(LISTING_COPY.studyPlans)}</h2><ul>${plans.map(([slug, p]) => itemLink('plan', slug, p.title, ` <small>${p.days.length} days</small>`)).join('')}</ul></section>` : '')
       + `<section><h2>${esc(LISTING_COPY.quizzes)}</h2><ul>${quizzes.map(([slug, q]) => itemLink('quiz', slug, q.title, ` <small>${level(q)} · ${q.questions.length} questions</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.exercises)}</h2><ul>${exercises.map(([slug, e]) => itemLink('exercise', slug, e.title, ` <small>${level(e)}</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.codingSets)}</h2><ul>${coding.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`
@@ -197,6 +199,21 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     ld: { '@context': 'https://schema.org', '@graph': [crumbList(site, [home, practiceCrumb, { title: LISTING_COPY.drillTitle, url: drillUrl }])] }
   });
 
+  // The level check, a mock interview and the review are screens to use, not pages to be found: like the drill, each has an address so that opening it
+  // directly works, and says so to search engines.
+  for (const tool of ['level', 'mock', 'review']) {
+    const url = pageUrl(PRACTICE_ROUTE, tool);
+    out.push({
+      url,
+      title: LISTING_COPY.toolsTitle[tool],
+      fullTitle: full(LISTING_COPY.toolsTitle[tool]),
+      description: LISTING_COPY.toolsLead[tool],
+      noindex: true,
+      body: `<nav aria-label="Breadcrumb">${link('/', siteName)} › ${link(indexUrl, LISTING_COPY.practiceTitle)}</nav><header><h1>${esc(LISTING_COPY.toolsTitle[tool])}</h1><p>${esc(LISTING_COPY.toolsLead[tool])}</p></header><p>${link(indexUrl, LISTING_COPY.allPractice)}</p>`,
+      ld: { '@context': 'https://schema.org', '@graph': [crumbList(site, [home, practiceCrumb, { title: LISTING_COPY.toolsTitle[tool], url }])] }
+    });
+  }
+
   const itemPage = (kind, slug, item, { description, body, ld }) => {
     const url = pageUrl(PRACTICE_ROUTE, `${kind}/${slug}`);
     out.push({
@@ -215,6 +232,14 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
       description,
       body: `<div>${renderMarkdownDoc(p.statement)}</div><section><h2>${esc(LISTING_COPY.codeStarter)}</h2><pre><code>${esc(p.starter)}</code></pre></section><p>${esc(LISTING_COPY.codeRun)}</p>`,
       ld: (url) => resource(p.title, url, description, p, 'Coding exercise')
+    });
+  }
+  for (const [slug, plan] of plans) {
+    const description = LISTING_COPY.planDescription(plan);
+    itemPage('plan', slug, { ...plan, title: LISTING_COPY.planTitle(plan.title) }, {
+      description,
+      body: `<p>${esc(plan.description)}</p>${plan.audience ? `<p>${esc(plan.audience)}</p>` : ''}<section><h2>${esc(LISTING_COPY.planDays)}</h2><ol>${plan.days.map((d) => `<li>${esc(d.title)}</li>`).join('')}</ol></section><p>${esc(LISTING_COPY.planRun)}</p>`,
+      ld: (url) => resource(plan.title, url, description, plan, 'Study plan')
     });
   }
   for (const [slug, q] of quizzes) {

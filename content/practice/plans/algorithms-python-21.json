@@ -1,0 +1,366 @@
+{
+  "title": "Algorithms in Python: 21 days",
+  "topic": "algorithms",
+  "difficulty": "intermediate",
+  "description": "The patterns behind most coding interview problems, three problems a day: arrays and hashing, two pointers, stacks and heaps, binary search, lists and trees, graphs, dynamic programming and strings.",
+  "audience": "Anyone who can write Python and wants to get fast at problems. Each day is about an hour, easiest problems first within a topic, and the last day is a mock interview.",
+  "days": [
+    {
+      "title": "Arrays and hashing: day 1 of 3",
+      "items": [
+        {
+          "kind": "quiz",
+          "ref": "big-o-and-data-structures"
+        },
+        {
+          "kind": "code",
+          "ref": "contains-duplicate"
+        },
+        {
+          "kind": "code",
+          "ref": "majority-element"
+        },
+        {
+          "kind": "code",
+          "ref": "two-sum"
+        }
+      ]
+    },
+    {
+      "title": "Arrays and hashing: day 2 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "valid-anagram"
+        },
+        {
+          "kind": "code",
+          "ref": "group-anagrams"
+        },
+        {
+          "kind": "code",
+          "ref": "longest-consecutive-sequence"
+        }
+      ]
+    },
+    {
+      "title": "Arrays and hashing: day 3 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "product-of-array-except-self"
+        },
+        {
+          "kind": "code",
+          "ref": "rotate-array"
+        },
+        {
+          "kind": "code",
+          "ref": "set-matrix-zeroes"
+        }
+      ]
+    },
+    {
+      "title": "Two pointers and sliding windows: day 1 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "best-time-to-buy-and-sell-stock"
+        },
+        {
+          "kind": "code",
+          "ref": "merge-sorted-array"
+        },
+        {
+          "kind": "code",
+          "ref": "move-zeroes"
+        }
+      ]
+    },
+    {
+      "title": "Two pointers and sliding windows: day 2 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "valid-palindrome"
+        },
+        {
+          "kind": "code",
+          "ref": "container-with-most-water"
+        },
+        {
+          "kind": "code",
+          "ref": "longest-substring-without-repeating-characters"
+        }
+      ]
+    },
+    {
+      "title": "Stacks, heaps and intervals: day 1 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "valid-parentheses"
+        },
+        {
+          "kind": "code",
+          "ref": "daily-temperatures"
+        },
+        {
+          "kind": "code",
+          "ref": "kth-largest-element"
+        }
+      ]
+    },
+    {
+      "title": "Stacks, heaps and intervals: day 2 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "meeting-rooms-ii"
+        },
+        {
+          "kind": "code",
+          "ref": "merge-intervals"
+        },
+        {
+          "kind": "code",
+          "ref": "min-stack"
+        }
+      ]
+    },
+    {
+      "title": "Binary search and sorting: day 1 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "binary-search"
+        },
+        {
+          "kind": "code",
+          "ref": "integer-square-root"
+        },
+        {
+          "kind": "code",
+          "ref": "find-first-and-last-position"
+        }
+      ]
+    },
+    {
+      "title": "Binary search and sorting: day 2 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "find-minimum-in-rotated-sorted-array"
+        },
+        {
+          "kind": "code",
+          "ref": "search-in-rotated-sorted-array"
+        },
+        {
+          "kind": "code",
+          "ref": "sort-colors"
+        }
+      ]
+    },
+    {
+      "title": "Linked lists and trees: day 1 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "invert-binary-tree"
+        },
+        {
+          "kind": "code",
+          "ref": "maximum-depth-of-binary-tree"
+        },
+        {
+          "kind": "code",
+          "ref": "merge-two-sorted-lists"
+        }
+      ]
+    },
+    {
+      "title": "Linked lists and trees: day 2 of 3",
+      "items": [
+        {
+          "kind": "quiz",
+          "ref": "python-gotchas-and-idioms"
+        },
+        {
+          "kind": "code",
+          "ref": "middle-of-linked-list"
+        },
+        {
+          "kind": "code",
+          "ref": "path-sum"
+        },
+        {
+          "kind": "code",
+          "ref": "reverse-linked-list"
+        }
+      ]
+    },
+    {
+      "title": "Linked lists and trees: day 3 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "add-two-numbers"
+        },
+        {
+          "kind": "code",
+          "ref": "binary-tree-diameter"
+        },
+        {
+          "kind": "code",
+          "ref": "binary-tree-level-order-traversal"
+        }
+      ]
+    },
+    {
+      "title": "Graphs and backtracking: day 1 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "clone-graph"
+        },
+        {
+          "kind": "code",
+          "ref": "combination-sum"
+        },
+        {
+          "kind": "code",
+          "ref": "is-bipartite-graph"
+        }
+      ]
+    },
+    {
+      "title": "Graphs and backtracking: day 2 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "number-of-islands"
+        },
+        {
+          "kind": "code",
+          "ref": "permutations"
+        },
+        {
+          "kind": "code",
+          "ref": "rotting-oranges"
+        }
+      ]
+    },
+    {
+      "title": "Graphs and backtracking: day 3 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "shortest-path-in-a-grid"
+        },
+        {
+          "kind": "code",
+          "ref": "subsets"
+        },
+        {
+          "kind": "code",
+          "ref": "union-find"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic programming: day 1 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "climbing-stairs"
+        },
+        {
+          "kind": "code",
+          "ref": "unique-paths"
+        },
+        {
+          "kind": "code",
+          "ref": "coin-change"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic programming: day 2 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "decode-ways"
+        },
+        {
+          "kind": "code",
+          "ref": "house-robber"
+        },
+        {
+          "kind": "code",
+          "ref": "jump-game"
+        }
+      ]
+    },
+    {
+      "title": "Dynamic programming: day 3 of 3",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "longest-common-subsequence"
+        },
+        {
+          "kind": "code",
+          "ref": "longest-increasing-subsequence"
+        },
+        {
+          "kind": "code",
+          "ref": "partition-equal-subset-sum"
+        }
+      ]
+    },
+    {
+      "title": "Strings and parsing: day 1 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "compare-version-numbers"
+        },
+        {
+          "kind": "code",
+          "ref": "is-subsequence"
+        },
+        {
+          "kind": "code",
+          "ref": "longest-common-prefix"
+        }
+      ]
+    },
+    {
+      "title": "Strings and parsing: day 2 of 2",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "parse-cookie-header"
+        },
+        {
+          "kind": "code",
+          "ref": "run-length-encoding"
+        },
+        {
+          "kind": "code",
+          "ref": "csv-line-parser"
+        }
+      ]
+    },
+    {
+      "title": "Mock interview day",
+      "items": [
+        {
+          "kind": "mock",
+          "ref": "algorithms"
+        }
+      ]
+    }
+  ]
+}

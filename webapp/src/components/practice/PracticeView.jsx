@@ -23,20 +23,28 @@ import ExerciseView from './ExerciseView.jsx';
 import InterviewView from './InterviewView.jsx';
 import TodayStrip from './TodayStrip.jsx';
 import CodeMap from './CodeMap.jsx';
+import PracticeTools from './PracticeTools.jsx';
+import { TOOLS } from '../../config/toolsHub.js';
 import '../../styles/practice.css';
 import '../../styles/recommend.css';
 import '../../styles/hub.css';
+import '../../styles/tools.css';
 
 // The Practice Center. At the top, today's drill and the problem of the day; below, the coding problems as a map of topics, and the quizzes, coding
 // questions, interview preparation and exercises, filtered by topic and level. An item opens in place (/practice/quiz/<slug>/); the list is the screen
 // with no item. The editor and the Python runner are loaded only when a coding problem opens, and the drill's screen only when it does.
 const CodeProblemView = lazy(() => import('./CodeProblemView.jsx'));
 const DrillView = lazy(() => import('./DrillView.jsx'));
-const KINDS = { quiz: QuizView, exercise: ExerciseView, interview: InterviewView, code: CodeProblemView };
+const PlanView = lazy(() => import('./PlanView.jsx'));
+const LevelCheckView = lazy(() => import('./LevelCheckView.jsx'));
+const ReviewView = lazy(() => import('./ReviewView.jsx'));
+const MockView = lazy(() => import('./MockView.jsx'));
+const KINDS = { quiz: QuizView, exercise: ExerciseView, interview: InterviewView, code: CodeProblemView, plan: PlanView };
+// Screens that are not one item of a kind: today's drill, the level check, the review and a mock interview (/practice/mock/ or, for one track, /practice/mock/backend/).
+const SCREENS = { drill: DrillView, level: LevelCheckView, review: ReviewView, mock: MockView };
 const LEVELS = Object.keys(DIFFICULTY);
-const DRILL_ITEM = 'drill';
 
-export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLogin, onToast, nodeByFile, statusMap = {}, onMark }) {
+export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath, user, onLogin, onToast, nodeByFile, statusMap = {}, onMark }) {
   const [tab, setTab] = useState('code');
   const [topic, setTopic] = useState('');
   const [level, setLevel] = useState('');
@@ -72,10 +80,14 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
 
   const openCode = (problemSlug) => onOpenItem(`code/${problemSlug}`);
 
-  if (kind === DRILL_ITEM) {
+  const Screen = SCREENS[kind];
+  if (Screen && (!slug || kind === 'mock')) {
     return (
       <Suspense fallback={<Loading />}>
-        <DrillView onBack={() => onOpenItem(null)} onOpenItem={onOpenItem} statusMap={statusMap} onMark={onMark} problemOfTheDay={daily} />
+        <Screen
+          slug={slug} onBack={() => onOpenItem(null)} onOpenItem={onOpenItem} onOpenFile={onOpenFile} onOpenPath={onOpenPath} user={user} onLogin={onLogin} nodeByFile={nodeByFile}
+          catalog={catalog} statusMap={statusMap} onMark={onMark} problemOfTheDay={daily}
+        />
       </Suspense>
     );
   }
@@ -113,9 +125,10 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
             drillDone={statusMap[drillKey(dayName())] === 'done'}
             problem={daily}
             problemDone={!!daily && statusMap[codeKey(daily.slug)] === 'done'}
-            onOpenDrill={() => onOpenItem(DRILL_ITEM)}
+            onOpenDrill={() => onOpenItem('drill')}
             onOpenProblem={() => daily && openCode(daily.slug)}
           />
+          <PracticeTools statusMap={statusMap} onOpen={onOpenItem} onMark={onMark} />
           {total > 0 && (
             <p className="hub-progress">
               <span><strong>{HUB.progress.problems(solved, total)}</strong></span>
@@ -189,6 +202,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
                       <span className="pr-badge">{DIFFICULTY[c.difficulty]}</span>
                       <span>{c.topic}</span>
                       {c.questions != null && <span>{c.questions} questions</span>}
+                      {c.days != null && <span>{TOOLS.planDays(c.days)}</span>}
                       {tab === 'quizzes' && best[c.slug] && <span className="pr-best">Best {best[c.slug].score}/{best[c.slug].max}</span>}
                       {tab === 'quizzes' && best[c.slug] && best[c.slug].score === best[c.slug].max && <span className="pr-done">{RECOMMEND.perfect}</span>}
                     </div>

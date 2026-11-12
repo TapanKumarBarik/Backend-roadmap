@@ -43,19 +43,20 @@ test('what is done is counted: modules, capstones, whole tracks and paths, and t
   const status = {
     [f('backend/01-http/00-basics')]: 'done', [f('backend/01-http/01-headers')]: 'done',
     [f('backend/02-api/00-validation')]: 'done', [f('backend/02-api/01-capstone-project')]: 'wip',
-    'practice/code/two-sum': 'done', 'practice/code/lru-cache': 'wip', 'practice/drill/2026-11-12': 'done', 'practice/drill/2026-11-13': 'done', 'gone/old.md': 'done'
+    'practice/code/two-sum': 'done', 'practice/code/lru-cache': 'wip', 'practice/drill/2026-11-12': 'done', 'practice/drill/2026-11-13': 'done', 'gone/old.md': 'done',
+    'practice/quiz/http-caching': 'done', 'practice/quiz/rag-fundamentals': 'wip', 'practice/mock/backend/2026-11-12T10:00:00.000Z': 'done', 'practice/plan/sql-for-developers-14': 'done'
   };
   const paths = [{ files: [f('backend/01-http/00-basics'), f('backend/01-http/01-headers')] }, { files: [f('backend/02-api/00-validation'), f('backend/02-api/01-capstone-project')] }];
   const stats = libraryStats(index, status, paths, GAME.keys);
-  assert.deepEqual(stats, { modules: 3, capstones: 0, tracks: 1, paths: 1, problems: 1, drills: 2 });
+  assert.deepEqual(stats, { modules: 3, capstones: 0, tracks: 1, paths: 1, problems: 1, drills: 2, quizzes: 1, mocks: 1, plans: 1 });
   assert.equal(libraryStats(index, {}, [], GAME.keys).modules, 0);
   assert.equal(libraryStats(index, { [f('backend/02-api/01-capstone-project')]: 'done' }, [], GAME.keys).capstones, 1);
 });
 
 test('XP is paid by the table in the config, and a level is the highest one the XP reaches', () => {
-  const stats = { modules: 10, capstones: 1, tracks: 1, paths: 0, problems: 2, drills: 1 };
+  const stats = { modules: 10, capstones: 1, tracks: 1, paths: 0, problems: 2, drills: 1, quizzes: 3, mocks: 1, plans: 1 };
   const x = GAME.xp;
-  assert.equal(xpOf(stats, x), 10 * x.module + x.capstone + x.track + 2 * x.problem + x.drill);
+  assert.equal(xpOf(stats, x), 10 * x.module + x.capstone + x.track + 2 * x.problem + x.drill + 3 * x.quiz + x.mock + x.plan);
   assert.equal(levelOf(0, GAME.levels).n, 1);
   const second = GAME.levels[1].xp;
   assert.equal(levelOf(second - 1, GAME.levels).n, 1);
@@ -118,7 +119,7 @@ test('a badge is earned when its count reaches the number, and the badges in the
   const ids = GAME.badges.map((b) => b.id);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
   for (const b of GAME.badges) {
-    assert.ok(['modules', 'capstones', 'tracks', 'paths', 'problems', 'drills', 'streak'].includes(b.stat), `${b.id}: a known stat`);
+    assert.ok(['modules', 'capstones', 'tracks', 'paths', 'problems', 'drills', 'quizzes', 'mocks', 'plans', 'streak'].includes(b.stat), `${b.id}: a known stat`);
     assert.ok(b.atLeast >= 1 && b.title && b.hint && b.glyph, `${b.id}: complete`);
   }
 });

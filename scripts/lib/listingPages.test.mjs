@@ -26,7 +26,9 @@ test("today's drill has an address that opens, and is kept out of search results
   const drill = build().find((p) => p.url === '/practice/drill/');
   assert.ok(drill, 'the drill has a page');
   assert.equal(drill.noindex, true);
-  assert.ok(build().filter((p) => p.url !== '/practice/drill/').every((p) => !p.noindex), 'every other page is indexed');
+  const screens = new Set(['/practice/drill/', '/practice/level/', '/practice/mock/', '/practice/review/']); // screens to use, not pages to be found
+  assert.ok(build().filter((p) => !screens.has(p.url)).every((p) => !p.noindex), 'every other page is indexed');
+  assert.ok([...screens].every((url) => build().find((p) => p.url === url).noindex), 'and each of those is kept out');
 });
 
 test('a coding problem page has the statement and the starting code, and never the solution, the tests or the explanation', () => {

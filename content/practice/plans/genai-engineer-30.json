@@ -1,0 +1,451 @@
+{
+  "title": "GenAI engineer in 30 days",
+  "topic": "genai",
+  "difficulty": "intermediate",
+  "description": "From tokens and attention to RAG, agents, serving and evaluation: read the lessons, then build the pieces yourself in the coding problems.",
+  "audience": "Developers who build with language models, or want to. Each day is a couple of lessons and a problem where you write the thing the lesson explains.",
+  "days": [
+    {
+      "title": "What generative AI is",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/00-genai-foundations/00-what-is-generative-ai/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/00-genai-foundations/08-how-llms-actually-generate-text/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Tokens",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/01-tokens-and-language-modeling/00-what-is-a-token/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/01-tokens-and-language-modeling/03-byte-pair-encoding-explained/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Sampling",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "softmax"
+        },
+        {
+          "kind": "code",
+          "ref": "top-k-top-p-sampling"
+        }
+      ]
+    },
+    {
+      "title": "Build a tokenizer",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/01-tokens-and-language-modeling/04-building-a-bpe-tokenizer-from-scratch/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "byte-pair-encoding"
+        }
+      ]
+    },
+    {
+      "title": "Attention",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/02-transformer-architecture/03-what-attention-actually-computes/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/02-transformer-architecture/06-scaled-dot-product-attention/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "tokens-attention-transformers"
+        },
+        {
+          "kind": "code",
+          "ref": "scaled-dot-product-attention"
+        }
+      ]
+    },
+    {
+      "title": "Position and the network around attention",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/02-transformer-architecture/10-sinusoidal-positional-encoding/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "sinusoidal-positional-encoding"
+        },
+        {
+          "kind": "code",
+          "ref": "mlp-forward-pass"
+        }
+      ]
+    },
+    {
+      "title": "Pretraining and landmark models",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/03-landmark-models-bert-gpt-and-moe/00-the-pretraining-paradigm/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/03-landmark-models-bert-gpt-and-moe/10-why-decoder-only-won/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Training and fine-tuning",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/04-training-fine-tuning-and-alignment/00-the-training-pipeline-end-to-end/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/04-training-fine-tuning-and-alignment/12-lora-low-rank-adaptation/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Fine-tune, prompt or retrieve?",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "precision-recall-f1"
+        }
+      ]
+    },
+    {
+      "title": "The OpenAI API",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/06-openai-and-the-model-landscape/00-the-openai-api-your-first-call/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/06-openai-and-the-model-landscape/01-chat-completions-deep-dive/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Structured outputs",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/06-openai-and-the-model-landscape/07-structured-outputs-and-json-schema/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/07-prompt-engineering/08-structured-output-prompting/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "extract-json-from-llm-output"
+        }
+      ]
+    },
+    {
+      "title": "Prompts as code",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/07-prompt-engineering/01-anatomy-of-a-good-prompt/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/07-prompt-engineering/07-prompt-templates-and-variables/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "prompt-template-renderer"
+        }
+      ]
+    },
+    {
+      "title": "Embeddings",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "embeddings-and-vector-search"
+        },
+        {
+          "kind": "code",
+          "ref": "cosine-similarity-search"
+        }
+      ]
+    },
+    {
+      "title": "Chunking",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "fixed-size-chunking"
+        }
+      ]
+    },
+    {
+      "title": "Vector databases",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/08-embeddings-and-vector-databases/10-pgvector-and-postgres/README.md"
+        }
+      ]
+    },
+    {
+      "title": "RAG end to end",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/09-retrieval-augmented-generation/00-why-rag-exists/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "rag-fundamentals"
+        }
+      ]
+    },
+    {
+      "title": "Keyword search and BM25",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/09-retrieval-augmented-generation/06-keyword-search-and-bm25/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "bm25-ranking"
+        }
+      ]
+    },
+    {
+      "title": "Hybrid search",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/09-retrieval-augmented-generation/07-hybrid-search/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "reciprocal-rank-fusion"
+        }
+      ]
+    },
+    {
+      "title": "Context assembly",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "context-budget-packer"
+        }
+      ]
+    },
+    {
+      "title": "Agents",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/10-ai-agents/00-what-makes-something-an-agent/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/10-ai-agents/02-the-react-loop/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Tools",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/10-ai-agents/04-tools-definition-and-schemas/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/10-ai-agents/05-tool-calling-with-the-openai-api/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "prompting-and-tool-calling"
+        }
+      ]
+    },
+    {
+      "title": "The agent loop",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/10-ai-agents/07-the-agent-loop-termination-and-limits/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "agent-tool-loop"
+        }
+      ]
+    },
+    {
+      "title": "Orchestration frameworks",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/11-langchain-and-langgraph/01-langchain-architecture-overview/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/11-langchain-and-langgraph/11-why-langgraph-the-limits-of-chains/README.md"
+        }
+      ]
+    },
+    {
+      "title": "The Model Context Protocol",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/13-model-context-protocol-mcp/00-what-mcp-is-and-why-it-exists/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/13-model-context-protocol-mcp/08-primitive-tools/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Serving: the KV cache",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/14-inference-and-serving-vllm/03-the-kv-cache/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/14-inference-and-serving-vllm/04-kv-cache-memory-math/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "kv-cache-and-gpu-memory"
+        },
+        {
+          "kind": "code",
+          "ref": "kv-cache-memory"
+        }
+      ]
+    },
+    {
+      "title": "Batching and vLLM",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/14-inference-and-serving-vllm/06-continuous-batching/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/14-inference-and-serving-vllm/07-pagedattention/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Evaluation",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/15-evaluation-observability-and-safety/00-why-genai-evaluation-is-hard/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "pass-at-k"
+        }
+      ]
+    },
+    {
+      "title": "Hallucination and guardrails",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/15-evaluation-observability-and-safety/07-hallucination-causes/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "genai/15-evaluation-observability-and-safety/10-guardrails-input-filtering/README.md"
+        }
+      ]
+    },
+    {
+      "title": "Cost and observability",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "cost-per-feature"
+        },
+        {
+          "kind": "code",
+          "ref": "error-rate-by-model"
+        }
+      ]
+    },
+    {
+      "title": "Mock interview day",
+      "items": [
+        {
+          "kind": "mock",
+          "ref": "genai"
+        }
+      ]
+    }
+  ]
+}

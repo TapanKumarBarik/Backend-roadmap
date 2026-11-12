@@ -1,0 +1,275 @@
+{
+  "title": "Backend crash course in 14 days",
+  "topic": "backend",
+  "difficulty": "intermediate",
+  "description": "The core of a backend interview in two weeks: HTTP and APIs, SQL and transactions, auth and security, queues, concurrency, distributed systems and system design.",
+  "audience": "Developers short on time. Each day is one or two lessons, a quiz and a problem, and the last day is a mock interview.",
+  "days": [
+    {
+      "title": "HTTP and REST",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "http-methods-status-codes-and-rest"
+        },
+        {
+          "kind": "code",
+          "ref": "two-sum"
+        }
+      ]
+    },
+    {
+      "title": "Caching",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/06-http-caching/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/05-caching-and-performance/01-caching-strategies/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "caching-strategies-and-eviction"
+        },
+        {
+          "kind": "code",
+          "ref": "lru-cache"
+        }
+      ]
+    },
+    {
+      "title": "Designing an API",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "api-design-pagination-versioning-and-errors"
+        },
+        {
+          "kind": "code",
+          "ref": "group-anagrams"
+        }
+      ]
+    },
+    {
+      "title": "SQL and indexes",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "sql-joins-and-grouping"
+        },
+        {
+          "kind": "quiz",
+          "ref": "database-indexes"
+        },
+        {
+          "kind": "code",
+          "ref": "orders-per-customer"
+        }
+      ]
+    },
+    {
+      "title": "Transactions",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "transactions-and-isolation-levels"
+        },
+        {
+          "kind": "code",
+          "ref": "merge-intervals"
+        }
+      ]
+    },
+    {
+      "title": "Authentication",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "sessions-and-cookies"
+        },
+        {
+          "kind": "quiz",
+          "ref": "jwt-oauth-and-oidc"
+        },
+        {
+          "kind": "code",
+          "ref": "valid-parentheses"
+        }
+      ]
+    },
+    {
+      "title": "Security",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "web-security-owasp-top-10"
+        },
+        {
+          "kind": "quiz",
+          "ref": "cors-csrf-and-xss"
+        },
+        {
+          "kind": "code",
+          "ref": "fix-query-building"
+        }
+      ]
+    },
+    {
+      "title": "Queues and background jobs",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "message-queues-and-event-streaming"
+        },
+        {
+          "kind": "code",
+          "ref": "bounded-queue"
+        }
+      ]
+    },
+    {
+      "title": "Concurrency",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "concurrency-async-and-race-conditions"
+        },
+        {
+          "kind": "code",
+          "ref": "fix-check-then-act"
+        }
+      ]
+    },
+    {
+      "title": "Retries, idempotency and rate limiting",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "idempotency-and-retries"
+        },
+        {
+          "kind": "code",
+          "ref": "token-bucket-rate-limiter"
+        }
+      ]
+    },
+    {
+      "title": "Replication, sharding and CAP",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "replication-and-sharding"
+        },
+        {
+          "kind": "quiz",
+          "ref": "cap-and-consistency-models"
+        },
+        {
+          "kind": "code",
+          "ref": "consistent-hash-ring"
+        }
+      ]
+    },
+    {
+      "title": "Distributed patterns",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "microservice-patterns-saga-outbox-and-cqrs"
+        },
+        {
+          "kind": "code",
+          "ref": "saga-runner"
+        }
+      ]
+    },
+    {
+      "title": "System design",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "capacity-estimation-back-of-envelope"
+        },
+        {
+          "kind": "quiz",
+          "ref": "system-design-availability-latency-and-spof"
+        },
+        {
+          "kind": "code",
+          "ref": "base62-url-shortener"
+        }
+      ]
+    },
+    {
+      "title": "Mock interview day",
+      "items": [
+        {
+          "kind": "mock",
+          "ref": "backend"
+        }
+      ]
+    }
+  ]
+}

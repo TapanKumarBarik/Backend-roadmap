@@ -24,8 +24,8 @@ export function buildIndex(treeData, capstonePattern) {
 }
 
 /**
- * Counts of what is done: modules, capstones, whole tracks, whole learning paths, and the pieces of practice (a solved coding problem and a finished
- * daily drill are saved like a module, under the keys in `keys`). `paths` are the resolved learning paths (each with its `files`).
+ * Counts of what is done: modules, capstones, whole tracks, whole learning paths, and the pieces of practice (a solved coding problem, a finished daily
+ * drill, a quiz passed, a mock interview and a study plan finished are saved like a module, under the keys in `keys`). `paths` are the resolved learning paths (each with its `files`).
  */
 export function libraryStats(index, statusMap, paths, keys) {
   const done = (file) => statusMap[file] === 'done';
@@ -40,18 +40,24 @@ export function libraryStats(index, statusMap, paths, keys) {
   const finishedPaths = paths.filter((p) => p.files.length > 0 && p.files.every(done)).length;
   let problems = 0;
   let drills = 0;
+  let quizzes = 0;
+  let mocks = 0;
+  let plans = 0;
   for (const [key, status] of Object.entries(statusMap)) {
     if (status !== 'done') continue;
     if (key.startsWith(keys.code)) problems += 1;
     else if (key.startsWith(keys.drill)) drills += 1;
+    else if (key.startsWith(keys.quiz)) quizzes += 1;
+    else if (key.startsWith(keys.mock)) mocks += 1;
+    else if (key.startsWith(keys.plan)) plans += 1;
   }
-  return { modules, capstones, tracks, paths: finishedPaths, problems, drills };
+  return { modules, capstones, tracks, paths: finishedPaths, problems, drills, quizzes, mocks, plans };
 }
 
 /** The XP those counts are worth, by the table in game.config.json.xp. */
 export function xpOf(stats, xp) {
   return stats.modules * xp.module + stats.capstones * xp.capstone + stats.tracks * xp.track + stats.paths * xp.path
-    + stats.problems * xp.problem + stats.drills * xp.drill;
+    + stats.problems * xp.problem + stats.drills * xp.drill + stats.quizzes * xp.quiz + stats.mocks * xp.mock + stats.plans * xp.plan;
 }
 
 /** The level an amount of XP is, with how far through it the reader is: `levels` is [{ xp, name }] by the XP needed to reach each. */

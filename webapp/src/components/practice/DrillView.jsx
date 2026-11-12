@@ -2,7 +2,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { checkDrillAnswer, fetchDrill } from '../../lib/practiceApi.js';
+import { useReview } from '../../hooks/useReview.js';
 import { drillKey } from '../../lib/practice/progressKeys.js';
+import { questionItem } from '../../lib/practice/review.js';
 import { friendlyMessage } from '../../lib/errors.js';
 import { DRILL } from '../../config/code.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -18,6 +20,7 @@ import LoadError from '../common/LoadError.jsx';
 // answered is not kept, because a drill is practice, not a record.
 export default function DrillView({ onBack, onOpenItem, statusMap = {}, onMark = () => {}, problemOfTheDay = null }) {
   const { data: drill, error, reload } = useLoader(() => fetchDrill());
+  const { answered } = useReview();
   usePageTitle(DRILL.title);
   const [at, setAt] = useState(0);
   const [picked, setPicked] = useState({}); // key -> option ids
@@ -52,13 +55,14 @@ export default function DrillView({ onBack, onOpenItem, statusMap = {}, onMark =
     try {
       const answer = await checkDrillAnswer(drill.day, q.key, mine);
       setChecked((c) => ({ ...c, [q.key]: answer }));
+      answered(questionItem(q.key), answer.correct); // a miss comes back in the review
       if (!latest.current.statusMap[mark]) latest.current.onMark(mark, 'wip');
     } catch (err) {
       setProblem(friendlyMessage(err) || DRILL.failed);
     } finally {
       setBusy(false);
     }
-  }, [drill, q, mine, mark]);
+  }, [drill, q, mine, mark, answered]);
 
   const advance = () => {
     if (!last) { setAt(at + 1); return; }

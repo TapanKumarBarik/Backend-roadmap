@@ -1,0 +1,100 @@
+{
+  "title": "Machine learning from scratch in 7 days",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "description": "Write the building blocks of machine learning yourself in plain Python: softmax, metrics, validation, linear and logistic models, k-means, nearest neighbours, trees and ranking.",
+  "audience": "Developers who use machine learning libraries and want to know what they do. Two problems a day, no libraries, no lessons to read: the problems explain themselves.",
+  "days": [
+    {
+      "title": "Softmax and a neural network",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "softmax"
+        },
+        {
+          "kind": "code",
+          "ref": "mlp-forward-pass"
+        }
+      ]
+    },
+    {
+      "title": "Judging a classifier",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "precision-recall-f1"
+        },
+        {
+          "kind": "code",
+          "ref": "roc-auc"
+        }
+      ]
+    },
+    {
+      "title": "Validation without leakage",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "k-fold-indices"
+        },
+        {
+          "kind": "code",
+          "ref": "standard-scaler"
+        }
+      ]
+    },
+    {
+      "title": "Learning by gradient descent",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "linear-regression-gradient-descent"
+        },
+        {
+          "kind": "code",
+          "ref": "logistic-regression-step"
+        }
+      ]
+    },
+    {
+      "title": "Clusters and neighbours",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "k-means"
+        },
+        {
+          "kind": "code",
+          "ref": "knn-classifier"
+        }
+      ]
+    },
+    {
+      "title": "Trees and ranking",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "gini-best-split"
+        },
+        {
+          "kind": "code",
+          "ref": "ndcg-at-k"
+        }
+      ]
+    },
+    {
+      "title": "Drift and similarity",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "population-stability-index"
+        },
+        {
+          "kind": "code",
+          "ref": "cosine-similarity-search"
+        }
+      ]
+    }
+  ]
+}

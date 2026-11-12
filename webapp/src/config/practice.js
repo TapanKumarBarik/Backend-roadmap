@@ -10,13 +10,14 @@ export const PRACTICE = {
   intro: 'Write and run real code against tests in your browser, check what you know with quizzes, and rehearse the questions interviews ask. What you solve counts towards your level and your streak.',
   tabs: [
     { id: 'code', label: 'Code practice', empty: 'No problem matches those filters.' },
+    { id: 'plans', label: 'Study plans', empty: 'No plan matches those filters.' },
     { id: 'quizzes', label: 'Quizzes', empty: 'No quiz matches those filters.' },
     { id: 'coding', label: 'Coding questions', empty: 'No coding set matches those filters.' },
     { id: 'interview', label: 'Interview prep', empty: 'No interview set matches those filters.' },
     { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' }
   ],
   // The kind of item each tab opens, as it is written in the item's address (an interview set is of concepts or of coding questions).
-  tabKind: { code: 'code', quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
+  tabKind: { code: 'code', plans: 'plan', quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
   allTopics: 'All topics',
   allLevels: 'All levels'
 };

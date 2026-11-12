@@ -7,10 +7,11 @@ import path from 'node:path';
 
 import {
   DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, FOLDERS, SQL_DATA_FOLDER,
-  quizProblems, exerciseProblems, interviewProblems, codeProblems
+  quizProblems, exerciseProblems, interviewProblems, codeProblems, planProblems
 } from '../../webapp/src/lib/practice/validate.js';
+import game from '../../game.config.json' with { type: 'json' };
 
-export { DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, quizProblems, codeProblems };
+export { DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, quizProblems, codeProblems, planProblems };
 
 /**
  * Reads every practice file under `contentDir`. Returns { content, problems }: content is { quizzes, exercises, interview, code, sqlData },
@@ -18,7 +19,7 @@ export { DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, quizProblems, codePro
  * and problems lists everything wrong, including a `module` that names a lesson that is not there and a SQL problem whose dataset is not there.
  */
 export function loadPractice(contentDir) {
-  const content = { quizzes: {}, exercises: {}, interview: {}, code: {}, sqlData: {} };
+  const content = { quizzes: {}, exercises: {}, interview: {}, code: {}, plans: {}, sqlData: {} };
   const problems = [];
   const files = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : []);
   const read = (file) => {
@@ -32,7 +33,7 @@ export function loadPractice(contentDir) {
       const slug = file.slice(0, -'.json'.length);
       const item = read(path.join(dir, file));
       if (!item) continue;
-      const found = { quizzes: quizProblems, exercises: exerciseProblems, interview: interviewProblems, code: codeProblems }[kind];
+      const found = { quizzes: quizProblems, exercises: exerciseProblems, interview: interviewProblems, code: codeProblems, plans: planProblems }[kind];
       problems.push(...found(slug, item));
       if (!lessonExists(item.module)) problems.push(`${kind} ${slug}: module "${item.module}" is not a lesson`);
       content[kind][slug] = item;
@@ -44,6 +45,14 @@ export function loadPractice(contentDir) {
   }
   for (const [slug, problem] of Object.entries(content.code)) {
     if (problem.language === 'sql' && !(problem.dataset in content.sqlData)) problems.push(`code ${slug}: dataset "${problem.dataset}" is not in ${SQL_DATA_FOLDER}/`);
+  }
+  // what a study plan asks for must be there: a lesson (a file), a coding problem, a quiz, the track of a mock interview
+  const tracks = new Set(game.mock.tracks.map((t) => t.id));
+  const exists = { lesson: (ref) => fs.existsSync(path.join(contentDir, ref)), code: (ref) => ref in content.code, quiz: (ref) => ref in content.quizzes, mock: (ref) => tracks.has(ref) };
+  for (const [slug, plan] of Object.entries(content.plans)) {
+    (plan.days || []).forEach((day, i) => (day.items || []).forEach((item) => {
+      if (exists[item.kind] && !exists[item.kind](item.ref)) problems.push(`plan ${slug}, day ${i + 1}: ${item.kind} "${item.ref}" is not there`);
+    }));
   }
   for (const kind of Object.keys(content)) content[kind] = Object.fromEntries(Object.entries(content[kind]).sort(([a], [b]) => a.localeCompare(b)));
   return { content, problems };

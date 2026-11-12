@@ -1,0 +1,519 @@
+{
+  "title": "Backend interview in 30 days",
+  "topic": "backend",
+  "difficulty": "intermediate",
+  "description": "A month of one focused session a day: HTTP, APIs, databases and SQL, auth and security, caching, queues, distributed systems and system design, ending in a mock interview.",
+  "audience": "Developers who know one backend language and have an interview coming. Each day is about an hour: a lesson to read, a quiz or two, and a coding problem or two.",
+  "days": [
+    {
+      "title": "HTTP in one sitting",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/01-http-protocol-basics/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "two-sum"
+        }
+      ]
+    },
+    {
+      "title": "Methods, status codes and REST",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/05-http-responses-and-status-codes/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "http-methods-status-codes-and-rest"
+        },
+        {
+          "kind": "code",
+          "ref": "valid-anagram"
+        }
+      ]
+    },
+    {
+      "title": "HTTP caching",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/01-request-response-fundamentals/06-http-caching/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "http-caching"
+        },
+        {
+          "kind": "code",
+          "ref": "contains-duplicate"
+        }
+      ]
+    },
+    {
+      "title": "Designing an API",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "api-design-pagination-versioning-and-errors"
+        },
+        {
+          "kind": "code",
+          "ref": "group-anagrams"
+        }
+      ]
+    },
+    {
+      "title": "Validation and middleware",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/02-api-layer-and-request-handling/03-middleware-fundamentals/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "valid-parentheses"
+        },
+        {
+          "kind": "code",
+          "ref": "parse-query-string"
+        }
+      ]
+    },
+    {
+      "title": "SQL: querying",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "sql-joins-and-grouping"
+        },
+        {
+          "kind": "code",
+          "ref": "cheap-products"
+        },
+        {
+          "kind": "code",
+          "ref": "customers-without-email"
+        }
+      ]
+    },
+    {
+      "title": "SQL: joins and aggregates",
+      "items": [
+        {
+          "kind": "code",
+          "ref": "orders-per-customer"
+        },
+        {
+          "kind": "code",
+          "ref": "customers-with-no-orders"
+        },
+        {
+          "kind": "code",
+          "ref": "revenue-per-category"
+        }
+      ]
+    },
+    {
+      "title": "Schema design and indexes",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "database-indexes"
+        },
+        {
+          "kind": "code",
+          "ref": "binary-search"
+        }
+      ]
+    },
+    {
+      "title": "Transactions and isolation",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "transactions-and-isolation-levels"
+        },
+        {
+          "kind": "code",
+          "ref": "merge-intervals"
+        }
+      ]
+    },
+    {
+      "title": "Query tuning and connection pools",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "repeat-customers"
+        },
+        {
+          "kind": "code",
+          "ref": "second-highest-salary"
+        }
+      ]
+    },
+    {
+      "title": "Sessions and cookies",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "sessions-and-cookies"
+        },
+        {
+          "kind": "code",
+          "ref": "top-k-frequent-elements"
+        }
+      ]
+    },
+    {
+      "title": "JWT",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "longest-substring-without-repeating-characters"
+        }
+      ]
+    },
+    {
+      "title": "OAuth2 and OIDC",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/03-authentication-and-authorization/03-oauth2-and-oidc/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "jwt-oauth-and-oidc"
+        },
+        {
+          "kind": "code",
+          "ref": "valid-ipv4-address"
+        }
+      ]
+    },
+    {
+      "title": "The OWASP Top 10",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "web-security-owasp-top-10"
+        },
+        {
+          "kind": "code",
+          "ref": "fix-query-building"
+        }
+      ]
+    },
+    {
+      "title": "XSS, CSRF and CORS",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/09-security-deep-dive/02-xss-and-csrf/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "cors-csrf-and-xss"
+        },
+        {
+          "kind": "code",
+          "ref": "normalize-url-path"
+        }
+      ]
+    },
+    {
+      "title": "Caching strategies",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/05-caching-and-performance/01-caching-strategies/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "caching-strategies-and-eviction"
+        },
+        {
+          "kind": "code",
+          "ref": "lru-cache"
+        }
+      ]
+    },
+    {
+      "title": "Eviction, invalidation and Redis",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "redis-data-structures-and-patterns"
+        },
+        {
+          "kind": "code",
+          "ref": "ttl-cache"
+        }
+      ]
+    },
+    {
+      "title": "Concurrency",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "concurrency-async-and-race-conditions"
+        },
+        {
+          "kind": "code",
+          "ref": "fix-check-then-act"
+        }
+      ]
+    },
+    {
+      "title": "Queues and background jobs",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "message-queues-and-event-streaming"
+        },
+        {
+          "kind": "code",
+          "ref": "bounded-queue"
+        }
+      ]
+    },
+    {
+      "title": "Rate limiting",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "token-bucket-rate-limiter"
+        },
+        {
+          "kind": "code",
+          "ref": "sliding-window-rate-limiter"
+        }
+      ]
+    },
+    {
+      "title": "Retries and idempotency",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "idempotency-and-retries"
+        },
+        {
+          "kind": "code",
+          "ref": "retry-with-backoff"
+        }
+      ]
+    },
+    {
+      "title": "Replication and sharding",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "replication-and-sharding"
+        },
+        {
+          "kind": "code",
+          "ref": "consistent-hash-ring"
+        }
+      ]
+    },
+    {
+      "title": "ACID, CAP and consistency",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/04-databases-and-data-layer/01-acid-and-cap-theorem/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "cap-and-consistency-models"
+        },
+        {
+          "kind": "code",
+          "ref": "lamport-clock"
+        }
+      ]
+    },
+    {
+      "title": "Sagas, the outbox and CQRS",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "microservice-patterns-saga-outbox-and-cqrs"
+        },
+        {
+          "kind": "code",
+          "ref": "saga-runner"
+        }
+      ]
+    },
+    {
+      "title": "How to answer a system design question",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "capacity-estimation-back-of-envelope"
+        },
+        {
+          "kind": "code",
+          "ref": "base62-url-shortener"
+        }
+      ]
+    },
+    {
+      "title": "Design a URL shortener and a rate limiter",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md"
+        },
+        {
+          "kind": "lesson",
+          "ref": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md"
+        },
+        {
+          "kind": "code",
+          "ref": "snowflake-id-generator"
+        }
+      ]
+    },
+    {
+      "title": "Observability",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "observability-logs-metrics-and-traces"
+        },
+        {
+          "kind": "code",
+          "ref": "latency-percentiles"
+        }
+      ]
+    },
+    {
+      "title": "Testing",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/12-testing-and-code-quality/00-testing-fundamentals-and-the-test-pyramid/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "testing-strategies-for-backends"
+        },
+        {
+          "kind": "code",
+          "ref": "fix-stale-cache"
+        }
+      ]
+    },
+    {
+      "title": "Deploying safely",
+      "items": [
+        {
+          "kind": "lesson",
+          "ref": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md"
+        },
+        {
+          "kind": "quiz",
+          "ref": "ci-cd-and-deployment-strategies"
+        },
+        {
+          "kind": "code",
+          "ref": "event-bus"
+        }
+      ]
+    },
+    {
+      "title": "Mock interview day",
+      "items": [
+        {
+          "kind": "mock",
+          "ref": "backend"
+        },
+        {
+          "kind": "quiz",
+          "ref": "system-design-availability-latency-and-spof"
+        }
+      ]
+    }
+  ]
+}

@@ -108,6 +108,28 @@ export function codeProblems(slug, item) {
   return problems;
 }
 
+// A study plan (kind "plan"): a number of days, each with a few things to do. What a day asks for is a lesson (its file under content/), a coding problem or a quiz
+// (its slug) or a mock interview (the id of its track, game.config.json -> mock): the references are checked against the content in scripts/lib/practice.mjs.
+export const PLAN_RULES = { minDays: 3, maxDays: 60, maxItems: 8, kinds: ['lesson', 'code', 'quiz', 'mock'] };
+
+export function planProblems(slug, item) {
+  const at = `plan ${slug}`;
+  const problems = [];
+  for (const field of ['title', 'topic', 'description']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
+  if (!DIFFICULTIES.includes(item.difficulty)) problems.push(`${at}: difficulty must be one of ${DIFFICULTIES.join(', ')}`);
+  if (item.audience !== undefined && !isText(item.audience)) problems.push(`${at}: audience must be a text`);
+  const days = Array.isArray(item.days) ? item.days : [];
+  if (days.length < PLAN_RULES.minDays || days.length > PLAN_RULES.maxDays) problems.push(`${at}: days must be a list of ${PLAN_RULES.minDays} to ${PLAN_RULES.maxDays} days`);
+  days.forEach((day, i) => {
+    const where = `${at}, day ${i + 1}`;
+    if (!day || !isText(day.title)) problems.push(`${where}: title is missing`);
+    const items = day && Array.isArray(day.items) ? day.items : [];
+    if (!items.length || items.length > PLAN_RULES.maxItems) problems.push(`${where}: items must be a list of 1 to ${PLAN_RULES.maxItems}`);
+    for (const planned of items) if (!planned || !PLAN_RULES.kinds.includes(planned.kind) || !isText(planned.ref)) problems.push(`${where}: each item is { kind (${PLAN_RULES.kinds.join(', ')}), ref }`);
+  });
+  return problems;
+}
+
 export function interviewProblems(slug, item) {
   const at = `interview ${slug}`;
   const problems = [];
@@ -124,13 +146,14 @@ export const FOLDERS = {
   quizzes: 'practice/quizzes',
   exercises: 'practice/exercises',
   interview: 'practice/interview',
-  code: 'practice/code'
+  code: 'practice/code',
+  plans: 'practice/plans'
 };
 
 /** Where the data the SQL problems run on lives, under content/: one file of SQL (CREATE TABLE and INSERT statements) for each dataset. */
 export const SQL_DATA_FOLDER = 'practice/sql-data';
 
-const PATH = /^practice\/(quizzes|exercises|interview|code)\/([a-z0-9][a-z0-9-]*)\.json$/;
+const PATH = /^practice\/(quizzes|exercises|interview|code|plans)\/([a-z0-9][a-z0-9-]*)\.json$/;
 
 /** True for the path of a practice file, relative to content/: "practice/quizzes/http-caching.json", "practice/interview/caching.json". */
 export const isPracticePath = (relative) => PATH.test(String(relative || ''));
@@ -144,5 +167,6 @@ export function practiceFileProblems(relative, item) {
   if (m[1] === 'quizzes') return quizProblems(slug, item);
   if (m[1] === 'exercises') return exerciseProblems(slug, item);
   if (m[1] === 'code') return codeProblems(slug, item);
+  if (m[1] === 'plans') return planProblems(slug, item);
   return interviewProblems(slug, item);
 }

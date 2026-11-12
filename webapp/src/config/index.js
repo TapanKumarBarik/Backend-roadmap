@@ -16,6 +16,9 @@ export const STORAGE = site.storage;
 // How practice is saved as progress, beside the modules (lib/practice/progressKeys.js). In the site config, which the first page carries anyway, and not in
 // the game's, which only the screens that draw the game load.
 export const PROGRESS_KEYS = site.progressKeys;
+
+/** The spaced review's rules (site.config.json -> review): the days between reviews, and how many items a session holds. */
+export const REVIEW_RULES = site.review;
 // Which lesson examples get a Run button (lib/practice/runnable.js).
 export const LESSON_RUN = site.runner;
 export const YOUTUBE = site.youtube;

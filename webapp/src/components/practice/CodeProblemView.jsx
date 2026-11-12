@@ -2,6 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { useCodeDraft } from '../../hooks/useCodeDraft.js';
+import { useReview } from '../../hooks/useReview.js';
+import { problemItem } from '../../lib/practice/review.js';
 import { fetchCodeProblem, fetchCodeSolution } from '../../lib/practiceApi.js';
 import { engineOf } from '../../lib/practice/engines.js';
 import { codeKey } from '../../lib/practice/progressKeys.js';
@@ -108,12 +110,17 @@ function Results({ phase, current, outcome, boot, onRetry, words, timeoutMs }) {
   );
 }
 
-export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, user, onLogin, nodeByFile, catalog, statusMap = {}, onMark = () => {} }) {
+/**
+ * `mock` is set when the problem is one of a mock interview (components/practice/MockView.jsx): there are no hints, no solution and no discussion, "back" returns
+ * to the interview, and each run says how many checks passed (`mock.onRun({ passed, total })`). The code is kept apart from the practice draft of the same problem.
+ */
+export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, user, onLogin, nodeByFile, catalog, statusMap = {}, onMark = () => {}, mock = null }) {
   const { data: loaded, error, reload } = useLoader(() => fetchCodeProblem(slug), [slug]);
   // opening another problem in this screen keeps the last one's data until the new one arrives: never run the tests of a problem that is not the open one
   const problem = loaded && loaded.slug === slug ? loaded : null;
   usePageTitle(problem && problem.title);
-  const { code, setCode, reset, changed } = useCodeDraft(slug, problem ? problem.starter : null);
+  const { code, setCode, reset, changed } = useCodeDraft(mock ? `mock/${slug}` : slug, problem ? problem.starter : null);
+  const { answered } = useReview();
 
   const [boot, setBoot] = useState('booting'); // booting | ready | broken | unsupported
   const [phase, setPhase] = useState('idle'); // idle | running
@@ -172,13 +179,16 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
       setBoot('ready');
       const passedAll = !result.loaded && result.results.length > 0 && result.results.every((r) => r.ok);
       if (passedAll && latest.current.statusMap[key] !== 'done') latest.current.onMark(key, 'done');
+      // solved (again): it comes back for review after a while, and a problem that is already in the queue moves one box on
+      if (passedAll) answered(problemItem(slug), true, { addIfNew: true });
+      if (mock) mock.onRun({ passed: result.results.filter((r) => r.ok).length, total: result.loaded ? problem.language === 'sql' ? problem.expected.length : problem.tests.filter(isCase).length : result.results.length });
     } catch (err) {
       setOutcome({ error: err });
       if (err && err.kind === 'timeout') start();
     } finally {
       setPhase('idle');
     }
-  }, [phase, code, problem, engine, key, start]);
+  }, [phase, code, problem, engine, key, start, answered, slug, mock]);
 
   const showSolution = useCallback(async () => {
     setAsking('');
@@ -203,7 +213,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
 
   return (
     <div id="empty" className="pr-screen cp-screen">
-      <button type="button" className="back-link" onClick={onBack}>{CODE.back}</button>
+      <button type="button" className="back-link" onClick={onBack}>{mock ? CODE.backToInterview : CODE.back}</button>
       {error && <LoadError error={error} what={LOAD_WHAT.practice} onRetry={reload} />}
       {!problem && !error && <Loading />}
       {problem && (
@@ -228,14 +238,14 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
 
               {isSql && <SqlSchema data={problem.data} />}
 
-              <section className="cp-panel" aria-label={CODE.hints}>
+              {!mock && <section className="cp-panel" aria-label={CODE.hints}>
                 <h3><LightbulbIcon aria-hidden="true" /> {CODE.hints}</h3>
                 {hints.length === 0 && <p className="cp-note">{CODE.noHints}</p>}
                 {hints.slice(0, hintsShown).map((hint, i) => <div key={hint} className="cp-hint"><span className="cp-hint__n">{i + 1}</span><ContentMarkdown className="cp-md" text={hint} /></div>)}
                 {hintsShown < hints.length && <Button size="sm" onClick={() => setHintsShown(hintsShown + 1)}>{CODE.showHint(hintsShown + 1, hints.length)}</Button>}
-              </section>
+              </section>}
 
-              {(solved || ran) && (
+              {!mock && (solved || ran) && (
                 <section className="cp-panel" aria-label={CODE.solution}>
                   <h3>{CODE.solution}</h3>
                   {!solution && asking !== 'solution' && <Button size="sm" onClick={() => (solved ? showSolution() : setAsking('solution'))}>{solved ? CODE.solutionAfter : CODE.showSolution}</Button>}
@@ -287,9 +297,9 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
                     <p>{CODE.solvedLead}</p>
                     {!user && <p><button type="button" className="signin-link" onClick={onLogin}>{CODE.signIn}</button></p>}
                   </div>
-                  {next
+                  {!mock && (next
                     ? <Button variant="primary" icon={<ArrowRightIcon />} onClick={() => onOpenItem(`code/${next.slug}`)}>{CODE.next}: {next.title}</Button>
-                    : catalog && <p className="cp-note">{CODE.allDone}</p>}
+                    : catalog && <p className="cp-note">{CODE.allDone}</p>)}
                 </div>
               )}
 
@@ -298,7 +308,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
             </div>
           </div>
 
-          <section className="cp-discuss" aria-label={DISCUSS.heading}>
+          {!mock && <section className="cp-discuss" aria-label={DISCUSS.heading}>
             {solved || discussing ? (
               <>
                 {solved && (
@@ -322,7 +332,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
                 <Button size="sm" onClick={() => setDiscussing(true)}>{DISCUSS.open}</Button>
               </div>
             )}
-          </section>
+          </section>}
         </>
       )}
     </div>

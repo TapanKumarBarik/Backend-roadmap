@@ -12,6 +12,16 @@ export function mulberry32(seed) {
   };
 }
 
+/** A whole number from a piece of text (FNV-1a), to seed a choice that is "for" a name: the level check, a mock interview with its own seed. */
+export function seedOf(text) {
+  let hash = 2166136261;
+  for (const char of String(text)) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 /** The items in a shuffled order that depends only on `seed` (Fisher-Yates); the input is not changed. */
 export function shuffled(items, seed) {
   const order = items.slice();
