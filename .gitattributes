@@ -4,6 +4,8 @@
 * text=auto eol=lf
 
 # Never touched by line-ending conversion.
+*.wasm binary
+*.zip binary
 *.png binary
 *.jpg binary
 *.jpeg binary
