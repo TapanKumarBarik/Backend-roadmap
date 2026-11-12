@@ -1,0 +1,29 @@
+{
+  "title": "Top K Frequent Elements",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Return the k values that occur most often in a list of numbers.",
+  "statement": "Given a list of integers `nums` and an integer `k`, return the `k` values that occur most often in `nums`.\n\n- Return a list of exactly `k` different values, in any order. You may assume `1 <= k <=` the number of different values in `nums`.\n- **Ties:** when several values tie for the last place, you may return any of them. For `[1, 2, 2, 3, 3]` with `k = 1`, both `2` and `3` are right. Every correct choice is accepted.\n- Zero and negative numbers are ordinary values.\n\n**Examples**\n\n```python\ntop_k_frequent([1, 1, 1, 2, 2, 3], 2)   # [1, 2]  (in any order)\ntop_k_frequent([-1, -1, 5], 1)          # [-1]\ntop_k_frequent([4, 5, 6], 2)            # any two of 4, 5, 6: each occurs once\n```\n\nCounting each value by rescanning the whole list is O(n²), and the last test is too big for it.",
+  "starter": "def top_k_frequent(nums, k):\n    \"\"\"Return a list of the k values that occur most often in nums, in any order.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\nfrom collections import Counter\ndef returns_top_k(nums, k):\n    # Calls top_k_frequent and checks the answer. When values tie for the last place, every choice is right,\n    # so this checks the properties instead of comparing with one list.\n    answer = top_k_frequent(list(nums), k)\n    assert isinstance(answer, list), f\"expected a list of {k} values, got {answer!r}\"\n    assert len(answer) == k, f\"expected {k} values, got {len(answer)}: {answer!r}\"\n    assert len(set(answer)) == k, f\"the {k} values must all be different, got {answer!r}\"\n    counts = Counter(nums)\n    for value in answer:\n        assert value in counts, f\"{value!r} does not occur in the list at all\"\n    chosen = sorted((counts[value] for value in answer), reverse=True)\n    best = sorted(counts.values(), reverse=True)[:k]\n    assert chosen == best, f\"{answer!r} occur {chosen} times, but the {k} most frequent values occur {best} times\"\n    return True",
+    "assert returns_top_k([1, 1, 1, 2, 2, 3], 2)",
+    "assert returns_top_k([7], 1)",
+    "assert returns_top_k([-1, -1, 5], 1)",
+    "assert returns_top_k([4, 5, 6], 2)",
+    "assert returns_top_k([1, 2, 2, 3, 3, 3], 3)",
+    "assert returns_top_k([5, 3, 5, 3, 5, 9, 9, 9, 9], 2)",
+    "assert returns_top_k([0, 0, 0, -2, -2, 4], 2)",
+    "assert returns_top_k([10, 20, 20, 30, 30, 30, 40, 40, 40, 40], 3)",
+    "assert returns_top_k([1, 1, 2, 2, 3, 3, 4], 2)",
+    "big = list(range(50_000)) + [7] * 40 + [99] * 30 + [12_345] * 20 + [-1] * 10\nrandom.Random(4).shuffle(big)",
+    "assert returns_top_k(big, 3), \"too slow or wrong on 50,000 numbers; counting each value by rescanning the list is O(n^2)\""
+  ],
+  "hints": [
+    "There are two separate jobs: find how often each value occurs, then choose the k values with the highest counts. What would you use for each one?",
+    "A dictionary (or `collections.Counter`) gives the counts. To choose the k biggest you can sort the (value, count) pairs by count, keep a heap of size k, or use one bucket per possible count.",
+    "Count everything in a single pass. Calling `nums.count(x)` inside a loop rescans the list each time and is far too slow for the last test."
+  ],
+  "solution": "import heapq\nfrom collections import Counter\n\n\ndef top_k_frequent(nums, k):\n    counts = Counter(nums)                    # value -> how many times it occurs\n    # nlargest keeps a heap of only k candidates, so we never sort every distinct value\n    best = heapq.nlargest(k, counts.items(), key=lambda item: item[1])\n    return [value for value, _ in best]\n",
+  "explanation": "**The idea.** First count how often each value occurs (a dictionary, or `collections.Counter`). Then pick the k values with the biggest counts. `heapq.nlargest(k, ...)` does that with a small heap that only ever holds k candidates, instead of sorting every distinct value.\n\n**Three ways to pick.** Sorting the distinct values by count is O(d log d) for d distinct values, and is perfectly acceptable. A heap of size k is O(d log k), better when k is small. Bucket sort is O(n): a count is at most `len(nums)`, so put each value in `buckets[count]` and read the buckets from the highest count down until you have k values.\n\n**Ties.** When values tie for the last place, any of them may be returned, and the tests accept every choice. `Counter(nums).most_common(k)` does the counting and the picking in one call.\n\n**Mistake to avoid.** `nums.count(x)` for each value looks harmless but rescans the whole list every time: O(n²)."
+}

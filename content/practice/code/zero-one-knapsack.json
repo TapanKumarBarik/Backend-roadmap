@@ -1,0 +1,29 @@
+{
+  "title": "0/1 Knapsack",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Choose items, each at most once, to get the most value into a bag with a weight limit.",
+  "statement": "You have items with the given `weights` and `values` (item `i` weighs `weights[i]` and is worth `values[i]`) and a bag that holds a total weight of at most `capacity`. Return the largest total value you can carry. Each item can be taken at most once, which is the \"0/1\" in the name.\n\n- Weights are whole numbers of at least 1; values and `capacity` are whole numbers of at least 0.\n- With no items, or a `capacity` of `0`, the answer is `0`. An item heavier than the whole bag can never be taken.\n- Return only the best total value, not which items give it.\n\n**Examples**\n\n```python\nknapsack([1, 3, 4, 5], [1, 4, 5, 7], 7)      # 9    (the items of weight 3 and 4)\nknapsack([10, 20, 30], [60, 100, 120], 50)   # 220  (the items of weight 20 and 30)\nknapsack([2], [9], 10)                       # 9    (the one item, taken once)\n```\n\nTrying every subset of items takes exponential time, and the tests have 40 items. Aim for O(items × capacity).",
+  "starter": "def knapsack(weights, values, capacity):\n    \"\"\"Return the largest total value of items (each used at most once) whose total weight is at most capacity.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef brute_force(weights, values, capacity, i=0):\n    if i == len(weights):\n        return 0\n    best = brute_force(weights, values, capacity, i + 1)                    # leave item i\n    if weights[i] <= capacity:                                               # or take it\n        best = max(best, values[i] + brute_force(weights, values, capacity - weights[i], i + 1))\n    return best\nrng = random.Random(5)\nrandom_bags = []\nfor _ in range(200):\n    count = rng.randint(0, 8)\n    random_bags.append(([rng.randint(1, 6) for _ in range(count)], [rng.randint(0, 9) for _ in range(count)], rng.randint(0, 15)))\ndef wrong_on(bags):\n    wrong = []\n    for weights, values, capacity in bags:\n        got = knapsack(list(weights), list(values), capacity)\n        want = brute_force(weights, values, capacity)\n        if got != want:\n            wrong.append(f\"knapsack({weights}, {values}, {capacity}) returned {got}, expected {want}\")\n    return wrong[:3]",
+    "assert knapsack([1, 3, 4, 5], [1, 4, 5, 7], 7) == 9",
+    "assert knapsack([10, 20, 30], [60, 100, 120], 50) == 220",
+    "assert knapsack([2], [9], 10) == 9",
+    "assert knapsack([], [], 10) == 0",
+    "assert knapsack([1, 2], [5, 6], 0) == 0",
+    "assert knapsack([10], [5], 5) == 0",
+    "assert knapsack([5], [8], 5) == 8",
+    "assert knapsack([2, 4, 6, 8], [2, 4, 6, 8], 15) == 14",
+    "assert wrong_on(random_bags) == []",
+    "assert knapsack(list(range(1, 41)), list(range(1, 41)), 400) == 400",
+    "assert knapsack([1] * 40, list(range(1, 41)), 10) == 355"
+  ],
+  "hints": [
+    "For each item there are only two choices: leave it or take it. Which two numbers describe where you are after deciding about the first few items?",
+    "Let `best[c]` be the most value that fits in capacity `c` using the items seen so far. For an item of weight `w` and value `v`: `best[c] = max(best[c], best[c - w] + v)`.",
+    "Update the capacities from high to low. Going upwards lets the same item be counted again in the same pass."
+  ],
+  "solution": "def knapsack(weights, values, capacity):\n    best = [0] * (capacity + 1)          # best[c]: the most value that fits in capacity c\n    for weight, value in zip(weights, values):\n        for c in range(capacity, weight - 1, -1):      # downwards, so this item is used at most once\n            best[c] = max(best[c], best[c - weight] + value)\n    return best[capacity]\n",
+  "explanation": "**The idea.** Go through the items one at a time and keep `best[c]`, the most value that fits in capacity `c` using the items looked at so far. For a new item of weight `w` and value `v`, every capacity `c >= w` has two options: leave the item (`best[c]` stays as it is) or take it, which leaves `c - w` for the earlier items: `best[c - w] + v`. Keep the larger.\n\n**The detail that makes it 0/1.** Loop the capacity from high to low. Then `best[c - w]` still holds the answer *without* the current item. Looping upwards would let the same item be added again in the same pass, which is the unbounded knapsack, where every item may be taken any number of times.\n\n**Complexity.** O(items × capacity) time and O(capacity) space. That is *pseudo-polynomial*: polynomial in the value of the capacity, not in the number of digits needed to write it, and the general problem is still NP-hard. The same table answers \"does some subset add up to X?\" and \"can this list be split into two equal halves?\"."
+}

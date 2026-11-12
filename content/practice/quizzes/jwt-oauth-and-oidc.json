@@ -1,0 +1,135 @@
+{
+  "title": "JWT, OAuth 2.0 and OpenID Connect",
+  "topic": "authentication",
+  "difficulty": "intermediate",
+  "module": "backend/03-authentication-and-authorization/03-oauth2-and-oidc/README.md",
+  "description": "What a JWT does and does not guarantee, how short-lived tokens limit damage, and how OAuth 2.0 and OpenID Connect hand out access and identity safely.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "multiple",
+      "text": "Which statements about a signed JWT are true?",
+      "options": [
+        { "id": "a", "text": "Its payload is only base64url encoded, so anyone who holds the token can read it" },
+        { "id": "b", "text": "A valid signature shows that the header and payload have not been changed since signing" },
+        { "id": "c", "text": "Signing also encrypts the token, so secrets in the payload stay hidden from anyone who intercepts it" },
+        { "id": "d", "text": "A valid signature proves that the person presenting the token is the user it was issued to" }
+      ],
+      "answer": ["a", "b"],
+      "explanation": "A signed JWT is three base64url parts, and the signature only detects tampering: it hides nothing, so never put passwords or other secrets in the payload. A bearer token works for whoever holds it, so a valid signature says nothing about who is presenting it."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Your API accepts a JWT after checking only its signature, with no database lookup, so it cannot tell whether a token has been revoked. Which setup best limits the damage from a stolen access token?",
+      "options": [
+        { "id": "a", "text": "A long expiry, so users have to sign in less often and the token is exposed less" },
+        { "id": "b", "text": "A revoked flag inside the payload, which the server sets as soon as a user logs out" },
+        { "id": "c", "text": "A short expiry, with a refresh token that the authorization server can revoke" },
+        { "id": "d", "text": "A stronger signing algorithm, so that a stolen token cannot be used" }
+      ],
+      "answer": ["c"],
+      "explanation": "A short lifetime means a stolen access token stops working within minutes, while the longer-lived refresh token goes only to the authorization server, which can revoke it. A signed token cannot be edited after it is issued, so a flag inside it can never change, and a stronger algorithm prevents forgery, not the use of a genuine token that was stolen."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "A server should verify a JWT with whichever algorithm the token's own header names, because the token knows how it was signed.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "The header is written by whoever built the token, so trusting it lets an attacker choose alg none (no signature at all) or switch RS256 to HS256 and sign with your public key as if it were a shared secret. The server must fix the allowed algorithms and keys itself."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A browser app has to keep a session token somewhere. What is the trade-off between an HttpOnly, Secure, SameSite cookie and localStorage?",
+      "options": [
+        { "id": "a", "text": "The cookie hides the token from scripts but needs CSRF defences; localStorage exposes it to any script" },
+        { "id": "b", "text": "localStorage is safer, because it is never sent automatically and an injected script cannot read it" },
+        { "id": "c", "text": "The cookie is always safer, because modern browsers make forged cross-site requests impossible by default" },
+        { "id": "d", "text": "They are equally safe, since the same-origin policy and HTTPS protect both in the same way" }
+      ],
+      "answer": ["a"],
+      "explanation": "An HttpOnly cookie cannot be read by page scripts, so an XSS bug cannot simply copy the token, but the browser attaches it to requests automatically, so you still need SameSite or CSRF tokens. localStorage is the reverse: nothing is sent automatically, yet any script on the page, including an injected one, can read it."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A photo-printing website asks to read a user's photos from a cloud storage service. After the user approves, which party issues the access token?",
+      "options": [
+        { "id": "a", "text": "The photo-printing website, since it is the application that will use the token" },
+        { "id": "b", "text": "The user, since the user owns the photos and grants permission by approving the request" },
+        { "id": "c", "text": "The storage API that holds the photos, since the app will call it with the token" },
+        { "id": "d", "text": "The storage service's authorization server, once it has signed the user in" }
+      ],
+      "answer": ["d"],
+      "explanation": "The authorization server authenticates the user, records their consent and issues the tokens. The website is only the client, the storage API is the resource server that checks the tokens it is given, and the user is the resource owner who grants permission; none of those three mints tokens."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "In the authorization code flow with PKCE, why can someone who only intercepted the authorization code not exchange it for tokens?",
+      "options": [
+        { "id": "a", "text": "The code can only be sent to the registered redirect URI, so a copy anywhere else is useless" },
+        { "id": "b", "text": "The exchange also needs the code_verifier, which only the app that started the flow knows" },
+        { "id": "c", "text": "The code is bound to the state value, which an attacker has no way of guessing in time" },
+        { "id": "d", "text": "The app proves itself with a client secret compiled into its code, which cannot be extracted" }
+      ],
+      "answer": ["b"],
+      "explanation": "At the start the app sends a hash of a random secret (the code_challenge); to redeem the code it must present the original secret (the code_verifier), which the server checks against that hash. The state value only defends the callback against forged requests, a registered redirect URI does not help once the redirect itself is intercepted, and a secret compiled into a public app is not really secret."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Current security guidance tells browser apps to use the authorization code flow with PKCE rather than the implicit flow. What is the main reason?",
+      "options": [
+        { "id": "a", "text": "The implicit flow requires a client secret, and a browser app has no safe place to keep one" },
+        { "id": "b", "text": "Access tokens from the implicit flow cannot be JWTs, so APIs have no way to validate them" },
+        { "id": "c", "text": "The implicit flow puts the access token itself in the redirect URL, where it can leak" },
+        { "id": "d", "text": "The implicit flow has no way to ask for scopes, so every token it issues has full access" }
+      ],
+      "answer": ["c"],
+      "explanation": "In the implicit flow the access token comes back in the browser's address bar, where history, extensions and injected scripts can reach it, and nothing proves it went to the app that asked for it. The code flow returns only a short-lived code that is swapped for tokens over a direct HTTPS call, protected by the PKCE verifier. The implicit flow never used a client secret at all."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A user approves a calendar app for the scope calendar.read. The app then calls DELETE /events/42 with its access token. What should the API do?",
+      "options": [
+        { "id": "a", "text": "Allow it, because the signed-in user is allowed to delete their own events" },
+        { "id": "b", "text": "Reject it, because the scopes in the token do not cover deleting events" },
+        { "id": "c", "text": "Allow it, because scopes only shape the consent screen and APIs do not enforce them" },
+        { "id": "d", "text": "Ask the authorization server to add the missing scope, then carry on with the request" }
+      ],
+      "answer": ["b"],
+      "explanation": "A scope is what the user approved this client to do with this token, so it limits the app even though the user could delete the event themselves, and the API has to check it on every request. Claims such as sub or email are facts about the user or the token; they do not grant anything on their own."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which statements about the state and nonce values in an OpenID Connect login are correct?",
+      "options": [
+        { "id": "a", "text": "The app creates a random state before the redirect and rejects any callback whose state does not match" },
+        { "id": "b", "text": "The nonce comes back inside the ID token, so the app can tell the token answers its own login request" },
+        { "id": "c", "text": "State and nonce are secret keys that the authorization server uses to sign the ID token" },
+        { "id": "d", "text": "State is needed only for clients with no client secret, and nonce only for clients that have one" }
+      ],
+      "answer": ["a", "b"],
+      "explanation": "State ties the callback to the browser session that started the login, so an attacker cannot push their own authorization code into your session. The nonce is carried inside the ID token and ties that token to the request, which defeats replay. Both are random, single-use values rather than keys, and they are worth using whether or not the client has a secret."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "An OpenID Connect ID token is the credential an app should send to its backend API to prove that the user may call it.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "The ID token is meant for the client app: it says who signed in, and its audience is that app. The API should receive the access token, whose audience is the API, and reject anything else. OAuth 2.0 alone does not tell an app who the user is; OpenID Connect adds that with the ID token."
+    }
+  ]
+}

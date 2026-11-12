@@ -1,0 +1,33 @@
+{
+  "title": "Sliding Window Rate Limiter",
+  "topic": "caching-and-limits",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+  "description": "Allow at most N requests per key in any window of W seconds, using a log of request times.",
+  "statement": "Build `SlidingWindowRateLimiter(limit, window, clock)`, which decides per key (a user id, an API token, an IP address) whether a request is allowed. `limit` is the most requests one key may make in any `window` seconds; `clock` is a function returning the current time in seconds (a float), and the tests pass a fake one.\n\n`allow(key)` returns `True` and records the request, or `False` if the key already has `limit` requests inside its window.\n\n- A request made at time `t` counts until `t + window`; at exactly `t + window` it no longer does.\n- The window slides with the clock. It is not a fixed block such as `0-10`, `10-20`, which would let a client burst across the boundary.\n- A refused request is not recorded. Keys are independent.\n- Forget requests once they leave the window: the last test sends 30,000 requests for one key.\n\n**Example**\n\n```python\nnow = [0.0]\nlimiter = SlidingWindowRateLimiter(limit=2, window=10, clock=lambda: now[0])\nlimiter.allow(\"ip\")   # True   (t=0)\nnow[0] = 1\nlimiter.allow(\"ip\")   # True   (t=1)\nnow[0] = 9.5\nlimiter.allow(\"ip\")   # False  (two requests in the last 10 seconds)\nnow[0] = 10\nlimiter.allow(\"ip\")   # True   (the t=0 request is exactly 10 seconds old)\n```",
+  "starter": "import time\n\n\nclass SlidingWindowRateLimiter:\n    def __init__(self, limit, window, clock=time.monotonic):\n        ...\n\n    def allow(self, key):\n        \"\"\"Return True (and record the request) if key made fewer than `limit` requests in the last `window` seconds, else False.\"\"\"\n        ...\n",
+  "tests": [
+    "scenario = \"SlidingWindowRateLimiter(limit=2, window=10) with a fake clock\"\nclass FakeClock:\n    \"\"\"A clock the tests move by hand.\"\"\"\n    def __init__(self):\n        self.now = 0.0\n\n    def __call__(self):\n        return self.now\ndef replay(limiter, requests):\n    \"\"\"Send each (time, key) request in order, setting the fake clock to that time first; return the list of answers.\"\"\"\n    answers = []\n    for when, key in requests:\n        clock.now = when\n        answers.append(limiter.allow(key))\n    return answers\ndef accepted(limiter, requests):\n    \"\"\"How many of the requests were allowed.\"\"\"\n    return replay(limiter, requests).count(True)\nclock = FakeClock()\nlimiter = SlidingWindowRateLimiter(limit=2, window=10, clock=clock)",
+    "assert replay(limiter, [(0, \"ip\"), (1, \"ip\"), (9.5, \"ip\"), (10, \"ip\")]) == [True, True, False, True]",
+    "limiter = SlidingWindowRateLimiter(limit=3, window=10, clock=clock)",
+    "assert replay(limiter, [(0, \"k\"), (4, \"k\"), (8, \"k\"), (9, \"k\"), (10, \"k\"), (11, \"k\"), (14, \"k\")]) == [True, True, True, False, True, False, True]",
+    "limiter = SlidingWindowRateLimiter(limit=2, window=10, clock=clock)",
+    "assert replay(limiter, [(9, \"k\"), (9.5, \"k\"), (10.5, \"k\"), (19, \"k\"), (19.5, \"k\"), (20, \"k\")]) == [True, True, False, True, True, False]",
+    "limiter = SlidingWindowRateLimiter(limit=1, window=10, clock=clock)",
+    "assert replay(limiter, [(0, \"k\"), (5, \"k\"), (9, \"k\"), (10, \"k\")]) == [True, False, False, True]",
+    "limiter = SlidingWindowRateLimiter(limit=1, window=10, clock=clock)",
+    "assert replay(limiter, [(0, \"a\"), (0, \"b\"), (1, \"a\"), (1, \"b\"), (1, \"c\")]) == [True, True, False, False, True]",
+    "limiter = SlidingWindowRateLimiter(limit=3, window=10, clock=clock)",
+    "assert replay(limiter, [(0, \"k\")] * 5) == [True, True, True, False, False]",
+    "assert replay(limiter, [(1000, \"k\")] * 4) == [True, True, True, False]",
+    "limiter = SlidingWindowRateLimiter(limit=150, window=50, clock=clock)",
+    "assert accepted(limiter, [(i * 0.5, \"busy\") for i in range(30_000)]) == 30_000, \"2 requests a second is far below 150 per 50 seconds\""
+  ],
+  "hints": [
+    "To know about \"any 10 seconds\", you need to remember something about each recent request. What is the least you must keep per key?",
+    "Keep a queue of the times of the key's allowed requests. On each call, remove the times at the front that are no longer inside the window, then compare the length with `limit` and append the new time only if you allow it.",
+    "The boundary: a request stops counting at exactly `t + window`, so drop times with `time <= now - window`. And never record a refused request."
+  ],
+  "solution": "import time\nfrom collections import defaultdict, deque\n\n\nclass SlidingWindowRateLimiter:\n    def __init__(self, limit, window, clock=time.monotonic):\n        self._limit = limit\n        self._window = window\n        self._clock = clock\n        self._requests = defaultdict(deque)     # key -> times of its allowed requests, oldest first\n\n    def allow(self, key):\n        now = self._clock()\n        recent = self._requests[key]\n        while recent and recent[0] <= now - self._window:   # these have left the window\n            recent.popleft()\n        if len(recent) >= self._limit:\n            return False\n        recent.append(now)                      # only allowed requests are recorded\n        return True\n",
+  "explanation": "**The idea.** For each key keep the times of its recent *allowed* requests, oldest first. On every request first drop the times that have left the window (`t <= now - window`), then compare how many are left with `limit`. Times only grow, so the old ones are always at the front, and a `deque` drops them in O(1) each. Every time is added once and dropped once, so a request costs O(1) on average and a key holds at most `limit` times.\n\n**Why a log, not a counter.** A fixed-window counter (\"reset every 10 seconds\") is O(1) but lets a client send `limit` requests just before the boundary and `limit` just after: twice the limit within a moment. The log is exact because the window really slides.\n\n**Usual mistakes.** Recording refused requests (a client that keeps retrying never gets back in); `<` instead of `<=` at the boundary; never dropping old times (memory grows, and counting them gets slower with every request).\n\n**Follow-up.** This dict keeps a deque for every key forever; a real service also evicts idle keys, or stores each log with a TTL (for example a Redis sorted set with `EXPIRE`). The \"sliding window counter\" trades exactness for O(1) memory by weighting two fixed windows."
+}

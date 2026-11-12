@@ -1,0 +1,137 @@
+{
+  "title": "Python gotchas and idioms",
+  "topic": "python",
+  "difficulty": "intermediate",
+  "module": "lld/00-programming-basics-python-and-csharp/README.md",
+  "description": "Mutable defaults, identity versus equality, shallow copies, generators, closures, decorators, context managers, the GIL and dataclasses: the Python behaviour that catches people out.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Given def add(item, bucket=[]): bucket.append(item); return bucket, the call add(1) returns [1], and a later call add(2) returns [1, 2]. Why?",
+      "options": [
+        { "id": "a", "text": "Python re-evaluates the default on every call, but append remembers the earlier items" },
+        { "id": "b", "text": "The default list is built once, when def runs, and every call that omits bucket shares it" },
+        { "id": "c", "text": "Python builds the default list on the first call that needs it and copies it for later calls" },
+        { "id": "d", "text": "A list passed into any function is always shared with the function's previous callers" }
+      ],
+      "answer": ["b"],
+      "explanation": "A default value is evaluated once, when the def statement runs, so a mutable one such as [] is the same object on every call that leaves the argument out. Python does not rebuild it for each call, which is why the usual fix is bucket=None with a new list created inside the function."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "If two strings are equal, so that a == b is True, then a is b is guaranteed to be True as well.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "== compares values, while is asks whether both names refer to the very same object. Whether equal strings share one object depends on details such as interning, so is can answer differently in different places; compare values with == and keep is for singletons such as None."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "After rows = [[0, 0], [0, 0]] and grid = rows.copy(), you set grid[0][0] = 9, and rows[0][0] is now 9 too. Why?",
+      "options": [
+        { "id": "a", "text": "copy() is shallow: grid is a new outer list that holds the same inner list objects as rows" },
+        { "id": "b", "text": "copy() returns the same list object, so grid and rows are only two names for one list in memory" },
+        { "id": "c", "text": "Python copies lists lazily, so the assignment reached rows before the copy had actually been made" },
+        { "id": "d", "text": "Python reuses a single list object for every list holding the same small integers" }
+      ],
+      "answer": ["a"],
+      "explanation": "A shallow copy builds a new outer list but fills it with references to the same inner objects, so a change made through a nested list shows up through both names. copy.deepcopy(rows) would copy the inner lists too. If grid and rows were simply two names for one list, grid is rows would be True, but copy() returns a different list."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "g = (n * n for n in range(4)); first = list(g); second = list(g). What is second?",
+      "options": [
+        { "id": "a", "text": "[0, 1, 4, 9], because list() restarts the generator from the beginning" },
+        { "id": "b", "text": "A StopIteration error, because the generator has already run out" },
+        { "id": "c", "text": "[], because the first list() call already used up every value" },
+        { "id": "d", "text": "A TypeError, because a generator can be passed to list() only once" }
+      ],
+      "answer": ["c"],
+      "explanation": "A generator can be iterated only once: the first list() call used up all four values, so the second call finds nothing and returns an empty list. There is no error because list() treats the end of the iteration as a normal stop. To reuse the values, keep them in a list or build a fresh generator."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "funcs = [lambda: i for i in range(3)]. What does [f() for f in funcs] return?",
+      "options": [
+        { "id": "a", "text": "[0, 1, 2], because each lambda keeps the value that i had at the moment it was created" },
+        { "id": "b", "text": "[3, 3, 3], because a for loop over range(3) always leaves its variable one past the end" },
+        { "id": "c", "text": "A NameError, because i no longer exists once the list comprehension has finished running" },
+        { "id": "d", "text": "[2, 2, 2], because each lambda looks up i when it is called, after the loop has ended" }
+      ],
+      "answer": ["d"],
+      "explanation": "A closure remembers the variable, not the value it had when the function was created, and looks it up when it is called; by then i is 2 for all three lambdas. The comprehension's own scope is gone, but the closures keep the variable alive, so there is no NameError. Bind the value early with a default argument, lambda i=i: i, or with functools.partial."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A decorator named timed prints a message in its own body, outside the inner wrapper function it returns. A function is defined once with @timed above it and then called three times. How many times is the message printed?",
+      "options": [
+        { "id": "a", "text": "Three times, because the decorator body runs again every time the function is called" },
+        { "id": "b", "text": "Once, when the def statement runs; only the wrapper runs on each later call" },
+        { "id": "c", "text": "Four times: once at definition time and then once for every call" },
+        { "id": "d", "text": "Once, but only on the first call, after which Python caches the decorated function" }
+      ],
+      "answer": ["b"],
+      "explanation": "The line @timed above def handler is shorthand for handler = timed(handler), which runs once when the def statement executes, usually at import time. Only the wrapper that it returns runs on later calls, so per-call work such as timing belongs inside the wrapper, which should use functools.wraps to keep the original name and docstring."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "You write a context manager with @contextlib.contextmanager that takes a lock, yields, and then must release the lock. Where should the release code go so the lock is freed whether the with body finishes normally or raises?",
+      "options": [
+        { "id": "a", "text": "On the line right after the yield, because Python always resumes the generator there" },
+        { "id": "b", "text": "In an except block around the yield, which runs on every exit from the with body" },
+        { "id": "c", "text": "In a finally block around the yield, so it runs on normal and exceptional exits alike" },
+        { "id": "d", "text": "Inside the with body, on the line after the last statement that could fail" }
+      ],
+      "answer": ["c"],
+      "explanation": "When the body raises, the exception is thrown into the generator at the yield, so code placed after a bare yield never runs. A finally block around the yield runs on both a normal exit and an error, like __exit__ in a class-based context manager. An except block would run only on errors."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which statements about CPython's Global Interpreter Lock (GIL) are true?",
+      "options": [
+        { "id": "a", "text": "In standard CPython, only one thread runs Python bytecode at a time within a process" },
+        { "id": "b", "text": "It makes counter += 1 on a shared variable atomic, so no lock is needed" },
+        { "id": "c", "text": "A thread waiting on network or file I/O releases it, so threads still help I/O-bound programs" },
+        { "id": "d", "text": "Each process started by multiprocessing has its own GIL, so CPU-bound work can use several cores" },
+        { "id": "e", "text": "Adding threads to a CPU-bound pure-Python loop usually makes it run close to N times faster on N cores" }
+      ],
+      "answer": ["a", "c", "d"],
+      "explanation": "The GIL lets one thread at a time run Python bytecode in a process, but it is released while a thread waits on I/O, and every process has its own, so threads suit I/O-bound work and multiprocessing suits CPU-bound work. It does not make compound operations such as counter += 1 atomic, and it is exactly why extra threads do not speed up CPU-bound pure-Python code."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which statements about dataclasses and __slots__ are true?",
+      "options": [
+        { "id": "a", "text": "A class that defines __slots__ still accepts any new attribute on its instances, as an ordinary class does" },
+        { "id": "b", "text": "@dataclass generates __init__, __repr__ and __eq__ from the annotated fields" },
+        { "id": "c", "text": "@dataclass makes instances immutable unless you pass frozen=False" },
+        { "id": "d", "text": "A field with a list default must use default_factory=list; a bare [] default raises ValueError" },
+        { "id": "e", "text": "A class with __slots__ normally has no per-instance __dict__, which saves memory per object" }
+      ],
+      "answer": ["b", "d", "e"],
+      "explanation": "A dataclass generates __init__, __repr__ and __eq__, stays mutable unless you pass frozen=True, and rejects a bare list default so that instances do not share one list. __slots__ replaces the per-instance __dict__ with fixed storage, which saves memory but means attributes that are not listed cannot be added."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "If you raise a new exception inside an except block without writing from, Python keeps the original exception attached, and the traceback shows both.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Python chains them automatically: the original is stored as __context__ and the traceback prints it first, noting that another exception occurred while handling it. Writing raise NewError from err instead marks err as the direct cause (__cause__), and raise NewError from None is what hides the original."
+    }
+  ]
+}

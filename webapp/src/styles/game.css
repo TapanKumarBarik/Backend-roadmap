@@ -17,19 +17,6 @@
   #root .gm-player { position: static; }
 }
 
-/* ---------- a ring that fills (the path's crest, today's goal) ---------- */
-#root .gm-crest { position: relative; display: inline-block; flex: none; color: var(--fg); }
-#root .gm-crest svg { display: block; width: 100%; height: 100%; overflow: visible; }
-#root .gm-ring-track { fill: none; stroke: var(--border-subtle); stroke-width: 5; }
-#root .gm-ring-arc { fill: none; stroke: var(--signal); stroke-width: 5; stroke-linecap: round; transition: stroke-dasharray .9s var(--ease-out); }
-#root .gm-ring-arc.is-empty { opacity: 0; }
-#root .gm-crest.is-reward .gm-ring-arc { stroke: var(--reward-strong); }
-#root .gm-crest-glyph { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-#root .gm-crest-pct {
-  position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); padding: 1px 8px; border: 1px solid var(--border); border-radius: var(--r-pill);
-  background: var(--bg-raised); color: var(--fg); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.5;
-}
-
 /* ---------- the quest ---------- */
 #root .gm-hero {
   position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-5); row-gap: var(--space-4); align-items: start;
@@ -362,3 +349,23 @@
   #root .gm-step-foot .bar { flex-basis: 100%; max-width: none; order: 5; }
   #root .gm-player { padding: var(--space-4); }
 }
+
+/* ---------- practice today (under the quest): the drill and the problem of the day ---------- */
+#root .gm-today { margin-top: var(--space-4); display: grid; gap: var(--space-2); }
+#root .gm-today-h { margin: 0 0 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle); }
+#root .gm-today-row {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); width: 100%; box-sizing: border-box; padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+#root .gm-today-row:hover { border-color: var(--border-strong); }
+#root .gm-today-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+#root .gm-today-icon { width: 36px; height: 36px; border-radius: var(--r-md); display: grid; place-items: center; background: var(--signal-bg); color: var(--signal); }
+#root .gm-today-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#root .gm-today-text { display: grid; gap: 1px; min-width: 0; line-height: var(--leading-snug); }
+#root .gm-today-text strong { font-size: var(--text-sm); }
+#root .gm-today-text span { font-size: var(--text-xs); color: var(--fg-muted); overflow-wrap: anywhere; }
+#root .gm-today-go { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-sm); font-weight: 700; color: var(--signal); white-space: nowrap; }
+#root .gm-today-go svg { width: 14px; height: 14px; }
+#root .gm-today-row.is-done { border-color: var(--reward-line); background: var(--reward-bg); }
+#root .gm-today-row.is-done .gm-today-icon { background: var(--reward); color: var(--on-reward); }
+#root .gm-today-row.is-done .gm-today-go { color: var(--reward-ink); }

@@ -1,0 +1,274 @@
+{
+  "title": "Saga, outbox and CQRS",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md",
+  "description": "Why teams avoid distributed transactions, and how sagas, the outbox, CQRS, event sourcing, the strangler fig and resilience patterns fit together.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Why do most microservice teams avoid a two-phase commit across the databases of different services?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It does not guarantee atomicity, so after a crash a transaction can end up half applied in some of the databases"
+        },
+        {
+          "id": "b",
+          "text": "Databases from different vendors cannot understand each other's commit messages, so the protocol cannot run"
+        },
+        {
+          "id": "c",
+          "text": "It only works when every service is written in the same programming language and uses the same framework"
+        },
+        {
+          "id": "d",
+          "text": "Participants hold locks until the coordinator decides, so it is slow, and a crashed coordinator blocks them"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Two-phase commit does give all-or-nothing, but every participant holds locks while it waits for the coordinator, so latency adds up and a coordinator failure can block them all. It also needs each database and broker to support the protocol. Sagas give up instant atomicity in exchange for local transactions plus compensation."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "In an order saga, the payment step has committed, and then the inventory step fails because the item is out of stock. What should the saga do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Roll back the payment's database transaction, which is still open because the saga has not finished"
+        },
+        {
+          "id": "b",
+          "text": "Run a compensating action such as a refund, because the payment's local transaction has already committed"
+        },
+        {
+          "id": "c",
+          "text": "Keep retrying the inventory step until it succeeds, because every failure in a distributed system is temporary"
+        },
+        {
+          "id": "d",
+          "text": "Leave the payment as it is and ask a person to correct the order by hand once the saga has ended"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each saga step commits its own local transaction, so there is nothing left to roll back; a completed step is undone by a new, opposite action such as a refund or a stock release. Retrying suits transient errors, but an item that is out of stock will not fix itself. Compensations should be idempotent and safe to retry."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A saga spans seven steps across five services, and the team keeps losing track of where an order is stuck. Which change most directly helps?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Have each service publish richer events, so that all the other services can react to them"
+        },
+        {
+          "id": "b",
+          "text": "Add distributed locks so that only one step of any saga can be running at any given moment"
+        },
+        {
+          "id": "c",
+          "text": "Move to orchestration, where one coordinator tracks the saga and decides the next step"
+        },
+        {
+          "id": "d",
+          "text": "Replace the saga with one large transaction that spans the databases of all five services"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "With choreography the flow exists only as the sum of many event handlers, so nobody can see or change it in one place. An orchestrator keeps the saga's state and next steps explicit and queryable, at the cost of a central component that has to be reliable. Richer events add coupling, locks do not show where a saga is stuck, and one big transaction brings back two-phase commit."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A service saves an order to its database and then publishes an OrderPlaced event to the broker, as two separate calls. What is wrong with this, and what is the standard fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A crash between the two calls leaves an order with no event; save the event in an outbox table in the same transaction and publish it from there"
+        },
+        {
+          "id": "b",
+          "text": "The broker can be slower than the database, so the event may arrive before the order exists; publish the event first and save the order afterwards"
+        },
+        {
+          "id": "c",
+          "text": "The event gets published twice, once by the service and once by the database; add a unique index on the broker topic to reject the second copy"
+        },
+        {
+          "id": "d",
+          "text": "The publish call slows down the response to the user; run it on a background thread and do not wait for the broker to confirm the delivery"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The database and the broker are two systems with no shared transaction, so either order of the two calls can leave one updated and the other not (an order with no event, or an event with no order). With an outbox, the order and the event row commit atomically in one local transaction, and a relay publishes the event afterwards, even if the broker was down at that moment."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "A team uses the transactional outbox: the service writes an event row in the same transaction as its business data, and a relay publishes those rows to the broker. Which statements are correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The relay can publish the same event more than once, so consumers should be idempotent"
+        },
+        {
+          "id": "b",
+          "text": "A change-data-capture tool that reads the database log can serve as the relay instead of a polling job"
+        },
+        {
+          "id": "c",
+          "text": "The pattern gives exactly-once delivery to the broker, so consumers need no duplicate handling"
+        },
+        {
+          "id": "d",
+          "text": "The pattern relies on a two-phase commit that spans both the database and the broker"
+        },
+        {
+          "id": "e",
+          "text": "Events are lost if the broker happens to be down at the moment the business data is saved"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The outbox makes the write atomic, but the relay can crash after publishing and before marking the row as sent, so delivery is at-least-once and consumers must cope with repeats. The event row waits safely in the database if the broker is down, and no distributed transaction is involved. Polling the table and reading the database log are both common ways to relay."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A team splits a service into a write model and a separate read model that is updated from the write model's events. What does this cost them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It forces them to store all state as events, so they have to adopt event sourcing as well"
+        },
+        {
+          "id": "b",
+          "text": "Queries can no longer be tuned or indexed for the specific screens and reports that use them"
+        },
+        {
+          "id": "c",
+          "text": "Reads can lag behind writes, so a user may not see their own change right after making it"
+        },
+        {
+          "id": "d",
+          "text": "Commands can no longer be validated against business rules before they are applied"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The write side commits first and the projection updates the read side a moment later, so the two are only eventually consistent. Teams handle that with optimistic UI updates, by reading from the write model when freshness matters, or by waiting for the projection. CQRS does not require event sourcing, and in return the read side can be shaped and scaled just for queries."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "In an event-sourced system, you correct a wrong event by editing it in the event store.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Events are immutable facts about what happened. A mistake is fixed by appending a new corrective event, such as an adjustment or a reversal, which keeps the history auditable and lets any state be rebuilt by replaying the log."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A company wants to replace a large monolith without a risky big-bang rewrite. How does the strangler fig approach work?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Freeze the monolith, build the complete replacement on the side, and switch all of the traffic over on one day"
+        },
+        {
+          "id": "b",
+          "text": "Route requests through a facade, move one capability at a time to a new service, and retire the old code later"
+        },
+        {
+          "id": "c",
+          "text": "Run the old and new systems side by side indefinitely, both writing to the same tables, and never remove the old one"
+        },
+        {
+          "id": "d",
+          "text": "Split the monolith's database into separate schemas first, and leave all of the application code exactly as it is"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A facade or gateway routes each request to either the old or the new implementation, so one slice at a time can be moved, tested and rolled back, and value arrives early. A secret full rewrite switched on in one day, or a database split with no matching code change, piles the whole risk onto a single moment."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "A checkout service calls a recommendations service that has started to hang for 30 seconds on every call. Checkout's threads pile up waiting, and checkout begins to fail as well. Which measures contain this kind of failure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A short timeout on the call, so that threads are released quickly instead of waiting for 30 seconds"
+        },
+        {
+          "id": "b",
+          "text": "A circuit breaker that stops calling the service after repeated failures and returns a fallback instead"
+        },
+        {
+          "id": "c",
+          "text": "A bulkhead: a separate, limited pool of threads or connections kept just for that call"
+        },
+        {
+          "id": "d",
+          "text": "Retrying every failed call three times straight away, so that the problem is ridden out quickly"
+        },
+        {
+          "id": "e",
+          "text": "Doubling the timeout so that slow calls have more time to finish before they are counted as failures"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "A short timeout frees threads quickly, a circuit breaker stops sending traffic to a dependency that is clearly failing, and a bulkhead caps how much of the caller's capacity one dependency can consume, so the failure stays local. Immediate retries add load to a service that is already struggling, and a longer timeout keeps threads tied up even longer."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "A well-structured modular monolith can be a better choice than microservices for a small team whose service boundaries are still unclear.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Microservices trade in-process calls and ACID transactions for network calls, eventual consistency and much heavier operations such as deployment, tracing and versioning. A small team with shifting boundaries pays that price without getting independent deployment in return, whereas a modular monolith lets it find the right seams first and split along them later."
+    }
+  ]
+}

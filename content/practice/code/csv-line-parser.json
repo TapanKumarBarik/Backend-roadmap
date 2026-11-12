@@ -1,0 +1,30 @@
+{
+  "title": "CSV Line Parser",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Split one CSV line into fields, honouring quoted fields, escaped quotes and commas inside quotes.",
+  "statement": "A data import has to read one line of a CSV file without splitting on the commas inside quoted fields. Write `parse_csv_line(line)` that returns the fields of the line as a list of strings.\n\n- Fields are separated by commas. Spaces belong to the field and are not trimmed: `a, b` gives `[\"a\", \" b\"]`.\n- A field may be wrapped in double quotes. A comma inside the quotes does not split, `\"\"` inside the quotes stands for one `\"`, and the wrapping quotes are not part of the value.\n- Empty fields are kept: `a,,b` has three fields, and an empty line is one empty field, `[\"\"]`.\n- A quoted field that is never closed raises `ValueError`.\n- A quote only ever wraps a whole field: you will not get `ab\"c` or `\"ab\"c`. The line has no newline.\n\n**Examples**\n\n```python\nparse_csv_line('name,age,city')         # [\"name\", \"age\", \"city\"]\nparse_csv_line('\"Smith, Jo\",42,')       # [\"Smith, Jo\", \"42\", \"\"]\nparse_csv_line('\"She said \"\"hi\"\"\",x')   # ['She said \"hi\"', \"x\"]\nparse_csv_line('a,\"b')                  # raises ValueError\n```",
+  "starter": "def parse_csv_line(line):\n    \"\"\"Return the fields of one CSV line as a list of strings; raise ValueError for a quoted field that never closes.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises_value_error(*lines):\n    for line in lines:\n        try:\n            got = parse_csv_line(line)\n        except ValueError:\n            continue\n        raise AssertionError(f\"parse_csv_line({line!r}) should raise ValueError, got {got!r}\")\n    return True",
+    "assert parse_csv_line(\"name,age,city\") == [\"name\", \"age\", \"city\"]",
+    "assert parse_csv_line('\"Smith, Jo\",42,') == [\"Smith, Jo\", \"42\", \"\"]",
+    "assert parse_csv_line('\"She said \"\"hi\"\"\",x') == ['She said \"hi\"', \"x\"]",
+    "assert raises_value_error('a,\"b')",
+    "assert parse_csv_line(\"\") == [\"\"]",
+    "assert parse_csv_line(\"a,,b,\") == [\"a\", \"\", \"b\", \"\"]",
+    "assert parse_csv_line(\" a , b \") == [\" a \", \" b \"]",
+    "assert parse_csv_line('\"\",\"\",\"\"\"\"') == [\"\", \"\", '\"']",
+    "assert parse_csv_line('\"x\"\"\",\"a,b\"') == ['x\"', \"a,b\"]",
+    "assert raises_value_error('\"', '\"abc\"\"', 'x,\"open,field')",
+    "long_field = \"x,\" * 40_000",
+    "assert parse_csv_line('\"' + long_field + '\",end') == [long_field, \"end\"]"
+  ],
+  "hints": [
+    "A comma only splits a field when you are not inside quotes, so at every point you need to know whether you are inside a quoted field. Read the line from left to right and keep that in mind.",
+    "At the start of a field, look at its first character. If it is a double quote, read up to the closing quote, treating two quotes in a row as one literal quote; otherwise read up to the next comma. Then you are at a comma or at the end of the line.",
+    "After a comma there is always another field, possibly empty: `a,` has two. A closing quote is a quote that is not followed by another quote; reaching the end of the line before you find one is the `ValueError`."
+  ],
+  "solution": "def parse_csv_line(line):\n    fields = []\n    i = 0\n    while True:\n        if line.startswith('\"', i):\n            i += 1                                       # skip the opening quote\n            pieces = []\n            while True:\n                j = line.find('\"', i)\n                if j == -1:\n                    raise ValueError(\"unterminated quoted field\")\n                pieces.append(line[i:j])\n                if line.startswith('\"', j + 1):          # \"\" is one literal quote: keep reading\n                    pieces.append('\"')\n                    i = j + 2\n                else:\n                    i = j + 1                            # the closing quote\n                    break\n            fields.append(\"\".join(pieces))\n            if i < len(line) and line[i] != \",\":\n                raise ValueError(\"unexpected text after a closing quote\")\n        else:\n            j = line.find(\",\", i)\n            if j == -1:\n                j = len(line)\n            fields.append(line[i:j])\n            i = j\n        if i >= len(line):\n            return fields\n        i += 1                                           # step over the comma: one more field follows, maybe empty\n",
+  "explanation": "**The idea.** Walk the line with an index and read one field at a time. At the start of a field look at its first character: a quote means a quoted field; anything else is a plain field that runs up to the next comma. After a field you are either at the end of the line or on a comma, and a comma always means that one more field follows, even an empty one.\n\n**Quoted fields.** Look for the next quote. If there is none, the field never closes: raise `ValueError`. If that quote is followed by another quote, the pair is one literal `\"`, so keep reading. Otherwise it is the closing quote. Searching with `str.find` jumps over long stretches of ordinary text instead of looking at every character.\n\n**Why the empty cases work.** The loop always produces a field before it checks for the end of the line, so an empty line gives `[\"\"]` and `a,` gives `[\"a\", \"\"]`. Splitting on every comma first and repairing the pieces afterwards is the usual trap: commas inside quotes are easy to get wrong that way.\n\n**Complexity.** O(n) time and space. Cutting the line down by one character at a time copies the rest of the line on every step and is O(n²).\n\n**Usual mistakes.** Taking the last `\"\"` before the end of the line for a closing quote (`\"abc\"\"` is unterminated), trimming spaces, and treating `\"\"\"\"` as an empty field instead of a single quote.\n\n**Follow-up.** Real CSV allows line breaks inside quoted fields, so a parser has to read across lines. Python's `csv` module does that, and lets you choose the delimiter and the quote character."
+}

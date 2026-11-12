@@ -1,9 +1,5 @@
 {
-  "_about": "The rules of the learning game. Everything is derived from the progress a reader already has: modules marked done, and the day each mark was made (practice work is saved the same way, under the keys below, so it syncs with the account like a module does). XP is paid for a module, a capstone (on top of its module), a whole track, a whole learning path, a coding problem and a daily drill. Levels are the XP needed to reach them. A badge is earned when its stat reaches atLeast; the stats are modules, capstones, tracks, paths, problems, drills and streak (days in a row). Do not change keys: they are stored in readers' progress. This file is read only by the learning game (webapp/src/config/game.js), which is why it is not part of site.config.json: that file is in every visitor's first download.",
-  "keys": {
-    "code": "practice/code/",
-    "drill": "practice/drill/"
-  },
+  "_about": "The rules of the learning game. Everything is derived from the progress a reader already has: modules marked done, and the day each mark was made (practice work is saved the same way, under the progress keys in site.config.json, so it syncs with the account like a module does). XP is paid for a module, a capstone (on top of its module), a whole track, a whole learning path, a coding problem and a daily drill. Levels are the XP needed to reach them. A badge is earned when its stat reaches atLeast; the stats are modules, capstones, tracks, paths, problems, drills and streak (days in a row). The progress keys (site.config.json -> progressKeys) are stored in readers' progress and never change. This file is read only by the learning game (webapp/src/config/game.js), which is why it is not part of site.config.json: that file is in every visitor's first download.",
   "xp": {
     "module": 10,
     "capstone": 15,
@@ -13,6 +9,8 @@
     "drill": 15
   },
   "capstonePattern": "capstone",
+  "drill": { "questions": 5, "maxPerQuiz": 2 },
+  "dailyProblem": { "levels": ["beginner", "intermediate"] },
   "dailyGoal": {
     "default": 1,
     "choices": [
@@ -162,12 +160,52 @@
       "atLeast": 10
     },
     {
+      "id": "code-regular",
+      "title": "Code regular",
+      "hint": "Solve 25 coding problems",
+      "glyph": "flask",
+      "stat": "problems",
+      "atLeast": 25
+    },
+    {
+      "id": "problem-crusher",
+      "title": "Problem crusher",
+      "hint": "Solve 50 coding problems",
+      "glyph": "chip",
+      "stat": "problems",
+      "atLeast": 50
+    },
+    {
+      "id": "hundred-club",
+      "title": "Hundred club",
+      "hint": "Solve 100 coding problems",
+      "glyph": "trophy",
+      "stat": "problems",
+      "atLeast": 100
+    },
+    {
       "id": "drill-sergeant",
       "title": "Drill sergeant",
       "hint": "Finish 5 daily drills",
       "glyph": "repeat",
       "stat": "drills",
       "atLeast": 5
+    },
+    {
+      "id": "daily-habit",
+      "title": "Daily habit",
+      "hint": "Finish 15 daily drills",
+      "glyph": "bell",
+      "stat": "drills",
+      "atLeast": 15
+    },
+    {
+      "id": "drill-master",
+      "title": "Drill master",
+      "hint": "Finish 30 daily drills",
+      "glyph": "crown",
+      "stat": "drills",
+      "atLeast": 30
     }
   ],
   "glyphs": {

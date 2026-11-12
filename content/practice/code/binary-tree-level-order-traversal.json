@@ -1,0 +1,27 @@
+{
+  "title": "Binary Tree Level Order Traversal",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "intermediate",
+  "description": "List the values of a binary tree level by level, from the root down and left to right.",
+  "statement": "Return the values of a binary tree level by level: a list with one list per level, from the root downwards, and each level from left to right. `TreeNode` is given: each node has a `val`, a `left` and a `right` (`None` when there is no child).\n\n- An empty tree (`root` is `None`) gives `[]`.\n- The result holds the node **values** in lists, like `[[3], [9, 20], [15, 7]]`: not tuples, and not the nodes themselves.\n\n**Examples**\n\n```python\n#     3\n#    / \\\n#   9   20\n#      /  \\\n#     15   7\nroot = TreeNode(3, TreeNode(9), TreeNode(20, TreeNode(15), TreeNode(7)))\nlevel_order(root)          # [[3], [9, 20], [15, 7]]\nlevel_order(TreeNode(1))   # [[1]]\nlevel_order(None)          # []\n```\n\nIn the tests a tree is written level by level, with `None` for a missing child: `[3, 9, 20, None, None, 15, 7]` is the tree above.",
+  "starter": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef level_order(root):\n    \"\"\"Return the node values level by level as a list of lists ([] for an empty tree).\"\"\"\n    ...\n",
+  "tests": [
+    "from collections import deque\ndef tree(values):\n    \"\"\"Build a tree from values listed level by level, None for a missing child: [3, 9, 20, None, None, 15, 7].\"\"\"\n    if not values or values[0] is None:\n        return None\n    root = TreeNode(values[0])\n    queue = deque([root])\n    position = 1\n    while queue and position < len(values):\n        node = queue.popleft()\n        for side in (\"left\", \"right\"):\n            if position < len(values) and values[position] is not None:\n                child = TreeNode(values[position])\n                setattr(node, side, child)\n                queue.append(child)\n            position += 1\n    return root",
+    "assert level_order(tree([3, 9, 20, None, None, 15, 7])) == [[3], [9, 20], [15, 7]]",
+    "assert level_order(tree([1])) == [[1]]",
+    "assert level_order(None) == []",
+    "assert level_order(tree([1, 2, None, 3])) == [[1], [2], [3]]",
+    "assert level_order(tree([1, None, 2, None, 3])) == [[1], [2], [3]]",
+    "assert level_order(tree([1, 2, 3, 4, 5, None, 6, 7, None, None, None, None, 8])) == [[1], [2, 3], [4, 5, 6], [7, 8]]",
+    "assert level_order(tree(list(range(1, 16)))) == [[1], [2, 3], [4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15]]",
+    "assert level_order(tree([0, -1, -1, 5, 5])) == [[0], [-1, -1], [5, 5]]",
+    "assert level_order(tree(list(range(1, 2 ** 14)))) == [list(range(2 ** k, 2 ** (k + 1))) for k in range(14)]"
+  ],
+  "hints": [
+    "You have to visit the nodes in order of their distance from the root. Which kind of collection hands out items in the order they were added?",
+    "Keep the nodes of the current level together. Each round, collect their values as one list, then gather their children (left before right) as the next level.",
+    "If you use a queue, take exactly as many nodes as it held when the round started: that is the size of the level. Use `collections.deque`, because `list.pop(0)` is slow."
+  ],
+  "solution": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef level_order(root):\n    levels = []\n    current = [root] if root is not None else []\n    while current:\n        levels.append([node.val for node in current])\n        # the next level: every child of this level, left before right, skipping missing ones\n        current = [child for node in current for child in (node.left, node.right) if child is not None]\n    return levels\n",
+  "explanation": "**The idea.** Breadth-first search, one level at a time. Keep the nodes of the current level in a list. Each round, record their values as one level, then build the next level from their children, left child before right child, skipping the missing ones. Stop when a level is empty.\n\n**Why the levels stay apart.** The next level is built only after the current one has been recorded, so there is no depth to track and no counting to do. The classic version with a single queue does the same by taking exactly `len(queue)` nodes in each round.\n\n**Order.** Going through a level from left to right, and adding each node's left child before its right child, keeps every level in left-to-right order.\n\n**Complexity.** O(n) time and O(w) extra space for the widest level w. If you use a queue, use `collections.deque`: `list.pop(0)` shifts the whole list and makes the traversal O(n²).\n\n**Follow-up.** The same loop gives the zigzag order (reverse every other level) and the right-side view (the last value of each level)."
+}

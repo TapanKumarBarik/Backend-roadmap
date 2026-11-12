@@ -1,0 +1,137 @@
+{
+  "title": "Testing strategies for backends",
+  "topic": "testing",
+  "difficulty": "beginner",
+  "module": "backend/12-testing-and-code-quality/00-testing-fundamentals-and-the-test-pyramid/README.md",
+  "description": "The test pyramid, test doubles, real versus in-memory databases, flaky tests, contract tests, and what code coverage can and cannot tell you.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A team's suite has 5 unit tests, 20 integration tests and 400 browser-driven end-to-end tests. It takes 90 minutes and a few tests fail at random on every run. What does the test pyramid suggest?",
+      "options": [
+        { "id": "a", "text": "Add even more end-to-end tests, because only they show what real users will actually see and experience when they use it" },
+        { "id": "b", "text": "Move checks down: many unit tests for the logic, fewer integration tests for the seams, a few end-to-end tests" },
+        { "id": "c", "text": "Delete the integration tests, since the end-to-end tests already exercise everything they would check" },
+        { "id": "d", "text": "Run the 400 end-to-end tests in parallel on bigger machines and accept the occasional random failure" }
+      ],
+      "answer": ["b"],
+      "explanation": "Unit tests (one piece in isolation) are fast and point straight at the failure, integration tests (several pieces with real dependencies such as a database) catch problems at the seams, and end-to-end tests (the whole system, as a user would use it) are slow, flaky and costly, so you keep few of them. A suite shaped like an upside-down pyramid is slow and flaky because the slowest tests carry most of the load, and more of them or bigger machines does not fix that."
+    },
+    {
+      "id": "q2",
+      "type": "multiple",
+      "text": "Which statements about test doubles are correct?",
+      "options": [
+        { "id": "a", "text": "A stub returns canned answers so the code under test can run, for example a payment client that always says 'approved'" },
+        { "id": "b", "text": "A mock also verifies how it was used, for example that charge() was called once with the right amount" },
+        { "id": "c", "text": "A fake is a simplified but working implementation, for example an in-memory repository backed by a dictionary" },
+        { "id": "d", "text": "A stub makes the test fail if the code under test never calls it" },
+        { "id": "e", "text": "A fake is the real production dependency, started for the duration of the test" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "A stub supplies inputs, a mock verifies interactions and a fake offers a working shortcut; all three replace real collaborators so the code under test can run in isolation. Failing when a call never happens is mock behaviour, not stub behaviour, and a fake is a stand-in rather than the real system."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A test asserts that OrderService calls repo.save() exactly once with particular arguments. After a harmless refactor that batches several saves into one call, the test fails although the behaviour is unchanged. What does this show?",
+      "options": [
+        { "id": "a", "text": "The refactor was a mistake, because a correct refactor can never make an existing test fail" },
+        { "id": "b", "text": "The test needs more verifications, such as the order of every call, to catch problems sooner" },
+        { "id": "c", "text": "Mocks should never be used for writes, because a mock cannot reliably record a call to save()" },
+        { "id": "d", "text": "The test is tied to how the code works, not what it does; checking results would survive it" }
+      ],
+      "answer": ["d"],
+      "explanation": "Verifying exact calls ties a test to the implementation, so it fails on harmless refactors and its false alarms teach people to ignore red builds. Prefer asserting on observable results (the saved orders, the response) and use a fake collaborator, keeping interaction checks for effects that are the point, such as 'an email was sent'."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Integration tests for a PostgreSQL-backed service could use an in-memory substitute such as SQLite, or a throwaway PostgreSQL container. Which are good reasons to prefer the real engine?",
+      "options": [
+        { "id": "a", "text": "A query that relies on a PostgreSQL feature can pass or fail differently on the substitute than in production" },
+        { "id": "b", "text": "Constraints, transaction isolation and locking behave as they do in production, so integrity and concurrency bugs show up" },
+        { "id": "c", "text": "The real engine always starts faster than an in-memory database" },
+        { "id": "d", "text": "With a real engine, unit tests are no longer needed" },
+        { "id": "e", "text": "Migrations run on the engine production uses, so a broken migration fails the build instead of the release" }
+      ],
+      "answer": ["a", "b", "e"],
+      "explanation": "The database is exactly the seam an integration test exists to check, and engines differ in SQL dialect, types, constraints, locking and migration behaviour, so a substitute can hide real failures. A container is usually slower to start than an in-memory database, and integration tests complement unit tests rather than replacing them."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A test creates an order and asserts that its created_at equals the current time. It passes most runs but fails now and then. What is the most robust fix?",
+      "options": [
+        { "id": "a", "text": "Loosen the assertion to accept any time within a few seconds either side of the current time" },
+        { "id": "b", "text": "Add a short sleep before the assertion, so that the clocks have time to settle first" },
+        { "id": "c", "text": "Inject a clock the test controls, or freeze time, so the expected value is known exactly" },
+        { "id": "d", "text": "Let the CI server re-run the failed test automatically until it eventually passes" }
+      ],
+      "answer": ["c"],
+      "explanation": "A test that reads the real clock (or unseeded random numbers, or an unspecified ordering) has an input it cannot control, so it is non-deterministic. Control the input: pass in a clock, freeze time, seed the generator, sort before comparing. Margins, sleeps and automatic re-runs only hide the flakiness, and they teach the team to ignore failures."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "An integration test passes when it runs alone but fails when the whole suite runs, because it finds rows that another test left behind in the shared database. Which fix addresses the cause?",
+      "options": [
+        { "id": "a", "text": "Give each test a clean start, such as a transaction rolled back after every test, or tables reset first" },
+        { "id": "b", "text": "Run the failing test first in the suite, so that it sees the database before any other test has touched it" },
+        { "id": "c", "text": "Add a sleep at the start of the failing test so the earlier tests have time to finish" },
+        { "id": "d", "text": "Mark the test as flaky in CI, so that its failures no longer block the build" }
+      ],
+      "answer": ["a"],
+      "explanation": "A test that depends on what earlier tests left behind is coupled to them through the shared state, so its result depends on the order. Make every test start from a known state and leave nothing behind: roll back a per-test transaction, truncate tables, or build a fresh schema. Reordering, sleeping and ignoring failures hide the coupling instead of removing it."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Service A calls service B's API, and A's tests use a mocked copy of B's responses. B's team renames a response field; both teams' CI stays green, but the integration breaks in production. What closes this gap without deploying both services together for every change?",
+      "options": [
+        { "id": "a", "text": "More unit tests in A, written against the same mocked responses as before, to cover more cases" },
+        { "id": "b", "text": "A contract test: A records what it relies on, and B's build verifies its real responses against that" },
+        { "id": "c", "text": "A load test of B before every release, to see how it behaves with many concurrent callers" },
+        { "id": "d", "text": "A stricter coverage target for B, so that every line of its response-building code is exercised by tests" }
+      ],
+      "answer": ["b"],
+      "explanation": "Each team tested against its own idea of the contract, and nothing ever compared the two. A consumer-driven contract test (for example with Pact) turns A's expectations into a check that runs in B's pipeline, so renaming the field fails B's build before release; more mock-based tests in A can never notice, because the mocks are frozen."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Your service calls a payment API and must give up after 2 seconds. How can you test that behaviour without making the test wait?",
+      "options": [
+        { "id": "a", "text": "Skip it, because timeouts can only be verified properly on a live production system" },
+        { "id": "b", "text": "Call the real payment API from the test and hope that it happens to be slow enough to trigger the timeout" },
+        { "id": "c", "text": "Use a test double that fails with a timeout at once, and assert how the service responds" },
+        { "id": "d", "text": "Mock the service under test itself, so that the test finishes quickly and never waits" }
+      ],
+      "answer": ["c"],
+      "explanation": "Failure paths such as timeouts, 500 replies and malformed responses are exactly what production will hit, and a double can produce them instantly and repeatably. Waiting on a real dependency makes tests slow and random, and mocking the code under test means the test checks nothing about it."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "If a test suite reaches 100% line coverage, you can be sure the tests would catch a bug in any line.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Coverage only records which lines ran during the tests, not whether anything checked the results, so a test with no assertions still counts. It also cannot show code that is missing, such as validation nobody wrote, or inputs nobody tried; use it to find untested code, not as proof of quality."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "A property-based testing tool generates many inputs automatically and checks that a rule you state, such as decode(encode(x)) == x, holds for all of them, instead of relying on a few hand-picked examples.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "You describe a property that should always hold, and the tool tries hundreds of generated inputs, including awkward ones such as empty values, huge numbers and odd characters, then shrinks any failure to a small example. It complements example-based tests, which remain the clearest way to document specific behaviours."
+    }
+  ]
+}

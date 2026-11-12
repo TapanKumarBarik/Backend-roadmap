@@ -118,7 +118,7 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
               return (
                 <li key={q.id} className={r ? (r.correct ? 'is-right' : 'is-wrong') : undefined}>
                   <fieldset disabled={!!result}>
-                    <legend><span className="pr-qn">{i + 1}.</span> {q.text}{q.choose === 'any' && <em> Select all that apply.</em>}</legend>
+                    <legend><span className="pr-qn">{i + 1}.</span> {q.text}{q.choose === 'any' && !/select all/i.test(q.text) && <em> Select all that apply.</em>}</legend>
                     {q.options.map((o) => (
                       <label key={o.id} className={'pr-option' + (r && r.answer.includes(o.id) ? ' is-answer' : '') + (r && mine.includes(o.id) && !r.answer.includes(o.id) ? ' is-miss' : '')}>
                         <input type={q.choose === 'any' ? 'checkbox' : 'radio'} name={q.id} checked={mine.includes(o.id)} onChange={() => toggle(q, o.id)} />

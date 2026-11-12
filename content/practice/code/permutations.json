@@ -1,0 +1,26 @@
+{
+  "title": "Permutations",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Generate every ordering of a list of distinct numbers with backtracking.",
+  "statement": "Given a list `nums` of distinct integers, return every arrangement (permutation) of its numbers as a list of lists.\n\n- A list of `n` numbers has `n!` permutations, and each one uses every number exactly once.\n- The order of the permutations in the result does not matter, but the order of the numbers inside each one does: `[1, 2]` and `[2, 1]` are two different permutations.\n- The empty list has exactly one permutation, the empty one: `permutations([])` is `[[]]`.\n\n**Examples**\n\n```python\npermutations([1, 2, 3])   # [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]], in any order\npermutations([1, 2])      # [[1, 2], [2, 1]]\npermutations([])          # [[]]\n```",
+  "starter": "def permutations(nums):\n    \"\"\"Return every ordering of the numbers in nums as a list of lists, in any order.\"\"\"\n    ...\n",
+  "tests": [
+    "import itertools\ndef normalised(result):\n    \"\"\"Check the shape of the answer (a list of lists), then sort the list of permutations. Their order does not matter; the order inside each one does.\"\"\"\n    if not isinstance(result, list) or not all(isinstance(arrangement, list) for arrangement in result):\n        raise AssertionError(f\"expected a list of lists, got {result!r}\"[:200])\n    return sorted(result)\ndef every_arrangement(values):\n    \"\"\"The same answer worked out another way, with itertools.\"\"\"\n    return sorted(list(arrangement) for arrangement in itertools.permutations(values))\nwith_a_negative = [[-1, 2, 3], [-1, 3, 2], [2, -1, 3], [2, 3, -1], [3, -1, 2], [3, 2, -1]]",
+    "assert normalised(permutations([1, 2, 3])) == [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]",
+    "assert normalised(permutations([1, 2])) == [[1, 2], [2, 1]]",
+    "assert normalised(permutations([7])) == [[7]]",
+    "assert normalised(permutations([])) == [[]]",
+    "assert normalised(permutations([3, -1, 2])) == with_a_negative",
+    "assert len(permutations(list(range(6)))) == 720",
+    "assert len({id(arrangement) for arrangement in permutations([1, 2, 3, 4])}) == 24",
+    "assert normalised(permutations([4, 0, 6, 2, 5, 1, 3])) == every_arrangement(range(7))"
+  ],
+  "hints": [
+    "To arrange n numbers, choose the first one (n ways), then arrange the rest. How can you describe the rest while you are building the answer one position at a time?",
+    "Keep the arrangement built so far and a way to know which numbers are already in it. For the next position try every unused number: add it, recurse, then remove it. When the arrangement holds all the numbers, record a copy.",
+    "Undo each choice after the recursive call (remove the number, mark it unused) so the next number starts from a clean state, and store `chosen[:]`, not `chosen`."
+  ],
+  "solution": "def permutations(nums):\n    result = []\n    chosen = []\n    used = [False] * len(nums)\n\n    def build():\n        if len(chosen) == len(nums):\n            result.append(chosen[:])           # every position is filled: store a copy, chosen keeps changing\n            return\n        for i in range(len(nums)):\n            if not used[i]:\n                used[i] = True                 # choose nums[i] for the next position\n                chosen.append(nums[i])\n                build()                        # fill the remaining positions\n                chosen.pop()                   # un-choose, so the next number can take this position\n                used[i] = False\n\n    build()\n    return result\n",
+  "explanation": "**The idea.** Fill the positions one at a time. For each position, try every number that has not been used yet: **choose** it, **explore** by filling the remaining positions, then **un-choose** it so the next number can have the position. When every position is filled you have one permutation.\n\n**Tracking what is used.** A `used` list with one flag per index tells you in O(1) which numbers are still free. Set the flag before the recursive call and clear it after. Testing `nums[i] in chosen` also works, but it is slower.\n\n**Copy before you store,** exactly as in Subsets: `chosen[:]`, not `chosen`.\n\n**Subsets versus permutations.** In Subsets the order does not matter, so you only ever move forward through the list. Here order is the whole point, so every position may take any unused number, starting from the beginning of the list again.\n\n**Complexity.** There are n! permutations and copying each costs O(n), so O(n · n!) time and space. The output size is the lower bound. For the empty list the loop does nothing and the empty arrangement is stored once.\n\n**Follow-up.** If the numbers can repeat, sort them first and skip a number equal to the previous one when that previous one is still unused at this position."
+}

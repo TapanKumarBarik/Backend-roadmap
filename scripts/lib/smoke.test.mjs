@@ -13,7 +13,7 @@ const LESSON = 'backend/01-intro/01-first/README.md';
 async function serve(broken = new Set()) {
   const loc = Array.from({ length: 400 }, (_, i) => `<url><loc>https://example.com/p${i}/</loc></url>`).join('');
   const routes = {
-    '/': () => ['<!doctype html><div id="root"></div>', { 'content-type': 'text/html', ...(broken.has('csp') ? {} : { 'content-security-policy': "default-src 'self'" }) }],
+    '/': () => ['<!doctype html><div id="root"></div>', { 'content-type': 'text/html', ...(broken.has('csp') ? {} : { 'content-security-policy': broken.has('wasmPolicy') ? "default-src 'self'; script-src 'self'" : "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'" }) }],
     '/site-stats.json': () => [JSON.stringify({ modules: { written: 570 }, curricula: { backend: { start: LESSON } } }), { 'content-type': 'application/json' }],
     '/docs-index.json': () => [JSON.stringify({ tree: [{}, {}, {}, {}] }), { 'content-type': 'application/json' }],
     '/backend/01-intro/01-first/': () => ['<link rel="canonical" href="x"><h1>First</h1>', { 'content-type': 'text/html' }],
@@ -25,7 +25,9 @@ async function serve(broken = new Set()) {
     '/sitemap-blogs.xml': () => (broken.has('blogSitemap') ? ['not found', { 'content-type': 'text/plain' }, 404] : ['<urlset></urlset>', { 'content-type': 'application/xml' }]),
     '/api/blogs?limit=1': () => (broken.has('blogs') ? ['no such table: blog_posts', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ posts: [], next: null }), { 'content-type': 'application/json' }]),
     '/api/announcements': () => (broken.has('notices') ? ['no such table: announcements', { 'content-type': 'text/plain' }, 500] : ['[]', { 'content-type': 'application/json' }]),
-    '/api/practice/catalog': () => (broken.has('practice') ? ['not found', { 'content-type': 'text/plain' }, 404] : [JSON.stringify({ quizzes: [] }), { 'content-type': 'application/json' }])
+    '/api/practice/catalog': () => (broken.has('practice') ? ['not found', { 'content-type': 'text/plain' }, 404] : [JSON.stringify({ quizzes: [], code: broken.has('noProblems') ? [] : [{ slug: 'two-sum' }] }), { 'content-type': 'application/json' }]),
+    '/runner/py-worker.js': () => (broken.has('runner') ? ['not found', { 'content-type': 'text/plain' }, 404] : ["import { loadPyodide } from './pyodide-314.0.7/pyodide.mjs';", { 'content-type': 'text/javascript' }]),
+    '/runner/pyodide-314.0.7/pyodide.asm.wasm': () => ['\0asm', { 'content-type': broken.has('wasmType') ? 'text/plain' : 'application/wasm' }]
   };
   const server = http.createServer((req, res) => {
     const route = routes[req.url];
@@ -55,7 +57,11 @@ test('each way a deploy can go wrong is reported by name', async () => {
     ['blogSitemap', /sitemap-blogs\.xml answered 404/],
     ['blogs', /\/api\/blogs answered 500 \(was the database migration applied\?/],
     ['notices', /\/api\/announcements answered 500 \(was the database migration applied\?/],
-    ['practice', /\/api\/practice\/catalog answered 404/]
+    ['practice', /\/api\/practice\/catalog answered 404/],
+    ['noProblems', /lists no coding problems/],
+    ['wasmPolicy', /does not allow WebAssembly/],
+    ['runner', /\/runner\/py-worker\.js answered 404/],
+    ['wasmType', /pyodide\.asm\.wasm answered 200 \(text\/plain\)/]
   ];
   for (const [what, expected] of cases) {
     const site = await serve(new Set([what]));

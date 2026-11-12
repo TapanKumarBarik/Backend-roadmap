@@ -1,0 +1,30 @@
+{
+  "title": "Integer Square Root",
+  "topic": "binary-search-and-sorting",
+  "difficulty": "beginner",
+  "description": "Compute the square root of a number rounded down, without floating-point math.",
+  "statement": "Write `integer_sqrt(n)`, which returns the square root of the non-negative integer `n`, rounded down: the largest integer `r` with `r * r <= n`.\n\n- `n` is an integer from 0 up to 10**18, and the result must be an `int`.\n- Do not use `math.sqrt`, `math.isqrt`, `** 0.5` or `pow(n, 0.5)`. Finding the root yourself is the exercise, and floating-point numbers are not exact enough for big `n` anyway.\n\n**Examples**\n\n```python\ninteger_sqrt(16)            # 4\ninteger_sqrt(8)             # 2, because 2 * 2 <= 8 < 3 * 3\ninteger_sqrt(0)             # 0\ninteger_sqrt(10**18 - 1)    # 999999999 (a float square root says 1000000000)\n```\n\nCounting up from 1 until `r * r` passes `n` can take a billion steps. Aim for O(log n).",
+  "starter": "def integer_sqrt(n):\n    \"\"\"Return the largest integer r with r * r <= n.\"\"\"\n    ...\n",
+  "tests": [
+    "def around_squares(limit):\n    # For every r below the limit: r * r must give r, and the number just below it, r * r - 1, must give r - 1.\n    for r in range(1, limit):\n        if integer_sqrt(r * r) != r:\n            raise AssertionError(f\"integer_sqrt({r * r}) should be {r}, got {integer_sqrt(r * r)!r}\")\n        if integer_sqrt(r * r - 1) != r - 1:\n            raise AssertionError(f\"integer_sqrt({r * r - 1}) should be {r - 1}, got {integer_sqrt(r * r - 1)!r}\")\n    return True",
+    "assert integer_sqrt(16) == 4",
+    "assert integer_sqrt(8) == 2",
+    "assert integer_sqrt(0) == 0",
+    "assert integer_sqrt(10**18 - 1) == 999_999_999",
+    "assert [integer_sqrt(n) for n in range(1, 10)] == [1, 1, 1, 2, 2, 2, 2, 2, 3]",
+    "assert integer_sqrt(99) == 9",
+    "assert type(integer_sqrt(17)) is int, \"integer_sqrt must return an int, not a float\"",
+    "assert around_squares(2000)",
+    "assert integer_sqrt(10**18) == 10**9",
+    "assert integer_sqrt(999_999_999**2) == 999_999_999",
+    "assert integer_sqrt(999_999_999**2 - 1) == 999_999_998",
+    "assert integer_sqrt(2**59) == 759_250_124"
+  ],
+  "hints": [
+    "`r * r` only gets bigger as `r` gets bigger, and you want the last `r` for which `r * r <= n`. Where have you seen a yes/no answer that flips from \"yes\" to \"no\" exactly once, so that you can find the flip by halving?",
+    "Binary search over the possible answers `0 … n` (no list is needed): look at the middle value `mid`. If `mid * mid <= n` the answer is `mid` or bigger, otherwise it is smaller.",
+    "When `mid * mid <= n`, `mid` itself may be the answer, so keep it (`low = mid`, not `mid + 1`). To make sure the range still shrinks, round the middle up: `(low + high + 1) // 2`."
+  ],
+  "solution": "def integer_sqrt(n):\n    low, high = 0, n                    # the answer is somewhere in low .. high\n    while low < high:\n        mid = (low + high + 1) // 2     # round up, so that low = mid always makes progress\n        if mid * mid <= n:\n            low = mid                   # mid is small enough, so the answer is mid or more\n        else:\n            high = mid - 1              # mid is too big\n    return low\n",
+  "explanation": "**The idea.** Ask \"is `mid * mid <= n`?\" for a candidate `mid`. The answer is yes for every `r` up to the root and no for every `r` above it, and it flips only once, so you can find the flip by halving the range: binary search over the possible *answers*, not over a list. The range starts as `0 … n` and halves every time, so even `n = 10**18` takes about 60 steps instead of a billion.\n\n**The detail that matters.** When `mid * mid <= n`, `mid` may be the answer, so the new lower end is `mid`, not `mid + 1`. With the usual rounding-down middle, `low = mid` can then repeat forever when `high = low + 1`; rounding the middle up, `(low + high + 1) // 2`, makes the range shrink every time.\n\n**Why not floats.** A float has 53 bits of precision, about 16 digits. Above 2**53 whole numbers are already rounded when they become floats, so `int(n ** 0.5)` can be one too big near a perfect square: `10**18 - 1` becomes `1e18` and the \"root\" comes out as 10**9 instead of 999999999.\n\n**Complexity.** O(log n) time, O(1) space.\n\n**Follow-up.** Newton's method: start with a guess `x` at or above the root and repeat `x = (x + n // x) // 2` while it decreases. It converges much faster than halving."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Longest Common Subsequence",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Find the length of the longest sequence of characters that two strings share in order.",
+  "statement": "Return the length of the longest common subsequence of the strings `a` and `b`: the longest sequence of characters that appears in both, in the same order, though not necessarily next to each other.\n\n- Comparison is case-sensitive. If either string is empty, the answer is `0`.\n- A character can be used only once on each side: `\"aaaa\"` and `\"aa\"` share a subsequence of length `2`, not `4`.\n- Return only the length, not the subsequence.\n\n**Examples**\n\n```python\nlcs_length(\"abcde\", \"ace\")   # 3, the subsequence \"ace\"\nlcs_length(\"abc\", \"cba\")     # 1, any one letter\nlcs_length(\"abc\", \"xyz\")     # 0\n```\n\nTrying every subsequence of one string takes exponential time, and the tests compare strings of 200 characters. Aim for O(len(a) × len(b)).",
+  "starter": "def lcs_length(a, b):\n    \"\"\"Return the length of the longest subsequence that the strings a and b have in common.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\nfrom functools import cache\ndef reference_lcs(a, b):\n    @cache\n    def best(i, j):\n        if i == len(a) or j == len(b):\n            return 0\n        if a[i] == b[j]:\n            return 1 + best(i + 1, j + 1)\n        return max(best(i + 1, j), best(i, j + 1))\n    return best(0, 0)\nrng = random.Random(3)\ndef random_word():\n    return \"\".join(rng.choice(\"abc\") for _ in range(rng.randint(0, 8)))\nrandom_pairs = [(random_word(), random_word()) for _ in range(300)]\ndef wrong_on(pairs):\n    wrong = []\n    for a, b in pairs:\n        got, want = lcs_length(a, b), reference_lcs(a, b)\n        if got != want:\n            wrong.append(f\"lcs_length({a!r}, {b!r}) returned {got}, expected {want}\")\n    return wrong[:3]",
+    "assert lcs_length(\"abcde\", \"ace\") == 3",
+    "assert lcs_length(\"abc\", \"cba\") == 1",
+    "assert lcs_length(\"abc\", \"xyz\") == 0",
+    "assert lcs_length(\"\", \"abc\") == 0",
+    "assert lcs_length(\"abc\", \"\") == 0",
+    "assert lcs_length(\"abc\", \"abc\") == 3",
+    "assert lcs_length(\"aaaa\", \"aa\") == 2",
+    "assert lcs_length(\"AbC\", \"abc\") == 1",
+    "assert lcs_length(\"abcbdab\", \"bdcaba\") == 4",
+    "assert wrong_on(random_pairs) == []",
+    "assert lcs_length(\"ab\" * 100, \"ba\" * 100) == 199",
+    "assert lcs_length(\"abcde\" * 40, \"ecbda\" * 40) == 119"
+  ],
+  "hints": [
+    "Think about prefixes: what is the answer for the first `i` characters of `a` and the first `j` characters of `b`, and how could it follow from answers for shorter prefixes?",
+    "Compare the last characters of the two prefixes. If they are equal, the answer is one more than for both prefixes without them. If not, it is the better of dropping the last character of `a` or the last character of `b`.",
+    "Make the table one row and one column bigger than the strings, filled with 0 for the empty prefix, so the string index is `i - 1` when the table index is `i`."
+  ],
+  "solution": "def lcs_length(a, b):\n    # table[i][j]: the answer for the first i characters of a and the first j characters of b\n    table = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]\n    for i in range(1, len(a) + 1):\n        for j in range(1, len(b) + 1):\n            if a[i - 1] == b[j - 1]:\n                table[i][j] = table[i - 1][j - 1] + 1          # the two last characters match: extend\n            else:\n                table[i][j] = max(table[i - 1][j], table[i][j - 1])   # drop the last character of one of them\n    return table[len(a)][len(b)]\n",
+  "explanation": "**The idea.** Let `table[i][j]` be the answer for the first `i` characters of `a` and the first `j` characters of `b`. Look at the last characters of those two prefixes. If they are equal, they can be matched, so the answer is one more than for the prefixes without them: `table[i - 1][j - 1] + 1`. If they differ, at least one of them is not part of the best match, so take the better of dropping the last character of `a` or of `b`: `max(table[i - 1][j], table[i][j - 1])`. A prefix of length 0 has answer 0, which is why the table has an extra row and column of zeros.\n\n**Complexity.** O(n · m) time and space, where n and m are the lengths. Each row only needs the one above it, so O(min(n, m)) space is enough if you want only the length. Walking back from the bottom-right cell recovers the subsequence itself, which is the idea behind `diff`.\n\n**Common mistakes.** Mixing up the table index `i` with the string index `i - 1`, and solving the *substring* problem (contiguous characters, where a mismatch resets the count to 0) instead of the subsequence one."
+}

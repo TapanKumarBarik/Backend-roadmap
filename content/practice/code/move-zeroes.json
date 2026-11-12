@@ -1,0 +1,29 @@
+{
+  "title": "Move Zeroes",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "beginner",
+  "description": "Move all zeros to the end of a list in place, keeping the order of everything else.",
+  "statement": "Write `move_zeroes(nums)`, which moves every `0` in the list `nums` to the end of the list, **in place**, and keeps all the other items in the order they had.\n\n- Change the list you are given instead of building a new one. The caller looks at `nums` afterwards; the return value is ignored.\n- The list keeps its length. An empty list, or one with no zeros, is fine too.\n- The other items may be negative or repeated; only the value `0` moves.\n\n**Examples**\n\n```python\nnums = [0, 1, 0, 3, 12]\nmove_zeroes(nums)\nnums                     # [1, 3, 12, 0, 0]\n\nnums = [4, 2, 4]\nmove_zeroes(nums)\nnums                     # [4, 2, 4]\n```\n\nTaking the zeros out one at a time with `remove` or `pop` is O(n²) on a long list. Aim for one pass: O(n).",
+  "starter": "def move_zeroes(nums):\n    \"\"\"Move every 0 in nums to the end, in place, keeping the order of the other items. Nothing needs to be returned.\"\"\"\n    ...\n",
+  "tests": [
+    "def moved(values):\n    # Runs move_zeroes on a fresh copy of the list and returns that same list, which is what the caller would see afterwards.\n    nums = list(values)\n    returned = move_zeroes(nums)\n    if returned is not None and returned != nums:\n        raise AssertionError(f\"move_zeroes must change the list it is given, but nums is still {nums!r}: it looks like you returned a new list instead\")\n    return nums",
+    "assert moved([0, 1, 0, 3, 12]) == [1, 3, 12, 0, 0]",
+    "assert moved([4, 2, 4]) == [4, 2, 4]",
+    "assert moved([0, 0, 1]) == [1, 0, 0]",
+    "assert moved([0, 0, 0, 5]) == [5, 0, 0, 0]",
+    "assert moved([0, 0, 0]) == [0, 0, 0]",
+    "assert moved([0]) == [0]",
+    "assert moved([]) == []",
+    "assert moved([-1, 0, -1, 0, 2, 2]) == [-1, -1, 2, 2, 0, 0]",
+    "assert moved([3, 0, 1, 0, 2]) == [3, 1, 2, 0, 0]",
+    "long_list = [0] * 100_000 + [0 if i % 3 else i + 1 for i in range(300_000)]",
+    "assert moved(long_list) == [v for v in long_list if v != 0] + [0] * long_list.count(0), \"wrong result, or too slow, for 400,000 items\""
+  ],
+  "hints": [
+    "Imagine two fingers on the list: one reads every item in turn, the other points at the slot where the next non-zero item should go.",
+    "Walk the list with the reader. Each time it sees a non-zero item, put that item where the second finger is and move that finger one step. Whatever is left after the second finger must be zeros.",
+    "Do not remove or insert items while you walk (the positions shift under you), and do not build a new list: the caller's list has to be the one that changes."
+  ],
+  "solution": "def move_zeroes(nums):\n    next_slot = 0                       # everything before this index is a non-zero item, still in its original order\n    for i, value in enumerate(nums):\n        if value != 0:\n            nums[next_slot], nums[i] = nums[i], nums[next_slot]   # the zeros skipped so far end up behind the writer\n            next_slot += 1\n",
+  "explanation": "**The idea (two pointers).** One pointer, `i`, reads every item. The other, `next_slot`, marks where the next non-zero item belongs. Whenever the reader finds a non-zero item it is swapped into `next_slot`, and `next_slot` moves one step on. The non-zero items arrive in `next_slot` in the order the reader met them, which is why their order is kept, and the zeros are pushed behind the writer without ever being moved on purpose.\n\n**Complexity.** One pass: O(n) time and O(1) extra space.\n\n**Fewer writes.** The swap writes two slots even when `next_slot == i` (no zero has been skipped yet). Skipping the swap in that case, or copying the non-zero items forward and then filling the tail with zeros, writes less. The tests do not care, but it matters when writes are expensive (flash memory, a database).\n\n**Mistakes to avoid.** Calling `remove(0)` or `pop(i)` while walking the list: every call shifts the rest, so it is O(n²), and removing during a `for` loop makes you skip the item after each removal. Building a new list and returning it: the caller's list stays as it was.\n\n**Follow-up.** The same writer-and-reader pattern removes duplicates from a sorted list in place, or removes every occurrence of a given value."
+}

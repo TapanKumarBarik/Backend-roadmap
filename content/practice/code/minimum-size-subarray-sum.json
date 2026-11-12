@@ -1,0 +1,30 @@
+{
+  "title": "Minimum Size Subarray Sum",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "intermediate",
+  "description": "Find the shortest run of positive numbers whose sum reaches a target.",
+  "statement": "Given a positive integer `target` and a list `nums` of positive integers, return the length of the shortest contiguous subarray whose sum is **at least** `target`.\n\n- If no subarray reaches `target` (even the whole list does not), or `nums` is empty, return `0`.\n- A subarray is a non-empty run of neighbouring items. All the numbers are positive, so adding an item always raises a sum.\n\n**Examples**\n\n```python\nmin_subarray_len(7, [2, 3, 1, 2, 4, 3])   # 2: the subarray [4, 3]\nmin_subarray_len(4, [1, 4, 4])            # 1: the single 4\nmin_subarray_len(11, [1, 1, 1, 1])        # 0: even all of it sums to only 4\n```\n\nAim for O(n): the last tests have 100,000 numbers, too many to sum every subarray.",
+  "starter": "def min_subarray_len(target, nums):\n    \"\"\"Return the length of the shortest contiguous subarray of nums with sum >= target, or 0 if there is none.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef brute_force(target, nums):\n    best = 0\n    for start in range(len(nums)):\n        total = 0\n        for end in range(start, len(nums)):\n            total += nums[end]\n            if total >= target:\n                if best == 0 or end - start + 1 < best:\n                    best = end - start + 1\n                break\n    return best\ndef agrees_with_brute_force_on_small_random_lists():\n    rng = random.Random(21)\n    for _ in range(300):\n        nums = [rng.randint(1, 6) for _ in range(rng.randint(0, 9))]\n        target = rng.randint(1, 20)\n        got = min_subarray_len(target, list(nums))\n        assert got == brute_force(target, nums), f\"min_subarray_len({target}, {nums}) returned {got}, expected {brute_force(target, nums)}\"\n    return True",
+    "assert min_subarray_len(7, [2, 3, 1, 2, 4, 3]) == 2",
+    "assert min_subarray_len(4, [1, 4, 4]) == 1",
+    "assert min_subarray_len(11, [1, 1, 1, 1]) == 0",
+    "assert min_subarray_len(15, [1, 2, 3, 4, 5]) == 5",
+    "assert min_subarray_len(5, [5]) == 1",
+    "assert min_subarray_len(6, [5]) == 0",
+    "assert min_subarray_len(3, []) == 0",
+    "assert min_subarray_len(213, [12, 28, 83, 4, 25, 26, 25, 2, 25, 25, 25, 12]) == 8",
+    "assert agrees_with_brute_force_on_small_random_lists()",
+    "assert min_subarray_len(50_000, [1] * 100_000) == 50_000, \"too slow or wrong on 100,000 numbers; summing every subarray is O(n^2)\"",
+    "assert min_subarray_len(100_000, [1] * 99_999 + [100_000]) == 1, \"too slow or wrong on 100,000 numbers; summing every subarray is O(n^2)\"",
+    "assert min_subarray_len(1_000_000_000, list(range(1, 50_001))) == 27_639, \"too slow or wrong on 50,000 numbers\"   # the 27,639 largest numbers are the first to reach it"
+  ],
+  "hints": [
+    "Every number is positive, so a longer subarray always has a bigger sum. Picture a window from `left` to `right`: when is it worth moving `right`, and when `left`?",
+    "Move `right` forward, adding numbers, until the window sum reaches `target`. Then move `left` forward while the sum still reaches `target`, noting the shortest length you see.",
+    "Shrink with a `while` loop, not an `if`. And return `0` (not infinity) when no window ever reached the target."
+  ],
+  "solution": "def min_subarray_len(target, nums):\n    none_found = len(nums) + 1                  # longer than any real window\n    best = none_found\n    total = left = 0\n    for right, x in enumerate(nums):\n        total += x\n        while total >= target:                  # long enough: shrink it from the left as far as it can go\n            best = min(best, right - left + 1)\n            total -= nums[left]\n            left += 1\n    return 0 if best == none_found else best\n",
+  "explanation": "**The idea.** Grow a window `nums[left : right + 1]` on the right, adding numbers until its sum reaches `target`. Then shrink it from the left for as long as the sum still reaches `target`, recording the length each time. This works because every number is positive: adding makes the sum bigger and removing makes it smaller, so a window that is long enough can only stop being long enough by losing numbers, and `left` never needs to move backwards.\n\n**Why a `while`, not an `if`.** One large new number can let you drop several old ones at once.\n\n**Complexity.** O(n) time, because `left` and `right` only move forward, and O(1) space. Summing every subarray is O(n²).\n\n**If negative numbers were allowed** this breaks, since removing a number could raise the sum. You would use prefix sums with a monotonic deque instead."
+}

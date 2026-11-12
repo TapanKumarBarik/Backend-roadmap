@@ -1,0 +1,137 @@
+{
+  "title": "CI/CD and deployment strategies",
+  "topic": "devops",
+  "difficulty": "intermediate",
+  "module": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md",
+  "description": "What continuous integration, delivery and deployment mean, how pipelines fail fast, how rolling, blue/green and canary releases trade risk for cost, and how to roll back safely with a database.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A team's pipeline builds every merged change, runs all the tests and deploys the build to a staging environment. A person then presses a button to send a chosen build to production. Which practice is this?",
+      "options": [
+        { "id": "a", "text": "Continuous integration, which is everything up to the point where merged code has been built and tested" },
+        { "id": "b", "text": "Continuous deployment, because every change reaches an environment without manual work" },
+        { "id": "c", "text": "Continuous delivery: every change stays ready to release, and a person decides when it goes live" },
+        { "id": "d", "text": "Trunk-based development, because all merged changes go through one pipeline" }
+      ],
+      "answer": ["c"],
+      "explanation": "Continuous integration merges and tests every change automatically; continuous delivery goes further by keeping every change in a releasable state, with a human decision for the production release; continuous deployment removes that last manual step and ships every change that passes. The button is the human decision, so this is delivery, not deployment."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A pipeline runs a 40-minute end-to-end suite first, then 2 minutes of unit tests, then 30 seconds of lint. A typo that breaks the lint step is reported only after 43 minutes. What does the fail-fast principle suggest?",
+      "options": [
+        { "id": "a", "text": "Put cheap, fast checks first and slow ones last, so most failures show up in seconds" },
+        { "id": "b", "text": "Put the most thorough test first, because it gives the most valuable feedback" },
+        { "id": "c", "text": "Drop the cheap checks entirely, because the end-to-end suite already covers everything they check" },
+        { "id": "d", "text": "Use any order, because the total time is the same whichever stage happens to fail" }
+      ],
+      "answer": ["a"],
+      "explanation": "Fail fast means putting the cheapest, most-likely-to-fail checks (formatting, lint, unit tests) first, so a broken change is rejected in seconds and the expensive stages never run for it. Order does matter for failing builds: with the thorough test first, every typo costs 40 minutes of runner time and developer waiting, even though a passing build takes the same total time either way."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A team wants to expose a risky change to about 5% of real traffic, watch error rates and latency, and widen the rollout only if the numbers stay healthy. Which deployment strategy fits?",
+      "options": [
+        { "id": "a", "text": "A rolling update, which replaces instances batch by batch until all run the new version" },
+        { "id": "b", "text": "Blue/green, which builds a second full environment and switches all traffic over to it at once" },
+        { "id": "c", "text": "Recreate, which stops every instance of the old version and then starts the new one" },
+        { "id": "d", "text": "A canary release, which sends a small slice of traffic to the new version and compares it" }
+      ],
+      "answer": ["d"],
+      "explanation": "A canary sends a small share of real traffic to the new version and compares its error rate and latency with the old one, so a bad release hurts only that slice and is quickly reversed. A rolling update keeps replacing instances on a schedule without comparing versions, blue/green moves all traffic at once, and recreate means downtime."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Which statements about deployment strategies are correct?",
+      "options": [
+        { "id": "a", "text": "During a rolling update, old and new versions serve traffic at the same time, so the two must be able to work side by side" },
+        { "id": "b", "text": "Blue/green keeps the previous version running, so rolling back can be as quick as switching traffic back" },
+        { "id": "c", "text": "Blue/green needs no extra capacity, because only one environment runs at a time" },
+        { "id": "d", "text": "A canary release depends on good metrics and alerts, because its whole point is comparing the new version with the old on real traffic" },
+        { "id": "e", "text": "A rolling update keeps the old instances running aside, so going back to the old version is instant" }
+      ],
+      "answer": ["a", "b", "d"],
+      "explanation": "Rolling and canary releases mix versions in production for a while, so the versions must coexist; blue/green buys a quick switch back by running two full environments; and a canary is only as good as the metrics used to judge it. A rolling update replaces instances in place, so going back means another rolling update rather than one switch of traffic."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A team wants to merge an unfinished checkout redesign into the main branch and deploy it to production often, without customers seeing it until it is ready. What is the usual technique?",
+      "options": [
+        { "id": "a", "text": "Keep the redesign on a long-lived branch of its own and merge it only on release day" },
+        { "id": "b", "text": "Hide the new code path behind a feature flag that stays off until the team switches it on" },
+        { "id": "c", "text": "Deploy it to a separate, second production environment whose address only the staff members know about" },
+        { "id": "d", "text": "Deploy only at night or at weekends, when few customers are online to notice" }
+      ],
+      "answer": ["b"],
+      "explanation": "A feature flag separates deploy (the code is on the production servers) from release (users get the feature), so unfinished work can be merged in small steps, shipped dark, enabled for staff or a percentage of users, and switched off again without a redeploy. A long-lived branch postpones integration and makes the final merge risky, and deploying at night hides nothing from the customers who are online. Remove flags once the feature is fully rolled out."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A pipeline compiles the code again from the same commit for staging and then for production. Staging passes, but production behaves differently and no one can reproduce it. Which practice would have prevented this?",
+      "options": [
+        { "id": "a", "text": "Run the same build commands in every environment, because identical commands always give identical output" },
+        { "id": "b", "text": "Tag each build latest, so that every environment pulls the same name" },
+        { "id": "c", "text": "Build once into an immutable artifact, such as an image pinned by digest, and promote that same artifact" },
+        { "id": "d", "text": "Keep one long-lived branch per environment and merge changes upward from staging" }
+      ],
+      "answer": ["c"],
+      "explanation": "Rebuilding per environment means what you tested is not what you ship: dependency versions, base images and build timestamps can differ even for the same commit. Build once, then promote the same artifact through staging to production and vary only the configuration. A latest tag is mutable, so it can point to different bits at different times."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A release drops the column middle_name and deploys code that no longer uses it, in a single step. The release has a bug, the team rolls back the code, and the old version now crashes. What would have made the rollback safe?",
+      "options": [
+        { "id": "a", "text": "Take a database backup before every release and restore it whenever a rollback is needed" },
+        { "id": "b", "text": "Split it up: first ship code that stops using the column, and drop the column in a later release" },
+        { "id": "c", "text": "Write a down migration that re-adds the column, and run it as part of every rollback, so the schema matches the code" },
+        { "id": "d", "text": "Run the same migration after the new code is fully deployed instead of before it, within the same release" }
+      ],
+      "answer": ["b"],
+      "explanation": "A rollback puts the old code in front of the new schema, whenever the migration ran, so every schema change has to work with both versions. Expand and contract does this in steps: add what is new, move the code over, and remove what is old only in a later release. Restoring a backup loses everything written since the release, and re-adding a dropped column cannot bring its data back."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "During a rolling update, a new instance can safely receive traffic as soon as its process has started, so a readiness check only slows the deployment down.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "A started process is not necessarily ready: it may still be warming caches, opening database connections or running startup tasks. A readiness check keeps traffic away until the instance can really serve requests, and a rollout that waits for it halts instead of replacing healthy instances with broken ones."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which practices keep secrets safe in a CI/CD pipeline?",
+      "options": [
+        { "id": "a", "text": "Store them in the CI system's secret store or a vault, and give each job only the secrets it needs" },
+        { "id": "b", "text": "Commit them to the repository, because a private repository keeps them safe" },
+        { "id": "c", "text": "Prefer short-lived credentials issued to the pipeline at run time, for example through OIDC federation, over long-lived keys" },
+        { "id": "d", "text": "Run jobs for pull requests from forks with the production secrets, so that their tests behave like production" },
+        { "id": "e", "text": "Scan commits and build output for leaked secrets, and rotate any that turn up" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "A secret committed to a repository is copied to every clone and stays in the history even after deletion, private or not, while a secret store with narrow scoping, short-lived credentials, and scanning with rotation limit both the exposure and the value of a leak. Code from forks is untrusted and could print or send every secret the job can see."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "In trunk-based development, developers merge small changes into the main branch often (typically at least daily) and hide unfinished work behind feature flags instead of keeping it on long-lived branches.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Frequent small merges surface conflicts and incompatibilities within hours rather than weeks, which is what continuous integration is for, and flags keep half-finished features invisible to users. Long-lived branches postpone that integration and make the eventual merge risky."
+    }
+  ]
+}

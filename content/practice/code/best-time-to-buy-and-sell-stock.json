@@ -1,0 +1,29 @@
+{
+  "title": "Best Time to Buy and Sell Stock",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "beginner",
+  "description": "Find the best profit from buying a stock on one day and selling it on a later day.",
+  "statement": "`prices[i]` is the price of a stock on day `i`. You may buy on one day and sell on a **later** day, or not trade at all. Return the largest profit you can make.\n\n- You must buy before you sell. A trade that would lose money is never made, so the answer is never negative.\n- When prices only fall or stay flat, or there are fewer than two days, return `0`.\n- The best days are not always the lowest and the highest of the whole list: the low has to come first.\n\n**Examples**\n\n```python\nmax_profit([7, 1, 5, 3, 6, 4])   # 5: buy at 1, sell at 6\nmax_profit([7, 6, 4, 3, 1])      # 0: prices only fall\nmax_profit([2, 4, 1])            # 2: buy at 2, sell at 4 (the 1 comes too late)\n```\n\nAim for O(n): the last tests have 100,000 days, too many to try every pair of days.",
+  "starter": "def max_profit(prices):\n    \"\"\"Return the largest prices[j] - prices[i] with i < j, or 0 if no trade makes money.\"\"\"\n    ...\n",
+  "tests": [
+    "assert max_profit([7, 1, 5, 3, 6, 4]) == 5",
+    "assert max_profit([7, 6, 4, 3, 1]) == 0",
+    "assert max_profit([2, 4, 1]) == 2",
+    "assert max_profit([]) == 0",
+    "assert max_profit([5]) == 0",
+    "assert max_profit([1, 2]) == 1",
+    "assert max_profit([2, 1]) == 0",
+    "assert max_profit([3, 3, 3]) == 0",
+    "assert max_profit([3, 2, 6, 5, 0, 3]) == 4",
+    "assert max_profit([1, 100, 0, 50]) == 99",
+    "assert max_profit(list(range(1, 100_001))) == 99_999, \"too slow or wrong on 100,000 days; trying every pair of days is O(n^2)\"",
+    "assert max_profit(list(range(50_000, 0, -1)) + list(range(1, 50_001))) == 49_999, \"too slow or wrong on 100,000 days; trying every pair of days is O(n^2)\""
+  ],
+  "hints": [
+    "For each day taken as the selling day, which buying day would be best? You do not need to try them all.",
+    "Walk through the prices once and remember the lowest price seen so far. Selling today would earn today's price minus that lowest.",
+    "Start the best profit at `0`, so falling prices give `0`. Only days before today (or today itself) may supply the lowest price, never days still to come."
+  ],
+  "solution": "def max_profit(prices):\n    lowest = float(\"inf\")                   # the cheapest price seen so far\n    best = 0\n    for price in prices:\n        lowest = min(lowest, price)\n        best = max(best, price - lowest)    # selling today, after buying at the cheapest earlier price\n    return best\n",
+  "explanation": "**The idea.** For each day taken as the selling day, the best buying day is the cheapest day before it (or that day itself, which earns 0). So one pass is enough: keep the lowest price seen so far, and the answer is the largest `price - lowest`.\n\n**Two-pointer view.** Think of a `buy` pointer and a `sell` pointer. `sell` moves forward every day; whenever the price at `sell` is lower than the price at `buy`, the old buy day can never be the better choice again, so `buy` jumps to `sell`.\n\n**Details.** Starting `best` at `0` makes falling prices return `0`, as required. Updating `lowest` before computing the profit is safe, because buying and selling on the same day earns nothing.\n\n**Complexity.** O(n) time, O(1) space. **Follow-up:** with as many trades as you like (one share at a time), add up every positive day-to-day rise."
+}

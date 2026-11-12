@@ -1,0 +1,31 @@
+{
+  "title": "Edit Distance",
+  "topic": "dynamic-programming",
+  "difficulty": "advanced",
+  "description": "Find the fewest insertions, deletions and replacements that turn one word into another.",
+  "statement": "Return the minimum number of single-character edits that turn the string `a` into the string `b`. One edit is: inserting a character anywhere, deleting a character, or replacing a character with a different one.\n\n- Case matters: `\"A\"` and `\"a\"` are different characters. Either string may be empty.\n- Swapping two neighbouring letters is not an edit of its own: turning `\"ab\"` into `\"ba\"` takes 2 edits.\n\n**Examples**\n\n```python\nedit_distance(\"kitten\", \"sitting\")   # 3  (k -> s, e -> i, insert g)\nedit_distance(\"flaw\", \"lawn\")        # 2  (delete f, insert n)\nedit_distance(\"same\", \"same\")        # 0\n```\n\nTrying every sequence of edits takes exponential time, and the last tests compare strings of 200 characters. Aim for O(len(a) × len(b)).",
+  "starter": "def edit_distance(a, b):\n    \"\"\"Return the minimum number of insertions, deletions and replacements that turn a into b.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\nfrom functools import cache\ndef reference_distance(a, b):\n    @cache\n    def best(i, j):                       # distance between a[i:] and b[j:]\n        if i == len(a):\n            return len(b) - j\n        if j == len(b):\n            return len(a) - i\n        return min(best(i + 1, j) + 1, best(i, j + 1) + 1, best(i + 1, j + 1) + (a[i] != b[j]))\n    return best(0, 0)\nrng = random.Random(9)\ndef random_word():\n    return \"\".join(rng.choice(\"ab\") for _ in range(rng.randint(0, 7)))\nrandom_pairs = [(random_word(), random_word()) for _ in range(300)]\ndef wrong_on(pairs):\n    wrong = []\n    for a, b in pairs:\n        got, want = edit_distance(a, b), reference_distance(a, b)\n        if got != want:\n            wrong.append(f\"edit_distance({a!r}, {b!r}) returned {got}, expected {want}\")\n    return wrong[:3]",
+    "assert edit_distance(\"kitten\", \"sitting\") == 3",
+    "assert edit_distance(\"flaw\", \"lawn\") == 2",
+    "assert edit_distance(\"same\", \"same\") == 0",
+    "assert edit_distance(\"\", \"\") == 0",
+    "assert edit_distance(\"\", \"abc\") == 3",
+    "assert edit_distance(\"abc\", \"\") == 3",
+    "assert edit_distance(\"cat\", \"cut\") == 1",
+    "assert edit_distance(\"ab\", \"ba\") == 2",
+    "assert edit_distance(\"Cat\", \"cat\") == 1",
+    "assert edit_distance(\"intention\", \"execution\") == 5",
+    "assert wrong_on(random_pairs) == []",
+    "assert edit_distance(\"ab\" * 100, \"ba\" * 100) == 2",
+    "assert edit_distance(\"kitten\" * 30, \"sitting\" * 30) == 90"
+  ],
+  "hints": [
+    "Think about prefixes: what is the cheapest way to turn the first `i` characters of `a` into the first `j` characters of `b`? Answer that for small prefixes first and build up.",
+    "Look at the last characters. If they are equal, nothing is needed for them. If not, you spend one edit and continue with the best of three smaller problems: delete from `a`, insert into `a`, or replace.",
+    "The first row and column are not zeros: turning `i` characters into nothing takes `i` deletions, and nothing into `j` characters takes `j` insertions."
+  ],
+  "solution": "def edit_distance(a, b):\n    # table[i][j]: the distance between the first i characters of a and the first j characters of b\n    table = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]\n    for i in range(len(a) + 1):\n        table[i][0] = i                  # turning i characters into nothing: i deletions\n    for j in range(len(b) + 1):\n        table[0][j] = j                  # building j characters from nothing: j insertions\n    for i in range(1, len(a) + 1):\n        for j in range(1, len(b) + 1):\n            if a[i - 1] == b[j - 1]:\n                table[i][j] = table[i - 1][j - 1]            # the last characters agree: no edit needed\n            else:\n                table[i][j] = 1 + min(table[i - 1][j],        # delete a[i - 1]\n                                      table[i][j - 1],        # insert b[j - 1]\n                                      table[i - 1][j - 1])    # replace a[i - 1] by b[j - 1]\n    return table[len(a)][len(b)]\n",
+  "explanation": "**The idea.** Let `table[i][j]` be the distance between the first `i` characters of `a` and the first `j` characters of `b`. If the last characters are equal they cost nothing: `table[i - 1][j - 1]`. Otherwise one edit is needed on top of the cheapest of three ways to make the problem smaller: delete the last character of `a` (`table[i - 1][j]`), insert the last character of `b` (`table[i][j - 1]`), or replace one with the other (`table[i - 1][j - 1]`). The first row and column are the cost of building a string from nothing: `table[i][0] = i` and `table[0][j] = j`.\n\n**Complexity.** O(n · m) time. Space is O(n · m), or O(min(n, m)) if you keep only two rows. Plain recursion without remembering answers is exponential.\n\n**Where it is used.** Spell checkers, fuzzy search and diff tools use this measure (the Levenshtein distance). Variants charge a different price for each kind of edit, or allow swapping two neighbours as one edit (Damerau-Levenshtein).\n\n**Common mistakes.** Forgetting the first row and column, adding the three neighbours instead of taking their minimum, and counting a swap as one edit."
+}

@@ -1,0 +1,70 @@
+{
+  "title": "Deduplicate Events in a Window",
+  "topic": "data-processing",
+  "difficulty": "intermediate",
+  "description": "Stream events and drop ids repeated within the last W seconds of event time, keeping memory bounded.",
+  "statement": "Write `dedupe_events(events, window)`, which drops repeated events from a stream while remembering as little as it can. `events` yields `(timestamp, event_id)` pairs in arrival order; timestamps are event times in seconds and may arrive out of order; ids are any hashable values. Return an iterator that yields the events that are not duplicates, unchanged, in arrival order.\n\nFor each event, in this order:\n\n1. `newest` becomes the largest timestamp read so far, this event included.\n2. Forget every remembered id whose timestamp is more than `window` behind `newest`, that is `newest - timestamp > window`.\n3. If the event's id is still remembered, drop the event. Otherwise yield it and remember its id with its timestamp.\n\nA dropped duplicate remembers nothing new, so it does not extend an id's life. The iterator must be lazy, and memory must stay proportional to the events inside the window, not to the whole stream. Aim for O(log n) per event.\n\n**Example**\n\n```python\nevents = [(0, \"a\"), (5, \"b\"), (7, \"a\"), (12, \"a\")]\nlist(dedupe_events(events, window=10))   # [(0, \"a\"), (5, \"b\"), (12, \"a\")]\n```\n\nThe `\"a\"` at 7 is dropped; by the `\"a\"` at 12 the first one has expired, because 12 - 0 > 10.",
+  "starter": "def dedupe_events(events, window):\n    \"\"\"Yield the events that are not duplicates, in arrival order. `events` yields (timestamp, event_id) pairs.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport itertools\nimport random\nimport weakref\n\ndef deduped(events, window):\n    \"\"\"The events that survive, as a list. The stream is handed over as a plain iterator, so it can only be read once.\"\"\"\n    return list(dedupe_events(iter(events), window))\n\ndef reference(events, window):\n    \"\"\"The rules of the statement, written the slow, obvious way.\"\"\"\n    remembered = {}\n    newest = None\n    kept = []\n    for timestamp, event_id in events:\n        newest = timestamp if newest is None else max(newest, timestamp)\n        for expired in [key for key, seen_at in remembered.items() if newest - seen_at > window]:\n            del remembered[expired]\n        if event_id in remembered:\n            continue\n        kept.append((timestamp, event_id))\n        remembered[event_id] = timestamp\n    return kept\n\nclass Ident:\n    \"\"\"An event id that can be watched: it supports weak references, and two with the same number are the same id.\"\"\"\n    __slots__ = (\"n\", \"__weakref__\")\n\n    def __init__(self, n):\n        self.n = n\n\n    def __hash__(self):\n        return hash(self.n)\n\n    def __eq__(self, other):\n        return isinstance(other, Ident) and other.n == self.n\n",
+    {
+      "name": "the example: a repeat is dropped, but not once the first one has expired",
+      "code": "assert deduped([(0, \"a\"), (5, \"b\"), (7, \"a\"), (12, \"a\")], 10) == [(0, \"a\"), (5, \"b\"), (12, \"a\")]"
+    },
+    {
+      "name": "a dropped duplicate does not extend the memory: the third \"a\" is new again",
+      "code": "assert deduped([(0, \"a\"), (5, \"a\"), (11, \"a\")], 10) == [(0, \"a\"), (11, \"a\")]"
+    },
+    {
+      "name": "exactly `window` behind is still remembered; one second more is forgotten",
+      "code": "assert deduped([(0, \"a\"), (10, \"a\")], 10) == [(0, \"a\")]\nassert deduped([(0, \"a\"), (11, \"a\")], 10) == [(0, \"a\"), (11, \"a\")]"
+    },
+    {
+      "name": "out of order: an older event whose id is remembered is a duplicate",
+      "code": "assert deduped([(10, \"a\"), (7, \"b\"), (8, \"a\"), (9, \"b\")], 10) == [(10, \"a\"), (7, \"b\")]"
+    },
+    {
+      "name": "ids expire by timestamp, not by arrival order",
+      "code": "events = [(10, \"a\"), (7, \"b\"), (18, \"c\"), (15, \"b\")]\nassert deduped(events, 10) == events, \"b (timestamp 7) expired when c (timestamp 18) arrived, so b at 15 is new\""
+    },
+    {
+      "name": "an event already outside the window when it arrives is let through, and is not remembered",
+      "code": "assert deduped([(100, \"x\"), (50, \"y\"), (50, \"y\"), (100, \"x\")], 10) == [(100, \"x\"), (50, \"y\"), (50, \"y\")]"
+    },
+    {
+      "name": "window 0: only events with the same timestamp repeat",
+      "code": "assert deduped([(5, \"a\"), (5, \"a\"), (6, \"a\"), (6, \"a\"), (7, \"b\")], 0) == [(5, \"a\"), (6, \"a\"), (7, \"b\")]"
+    },
+    {
+      "name": "an empty stream gives an empty result",
+      "code": "assert deduped([], 10) == []"
+    },
+    {
+      "name": "ids of different types that cannot be ordered, all at the same timestamp",
+      "code": "mixed = [(1, \"a\"), (1, 7), (1, (\"t\", 2)), (1, None), (1, \"a\"), (1, 7), (2, \"b\")]\nassert deduped(mixed, 5) == [(1, \"a\"), (1, 7), (1, (\"t\", 2)), (1, None), (2, \"b\")]"
+    },
+    {
+      "name": "lazy: it reads only as many events as the results asked for",
+      "code": "consumed = []\n\ndef long_stream():\n    for n in range(10_000):\n        consumed.append(n)\n        yield (n // 2, f\"id-{n // 2}\")\n\nfirst_three = list(itertools.islice(dedupe_events(long_stream(), 10), 3))\nassert first_three == [(0, \"id-0\"), (1, \"id-1\"), (2, \"id-2\")]\nassert len(consumed) <= 5, f\"three results need only 5 events, but {len(consumed)} were read; the iterator must be lazy\""
+    },
+    {
+      "name": "memory stays bounded: ids that fell out of the window are really forgotten",
+      "code": "alive = []\n\ndef watched_stream(count):\n    refs = []\n    for i in range(count):\n        ident = Ident(i)\n        refs.append(weakref.ref(ident))\n        if i == count - 1:\n            alive.append(sum(1 for ref in refs if ref() is not None))\n        yield (i, ident)\n\nfor _ in dedupe_events(watched_stream(4000), 50):\n    pass\nassert alive, \"the stream was not read to the end\"\nassert alive[0] <= 400, f\"after 4000 events at one per second with a 50-second window, {alive[0]} ids were still held in memory; forget the ones that fell out of the window\""
+    },
+    {
+      "name": "60,000 events with 20,000 seconds of memory: each event must be handled in about log n",
+      "code": "stream = [(i, i % 15_000) for i in range(60_000)]\nassert deduped(stream, 20_000) == [(i, i % 15_000) for i in range(60_000) if (i // 15_000) % 2 == 0]"
+    },
+    {
+      "name": "40 random streams with out-of-order timestamps agree with the rules written the slow way",
+      "code": "rng = random.Random(9)\nmismatches = []\nfor case in range(40):\n    window = rng.choice([0, 1, 3, 10])\n    events = [(i // 2 + rng.randint(-6, 6), rng.choice(\"abcdefgh\")) for i in range(150)]\n    if deduped(events, window) != reference(events, window):\n        mismatches.append((case, window))\nassert mismatches == [], f\"output differs from the rules for these (case, window) pairs: {mismatches[:3]}\""
+    }
+  ],
+  "hints": [
+    "You need \"have I seen this id recently?\" in O(1), and a way to forget old ids without scanning everything for every event. What data structure always gives you the oldest item cheaply?",
+    "A dict for the remembered ids plus a min-heap of `(timestamp, id)` to find the expired ones. For each event: update `newest`, pop expired entries from the heap and delete them from the dict, then check the dict.",
+    "Events can arrive out of order, so a plain queue would leave expired ids hidden behind newer ones; use the heap. Ids may not be comparable, so add a unique counter to the heap entries. Use `yield` so it stays lazy."
+  ],
+  "solution": "import heapq\nfrom itertools import count\n\n\ndef dedupe_events(events, window):\n    remembered = {}                      # event id -> timestamp it was remembered at\n    expiry = []                          # min-heap of (timestamp, tie-breaker, event id); one entry per remembered id\n    tie_breaker = count()                # ids need not be comparable, so the heap must never compare them\n    newest = None\n    for event in events:\n        timestamp, event_id = event\n        if newest is None or timestamp > newest:\n            newest = timestamp\n        while expiry and newest - expiry[0][0] > window:       # the oldest remembered id first\n            _, _, expired = heapq.heappop(expiry)\n            del remembered[expired]\n        if event_id in remembered:\n            continue                     # a duplicate: drop it, and remember nothing new\n        remembered[event_id] = timestamp\n        heapq.heappush(expiry, (timestamp, next(tie_breaker), event_id))\n        yield event\n",
+  "explanation": "**The idea.** Keep a dictionary of the ids you still remember, so \"have I seen this?\" is O(1). Forgetting is the interesting part. Ids must disappear when they are more than `window` behind the newest timestamp, and that has to be found without scanning the whole dictionary for every event. A min-heap ordered by timestamp does it: the oldest remembered id is always at the top, so you pop while the top is expired. Each id enters the heap once and leaves once, so the cost is O(log n) per event.\n\n**Why not a queue?** With in-order events a plain `deque` would do, because the oldest id is always at the front. With out-of-order events the front is not necessarily the oldest by timestamp, and an expired id can hide behind a fresh one. The heap is ordered by event time, not by arrival.\n\n**Details the tests check.** Put a tie-breaker in the heap entry: when two timestamps are equal Python would compare the ids, which fails for ids of different types. A duplicate must not be remembered again, or a steady stream of repeats would keep an id alive forever. Make it a generator so it is lazy: it works on endless streams and holds only the window.\n\n**Real systems** do this with a state store that has a TTL (Kafka Streams, Flink keyed state with TTL, Redis keys with `SET NX EX`). The trade-off is the window: shorter means less memory but more duplicates slip through after a long retry delay. Follow-up: how would you bound memory if a flood of distinct ids arrives inside one window?"
+}

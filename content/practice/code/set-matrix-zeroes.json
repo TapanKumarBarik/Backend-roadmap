@@ -1,0 +1,31 @@
+{
+  "title": "Set Matrix Zeroes",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Zero out every row and column of a matrix that contains a 0, in place.",
+  "statement": "Write `set_zeroes(matrix)`: wherever a cell holds `0`, set every cell in that cell's row and in its column to `0`. Change `matrix` in place; the return value is ignored.\n\n- `matrix` is a list of rows of integers, all the same length; it does not have to be square. An empty matrix (`[]`) stays as it is.\n- Only the zeros that are in the matrix when you start count. Zeros that you write yourself must not zero any further rows or columns.\n- Negative numbers are ordinary values.\n\n**Examples**\n\n```python\nmatrix = [[1, 2, 3],\n          [4, 0, 6],\n          [7, 8, 9]]\nset_zeroes(matrix)\nmatrix        # [[1, 0, 3], [0, 0, 0], [7, 0, 9]]\n\nmatrix = [[0, 1, 2, 0],\n          [3, 4, 5, 2],\n          [1, 3, 1, 5]]\nset_zeroes(matrix)\nmatrix        # [[0, 0, 0, 0], [0, 4, 5, 0], [0, 3, 1, 0]]\n```",
+  "starter": "def set_zeroes(matrix):\n    \"\"\"Set every row and every column that contains a 0 to all zeros, in place. Nothing needs to be returned.\"\"\"\n    ...\n",
+  "tests": [
+    "def zeroed(rows):\n    # Runs set_zeroes on a copy of the matrix and returns that same matrix, which is what the caller would see afterwards.\n    matrix = [list(row) for row in rows]\n    returned = set_zeroes(matrix)\n    if returned is not None and returned != matrix:\n        raise AssertionError(f\"set_zeroes must change the matrix it is given, but it is still {matrix!r}: it looks like you returned a new matrix instead\")\n    return matrix",
+    "assert zeroed([[1, 2, 3], [4, 0, 6], [7, 8, 9]]) == [[1, 0, 3], [0, 0, 0], [7, 0, 9]]",
+    "assert zeroed([[0, 1, 2, 0], [3, 4, 5, 2], [1, 3, 1, 5]]) == [[0, 0, 0, 0], [0, 4, 5, 0], [0, 3, 1, 0]]",
+    "assert zeroed([[1, 2], [3, 4]]) == [[1, 2], [3, 4]]",
+    "assert zeroed([[0, 0], [0, 0]]) == [[0, 0], [0, 0]]",
+    "assert zeroed([[1, 0, 3]]) == [[0, 0, 0]]",
+    "assert zeroed([[1], [0], [3]]) == [[0], [0], [0]]",
+    "assert zeroed([]) == []",
+    "assert zeroed([[1, 0, 3], [4, 5, 6], [7, 8, 9]]) == [[0, 0, 0], [4, 0, 6], [7, 0, 9]]",
+    "assert zeroed([[1, 2, 3], [0, 5, 6], [7, 8, 9]]) == [[0, 2, 3], [0, 0, 0], [0, 8, 9]]",
+    "assert zeroed([[0, 1, 2], [3, 0, 5], [6, 7, 8]]) == [[0, 0, 0], [0, 0, 0], [0, 0, 8]]",
+    "assert zeroed([[1, 2, 3], [4, 5, 0], [-1, 8, 9]]) == [[1, 2, 0], [0, 0, 0], [-1, 8, 0]]",
+    "table = [[(row * 7 + col * 3) % 11 + 1 for col in range(40)] for row in range(60)]\nfor row, col in [(5, 7), (20, 30), (59, 0)]:\n    table[row][col] = 0\ncleared = [[0 if row in (5, 20, 59) or col in (0, 7, 30) else value for col, value in enumerate(line)] for row, line in enumerate(table)]",
+    "assert zeroed(table) == cleared"
+  ],
+  "hints": [
+    "If you write a 0 the moment you find one, how will you tell it apart later from a 0 that was in the matrix to begin with?",
+    "Use two passes. The first only looks: it notes which rows and which columns contain a 0. The second only writes: it zeroes a cell if its row or its column is on the notes.",
+    "A 0 at row `r`, column `c` puts `r` in one record and `c` in the other. In the second pass, decide every cell from those records only, never from the cell's current value."
+  ],
+  "solution": "def set_zeroes(matrix):\n    zero_rows = set()\n    zero_cols = set()\n    for r, row in enumerate(matrix):              # pass 1: only look, and note where the zeros are\n        for c, value in enumerate(row):\n            if value == 0:\n                zero_rows.add(r)\n                zero_cols.add(c)\n    for r, row in enumerate(matrix):              # pass 2: only write, judging each cell by the notes\n        for c in range(len(row)):\n            if r in zero_rows or c in zero_cols:\n                row[c] = 0\n",
+  "explanation": "**The idea.** Never mix looking with writing. A zero you have just written looks exactly like a zero that was there from the start, so if you clear a row the moment you find a 0, the scan meets your own zeros and spreads them until the whole matrix is 0 (try the first example on paper). Instead:\n\n1. Pass 1 only reads. For every 0, note its row in one set and its column in another.\n2. Pass 2 only writes. Set a cell to 0 if its row or its column is in the notes.\n\n**Complexity.** O(rows × columns) time and O(rows + columns) extra space for the two sets.\n\n**Follow-up: O(1) extra space.** Use the matrix itself as the notes: the first row records \"this column has a zero\" and the first column records \"this row has a zero\". Two booleans remember whether the first row and the first column had a zero of their own. Careful with the order: apply the notes to the inner cells first and to the first row and column last, or you destroy the notes before you have used them.\n\n**Mistakes to avoid.** Marking with a value such as `-1` (negative numbers are legal data). Zeroing only rows or only columns. Rebuilding a new matrix instead of changing the one you were given."
+}

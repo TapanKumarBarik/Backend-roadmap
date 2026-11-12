@@ -31,6 +31,7 @@
     "check:overviews": "node scripts/check/check-overviews.mjs",
     "practice:build": "node scripts/build/gen-practice.mjs",
     "check:practice": "node scripts/check/check-practice.mjs",
+    "check:code": "node scripts/check/check-code-problems.mjs",
     "check:bundle": "node scripts/check/check-bundle-size.mjs",
     "ci:linux": "bash scripts/dev/ci-linux.sh",
     "lighthouse": "bash scripts/dev/lighthouse.sh",

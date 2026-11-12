@@ -1,0 +1,44 @@
+{
+  "title": "Detect a Deadlock",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+  "description": "Find a cycle in a wait-for graph of transactions, or report that there is none.",
+  "statement": "Transactions that hold locks and wait for each other can deadlock. `wait_for` is a wait-for graph: a dict that maps each transaction to the transactions (a set or a list) it is waiting for. Write `find_deadlock(wait_for)`.\n\n- Return a list of transactions `[t1, t2, ..., tk]` forming a cycle: `t1` waits for `t2`, `t2` waits for `t3`, ..., and `tk` waits for `t1`. Each transaction appears once in the list.\n- A transaction that waits for itself is a cycle of one: `[\"T1\"]`.\n- If there are several cycles, any one is accepted. If there is none, return `None`.\n- A transaction that appears only as something others wait for waits for nothing itself. The graph may have several unconnected parts. Do not change `wait_for`.\n\n**Examples**\n\n```python\nfind_deadlock({\"T1\": {\"T2\"}, \"T2\": {\"T3\"}, \"T3\": {\"T1\"}})   # [\"T1\", \"T2\", \"T3\"], or the same cycle started elsewhere\nfind_deadlock({\"T1\": {\"T2\"}, \"T2\": {\"T3\"}})                  # None\nfind_deadlock({\"T1\": {\"T1\"}})                                # [\"T1\"]\n```\n\nAim for O(V + E).",
+  "starter": "def find_deadlock(wait_for):\n    \"\"\"Return a list of transactions that wait for each other in a cycle, or None when there is no deadlock.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport random\n\ndef deadlocked(graph):\n    \"\"\"True when find_deadlock returns a real cycle of `graph`; otherwise raises with the reason.\"\"\"\n    before = {txn: set(waits) for txn, waits in graph.items()}\n    cycle = find_deadlock(graph)\n    assert {txn: set(waits) for txn, waits in graph.items()} == before, \"find_deadlock must not change the graph it is given\"\n    assert isinstance(cycle, list) and cycle, f\"this graph has a deadlock, so expected a list of transactions, got {cycle!r}\"\n    assert len(set(cycle)) == len(cycle), f\"{cycle!r} repeats a transaction; each one may appear only once\"\n    for index, txn in enumerate(cycle):\n        following = cycle[(index + 1) % len(cycle)]\n        assert following in graph.get(txn, ()), f\"{txn!r} does not wait for {following!r} in this graph, so {cycle!r} is not a cycle\"\n    return True\n\ndef free_of_deadlock(graph):\n    \"\"\"True when find_deadlock returns None for `graph`; otherwise raises with the reason.\"\"\"\n    before = {txn: set(waits) for txn, waits in graph.items()}\n    cycle = find_deadlock(graph)\n    assert {txn: set(waits) for txn, waits in graph.items()} == before, \"find_deadlock must not change the graph it is given\"\n    assert cycle is None, f\"this graph has no cycle, but you returned {cycle!r}\"\n    return True\n",
+    "assert deadlocked({\"T1\": {\"T2\"}, \"T2\": {\"T3\"}, \"T3\": {\"T1\"}})",
+    "assert free_of_deadlock({\"T1\": {\"T2\"}, \"T2\": {\"T3\"}})",
+    "assert deadlocked({\"T1\": {\"T1\"}})",
+    "assert free_of_deadlock({})",
+    "assert deadlocked({\"T1\": {\"T2\"}, \"T2\": {\"T1\"}})",
+    "assert free_of_deadlock({\"T1\": set(), \"T2\": []})",
+    "assert free_of_deadlock({\"T1\": {\"T2\", \"T3\"}, \"T2\": {\"T4\"}, \"T3\": {\"T4\"}})",
+    "assert deadlocked({\"T1\": {\"T2\"}, \"T2\": {\"T3\"}, \"T3\": {\"T4\"}, \"T4\": {\"T2\"}})",
+    "assert deadlocked({\"A\": {\"B\"}, \"B\": set(), \"C\": {\"D\"}, \"D\": {\"E\"}, \"E\": {\"C\"}})",
+    "assert free_of_deadlock({\"A\": {\"B\"}, \"C\": {\"D\"}, \"E\": {\"D\"}})",
+    "assert deadlocked({1: [2], 2: [3], 3: [1], 4: [5], 5: [6], 6: [4]})",
+    "assert deadlocked({\"T1\": [\"T2\", \"T3\"], \"T2\": [\"T3\"], \"T3\": [\"T2\", \"T4\"]})",
+    "assert free_of_deadlock({\"T1\": [\"T2\"]})",
+    {
+      "name": "a ladder of 40 diamonds has 2**40 paths but no cycle: remember which transactions are finished",
+      "code": "ladder = {}\nfor layer in range(40):\n    below = {f\"L{layer + 1}a\", f\"L{layer + 1}b\"} if layer < 39 else set()\n    ladder[f\"L{layer}a\"] = below\n    ladder[f\"L{layer}b\"] = set(below)\nassert free_of_deadlock(ladder)"
+    },
+    {
+      "name": "the same ladder with one wait pointing from the bottom back to the top has a deadlock",
+      "code": "ladder = {}\nfor layer in range(40):\n    below = {f\"L{layer + 1}a\", f\"L{layer + 1}b\"} if layer < 39 else set()\n    ladder[f\"L{layer}a\"] = below\n    ladder[f\"L{layer}b\"] = set(below)\nladder[\"L39b\"] = {\"L0a\"}\nassert deadlocked(ladder)"
+    },
+    {
+      "name": "9000 transactions in 30 layers, 3 waits each, no cycle: one pass must be enough",
+      "code": "rng = random.Random(8)\nlayered = {}\nfor layer in range(30):\n    for slot in range(300):\n        targets = set(rng.sample(range(300), 3)) if layer < 29 else set()\n        layered[f\"{layer}-{slot}\"] = {f\"{layer + 1}-{target}\" for target in targets}\nassert free_of_deadlock(layered)\nfor layer in range(29):\n    layered[f\"{layer}-0\"].add(f\"{layer + 1}-0\")\nlayered[\"29-0\"] = {\"0-0\"}\nassert deadlocked(layered), \"a wait from the last layer back to the first closes a cycle\""
+    }
+  ],
+  "hints": [
+    "A deadlock is a cycle. When you walk along waits, what would tell you that you have come back to a transaction you are still in the middle of exploring?",
+    "Depth-first search with three states per transaction: unseen, on the current path, finished. Reaching an on-path transaction closes a cycle; reaching a finished one means nothing new. The cycle is the slice of the path from the repeated transaction to the end.",
+    "Keep the finished set across all starting points and never search from a finished transaction again; otherwise the big tests take forever. Transactions that are only ever waited for have no entry in the dict, so use `.get`."
+  ],
+  "solution": "def find_deadlock(wait_for):\n    UNSEEN, ON_PATH, DONE = 0, 1, 2\n    state = {}                                       # transaction -> UNSEEN / ON_PATH / DONE (missing means UNSEEN)\n\n    for start in wait_for:\n        if state.get(start, UNSEEN) != UNSEEN:\n            continue\n        state[start] = ON_PATH\n        path = [start]                               # the transactions on the current depth-first path\n        pending = [iter(wait_for.get(start, ()))]    # for each of them, the waits not yet followed\n        while path:\n            for nxt in pending[-1]:\n                seen = state.get(nxt, UNSEEN)\n                if seen == ON_PATH:                  # back on our own path: that part of the path is a cycle\n                    return path[path.index(nxt):]\n                if seen == UNSEEN:\n                    state[nxt] = ON_PATH\n                    path.append(nxt)\n                    pending.append(iter(wait_for.get(nxt, ())))\n                    break                            # go deeper; the iterator remembers where it stopped\n            else:                                    # every wait of path[-1] has been followed: it is finished\n                state[path.pop()] = DONE\n                pending.pop()\n    return None\n",
+  "explanation": "**The idea.** In a wait-for graph an edge `A -> B` means \"A is blocked until B releases a lock\". A deadlock is exactly a cycle: everybody in it waits for somebody else in it, so none of them can ever continue. Databases run this check (or use timeouts) and abort one transaction of the cycle, the victim.\n\n**Finding a cycle.** Depth-first search with three states per transaction: unseen, on the current path, and finished. Meeting a transaction that is *on the current path* means you have come back to your own trail, and the cycle is the part of the path from that transaction onwards. Meeting a *finished* one is harmless: everything reachable from it was explored already and holds no cycle. Treating finished like on-path gives false alarms on diamonds. Forgetting finished transactions makes the search explore them again, which is exponential on a ladder of diamonds (one test), and starting a fresh search from every transaction is quadratic on a big graph (another test).\n\n**Details.** The path from the start may include a tail of transactions that only lead into the cycle; cut it off at the repeated one. Transactions that nobody waits for, or that appear only as a target, still need handling (`.get(txn, ())`). An explicit stack, as here, keeps a long chain of waits from hitting the recursion limit.\n\n**Complexity.** O(V + E) time and O(V) space. Follow-up: which transaction would you abort? (Often the youngest, or the one that holds the fewest locks.)"
+}

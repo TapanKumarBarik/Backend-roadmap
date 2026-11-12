@@ -1,0 +1,30 @@
+{
+  "title": "Number of Islands",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Count the islands, the groups of connected land cells, in a grid of land and water.",
+  "statement": "Count the islands in a grid. `grid` is a list of rows, and each cell is `1` (land) or `0` (water). An island is a group of land cells connected **horizontally or vertically**. Cells that touch only at a corner are not connected, and neither are cells on opposite edges of the grid.\n\n- An empty grid (`[]`) has `0` islands.\n- The grid is rectangular, but it need not be square.\n- The tests give your function a fresh grid on every call, so you may change the grid if you like.\n\n**Examples**\n\n```python\nnum_islands([[1, 1, 0],\n             [1, 0, 0],\n             [0, 0, 1]])     # 2\nnum_islands([[1, 0, 1],\n             [0, 1, 0]])     # 3, the cells only touch at corners\nnum_islands([])              # 0\n```\n\nIn the tests a grid is written as strings of `0` and `1`, one string per row.",
+  "starter": "def num_islands(grid):\n    \"\"\"Return the number of islands: groups of 1s connected up, down, left or right.\"\"\"\n    ...\n",
+  "tests": [
+    "def count(*rows):\n    \"\"\"Count the islands of a grid written as strings, such as count(\"110\", \"001\"). A fresh list of lists is built on every call.\"\"\"\n    return num_islands([[int(cell) for cell in row] for row in rows])\nsnake = [\"11111\", \"10000\", \"11111\", \"00001\", \"11111\"]\ncheckerboard = [\"\".join(\"1\" if (r + c) % 2 == 0 else \"0\" for c in range(200)) for r in range(200)]\nstripes = [\"1\" * 100 if r % 2 == 0 else \"0\" * 100 for r in range(40)]\nfull = [\"1\" * 20 for _ in range(15)]",
+    "assert count(\"11000\", \"11000\", \"00100\", \"00011\") == 3",
+    "assert count(\"101\", \"010\") == 3",
+    "assert num_islands([]) == 0",
+    "assert count(\"000\", \"000\") == 0",
+    "assert count(\"111\", \"111\", \"111\") == 1",
+    "assert count(\"101\", \"101\", \"111\") == 1",
+    "assert count(*snake) == 1",
+    "assert count(\"1011011\") == 3",
+    "assert count(\"1\", \"1\", \"0\", \"1\") == 2",
+    "assert count(*full) == 1",
+    "assert count(*stripes) == 20",
+    "assert count(*checkerboard) == 20_000"
+  ],
+  "hints": [
+    "Each island is one connected blob. When you find one land cell, how can you visit every other cell of the same island so that it is never counted twice?",
+    "Scan the grid. At a land cell that has not been visited, add one to the count, then explore everything connected to it (up, down, left, right) with a stack, a queue or recursion, marking each cell as visited.",
+    "Check the bounds before you read a neighbour: in Python `grid[r][-1]` does not fail, it wraps around to the last column. Mark a cell visited when you add it to the stack or queue, and remember that diagonal neighbours do not count."
+  ],
+  "solution": "def num_islands(grid):\n    rows = len(grid)\n    cols = len(grid[0]) if rows else 0\n    seen = set()\n    islands = 0\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == 1 and (r, c) not in seen:\n                islands += 1                   # land that no earlier island reached: a new island\n                seen.add((r, c))\n                stack = [(r, c)]\n                while stack:                   # visit all the land connected to it\n                    row, col = stack.pop()\n                    for nr, nc in ((row + 1, col), (row - 1, col), (row, col + 1), (row, col - 1)):\n                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == 1 and (nr, nc) not in seen:\n                            seen.add((nr, nc))\n                            stack.append((nr, nc))\n    return islands\n",
+  "explanation": "**The idea.** Scan the grid. Each time you meet a land cell that no earlier island has reached, you have found a new island: count it, then **flood** it, visiting every land cell connected to this one so that none of them is counted again.\n\n**Flooding.** Keep a stack (or a queue) of cells still to visit. Take a cell, look at its four neighbours, and for each one that is inside the grid, is land and has not been seen, mark it as seen and add it. Marking a cell when you add it, not when you take it out, stops it from entering the stack twice.\n\n**Python details.** Check the bounds yourself: a neighbour index of `-1` does not raise an error in Python, it wraps around to the other edge of the grid, and would silently join islands that are not connected. A stack also avoids the recursion limit on a big island, though plain recursion is fine for the grids in these tests.\n\n**Complexity.** O(rows × cols) time and space: each cell is looked at a constant number of times. If you may modify the grid, overwriting visited land with `0` replaces the `seen` set.\n\n**Follow-up.** Return the size of the biggest island, or let diagonal neighbours connect."
+}

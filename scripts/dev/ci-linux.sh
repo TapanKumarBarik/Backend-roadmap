@@ -18,6 +18,7 @@ docker run --rm -v "$repo:/src:ro" node:22-bookworm bash -c '
   SHOW=2 step "npm ci" npm ci --no-audit --no-fund || exit 1
   SHOW=2 step "practice content" npm run practice:build
   SHOW=3 step "check" npm run check
+  SHOW=4 step "coding problems" npm run check:code
   SHOW=3 step "lint" npm run lint
   SHOW=3 step "typecheck" npm run typecheck
   SHOW=8 step "unit tests" npm test

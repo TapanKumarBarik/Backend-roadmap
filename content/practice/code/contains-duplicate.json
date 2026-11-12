@@ -1,0 +1,30 @@
+{
+  "title": "Contains Duplicate",
+  "topic": "arrays-and-hashing",
+  "difficulty": "beginner",
+  "description": "Tell whether a list of numbers contains any value more than once.",
+  "statement": "Given a list of integers `nums`, return `True` if some value appears at least twice, and `False` if every value is different.\n\n- An empty list and a one-element list have no repeated value, so they return `False`.\n- Values are compared by equality: `3` and `3` are a repeat, `3` and `-3` are not. The two copies can be far apart in the list.\n- Do not change `nums`.\n\n**Examples**\n\n```python\ncontains_duplicate([1, 2, 3, 1])   # True\ncontains_duplicate([1, 2, 3, 4])   # False\ncontains_duplicate([])             # False\n```\n\nComparing every pair of numbers works, but it is O(n²). Aim for O(n): the last tests have 100,000 numbers.",
+  "starter": "def contains_duplicate(nums):\n    \"\"\"Return True if some value appears at least twice in nums, otherwise False.\"\"\"\n    ...\n",
+  "tests": [
+    "assert contains_duplicate([1, 2, 3, 1]) == True",
+    "assert contains_duplicate([1, 2, 3, 4]) == False",
+    "assert contains_duplicate([]) == False",
+    "assert contains_duplicate([7]) == False",
+    "assert contains_duplicate([5, 5]) == True",
+    "assert contains_duplicate([3, -3, 0]) == False",
+    "assert contains_duplicate([-4, 9, 2, 0, 9, 1]) == True",
+    "assert contains_duplicate([0, 0, 0, 0]) == True",
+    "ordered = [3, 1, 2, 3]",
+    "assert contains_duplicate(ordered) == True",
+    "assert ordered == [3, 1, 2, 3], \"contains_duplicate must not change the list it is given (sorting it in place does)\"",
+    "assert contains_duplicate(list(range(100_000))) == False, \"too slow or wrong on 100,000 different numbers; comparing every pair is O(n^2)\"",
+    "assert contains_duplicate(list(range(100_000)) + [0]) == True, \"too slow or wrong when the only repeat is the last number\""
+  ],
+  "hints": [
+    "For each number you only need one answer: have I seen it before? Which Python collection answers \"is x in here?\" in constant time?",
+    "Walk through the list once and keep a set of the numbers seen so far. If the current number is already in the set, you have found a repeat.",
+    "Return as soon as you find a repeat, and return `False` only after the whole list has been checked. Do not sort the caller's list in place."
+  ],
+  "solution": "def contains_duplicate(nums):\n    seen = set()\n    for x in nums:\n        if x in seen:\n            return True\n        seen.add(x)\n    return False\n",
+  "explanation": "**The idea.** For each number you only need to know whether you have met it before. A `set` answers \"is `x` in here?\" in O(1), so a single pass is enough: if `x` is already in the set you have found a repeat, otherwise add it. Stopping at the first repeat means a duplicate near the start costs almost nothing.\n\n**The one-liner.** `len(set(nums)) != len(nums)` is the same idea in one line. It always builds the whole set, so it cannot stop early.\n\n**Complexity.** O(n) time and O(n) extra space. The trade-off to know: sorting a copy and comparing neighbours costs O(n log n) time but needs no set. (Sorting the input in place would use O(1) extra space, but it changes the caller's list, which this problem does not allow.)\n\n**Mistake to avoid.** Testing `x in seen` against a *list* instead of a set looks the same but scans the list every time, which is O(n²) overall."
+}

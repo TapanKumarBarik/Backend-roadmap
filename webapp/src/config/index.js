@@ -13,6 +13,9 @@ export const AREAS = site.content.areas;
 // The folder of the repository the curricula sit in. A lesson's key on the site is its path from there.
 export const CONTENT_DIR = site.content.dir;
 export const STORAGE = site.storage;
+// How practice is saved as progress, beside the modules (lib/practice/progressKeys.js). In the site config, which the first page carries anyway, and not in
+// the game's, which only the screens that draw the game load.
+export const PROGRESS_KEYS = site.progressKeys;
 export const YOUTUBE = site.youtube;
 // The writing studio's numbers (how long typing pauses before a save, and so on); its words are in config/studio.js.
 export const STUDIO = site.studio;

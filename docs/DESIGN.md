@@ -79,6 +79,14 @@ and after it) and shows a toast, and confetti for a level, a badge, a track or a
 reader's is the account's, the same number as in the top bar. Practice is saved as progress marks too (`practice/code/<slug>`,
 `practice/drill/<day>`; `lib/practice/progressKeys.js`), which is what makes it follow the account to another device and count towards the streak.
 
+### The practice screens
+
+The same language carries into Practice (`styles/hub.css`, `styles/code.css`): today's drill and the problem of the day are two quests that turn amber when done; the coding
+problems are a map of topic cards, each with a ring (`Crest`, `styles/crest.css`) that fills as its problems are solved, and a problem is a ring too (empty: not started,
+violet dot: tried, solid ink with a tick: solved). In the problem screen a failing test is the danger red and a passing one is ink, and the "Solved" banner is the only
+amber. The editor is a textarea with its colours drawn behind it (violet for the words of the language, quieter for text and numbers, the same width for every weight so the
+caret stays under the letters) and a line number gutter; on a touch screen it uses 16px text so a phone does not zoom in when it is focused.
+
 ## Adding a component
 
 1. `components/ui/Name.jsx` and its rules in `ui.css` (prefix `ui-`, scoped as above, tokens only).

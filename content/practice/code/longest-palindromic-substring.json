@@ -1,0 +1,30 @@
+{
+  "title": "Longest Palindromic Substring",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Find the longest substring that reads the same forwards and backwards.",
+  "statement": "Write `longest_palindrome(text)` that returns the longest substring of `text` that reads the same forwards and backwards.\n\n- A substring is a run of consecutive characters. Comparison is case-sensitive.\n- If several palindromes share the maximum length, return the **leftmost** one: the one that starts first.\n- A single character is a palindrome, so the answer is at least one character long, unless `text` is empty: then return `\"\"`.\n\n**Examples**\n\n```python\nlongest_palindrome(\"abacdc\")   # \"aba\"   (\"cdc\" is as long, but \"aba\" starts first)\nlongest_palindrome(\"xabbay\")   # \"abba\"\nlongest_palindrome(\"abc\")      # \"a\"     (every palindrome has length 1, so the leftmost wins)\n```\n\nChecking every substring is O(n³). Aim for O(n²).",
+  "starter": "def longest_palindrome(text):\n    \"\"\"Return the longest palindromic substring of text (the leftmost one on a tie), or an empty string if text is empty.\"\"\"\n    ...\n",
+  "tests": [
+    "assert longest_palindrome(\"abacdc\") == \"aba\"",
+    "assert longest_palindrome(\"xabbay\") == \"abba\"",
+    "assert longest_palindrome(\"abc\") == \"a\"",
+    "assert longest_palindrome(\"\") == \"\"",
+    "assert longest_palindrome(\"z\") == \"z\"",
+    "assert longest_palindrome(\"abbacddc\") == \"abba\"",
+    "assert longest_palindrome(\"cddcabba\") == \"cddc\"",
+    "assert longest_palindrome(\"noonracecar\") == \"racecar\"",
+    "assert longest_palindrome(\"xyzracecar\") == \"racecar\"",
+    "assert longest_palindrome(\"Aa\") == \"A\"",
+    "assert longest_palindrome(\"aaaa\") == \"aaaa\"",
+    "skewed = \"a\" * 600 + \"b\" + \"a\" * 1000",
+    "assert longest_palindrome(skewed) == \"a\" * 600 + \"b\" + \"a\" * 600"
+  ],
+  "hints": [
+    "A palindrome is symmetrical around its middle. What if you picked the middle first and then looked at how far the symmetry reaches?",
+    "Try every centre: a single character (odd length) and the gap between two neighbours (even length). From each, move one pointer left and one right while the characters are equal, and remember the longest result.",
+    "Do not forget the even-length centres. Work out the start from the centre and the length, and replace your best answer only when the new one is strictly longer: that keeps the leftmost."
+  ],
+  "solution": "def longest_palindrome(text):\n    best_start, best_length = 0, 0\n\n    def expand(left, right):\n        # grow outwards while the two ends match; return the length of the palindrome found\n        while left >= 0 and right < len(text) and text[left] == text[right]:\n            left -= 1\n            right += 1\n        return right - left - 1\n\n    for centre in range(len(text)):\n        for length in (expand(centre, centre), expand(centre, centre + 1)):    # odd, then even\n            if length > best_length:                  # strictly longer, so the leftmost of equals is kept\n                best_start, best_length = centre - (length - 1) // 2, length\n    return text[best_start:best_start + best_length]\n",
+  "explanation": "**The idea.** A palindrome mirrors around its centre, so grow it from the middle: put two ends on the centre and move them apart while the characters match. Every palindrome has exactly one centre, either a character (odd length) or the gap between two characters (even length), so trying all 2n - 1 centres finds them all.\n\n**Why it is O(n²).** One expansion costs at most O(n) and there are 2n - 1 centres. Testing every substring one by one is O(n³).\n\n**The tie rule.** Visit the centres from left to right and replace the best answer only when the new palindrome is strictly longer. Palindromes of the same length have the same parity, and the one with the smaller centre also starts first, so the first one found is the leftmost.\n\n**Usual mistakes.** Forgetting the even-length centres (`\"xabbay\"` would come out as a single letter), off-by-one errors when turning \"centre and length\" into a slice, and replacing the answer on a tie (that returns the rightmost one).\n\n**Follow-up.** Manacher's algorithm computes every palindrome radius in O(n) by reusing the mirror image of what is already known. A dynamic programming table `is_pal[i][j]` is another O(n²) route, but it costs O(n²) memory."
+}

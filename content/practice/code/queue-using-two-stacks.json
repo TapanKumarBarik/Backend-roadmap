@@ -1,0 +1,35 @@
+{
+  "title": "Queue Using Two Stacks",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "description": "Build a first-in, first-out queue from two stacks, with every operation O(1) amortised.",
+  "statement": "Build a first-in, first-out queue out of two stacks. `QueueWithTwoStacks` has these methods:\n\n- `push(x)`: add `x` at the back of the queue.\n- `pop()`: remove the item at the front and return it.\n- `peek()`: return the item at the front without removing it.\n- `empty()`: return `True` if the queue holds no items, otherwise `False`.\n\n`pop` and `peek` are never called on an empty queue. The point of the exercise is to use two stacks (Python lists where you only add and remove at the end), not `pop(0)` or `collections.deque`. Every operation must be O(1) **amortised**: any n operations together cost O(n), even if a single `pop` sometimes does more work.\n\n**Example**\n\n```python\nq = QueueWithTwoStacks()\nq.push(1); q.push(2)\nq.peek()    # 1\nq.pop()     # 1\nq.push(3)\nq.pop()     # 2\nq.pop()     # 3\nq.empty()   # True\n```",
+  "starter": "class QueueWithTwoStacks:\n    \"\"\"A first-in, first-out queue built from two stacks.\"\"\"\n\n    def __init__(self):\n        ...\n\n    def push(self, x):\n        \"\"\"Add x at the back of the queue.\"\"\"\n        ...\n\n    def pop(self):\n        \"\"\"Remove the item at the front of the queue and return it.\"\"\"\n        ...\n\n    def peek(self):\n        \"\"\"Return the item at the front of the queue without removing it.\"\"\"\n        ...\n\n    def empty(self):\n        \"\"\"Return True if the queue has no items.\"\"\"\n        ...\n",
+  "tests": [
+    "from collections import deque\ndef agrees_with_a_plain_queue(steps):\n    # Replays the steps on QueueWithTwoStacks and on a deque, and fails at the first answer that differs.\n    # A step is (\"push\", x), (\"pop\",) or (\"peek\",); empty() is checked after every step.\n    queue, model = QueueWithTwoStacks(), deque()\n    for number, step in enumerate(steps, 1):\n        action = step[0]\n        if action == \"push\":\n            queue.push(step[1])\n            model.append(step[1])\n        elif action == \"pop\":\n            got = queue.pop()\n            assert got == model[0], f\"step {number}: pop() returned {got!r}, but the front of the queue was {model[0]!r}\"\n            model.popleft()\n        else:\n            got = queue.peek()\n            assert got == model[0], f\"step {number}: peek() returned {got!r}, but the front of the queue is {model[0]!r}\"\n        assert queue.empty() == (not model), f\"step {number}: empty() returned {queue.empty()!r}, but the queue holds {len(model)} item(s)\"\n    return True\nq = QueueWithTwoStacks()",
+    "assert q.empty() == True",
+    "q.push(1)\nq.push(2)",
+    "assert q.empty() == False",
+    "assert q.peek() == 1",
+    "assert q.pop() == 1",
+    "q.push(3)",
+    "assert q.pop() == 2",
+    "assert q.pop() == 3",
+    "assert q.empty() == True",
+    "new_items_arrive_while_older_ones_wait = [(\"push\", 1), (\"push\", 2), (\"push\", 3), (\"pop\",), (\"push\", 4), (\"pop\",), (\"pop\",), (\"pop\",)]",
+    "assert agrees_with_a_plain_queue(new_items_arrive_while_older_ones_wait)",
+    "peeking_does_not_remove = [(\"push\", \"a\"), (\"push\", \"b\"), (\"pop\",), (\"peek\",), (\"peek\",), (\"push\", \"c\"), (\"peek\",), (\"pop\",), (\"pop\",)]",
+    "assert agrees_with_a_plain_queue(peeking_does_not_remove)",
+    "push_everything_then_pop_everything = [(\"push\", i) for i in range(10_000)] + [(\"pop\",)] * 10_000",
+    "assert agrees_with_a_plain_queue(push_everything_then_pop_everything), \"too slow or wrong on 10,000 pushes followed by 10,000 pops\"",
+    "bursts = []\nfor i in range(5_000):\n    bursts += [(\"push\", 3 * i), (\"push\", 3 * i + 1), (\"push\", 3 * i + 2), (\"pop\",)]",
+    "assert agrees_with_a_plain_queue(bursts), \"too slow or wrong when three items are pushed and one is popped, 5,000 times over\""
+  ],
+  "hints": [
+    "A stack reverses the order of the items you pour into it. What happens to the order if you pour one stack into another?",
+    "Push new items onto an `inbox` stack. To pop or peek, use an `outbox` stack; when it is empty, move everything from the inbox into it, so that the oldest item ends up on top.",
+    "Move items only when the outbox is empty, or you reorder the queue. `empty()` must check both stacks, and `peek` needs the same refill as `pop`."
+  ],
+  "solution": "class QueueWithTwoStacks:\n    def __init__(self):\n        self._inbox = []      # new items are pushed here\n        self._outbox = []     # items waiting to leave, with the front of the queue on top\n\n    def push(self, x):\n        self._inbox.append(x)\n\n    def pop(self):\n        self._refill_outbox()\n        return self._outbox.pop()\n\n    def peek(self):\n        self._refill_outbox()\n        return self._outbox[-1]\n\n    def empty(self):\n        return not self._inbox and not self._outbox\n\n    def _refill_outbox(self):\n        if not self._outbox:                      # only when it is empty, or newer items would jump the queue\n            while self._inbox:\n                self._outbox.append(self._inbox.pop())    # pouring one stack into another reverses it\n",
+  "explanation": "**The idea.** A stack reverses the order of what you put in, and two reversals restore it. New items are pushed onto an *inbox* stack. Items leave from an *outbox* stack. When the outbox is empty and you need the front item, pour the whole inbox into the outbox: the oldest item, which was at the bottom of the inbox, ends up on top.\n\n**The rule that keeps the order right.** Move items only when the outbox is *empty*. If you pour while the outbox still holds older items, the newer ones land on top of them and come out too early. `empty()` has to look at both stacks, because after a `pop` everything that is left may be in the outbox alone.\n\n**Why amortised O(1).** One `pop` may move many items, but each item is moved from the inbox to the outbox at most once in its life. So n operations cost O(n) in total, even though a single operation can cost O(n). Moving every item back and forth on each operation would make the last tests take minutes.\n\n**In practice.** `collections.deque` is a real queue with O(1) operations at both ends; use it outside of exercises like this one. The two-stack queue is still worth knowing: it comes up in interviews, and it is how queues are built in languages where lists are immutable stacks."
+}

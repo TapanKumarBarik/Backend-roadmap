@@ -1,0 +1,33 @@
+{
+  "title": "Fix the Mutable Default Argument",
+  "topic": "debugging",
+  "difficulty": "beginner",
+  "description": "Find why a validator reports errors from earlier requests, and fix the shared default list.",
+  "statement": "`validate_signup(form, errors=[])` checks a signup form (a dict with `\"email\"` and `\"password\"`) and returns the list of problems it finds: an empty list for a good form. A caller may also pass its own `errors` list to collect the problems of several forms into one report; the function then adds to that list and returns it.\n\n**What goes wrong.** The first call is right, but later calls report problems from earlier forms, so a good form is rejected:\n\n```python\nvalidate_signup({\"email\": \"carol\", \"password\": \"x\"})\n# ['email must contain @', 'password must have at least 8 characters']   (correct)\nvalidate_signup({\"email\": \"ann@example.com\", \"password\": \"correct-horse\"})\n# the same two messages again, but this form is fine: expected []\n```\n\nFix the function so that:\n\n- a call without `errors` starts from a new, empty list and depends only on its own form;\n- a list passed by the caller, even an empty one, is the list that receives the messages and that is returned;\n- the messages and their order stay as they are.",
+  "starter": "def validate_signup(form, errors=[]):\n    \"\"\"Return the list of problems found in a signup form (empty when the form is fine).\n\n    Pass your own list as `errors` to collect the problems of several forms into one report.\n    \"\"\"\n    if \"@\" not in form.get(\"email\", \"\"):\n        errors.append(\"email must contain @\")\n    if len(form.get(\"password\", \"\")) < 8:\n        errors.append(\"password must have at least 8 characters\")\n    return errors\n",
+  "tests": [
+    "EMAIL = \"email must contain @\"\nPASSWORD = \"password must have at least 8 characters\"\nvalid = {\"email\": \"ann@example.com\", \"password\": \"correct-horse\"}\nshort_password = {\"email\": \"bob@example.com\", \"password\": \"pw\"}\nboth_wrong = {\"email\": \"carol\", \"password\": \"x\"}",
+    "assert validate_signup(valid) == []",
+    "assert validate_signup(both_wrong) == [EMAIL, PASSWORD]",
+    "assert validate_signup(valid) == []",
+    "assert validate_signup(short_password) == [PASSWORD]",
+    "assert validate_signup(both_wrong) == [EMAIL, PASSWORD]",
+    "junk = validate_signup(valid)\njunk.append(\"changed by the caller\")",
+    "assert validate_signup(valid) == []",
+    "report = [\"signup batch 42\"]",
+    "assert validate_signup(both_wrong, report) is report, \"the function must fill and return the very list it was given\"",
+    "assert report == [\"signup batch 42\", EMAIL, PASSWORD]",
+    "mine = []\nvalidate_signup(short_password, mine)",
+    "assert mine == [PASSWORD], \"a list that the caller passes in is the one to fill, even when it is empty\"",
+    "batch = []\nfor form in (both_wrong, valid, short_password):\n    validate_signup(form, batch)",
+    "assert batch == [EMAIL, PASSWORD, PASSWORD]",
+    "assert validate_signup(valid) == []"
+  ],
+  "hints": [
+    "Call the function twice with a good form, after calling it once with a bad one. Why might the second call know about the first? When is a default value evaluated: on every call, or once?",
+    "The default list is created once, when `def` runs, and every call that does not pass its own list shares it. Use a default that cannot be shared, and create the list inside the function.",
+    "Use `None` as the default and test `errors is None`. Do not write `errors = errors or []`: a list the caller passes in is falsy when it is empty, and the function would stop filling it."
+  ],
+  "solution": "def validate_signup(form, errors=None):\n    \"\"\"Return the list of problems found in a signup form (empty when the form is fine).\n\n    Pass your own list as `errors` to collect the problems of several forms into one report.\n    \"\"\"\n    if errors is None:\n        errors = []          # a new list for every call that was not given one\n    if \"@\" not in form.get(\"email\", \"\"):\n        errors.append(\"email must contain @\")\n    if len(form.get(\"password\", \"\")) < 8:\n        errors.append(\"password must have at least 8 characters\")\n    return errors\n",
+  "explanation": "**What happens.** A default value is evaluated once, when the `def` statement runs, not on every call. `errors=[]` creates a single list and stores it on the function (`validate_signup.__defaults__`). Every call that does not pass `errors` gets that same list and appends to it, so it keeps growing for as long as the process lives. In a web server, one request then sees the errors of another.\n\n**The fix.** Use `None` as the default and create the list inside the function: `if errors is None: errors = []`.\n\n**Why `is None`, not `errors = errors or []`.** An empty list that the caller passes is falsy, so `or []` would quietly swap it for a new list and the caller's list would stay empty. `is None` replaces only an argument that was not given at all.\n\n**Where else this bites.** Any mutable default: `{}`, `set()`, a list or dict in a class attribute shared by all instances, or a default such as `now=datetime.now()`, which is computed once at import time. Immutable defaults (numbers, strings, tuples, `None`) are safe. Linters flag the pattern (`B006` in flake8-bugbear), and dataclasses refuse a mutable default and ask for `field(default_factory=list)`."
+}

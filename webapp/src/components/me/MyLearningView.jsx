@@ -6,7 +6,9 @@ import { pathProgress, pickPathNext } from '../../lib/curriculum/learningPaths.j
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { describeActivity } from '../../lib/comments.js';
 import { useLoader } from '../../hooks/useLoader.js';
-import { ME, WEAK } from '../../config/practice.js';
+import { DIFFICULTY, ME, WEAK } from '../../config/practice.js';
+import { CODE_TOPICS } from '../../config/code.js';
+import { continueProblem, groupByTopic, tally } from '../../lib/practice/codeProgress.js';
 import { Card } from '../ui/Card.jsx';
 import { Button } from '../ui/Button.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
@@ -52,6 +54,12 @@ export default function MyLearningView({
     for (const e of catalog.exercises) if (e.module && statusMap[e.module] === 'done' && !(submissions || []).some((s) => s.challenge === e.slug)) next.push({ key: `e-${e.slug}`, label: `Try the exercise: ${e.title}`, go: () => onOpenPractice(`exercise/${e.slug}`) });
     if (next.length < 3) for (const q of catalog.quizzes) if (!triedQuizzes.has(q.slug) && next.length < 3) next.push({ key: `q-${q.slug}`, label: `Try the quiz: ${q.title}`, go: () => onOpenPractice(`quiz/${q.slug}`) });
   }
+
+  // Coding problems: counted from the progress marks, so they are there for a reader who is not signed in too.
+  const code = useMemo(() => (catalog && catalog.code) || [], [catalog]);
+  const codeGroups = useMemo(() => groupByTopic(code, statusMap, CODE_TOPICS, Object.keys(DIFFICULTY)), [code, statusMap]);
+  const codeTally = tally(code, statusMap);
+  const codeNext = continueProblem(codeGroups, statusMap);
 
   const best = attempts && attempts.length ? Math.round((attempts.reduce((sum, a) => sum + a.score / a.max, 0) / attempts.length) * 100) : null;
   const titleOfExercise = (s) => catalog?.exercises.find((e) => e.slug === s.challenge)?.title || s.challenge;
@@ -101,6 +109,16 @@ export default function MyLearningView({
         </ul>
         <p className="pr-note"><button type="button" className="signin-link" onClick={onOpenSaved}>All saved lessons, notes and articles</button></p>
       </Section>
+
+      {code.length > 0 && (
+        <Section title={ME.code.heading} items={codeTally.solved + codeTally.tried} empty={ME.code.empty(code.length)}>
+          <p className="pr-note">{ME.code.summary(codeTally.solved, codeTally.total)}</p>
+          <ul className="me-list">
+            {codeGroups.filter((g) => g.solved + g.tried > 0).slice(0, SHOWN).map((g) => <li key={g.id}>{ME.code.topic(g.label)}<small>{g.solved}/{g.total}</small></li>)}
+          </ul>
+          {codeNext && <p className="pr-note"><button type="button" className="signin-link" onClick={() => onOpenPractice(`code/${codeNext.slug}`)}>{ME.code.next(codeNext.title)}</button></p>}
+        </Section>
+      )}
 
       {user && (
         <>

@@ -1,0 +1,59 @@
+{
+  "title": "Retry with Exponential Backoff",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md",
+  "description": "Retry a failing call with exponential backoff and jitter, re-raising when attempts run out.",
+  "statement": "Write `retry(fn, attempts=5, base=0.1, cap=5.0, retry_on=(Exception,), sleep=time.sleep, uniform=random.uniform)`. It calls `fn()` (no arguments) and returns what `fn` returns. If the call raises an exception of a type in `retry_on` (one class or a tuple of classes), it waits and calls `fn` again, up to `attempts` calls in total.\n\n- Before retry number `k` (`k` = 0, 1, 2, ...) it calls `sleep(delay)` with `delay = uniform(0, min(cap, base * 2 ** k))`: exponential backoff with \"full jitter\".\n- After the last attempt fails it does not sleep: it re-raises that last exception unchanged.\n- An exception whose type is not in `retry_on` propagates at once: no sleep and no further calls.\n- Always use the `sleep` and `uniform` parameters (`uniform(a, b)` works like `random.uniform`), never `time.sleep` or `random` directly: the tests replace them.\n\n**Example**\n\n```python\ncalls, waits = [], []\ndef flaky():\n    calls.append(1)\n    if len(calls) < 3:\n        raise ConnectionError(\"down\")\n    return \"ok\"\n\nretry(flaky, base=1, sleep=waits.append, uniform=lambda a, b: b)   # \"ok\"\nwaits                                                              # [1, 2]\n```",
+  "starter": "import random\nimport time\n\n\ndef retry(fn, attempts=5, base=0.1, cap=5.0, retry_on=(Exception,), sleep=time.sleep, uniform=random.uniform):\n    \"\"\"Call fn() and return its result; on an exception in `retry_on`, wait with jittered exponential backoff and try again.\"\"\"\n    ...\n",
+  "tests": [
+    "\nclass Flaky:\n    \"\"\"A function that fails `failures` times in a row, then returns `result`.\"\"\"\n\n    def __init__(self, failures, error=ConnectionError, result=\"ok\"):\n        self.failures = failures\n        self.error = error\n        self.result = result\n        self.calls = 0\n\n    def __call__(self):\n        self.calls += 1\n        if self.calls <= self.failures:\n            raise self.error(f\"failure {self.calls}\")\n        return self.result\n\n\ndef run(failures, error=ConnectionError, result=\"ok\", **options):\n    \"\"\"Runs retry() on a Flaky function with base=1 and cap=10 unless told otherwise. `sleep` records what it is given\n    and `uniform(a, b)` answers the middle of its range, so the recorded waits are half of each backoff bound.\"\"\"\n    flaky = Flaky(failures, error, result)\n    waits = []\n    options.setdefault(\"base\", 1)\n    options.setdefault(\"cap\", 10)\n    try:\n        outcome = {\"returned\": retry(flaky, sleep=waits.append, uniform=lambda a, b: (a + b) / 2, **options)}\n    except BaseException as caught:\n        outcome = {\"raised\": f\"{type(caught).__name__}: {caught}\"}\n    outcome[\"calls\"] = flaky.calls\n    outcome[\"waits\"] = waits\n    return outcome\n",
+    {
+      "name": "a call that works the first time is returned as it is, with no waiting",
+      "code": "assert run(failures=0) == {\"returned\": \"ok\", \"calls\": 1, \"waits\": []}"
+    },
+    {
+      "name": "before retry k it sleeps uniform(0, base * 2**k): bounds 1, 2, 4 give middles 0.5, 1, 2",
+      "code": "assert run(failures=3) == {\"returned\": \"ok\", \"calls\": 4, \"waits\": [0.5, 1.0, 2.0]}"
+    },
+    {
+      "name": "the backoff bound stops growing at `cap`",
+      "code": "assert run(failures=9, attempts=7) == {\"raised\": \"ConnectionError: failure 7\", \"calls\": 7, \"waits\": [0.5, 1.0, 2.0, 4.0, 5.0, 5.0]}"
+    },
+    {
+      "name": "after the last attempt it re-raises the last exception and does not sleep again",
+      "code": "assert run(failures=9, attempts=3) == {\"raised\": \"ConnectionError: failure 3\", \"calls\": 3, \"waits\": [0.5, 1.0]}"
+    },
+    {
+      "name": "an exception that is not in retry_on propagates at once",
+      "code": "assert run(failures=5, error=ValueError, retry_on=ConnectionError) == {\"raised\": \"ValueError: failure 1\", \"calls\": 1, \"waits\": []}"
+    },
+    {
+      "name": "subclasses of a listed exception are retried too",
+      "code": "assert run(failures=1, error=ConnectionResetError, retry_on=(ConnectionError,)) == {\"returned\": \"ok\", \"calls\": 2, \"waits\": [0.5]}"
+    },
+    {
+      "name": "retry_on can list several exception types",
+      "code": "assert run(failures=2, error=TimeoutError, retry_on=(ConnectionError, TimeoutError)) == {\"returned\": \"ok\", \"calls\": 3, \"waits\": [0.5, 1.0]}"
+    },
+    {
+      "name": "attempts=1 means a single call and no retry",
+      "code": "assert run(failures=1, attempts=1) == {\"raised\": \"ConnectionError: failure 1\", \"calls\": 1, \"waits\": []}"
+    },
+    {
+      "name": "a falsy result such as 0 is a success, not a failure",
+      "code": "assert run(failures=0, result=0) == {\"returned\": 0, \"calls\": 1, \"waits\": []}"
+    },
+    {
+      "name": "the defaults: any Exception is retried, 5 attempts, base 0.1 s",
+      "code": "flaky = Flaky(failures=99, error=RuntimeError)\nwaits = []\nlast_message = None\ntry:\n    retry(flaky, sleep=waits.append, uniform=lambda a, b: b)\nexcept RuntimeError as error:\n    last_message = str(error)\nassert last_message == \"failure 5\"\nassert flaky.calls == 5\nassert waits == [0.1, 0.2, 0.4, 0.8]"
+    }
+  ],
+  "hints": [
+    "A loop of at most `attempts` rounds. At the end of a failed round, what decides whether to wait and go round again or to give up?",
+    "In round `k` (counting from 0) the wait is `uniform(0, min(cap, base * 2 ** k))`. Pass exactly that value to the `sleep` parameter, and catch only the exceptions in `retry_on`.",
+    "On the last round, re-raise the exception instead of sleeping (a bare `raise` keeps it exactly as it was). An exception that is not in `retry_on` should not be caught at all."
+  ],
+  "solution": "import random\nimport time\n\n\ndef retry(fn, attempts=5, base=0.1, cap=5.0, retry_on=(Exception,), sleep=time.sleep, uniform=random.uniform):\n    for attempt in range(attempts):\n        try:\n            return fn()\n        except retry_on:\n            if attempt == attempts - 1:\n                raise                                          # out of attempts: the caller sees the last error\n            sleep(uniform(0, min(cap, base * 2 ** attempt)))   # full jitter: anywhere from 0 to the backoff\n",
+  "explanation": "**The idea.** Wrap the call in a loop of at most `attempts` tries. A success returns at once. A failure that is worth retrying waits and goes round again, and the last failure is re-raised so that the caller sees what really went wrong.\n\n**Exponential backoff.** The wait bound doubles after every failure (`base`, `2 * base`, `4 * base`, ...), up to `cap`, so a struggling server gets more and more room to recover.\n\n**Jitter.** If a thousand clients fail at the same moment and all wait exactly 1 s, then 2 s, then 4 s, they all come back together (a *thundering herd*) and knock the server over again just as it recovers. Picking a random delay between 0 and the bound (\"full jitter\") spreads them out. That is why `uniform` is a parameter: a test can then see exactly which delays are chosen.\n\n**What to retry.** Only errors that can succeed later (timeouts, connection resets, 429 and 503 responses), never a 400 or a 404. Only retry operations that are safe to repeat: idempotent ones, or ones sent with an idempotency key, or a retried payment may charge twice. Honour a `Retry-After` header when there is one, and put an overall deadline on the whole operation, not just on each attempt.\n\n**Details.** A bare `raise` keeps the original traceback. Do not sleep after the last attempt. `attempts` counts calls, not retries.\n\n**Complexity.** The helper adds O(1) work; the cost is the waiting."
+}

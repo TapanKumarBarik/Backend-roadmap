@@ -1,0 +1,136 @@
+{
+  "title": "Big-O and data structures",
+  "topic": "algorithms",
+  "difficulty": "beginner",
+  "description": "What common operations on lists, dicts, sets, heaps and deques cost, and how to spot the code that quietly turns quadratic.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A loop handles n incoming orders. For each one it checks if order_id in seen_ids, where seen_ids is a Python list that grows as new ids are appended. What is the total running time?",
+      "options": [
+        { "id": "a", "text": "O(n), because the loop body runs once per order and each step is a single check" },
+        { "id": "b", "text": "O(log n), because Python uses binary search when you test membership in a list" },
+        { "id": "c", "text": "O(n^2), because each in check scans the list, and the list keeps growing" },
+        { "id": "d", "text": "O(n log n), because each in check sorts the list before looking for the id" }
+      ],
+      "answer": ["c"],
+      "explanation": "A membership test on a list compares the id with the items one by one, so each check costs O(n) and n checks add up to O(n^2). Keeping the seen ids in a set makes each check O(1) on average and the whole loop O(n), at the price of extra memory for the set. Counting only the outer loop, as the first option does, ignores the work inside each check."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "How can a Python dict find a key in O(1) time on average, and what makes it slower in the worst case?",
+      "options": [
+        { "id": "a", "text": "It keeps its keys sorted and binary-searches them; the worst case is keys that arrive out of order" },
+        { "id": "b", "text": "It hashes the key to jump near its slot; many keys colliding on the same slots slows it down" },
+        { "id": "c", "text": "It checks the newest entries first; the worst case is a key that was added long ago" },
+        { "id": "d", "text": "It caches the result of every lookup it has seen; the worst case is a key it has never been asked for" }
+      ],
+      "answer": ["b"],
+      "explanation": "The key's hash tells the dict (and a set, which works the same way) roughly where its entry lives, so a lookup inspects one slot or a few instead of scanning everything. If many keys collide on the same slots, because of a poor hash function or hostile input, lookups degrade towards O(n). Dicts are not sorted, and they do not cache lookups."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Appending to a Python list is called amortised O(1). What does amortised mean here?",
+      "options": [
+        { "id": "a", "text": "Every single append takes exactly the same constant time, however full the list is" },
+        { "id": "b", "text": "Append is constant time only while the list is kept sorted, and slower otherwise" },
+        { "id": "c", "text": "The list reserves memory for all the data it will ever hold when it is created" },
+        { "id": "d", "text": "Occasional resizes are expensive, but averaged over many appends the cost is constant" }
+      ],
+      "answer": ["d"],
+      "explanation": "When a list runs out of spare room, Python allocates a larger block and copies every item, an O(n) step. Because each new block leaves room for many more appends, such copies are rare and the average cost per append stays constant, although a single append can occasionally be slow."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A program adds jobs at the back of a queue and takes them from the front, millions of times. Which choice keeps both operations cheap?",
+      "options": [
+        { "id": "a", "text": "A collections.deque, which adds and removes at either end in O(1)" },
+        { "id": "b", "text": "A list, using append() to add a job and pop(0) to take the next one" },
+        { "id": "c", "text": "A list, using insert(0, job) to add a job and pop() to take the next one" },
+        { "id": "d", "text": "A set, because adding and removing a member is O(1) on average" }
+      ],
+      "answer": ["a"],
+      "explanation": "A deque is built for fast work at both ends, so append and popleft are O(1). On a list, pop(0) and insert(0, x) have to shift every other item, so each costs O(n) and millions of them become very slow. A set has no order, so it cannot say which job came first."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "You are reading a stream of 10 million numbers and want only the 10 largest, without keeping them all in memory. What is the best approach?",
+      "options": [
+        { "id": "a", "text": "Sort all 10 million numbers, then slice off the last 10 of them" },
+        { "id": "b", "text": "Load every number into a max-heap, then pop the largest item 10 times, one after another" },
+        { "id": "c", "text": "A min-heap of size 10: replace its smallest item whenever a bigger number arrives" },
+        { "id": "d", "text": "Store every number in a set, then take the maximum of the set 10 times" }
+      ],
+      "answer": ["c"],
+      "explanation": "A min-heap capped at 10 items needs only a little memory, and each number costs at most one heap operation on 10 items, so the pass takes O(n log k) time with k = 10 (heapq.nlargest does exactly this). Sorting, or a max-heap or set of everything, takes O(n) memory, which the problem rules out."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "You keep a Python list sorted by calling bisect.insort(items, x) for every new item. Roughly what does one insert cost, for a list of n items?",
+      "options": [
+        { "id": "a", "text": "O(1), because bisect jumps straight to the right position in the list" },
+        { "id": "b", "text": "O(log n), because binary search finds the position and that is all the work" },
+        { "id": "c", "text": "O(n log n), because insort sorts the whole list again after each insert" },
+        { "id": "d", "text": "O(n): the search is O(log n), but later items must shift to make room" }
+      ],
+      "answer": ["d"],
+      "explanation": "bisect finds the insertion point in O(log n) comparisons, but a Python list is an array, so every item after that point has to move along one place, which is O(n). A sorted list with bisect suits data that is searched often and changed rarely; for frequent inserts, a heap (if you only need the smallest item) or a tree-based structure fits better."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these patterns can make a program take roughly O(n^2) time as n grows?",
+      "options": [
+        { "id": "a", "text": "Two nested loops that each go over the whole list of n items" },
+        { "id": "b", "text": "One loop that appends each of n items to a list" },
+        { "id": "c", "text": "A loop that calls my_list.remove(item) once per item on a list of n items" },
+        { "id": "d", "text": "A loop that counts n words with counts[w] = counts.get(w, 0) + 1" },
+        { "id": "e", "text": "A loop that builds a long string with result += piece when each += copies everything built so far" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "Nested loops multiply their work, list.remove has to search and then shift the list, and repeatedly copying a growing string adds up the same way, so each of those is O(n^2) over n steps. Appending to a list and updating a dict entry are O(1) on average, so those loops stay O(n)."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which statements about memory use (space complexity) are true?",
+      "options": [
+        { "id": "a", "text": "A dict that gives O(1) lookups also uses only O(1) memory" },
+        { "id": "b", "text": "A set built from n ids needs memory proportional to n, even though each lookup is O(1) on average" },
+        { "id": "c", "text": "sorted(items) sorts in place, so it needs no extra memory for the result" },
+        { "id": "d", "text": "A recursive function that goes n calls deep needs O(n) memory for its call stack" },
+        { "id": "e", "text": "A generator that yields one line of a large file at a time keeps only a small, constant amount of data in memory" }
+      ],
+      "answer": ["b", "d", "e"],
+      "explanation": "Fast lookups are not free in memory: a dict or set stores all n entries, so it takes O(n) space. Every pending call keeps a stack frame, so n-deep recursion costs O(n), while a generator holds just the current item. sorted() builds a new list of n items, whereas list.sort() reorders the existing one."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "To find a single value in an unsorted list, sorting the list first and then using binary search is faster than one linear scan.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Sorting costs O(n log n), which is more than the O(n) of a single scan, so sorting just to search once is slower. It pays off only when you search many times: you sort once, and each later lookup costs O(log n)."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "Big-O describes how an algorithm's cost grows with the input size, so an O(n log n) algorithm can still be faster than an O(n) one on small inputs.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Big-O hides constant factors and says nothing about any one input size, so it tells you which approach wins as n grows, not which is quicker at a given n. On small inputs a simpler algorithm with a worse growth rate can win, which is why measuring still matters."
+    }
+  ]
+}

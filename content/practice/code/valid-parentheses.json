@@ -1,0 +1,29 @@
+{
+  "title": "Valid Parentheses",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "beginner",
+  "description": "Check that every bracket in a string is closed by the right kind of bracket, in the right order.",
+  "statement": "The string `s` contains only the characters `(`, `)`, `[`, `]`, `{` and `}`. Return `True` if its brackets are balanced, and `False` otherwise.\n\nBrackets are balanced when every opening bracket is closed by a bracket **of the same kind**, and they are closed in the right order: the most recently opened bracket that is still open must be the next one to close.\n\n- The empty string is balanced.\n- A closing bracket with nothing open to match it makes the string unbalanced, and so does an opening bracket that is never closed.\n\n**Examples**\n\n```python\nis_valid(\"()[]{}\")   # True\nis_valid(\"([{}])\")   # True\nis_valid(\"(]\")       # False: the wrong kind\nis_valid(\"([)]\")     # False: closed in the wrong order\n```\n\nAim for O(n): the last tests have 200,000 characters.",
+  "starter": "def is_valid(s):\n    \"\"\"Return True if every bracket in s is closed by the same kind of bracket, in the right order.\"\"\"\n    ...\n",
+  "tests": [
+    "assert is_valid(\"()[]{}\") == True",
+    "assert is_valid(\"([{}])\") == True",
+    "assert is_valid(\"(]\") == False",
+    "assert is_valid(\"([)]\") == False",
+    "assert is_valid(\"\") == True",
+    "assert is_valid(\"]\") == False",
+    "assert is_valid(\"((\") == False",
+    "assert is_valid(\")(\") == False",
+    "assert is_valid(\"{[]}\") == True",
+    "assert is_valid(\"(\" * 100_000 + \")\" * 100_000) == True, \"too slow or wrong on 200,000 characters; deleting matched pairs over and over is O(n^2)\"",
+    "assert is_valid(\"([{\" * 30_000 + \"}])\" * 30_000) == True, \"too slow or wrong on 180,000 characters nested ten thousand deep\"",
+    "assert is_valid(\"(\" * 100_000 + \")\" * 99_999 + \"]\") == False, \"wrong when only the very last bracket is the wrong kind\""
+  ],
+  "hints": [
+    "The most recently opened bracket is the first one that has to be closed. Which data structure gives you the most recent item first?",
+    "Push every opening bracket. On a closing bracket, check that the top of the stack is its matching opener and pop it. If it is not (or the stack is empty), the string is invalid.",
+    "At the end the stack must be empty: `\"((\"` never has a wrong closing bracket but is still invalid. And a closing bracket must not try to pop from an empty stack."
+  ],
+  "solution": "def is_valid(s):\n    opener_for = {\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}\n    open_brackets = []                              # a stack: the most recent unclosed opener is on top\n    for ch in s:\n        if ch in opener_for:                        # a closing bracket must match the top of the stack\n            if not open_brackets or open_brackets.pop() != opener_for[ch]:\n                return False\n        else:\n            open_brackets.append(ch)\n    return not open_brackets                        # anything left over was never closed\n",
+  "explanation": "**The idea.** \"The most recently opened bracket must be closed first\" is last-in, first-out, which is exactly a stack. Push every opening bracket. On a closing bracket, the top of the stack must be its matching opener: pop it, otherwise the string is invalid. At the end the stack must be empty, or some bracket was never closed.\n\n**Edge cases to name.** The empty string (valid), a lone closer such as `\"]\"` (there is nothing to pop), leftover openers such as `\"((\"`, and `\")(\"` (the right counts in the wrong order).\n\n**Complexity.** O(n) time and O(n) space. Repeatedly deleting `\"()\"`, `\"[]\"` and `\"{}\"` from the string also gives the right answer, but each deletion pass is O(n) and a deeply nested string needs n/2 passes: O(n²), which the large tests expose.\n\n**Follow-up.** Return the index of the first bracket that breaks the rule (store indexes on the stack), the way an editor underlines the error."
+}

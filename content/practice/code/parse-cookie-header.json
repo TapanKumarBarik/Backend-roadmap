@@ -1,0 +1,30 @@
+{
+  "title": "Parse a Cookie Header",
+  "topic": "strings-and-parsing",
+  "difficulty": "beginner",
+  "module": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md",
+  "description": "Turn a Cookie request header into a dict, handling spaces, empty values, equals signs and duplicates.",
+  "statement": "A server receives the cookies of a request in the `Cookie` header, as one string. Write `parse_cookie_header(header)` that returns a dict from cookie name to value. `header` is the value of the header, such as `\"session=abc123; theme=dark\"` (without the `Cookie:` name).\n\n- Cookies are separated by `;`. Split each one at its **first** `=`, so `id=abc==` has the value `abc==`.\n- Remove whitespace around names and around values; whitespace inside a value stays (`note=two words`).\n- An empty value is allowed: `empty=` gives `\"\"`.\n- Skip empty segments (`a=1;;b=2`), segments without an `=`, and segments with an empty name.\n- If a name appears more than once, **the first one wins**.\n- Names are case-sensitive, and values are returned as sent, without any decoding.\n\n**Examples**\n\n```python\nparse_cookie_header(\"session=abc123; theme=dark\")        # {\"session\": \"abc123\", \"theme\": \"dark\"}\nparse_cookie_header(\"id=abc==; note=two words; empty=\")  # {\"id\": \"abc==\", \"note\": \"two words\", \"empty\": \"\"}\nparse_cookie_header(\"a=1; a=2\")                          # {\"a\": \"1\"}\nparse_cookie_header(\"\")                                  # {}\n```",
+  "starter": "def parse_cookie_header(header):\n    \"\"\"Return a dict of cookie names to values from the value of a Cookie request header.\"\"\"\n    ...\n",
+  "tests": [
+    "assert parse_cookie_header(\"session=abc123; theme=dark\") == {\"session\": \"abc123\", \"theme\": \"dark\"}",
+    "assert parse_cookie_header(\"id=abc==; note=two words; empty=\") == {\"id\": \"abc==\", \"note\": \"two words\", \"empty\": \"\"}",
+    "assert parse_cookie_header(\"a=1; a=2\") == {\"a\": \"1\"}",
+    "assert parse_cookie_header(\"\") == {}",
+    "assert parse_cookie_header(\"   \") == {}",
+    "assert parse_cookie_header(\"  a = 1 ;b=  two  words  ;  c=3\") == {\"a\": \"1\", \"b\": \"two  words\", \"c\": \"3\"}",
+    "assert parse_cookie_header(\"a=1; ; novalue; =orphan; b=2;\") == {\"a\": \"1\", \"b\": \"2\"}",
+    "assert parse_cookie_header(\"ID=1; id=2\") == {\"ID\": \"1\", \"id\": \"2\"}",
+    "assert parse_cookie_header(\"a=; a=2\") == {\"a\": \"\"}",
+    "assert parse_cookie_header('path=%2Fhome%20x; q=\"a b\"') == {\"path\": \"%2Fhome%20x\", \"q\": '\"a b\"'}",
+    "big_header = \"; \".join(f\"c{i}={i}\" for i in range(5000))",
+    "assert parse_cookie_header(big_header) == {f\"c{i}\": str(i) for i in range(5000)}"
+  ],
+  "hints": [
+    "A header like this has two levels: cookies are separated by one character, and each cookie has a name and a value separated by another. Which do you split on first?",
+    "Split on `;`, then use `str.partition(\"=\")` on each piece: it cuts at the first `=` only and tells you whether there was one. Strip whitespace from the name and from the value.",
+    "Use `setdefault` (or an `if name not in cookies` check) so that the first cookie with a name wins, even when its value is empty."
+  ],
+  "solution": "def parse_cookie_header(header):\n    cookies = {}\n    for segment in header.split(\";\"):\n        name, equals, value = segment.partition(\"=\")      # cut at the first \"=\"; `equals` is empty if there was none\n        name = name.strip()\n        if not equals or not name:\n            continue                                      # not a cookie: no \"=\", or no name\n        cookies.setdefault(name, value.strip())           # the first cookie with a name wins\n    return cookies\n",
+  "explanation": "**The idea.** The header has two levels of separators: `;` between cookies and `=` between a name and its value. Split on `;` first, then `partition(\"=\")` each piece. It cuts at the first `=` only, so a value such as `abc==` stays whole, and its middle part tells you whether there was an `=` at all.\n\n**The rules that bite.** Strip the name and the value separately, not the whole segment, so spaces inside a value survive. Use `setdefault` (or an `if name not in cookies` check) so the first cookie of a name wins even when its value is empty: `if not cookies.get(name)` would let a later cookie replace an empty one.\n\n**Why \"first wins\".** Cookies with the same name can come from different paths or domains, and browsers list the more specific one first, so the first is the one that applies. Frameworks differ (some keep the last one), which is a real source of bugs when two services read the same header differently.\n\n**Complexity.** O(n) for a header of n characters.\n\n**Follow-up.** Real parsers also deal with quoted values (`a=\"x y\"`), and `http.cookies.SimpleCookie` in the standard library follows more of the specification. This problem is the practical core."
+}

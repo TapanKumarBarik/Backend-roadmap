@@ -1,0 +1,29 @@
+{
+  "title": "Valid IPv4 Address",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Validate a dotted-quad IPv4 address strictly: four parts, 0-255, no leading zeros, nothing else.",
+  "statement": "A server has to reject malformed client addresses before it puts them in an allow-list. Write `is_valid_ipv4(address)` that returns `True` only for a string in strict dotted-quad form, and `False` for everything else.\n\nA valid address has:\n\n- exactly four parts, separated by single dots, with nothing before, between or after them (no spaces, no newline, no sign);\n- in each part, one or more of the ASCII digits `0` to `9` and nothing else (digits from other alphabets do not count);\n- a value from `0` to `255` in each part;\n- no leading zeros: `\"0\"` is fine, `\"01\"` and `\"00\"` are not.\n\n**Examples**\n\n```python\nis_valid_ipv4(\"192.168.0.1\")   # True\nis_valid_ipv4(\"256.1.1.1\")     # False, 256 is too big\nis_valid_ipv4(\"1.2.3\")         # False, only three parts\nis_valid_ipv4(\"01.2.3.4\")      # False, leading zero\n```",
+  "starter": "def is_valid_ipv4(address):\n    \"\"\"Return True if address is a strictly valid dotted-quad IPv4 address, False otherwise.\"\"\"\n    ...\n",
+  "tests": [
+    "def must_accept(*addresses):\n    for address in addresses:\n        got = is_valid_ipv4(address)\n        assert got == True, f\"{address!r} is valid, but is_valid_ipv4 returned {got!r}\"\n    return True\ndef must_reject(*addresses):\n    for address in addresses:\n        got = is_valid_ipv4(address)\n        assert got == False, f\"{address!r} is not valid, but is_valid_ipv4 returned {got!r}\"\n    return True",
+    "assert is_valid_ipv4(\"192.168.0.1\") == True",
+    "assert is_valid_ipv4(\"256.1.1.1\") == False",
+    "assert is_valid_ipv4(\"1.2.3\") == False",
+    "assert is_valid_ipv4(\"01.2.3.4\") == False",
+    "assert must_accept(\"0.0.0.0\", \"255.255.255.255\", \"10.0.0.1\", \"1.20.200.0\")",
+    "assert must_reject(\"\", \"1.2.3\", \"1.2.3.4.5\", \"1.2.3.\", \".1.2.3\", \"1..3.4\", \"1.2.3.4.\")",
+    "assert must_reject(\"00.1.1.1\", \"1.2.3.00\", \"1.2.3.007\", \"000.0.0.0\")",
+    "assert must_reject(\"1.2.3.256\", \"1.2.3.1000\", \"300.300.300.300\", \"99999999999.1.1.1\")",
+    "assert must_reject(\" 1.2.3.4\", \"1.2.3.4 \", \"1.2.3.4\\n\", \"1. 2.3.4\", \"1.2.3.\\t4\")",
+    "assert must_reject(\"+1.2.3.4\", \"1.2.3.-0\", \"a.b.c.d\", \"1.2.3.4a\", \"0x1.2.3.4\", \"1_0.2.3.4\", \"1,2,3,4\")",
+    "assert must_reject(\"1.2.3.\\N{ARABIC-INDIC DIGIT FOUR}\", \"\\N{FULLWIDTH DIGIT ONE}.2.3.4\")"
+  ],
+  "hints": [
+    "Split the address on dots. What has to be true about the number of pieces before you look inside any of them?",
+    "For each piece check, in order: it has one to three characters; every character is one of `0` to `9`; it does not start with `0` unless it is exactly `0`; its value is at most 255.",
+    "Beware of helpers that are too forgiving: `int()` accepts signs, spaces and underscores, and `str.isdigit()` accepts digits from other alphabets. Check the characters yourself."
+  ],
+  "solution": "def is_valid_ipv4(address):\n    parts = address.split(\".\")\n    if len(parts) != 4:\n        return False\n    for part in parts:\n        if not 1 <= len(part) <= 3:\n            return False                       # empty, or too long to be 0-255\n        if any(char not in \"0123456789\" for char in part):\n            return False                       # ASCII digits only: no signs, spaces or other alphabets\n        if part[0] == \"0\" and len(part) > 1:\n            return False                       # no leading zeros\n        if int(part) > 255:\n            return False\n    return True\n",
+  "explanation": "**The idea.** Split on `.` and judge the four parts one by one, cheapest check first: how many parts there are, then the length of each, then its characters, then a leading zero, then its value.\n\n**Why be this strict.** Address checks guard allow-lists and SSRF filters. If your validator is looser than the library that later uses the address, an attacker slips through the gap: some libraries read `010` as octal (8), others as decimal (10). Rejecting leading zeros removes the ambiguity.\n\n**Traps in Python's helpers.** `int()` accepts signs, surrounding spaces and underscores. `str.isdigit()` and the regex `\\d` accept digits from other alphabets. A regex that ends in `$` lets a trailing newline through. Checking the characters yourself, or using `re.fullmatch` with `[0-9]`, avoids all three.\n\n**Complexity.** O(n) time for an address of n characters.\n\n**Follow-up.** The standard library's `ipaddress.IPv4Address` has been strict about leading zeros since Python 3.9.5, and it also understands IPv6 and CIDR blocks such as `10.0.0.0/8`. In production, prefer it; writing the validator once by hand shows what it has to get right."
+}

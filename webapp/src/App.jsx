@@ -489,6 +489,7 @@ export default function App() {
       ...(practiceCatalog ? [
         ...practiceCatalog.quizzes.map((q) => ({ label: `Quiz — ${q.title}`, keywords: `practice test ${q.topic}`, run: () => openPractice(`quiz/${q.slug}`) })),
         ...practiceCatalog.exercises.map((e) => ({ label: `Exercise — ${e.title}`, keywords: `practice ${e.topic}`, run: () => openPractice(`exercise/${e.slug}`) })),
+        ...(practiceCatalog.code || []).map((p) => ({ label: `Code — ${p.title}`, keywords: `practice coding problem python leetcode algorithms ${p.topic}`, run: () => openPractice(`code/${p.slug}`) })),
         ...practiceCatalog.interview.map((s) => ({ label: `Interview questions — ${s.title}`, keywords: `practice ${s.topic}`, run: () => openPractice(`interview/${s.slug}`) })),
         ...practiceCatalog.coding.map((s) => ({ label: `Coding questions — ${s.title}`, keywords: `practice coding interview leetcode algorithms ${s.topic}`, run: () => openPractice(`interview/${s.slug}`) }))
       ] : [])
@@ -660,7 +661,7 @@ export default function App() {
                     onOpenPath={openPathPage}
                   />
                 )}
-                {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} />}
+                {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} statusMap={statusMap} onMark={setStatus} />}
                 {isMeRoute && (
                   <MyLearningView
                     user={user}

@@ -1,0 +1,52 @@
+{
+  "title": "Compare Vector Clocks",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "description": "Tell whether one event happened before another or the two were concurrent, and merge their clocks.",
+  "statement": "A vector clock is a dict `{node: counter}` stamped on an event. A node that is missing from the dict counts as `0`. Write two functions:\n\n- `compare_clocks(a, b)` says how event `a` relates to event `b`. It returns `\"before\"` if every counter in `a` is `<=` the matching counter in `b` and at least one is smaller (so `a` could have caused `b`); `\"after\"` for the mirror case; `\"equal\"` if every counter is the same; and `\"concurrent\"` otherwise (each clock is ahead of the other somewhere).\n- `merge_clocks(a, b)` returns a **new** dict containing every node that appears in `a` or `b`, each with the larger of its two counters.\n\nNeither function may change its arguments.\n\n**Examples**\n\n```python\ncompare_clocks({\"A\": 1}, {\"A\": 2, \"B\": 1})    # \"before\"\ncompare_clocks({\"A\": 2}, {\"B\": 1})            # \"concurrent\"\ncompare_clocks({\"A\": 1, \"B\": 0}, {\"A\": 1})    # \"equal\", a missing node counts as 0\nmerge_clocks({\"A\": 2}, {\"A\": 1, \"B\": 3})      # {\"A\": 2, \"B\": 3}\n```",
+  "starter": "def compare_clocks(a, b):\n    \"\"\"Return \"before\", \"after\", \"equal\" or \"concurrent\": how event a relates to event b.\"\"\"\n    ...\n\n\ndef merge_clocks(a, b):\n    \"\"\"Return a new vector clock: for every node in a or b, the larger of the two counters.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport random\n\nrng = random.Random(5)\nsamples = [{node: rng.randint(0, 3) for node in \"ABCD\" if rng.random() < 0.75} for _ in range(40)]\nopposite = {\"before\": \"after\", \"after\": \"before\", \"equal\": \"equal\", \"concurrent\": \"concurrent\"}\n",
+    "assert compare_clocks({\"A\": 1}, {\"A\": 2, \"B\": 1}) == \"before\"",
+    "assert compare_clocks({\"A\": 2}, {\"B\": 1}) == \"concurrent\"",
+    "assert compare_clocks({\"A\": 1, \"B\": 0}, {\"A\": 1}) == \"equal\"",
+    "assert merge_clocks({\"A\": 2}, {\"A\": 1, \"B\": 3}) == {\"A\": 2, \"B\": 3}",
+    "assert compare_clocks({\"A\": 3, \"B\": 1}, {\"A\": 2, \"B\": 1}) == \"after\"",
+    "assert compare_clocks({\"A\": 2, \"B\": 1}, {\"B\": 1, \"A\": 2}) == \"equal\"",
+    "assert compare_clocks({}, {}) == \"equal\"",
+    "assert compare_clocks({}, {\"A\": 1}) == \"before\"",
+    "assert compare_clocks({\"A\": 1, \"B\": 1}, {\"A\": 1}) == \"after\"",
+    "assert compare_clocks({\"A\": 5, \"B\": 0}, {\"A\": 0, \"B\": 6}) == \"concurrent\"",
+    "assert compare_clocks({\"A\": 2, \"B\": 1}, {\"A\": 1, \"B\": 2}) == \"concurrent\"",
+    {
+      "name": "200 nodes: one counter ahead gives before/after, two clocks each ahead somewhere are concurrent",
+      "code": "base = {f\"n{i}\": i for i in range(200)}\nahead = dict(base, n199=500)\nother = dict(base, n0=7)\nassert compare_clocks(base, ahead) == \"before\"\nassert compare_clocks(ahead, base) == \"after\"\nassert compare_clocks(ahead, other) == \"concurrent\"\nassert compare_clocks(base, dict(base)) == \"equal\""
+    },
+    "assert merge_clocks({}, {}) == {}",
+    "assert merge_clocks({\"A\": 1}, {}) == {\"A\": 1}",
+    "assert merge_clocks({\"A\": 1, \"B\": 5}, {\"A\": 4, \"B\": 2, \"C\": 1}) == {\"A\": 4, \"B\": 5, \"C\": 1}",
+    {
+      "name": "neither function changes its arguments, and merge_clocks returns a new dict",
+      "code": "left, right = {\"A\": 1, \"B\": 2}, {\"A\": 3}\ncompare_clocks(left, right)\nmerged = merge_clocks(left, right)\nmerged[\"A\"] = 99\nmerged[\"Z\"] = 1\nassert (left, right) == ({\"A\": 1, \"B\": 2}, {\"A\": 3}), \"an argument was changed, or the result shares a dict with an argument\"\nalone = merge_clocks(left, {})\nalone[\"B\"] = 50\nassert left == {\"A\": 1, \"B\": 2}, \"merge_clocks must return a new dict even when one side is empty\""
+    },
+    {
+      "name": "compare_clocks(a, b) and compare_clocks(b, a) are mirror images (1600 pairs)",
+      "code": "wrong = [(x, y) for x in samples for y in samples if compare_clocks(x, y) != opposite[compare_clocks(y, x)]]\nassert wrong == [], f\"the answers for (a, b) and (b, a) must mirror each other; first mismatch: {wrong[:1]}\""
+    },
+    {
+      "name": "merge_clocks(x, y) is after-or-equal to both x and y (1600 pairs)",
+      "code": "bad = [(x, y) for x in samples for y in samples\n       if compare_clocks(x, merge_clocks(x, y)) not in (\"before\", \"equal\") or compare_clocks(y, merge_clocks(x, y)) not in (\"before\", \"equal\")]\nassert bad == [], f\"the merge must not be behind either input; first failing pair: {bad[:1]}\""
+    },
+    {
+      "name": "merge_clocks is commutative and merging a clock with itself changes nothing (1600 pairs)",
+      "code": "assert all(merge_clocks(x, y) == merge_clocks(y, x) for x in samples for y in samples), \"merge_clocks(a, b) must equal merge_clocks(b, a)\"\nassert all(merge_clocks(x, x) == x for x in samples), \"merge_clocks(a, a) must equal a\""
+    }
+  ],
+  "hints": [
+    "Look at one node at a time. For each node name in either clock, is the counter in `a` smaller than, equal to, or larger than the one in `b`? Which combinations of those answers can happen across all the nodes?",
+    "Treat a missing node as 0. Walk over all node names and keep two flags: \"`a` is larger somewhere\" and \"`b` is larger somewhere\". The four combinations of the flags are your four answers.",
+    "Walk over the union of the node names, not only the names in `a`. And do not compare totals: `{\"A\": 5}` and `{\"B\": 6}` are concurrent even though 5 < 6."
+  ],
+  "solution": "def compare_clocks(a, b):\n    a_ahead = b_ahead = False\n    for node in a.keys() | b.keys():          # every node in either clock; a missing node counts as 0\n        mine, theirs = a.get(node, 0), b.get(node, 0)\n        if mine > theirs:\n            a_ahead = True\n        elif mine < theirs:\n            b_ahead = True\n    if a_ahead and b_ahead:\n        return \"concurrent\"\n    if a_ahead:\n        return \"after\"\n    if b_ahead:\n        return \"before\"\n    return \"equal\"\n\n\ndef merge_clocks(a, b):\n    return {node: max(a.get(node, 0), b.get(node, 0)) for node in a.keys() | b.keys()}\n",
+  "explanation": "**The idea.** A vector clock keeps one counter per node, and an event's stamp is the whole vector. Event `a` happened before `b` exactly when `b`'s vector is at least `a`'s in every position and larger in at least one: `b` has seen everything `a` had seen, and more. If neither vector dominates the other, each side knows something the other does not, so neither could have caused the other. That is the \"concurrent\" case, which is what Lamport clocks cannot tell you.\n\n**The algorithm.** Walk the union of the node names once, treating a missing node as 0, and remember whether you ever saw `a` larger and whether you ever saw `b` larger. Neither is \"equal\", only `b` larger is \"before\", only `a` larger is \"after\", both is \"concurrent\". Do not compare the totals: `{\"A\": 5}` against `{\"B\": 6}` has the smaller sum but is concurrent.\n\n**Merge** takes the position-wise maximum. That is the smallest clock that is after both inputs, and it is what a node does when a message arrives (before it also increments its own counter). Taking a maximum is why merging is commutative, associative and idempotent, which the next problem in this set, the G-Counter, builds on.\n\n**Complexity.** O(n) in the number of nodes. In Dynamo-style stores, versions whose clocks compare as \"concurrent\" are kept side by side as siblings for the application to resolve."
+}

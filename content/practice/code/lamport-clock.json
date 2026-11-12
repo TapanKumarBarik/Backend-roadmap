@@ -1,0 +1,63 @@
+{
+  "title": "Lamport Clock",
+  "topic": "distributed-systems",
+  "difficulty": "beginner",
+  "module": "system-design/01-core-fundamentals/15-consistency-models/README.md",
+  "description": "Keep a logical clock that orders events across processes: tick on events, stamp sends, merge on receives.",
+  "statement": "Implement `LamportClock`, the logical clock of one process in a distributed system. It starts at `time == 0` and only ever moves forward.\n\n- `tick()`: a local event happened. Advance the clock by one and return the new time.\n- `send()`: the process is about to send a message. Sending is an event too: advance the clock by one and return the new time. That is the timestamp to attach to the message.\n- `receive(timestamp)`: a message stamped `timestamp` arrived. Set the clock to `max(time, timestamp) + 1` and return the new time.\n\nThe clock's current value is always available as the attribute `time`.\n\nThe point: if event A could have influenced event B (on the same process, or through a chain of messages), then A's time is smaller than B's.\n\n**Example**\n\n```python\na, b = LamportClock(), LamportClock()\nstamp = a.send()      # 1\nb.receive(stamp)      # 2, because max(0, 1) + 1\nb.tick()              # 3\na.receive(1)          # 2, an old stamp never moves a clock back: max(1, 1) + 1\n```",
+  "starter": "class LamportClock:\n    def __init__(self):\n        self.time = 0\n\n    def tick(self):\n        \"\"\"A local event happened: advance the clock and return the new time.\"\"\"\n        ...\n\n    def send(self):\n        \"\"\"About to send a message: advance the clock and return the timestamp to attach.\"\"\"\n        ...\n\n    def receive(self, timestamp):\n        \"\"\"A message stamped `timestamp` arrived: advance the clock and return the new time.\"\"\"\n        ...\n",
+  "tests": [
+    "\nimport random\n\ndef ticked(times):\n    clock = LamportClock()\n    for _ in range(times):\n        clock.tick()\n    return clock\n\ndef simulate(seed, steps=300):\n    \"\"\"Random ticks, sends and deliveries among 3 processes; returns \"ok\" or a description of the first rule broken.\"\"\"\n    rng = random.Random(seed)\n    clocks = [LamportClock() for _ in range(3)]\n    last = [0, 0, 0]\n    in_flight = []                         # (timestamp, destination)\n    for step in range(steps):\n        p = rng.randrange(3)\n        action = rng.choice([\"tick\", \"send\", \"receive\"])\n        if action == \"receive\" and not in_flight:\n            action = \"tick\"\n        if action == \"tick\":\n            now = clocks[p].tick()\n        elif action == \"send\":\n            now = clocks[p].send()\n            in_flight.append((now, rng.choice([q for q in range(3) if q != p])))\n        else:\n            stamp, p = in_flight.pop(rng.randrange(len(in_flight)))\n            now = clocks[p].receive(stamp)\n            if now <= stamp:\n                return f\"step {step}: process {p} received a message stamped {stamp} and its time became {now}, which is not later\"\n        if now <= last[p]:\n            return f\"step {step}: process {p} went from {last[p]} to {now}; its time must grow with every event\"\n        if clocks[p].time != now:\n            return f\"step {step}: process {p} returned {now} but its time attribute is {clocks[p].time}\"\n        last[p] = now\n    return \"ok\"\n",
+    {
+      "name": "a new clock starts at time 0",
+      "code": "assert LamportClock().time == 0"
+    },
+    {
+      "name": "tick() advances by one and returns the new time",
+      "code": "clock = LamportClock()\nassert clock.tick() == 1\nassert clock.tick() == 2\nassert clock.time == 2"
+    },
+    {
+      "name": "send() is an event: it advances by one and returns the timestamp to attach",
+      "code": "clock = ticked(2)\nassert clock.send() == 3\nassert clock.time == 3"
+    },
+    {
+      "name": "receive() of a larger timestamp jumps past it: max(0, 10) + 1",
+      "code": "clock = LamportClock()\nassert clock.receive(10) == 11\nassert clock.time == 11"
+    },
+    {
+      "name": "a stale timestamp never moves the clock back: max(5, 2) + 1",
+      "code": "clock = ticked(5)\nassert clock.receive(2) == 6\nassert clock.time == 6"
+    },
+    {
+      "name": "an equal timestamp still advances the clock: max(4, 4) + 1",
+      "code": "clock = ticked(4)\nassert clock.receive(4) == 5"
+    },
+    {
+      "name": "the example: A sends, B receives and ticks, A receives an old stamp",
+      "code": "a, b = LamportClock(), LamportClock()\nstamp = a.send()\nassert stamp == 1\nassert b.receive(stamp) == 2\nassert b.tick() == 3\nassert a.receive(1) == 2"
+    },
+    {
+      "name": "a request and its reply: the reply is later than the request",
+      "code": "a, b = LamportClock(), LamportClock()\nrequest = a.send()\nb.receive(request)\nreply = b.send()\nassert a.receive(reply) == 4, f\"A's clock was {request} and the reply carries {reply}: max({request}, {reply}) + 1\""
+    },
+    {
+      "name": "a chain of messages A -> B -> C gives strictly increasing times",
+      "code": "a, b, c = ticked(5), LamportClock(), LamportClock()\nsent_by_a = a.send()\nreceived_by_b = b.receive(sent_by_a)\nsent_by_b = b.send()\nreceived_by_c = c.receive(sent_by_b)\nassert [sent_by_a, received_by_b, sent_by_b, received_by_c] == [6, 7, 8, 9]"
+    },
+    {
+      "name": "300 random ticks, sends and deliveries among 3 processes keep every rule",
+      "code": "assert simulate(7) == \"ok\""
+    },
+    {
+      "name": "600 random steps with another seed",
+      "code": "assert simulate(2024, steps=600) == \"ok\""
+    }
+  ],
+  "hints": [
+    "Every event moves the clock forward by at least one. There is exactly one event where adding one is not enough. Which?",
+    "`tick` and `send` add one (and `send` returns the new time). `receive` must jump past both the local time and the timestamp on the message.",
+    "Take the maximum of the two numbers before you add one: `max(self.time, timestamp) + 1`. When the two are equal the clock must still advance."
+  ],
+  "solution": "class LamportClock:\n    def __init__(self):\n        self.time = 0\n\n    def tick(self):\n        self.time += 1\n        return self.time\n\n    def send(self):\n        # Sending is an event: the stamp is the time after the increment.\n        return self.tick()\n\n    def receive(self, timestamp):\n        # Land after both our own history and the sender's.\n        self.time = max(self.time, timestamp) + 1\n        return self.time\n",
+  "explanation": "**The idea.** A Lamport clock is a counter with one promise: if event A could have influenced event B (same process, or a path of messages from A to B), then `time(A) < time(B)`. Local events and sends add one. A receive must land after the send it answers, so it takes the larger of \"what I knew\" and \"what the sender knew\" and adds one. That single rule keeps every cause earlier than its effects.\n\n**What it does not give you.** The promise only runs one way: `time(A) < time(B)` does not mean A caused B. Two unrelated events on different processes just get whatever numbers their clocks hold. To find out whether two events are concurrent you need vector clocks. To get a total order of all events, break ties with the process id and order by `(time, process_id)`.\n\n**Complexity.** O(1) per event and one integer of state per process. Follow-up: a delayed message arrives late and carries an old stamp; which part of `receive` stops it from moving the clock backwards?"
+}

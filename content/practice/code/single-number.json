@@ -1,0 +1,29 @@
+{
+  "title": "Single Number",
+  "topic": "math-and-bits",
+  "difficulty": "beginner",
+  "description": "Find the one value that appears once in a list where every other value appears twice.",
+  "statement": "Write `single_number(nums)`. In the list `nums` every value appears exactly twice, except one value, which appears exactly once. Return that value.\n\n- `nums` has an odd number of items, at least one. The values are integers and may be negative or zero.\n- The two copies of a value can be anywhere in the list, not necessarily next to each other.\n\n**Examples**\n\n```python\nsingle_number([2, 2, 1])          # 1\nsingle_number([4, 1, 2, 1, 2])    # 4\nsingle_number([7])                # 7\n```\n\n`nums` can hold hundreds of thousands of items, so comparing every value with every other one is too slow. Aim for O(n) time; as a stretch, try to use no extra memory beyond a few variables.",
+  "starter": "def single_number(nums):\n    \"\"\"Return the value that appears once; every other value in nums appears twice.\"\"\"\n    ...\n",
+  "tests": [
+    "assert single_number([2, 2, 1]) == 1",
+    "assert single_number([4, 1, 2, 1, 2]) == 4",
+    "assert single_number([7]) == 7",
+    "assert single_number([0, 5, 0]) == 5",
+    "assert single_number([3, 0, 3]) == 0",
+    "assert single_number([-1, -1, -7]) == -7",
+    "assert single_number([-5, 5, -5]) == 5",
+    "assert single_number([9, 8, 7, 8, 9]) == 7",
+    "assert single_number([2**40, 5, 2**40]) == 5",
+    "assert single_number([10**18, -10**18, 10**18]) == -10**18",
+    "first_copies = [(i * 7919) % 150_000 for i in range(150_000)]\nsecond_copies = [(i * 104729) % 150_000 for i in range(150_000)]",
+    "assert single_number(first_copies + [123_456_789] + second_copies) == 123_456_789, \"wrong or too slow for 300,001 numbers\""
+  ],
+  "hints": [
+    "Counting every value works, but is there an operation where doing the same thing twice cancels out, like flipping a light switch twice?",
+    "XOR (`^`) has three properties: `a ^ a == 0`, `a ^ 0 == a`, and the order of the operands does not matter. What happens if you XOR all the numbers together?",
+    "Start the running value at 0 and update it with `^=` for every number. You do not need to sort or to keep the pairs together: the cancelling works wherever the two copies are."
+  ],
+  "solution": "def single_number(nums):\n    result = 0\n    for x in nums:\n        result ^= x       # a ^ a == 0 and 0 ^ b == b, so every pair cancels itself out, wherever the copies are\n    return result\n",
+  "explanation": "**The idea.** XOR (`^`) combines two numbers bit by bit: a bit of the result is 1 where the two inputs differ. Three properties do all the work: `a ^ a == 0` (a number cancels itself), `a ^ 0 == a` (zero changes nothing), and the order does not matter. So if you XOR every item together, each pair cancels to 0, wherever its two copies sit, and what remains is the single value.\n\n**Complexity.** One pass: O(n) time and O(1) extra space. Counting with a dictionary (`collections.Counter`) is also O(n) time but needs O(n) space; sorting and looking for the item that does not match its neighbour is O(n log n).\n\n**Other ways.** With a set of the distinct values, `2 * sum(set(nums)) - sum(nums)` is the single value too: the doubled sum of the distinct values counts the single one twice, and the plain sum counts it once.\n\n**Mistakes to avoid.** Comparing neighbours in a sorted list and forgetting the case where the single value is the largest (it has no neighbour to differ from). Treating `0` specially: `0` can be the single value, and XOR returns it correctly.\n\n**Follow-up.** What if every value appears three times except one? XOR no longer cancels; count each bit position modulo 3 instead."
+}

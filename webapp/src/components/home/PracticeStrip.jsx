@@ -16,6 +16,7 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
   const { data: catalog } = useLoader(fetchPracticeCatalog);
   if (!catalog || !catalog.quizzes.length) return null;
   const featured = catalog.coding.slice(0, STRIP.codingShown);
+  const toSolve = (catalog.code || []).filter((p) => p.difficulty === STRIP.codeLevel).sort((a, b) => a.title.localeCompare(b.title)).slice(0, STRIP.codeShown);
   const heading = variant === 'landing'
     ? <h2 id="practice-strip">{STRIP.heading}</h2>
     : <div className="home-h" id="practice-strip">{STRIP.heading}</div>;
@@ -23,6 +24,22 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
     <section className={cx('practice-strip', variant === 'landing' && 'lp-sec')} aria-labelledby="practice-strip">
       {heading}
       <p className="home-sub">{STRIP.lead}</p>
+      {toSolve.length > 0 && (
+        <>
+          <h3 className="practice-strip__sub">{STRIP.code}</h3>
+          <ul className="pr-cards">
+            {toSolve.map((p) => (
+              <li key={p.slug}>
+                <Card as="article" className="pr-card">
+                  <div className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[p.difficulty]}</span><span>{p.topic}</span></div>
+                  <h3 className="pr-card__title"><a href={pageUrl(PRACTICE_ROUTE, `code/${p.slug}`)} onClick={followInApp(() => practice.onOpenPractice(`code/${p.slug}`))}>{p.title}</a></h3>
+                  <p className="pr-card__text">{p.description}</p>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <h3 className="practice-strip__sub">{STRIP.quizzes}</h3>
       <ul className="pr-cards">
         {catalog.quizzes.slice(0, STRIP.items).map((q) => (

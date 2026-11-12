@@ -30,6 +30,13 @@ runs:
       shell: bash
       run: npm run check
 
+    # A coding problem has to be solvable as written: its model solution passes every test and its starting code fails, with ordinary Python and in
+    # Pyodide, the Python the browser runs (scripts/check/check-code-problems.mjs). Python 3 is on GitHub's Ubuntu runners. Slower than the other
+    # checks, so a step of its own.
+    - name: Check the coding problems
+      shell: bash
+      run: npm run check:code
+
     - name: Lint
       shell: bash
       run: npm run lint

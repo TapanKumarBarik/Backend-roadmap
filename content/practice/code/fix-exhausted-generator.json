@@ -1,0 +1,29 @@
+{
+  "title": "Fix the Exhausted Generator",
+  "topic": "debugging",
+  "difficulty": "intermediate",
+  "description": "Fix latency stats that read an access-log stream twice, so the second pass sees nothing.",
+  "statement": "`summarize_latencies(lines)` reads access-log lines such as `\"GET /users/42 200 35ms\"` (the last word is the latency) and returns `{\"count\": n, \"mean_ms\": average, \"max_ms\": slowest}`.\n\n- `lines` is any iterable of strings, including a one-shot stream such as an open file: it can be read only once.\n- `mean_ms` is rounded to 2 decimals. An empty stream gives `{\"count\": 0, \"mean_ms\": 0.0, \"max_ms\": 0}`.\n\n**Example**\n\n```python\nlog = [\"GET /a 200 10ms\", \"GET /b 200 30ms\", \"POST /c 201 20ms\"]\nsummarize_latencies(log)    # {\"count\": 3, \"mean_ms\": 20.0, \"max_ms\": 30}\n```\n\n**Observed:** `count` is right, but for any non-empty stream `mean_ms` is `0.0` and `max_ms` is `0`.",
+  "starter": "def parse_latencies(lines):\n    \"\"\"Yield the latency in milliseconds of each access-log line, e.g. 'GET /users/42 200 35ms' gives 35.\"\"\"\n    for line in lines:\n        yield int(line.split()[-1].removesuffix(\"ms\"))\n\n\ndef summarize_latencies(lines):\n    \"\"\"Return {\"count\": n, \"mean_ms\": average, \"max_ms\": slowest} for a stream of access-log lines.\"\"\"\n    latencies = parse_latencies(lines)\n    count = sum(1 for _ in latencies)\n    total = sum(latencies)\n    return {\n        \"count\": count,\n        \"mean_ms\": round(total / count, 2) if count else 0.0,\n        \"max_ms\": max(latencies, default=0),\n    }\n",
+  "tests": [
+    "import io\nLOG = [\"GET /a 200 10ms\", \"GET /b 200 30ms\", \"POST /c 201 20ms\"]\nSUMMARY = {\"count\": 3, \"mean_ms\": 20.0, \"max_ms\": 30}\ndef one_shot(lines):\n    \"\"\"The same lines as a generator, which can be read only once.\"\"\"\n    yield from lines",
+    "assert summarize_latencies(LOG)[\"count\"] == 3",
+    "assert summarize_latencies(LOG)[\"mean_ms\"] == 20.0",
+    "assert summarize_latencies(LOG)[\"max_ms\"] == 30",
+    "assert summarize_latencies(one_shot(LOG)) == SUMMARY",
+    "assert summarize_latencies(iter(LOG)) == SUMMARY",
+    "assert summarize_latencies(io.StringIO(\"\\n\".join(LOG) + \"\\n\")) == SUMMARY",
+    "assert summarize_latencies([]) == {\"count\": 0, \"mean_ms\": 0.0, \"max_ms\": 0}",
+    "assert summarize_latencies(one_shot([])) == {\"count\": 0, \"mean_ms\": 0.0, \"max_ms\": 0}",
+    "assert summarize_latencies([\"GET /a 200 7ms\"]) == {\"count\": 1, \"mean_ms\": 7.0, \"max_ms\": 7}",
+    "assert summarize_latencies([\"GET /a 200 10ms\", \"GET /b 200 15ms\", \"GET /c 200 12ms\"])[\"mean_ms\"] == 12.33",
+    "assert summarize_latencies(f\"GET /items/{i} 200 {i % 250}ms\" for i in range(50_000)) == {\"count\": 50_000, \"mean_ms\": 124.5, \"max_ms\": 249}"
+  ],
+  "hints": [
+    "Which of the three numbers come out right and which come out wrong? What do the wrong ones have in common?",
+    "`parse_latencies(lines)` returns a generator. What is left in a generator after a loop has gone through all of it, and what do `sum()` and `max()` return for an empty one?",
+    "The input may be a one-shot stream too, so calling `parse_latencies(lines)` a second time does not help. Either keep the values (a list) or compute everything in a single pass."
+  ],
+  "solution": "def parse_latencies(lines):\n    for line in lines:\n        yield int(line.split()[-1].removesuffix(\"ms\"))\n\n\ndef summarize_latencies(lines):\n    # One pass: a generator can be read only once, so collect all three numbers while going through it\n    count = total = slowest = 0\n    for latency in parse_latencies(lines):\n        count += 1\n        total += latency\n        slowest = max(slowest, latency)\n    return {\n        \"count\": count,\n        \"mean_ms\": round(total / count, 2) if count else 0.0,\n        \"max_ms\": slowest,\n    }\n",
+  "explanation": "**The bug class: a single-use iterator used twice.** A generator (and `map`, `filter`, `zip`, file objects, anything returned by `iter(...)`) hands out its values once. After the first loop has gone through them it is exhausted, and `sum()`, `max()` or a second `for` on it just see an empty sequence: no error, no warning, and the sum of nothing is `0`. Here `count` consumed the whole stream, so `total` and the maximum were computed from nothing. The silent empty result is what makes this hard to spot.\n\n**Fixes.** Pick the one that fits the data:\n1. **One pass.** Update the count, the total and the maximum in a single loop (used above). It works for a stream of any size, which is what you want for a big log file, because nothing is kept in memory.\n2. **Materialise.** `values = list(parse_latencies(lines))` and use `len`, `sum` and `max` on the list. Simple, but the whole stream is held in memory.\n3. `itertools.tee` splits one iterator into several; it buffers whatever one copy has read ahead of the others, so it is the list approach in disguise.\n\nCalling `parse_latencies(lines)` again for the second pass is **not** a fix when `lines` is itself a one-shot stream: the second call finds nothing left to read.\n\n**Habit.** Know what you are holding. A list can be looped over many times, an iterator once. A function that needs more than one pass should say so in its docstring, or collect what it needs at the top."
+}

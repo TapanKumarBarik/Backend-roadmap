@@ -1,0 +1,136 @@
+{
+  "title": "Web security and the OWASP Top 10",
+  "topic": "security",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md",
+  "description": "The most common ways web backends get broken into, and the habits that stop them.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A logged-in customer changes the number in GET /api/invoices/1042 to 1043 and sees another customer's invoice. What is the proper fix?",
+      "options": [
+        { "id": "a", "text": "Replace the numeric ids with random UUIDs so nobody can guess another invoice" },
+        { "id": "b", "text": "Remove the links to other invoices from the page so users cannot find them" },
+        { "id": "c", "text": "Check on the server that the caller owns the invoice, on every request" },
+        { "id": "d", "text": "Serve the endpoint over HTTPS so that the id in the URL cannot be changed" }
+      ],
+      "answer": ["c"],
+      "explanation": "This is broken access control, here as an insecure direct object reference: logging in proves who the caller is, but the server must also check that this caller may see this object. Random ids only make guessing harder, and hiding links or adding HTTPS does nothing to stop someone who edits the URL."
+    },
+    {
+      "id": "q2",
+      "type": "multiple",
+      "text": "Which of these are safe ways to handle user input that ends up in a SQL query or a shell command?",
+      "options": [
+        { "id": "a", "text": "Bind the search term as a parameter of a prepared statement" },
+        { "id": "b", "text": "Strip quotes and semicolons from the requested sort column, then paste it into the SQL" },
+        { "id": "c", "text": "Start the external program with its arguments as a list, without going through a shell" },
+        { "id": "d", "text": "Reject any input that contains words such as DROP or SELECT" },
+        { "id": "e", "text": "Map the requested sort name to a column from a fixed allowlist and refuse anything else" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "Parameters keep values out of the SQL text, and an argument list keeps them out of a shell command line, so the input is never parsed as code. Table and column names cannot be bound as parameters, which is why an allowlist is used for them. Stripping characters or blocking keywords can be bypassed in ways you did not think of."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "An endpoint fetches a URL supplied by the user, for example to build a link preview. What is the best defence against server-side request forgery (SSRF)?",
+      "options": [
+        { "id": "a", "text": "Allow only approved destinations and block private addresses after resolving DNS" },
+        { "id": "b", "text": "Insist that the URL starts with https:// and that the host name looks like a public site" },
+        { "id": "c", "text": "Reject any URL that contains the text localhost or 127.0.0.1, in any letter case" },
+        { "id": "d", "text": "Apply a short timeout and a maximum response size to every outbound fetch" }
+      ],
+      "answer": ["a"],
+      "explanation": "In SSRF the attacker uses your server to reach places they cannot, such as internal services or the cloud metadata address. An https:// prefix does not stop that, text filters miss other spellings of the same address and host names that resolve to private ones, and timeouts only limit the load, so allow-list destinations and check the address the name resolves to."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A production API returns a full stack trace, with file paths and the database host name, whenever a request fails. Why is that a security problem, and what is the fix?",
+      "options": [
+        { "id": "a", "text": "It makes error responses slower, so debug mode only needs to go if latency becomes a problem" },
+        { "id": "b", "text": "It breaks cross-origin rules in browsers, so add CORS headers to the error responses" },
+        { "id": "c", "text": "It matters only on plain HTTP, so moving the whole site to HTTPS removes the risk" },
+        { "id": "d", "text": "It reveals internals to attackers, so return a generic error and keep the details in logs" }
+      ],
+      "answer": ["d"],
+      "explanation": "Security misconfiguration includes debug output, default accounts, unneeded features and open storage buckets. A stack trace tells an attacker about your framework, versions, paths and queries, so return a generic message and keep the detail in your logs. Error pages have nothing to do with CORS, and HTTPS protects the connection, not what the server chooses to say."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "If the code your own team wrote has no vulnerabilities, a known security hole in a library you depend on, even an indirect one, cannot affect your service.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "A library runs inside your process with your service's privileges, so a hole in it, even in a dependency of a dependency, is a hole in your service. Keep a lockfile or software bill of materials, scan dependencies in CI and update promptly."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Your login endpoint receives thousands of attempts from many different IP addresses, each trying one account with a password that appeared in an unrelated breach. A few succeed. Which defence fits best?",
+      "options": [
+        { "id": "a", "text": "A slower, memory-hard hash for the passwords that are stored in your database" },
+        { "id": "b", "text": "MFA, limits per account as well as per IP, and a breached-password check" },
+        { "id": "c", "text": "Parameterised queries for the login lookup, so that usernames cannot carry SQL code" },
+        { "id": "d", "text": "Longer random session ids, plus a brand new session id issued after every login" }
+      ],
+      "answer": ["b"],
+      "explanation": "This is credential stuffing: attackers replay username and password pairs leaked elsewhere and count on people reusing passwords, often from many IPs so that per-IP limits alone miss it. MFA, per-account throttling and breached-password checks all blunt it. Hashing, parameterised queries and session ids protect other things, not the live login."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A signup endpoint runs User.create(request.body). A client adds the field isAdmin set to true to the JSON and becomes an administrator. What is the right fix?",
+      "options": [
+        { "id": "a", "text": "Accept only an allowlist of request fields, and set privileged fields on the server" },
+        { "id": "b", "text": "Remove the isAdmin checkbox from the signup form so that users cannot tick it" },
+        { "id": "c", "text": "Check that the password in the body is strong enough before creating the user" },
+        { "id": "d", "text": "Send the signup as form fields instead of JSON, since a form cannot carry extra fields" }
+      ],
+      "answer": ["a"],
+      "explanation": "This is mass assignment: the framework binds every property in the request to the model, including ones the form never showed. Anyone can send a raw request, so hiding a field in the UI or changing the format does not help; the server must decide which fields a caller may set."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which practices make logs useful for spotting an attack without creating new risks?",
+      "options": [
+        { "id": "a", "text": "Record failed logins and access-control denials with time, account and source, and alert on unusual bursts" },
+        { "id": "b", "text": "Log complete request bodies so that nothing is missed, passwords and tokens included" },
+        { "id": "c", "text": "Ship logs to a separate system that the application servers cannot edit or delete" },
+        { "id": "d", "text": "Keep logs only on each application server so they stay close to the code" }
+      ],
+      "answer": ["a", "c"],
+      "explanation": "Failed logins and denied requests are the early signs of an attack, and nobody sees them unless someone is alerted. Logs on a separate, append-only system survive a compromised server, while an attacker who owns the app server can erase local logs. Logging passwords and tokens turns the log store itself into a prize."
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "text": "A web service connects to its database with an account that can read, change and drop every table in every schema. What does the principle of least privilege suggest?",
+      "options": [
+        { "id": "a", "text": "Keep the broad rights, so the service never fails because of a permission error" },
+        { "id": "b", "text": "Share one admin account between all services, so there is only one secret to look after" },
+        { "id": "c", "text": "Limit the account to the tables and operations the service really needs to use" },
+        { "id": "d", "text": "Rely on application code alone to enforce permissions, because a database cannot do it" }
+      ],
+      "answer": ["c"],
+      "explanation": "Least privilege means every account, service and token gets only the access it needs. If a bug such as SQL injection or a leaked password is then exploited, the attacker reaches a small part of the data and cannot drop tables. Broad or shared admin accounts trade a little convenience for a much bigger blast radius."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "If you validate every field when it arrives, you do not need to encode output when you put that data into an HTML page.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Validation checks that data has the expected shape, but many legitimate values, such as a name like O'Brien or a comment with a less-than sign, contain characters that matter in HTML, SQL or a shell. Encode for the place where the data is used, and use parameterised queries, as well as validating."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "title": "Idempotency Key Store",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+  "description": "Replay the first response when a client retries a request with the same idempotency key.",
+  "statement": "Build an `IdempotencyStore(ttl, clock)` that makes a retried request safe. `store.run(key, request, action)` calls `action()` and returns its response, but only the first time it sees `key`. A client that retries after a timeout then gets the first response back instead of, say, being charged twice.\n\n- The same `key` with an equal `request` replays the stored response; `action` is not called again.\n- The same `key` with a **different** `request` raises `IdempotencyConflict`: the client is reusing a key for something else, and replaying the old answer would hide that bug.\n- A key is remembered for `ttl` seconds from its first request; replays do not extend this. A request with it that arrives `ttl` seconds or more later is new, whatever its body.\n- If `action` raises, nothing is remembered and the exception propagates, so the client can retry.\n- A `request` is any value, such as a nested dict that the caller may change afterwards: compare with what it contained at the first call. `clock()` returns the time in seconds.\n\n**Example**\n\n```python\nstore = IdempotencyStore(ttl=60, clock=clock)\nstore.run(\"k1\", {\"amount\": 500}, charge)   # runs charge() and returns its response\nstore.run(\"k1\", {\"amount\": 500}, charge)   # replays that response; charge() does not run again\nstore.run(\"k1\", {\"amount\": 900}, charge)   # raises IdempotencyConflict\n```",
+  "starter": "import time\n\n\nclass IdempotencyConflict(Exception):\n    \"\"\"Raised when a key that is still remembered is reused for a different request.\"\"\"\n\n\nclass IdempotencyStore:\n    def __init__(self, ttl, clock=time.monotonic):\n        \"\"\"Remember each key for `ttl` seconds. `clock()` returns the current time in seconds.\"\"\"\n        ...\n\n    def run(self, key, request, action):\n        \"\"\"Return action()'s response the first time `key` is used; replay it for an equal request; see the rules above.\"\"\"\n        ...\n",
+  "tests": [
+    "\nclass FakeClock:\n    \"\"\"A clock the tests move by hand.\"\"\"\n\n    def __init__(self):\n        self.now = 0.0\n\n    def __call__(self):\n        return self.now\n\n    def advance(self, seconds):\n        self.now += seconds\n\n\nclass Charger:\n    \"\"\"An action that counts how often it really runs.\"\"\"\n\n    def __init__(self):\n        self.calls = 0\n\n    def __call__(self):\n        self.calls += 1\n        return {\"charged\": self.calls}\n\n\ndef make_store(ttl=60):\n    clock = FakeClock()\n    return IdempotencyStore(ttl=ttl, clock=clock), clock\n\n\ndef raises(error_type, function, *arguments):\n    try:\n        function(*arguments)\n    except error_type:\n        return True\n    except Exception as error:\n        raise AssertionError(f\"expected {error_type.__name__}, got {type(error).__name__}: {error}\")\n    raise AssertionError(f\"expected {error_type.__name__} to be raised, but the call returned normally\")\n",
+    {
+      "name": "the first request with a key runs the action and returns its response",
+      "code": "store, clock = make_store()\ncharge = Charger()\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}\nassert charge.calls == 1"
+    },
+    {
+      "name": "a repeat of the same request replays the first response without running the action again",
+      "code": "store, clock = make_store()\ncharge = Charger()\nstore.run(\"k1\", {\"amount\": 500}, charge)\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}\nassert charge.calls == 1"
+    },
+    {
+      "name": "different keys are independent",
+      "code": "store, clock = make_store()\ncharge = Charger()\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}\nassert store.run(\"k2\", {\"amount\": 500}, charge) == {\"charged\": 2}\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}"
+    },
+    {
+      "name": "the same key with a different request raises IdempotencyConflict and runs nothing",
+      "code": "store, clock = make_store()\ncharge = Charger()\nstore.run(\"k1\", {\"amount\": 500}, charge)\nassert raises(IdempotencyConflict, store.run, \"k1\", {\"amount\": 900}, charge)\nassert charge.calls == 1\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}"
+    },
+    {
+      "name": "a key is forgotten ttl seconds after its first request",
+      "code": "store, clock = make_store(ttl=60)\ncharge = Charger()\nstore.run(\"k1\", {\"amount\": 500}, charge)\nclock.advance(59)\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 1}\nclock.advance(1)\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 2}"
+    },
+    {
+      "name": "once a key has expired it may be used for a different request",
+      "code": "store, clock = make_store(ttl=60)\ncharge = Charger()\nstore.run(\"k1\", {\"amount\": 500}, charge)\nclock.advance(61)\nassert store.run(\"k1\", {\"amount\": 900}, charge) == {\"charged\": 2}\nassert store.run(\"k1\", {\"amount\": 900}, charge) == {\"charged\": 2}"
+    },
+    {
+      "name": "a replay does not extend the life of the key",
+      "code": "store, clock = make_store(ttl=60)\ncharge = Charger()\nstore.run(\"k1\", {\"amount\": 500}, charge)\nclock.advance(50)\nstore.run(\"k1\", {\"amount\": 500}, charge)\nclock.advance(11)\nassert store.run(\"k1\", {\"amount\": 500}, charge) == {\"charged\": 2}"
+    },
+    {
+      "name": "a failing action leaves nothing behind, so the same key can be retried",
+      "code": "store, clock = make_store()\nattempts = []\n\ndef flaky_charge():\n    attempts.append(1)\n    if len(attempts) == 1:\n        raise RuntimeError(\"card service is down\")\n    return {\"charged\": True}\n\nassert raises(RuntimeError, store.run, \"k1\", {\"amount\": 500}, flaky_charge)\nassert store.run(\"k1\", {\"amount\": 500}, flaky_charge) == {\"charged\": True}\nassert store.run(\"k1\", {\"amount\": 500}, flaky_charge) == {\"charged\": True}\nassert len(attempts) == 2"
+    },
+    {
+      "name": "a response of None, 0 or {} is remembered like any other",
+      "code": "store, clock = make_store()\nruns = []\n\ndef returns(value):\n    def action():\n        runs.append(value)\n        return value\n    return action\n\nfor number, value in enumerate([None, 0, {}]):\n    key = f\"k{number}\"\n    assert store.run(key, {\"id\": number}, returns(value)) == value\n    assert store.run(key, {\"id\": number}, returns(value)) == value\nassert len(runs) == 3"
+    },
+    {
+      "name": "the request is compared with what it held at the first call, even if the caller edits the same dict",
+      "code": "store, clock = make_store()\ncharge = Charger()\norder = {\"amount\": 500, \"items\": [\"book\"]}\nstore.run(\"k1\", order, charge)\norder[\"items\"].append(\"pen\")            # the caller reuses and changes the same object\nassert raises(IdempotencyConflict, store.run, \"k1\", order, charge)\nassert charge.calls == 1"
+    }
+  ],
+  "hints": [
+    "What must you remember about a key to answer a repeat of it? And what must you remember to notice a request that is not a repeat?",
+    "Store, per key: when it expires, a copy of the request, and the response. On a call, if the key is stored and has not expired, compare the requests (equal: replay the response; different: raise). Otherwise run the action and store its result.",
+    "Store a copy of the request (`copy.deepcopy`), not the object itself, because the caller may change that object. Store only after `action` has returned, so a failing action leaves nothing behind. A stored response of `None` or `0` is still a response: ask whether the key is there, not whether the response is truthy."
+  ],
+  "solution": "import copy\nimport time\n\n\nclass IdempotencyConflict(Exception):\n    \"\"\"Raised when a key that is still remembered is reused for a different request.\"\"\"\n\n\nclass IdempotencyStore:\n    def __init__(self, ttl, clock=time.monotonic):\n        self.ttl = ttl\n        self.clock = clock\n        self._seen = {}                  # key -> (expires_at, the request as it was, the response)\n\n    def run(self, key, request, action):\n        now = self.clock()\n        entry = self._seen.get(key)\n        if entry is not None and now < entry[0]:\n            _, first_request, response = entry\n            if request != first_request:\n                raise IdempotencyConflict(f\"key {key!r} was already used for a different request\")\n            return response              # a retry: replay the first response\n        response = action()              # if this raises, nothing has been stored yet\n        self._seen[key] = (now + self.ttl, copy.deepcopy(request), response)   # a copy: the caller may edit their dict\n        return response\n",
+  "explanation": "**The idea.** The client sends a unique key with each request. The first time the server sees a key it does the work and stores the response under that key; any later request with the same key gets the stored response instead of repeating the work. That makes \"retry on timeout\" safe for payments, order creation and anything else with side effects.\n\n**The rules that matter.** (1) Same key, same request: replay. (2) Same key, *different* request: refuse, because the client has a bug and quietly replaying the old answer would hide it (Stripe, for one, answers with an error). To compare, remember the request as it was at the first call, with a copy or a fingerprint such as a hash of its canonical JSON; a caller that edits and resends the same dict would otherwise be compared with itself. (3) A key lives only for a limited time from the first request, so the store does not grow for ever; after that the key is new again. (4) If the action fails, store nothing, so that the client can retry with the same key.\n\n**What this sketch leaves out.** Two requests with the same key that arrive at the same moment can both find nothing and both run. A real system claims the key atomically first (`INSERT ... ON CONFLICT DO NOTHING`, or Redis `SET key value NX EX ttl`), stores an \"in progress\" marker, and makes the second request wait or answer 409. It keeps the key and the response in the same database transaction as the side effect, so a response is never recorded for work that was rolled back, and it deletes expired keys instead of keeping them in memory.\n\n**Complexity.** O(1) per request, plus the cost of copying the request."
+}

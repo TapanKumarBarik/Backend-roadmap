@@ -1,0 +1,28 @@
+{
+  "title": "Middle of a Linked List",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "beginner",
+  "description": "Find the middle node of a linked list in one pass, taking the second middle when the length is even.",
+  "statement": "Write `middle_node(head)`, which returns the **middle node** of a singly linked list: the node itself, not its value. `ListNode` is given: each node has a `val` and a `next` (`None` at the end).\n\n- With an odd number of nodes there is one middle. With an even number there are two; return the **second** one.\n- An empty list (`head` is `None`) has no middle: return `None`.\n- Do not change the list. It has at most a few hundred nodes.\n\n**Examples**\n\n```\n1 -> 2 -> 3 -> 4 -> 5     returns the node holding 3\n1 -> 2 -> 3 -> 4          returns the node holding 3 (the middles are 2 and 3; take the second)\n7                         returns the node holding 7\n```",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef middle_node(head):\n    \"\"\"Return the middle node (the second of the two middles when the length is even), or None for an empty list.\"\"\"\n    ...\n",
+  "tests": [
+    "def nodes_of(values):\n    nodes = [ListNode(v) for v in values]\n    for before, after in zip(nodes, nodes[1:]):\n        before.next = after\n    return nodes\ndef middle_value(values):\n    nodes = nodes_of(values)\n    found = middle_node(nodes[0] if nodes else None)\n    for i, node in enumerate(nodes):\n        if node.next is not (nodes[i + 1] if i + 1 < len(nodes) else None):\n            raise AssertionError(\"middle_node changed the list; it should only read it\")\n    if found is not None and not isinstance(found, ListNode):\n        raise AssertionError(f\"return the middle node itself, not {found!r}\")\n    return None if found is None else found.val",
+    "assert middle_value([1, 2, 3, 4, 5]) == 3",
+    "assert middle_value([1, 2, 3, 4]) == 3",
+    "assert middle_value([7]) == 7",
+    "assert middle_value([1, 2]) == 2",
+    "assert middle_value([10, 20, 30, 40, 50, 60]) == 40",
+    "assert middle_value([]) is None, \"an empty list has no middle node: return None\"",
+    "equal_values = nodes_of([4, 4, 4, 4])",
+    "assert middle_node(equal_values[0]) is equal_values[2], \"the second middle is the third of these four nodes\"",
+    "assert middle_value(list(range(400))) == 200",
+    "assert middle_value(list(range(401))) == 200"
+  ],
+  "hints": [
+    "Counting the nodes and then walking half way works, but it takes two passes. Could two pointers that move at different speeds find the middle in one?",
+    "Move one pointer one node at a time and another two nodes at a time. When the fast one reaches the end of the list, where is the slow one?",
+    "Check what must exist before you step `fast` twice, so that you never read `.next` of `None`. Then try `1 -> 2 -> 3 -> 4` by hand: does `slow` end on the 2 or on the 3?"
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef middle_node(head):\n    slow = fast = head\n    while fast is not None and fast.next is not None:\n        slow = slow.next            # one step\n        fast = fast.next.next       # two steps\n    return slow\n",
+  "explanation": "**The idea.** Two pointers start at the head. `slow` moves one node per step, `fast` moves two. When `fast` has run off the end, `slow` has covered half the distance, so it is standing on the middle.\n\n**Odd and even lengths.** The loop runs while `fast` and `fast.next` both exist. On an odd list `fast` ends on the last node; on an even list it falls off the end (`None`). In the even case `slow` has made one step more than it would for the first middle, which is exactly the second middle this problem asks for. With `while fast.next and fast.next.next` you would get the first middle instead.\n\n**Complexity.** O(n) time and O(1) space, in one pass. Counting the nodes first and then walking `n // 2` steps gives the same node in two passes. The two-pointer idea is the one that returns in harder problems (the k-th node from the end, the start of a cycle, palindromes)."
+}

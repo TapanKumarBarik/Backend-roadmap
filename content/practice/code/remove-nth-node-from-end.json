@@ -1,0 +1,31 @@
+{
+  "title": "Remove Nth Node From End",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "intermediate",
+  "description": "Remove the n-th node from the end of a linked list, ideally in a single pass.",
+  "statement": "Write `remove_nth_from_end(head, n)`, which removes the `n`-th node from the **end** of a singly linked list (`n = 1` is the last node) and returns the head of the list. `ListNode` is given: each node has a `val` and a `next`.\n\n- The list has at least one node, and `n` is between `1` and the length of the list.\n- Removing the first node makes the second node the head. Removing the only node returns `None`.\n- Relink the nodes that remain; do not rebuild the list from new nodes. The tests check that the other nodes are the same objects.\n- Try to do it in a single pass over the list. The tests only check the result.\n\n**Examples**\n\n```\n1 -> 2 -> 3 -> 4 -> 5    n = 2    becomes    1 -> 2 -> 3 -> 5\n1 -> 2                   n = 2    becomes    2\n1                        n = 1    becomes    None\n```",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef remove_nth_from_end(head, n):\n    \"\"\"Remove the n-th node from the end (n = 1 is the last node) and return the head of the list.\"\"\"\n    ...\n",
+  "tests": [
+    "def build(values):\n    head = None\n    for value in reversed(values):\n        head = ListNode(value, head)\n    return head\ndef to_list(node):\n    out = []\n    while node is not None and len(out) < 10_000:\n        out.append(node.val)\n        node = node.next\n    return out\ndef wrong_removals(max_length):\n    \"\"\"Try every list length up to max_length and every n; describe the first few wrong answers (an empty list means all were right).\"\"\"\n    wrong = []\n    for length in range(1, max_length + 1):\n        values = list(range(10, 10 + length))\n        for n in range(1, length + 1):\n            got = to_list(remove_nth_from_end(build(values), n))\n            expected = values[:length - n] + values[length - n + 1:]\n            if got != expected:\n                wrong.append(f\"{values} with n={n}: got {got}, expected {expected}\")\n    return wrong[:3]",
+    "assert to_list(remove_nth_from_end(build([1, 2, 3, 4, 5]), 2)) == [1, 2, 3, 5]",
+    "assert to_list(remove_nth_from_end(build([1, 2]), 2)) == [2]",
+    "assert remove_nth_from_end(build([1]), 1) is None",
+    "assert to_list(remove_nth_from_end(build([1, 2, 3]), 1)) == [1, 2]",
+    "assert to_list(remove_nth_from_end(build([4, 5, 6, 7]), 4)) == [5, 6, 7]",
+    "assert to_list(remove_nth_from_end(build([10, 20, 30]), 2)) == [10, 30]",
+    "def names_of(head, named):\n    \"\"\"Name each node of the chain by the variable it was created as (\"new node\" for one the function made itself).\"\"\"\n    out = []\n    while head is not None and len(out) < 20:\n        out.append(named.get(id(head), \"new node\"))\n        head = head.next\n    return out\na, b, c, d = (ListNode(value) for value in [1, 2, 3, 4])\na.next, b.next, c.next = b, c, d\nnamed = {id(a): \"a\", id(b): \"b\", id(c): \"c\", id(d): \"d\"}",
+    "assert names_of(remove_nth_from_end(a, 2), named) == [\"a\", \"b\", \"d\"]",
+    "x, y, z = (ListNode(value) for value in [1, 2, 3])\nx.next, y.next = y, z\nnamed = {id(x): \"x\", id(y): \"y\", id(z): \"z\"}",
+    "assert names_of(remove_nth_from_end(x, 3), named) == [\"y\", \"z\"]",
+    "assert wrong_removals(8) == []",
+    "assert to_list(remove_nth_from_end(build(list(range(600))), 300)) == list(range(300)) + list(range(301, 600))",
+    "assert to_list(remove_nth_from_end(build(list(range(600))), 600)) == list(range(1, 600))"
+  ],
+  "hints": [
+    "Counting from the end is awkward in a list that only goes forward. If a second pointer stayed exactly `n` nodes behind the first, where would it be when the first one reaches the end?",
+    "Move a `lead` pointer `n` nodes ahead, then move `lead` and a `trail` pointer together until `lead` is on the last node. `trail` is now just before the node to remove: link it past that node.",
+    "The node to remove can be the head, which has no node before it. Put a dummy node in front of the head, start both pointers there, and return `dummy.next`."
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef remove_nth_from_end(head, n):\n    dummy = ListNode(0, head)              # gives the head a predecessor, so removing the head is not a special case\n    lead = trail = dummy\n    for _ in range(n):                     # open a gap of n nodes between the two pointers\n        lead = lead.next\n    while lead.next is not None:           # move both until lead is on the last node\n        lead = lead.next\n        trail = trail.next\n    trail.next = trail.next.next           # trail is just before the node to remove: skip it\n    return dummy.next\n",
+  "explanation": "**The idea.** A list only goes forward, so the end is far from the node you want. Keep two pointers `n` nodes apart. When the front one reaches the last node, the back one stands just before the node to remove, wherever that is. Pointing it past that node (`trail.next = trail.next.next`) removes it.\n\n**The dummy node.** If the node to remove is the head, nothing comes before it to relink. A dummy node in front of the head gives every node a predecessor, so there is no special case; return `dummy.next` as the new head.\n\n**Off by one.** The gap is `n` nodes, and `lead` stops *on* the last node (`lead.next is None`), not past it. Stopping one step late removes the wrong node.\n\n**Complexity.** O(L) time for a list of L nodes and O(1) space. Counting the length first and then walking `L - n` steps is also O(L); it just needs two passes.\n\n**Follow-up.** What should happen if `n` can be larger than the list? Check while moving `lead` ahead, and return the list unchanged if it runs out."
+}

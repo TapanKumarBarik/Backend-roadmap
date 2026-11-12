@@ -1,0 +1,55 @@
+{
+  "title": "Bloom Filter",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/00-caching-fundamentals/README.md",
+  "description": "Build a Bloom filter that remembers a set in a fixed number of bits, with no false negatives.",
+  "statement": "Build `BloomFilter(size, hashes, seed=0)`: a set that answers \"have I seen this item?\" using a fixed number of bits. It may say yes for an item that was never added (a false positive) but never says no for one that was.\n\n- The filter holds exactly `size` bits and must not keep the items themselves. Items are strings.\n- `add(item)` sets `hashes` bits. `might_contain(item)` returns `True` only if all of that item's bits are set, otherwise `False`.\n- Derive an item's bit positions with `hashlib.sha256` from the seed and the item, for example from the digest of `f\"{seed}:{i}:{item}\"` for each `i` in `range(hashes)`, reduced into `range(size)`. Python's built-in `hash()` changes between runs, so do not use it.\n- The seed goes into every hash: filters with different seeds make different mistakes.\n- With `BloomFilter(10_000, 7)` holding 1000 items, fewer than 30 out of 1000 other items may be reported as present.\n\n**Example**\n\n```python\nbf = BloomFilter(10_000, 7)\nbf.might_contain(\"alice\")   # False\nbf.add(\"alice\")\nbf.might_contain(\"alice\")   # True\nbf.might_contain(\"bob\")     # False (1 item in 10,000 bits: a false positive is practically impossible)\n```",
+  "starter": "import hashlib\n\n\nclass BloomFilter:\n    def __init__(self, size, hashes, seed=0):\n        ...\n\n    def add(self, item):\n        \"\"\"Remember `item`.\"\"\"\n        ...\n\n    def might_contain(self, item):\n        \"\"\"False if `item` was definitely never added; True if it may have been.\"\"\"\n        ...\n",
+  "tests": [
+    "\nmembers = [f\"user-{i}\" for i in range(1000)]\nstrangers = [f\"visitor-{i}\" for i in range(1000)]\n",
+    {
+      "name": "the example: absent, then added, then present",
+      "code": "bf = BloomFilter(10_000, 7)\nassert bf.might_contain(\"alice\") is False, \"an empty filter must answer False\"\nbf.add(\"alice\")\nassert bf.might_contain(\"alice\") is True, \"alice was added, so might_contain must answer True\"\nassert bf.might_contain(\"bob\") is False, \"bob was never added and the filter is nearly empty\""
+    },
+    {
+      "name": "an empty filter says False for everything",
+      "code": "empty = BloomFilter(10_000, 7)\nassert [item for item in members if empty.might_contain(item)] == []"
+    },
+    {
+      "name": "no false negatives: 1000 added items are all reported present",
+      "code": "bf = BloomFilter(10_000, 7)\nfor item in members:\n    bf.add(item)\nassert [item for item in members if not bf.might_contain(item)] == []"
+    },
+    {
+      "name": "few false positives: fewer than 30 of 1000 strangers (10,000 bits, 7 hashes, 1000 items)",
+      "code": "bf = BloomFilter(10_000, 7)\nfor item in members:\n    bf.add(item)\nfound = [item for item in strangers if bf.might_contain(item)]\nassert len(found) < 30, f\"{len(found)} of 1000 items that were never added were reported present; about 8 are expected, so check that the 7 hashes differ and spread over all 10,000 bits\""
+    },
+    {
+      "name": "the same seed gives the same answers; a different seed makes different mistakes",
+      "code": "def build(seed):\n    bf = BloomFilter(2_000, 3, seed=seed)\n    for item in members[:300]:\n        bf.add(item)\n    return bf\n\nprobes = [f\"probe-{i}\" for i in range(600)]\nfirst, again, other = build(1), build(1), build(2)\nanswers = lambda bf: [bf.might_contain(probe) for probe in probes]\nassert answers(first) == answers(again), \"two filters with the same settings and items must answer identically\"\nassert answers(first) != answers(other), \"filters with different seeds should be wrong about different items; is the seed part of every hash?\""
+    },
+    {
+      "name": "`hashes` is the number of bits per item: a nearly empty 1-hash filter errs far more often than an 8-hash one",
+      "code": "def false_positives(hashes):\n    bf = BloomFilter(1_000, hashes)\n    for item in members[:20]:\n        bf.add(item)\n    return sum(bf.might_contain(f\"nobody-{i}\") for i in range(2000))\n\none, eight = false_positives(1), false_positives(8)\nassert one >= 10, f\"with 1 hash, 20 items in 1000 bits should give about 40 false positives in 2000 questions, got {one}; is `hashes` used?\"\nassert eight <= 10, f\"with 8 hashes and 20 items in 1000 bits false positives should be rare (a handful at most), got {eight} in 2000 questions\""
+    },
+    {
+      "name": "the filter has only `size` bits: a full 8-bit filter says True for everything",
+      "code": "tiny = BloomFilter(8, 2)\nfor i in range(100):\n    tiny.add(f\"x-{i}\")\nassert all(tiny.might_contain(f\"never-added-{i}\") for i in range(50)), \"100 items in 8 bits must set every bit, so every question gets True (do not store the items)\""
+    },
+    {
+      "name": "a one-bit filter works: positions are reduced modulo the size",
+      "code": "one = BloomFilter(1, 3)\nassert one.might_contain(\"a\") is False\none.add(\"a\")\nassert one.might_contain(\"a\") is True\nassert one.might_contain(\"anything else\") is True, \"with one bit, adding any item sets the only bit\""
+    },
+    {
+      "name": "empty strings and non-ASCII text are valid items",
+      "code": "bf = BloomFilter(1_000, 5)\nodd = [\"\", \"h\\u00e9llo\", \"\\u65e5\\u672c\\u8a9e\", \"\\U0001F642\", \"a b\\tc\\n\"]\nfor item in odd:\n    bf.add(item)\nassert [item for item in odd if not bf.might_contain(item)] == []"
+    }
+  ],
+  "hints": [
+    "You cannot store the items. What could you store instead, so that one item leaves several traces, and a missing trace proves the item was never added?",
+    "Keep `size` bits. For an item, compute `hashes` positions in `range(size)`: hash `f\"{seed}:{i}:{item}\"` with SHA-256 for each `i`, turn the digest into an integer and take it modulo `size`. `add` sets those bits; `might_contain` checks that all of them are set.",
+    "Do not use the built-in `hash()` (it changes between runs). Make every one of the `hashes` positions depend on `i`; if they were all equal you would have one hash function and many more false positives."
+  ],
+  "solution": "import hashlib\n\n\nclass BloomFilter:\n    def __init__(self, size, hashes, seed=0):\n        self._size = size\n        self._hashes = hashes\n        self._seed = seed\n        self._bits = bytearray((size + 7) // 8)    # `size` bits, packed 8 to a byte\n\n    def _positions(self, item):\n        for i in range(self._hashes):\n            digest = hashlib.sha256(f\"{self._seed}:{i}:{item}\".encode()).digest()\n            yield int.from_bytes(digest[:8], \"big\") % self._size\n\n    def add(self, item):\n        for position in self._positions(item):\n            self._bits[position // 8] |= 1 << (position % 8)\n\n    def might_contain(self, item):\n        return all(self._bits[position // 8] >> (position % 8) & 1 for position in self._positions(item))\n",
+  "explanation": "**The idea.** A Bloom filter is an array of `size` bits. To add an item, compute `hashes` positions from it and set those bits. To ask about an item, compute the same positions: if any bit is 0 the item was certainly never added (so there are no false negatives); if all are 1 it was probably added, but other items may have set those bits by chance (a false positive).\n\n**Deriving k hash functions.** One SHA-256 call per position, with the loop counter `i` in the input, gives `hashes` independent-looking positions; the seed gives whole families of them. Python's built-in `hash()` of a string is randomised per process, so a filter saved by one process could not be read by another. Reduce with `% size` so every position fits.\n\n**Sizing.** With `m` bits, `k` hashes and `n` items the false-positive rate is about `(1 - e^(-kn/m))^k`. For 10,000 bits, 7 hashes and 1000 items that is about 0.8%, which is why the test allows 3%. For a given `m` and `n`, the best `k` is about `(m / n) * ln 2`.\n\n**Limits.** You cannot remove an item (clearing a bit could erase another item's trace); a counting Bloom filter keeps small counters instead of bits. Real uses: skipping disk reads for keys that certainly do not exist (LSM-tree databases), a crawler's \"seen this URL?\" check, cheap cache-miss tests. Follow-up: how would two nodes combine their filters? (Bitwise OR of two filters with the same size, hashes and seed.)"
+}

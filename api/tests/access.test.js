@@ -23,7 +23,11 @@ const PUBLIC = [
   'GET /api/practice/quizzes/:slug',
   'GET /api/practice/exercises/:slug',
   'GET /api/practice/interview/:slug',
+  'GET /api/practice/code/:slug',
+  'GET /api/practice/code/:slug/solution',
   'POST /api/practice/quizzes/:slug/attempts',
+  'GET /api/practice/drill',
+  'POST /api/practice/drill/check', // the drill is for everyone; nothing is kept
   'GET /api/practice/daily-incident',
   'POST /api/practice/daily-incident/attempt', // signed out, the answer is shown and nothing is saved, as with a quiz
   'GET /api/announcements',

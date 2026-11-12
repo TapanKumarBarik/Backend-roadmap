@@ -1,0 +1,29 @@
+{
+  "title": "Fix the List Mutated While Iterating",
+  "topic": "debugging",
+  "difficulty": "beginner",
+  "description": "Fix a session purge that skips entries because it removes from the list it is looping over.",
+  "statement": "`purge_expired(sessions, now)` cleans up a list of session dicts such as `{\"id\": \"a\", \"expires_at\": 50}`. It removes every session that has expired, meaning `expires_at <= now`.\n\n- It changes the list **in place**: other code holds a reference to the same list, which must contain only the live sessions afterwards, in their original order.\n- It returns how many sessions it removed.\n\n**Example**\n\n```python\nsessions = [{\"id\": \"a\", \"expires_at\": 50}, {\"id\": \"b\", \"expires_at\": 60},\n            {\"id\": \"c\", \"expires_at\": 70}, {\"id\": \"d\", \"expires_at\": 200}]\npurge_expired(sessions, now=100)    # 3\n[s[\"id\"] for s in sessions]         # [\"d\"]\n```\n\n**Observed:** some expired sessions survive a purge, and a second purge removes more of them.",
+  "starter": "def purge_expired(sessions, now):\n    \"\"\"Remove every session whose \"expires_at\" is <= now from the list `sessions`, in place. Return how many were removed.\"\"\"\n    removed = 0\n    for session in sessions:\n        if session[\"expires_at\"] <= now:\n            sessions.remove(session)\n            removed += 1\n    return removed\n",
+  "tests": [
+    "def purged(spec, now):\n    \"\"\"Build sessions from (id, expires_at) pairs, purge them, and return (how many were removed, ids of the sessions left).\"\"\"\n    sessions = [{\"id\": sid, \"expires_at\": expires_at} for sid, expires_at in spec]\n    removed = purge_expired(sessions, now)\n    return removed, [s[\"id\"] for s in sessions]",
+    "assert purged([(\"a\", 50), (\"b\", 60), (\"c\", 70), (\"d\", 200)], now=100) == (3, [\"d\"])",
+    "assert purged([(\"a\", 50), (\"b\", 200), (\"c\", 60), (\"d\", 300)], now=100) == (2, [\"b\", \"d\"])",
+    "assert purged([(\"a\", 10), (\"b\", 20), (\"c\", 30), (\"d\", 40), (\"e\", 50)], now=100) == (5, [])",
+    "assert purged([(\"a\", 150), (\"b\", 160)], now=100) == (0, [\"a\", \"b\"])",
+    "assert purged([(\"a\", 100), (\"b\", 101)], now=100) == (1, [\"b\"])",
+    "assert purged([], now=100) == (0, [])",
+    "assert purged([(\"a\", 10), (\"b\", 20), (\"c\", 300), (\"d\", 30), (\"e\", 40), (\"f\", 500)], now=100) == (4, [\"c\", \"f\"])",
+    "def callers_list_after_purge():\n    \"\"\"Someone else holds a reference to the list. What does it see after the purge?\"\"\"\n    live = [{\"id\": \"a\", \"expires_at\": 1}, {\"id\": \"b\", \"expires_at\": 9}]\n    alias = live\n    purge_expired(live, 5)\n    return alias",
+    "assert callers_list_after_purge() == [{\"id\": \"b\", \"expires_at\": 9}], \"the list the caller passed in must be the one that is cleaned\"",
+    "BIG = [(f\"s{i}\", 500 if i % 3 == 0 else 50) for i in range(3000)]",
+    "assert purged(BIG, now=100) == (2000, [f\"s{i}\" for i in range(0, 3000, 3)])"
+  ],
+  "hints": [
+    "Run it on a list where every session has expired and look at which ones are still there afterwards. Where are the survivors compared with the removed ones?",
+    "A `for` loop over a list keeps a position. After you remove the item at position `i`, which item is at position `i`, and does the loop look at it?",
+    "Whatever you do, the list object the caller passed in has to end up holding only the live sessions. Assigning a new list to the local name `sessions` does not change the caller's list."
+  ],
+  "solution": "def purge_expired(sessions, now):\n    before = len(sessions)\n    # Build the list of live sessions and write it back into the same list object (slice assignment),\n    # instead of deleting items from the list we are looping over.\n    sessions[:] = [session for session in sessions if session[\"expires_at\"] > now]\n    return before - len(sessions)\n",
+  "explanation": "**The bug class: changing a collection while iterating over it.** A `for` loop over a list walks an internal position: 0, 1, 2, and so on. When you remove the item at position `i`, every later item shifts one place to the left, and the loop moves on to position `i + 1`, which now holds what used to be at `i + 2`. The item that slid into position `i` is never looked at. With two expired sessions in a row the second survives. Nothing raises, and sessions that are not neighbours are handled fine, which is why a quick test passes.\n\n**Fixes.** Do not delete from what you are walking:\n1. Rebuild the list and write it back with **slice assignment**, `sessions[:] = [...]` (used above). It is O(n) and keeps the same list object. Plain `sessions = [...]` only rebinds the local name, so the caller's list is never cleaned.\n2. Loop over a copy (`for session in list(sessions)`) and remove from the original. Correct, but each `remove` scans and shifts the list, so it is O(n²) when many items go.\n3. Walk backwards by index and `del sessions[i]`: removals then only move items you have already visited.\n\n**Related.** Adding or removing keys of a dict or set while iterating over it does not skip quietly, it raises `RuntimeError: dictionary changed size during iteration`. The cure is the same: iterate over `list(d)`, or build a new dict.\n\n**Habit.** Decide first what the function does to the caller's data (change it in place or return a new one) and write the test that keeps a reference to the original."
+}

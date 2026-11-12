@@ -1,0 +1,32 @@
+{
+  "title": "Product of Array Except Self",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "For every position, multiply all the other numbers together, without using division.",
+  "statement": "Given a list of integers `nums`, return a new list `out` where `out[i]` is the product of all the numbers in `nums` except `nums[i]`.\n\n- **Do not use division.** One test hands you numbers that raise an error if you divide by them.\n- An empty list gives `[]`. A single number gives `[1]`: the product of nothing is `1`.\n- `nums` may contain zeros and negative numbers. Do not change `nums`.\n\n**Examples**\n\n```python\nproduct_except_self([1, 2, 3, 4])   # [24, 12, 8, 6]\nproduct_except_self([0, 1, 2])      # [2, 0, 0]\nproduct_except_self([5])            # [1]\n```\n\nAim for O(n): the last test has 50,000 numbers, far too many to multiply out again for every position.",
+  "starter": "def product_except_self(nums):\n    \"\"\"Return a list whose i-th item is the product of every item of nums except nums[i].\"\"\"\n    ...\n",
+  "tests": [
+    "class NoDivision(int):\n    \"\"\"An integer that raises an error when it is divided or used as a divisor.\"\"\"\n    def __truediv__(self, other):\n        raise AssertionError(\"division is not allowed in this problem\")\n    __rtruediv__ = __floordiv__ = __rfloordiv__ = __divmod__ = __rdivmod__ = __truediv__",
+    "assert product_except_self([1, 2, 3, 4]) == [24, 12, 8, 6]",
+    "assert product_except_self([0, 1, 2]) == [2, 0, 0]",
+    "assert product_except_self([5]) == [1]",
+    "assert product_except_self([]) == []",
+    "assert product_except_self([3, 4]) == [4, 3]",
+    "assert product_except_self([-1, 1, 0, -3, 3]) == [0, 0, 9, 0, 0]",
+    "assert product_except_self([0, 4, 0, 3]) == [0, 0, 0, 0]",
+    "assert product_except_self([-2, 3, -4]) == [-12, 8, -6]",
+    "numbers = [2, 3, 4]",
+    "assert product_except_self(numbers) == [12, 8, 6]",
+    "assert numbers == [2, 3, 4], \"product_except_self must not change the list it is given\"",
+    "assert product_except_self([NoDivision(n) for n in (2, 3, 4, 5)]) == [60, 40, 30, 24]",
+    "bulk = [1] * 50_000\nbulk[10], bulk[40_000] = 2, 3",
+    "assert product_except_self(bulk) == [6 // n for n in bulk], \"too slow or wrong on 50,000 numbers; multiplying everything out for each position is O(n^2)\""
+  ],
+  "hints": [
+    "The answer for position `i` has two parts: the numbers to its left and the numbers to its right. Can you get the left part for every position in a single pass?",
+    "Fill `out[i]` with the product of everything to the left of `i` in a forward pass. Then walk backwards, keep a running product of the right side, and multiply it into each `out[i]`.",
+    "The product of an empty side is `1`, not `0`, so start both running products at `1`. Store a running product into `out[i]` before you multiply `nums[i]` into it."
+  ],
+  "solution": "def product_except_self(nums):\n    out = [1] * len(nums)\n    left = 1\n    for i in range(len(nums)):                 # out[i] = product of everything to the left of i\n        out[i] = left\n        left *= nums[i]\n    right = 1\n    for i in range(len(nums) - 1, -1, -1):     # then multiply in the product of everything to the right of i\n        out[i] *= right\n        right *= nums[i]\n    return out\n",
+  "explanation": "**The idea.** The answer for position `i` is (the product of everything to its left) times (the product of everything to its right). Neither side contains `nums[i]`, so there is nothing to divide out, and zeros need no special care.\n\n**Two passes.** Walk left to right with a running product and store it in `out[i]` *before* multiplying `nums[i]` into it. Then walk right to left with a second running product and multiply that into each `out[i]` in the same way. After both passes `out[i]` holds left times right.\n\n**Why not divide?** \"Total product divided by `nums[i]`\" breaks as soon as a zero appears: you divide by zero, or the total is `0` and hides every other product. Special-casing zeros is possible but easy to get wrong; this approach has no special cases.\n\n**Complexity.** O(n) time. Apart from the output list, the extra space is O(1). Two helper lists (`left_products` and `right_products`) are easier to read and also O(n) time, with O(n) extra space.\n\n**Follow-up.** The same prefix-and-suffix idea answers \"the maximum of all the others\", or any other operation you can combine step by step."
+}

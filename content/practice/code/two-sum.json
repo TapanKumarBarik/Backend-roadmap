@@ -1,0 +1,27 @@
+{
+  "title": "Two Sum",
+  "topic": "arrays-and-hashing",
+  "difficulty": "beginner",
+  "description": "Find the two numbers in a list that add up to a target, in a single pass.",
+  "statement": "Given a list of integers `nums` and an integer `target`, return the indices of the two numbers that add up to `target`.\n\n- Return the indices as `[i, j]` with `i < j`. Return `[]` when no two numbers add up to the target.\n- A number cannot be used twice (`[3]` with target `6` has no answer), but the list may contain duplicates and negative numbers.\n- If several pairs work, any one of them is accepted.\n\n**Examples**\n\n```python\ntwo_sum([2, 7, 11, 15], 9)   # [0, 1], because 2 + 7 == 9\ntwo_sum([3, 3], 6)           # [0, 1]\ntwo_sum([1, 2], 10)          # []\n```\n\nChecking every pair works, but it is O(n²). Aim for one pass: O(n).",
+  "starter": "def two_sum(nums, target):\n    \"\"\"Return [i, j] (i < j) with nums[i] + nums[j] == target, or [] if there is no such pair.\"\"\"\n    ...\n",
+  "tests": [
+    "def accepts(nums, target, answer):\n    # When more than one answer is right, a helper checks the one given and says what is wrong with it (the message is what the learner reads).\n    assert isinstance(answer, list) and len(answer) == 2, f\"expected two indices [i, j], got {answer!r}\"\n    i, j = answer\n    assert 0 <= i < j < len(nums), f\"{answer!r} are not two different valid indices with i < j\"\n    assert nums[i] + nums[j] == target, f\"nums[{i}] + nums[{j}] is {nums[i] + nums[j]}, not {target}\"\n    return True",
+    "assert two_sum([2, 7, 11, 15], 9) == [0, 1]",
+    "assert accepts([3, 2, 4], 6, two_sum([3, 2, 4], 6))",
+    "assert two_sum([3, 3], 6) == [0, 1]",
+    "assert two_sum([1, 2], 10) == []",
+    "assert two_sum([], 0) == []",
+    "assert two_sum([5], 10) == []",
+    "assert accepts([-3, 4, 3, 90], 0, two_sum([-3, 4, 3, 90], 0))",
+    "assert accepts([0, 4, 3, 0], 0, two_sum([0, 4, 3, 0], 0))",
+    "assert two_sum(list(range(50_000)), 99_997) == [49_998, 49_999], \"too slow or wrong on a long list; checking every pair is O(n²)\""
+  ],
+  "hints": [
+    "Trying every pair is O(n²). What could you remember about the numbers you have already passed, so that \"have I seen the partner of this one?\" costs O(1)?",
+    "Keep a dictionary from value to index. For the current number `x`, the partner you are looking for is `target - x`.",
+    "Look the partner up before you store `x`, so a number is never paired with itself."
+  ],
+  "solution": "def two_sum(nums, target):\n    seen = {}                          # value -> index\n    for i, x in enumerate(nums):\n        if target - x in seen:\n            return [seen[target - x], i]\n        seen[x] = i\n    return []\n",
+  "explanation": "**The idea.** For each number `x`, the partner you need is `target - x`. If you remember every number you have already passed in a dictionary (value → index), one lookup tells you whether the partner appeared earlier.\n\n**Why check before storing.** The lookup happens before `seen[x] = i`, so a number is never paired with itself, and `[3, 3]` with target `6` still works: the second `3` finds the first one.\n\n**Complexity.** O(n) time and O(n) space, against O(n²) time for trying every pair. If the list were already sorted and you had to use O(1) extra space, two pointers would do it instead."
+}

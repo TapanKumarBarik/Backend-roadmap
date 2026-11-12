@@ -1,0 +1,25 @@
+{
+  "title": "Reverse a Linked List",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "beginner",
+  "description": "Reverse a singly linked list by rewiring the next pointers, in place.",
+  "statement": "Write `reverse_list(head)`, which reverses a singly linked list and returns the new head. `ListNode` is given: each node has a `val` and a `next` (`None` at the end).\n\n- Do it in place, by changing the `next` pointers; do not build a new list of new nodes.\n- An empty list (`head` is `None`) reverses to `None`.\n\n**Example**\n\n```\n1 -> 2 -> 3 -> 4 -> 5     becomes     5 -> 4 -> 3 -> 2 -> 1\n```\n\nAim for O(n) time and O(1) extra space.",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef reverse_list(head):\n    \"\"\"Reverse the list in place and return its new head (None for an empty list).\"\"\"\n    ...\n",
+  "tests": [
+    "def build(values):\n    head = None\n    for value in reversed(values):\n        head = ListNode(value, head)\n    return head\ndef to_list(node):\n    out = []\n    while node is not None and len(out) < 10_000:\n        out.append(node.val)\n        node = node.next\n    return out",
+    "assert to_list(reverse_list(build([1, 2, 3, 4, 5]))) == [5, 4, 3, 2, 1]",
+    "assert to_list(reverse_list(build([1, 2]))) == [2, 1]",
+    "assert to_list(reverse_list(build([7]))) == [7]",
+    "assert reverse_list(None) is None",
+    "original = build([1, 2, 3])\nnodes = [original, original.next, original.next.next]\nreversed_head = reverse_list(original)",
+    "assert reversed_head is nodes[2] and reversed_head.next is nodes[1] and reversed_head.next.next is nodes[0] and nodes[0].next is None",
+    "assert to_list(reverse_list(build(list(range(800))))) == list(range(799, -1, -1))"
+  ],
+  "hints": [
+    "You only need to walk the list once. What does each node have to be pointing at when you are done?",
+    "Keep a `previous` pointer that starts as `None`. For each node, make its `next` point at `previous`, then move both pointers one step forward.",
+    "Save `head.next` in a variable before you overwrite it, or you lose the rest of the list."
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef reverse_list(head):\n    previous = None\n    while head:\n        head.next, previous, head = previous, head, head.next\n    return previous\n",
+  "explanation": "**The idea.** Walk the list once. For each node, point its `next` at the node before it instead of the one after it. You need to remember the previous node (it starts as `None`, which becomes the new tail), and you must save the next node before you overwrite the pointer, or you lose the rest of the list.\n\n**The three moves for each node,** done together so nothing is lost: `head.next = previous`, `previous = head`, `head = (old) head.next`. Python's tuple assignment does all three at once, evaluating the right side first.\n\n**Complexity.** O(n) time, O(1) space. The recursive version is also O(n) time but uses O(n) stack, which fails on a long list in Python (the recursion limit is about 1000), so say which one you chose and why."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Parse a Query String",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Turn a URL query string into a dict of lists: repeated keys, empty values, plus and percent decoding.",
+  "statement": "A server has to turn the query string of a request into parameters. Write `parse_query_string(query)` (no leading `?`) that returns a dict mapping each key to the **list** of its values, in the order they appear.\n\n- Pairs are separated by `&`. An empty pair (as in `a=1&&b=2`) is skipped, so `\"\"` gives `{}`.\n- Split each pair at its **first** `=` only, so `next=/a?x=1` has the value `/a?x=1`. A pair without `=` has the value `\"\"`, like `flag=`.\n- Decode keys and values after splitting: `+` is a space, and `%XX` is the byte with that hex value, read as UTF-8 (`%C3%A9` is `é`). So `%2B` is a plus, and `%26` splits nothing. Every `%` is followed by two hex digits.\n- Keys are grouped after decoding. The order of keys in the dict does not matter.\n\n**Examples**\n\n```python\nparse_query_string(\"a=1&b=2&b=3&flag&c=%20x\")\n# {\"a\": [\"1\"], \"b\": [\"2\", \"3\"], \"flag\": [\"\"], \"c\": [\" x\"]}\nparse_query_string(\"q=a+b%2Bc\")   # {\"q\": [\"a b+c\"]}\nparse_query_string(\"\")            # {}\n```\n\nDo the parsing yourself instead of calling `urllib.parse`: the point is to know its rules.",
+  "starter": "def parse_query_string(query):\n    \"\"\"Return a dict mapping each decoded key of the query string to the list of its decoded values, in order.\"\"\"\n    ...\n",
+  "tests": [
+    "assert parse_query_string(\"a=1&b=2&b=3&flag&c=%20x\") == {\"a\": [\"1\"], \"b\": [\"2\", \"3\"], \"flag\": [\"\"], \"c\": [\" x\"]}",
+    "assert parse_query_string(\"q=a+b%2Bc\") == {\"q\": [\"a b+c\"]}",
+    "assert parse_query_string(\"\") == {}",
+    "assert parse_query_string(\"x=3&y=1&x=1&x=2\") == {\"x\": [\"3\", \"1\", \"2\"], \"y\": [\"1\"]}",
+    "assert parse_query_string(\"&a=&&b&\") == {\"a\": [\"\"], \"b\": [\"\"]}",
+    "assert parse_query_string(\"next=/cb?code=xyz&t=a=b=\") == {\"next\": [\"/cb?code=xyz\"], \"t\": [\"a=b=\"]}",
+    "assert parse_query_string(\"p=100%25&q=%2541&r=a%2Bb\") == {\"p\": [\"100%\"], \"q\": [\"%41\"], \"r\": [\"a+b\"]}",
+    "assert parse_query_string(\"first+name=Ada&first%20name=Lovelace\") == {\"first name\": [\"Ada\", \"Lovelace\"]}",
+    "assert parse_query_string(\"a%26b=c%3Dd%26e\") == {\"a&b\": [\"c=d&e\"]}",
+    "umlaut, euro = chr(0xFC), chr(0x20AC)",
+    "assert parse_query_string(\"city=Z%C3%BCrich&p=%e2%82%ac5\") == {\"city\": [\"Z\" + umlaut + \"rich\"], \"p\": [euro + \"5\"]}",
+    "many = \"&\".join(f\"k{i % 50}={i}\" for i in range(10_000))",
+    "assert parse_query_string(many)[\"k7\"] == [str(i) for i in range(7, 10_000, 50)]"
+  ],
+  "hints": [
+    "Split the job into small steps: pairs, then key and value, then decoding, then collecting the values per key. Which steps would go wrong if you did them in another order?",
+    "Split on `&` first, then on the first `=` only (`str.partition` does exactly that, and gives an empty value when there is no `=`). Decode afterwards, so that an encoded `%26` or `%3D` never splits anything.",
+    "Replace `+` by a space before you decode the `%XX` escapes, otherwise `%2B` becomes a space too. Neighbouring escapes such as `%C3%A9` are one UTF-8 character: gather their bytes and decode them together."
+  ],
+  "solution": "import re\n\n_ESCAPES = re.compile(r\"(?:%[0-9A-Fa-f]{2})+\")\n\n\ndef _decode(text):\n    # \"+\" is a space; an escaped plus (%2B) is decoded below, so it stays a plus\n    text = text.replace(\"+\", \" \")\n    # a run of %XX escapes is the bytes of one or more UTF-8 characters\n    return _ESCAPES.sub(lambda m: bytes.fromhex(m.group().replace(\"%\", \"\")).decode(\"utf-8\", \"replace\"), text)\n\n\ndef parse_query_string(query):\n    params = {}\n    for pair in query.split(\"&\"):\n        if not pair:\n            continue                                  # an empty pair, as in \"a=1&&b=2\"\n        key, _, value = pair.partition(\"=\")           # split at the FIRST \"=\"; no \"=\" gives an empty value\n        params.setdefault(_decode(key), []).append(_decode(value))\n    return params\n",
+  "explanation": "**The idea.** Work in the order the format defines: split the query into pairs on `&`, split each pair into key and value at the first `=`, and only then decode each part. Collect the values in a dict of lists with `setdefault(key, []).append(value)`.\n\n**Why the order matters.** Decoding first would turn `%26` and `%3D` into real `&` and `=`, and the string would then split in the wrong places: `a%26b=c` is one pair with the key `a&b`, not two. In the same way `+` must become a space *before* the escapes are decoded, or `%2B` (a literal plus) would turn into a space too. Decoding once, left to right, also keeps `%2541` as `%41` instead of `A`.\n\n**UTF-8.** An escape is one *byte*, not one character: `%C3%A9` is the two bytes of `é`. Gather a run of escapes, turn them into bytes with `bytes.fromhex`, and decode the bytes as UTF-8.\n\n**Complexity.** O(n) for a query of n characters.\n\n**In production** call `urllib.parse.parse_qs(query, keep_blank_values=True)`, which follows the same rules (web frameworks do it for you). **Follow-up:** repeated keys are how HTML forms send checkboxes and multi-selects. Some frameworks also read `a[]=1&a[]=2` or `a[b]=1` as arrays and nested objects; that is a convention on top of the format, not part of it."
+}

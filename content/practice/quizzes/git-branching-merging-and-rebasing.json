@@ -1,0 +1,137 @@
+{
+  "title": "Git branching, merging and rebasing",
+  "topic": "git",
+  "difficulty": "beginner",
+  "module": "learn/08-git-and-version-control/02-branching-and-merging/README.md",
+  "description": "How branches and HEAD work, how merge and rebase differ, and how to undo mistakes safely with revert, reset and the reflog.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "You are on main and run git switch -c fix, then make one commit. Which statement is true afterwards?",
+      "options": [
+        { "id": "a", "text": "Both main and fix point to the new commit, because they started at the same place" },
+        { "id": "b", "text": "Only fix moves to the new commit; HEAD follows it and main stays where it was" },
+        { "id": "c", "text": "main moves to the new commit and fix stays put, because main was checked out first" },
+        { "id": "d", "text": "Neither branch moves until the commit has been pushed to a remote" }
+      ],
+      "answer": ["b"],
+      "explanation": "A branch is just a movable pointer to a commit, and a new commit moves only the branch that HEAD currently follows. After git switch -c fix that branch is fix, so main stays on the older commit, and nothing needs to be pushed for any of this to happen."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Nobody has committed to main since you created feature from it, and feature has two new commits. You are on main and run git merge feature. What happens?",
+      "options": [
+        { "id": "a", "text": "Git fast-forwards main to feature's latest commit and creates no new commit" },
+        { "id": "b", "text": "Git creates a merge commit with two parents, because every merge makes one" },
+        { "id": "c", "text": "Git replays your two commits as brand-new commits on top of main" },
+        { "id": "d", "text": "Git stops with a conflict, because both branches have changed since they split" }
+      ],
+      "answer": ["a"],
+      "explanation": "Because main is an ancestor of feature, Git has nothing to combine and just slides the main pointer forward. A merge commit with two parents appears only when both branches have new commits, or when you ask for one with --no-ff. Replaying commits as new ones is what rebase does, not merge."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Your feature branch is already pushed and a teammate has started working on top of it. You are tempted to run git rebase main on it. What is the main danger?",
+      "options": [
+        { "id": "a", "text": "It squashes all of your commits into a single one, which hides what each separate change was for" },
+        { "id": "b", "text": "It always produces merge conflicts, even when the changes on the two branches do not overlap" },
+        { "id": "c", "text": "It cannot be undone once it has started, so any mistake destroys your work for good, with no way back" },
+        { "id": "d", "text": "It gives your commits new hashes, so pushing needs a force-push that can erase your teammate's work" }
+      ],
+      "answer": ["d"],
+      "explanation": "Rebase replays your commits as new ones with new hashes, so history your teammate already has is replaced, and the push needs a force-push that can overwrite what they based their work on. Rebase your own unpublished branches freely and merge shared ones. It can be aborted midway and undone through the reflog, and it keeps your commits and messages."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Two branches each edited app.py, one near the top of the file and one near the bottom. What happens when you merge them?",
+      "options": [
+        { "id": "a", "text": "Git always reports a conflict, because both branches changed the same file" },
+        { "id": "b", "text": "Git keeps the version from the branch you are on and silently drops the other change" },
+        { "id": "c", "text": "Git combines both edits automatically, because they touch different lines" },
+        { "id": "d", "text": "Git refuses to merge until one branch has been rebased onto the other" }
+      ],
+      "answer": ["c"],
+      "explanation": "Git merges line by line against the common ancestor, so edits to different parts of a file combine cleanly. A conflict appears only when both sides changed the same lines differently; then Git marks them in the file, and you edit the result, git add it and commit, or run git merge --abort to back out."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "You committed too early and want to undo that commit but keep all of its changes staged, ready to commit again. Which command does that?",
+      "options": [
+        { "id": "a", "text": "git reset --soft HEAD~1" },
+        { "id": "b", "text": "git reset --mixed HEAD~1" },
+        { "id": "c", "text": "git reset --hard HEAD~1" },
+        { "id": "d", "text": "git revert HEAD" }
+      ],
+      "answer": ["a"],
+      "explanation": "--soft moves the branch back one commit but leaves both the staging area and the files as they were, so the changes stay staged. --mixed (the default) also unstages them, --hard throws the changes away, and git revert makes a new commit that undoes the old one instead of removing it."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A bad commit has already been pushed to the shared main branch and other people have pulled it. What is the safest way to undo its effect?",
+      "options": [
+        { "id": "a", "text": "Run git reset --hard on main and then force-push the result to the remote" },
+        { "id": "b", "text": "Run git revert on the bad commit and push the new commit it creates" },
+        { "id": "c", "text": "Delete main on the remote and push a fresh copy from your clone" },
+        { "id": "d", "text": "Use git rebase -i to drop the commit, then force-push main to the remote" }
+      ],
+      "answer": ["b"],
+      "explanation": "git revert adds a new commit that reverses the bad one, so history only moves forward and everyone's copy stays consistent. Reset or an interactive rebase followed by a force-push rewrites commits that others already have, which breaks their clones and can erase their work."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these can you usually get back with the help of git reflog?",
+      "options": [
+        { "id": "a", "text": "Edits you made to a file but never staged or committed, discarded by git reset --hard" },
+        { "id": "b", "text": "Commits that a git reset --hard made unreachable from your branch" },
+        { "id": "c", "text": "Commits that exist only in a teammate's clone and were never fetched" },
+        { "id": "d", "text": "The tip of a local branch you deleted by mistake with git branch -D" },
+        { "id": "e", "text": "The commits as they were before a rebase went wrong" }
+      ],
+      "answer": ["b", "d", "e"],
+      "explanation": "The reflog is a local log of where HEAD and your branch tips have been, so commits that a reset, a rebase or a branch deletion left unreachable can be found there (until Git eventually cleans them up) and restored with git reset or git branch. Changes that were never committed were never recorded, and commits in another person's clone never passed through your reflog."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which statements about everyday Git commands are true?",
+      "options": [
+        { "id": "a", "text": "git stash saves your changes to tracked files and leaves a clean working tree; git stash pop brings them back" },
+        { "id": "b", "text": "git stash also saves new untracked files by default, so nothing is left behind" },
+        { "id": "c", "text": "git cherry-pick copies one commit's change onto the current branch as a new commit with its own hash" },
+        { "id": "d", "text": "A tag, unlike a branch, keeps pointing at the same commit when new commits are made" },
+        { "id": "e", "text": "Deleting a branch with git branch -d removes its commits from the repository straight away" }
+      ],
+      "answer": ["a", "c", "d"],
+      "explanation": "A stash records changes to tracked files (add -u to include untracked ones), cherry-pick re-applies one commit as a new commit, and a tag is a fixed label on one commit while a branch moves forward. Deleting a branch removes only the pointer, so its commits stay in the repository until garbage collection."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "A path in .gitignore only stops Git from picking up untracked files; a file that was already committed stays tracked until you remove it from the index, for example with git rm --cached.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Ignore rules apply only to files Git is not tracking yet, so adding a committed file to .gitignore changes nothing about it. git rm --cached stops tracking the file while leaving it on disk, but earlier commits still contain it, so a leaked secret must be rotated rather than just ignored."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "Putting a bug fix, a rename and a formatting change into one commit is fine, because Git can revert or cherry-pick any one of those changes on its own.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Git reverts, cherry-picks and bisects whole commits, so a mixed commit forces you to take or undo all three changes together and makes review harder. Keeping each commit to one logical change is what makes those tools useful."
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
 import { timeId } from '../lib/util.js';
 import { audit } from '../lib/audit.js';
 import { STORAGE_ACCOUNT } from '../lib/blob.js';
+import site from '../../site.config.json' with { type: 'json' };
 
 const admin = createRouter();
 
@@ -45,14 +46,15 @@ admin.get('/manage/users', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
 
-  const groupCount = async (sql) => {
+  const groupCount = async (sql, ...params) => {
     const map = {};
-    for (const r of await all(c.env, sql)) map[r.k] = r.n;
+    for (const r of await all(c.env, sql, ...params)) map[r.k] = r.n;
     return map;
   };
 
   const [progress, notes, bookmarks, commentCounts] = await Promise.all([
-    groupCount('SELECT user_id AS k, COUNT(*) AS n FROM module_progress GROUP BY user_id'),
+    // modules only: a solved coding problem or a finished drill is saved in the same table (site.config.json -> progressKeys), and is not a module
+    groupCount('SELECT user_id AS k, COUNT(*) AS n FROM module_progress WHERE path NOT LIKE ?1 AND path NOT LIKE ?2 GROUP BY user_id', `${site.progressKeys.code}%`, `${site.progressKeys.drill}%`),
     groupCount('SELECT user_id AS k, COUNT(*) AS n FROM notes GROUP BY user_id'),
     groupCount('SELECT user_id AS k, COUNT(*) AS n FROM bookmarks GROUP BY user_id'),
     groupCount(`SELECT user_id AS k, COUNT(*) AS n FROM comments WHERE user_id IS NOT NULL AND user_id != '' GROUP BY user_id`)

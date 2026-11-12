@@ -1,0 +1,55 @@
+{
+  "title": "Merge Sorted Log Streams",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices/README.md",
+  "description": "Merge several time-sorted log streams into one ordered stream, reading each one lazily.",
+  "statement": "Write `merge_logs(*streams)`. Each stream is an iterable of `(timestamp, line)` entries that is already sorted by timestamp. Return an iterator that yields the entries of all the streams together, in timestamp order.\n\n- It must be **lazy**. Streams can be huge files or one-shot generators, so never load a whole stream: after the caller has taken `m` entries, at most `m + k` entries may have been read from the `k` streams in total.\n- Entries with equal timestamps come out in the order of their streams (the earlier argument first), and entries of one stream keep their order. Never compare the log lines.\n- No streams, or only empty ones, give an empty result. Entries are yielded unchanged, and timestamps can be any values that compare with `<`.\n\n**Example**\n\n```python\na = [(1, \"boot\"), (4, \"ready\")]\nb = iter([(2, \"request\"), (3, \"reply\"), (5, \"done\")])\nlist(merge_logs(a, b))   # [(1, \"boot\"), (2, \"request\"), (3, \"reply\"), (4, \"ready\"), (5, \"done\")]\n```",
+  "starter": "def merge_logs(*streams):\n    \"\"\"Yield every (timestamp, line) entry of the sorted `streams` in timestamp order, reading each stream lazily.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport itertools\nimport random\n\ndef merged(*streams):\n    result = merge_logs(*streams)\n    if result is None:\n        raise AssertionError(\"merge_logs returned None; it should return an iterator of entries\")\n    return list(result)\n\ndef first_difference(got, want):\n    if len(got) != len(want):\n        return f\"{len(got)} entries came out, expected {len(want)}\"\n    for position, (a, b) in enumerate(zip(got, want)):\n        if a != b:\n            return f\"entry {position} is {a!r}, expected {b!r}\"\n    return None\n",
+    {
+      "name": "merges two sorted streams (the example)",
+      "code": "a = [(1, \"boot\"), (4, \"ready\")]\nb = iter([(2, \"request\"), (3, \"reply\"), (5, \"done\")])\nassert merged(a, b) == [(1, \"boot\"), (2, \"request\"), (3, \"reply\"), (4, \"ready\"), (5, \"done\")]"
+    },
+    {
+      "name": "no streams, or only empty ones, give nothing",
+      "code": "assert merged() == []\nassert merged([], iter([])) == []"
+    },
+    {
+      "name": "a single stream comes out unchanged",
+      "code": "assert merged([(1, \"x\"), (2, \"y\"), (2, \"z\")]) == [(1, \"x\"), (2, \"y\"), (2, \"z\")]"
+    },
+    {
+      "name": "streams may be lists, tuples, iterators or generators; one may run out early",
+      "code": "streams = [[(1, \"a\"), (4, \"d\")], iter([(2, \"b\"), (5, \"e\")]), ((3, \"c\"),), (entry for entry in [(6, \"f\")]), []]\nassert merged(*streams) == [(1, \"a\"), (2, \"b\"), (3, \"c\"), (4, \"d\"), (5, \"e\"), (6, \"f\")]"
+    },
+    {
+      "name": "equal timestamps: the earlier stream first, and log lines are never compared",
+      "code": "assert merged([(5, \"b\")], [(5, \"a\")]) == [(5, \"b\"), (5, \"a\")]\nassert merged([(2, \"x\")], [(1, \"y\"), (2, \"y\")], [(2, \"z\")]) == [(1, \"y\"), (2, \"x\"), (2, \"y\"), (2, \"z\")]"
+    },
+    {
+      "name": "equal timestamps inside one stream keep their order",
+      "code": "assert merged([(1, \"z\"), (1, \"a\")], [(1, \"m\")]) == [(1, \"z\"), (1, \"a\"), (1, \"m\")]"
+    },
+    {
+      "name": "timestamps can be any comparable values, such as ISO-8601 strings",
+      "code": "api = [(\"2026-11-12T10:00:01\", \"GET /orders\"), (\"2026-11-12T10:00:09\", \"POST /orders\")]\ndb = [(\"2026-11-12T10:00:02\", \"SELECT 1\"), (\"2026-11-12T10:00:05\", \"COMMIT\")]\nassert [line for _, line in merged(api, db)] == [\"GET /orders\", \"SELECT 1\", \"COMMIT\", \"POST /orders\"]"
+    },
+    {
+      "name": "agrees with a stable sort of everything, on 50 streams full of equal timestamps",
+      "code": "rng = random.Random(4)\nmany = []\nfor number in range(50):\n    entries = [(rng.randrange(40), f\"s{number}-{i}\") for i in range(100)]\n    many.append(sorted(entries, key=lambda entry: entry[0]))\nexpected = sorted(itertools.chain.from_iterable(many), key=lambda entry: entry[0])\nassert first_difference(merged(*many), expected) == None"
+    },
+    {
+      "name": "reads lazily: 5 entries out of three streams of 1,000 read at most 8 entries",
+      "code": "reads = []\n\ndef counting(items):\n    for item in items:\n        reads.append(item)\n        yield item\n\nstreams = [counting([(t, f\"s{i}\") for t in range(i, 3000, 3)]) for i in range(3)]\nresult = merge_logs(*streams)\nif result is None:\n    raise AssertionError(\"merge_logs returned None; it should return an iterator of entries\")\nfirst_five = list(itertools.islice(result, 5))\nassert first_five == [(0, \"s0\"), (1, \"s1\"), (2, \"s2\"), (3, \"s0\"), (4, \"s1\")]\nassert len(reads) <= 5 + 3, f\"{len(reads)} entries were read to produce 5; a lazy merge reads one entry ahead per stream, so at most 8\""
+    }
+  ],
+  "hints": [
+    "Only the first not-yet-used entry of each stream can be the next result. How can you find the smallest of k such entries quickly, again and again?",
+    "Keep a min-heap with one `(timestamp, stream_number, entry)` per stream. Pop the smallest, `yield` its entry, then push the next entry of that same stream, if it has one. Writing the function as a generator makes it lazy.",
+    "The stream number in the tuple settles ties in favour of the earlier stream and means the log lines are never compared. Do not turn a stream into a list: the tests count how much of it you have read."
+  ],
+  "solution": "import heapq\n\n\ndef merge_logs(*streams):\n    iterators = [iter(stream) for stream in streams]\n    heap = []                                   # (timestamp, stream number, entry): the next entry of each stream\n    for number, iterator in enumerate(iterators):\n        entry = next(iterator, None)\n        if entry is not None:\n            heap.append((entry[0], number, entry))\n    heapq.heapify(heap)\n    while heap:\n        _, number, entry = heap[0]\n        yield entry\n        following = next(iterators[number], None)       # read the next entry only when the caller wants more\n        if following is None:\n            heapq.heappop(heap)\n        else:\n            heapq.heapreplace(heap, (following[0], number, following))\n",
+  "explanation": "**The idea.** This is a k-way merge. Keep a min-heap that holds the *next* entry of every stream. The smallest one is the next result; after handing it out, replace it with the following entry of the same stream. At any moment you hold one entry per stream, so memory is O(k) however long the streams are, and each entry costs O(log k): O(N log k) for N entries.\n\n**Ties.** Put the stream number in the heap entry: `(timestamp, stream_number, entry)`. When two timestamps are equal, Python compares the stream numbers, which are always different, so it never falls back to comparing the entries themselves (which could be unorderable, or in the wrong order for our rule). This also makes the merge stable: equal timestamps come out in stream order.\n\n**Laziness.** `merge_logs` is a generator (it uses `yield`), so nothing is read until the caller asks, and the next entry of a stream is read only after its previous entry has been consumed. That is how it can merge files far bigger than memory. Never call `list(stream)` or `sorted(...)` on the streams: that reads everything first.\n\n**In real code** the standard library has this: `heapq.merge(*streams, key=lambda entry: entry[0])` does the same, lazily and stably.\n\n**Assumption.** Every stream must already be sorted. If one is not, no streaming merge can fix it; you would need an external sort."
+}

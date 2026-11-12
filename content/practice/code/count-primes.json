@@ -1,0 +1,29 @@
+{
+  "title": "Count Primes",
+  "topic": "math-and-bits",
+  "difficulty": "intermediate",
+  "description": "Count how many primes are below n, fast enough for n in the millions.",
+  "statement": "Write `count_primes(n)`, which returns how many prime numbers are **strictly less than** `n`.\n\n- A prime is a whole number greater than 1 that has no divisors other than 1 and itself, so 0 and 1 are not primes.\n- `n` is a non-negative integer. `count_primes(0)`, `count_primes(1)` and `count_primes(2)` are all `0`, and `n` itself is never counted, even when it is prime.\n- `n` can be in the millions.\n\n**Examples**\n\n```python\ncount_primes(10)    # 4, the primes below 10 are 2, 3, 5 and 7\ncount_primes(2)     # 0\ncount_primes(20)    # 8\n```\n\nTesting each number separately for divisors is far too slow when `n` is in the millions. Find a way to settle many numbers at once.",
+  "starter": "def count_primes(n):\n    \"\"\"Return the number of primes strictly less than n.\"\"\"\n    ...\n",
+  "tests": [
+    "assert count_primes(10) == 4",
+    "assert count_primes(2) == 0",
+    "assert count_primes(20) == 8",
+    "assert count_primes(0) == 0 and count_primes(1) == 0, \"count_primes(0) and count_primes(1) must both be 0\"",
+    "assert count_primes(3) == 1",
+    "assert count_primes(26) == 9",
+    "assert count_primes(50) == 15",
+    "assert count_primes(101) == 25",
+    "assert count_primes(102) == 26",
+    "assert count_primes(1000) == 168",
+    "assert count_primes(100_000) == 9592",
+    "assert count_primes(3_000_000) == 216_816, \"wrong or too slow for n = 3,000,000\""
+  ],
+  "hints": [
+    "Testing every number for divisors on its own repeats a lot of work. Is there a way to find all the primes below `n` together, by crossing out the numbers you know are not prime?",
+    "Make a list of flags, one per number, all True at first (0 and 1 are not prime). Go through the numbers from 2: if a number is still True it is prime, so mark all its multiples False. At the end, count the Trues.",
+    "Two details: begin crossing out a prime `p` at `p * p`, and stop looking for primes to sieve with once `p * p >= n`. Remember that `n` itself is not counted."
+  ],
+  "solution": "def count_primes(n):\n    if n < 3:\n        return 0\n    is_prime = [True] * n                  # is_prime[i] stays True until a smaller prime is found to divide i\n    is_prime[0] = is_prime[1] = False\n    p = 2\n    while p * p < n:                       # a composite number below n has a prime factor p with p * p < n\n        if is_prime[p]:\n            # smaller multiples of p already have a smaller prime factor and are crossed out, so start at p * p\n            is_prime[p * p::p] = [False] * len(range(p * p, n, p))\n        p += 1\n    return sum(is_prime)\n",
+  "explanation": "**The idea (the sieve of Eratosthenes).** Instead of asking \"is this number prime?\" a million times, start from the opposite end: list all the numbers, then cross out the ones that cannot be prime. Take the smallest number that is still standing, 2: it is prime, so cross out all its multiples. The next one standing, 3, is prime too: cross out its multiples. Continue; what is left standing at the end is exactly the primes. Counting them is `sum` of the flags.\n\n**Two details.** For a prime `p`, start crossing out at `p * p`: smaller multiples such as `2p` or `3p` have a smaller prime factor and are already gone. And you only need to sieve with primes `p` where `p * p < n`, because every composite below `n` has a prime factor no bigger than its square root. Writing the bound as `p * p < n` also avoids the classic off-by-one of `range(2, int(n ** 0.5))`, which stops one short and leaves 49 standing for `n = 50`.\n\n**Complexity.** About O(n log log n) time, which is nearly linear, and O(n) memory. Slice assignment (`is_prime[p * p::p] = ...`) does the crossing out in C; a plain inner `for` loop is correct too, only a little slower.\n\n**Mistakes to avoid.** Counting `n` itself (the question is strictly below `n`). Forgetting that 0 and 1 are not prime. Allocating `n + 1` flags and then counting one too many.\n\n**Follow-up.** Keep only the odd numbers to halve the memory, or sieve in blocks (a segmented sieve) to count the primes below a billion without a billion flags at once."
+}

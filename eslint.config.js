@@ -13,8 +13,8 @@ import reactHooks from 'eslint-plugin-react-hooks';
 export default [
   {
     // Built output, installed packages, local state, and the curricula (Markdown, plus a few code samples that are
-    // teaching material, not part of this project).
-    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/']
+    // teaching material, not part of this project). Pyodide, which the practice screens run Python with, is vendored as it was released.
+    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/', 'webapp/public/runner/pyodide-*/']
   },
 
   js.configs.recommended,
@@ -92,5 +92,11 @@ export default [
     // The service worker runs in its own scope: no DOM, but `self`, `caches` and `clients`.
     files: ['webapp/public/sw.js'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'script', globals: globals.serviceworker }
+  },
+
+  {
+    // The Python runner of the practice screens is a module worker: its own scope, with `self`, `fetch` and `URL` but no DOM.
+    files: ['webapp/public/runner/py-worker.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: globals.worker }
   }
 ];

@@ -1,0 +1,29 @@
+{
+  "title": "Minimum Window Substring",
+  "topic": "strings-and-parsing",
+  "difficulty": "advanced",
+  "description": "Find the shortest substring of a text that contains every required character, counts included.",
+  "statement": "Write `min_window(text, needed)` that returns the shortest substring of `text` that contains every character of `needed`, repeats included: if `needed` has two `\"a\"`, the window must contain at least two `\"a\"`.\n\n- Extra characters inside the window are fine, and their order does not matter.\n- If no window works, or `needed` is empty, return `\"\"`.\n- If several windows have the minimum length, return the leftmost one: the one that starts first.\n- Comparison is case-sensitive.\n\n**Examples**\n\n```python\nmin_window(\"aabdec\", \"abc\")   # \"abdec\"\nmin_window(\"xabyba\", \"ab\")    # \"ab\"   (\"ba\" is as short, but \"ab\" starts first)\nmin_window(\"ab\", \"aa\")        # \"\"     (the text has only one \"a\")\n```\n\nAim for O(len(text)): trying every start and every end is far too slow.",
+  "starter": "def min_window(text, needed):\n    \"\"\"Return the shortest substring of text containing every character of needed (with repeats), or an empty string.\"\"\"\n    ...\n",
+  "tests": [
+    "assert min_window(\"aabdec\", \"abc\") == \"abdec\"",
+    "assert min_window(\"xabyba\", \"ab\") == \"ab\"",
+    "assert min_window(\"ab\", \"aa\") == \"\"",
+    "assert min_window(\"abc\", \"\") == \"\"",
+    "assert min_window(\"\", \"a\") == \"\"",
+    "assert min_window(\"cab\", \"abc\") == \"cab\"",
+    "assert min_window(\"aaabaaab\", \"aab\") == \"aab\"",
+    "assert min_window(\"xazyza\", \"aa\") == \"azyza\"",
+    "assert min_window(\"aaabzzzzcbaaz\", \"abc\") == \"cba\"",
+    "assert min_window(\"aB\", \"ab\") == \"\"",
+    "long_text = \"x\" * 30_000 + \"ab\" + \"x\" * 30_000 + \"ba\"",
+    "assert min_window(long_text, \"ab\") == \"ab\""
+  ],
+  "hints": [
+    "Any window is defined by its two ends. Think of the right end as moving forward and the left end as chasing it: when is it worth moving each of them?",
+    "Count how many required characters (repeats included) the window still misses. Move the right end until nothing is missing; then move the left end as far as you can while nothing becomes missing, and record the window every time it is valid.",
+    "A character the window has in surplus can be dropped from the left for free, so keep counts that are allowed to go negative. Only record a window when it is strictly shorter than the best one, so that ties keep the leftmost."
+  ],
+  "solution": "from collections import Counter\n\n\ndef min_window(text, needed):\n    if not needed or len(needed) > len(text):\n        return \"\"\n\n    lacking = Counter(needed)         # lacking[c]: how many more copies of c the window needs (negative: a surplus)\n    missing = len(needed)             # characters still missing in total, repeats counted\n    best_start, best_length = 0, len(text) + 1\n    left = 0\n    for right, char in enumerate(text):\n        if lacking[char] > 0:\n            missing -= 1\n        lacking[char] -= 1\n        while missing == 0:                          # [left, right] covers `needed`: shrink it as far as it stays valid\n            if right - left + 1 < best_length:       # strictly shorter, so on a tie the leftmost window is kept\n                best_start, best_length = left, right - left + 1\n            lacking[text[left]] += 1\n            if lacking[text[left]] > 0:\n                missing += 1\n            left += 1\n    return text[best_start:best_start + best_length] if best_length <= len(text) else \"\"\n",
+  "explanation": "**The idea.** Two ends, `left` and `right`, bound the window. Move `right` forward one character at a time and keep count of how many required characters (repeats included) the window still lacks. When nothing is lacking, the window is valid: record it if it is the shortest so far, then move `left` forward to shrink it for as long as it stays valid. Then move `right` again.\n\n**Why it finds the minimum.** Any shortest window becomes valid at some moment while `right` sweeps, and by then the shrinking loop has pushed `left` as far as validity allows. Both ends only ever move forward, so nothing is missed and nothing is revisited.\n\n**Counts may go negative.** `lacking[c]` is how many more copies of `c` are needed; a negative number is a surplus, which is exactly what lets `left` drop a character for free. Characters that are not in `needed` just drift below zero and are never counted as missing.\n\n**Complexity.** O(len(text) + len(needed)): each character enters the window once and leaves it at most once.\n\n**Usual mistakes.** Counting distinct characters instead of copies (then `\"aa\"` would be satisfied by one `\"a\"`), shrinking only once instead of while the window stays valid, and recording the window on ties, which returns the rightmost instead of the leftmost.\n\n**Follow-up.** When `needed` is small and the text is long, list only the positions of the needed characters and slide over that list; each step then skips the irrelevant characters."
+}

@@ -1,0 +1,31 @@
+{
+  "title": "Palindrome Linked List",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "intermediate",
+  "description": "Check whether a linked list reads the same forwards and backwards, ideally in O(1) extra space.",
+  "statement": "Write `is_palindrome(head)`, which returns `True` if the values of a singly linked list read the same from front to back as from back to front, otherwise `False`. `ListNode` is given: each node has a `val` and a `next` (`None` at the end).\n\n- Compare values with `==`. An empty list and a one-node list are palindromes.\n- The list must look exactly the same after your function returns. If you rearrange nodes while working, put them back.\n- The list has at most a few hundred nodes.\n- Stretch goal: O(1) extra space. Copying the values into a Python list is accepted, but it uses O(n) extra space.\n\n**Examples**\n\n```\n1 -> 2 -> 2 -> 1                     True\n1 -> 2                               False\nr -> a -> c -> e -> c -> a -> r      True\n```",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef is_palindrome(head):\n    \"\"\"Return True if the values read the same forwards and backwards. Leave the list as it was.\"\"\"\n    ...\n",
+  "tests": [
+    "def nodes_of(values):\n    nodes = [ListNode(v) for v in values]\n    for before, after in zip(nodes, nodes[1:]):\n        before.next = after\n    return nodes\ndef answer_for(values):\n    nodes = nodes_of(values)\n    return is_palindrome(nodes[0] if nodes else None)\ndef list_after(values):\n    # run the function, then read the list again from its original head\n    nodes = nodes_of(values)\n    is_palindrome(nodes[0] if nodes else None)\n    out, node = [], (nodes[0] if nodes else None)\n    while node is not None and len(out) <= len(values):\n        out.append(node.val)\n        node = node.next\n    return out",
+    "assert answer_for([1, 2, 2, 1]) == True",
+    "assert answer_for([1, 2]) == False",
+    "assert answer_for(\"racecar\") == True",
+    "assert answer_for([1, 2, 3, 4, 2, 1]) == False",
+    "assert answer_for([1, 2, 3, 3, 2, 5]) == False",
+    "assert answer_for([]) == True",
+    "assert answer_for([7]) == True",
+    "assert answer_for([6] * 7) == True",
+    "assert list_after([1, 2, 3, 4, 5, 6]) == [1, 2, 3, 4, 5, 6]",
+    "assert list_after([1, 2, 3, 2, 1]) == [1, 2, 3, 2, 1]",
+    "palindrome_of_400 = list(range(200)) + list(range(199, -1, -1))",
+    "assert answer_for(palindrome_of_400) == True",
+    "assert answer_for(palindrome_of_400[:199] + [-1] + palindrome_of_400[200:]) == False"
+  ],
+  "hints": [
+    "Copying the values into a list and comparing it with its reverse works, with O(n) extra space. For O(1) space, think about which half of the list you could rearrange so that both halves can be walked in the same direction.",
+    "Find the middle with a slow and a fast pointer, reverse the second half in place, then walk the first half and the reversed half together, comparing values.",
+    "The tests read the list again after the call. Reverse the second half back before you return, also when you found a mismatch and could have returned early."
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef reverse(head):\n    previous = None\n    while head is not None:\n        head.next, previous, head = previous, head, head.next\n    return previous\n\n\ndef is_palindrome(head):\n    # 1. Find the middle: `slow` ends on the first node of the second half (the middle node itself when the length is odd).\n    slow = fast = head\n    while fast is not None and fast.next is not None:\n        slow = slow.next\n        fast = fast.next.next\n\n    # 2. Reverse the second half in place, then compare it with the first half from both ends.\n    second_half = reverse(slow)\n    result = True\n    left, right = head, second_half\n    while right is not None:\n        if left.val != right.val:\n            result = False\n            break\n        left, right = left.next, right.next\n\n    # 3. Put the second half back, whatever the answer was.\n    reverse(second_half)\n    return result\n",
+  "explanation": "**The idea.** A palindrome reads the same from both ends, but a singly linked list can only be walked forwards. Copying the values into a Python list and comparing it with its reverse works, in O(n) extra space. To use O(1) space, make the *second half* readable from the other end instead: find the middle with a slow and a fast pointer, reverse the second half in place, then walk the first half and the reversed second half together, comparing values.\n\n**Put it back.** Reversing changes the list, and a caller expects it unchanged. Reverse the second half again before you return, including on the early exit when two values differ. The usual bug is `return False` at the first mismatch, which leaves half of the list reversed; the tests that read the list afterwards catch it.\n\n**Odd lengths.** The middle node has no partner and needs none: when `slow` ends on it, it simply gets compared with itself. The same loop then handles odd and even lengths.\n\n**Complexity.** O(n) time and O(1) extra space. Follow-up: if the list may be read by others while you work, you must not rearrange it. Then copy only the second half into a list (n/2 extra space) and compare it with the first half."
+}

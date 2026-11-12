@@ -1,0 +1,30 @@
+{
+  "title": "Merge Two Sorted Lists",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "beginner",
+  "description": "Merge two sorted linked lists into one sorted list by relinking the existing nodes.",
+  "statement": "Write `merge_two_lists(first, second)`, which merges two sorted linked lists into one sorted list and returns its head. `ListNode` is given: each node has a `val` and a `next`. Both lists are sorted in ascending order and may contain equal values.\n\n- Reuse the existing nodes: relink their `next` pointers instead of creating new nodes.\n- When two values are equal, the node from `first` comes before the node from `second`.\n- Either list may be empty (`None`). If both are, return `None`.\n\n**Examples**\n\n```\n1 -> 2 -> 4   and   1 -> 3 -> 4    merge into    1 -> 1 -> 2 -> 3 -> 4 -> 4\nNone          and   1 -> 3 -> 4    merge into    1 -> 3 -> 4\nNone          and   None           merge into    None\n```",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef merge_two_lists(first, second):\n    \"\"\"Merge two sorted lists by relinking their nodes; return the head of the merged list (None if both are empty).\"\"\"\n    ...\n",
+  "tests": [
+    "def build(values):\n    head = None\n    for value in reversed(values):\n        head = ListNode(value, head)\n    return head\ndef to_list(node):\n    out = []\n    while node is not None and len(out) < 10_000:\n        out.append(node.val)\n        node = node.next\n    return out\ndef tagged(values, tag):\n    \"\"\"A list of the values whose nodes all carry a `tag` attribute, so the test can tell where each node of the result came from.\"\"\"\n    head = build(values)\n    node = head\n    while node is not None:\n        node.tag = tag\n        node = node.next\n    return head\ndef origins(node):\n    \"\"\"(value, tag) for each node; a node the function made itself has no tag.\"\"\"\n    out = []\n    while node is not None and len(out) < 100:\n        out.append((node.val, getattr(node, \"tag\", \"a new node\")))\n        node = node.next\n    return out",
+    "assert to_list(merge_two_lists(build([1, 2, 4]), build([1, 3, 4]))) == [1, 1, 2, 3, 4, 4]",
+    "assert to_list(merge_two_lists(None, build([1, 3, 4]))) == [1, 3, 4]",
+    "assert to_list(merge_two_lists(build([1, 3, 4]), None)) == [1, 3, 4]",
+    "assert merge_two_lists(None, None) is None",
+    "assert to_list(merge_two_lists(build([5]), build([2]))) == [2, 5]",
+    "assert to_list(merge_two_lists(build([1, 2, 3]), build([7, 8, 9]))) == [1, 2, 3, 7, 8, 9]",
+    "assert to_list(merge_two_lists(build([7, 8, 9]), build([1, 2, 3]))) == [1, 2, 3, 7, 8, 9]",
+    "assert to_list(merge_two_lists(build([-5, -1, 0, 0, 3]), build([-3, 0, 4, 4]))) == [-5, -3, -1, 0, 0, 0, 3, 4, 4]",
+    "assert to_list(merge_two_lists(build([2, 2, 2]), build([2, 2]))) == [2, 2, 2, 2, 2]",
+    "merged = merge_two_lists(tagged([1, 4], \"first\"), tagged([1, 3], \"second\"))",
+    "assert origins(merged) == [(1, \"first\"), (1, \"second\"), (3, \"second\"), (4, \"first\")]",
+    "assert to_list(merge_two_lists(build(list(range(0, 400, 2))), build(list(range(1, 400, 2))))) == list(range(400))"
+  ],
+  "hints": [
+    "At every step only the two front nodes matter. Which of them has to come next in the merged list?",
+    "Keep a `tail` pointer at the end of the merged list. Attach the smaller front node to `tail.next`, advance that list and `tail`, and repeat. When one list is empty, attach the rest of the other.",
+    "A dummy node placed before the head means the first node needs no special case: build after it and return `dummy.next`. Use `<=` so that a tie takes the node from `first`."
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef merge_two_lists(first, second):\n    dummy = tail = ListNode()              # a stand-in before the real head, so the first node needs no special case\n    while first is not None and second is not None:\n        if first.val <= second.val:        # <= keeps equal values in their original order\n            tail.next, first = first, first.next\n        else:\n            tail.next, second = second, second.next\n        tail = tail.next\n    tail.next = first if first is not None else second    # one list is used up: attach what is left of the other\n    return dummy.next\n",
+  "explanation": "**The idea.** The smallest remaining value is always at the front of one of the two lists. So keep a `tail` at the end of the merged list so far, repeatedly take the smaller front node, hang it on `tail`, and move that list forward. When one list runs out, the other is already sorted, so attach all of it in one move.\n\n**The dummy node.** The merged list's head is not known until the first comparison. Starting from a dummy node in front of everything means the first node is attached like any other, and `dummy.next` is the answer.\n\n**Equal values.** Comparing with `<=` takes from `first` on a tie, so equal values keep their original order. That is what makes a merge *stable*, and it is the merge step of merge sort on a linked list.\n\n**Complexity.** O(n + m) time. O(1) extra space, because the nodes are relinked, not copied. A recursive version (merge the heads, then merge the rest) is shorter but uses one stack frame per node, which fails on long lists in Python.\n\n**Follow-up.** Merge `k` sorted lists: repeatedly take the smallest front node of all `k` lists with a heap, in O(N log k)."
+}

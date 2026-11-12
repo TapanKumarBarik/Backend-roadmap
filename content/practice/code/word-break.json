@@ -1,0 +1,29 @@
+{
+  "title": "Word Break",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Decide whether a string can be split into a sequence of words from a dictionary.",
+  "statement": "Return `True` if the string `s` can be built by joining words from `words` one after another, and `False` otherwise. A word may be used as many times as you like.\n\n- The words must cover `s` exactly, in order, with nothing left over.\n- The empty string can always be built (from zero words), even when `words` is empty: `word_break(\"\", [])` is `True`.\n- Words are not empty, and they may be prefixes of one another. Picking the longest (or the first) word that fits at each position is not always right.\n\n**Examples**\n\n```python\nword_break(\"pineapplepie\", [\"pine\", \"apple\", \"pie\", \"pineapple\"])   # True: pine + apple + pie\nword_break(\"serverlogs\", [\"serve\", \"logs\", \"log\"])                  # False\nword_break(\"aaaa\", [\"a\", \"aaa\"])                                    # True: words can be reused\n```\n\nTrying every way to cut the string is exponential, and the last test has 301 characters. Aim for roughly O(n²) or better, where n is the length of `s`.",
+  "starter": "def word_break(s, words):\n    \"\"\"Return True if s is a concatenation of words from `words` (each usable any number of times), else False.\"\"\"\n    ...\n",
+  "tests": [
+    "assert word_break(\"pineapplepie\", [\"pine\", \"apple\", \"pie\", \"pineapple\"]) == True",
+    "assert word_break(\"serverlogs\", [\"serve\", \"logs\", \"log\"]) == False",
+    "assert word_break(\"aaaa\", [\"a\", \"aaa\"]) == True",
+    "assert word_break(\"\", [\"a\"]) == True",
+    "assert word_break(\"\", []) == True",
+    "assert word_break(\"a\", []) == False",
+    "assert word_break(\"a\", [\"aa\"]) == False",
+    "assert word_break(\"abcx\", [\"abc\"]) == False",
+    "assert word_break(\"abcd\", [\"ab\", \"abc\", \"cd\"]) == True",
+    "assert word_break(\"aab\", [\"a\", \"aab\"]) == True",
+    "assert word_break(\"cars\", [\"car\", \"ca\", \"rs\"]) == True",
+    "assert word_break(\"a\" * 300 + \"b\", [\"a\" * length for length in range(1, 30)]) == False"
+  ],
+  "hints": [
+    "If you try every way to cut the string, the same ending gets examined again and again. Which yes/no question about a *prefix* of `s` could you answer once and reuse?",
+    "Let `splittable[i]` say whether the first `i` characters can be split into words. It is true when, for some `j < i`, `splittable[j]` is true and `s[j:i]` is a word. The empty prefix is splittable.",
+    "Look words up in a set, not a list. And do not commit to the longest (or the first) word that fits at a position: try every split point, because the greedy choice can strand the rest of the string."
+  ],
+  "solution": "def word_break(s, words):\n    dictionary = set(words)\n    longest = max(map(len, dictionary), default=0)\n    splittable = [True] + [False] * len(s)       # splittable[i]: the first i characters can be split into words\n    for end in range(1, len(s) + 1):\n        for start in range(max(0, end - longest), end):\n            if splittable[start] and s[start:end] in dictionary:\n                splittable[end] = True\n                break\n    return splittable[len(s)]\n",
+  "explanation": "**The idea.** Let `splittable[i]` be True when the first `i` characters of `s` can be split into words. The empty prefix is splittable (`splittable[0]` is True). A longer prefix is splittable when some earlier split point `j` has `splittable[j]` True and the piece `s[j:i]` is a word. The answer is `splittable[len(s)]`.\n\n**Why not try every split.** Every position can end a word or not, so the number of ways to cut grows exponentially (300 letters `a` with the words `a`, `aa`, `aaa`, ... have astronomically many). The table answers each prefix once and reuses it.\n\n**Details.** Keep the words in a set so a lookup is O(1) instead of a scan of a list. A piece longer than the longest word can never match, so `start` only has to look back that far; that turns O(n²) pieces into O(n · longest word). Greedy rules fail: with `ab`, `abc` and `cd`, taking the longest word at the start of `abcd` strands the `d`.\n\n**Follow-up.** To return one actual split, or all of them, remember for each end position which start worked and walk back; to count the splits, add up instead of stopping at the first success."
+}

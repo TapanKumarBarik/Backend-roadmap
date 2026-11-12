@@ -1,0 +1,35 @@
+{
+  "title": "Min Stack",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "description": "Design a stack that also returns its smallest element in constant time.",
+  "statement": "Design a stack that supports `push`, `pop`, `top` and `get_min`, each in **O(1)** time.\n\n- `push(x)` adds `x` on top.\n- `pop()` removes the top element and returns it.\n- `top()` returns the top element without removing it.\n- `get_min()` returns the smallest element currently in the stack.\n- You will never call `pop`, `top` or `get_min` on an empty stack.\n\n**Example**\n\n```python\ns = MinStack()\ns.push(5); s.push(2); s.push(7)\ns.get_min()    # 2\ns.pop()        # 7\ns.pop()        # 2\ns.get_min()    # 5, the minimum goes back up when the 2 is removed\n```",
+  "starter": "class MinStack:\n    def __init__(self):\n        ...\n\n    def push(self, x):\n        ...\n\n    def pop(self):\n        ...\n\n    def top(self):\n        ...\n\n    def get_min(self):\n        ...\n",
+  "tests": [
+    "s = MinStack()\ns.push(5)\ns.push(2)\ns.push(7)",
+    "assert s.top() == 7",
+    "assert s.get_min() == 2",
+    "assert s.pop() == 7",
+    "assert s.get_min() == 2",
+    "assert s.pop() == 2",
+    "assert s.get_min() == 5",
+    "assert s.top() == 5",
+    "t = MinStack()\nfor value in [3, 3, 1, 1, 2]:\n    t.push(value)",
+    "assert t.get_min() == 1",
+    "t.pop()\nt.pop()",
+    "assert t.get_min() == 1, \"a duplicate minimum must survive one pop\"",
+    "t.pop()",
+    "assert t.get_min() == 3",
+    "big = MinStack()\nfor value in range(20000, 0, -1):\n    big.push(value)",
+    "assert big.get_min() == 1",
+    "for _ in range(19999):\n    big.pop()",
+    "assert big.get_min() == 20000 and big.top() == 20000"
+  ],
+  "hints": [
+    "Scanning the stack for the minimum is O(n). What could you store *when you push* so that the answer is already known later?",
+    "With each element, store the smallest value in the stack up to and including that element.",
+    "When you pop, the minimum goes back to what it was before that push. Because it was stored with the element below, you do not have to recompute anything."
+  ],
+  "solution": "class MinStack:\n    def __init__(self):\n        self._items = []   # (value, smallest value in the stack up to and including it)\n\n    def push(self, x):\n        smallest = x if not self._items else min(x, self._items[-1][1])\n        self._items.append((x, smallest))\n\n    def pop(self):\n        return self._items.pop()[0]\n\n    def top(self):\n        return self._items[-1][0]\n\n    def get_min(self):\n        return self._items[-1][1]\n",
+  "explanation": "**The idea.** Scanning for the minimum is O(n). Instead, store the answer next to each element: when you push `x`, also record the smallest value in the stack *at that moment*. The minimum of the whole stack is then always the one recorded on the top element, and popping simply discards it, which restores the previous minimum automatically.\n\n**Two ways to store it.** A tuple `(value, minimum_so_far)` per element, as here, or a second stack that only gets a value pushed when it is `<=` the current minimum. The second uses less memory when the minimum rarely changes; note the `<=` (not `<`), or duplicates of the minimum break it.\n\n**Complexity.** Every operation is O(1). Space is O(n)."
+}

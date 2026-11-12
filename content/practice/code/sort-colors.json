@@ -1,0 +1,28 @@
+{
+  "title": "Sort Colors",
+  "topic": "binary-search-and-sorting",
+  "difficulty": "intermediate",
+  "description": "Sort a list that holds only 0, 1 and 2 in place, in a single pass and without a library sort.",
+  "statement": "A list `nums` holds only the numbers `0`, `1` and `2` (think of red, white and blue). Sort it **in place**, so that all the 0s come first, then the 1s, then the 2s.\n\n- Change `nums` itself; the function returns nothing. The tests look at the list afterwards.\n- Do not call `sort()` or `sorted()`: the point is to do it by hand. The tests switch both off.\n- The list may be empty, already sorted, or hold only one or two of the numbers.\n- Aim for **O(n)** time and O(1) extra space; a single pass is possible. The last test sorts 60,000 numbers, far too many for anything that is O(n²).\n\n**Example**\n\n```python\nnums = [2, 0, 2, 1, 1, 0]\nsort_colors(nums)\nnums     # [0, 0, 1, 1, 2, 2]\n```",
+  "starter": "def sort_colors(nums):\n    \"\"\"Sort nums, which holds only 0, 1 and 2, in place (the 0s first, then the 1s, then the 2s). Return nothing.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\nfrom itertools import product\nclass Fixed(list):\n    \"\"\"A list that refuses to be sorted with its own .sort().\"\"\"\n    def sort(self, *args, **kwargs):\n        raise AssertionError(\"do not call .sort(): put the colours in order by hand\")\ndef refuse_sorted(*args, **kwargs):\n    raise AssertionError(\"do not call sorted(): put the colours in order by hand\")\ndef after_sort_colors(values):\n    \"\"\"Run sort_colors on a list holding these values, with .sort() and sorted() switched off, and return that same list afterwards.\"\"\"\n    nums = Fixed(values)\n    globals()[\"sorted\"] = refuse_sorted\n    try:\n        sort_colors(nums)\n    finally:\n        del globals()[\"sorted\"]\n    return nums\ndef wrong_sorts():\n    \"\"\"Try every list of up to 7 numbers drawn from 0, 1 and 2 (3,280 lists).\"\"\"\n    wrong = []\n    for size in range(8):\n        for values in product((0, 1, 2), repeat=size):\n            values = list(values)\n            got = after_sort_colors(values)\n            if got != sorted(values):\n                wrong.append(f\"sort_colors({values}) left the list as {list(got)}\")\n    return wrong[:3]\nrng = random.Random(7)\nmany = [rng.randint(0, 2) for _ in range(60_000)]\nmany_sorted = sorted(many)",
+    "assert after_sort_colors([2, 0, 2, 1, 1, 0]) == [0, 0, 1, 1, 2, 2]",
+    "assert after_sort_colors([2, 0, 1]) == [0, 1, 2]",
+    "assert after_sort_colors([1]) == [1]",
+    "assert after_sort_colors([]) == []",
+    "assert after_sort_colors([0, 0, 1, 2, 2]) == [0, 0, 1, 2, 2]",
+    "assert after_sort_colors([2, 2, 1, 0, 0]) == [0, 0, 1, 2, 2]",
+    "assert after_sort_colors([2, 1, 2, 1]) == [1, 1, 2, 2]",
+    "assert after_sort_colors([0, 2, 0, 2]) == [0, 0, 2, 2]",
+    "assert wrong_sorts() == []",
+    "assert after_sort_colors(many) == many_sorted"
+  ],
+  "hints": [
+    "There are only three different values, so you do not need a general sort. Where does each value end up, and how could one scan put it there?",
+    "Keep three positions: where the next 0 goes (`low`), where the next 2 goes (`high`), and the element you are examining (`i`). Swap each 0 towards the front and each 2 towards the back; leave the 1s alone.",
+    "After you swap a 2 to the back, the value that arrived at position `i` has not been looked at yet, so do not advance `i`. After you swap a 0 to the front you can advance."
+  ],
+  "solution": "def sort_colors(nums):\n    # nums[:low] are 0s, nums[low:i] are 1s, nums[i:high + 1] have not been looked at, nums[high + 1:] are 2s\n    low, i, high = 0, 0, len(nums) - 1\n    while i <= high:\n        if nums[i] == 0:\n            nums[low], nums[i] = nums[i], nums[low]\n            low += 1\n            i += 1\n        elif nums[i] == 2:\n            nums[i], nums[high] = nums[high], nums[i]\n            high -= 1                          # the value swapped in from the right is still unchecked, so i stays\n        else:\n            i += 1\n",
+  "explanation": "**The idea (the Dutch national flag).** Split the list into four regions and keep shrinking the unknown one: `nums[:low]` is all 0s, `nums[low:i]` is all 1s, `nums[i:high + 1]` has not been looked at yet, and `nums[high + 1:]` is all 2s. Look at `nums[i]`:\n\n- a `0` belongs at the front: swap it with `nums[low]`, then move `low` and `i` on;\n- a `2` belongs at the back: swap it with `nums[high]` and move `high` down;\n- a `1` is already where it should be: move `i` on.\n\n**The detail that matters.** After a `2` is swapped to the back, the value that arrives at `i` has not been checked, so `i` stays put. After a `0` is swapped forward, the value that arrives at `i` came from the 1s region, so it is safe to move on.\n\n**Complexity.** O(n) time in a single pass and O(1) space. Counting how many of each there are and then overwriting the list is also O(n), but takes two passes.\n\n**Follow-up.** This three-way partition is the heart of quicksort on data with many equal keys."
+}

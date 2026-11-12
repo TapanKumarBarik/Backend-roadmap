@@ -1,0 +1,30 @@
+{
+  "title": "Compare Version Numbers",
+  "topic": "strings-and-parsing",
+  "difficulty": "beginner",
+  "module": "backend/01-request-response-fundamentals/11-api-versioning-and-serialization/README.md",
+  "description": "Compare two dotted version strings part by part as numbers and return -1, 0 or 1.",
+  "statement": "A package manager has to decide which of two versions is newer. Write `compare_versions(a, b)` for versions such as `\"1.2.10\"`: one or more non-negative whole numbers separated by dots.\n\n- Compare part by part from the left, **as numbers** and not as text: `\"1.10\"` is newer than `\"1.9\"`.\n- A missing part counts as `0`, so `\"1.0\"` and `\"1.0.0\"` are equal, and `\"1\"` is older than `\"1.0.1\"`.\n- Leading zeros do not matter: `\"1.01\"` equals `\"1.1\"`.\n- Return `-1` if `a` is older than `b`, `1` if `a` is newer, and `0` if they are equal.\n\n**Examples**\n\n```python\ncompare_versions(\"1.2.10\", \"1.2.9\")   # 1\ncompare_versions(\"1.0\", \"1.0.0\")      # 0\ncompare_versions(\"0.9\", \"1.0.1\")      # -1\n```",
+  "starter": "def compare_versions(a, b):\n    \"\"\"Return -1 if version a is older than b, 1 if it is newer, 0 if they are equal.\"\"\"\n    ...\n",
+  "tests": [
+    "assert compare_versions(\"1.2.10\", \"1.2.9\") == 1",
+    "assert compare_versions(\"1.0\", \"1.0.0\") == 0",
+    "assert compare_versions(\"0.9\", \"1.0.1\") == -1",
+    "assert compare_versions(\"2\", \"10\") == -1",
+    "assert compare_versions(\"1.0.1\", \"1.1\") == -1",
+    "assert compare_versions(\"1.01\", \"1.001\") == 0",
+    "assert compare_versions(\"1.0.0.0\", \"1\") == 0",
+    "assert compare_versions(\"1\", \"1.0.0.1\") == -1",
+    "assert compare_versions(\"1.0.0.1\", \"1\") == 1",
+    "assert compare_versions(\"10.0\", \"9.99.99\") == 1",
+    "assert compare_versions(\"1.99999999999999999999\", \"1.100000000000000000000\") == -1",
+    "assert compare_versions(\"0.\" * 50_000 + \"1\", \"0.\" * 50_000 + \"2\") == -1"
+  ],
+  "hints": [
+    "Compare the two versions one part at a time, from the left. What type should each part have when you compare it?",
+    "Split both strings on `.` and convert each part with `int`. The first part where the numbers differ decides the answer.",
+    "When one version has fewer parts, pretend it has more parts equal to `0`. Only if every part is equal do you return `0`."
+  ],
+  "solution": "from itertools import zip_longest\n\n\ndef compare_versions(a, b):\n    # a version with fewer parts is padded with zeros: \"1\" behaves like \"1.0.0\"\n    for x, y in zip_longest(a.split(\".\"), b.split(\".\"), fillvalue=\"0\"):\n        x, y = int(x), int(y)                 # numbers, not text: 10 > 9, and \"01\" == \"1\"\n        if x != y:\n            return -1 if x < y else 1\n    return 0\n",
+  "explanation": "**The idea.** Turn each version into a list of integers and compare the two lists part by part from the left. The first part that differs decides the answer. If one list runs out first, its missing parts count as zero.\n\n**Why numbers, not text.** As text, `\"10\"` sorts before `\"9\"`; as a float, `1.10` equals `1.1`. Splitting on dots and converting each part with `int` gives the right order, and drops leading zeros for free.\n\n**Padding with zeros.** `itertools.zip_longest(..., fillvalue=\"0\")` pairs up the parts and invents zeros for the shorter version, so `\"1\"` against `\"1.0.1\"` is compared as `1/1`, `0/0`, `0/1`. Only when every pair is equal do you return `0`.\n\n**Complexity.** O(n) time for versions of n characters in total.\n\n**Usual mistakes.** Comparing the lengths first (`\"1.0.1\"` is not newer than `\"1.1\"` just because it has more parts), stopping at the shorter list (then `\"1\"` equals `\"1.0.0.1\"`), and comparing the strings directly.\n\n**Follow-up.** Real version schemes add pre-release tags (`1.0.0-rc.1` is older than `1.0.0`) and build metadata. Semantic Versioning spells out the full precedence rules; try extending the function to follow them."
+}

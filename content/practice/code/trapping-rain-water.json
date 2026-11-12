@@ -1,0 +1,30 @@
+{
+  "title": "Trapping Rain Water",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "advanced",
+  "description": "Compute how much rain water is trapped between a row of bars of different heights.",
+  "statement": "`height[i]` is the height of a bar of width 1 at position `i`. After it rains, water collects between the bars. Return the total volume of water that is held.\n\n- The water above bar `i` is `min(left_max, right_max) - height[i]`, where `left_max` and `right_max` are the tallest bars at or to the left of `i`, and at or to the right of `i`.\n- So the first and the last bar hold nothing, and neither does a list of fewer than three bars.\n- Heights are non-negative integers.\n\n**Examples**\n\n```python\ntrap([0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1])   # 6\ntrap([4, 2, 0, 3, 2, 5])                       # 9\ntrap([3])                                      # 0\n```\n\nAim for O(n): the last tests have 100,000 bars, too many to search both sides of every bar.",
+  "starter": "def trap(height):\n    \"\"\"Return the total volume of rain water held between the bars.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef brute_force(height):\n    return sum(min(max(height[:i + 1]), max(height[i:])) - height[i] for i in range(len(height)))\ndef agrees_with_brute_force_on_small_random_lists():\n    rng = random.Random(31)\n    for _ in range(300):\n        height = [rng.randint(0, 6) for _ in range(rng.randint(0, 10))]\n        got = trap(list(height))\n        assert got == brute_force(height), f\"trap({height}) returned {got}, expected {brute_force(height)}\"\n    return True",
+    "assert trap([0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]) == 6",
+    "assert trap([4, 2, 0, 3, 2, 5]) == 9",
+    "assert trap([3]) == 0",
+    "assert trap([]) == 0",
+    "assert trap([1, 2, 3, 4, 5, 4, 3]) == 0",
+    "assert trap([2, 0, 2]) == 2",
+    "assert trap([3, 0, 0, 2, 0, 4]) == 10",
+    "assert trap([5, 2, 1, 2, 1, 5]) == 14",
+    "assert trap([5, 0, 3, 0, 4]) == 9",
+    "assert agrees_with_brute_force_on_small_random_lists()",
+    "assert trap(list(range(50_000, 0, -1)) + list(range(0, 50_001))) == 2_500_000_000, \"too slow or wrong on 100,001 bars; searching both sides of every bar is O(n^2)\"",
+    "assert trap([1000] + [0] * 99_998 + [1000]) == 99_998_000, \"too slow or wrong on 100,000 bars; searching both sides of every bar is O(n^2)\""
+  ],
+  "hints": [
+    "Look at one bar. How much water sits on top of it? That depends on the tallest bar on each side of it.",
+    "The water above bar `i` is `min(tallest bar at or left of i, tallest bar at or right of i) - height[i]`. Two passes can compute both maxima for every bar and store them.",
+    "To drop the extra storage, walk two pointers inwards with a running maximum for each side, and always move the pointer whose bar is lower: that side's water level is already decided by its own running maximum."
+  ],
+  "solution": "def trap(height):\n    left, right = 0, len(height) - 1\n    left_max = right_max = water = 0\n    while left < right:\n        if height[left] < height[right]:\n            # a wall at least as tall as height[left] exists on the right, so the level here is set by left_max\n            left_max = max(left_max, height[left])\n            water += left_max - height[left]\n            left += 1\n        else:\n            right_max = max(right_max, height[right])\n            water += right_max - height[right]\n            right -= 1\n    return water\n",
+  "explanation": "**The idea.** The water above a bar fills up to the *lower* of the tallest bar on its left and the tallest bar on its right, minus the bar's own height. Computing both maxima for every bar with two passes (`left_max[i]` and `right_max[i]` arrays) gives O(n) time and O(n) space, and is a fine first answer.\n\n**Dropping the arrays.** Walk two pointers inwards from both ends, each side with a running maximum, and always process the side whose current bar is *lower*. Say that is the left bar: the right pointer stands on a taller bar, so a wall at least that tall exists on the right, and the level above the left bar is decided by `left_max` alone. Add `left_max - height[left]`, move on, and do the mirror image when the right bar is the lower one.\n\n**Complexity.** O(n) time and O(1) extra space. Looking left and right for every bar is O(n²), which the last tests rule out.\n\n**Follow-up.** How would you handle a 2D grid of heights, where water can escape in four directions? (A min-heap that always expands the lowest cell on the boundary.)"
+}

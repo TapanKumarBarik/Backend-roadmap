@@ -1,0 +1,31 @@
+{
+  "title": "Normalize a URL Path",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Resolve dot segments and duplicate slashes in a URL path without ever climbing above the root.",
+  "statement": "A static-file server must clean the requested path before it looks for a file, so that `/../../etc/passwd` cannot climb out of the web root. Write `normalize_path(path)` for an absolute URL path: it always starts with `/` and has no query string.\n\n- Repeated slashes count as one: `//a///b` is `/a/b`.\n- A `.` segment means \"here\" and disappears. A `..` segment removes the segment before it.\n- `..` at the root has nothing to remove and is ignored, so the result never goes above `/`.\n- The result ends with `/` only if the input ended with `/` (and the result is not just `/`): `/a/b/..` gives `/a`, but `/a/b/../` gives `/a/`.\n- Names such as `...` or `.hidden` are ordinary names. Nothing is decoded.\n\n**Examples**\n\n```python\nnormalize_path(\"/a/b/../c\")      # \"/a/c\"\nnormalize_path(\"//a///b/./c/\")   # \"/a/b/c/\"\nnormalize_path(\"/../../a\")       # \"/a\"\nnormalize_path(\"/a/..\")          # \"/\"\n```",
+  "starter": "def normalize_path(path):\n    \"\"\"Return path with repeated slashes and dot segments resolved, never going above the root.\"\"\"\n    ...\n",
+  "tests": [
+    "def all_normalize_to(expected, *paths):\n    for path in paths:\n        got = normalize_path(path)\n        assert got == expected, f\"normalize_path({path!r}) should be {expected!r}, got {got!r}\"\n    return True",
+    "assert normalize_path(\"/a/b/../c\") == \"/a/c\"",
+    "assert normalize_path(\"//a///b/./c/\") == \"/a/b/c/\"",
+    "assert normalize_path(\"/../../a\") == \"/a\"",
+    "assert normalize_path(\"/a/..\") == \"/\"",
+    "assert all_normalize_to(\"/\", \"/\", \"//\", \"///\", \"/.\", \"/..\", \"/./\", \"/../\", \"/a/../..\", \"/a/./../\")",
+    "assert normalize_path(\"/a/b/..\") == \"/a\"",
+    "assert normalize_path(\"/a/b/../\") == \"/a/\"",
+    "assert normalize_path(\"/a/b/.\") == \"/a/b\"",
+    "assert normalize_path(\"/a/.../b/.hidden/..c/d..\") == \"/a/.../b/.hidden/..c/d..\"",
+    "assert normalize_path(\"/a/../../b/../../c\") == \"/c\"",
+    "assert normalize_path(\"///./a//./../b//\") == \"/b/\"",
+    "deep_path = \"/\" + \"a/\" * 30_000 + \"../\" * 30_000 + \"z\"",
+    "assert normalize_path(deep_path) == \"/z\""
+  ],
+  "hints": [
+    "Read the path one segment at a time, from the root. What do you need to remember about the segments you have already accepted, so that `..` can undo the last one?",
+    "Split on `/`: skip empty segments and `.`; for `..` remove the last accepted segment if there is one; add anything else. Join what is left with `/`.",
+    "Two details: `..` when nothing has been accepted yet must not fail or go below the root, and the trailing slash comes from the original path but must never turn the root into `//`."
+  ],
+  "solution": "def normalize_path(path):\n    stack = []                                # the names accepted so far, from the root down\n    for segment in path.split(\"/\"):\n        if segment in (\"\", \".\"):\n            continue                          # a repeated slash, or \"here\"\n        if segment == \"..\":\n            if stack:\n                stack.pop()                   # at the root there is nothing above to go to\n        else:\n            stack.append(segment)\n    result = \"/\" + \"/\".join(stack)\n    if stack and path.endswith(\"/\"):\n        result += \"/\"                         # keep the trailing slash, except for the root\n    return result\n",
+  "explanation": "**The idea.** Treat the path as a stack of names. Read the segments left to right: skip empty ones (repeated slashes) and `.`; for `..` pop the last name if there is one; push anything else. Joining the stack with `/` gives the clean path, and an empty stack is the root.\n\n**Why this is a security fix.** The classic path traversal attack requests `/static/../../etc/passwd`. If the server joins that onto its web root without resolving it, the file system happily climbs out of the directory. Resolving `..` against an empty stack and ignoring it means a request can never leave the root. In production, resolve the path *before* checking permissions, and compare the final real path with the root again.\n\n**The trailing slash** comes from the original string: `/docs/` names a directory and `/docs` a file, so the distinction is kept, except that the root is always just `/`.\n\n**Complexity.** O(n) time and space. Repeatedly replacing `/x/../` pairs inside the string is O(n²) on a deeply nested path.\n\n**Usual mistakes.** Popping from an empty list, treating `...` or `.hidden` as dot segments, and returning `//` for the root.\n\n**Follow-up.** Real servers also decode `%2e%2e` and `%2f` before resolving, and treat backslashes as slashes on Windows. Decoding after the safety check, or decoding twice, are famous vulnerabilities."
+}

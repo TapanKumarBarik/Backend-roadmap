@@ -1,0 +1,29 @@
+{
+  "title": "Rotate Array",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Rotate a list to the right by k places in place, even when k is larger than the list.",
+  "statement": "Write `rotate(nums, k)`, which rotates the list `nums` to the right by `k` places, **in place**: the last `k` items move to the front in their original order, and the others shift right to make room.\n\n- Change the list you are given instead of building a new one. The caller looks at `nums` afterwards; the return value is ignored.\n- `k` is zero or more, and it can be larger than `len(nums)`.\n- An empty list stays empty, whatever `k` is.\n\n**Examples**\n\n```python\nnums = [1, 2, 3, 4, 5, 6, 7]\nrotate(nums, 3)\nnums                        # [5, 6, 7, 1, 2, 3, 4]\n\nnums = [1, 2]\nrotate(nums, 5)\nnums                        # [2, 1]\n```\n\n`k` can be in the millions and `nums` can be long, so moving the items one step at a time, `k` times, is too slow. Aim for O(n) time.",
+  "starter": "def rotate(nums, k):\n    \"\"\"Rotate nums to the right by k places, in place. Nothing needs to be returned.\"\"\"\n    ...\n",
+  "tests": [
+    "def rotated(values, k):\n    # Runs rotate on a fresh copy of the list and returns that same list, which is what the caller would see afterwards.\n    nums = list(values)\n    returned = rotate(nums, k)\n    if returned is not None and returned != nums:\n        raise AssertionError(f\"rotate must change the list it is given, but nums is still {nums!r}: it looks like you returned a new list instead\")\n    return nums\ndef every_k_up_to_three_turns(max_length):\n    # Compares rotate with the slowest, simplest rotation (one step at a time) for every small length and every k up to three full turns.\n    for length in range(max_length + 1):\n        for k in range(3 * length + 2):\n            expected = list(range(length))\n            for _ in range(k):\n                if expected:\n                    expected.insert(0, expected.pop())\n            got = rotated(range(length), k)\n            if got != expected:\n                raise AssertionError(f\"rotate(nums, {k}) on {list(range(length))} left {got!r}, expected {expected!r}\")\n    return True",
+    "assert rotated([1, 2, 3, 4, 5, 6, 7], 3) == [5, 6, 7, 1, 2, 3, 4]",
+    "assert rotated([1, 2], 5) == [2, 1]",
+    "assert rotated([1, 2, 3], 0) == [1, 2, 3]",
+    "assert rotated([1, 2, 3], 3) == [1, 2, 3]",
+    "assert rotated([1, 2, 3, 4], 6) == [3, 4, 1, 2]",
+    "assert rotated([-1, -100, 3, 99], 2) == [3, 99, -1, -100]",
+    "assert rotated([9], 100) == [9]",
+    "assert rotated([], 4) == []",
+    "assert every_k_up_to_three_turns(6)",
+    "long_list = list(range(300_000))",
+    "assert rotated(long_list, 3 * 300_000 + 200_001) == long_list[-200_001:] + long_list[:-200_001], \"wrong result, or too slow, for 300,000 items rotated by 1,100,001\""
+  ],
+  "hints": [
+    "Rotating a list of 7 items by 7 puts everything back where it started. What does that tell you about rotating it by 10?",
+    "The last `k` items go to the front, followed by the rest in their original order. Slices can cut the list into exactly those two parts.",
+    "Writing `nums = ...` inside the function does not change the caller's list; to replace its contents, assign to a slice that covers all of it. And look after the empty list before you divide by its length."
+  ],
+  "solution": "def rotate(nums, k):\n    if not nums:\n        return\n    k %= len(nums)                       # a full turn changes nothing, so only the remainder matters\n    if k:\n        nums[:] = nums[-k:] + nums[:-k]  # nums[:] writes into the caller's list; nums = ... would only rebind the name\n",
+  "explanation": "**The idea.** Rotating right by `k` moves the last `k` items to the front. Two slices say exactly that: `nums[-k:]` is the part that moves and `nums[:-k]` is the part that stays behind it.\n\n**Two details decide the tests.**\n\n- `k` can be larger than the list. Turning all the way round (`len(nums)` steps) puts every item back where it started, so only `k % len(nums)` matters. An empty list has no length to divide by, so deal with it first.\n- `nums = ...` only makes the local name point at a new list; the caller's list is untouched. `nums[:] = ...` replaces the contents of the list you were given, which is what \"in place\" means here.\n\n**Complexity.** O(n) time. The slices make a copy, so this is in place for the caller but not in memory: O(n) extra space.\n\n**Follow-up: O(1) extra memory.** Reverse the whole list, then reverse the first `k` items and the remaining `n - k` items on their own. For `[1, 2, 3, 4, 5, 6, 7]` and `k = 3`: `[7, 6, 5, 4, 3, 2, 1]`, then `[5, 6, 7, 4, 3, 2, 1]`, then `[5, 6, 7, 1, 2, 3, 4]`. Three passes of swaps and no new list.\n\n**Mistakes to avoid.** Moving one step at a time with `insert(0, pop())` costs O(n) per step, so O(n·k) overall. Returning a rotated copy instead of changing `nums`. Rotating left instead of right."
+}

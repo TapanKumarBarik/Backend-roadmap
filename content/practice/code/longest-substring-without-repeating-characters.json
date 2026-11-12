@@ -1,0 +1,29 @@
+{
+  "title": "Longest Substring Without Repeating Characters",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "intermediate",
+  "description": "Find the length of the longest stretch of a string in which no character appears twice.",
+  "statement": "Return the length of the longest substring of `s` in which no character appears more than once.\n\n- A substring is a run of *neighbouring* characters: `\"wke\"` is a substring of `\"pwwkew\"`, but `\"pwke\"` is not.\n- Characters are compared exactly, so `\"a\"` and `\"A\"` are different, and so are a space and a digit.\n- The empty string gives `0`.\n\n**Examples**\n\n```python\nlength_of_longest_substring(\"abcabcbb\")   # 3, the substring \"abc\"\nlength_of_longest_substring(\"bbbbb\")      # 1\nlength_of_longest_substring(\"pwwkew\")     # 3, the substring \"wke\"\n```\n\nAim for O(n): the last test has 100,000 characters, too many to check every substring.",
+  "starter": "def length_of_longest_substring(s):\n    \"\"\"Return the length of the longest substring of s in which every character is different.\"\"\"\n    ...\n",
+  "tests": [
+    "assert length_of_longest_substring(\"abcabcbb\") == 3",
+    "assert length_of_longest_substring(\"bbbbb\") == 1",
+    "assert length_of_longest_substring(\"pwwkew\") == 3",
+    "assert length_of_longest_substring(\"\") == 0",
+    "assert length_of_longest_substring(\" \") == 1",
+    "assert length_of_longest_substring(\"au\") == 2",
+    "assert length_of_longest_substring(\"abba\") == 2",
+    "assert length_of_longest_substring(\"dvdf\") == 3",
+    "assert length_of_longest_substring(\"tmmzuxt\") == 5",
+    "assert length_of_longest_substring(\"aAbB\") == 4",
+    "distinct = \"\".join(chr(0x4E00 + i) for i in range(5000))      # 5,000 different characters",
+    "assert length_of_longest_substring(distinct * 20) == 5000, \"too slow or wrong on 100,000 characters; checking every substring is too much work\""
+  ],
+  "hints": [
+    "For each end position you want the earliest start that keeps the window free of repeats. As the end moves right, can that start ever move left?",
+    "Keep a window with no repeats and a dictionary from each character to the index where you last saw it. When the new character was last seen inside the window, move the start to one past that index.",
+    "An earlier copy from before the window's start is not a conflict. `\"abba\"` must give `2`, so never move the start backwards."
+  ],
+  "solution": "def length_of_longest_substring(s):\n    last_seen = {}                      # character -> index of its latest occurrence\n    start = best = 0                    # the window s[start : i + 1] has no repeated character\n    for i, ch in enumerate(s):\n        if ch in last_seen and last_seen[ch] >= start:\n            start = last_seen[ch] + 1   # the window must begin after the earlier copy\n        last_seen[ch] = i\n        best = max(best, i - start + 1)\n    return best\n",
+  "explanation": "**The idea.** Keep a window `s[start : i + 1]` that never contains a repeat, and grow it one character at a time. When the new character already occurs inside the window, the window has to begin after that earlier copy, so `start` jumps to just past it. A dictionary from each character to the index where it was last seen makes the check O(1), and `start` only ever moves forward, so one pass is enough.\n\n**The detail that breaks most first attempts.** An earlier copy from *before* `start` is not a conflict. Compare `last_seen[ch] >= start`, or `start` can move backwards: `\"abba\"` must give `2`, not `3`.\n\n**Complexity.** O(n) time and O(k) space for k different characters. Re-checking every candidate window from scratch is O(n · k) at best.\n\n**Follow-up.** \"At most k different characters\" uses the same window, but the dictionary counts how often each character is in the window, and the window shrinks from the left while it holds too many kinds."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Merge Sorted Array",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "beginner",
+  "description": "Merge a sorted list into another sorted list that has free room at its end, in place.",
+  "statement": "Write `merge(a, m, b, n)`, which merges the sorted list `b` into the sorted list `a`, **in place**.\n\n- `a` has `m + n` slots. Its first `m` items are the real data, in ascending order; the last `n` slots are empty room holding placeholder values (zeros in the examples, but any value is possible) that you must ignore and overwrite.\n- `b` has `n` items, also in ascending order.\n- Afterwards `a` holds all `m + n` items in ascending order. Change `a` itself and keep its length; the return value is ignored.\n- Items may repeat, `m` or `n` may be 0, and a real `0` in the data is just a value.\n\n**Examples**\n\n```python\na = [1, 3, 5, 0, 0, 0]          # m = 3: the three zeros at the end are room\nmerge(a, 3, [2, 4, 6], 3)\na                               # [1, 2, 3, 4, 5, 6]\n\na = [0, 0]                      # m = 0: nothing but room\nmerge(a, 0, [8, 9], 2)\na                               # [8, 9]\n```\n\nInserting each item of `b` into `a` and shifting the rest along is too slow for long lists. Aim for O(m + n) time.",
+  "starter": "def merge(a, m, b, n):\n    \"\"\"Merge the sorted b (n items) into the sorted first m items of a, which has room for all m + n. In place; nothing is returned.\"\"\"\n    ...\n",
+  "tests": [
+    "def merged(a, m, b):\n    # Runs merge on copies of the lists (n is len(b)) and returns a, which is what the caller would see afterwards.\n    items = list(a)\n    returned = merge(items, m, list(b), len(b))\n    if returned is not None and returned != items:\n        raise AssertionError(f\"merge must put the result into a itself, but a is still {items!r}: it looks like you returned a new list instead\")\n    return items",
+    "assert merged([1, 3, 5, 0, 0, 0], 3, [2, 4, 6]) == [1, 2, 3, 4, 5, 6]",
+    "assert merged([0, 0], 0, [8, 9]) == [8, 9]",
+    "assert merged([4, 5, 6, 0, 0, 0], 3, [1, 2, 3]) == [1, 2, 3, 4, 5, 6]",
+    "assert merged([1, 2, 3, 0, 0, 0], 3, [4, 5, 6]) == [1, 2, 3, 4, 5, 6]",
+    "assert merged([1, 2, 3], 3, []) == [1, 2, 3]",
+    "assert merged([], 0, []) == []",
+    "assert merged([1, 2, 2, 0, 0], 3, [2, 2]) == [1, 2, 2, 2, 2]",
+    "assert merged([-5, -1, 0, 0, 0], 2, [-3, -2, 4]) == [-5, -3, -2, -1, 4]",
+    "assert merged([0, 0, 2, 0, 0], 3, [0, 1]) == [0, 0, 0, 1, 2]",
+    "assert merged([2, 4, 99, 99], 2, [1, 3]) == [1, 2, 3, 4]",
+    "evens = [2 * i for i in range(50_000)]\nodds = [2 * i + 1 for i in range(50_000)]",
+    "assert merged(evens + [0] * 50_000, 50_000, odds) == list(range(100_000)), \"wrong result, or too slow, for two lists of 50,000 items\""
+  ],
+  "hints": [
+    "If you merge from the front into `a`, you overwrite items of `a` you have not compared yet. Where in `a` is there free room, and which end of the sorted data belongs next to it?",
+    "Start at the end: the last free slot of `a` must hold the largest item overall, which is either the last real item of `a` or the last item of `b`. Write it there, step back in that list and in `a`, and repeat.",
+    "You can stop as soon as `b` is used up, because the rest of `a` is already in place. But the real data in `a` can run out first, so check that it still has items before you compare."
+  ],
+  "solution": "def merge(a, m, b, n):\n    i, j = m - 1, n - 1       # the largest item of a's real data, and the largest item of b\n    write = m + n - 1         # the last slot of a: the largest of everything belongs there\n    while j >= 0:             # once b is used up, what is left of a's data is already in the right place\n        if i >= 0 and a[i] > b[j]:\n            a[write] = a[i]\n            i -= 1\n        else:\n            a[write] = b[j]\n            j -= 1\n        write -= 1\n",
+  "explanation": "**The idea.** Merging from the front would overwrite items of `a` that have not been looked at yet. The free room is at the *back*, so fill from the back: the last slot must hold the largest item overall, which is either the last real item of `a` or the last item of `b`. Write the larger one there, step that list back, move the write position back, and repeat. The write position never overtakes the unread items of `a`: the free slots between them are always exactly as many as the items of `b` still to place.\n\n**Stopping early.** When `b` is used up, the items still left in `a` are already exactly where they belong, so the loop only runs while `b` has items. If it is `a` that runs out first (`i < 0`), the rest of `b` is copied across, which is what the `i >= 0` check is for.\n\n**Complexity.** O(m + n) time, O(1) extra space.\n\n**Other ways.** `a[m:] = b` followed by `a.sort()` is two lines and fast in practice (Timsort recognises the two sorted runs and merges them in linear time), but it hides the technique. Merging into a new list and copying it back works as well and uses O(m + n) extra space.\n\n**Mistakes to avoid.** Treating `0` in `a` as \"empty\": `0` can be real data. Starting `write` at `m + n` (one past the end). Forgetting that `b` may still have items after `a` is used up."
+}

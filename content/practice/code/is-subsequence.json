@@ -1,0 +1,29 @@
+{
+  "title": "Is Subsequence",
+  "topic": "strings-and-parsing",
+  "difficulty": "beginner",
+  "description": "Check whether the characters of one string appear in another, in order and with gaps allowed.",
+  "statement": "A command palette matches what you typed against a command name when your letters appear in the name in the same order, with other letters allowed in between. Write `is_subsequence(typed, name)` that returns `True` when `typed` is a subsequence of `name` (you can get `typed` by deleting characters from `name`), and `False` otherwise.\n\n- The empty string is a subsequence of every string, including the empty one.\n- Each character of `typed` needs a character of `name` of its own, so `\"aa\"` is not a subsequence of `\"a\"`.\n- Matching is case-sensitive.\n\n**Examples**\n\n```python\nis_subsequence(\"ace\", \"abcde\")   # True\nis_subsequence(\"aec\", \"abcde\")   # False, the letters are there, but not in that order\nis_subsequence(\"\", \"abc\")        # True\n```\n\nAim for one pass over `name`: O(n).",
+  "starter": "def is_subsequence(typed, name):\n    \"\"\"Return True if typed can be obtained from name by deleting characters, without reordering the rest.\"\"\"\n    ...\n",
+  "tests": [
+    "assert is_subsequence(\"ace\", \"abcde\") == True",
+    "assert is_subsequence(\"aec\", \"abcde\") == False",
+    "assert is_subsequence(\"\", \"abc\") == True",
+    "assert is_subsequence(\"\", \"\") == True",
+    "assert is_subsequence(\"a\", \"\") == False",
+    "assert is_subsequence(\"aa\", \"a\") == False",
+    "assert is_subsequence(\"abc\", \"abc\") == True",
+    "assert is_subsequence(\"abcd\", \"abc\") == False",
+    "assert is_subsequence(\"Ab\", \"ab\") == False",
+    "assert is_subsequence(\"gpr\", \"get_page_ref\") == True",
+    "assert is_subsequence(\"ab\" * 20_000, \"axbx\" * 20_000) == True",
+    "assert is_subsequence(\"ab\" * 20_001, \"axbx\" * 20_000) == False"
+  ],
+  "hints": [
+    "You never need to go back in `name`. What is the least you have to remember while reading it from left to right?",
+    "Keep a position in `typed`: the next character you are still waiting for. Read `name` one character at a time, and whenever it equals that character, move the position forward.",
+    "You have succeeded exactly when the position has moved past the last character of `typed`. That also makes an empty `typed` work without a special case."
+  ],
+  "solution": "def is_subsequence(typed, name):\n    found = 0                                  # how many characters of `typed` have been matched so far\n    for char in name:\n        if found == len(typed):\n            break                              # everything is matched, no need to read on\n        if char == typed[found]:\n            found += 1\n    return found == len(typed)\n",
+  "explanation": "**The idea.** Read `name` once, left to right, and keep a position in `typed`: the next character you are still waiting for. Each time `name` shows that character, move the position forward. If you get to the end of `typed`, every character was found, in order.\n\n**Why greedy is enough.** Matching a character of `typed` at its earliest possible place never hurts, because it leaves the longest remaining part of `name` for the rest. So there is nothing to try and nothing to undo.\n\n**Complexity.** O(len(name)) time and O(1) space. Slicing the strings on every step makes it quadratic, and recursing one character at a time runs into Python's recursion limit on a long name.\n\n**A compact form.** `it = iter(name)` followed by `all(ch in it for ch in typed)` does the same: `ch in it` consumes the iterator up to the match, so the next search resumes where this one stopped.\n\n**Follow-up.** With one `name` and many `typed` strings, precompute for every position and letter where that letter occurs next, and each query costs only O(len(typed))."
+}

@@ -1,0 +1,59 @@
+{
+  "title": "Token Bucket Rate Limiter",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+  "description": "Build a token-bucket rate limiter that allows bursts but caps the long-run request rate.",
+  "statement": "Build a rate limiter `TokenBucket(rate, capacity, clock)`. The bucket starts full, with `capacity` tokens. Tokens flow back in at `rate` per second, but the bucket never holds more than `capacity`. `allow(cost=1)` tries to spend `cost` tokens: it returns `True` if the bucket has that many, and `False` if not.\n\n- Work out the refill from the time that has passed since the last call, read from `clock()` (it returns seconds as a number). No timers and no sleeping, and never call `time.time()` yourself: the tests pass in a fake clock.\n- Fractions of a token count: with `rate=2`, a quarter of a second adds half a token.\n- A refused request spends nothing. A `cost` above `capacity` can never be allowed.\n\n**Example**\n\n```python\nnow = [0.0]\nbucket = TokenBucket(rate=2, capacity=3, clock=lambda: now[0])\n[bucket.allow() for _ in range(4)]   # [True, True, True, False]: a burst up to the capacity\nnow[0] = 0.5                          # half a second later, one token has flowed back in\nbucket.allow()                        # True\nbucket.allow()                        # False\n```",
+  "starter": "import time\n\n\nclass TokenBucket:\n    def __init__(self, rate, capacity, clock=time.monotonic):\n        \"\"\"Start with `capacity` tokens; `rate` tokens per second flow in, up to `capacity`. `clock()` returns seconds.\"\"\"\n        ...\n\n    def allow(self, cost=1):\n        \"\"\"Spend `cost` tokens and return True if the bucket has that many; otherwise return False and spend nothing.\"\"\"\n        ...\n",
+  "tests": [
+    "\nclass FakeClock:\n    \"\"\"A clock the tests move by hand, so nothing ever sleeps.\"\"\"\n\n    def __init__(self, start=0.0):\n        self.now = start\n\n    def __call__(self):\n        return self.now\n\n    def advance(self, seconds):\n        self.now += seconds\n",
+    {
+      "name": "a full bucket allows a burst of `capacity` requests, then refuses",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=1, capacity=3, clock=clock)\nassert [bucket.allow() for _ in range(4)] == [True, True, True, False]"
+    },
+    {
+      "name": "tokens flow back in at `rate` per second",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=2, capacity=5, clock=clock)\nassert [bucket.allow() for _ in range(6)] == [True, True, True, True, True, False]\nclock.advance(1)                    # two tokens have flowed back in\nassert [bucket.allow() for _ in range(3)] == [True, True, False]"
+    },
+    {
+      "name": "the bucket never holds more than `capacity` tokens, however long it idles",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=1, capacity=3, clock=clock)\nfor _ in range(3):\n    bucket.allow()\nclock.advance(1000)\nassert [bucket.allow() for _ in range(4)] == [True, True, True, False]"
+    },
+    {
+      "name": "fractions of a token add up, even across a refused request",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=1, capacity=10, clock=clock)\nfor _ in range(10):\n    bucket.allow()\nclock.advance(0.5)\nassert bucket.allow() == False      # half a token is not enough\nclock.advance(0.5)\nassert bucket.allow() == True       # the two halves make one token\nassert bucket.allow() == False      # and that token was spent once, not twice\nclock.advance(0.5)\nassert bucket.allow() == False      # only half a token has flowed in since the last spend"
+    },
+    {
+      "name": "a slow rate: one token every two seconds",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=0.5, capacity=1, clock=clock)\nassert bucket.allow() == True\nclock.advance(1)\nassert bucket.allow() == False\nclock.advance(1)\nassert bucket.allow() == True"
+    },
+    {
+      "name": "a refused request spends nothing",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=1, capacity=3, clock=clock)\nbucket.allow()\nbucket.allow()                      # one token left\nassert bucket.allow(cost=2) == False\nassert bucket.allow() == True       # the refused request did not take the last token\nassert bucket.allow() == False"
+    },
+    {
+      "name": "`cost` spends several tokens at once",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=1, capacity=10, clock=clock)\nassert [bucket.allow(4), bucket.allow(4), bucket.allow(4), bucket.allow(2), bucket.allow()] == [True, True, False, True, False]"
+    },
+    {
+      "name": "a request that costs more than the whole bucket is never allowed",
+      "code": "clock = FakeClock()\nbucket = TokenBucket(rate=5, capacity=4, clock=clock)\nassert bucket.allow(cost=5) == False\nclock.advance(1000)\nassert bucket.allow(cost=5) == False\nassert bucket.allow(cost=4) == True"
+    },
+    {
+      "name": "the clock does not have to start at zero",
+      "code": "clock = FakeClock(start=1_000_000.5)\nbucket = TokenBucket(rate=1, capacity=2, clock=clock)\nassert [bucket.allow() for _ in range(3)] == [True, True, False]\nclock.advance(1)\nassert [bucket.allow() for _ in range(2)] == [True, False]"
+    },
+    {
+      "name": "two buckets do not share tokens",
+      "code": "clock = FakeClock()\nfirst = TokenBucket(rate=1, capacity=1, clock=clock)\nsecond = TokenBucket(rate=1, capacity=1, clock=clock)\nassert first.allow() == True\nassert second.allow() == True\nassert first.allow() == False"
+    }
+  ],
+  "hints": [
+    "Instead of a timer that adds tokens, keep the number of tokens and the time you last counted them. What should a request do with those two numbers before it looks at its cost?",
+    "On every call add `(now - last_update) * rate` tokens, never going above `capacity`, and store `now` as the new last update. Then spend `cost` tokens only if there are enough.",
+    "Refill on refused requests too, and keep fractional tokens (no `int()`). If you only refill when a request succeeds, or you forget to move the last-update time, tokens are lost or counted twice."
+  ],
+  "solution": "import time\n\n\nclass TokenBucket:\n    def __init__(self, rate, capacity, clock=time.monotonic):\n        self.rate = rate\n        self.capacity = capacity\n        self.clock = clock\n        self.tokens = capacity            # the bucket starts full\n        self.updated = clock()            # the moment `tokens` was last brought up to date\n\n    def _refill(self):\n        now = self.clock()\n        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)\n        self.updated = now\n\n    def allow(self, cost=1):\n        self._refill()                    # also on a refused request, so the time that passed is never lost\n        if cost > self.tokens:\n            return False\n        self.tokens -= cost\n        return True\n",
+  "explanation": "**The idea.** Do not run a timer that adds tokens. Store how many tokens there were and *when you last counted them*. When a request arrives, first bring the count up to date: add `(now - last_update) * rate` tokens, cap the total at `capacity`, and remember `now`. Then compare with `cost`: spend the tokens and say yes, or leave them and say no. The refill is \"lazy\": work happens only when a request arrives, so an idle bucket costs nothing.\n\n**What it guarantees.** A burst of up to `capacity` requests goes through at once, but over a long time at most `rate` requests per second are allowed. That is why it is the usual choice for API rate limits.\n\n**Details that go wrong.** Refill on refused requests too, and keep the fractions (no `int()`), or the time between two refused calls is lost. Update the \"last counted\" time every time you refill, or the same elapsed time is counted twice. Take the clock as a parameter and use a monotonic one in production (`time.monotonic`), because the wall clock can jump.\n\n**Other algorithms.** A fixed window counter is simplest but lets double the limit through at a window edge. A sliding window log is exact but stores a timestamp per request. A leaky bucket smooths the output to a constant rate. **Across servers** the counters must be shared (for example in Redis) and the read-refill-spend step must be one atomic operation, such as a Lua script, or two servers both see \"one token left\". Decide whether a limiter outage fails open (allow) or closed (reject).\n\n**Complexity.** O(1) time and space per client."
+}

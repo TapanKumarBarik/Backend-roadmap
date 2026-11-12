@@ -20,6 +20,14 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
       return null;
     }
   };
+  const head = async (path) => {
+    try {
+      return await fetchImpl(new URL(path, base), { method: 'HEAD', redirect: 'follow', headers: { 'user-agent': 'backend-roadmap-smoke-test' } });
+    } catch (err) {
+      problems.push(`${path}: could not be fetched (${err.message})`);
+      return null;
+    }
+  };
   const expect = (condition, message) => { if (!condition) problems.push(message); };
 
   const home = await get('/');
@@ -27,7 +35,10 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     const html = await home.text();
     expect(home.status === 200, `/ answered ${home.status}`);
     expect(/<div id="root">/.test(html), '/ does not contain the app\'s root element');
-    expect(home.headers.get('content-security-policy'), '/ has no Content-Security-Policy header (is _headers deployed?)');
+    const policy = home.headers.get('content-security-policy');
+    expect(policy, '/ has no Content-Security-Policy header (is _headers deployed?)');
+    // Python for the coding problems is WebAssembly, which a browser will not compile under a policy that does not allow it.
+    if (policy) expect(/'wasm-unsafe-eval'/.test(policy), "the Content-Security-Policy does not allow WebAssembly ('wasm-unsafe-eval'), so no coding problem can run Python");
   }
 
   const stats = await get('/site-stats.json');
@@ -118,6 +129,27 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
   const practice = await get('/api/practice/catalog');
   if (practice) {
     expect(practice.status === 200, `/api/practice/catalog answered ${practice.status} (is api/generated/practice-content.json deployed?)`);
+    if (practice.status === 200) {
+      try {
+        expect(((await practice.json()).code || []).length > 0, '/api/practice/catalog lists no coding problems');
+      } catch {
+        problems.push('/api/practice/catalog is not JSON');
+      }
+    }
+  }
+
+  // Coding problems run Python in the reader's browser, from files of this site (webapp/public/runner/): a deploy that lost them, or served the
+  // WebAssembly with the wrong type, would leave every problem unable to run.
+  const worker = await get('/runner/py-worker.js');
+  if (worker) {
+    const source = worker.status === 200 ? await worker.text() : '';
+    expect(worker.status === 200 && /javascript/.test(worker.headers.get('content-type') || ''), `/runner/py-worker.js answered ${worker.status} (${worker.headers.get('content-type')})`);
+    const folder = /(pyodide-[\w.]+)\//.exec(source);
+    if (worker.status === 200 && !folder) problems.push('/runner/py-worker.js does not name a Pyodide folder');
+    if (folder) {
+      const wasm = await head(`/runner/${folder[1]}/pyodide.asm.wasm`);
+      if (wasm) expect(wasm.status === 200 && /application\/wasm/.test(wasm.headers.get('content-type') || ''), `/runner/${folder[1]}/pyodide.asm.wasm answered ${wasm.status} (${wasm.headers.get('content-type')}): Python cannot start without it`);
+    }
   }
 
   // The community's pages are drawn by Functions when they are asked for (api/pages/blogPages.js), not served from files.

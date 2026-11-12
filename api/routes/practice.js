@@ -1,7 +1,7 @@
 // The Practice Center (docs/revamp/REVAMP_IMPLEMENTATION_PLAN.md, phases 5 and 6), and the notices and audit log that go with the
 // admin side of it.
 //
-// What a quiz, exercise or interview set (concepts, or coding questions) IS lives in git and is served from
+// What a quiz, exercise, interview set (concepts, or coding questions) or coding problem IS lives in git and is served from
 // api/generated/practice-content.json. What a person DID with one lives in the database: quiz attempts, and exercise submissions
 // with the reviews they got.
 //   - A quiz is read without its answers; it is scored here, on the server, so the answers never reach the browser before a try.
@@ -14,6 +14,9 @@ import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { audit } from '../lib/audit.js';
+import game from '../../game.config.json' with { type: 'json' };
+import { pickDrill, questionKey } from '../../webapp/src/lib/practice/drill.js';
+import { dayFromName, dayName, dayNumber } from '../../webapp/src/lib/practice/days.js';
 import { timeId } from '../lib/util.js';
 import { safeImageSrc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
@@ -27,6 +30,11 @@ const ATTEMPTS = { window: 60 * 60 * 1000, max: 60 };
 const SAVES = { window: 10 * 60 * 1000, max: 120 };
 const MIN_SUBMISSION = 40; // characters of written answer before something can be submitted
 const SUBMITTABLE = 'exercise'; // the one kind of practice item people hand work in for (the Design Lab's lld and hld are gone; their rows stay in the table, unread)
+
+// The coding problems (kind "code"): solved in the reader's browser, in Python, against the tests the file carries (public/runner/). The model
+// solution and its explanation stay on the server until they are asked for.
+const codeProblemsOf = () => /** @type {Record<string, any>} */ (practice.code || {});
+const WITHHELD = new Set(['solution', 'explanation']);
 
 const unauthenticated = (c) => c.json({ error: 'unauthenticated' }, 401);
 const notFound = (c) => c.json({ error: 'not found' }, 404);
@@ -45,7 +53,8 @@ router.get('/practice/catalog', (c) => c.json({
   quizzes: Object.entries(practice.quizzes).map(([slug, q]) => card(slug, q, { description: q.description, questions: q.questions.length })),
   exercises: Object.entries(practice.exercises).map(([slug, e]) => card(slug, e, { description: e.brief })),
   interview: interviewCards('concepts'),
-  coding: interviewCards('coding')
+  coding: interviewCards('coding'),
+  code: Object.entries(codeProblemsOf()).map(([slug, p]) => card(slug, p, { description: p.description, tests: p.tests.length }))
 }));
 
 router.get('/practice/quizzes/:slug', (c) => {
@@ -60,6 +69,19 @@ router.get('/practice/quizzes/:slug', (c) => {
 router.get('/practice/exercises/:slug', (c) => {
   const item = practice.exercises[c.req.param('slug')];
   return item ? c.json({ slug: c.req.param('slug'), ...item }) : notFound(c);
+});
+
+// A problem: everything the editor needs to start, without the model solution (that comes from /solution, when the reader asks).
+router.get('/practice/code/:slug', (c) => {
+  const slug = c.req.param('slug');
+  const problem = codeProblemsOf()[slug];
+  if (!problem) return notFound(c);
+  return c.json({ slug, ...Object.fromEntries(Object.entries(problem).filter(([field]) => !WITHHELD.has(field))) });
+});
+
+router.get('/practice/code/:slug/solution', (c) => {
+  const problem = codeProblemsOf()[c.req.param('slug')];
+  return problem ? c.json({ solution: problem.solution, explanation: problem.explanation }) : notFound(c);
 });
 
 router.get('/practice/interview/:slug', (c) => {
@@ -105,6 +127,51 @@ router.post('/practice/quizzes/:slug/attempts', async (c) => {
     saved = true;
   }
   return c.json({ score, max: results.length, saved, results });
+});
+
+/* ------------------------------------------------------------------------------------------------------- the daily drill */
+
+// A few questions from across the quizzes, the same for everyone on a given UTC day (webapp/src/lib/practice/drill.js; how many is in
+// game.config.json). They are served without their answers, and each is checked when the reader gives theirs, so the answer is shown straight after
+// it, as a drill should be. Nothing is kept here: that a drill was finished is a progress mark the reader's own screen makes (practice/drill/<day>).
+const DRILL_DAYS_BACK = 1; // a drill started before midnight (UTC) can still be finished after it
+
+/** The day asked for ("2026-11-12"), or today when none was; null when it is neither today nor yesterday. */
+function drillDay(asked) {
+  const today = dayNumber();
+  const day = asked === undefined ? today : dayFromName(asked);
+  return day !== null && day <= today && day >= today - DRILL_DAYS_BACK ? day : null;
+}
+
+const drillQuestions = (day) => pickDrill(practice.quizzes, day, game.drill).map((item) => {
+  const quiz = practice.quizzes[item.quiz];
+  return { item, quiz, question: quiz.questions.find((q) => q.id === item.id) };
+});
+
+router.get('/practice/drill', (c) => {
+  const day = drillDay(c.req.query('day'));
+  if (day === null) return c.json({ error: 'that day has no drill' }, 400);
+  return c.json({
+    day: dayName(day * 86400000),
+    questions: drillQuestions(day).map(({ item, quiz, question }) => ({
+      key: questionKey(item), quiz: item.quiz, quizTitle: quiz.title, topic: quiz.topic, id: question.id, type: question.type, text: question.text,
+      options: question.options, choose: question.type === 'multiple' ? 'any' : 'one'
+    }))
+  });
+});
+
+// One answer of a drill: whether it is right, and what the right answer is and why.
+router.post('/practice/drill/check', async (c) => {
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  if (!body || typeof body.day !== 'string' || typeof body.key !== 'string') return c.json({ error: 'day and key are required' }, 400);
+  const day = drillDay(body.day);
+  if (day === null) return c.json({ error: 'that day has no drill' }, 400);
+  const found = drillQuestions(day).find(({ item }) => questionKey(item) === body.key);
+  if (!found) return c.json({ error: 'not a question of that drill' }, 400);
+  const { question } = found;
+  const chosen = Array.isArray(body.chosen) ? [...new Set(body.chosen.filter((id) => typeof id === 'string'))].filter((id) => question.options.some((o) => o.id === id)) : [];
+  return c.json({ correct: sameSet(chosen, question.answer), answer: question.answer, explanation: question.explanation });
 });
 
 // Where a person is weak: from the latest try of each quiz they have taken, how many questions they got right by topic, and the
@@ -278,7 +345,7 @@ router.get('/manage/practice/stats', async (c) => {
   return c.json({
     quizzes: Object.entries(practice.quizzes).map(([slug, q]) => ({ slug, title: q.title, questions: q.questions.length, tries: byQuiz.get(slug)?.tries || 0, people: byQuiz.get(slug)?.people || 0, average: byQuiz.get(slug) ? Math.round(byQuiz.get(slug).average * 100) : null })),
     submissions: Object.fromEntries(subs.map((r) => [r.status, r.n])),
-    content: { quizzes: Object.keys(practice.quizzes).length, exercises: Object.keys(practice.exercises).length, interview: Object.keys(practice.interview).length }
+    content: { quizzes: Object.keys(practice.quizzes).length, exercises: Object.keys(practice.exercises).length, interview: Object.keys(practice.interview).length, code: Object.keys(codeProblemsOf()).length }
   });
 });
 

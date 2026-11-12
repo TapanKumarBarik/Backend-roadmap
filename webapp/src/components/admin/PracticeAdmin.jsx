@@ -38,7 +38,7 @@ export default function PracticeAdmin({ onToast = () => {} }) {
       {statsError && <LoadError error={statsError} what={LOAD_WHAT.admin} onRetry={reloadStats} />}
       {stats && (
         <>
-          <p className="pr-note">{stats.content.quizzes} quizzes, {stats.content.exercises} exercises, and {stats.content.interview} interview sets (concepts and coding) in git. Submissions: {Object.entries(stats.submissions).map(([k, n]) => `${n} ${k}`).join(', ') || 'none yet'}.</p>
+          <p className="pr-note">{stats.content.quizzes} quizzes, {stats.content.exercises} exercises, {stats.content.interview} interview sets (concepts and coding) and {stats.content.code} coding problems in git. Submissions: {Object.entries(stats.submissions).map(([k, n]) => `${n} ${k}`).join(', ') || 'none yet'}.</p>
           <div className="dtable-wrap"><table className="dtable">
             <thead><tr><th scope="col">Quiz</th><th scope="col">Questions</th><th scope="col">Tries</th><th scope="col">People</th><th scope="col">Average</th></tr></thead>
             <tbody>

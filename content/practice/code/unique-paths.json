@@ -1,0 +1,32 @@
+{
+  "title": "Unique Paths",
+  "topic": "dynamic-programming",
+  "difficulty": "beginner",
+  "description": "Count the right-and-down paths from corner to corner of a grid that has blocked cells.",
+  "statement": "A robot stands in the top-left cell of a grid and wants to reach the bottom-right cell. Each move takes it one cell **right** or one cell **down**. Write `unique_paths(grid)`, which returns the number of different paths, where `grid[r][c]` is `0` for an open cell and `1` for a blocked cell that the robot cannot enter.\n\n- If the start cell or the end cell is blocked, there are 0 paths.\n- The grid has at least one row and one column, and can be 60 by 60 or more. You may change `grid` while you work.\n- The count can be enormous. Return it exactly, with no remainder.\n\n**Examples**\n\n```python\nunique_paths([[0, 0, 0, 0],\n              [0, 1, 0, 0],\n              [0, 0, 0, 1],\n              [1, 0, 0, 0]])     # 3\nunique_paths([[0, 0],\n              [0, 0]])           # 2\nunique_paths([[0, 1],\n              [1, 0]])           # 0, the robot is boxed in\n```\n\nAim for time proportional to the number of cells.",
+  "starter": "def unique_paths(grid):\n    \"\"\"Return the number of right/down paths from the top-left to the bottom-right cell that avoid blocked (1) cells.\"\"\"\n    ...\n",
+  "tests": [
+    "import math",
+    "assert unique_paths([[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [1, 0, 0, 0]]) == 3",
+    "assert unique_paths([[0, 0], [0, 0]]) == 2",
+    "assert unique_paths([[0, 1], [1, 0]]) == 0",
+    "assert unique_paths([[0]]) == 1",
+    "assert unique_paths([[1]]) == 0",
+    "assert unique_paths([[1, 0], [0, 0]]) == 0",
+    "assert unique_paths([[0, 0], [0, 1]]) == 0",
+    "assert unique_paths([[0, 0, 1, 0]]) == 0",
+    "assert unique_paths([[0, 1, 0], [0, 0, 0]]) == 1",
+    "assert unique_paths([[0] * 60 for _ in range(60)]) == math.comb(118, 59)",
+    "one_obstacle = [[0] * 40 for _ in range(40)]\none_obstacle[10][15] = 1",
+    "assert unique_paths(one_obstacle) == math.comb(78, 39) - math.comb(25, 10) * math.comb(53, 29)",
+    "wall_with_a_gap = [[0] * 30 for _ in range(30)]\nwall_with_a_gap[15] = [1] * 30\nwall_with_a_gap[15][20] = 0",
+    "assert unique_paths(wall_with_a_gap) == math.comb(34, 14) * math.comb(22, 13)"
+  ],
+  "hints": [
+    "To stand on a cell, the robot must have come from the cell above it or from the cell to its left. What does that say about the number of ways to reach it?",
+    "Let ways(r, c) be the number of paths to cell (r, c). It is ways(r-1, c) + ways(r, c-1), or 0 if the cell is blocked. Fill the table row by row; you only need the previous row.",
+    "Watch the edges: in the first row or column an obstacle cuts off every cell after it (they get 0, not 1), and the start cell itself can be blocked."
+  ],
+  "solution": "def unique_paths(grid):\n    rows, cols = len(grid), len(grid[0])\n    ways = [0] * cols            # ways[c]: paths to the cell in column c, for the row being processed\n    ways[0] = 1                  # one way to stand on the start cell (unless it is blocked, see below)\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == 1:\n                ways[c] = 0                  # nothing can enter a blocked cell\n            elif c > 0:\n                ways[c] += ways[c - 1]       # ways[c] still holds \"from above\"; add \"from the left\"\n    return ways[-1]\n",
+  "explanation": "**The idea.** The robot reaches a cell either from the cell above it or from the cell to its left, so the number of paths to a cell is the sum of the numbers for those two cells, and a blocked cell has 0 paths. Fill a table row by row and the bottom-right cell holds the answer. A row only needs the row before it, so one list of `cols` numbers is enough: when you reach a cell the list still holds the value from the row above, and the cell to its left has just been updated.\n\n**The edges.** In the first row and the first column there is only one way into a cell, so an obstacle there cuts off every cell after it: they get 0, not 1. Starting by setting the whole first row to 1 is the classic mistake. A blocked start cell means 0 paths.\n\n**Why not just recurse?** Counting paths one at a time, or recursing without remembering results, repeats the same sub-grids again and again and is exponential: an open 20 by 20 grid already has billions of paths. Remembering each cell's count (in a table, or with `functools.lru_cache`) makes it O(rows × cols).\n\n**Complexity.** O(rows × cols) time and O(cols) space. Follow-up: with no obstacles the answer has a closed form, `math.comb(rows + cols - 2, rows - 1)`, which the tests use to check the big grids. Or return the count modulo 10**9 + 7 when it is too large to keep."
+}

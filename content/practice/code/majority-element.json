@@ -1,0 +1,29 @@
+{
+  "title": "Majority Element",
+  "topic": "arrays-and-hashing",
+  "difficulty": "beginner",
+  "description": "Find the value that makes up more than half of a list.",
+  "statement": "Write `majority_element(nums)`, which returns the value that appears **more than half** of the time in the list `nums`, that is, more than `len(nums) / 2` times.\n\n- `nums` has at least one item, and such a value always exists, so you never have to handle a list without one.\n- The values are integers in no particular order; they may be negative or zero.\n\n**Examples**\n\n```python\nmajority_element([3, 2, 3])                # 3\nmajority_element([2, 2, 1, 1, 1, 2, 2])    # 2\nmajority_element([7])                      # 7\n```\n\nCounting every value again from scratch is O(n²) and too slow for a long list. Aim for O(n) time; as a stretch, try to get by with O(1) extra space.",
+  "starter": "def majority_element(nums):\n    \"\"\"Return the value that appears more than len(nums) / 2 times in nums.\"\"\"\n    ...\n",
+  "tests": [
+    "def shuffled(winner, wins, others, seed):\n    # A shuffled list in which `winner` appears `wins` times and `others` other items (never equal to winner) fill the rest.\n    import random\n    rng = random.Random(seed)\n    items = [winner] * wins + [rng.choice([v for v in range(-4, 6) if v != winner]) for _ in range(others)]\n    rng.shuffle(items)\n    return items",
+    "assert majority_element([3, 2, 3]) == 3",
+    "assert majority_element([2, 2, 1, 1, 1, 2, 2]) == 2",
+    "assert majority_element([7]) == 7",
+    "assert majority_element([5, 5]) == 5",
+    "assert majority_element([1, 2, 2]) == 2",
+    "assert majority_element([-1, -1, -1, 2, 3]) == -1",
+    "assert majority_element([0, 1, 0, 1, 0]) == 0",
+    "assert majority_element([1, 2, 1, 3, 1, 4, 1]) == 1",
+    "assert majority_element(shuffled(3, 501, 500, 1)) == 3",
+    "assert majority_element(shuffled(-2, 2001, 2000, 2)) == -2",
+    "assert majority_element(list(range(50_000)) + [60_000] * 50_001) == 60_000, \"wrong or too slow on 100,001 numbers whose majority value only shows up late\""
+  ],
+  "hints": [
+    "How would you find the most frequent value if you could take notes while reading the list once?",
+    "Count the occurrences of each value in a dictionary and return the value whose count is above half the length. For a stretch: the majority value outnumbers all the others put together, so cancelling pairs of different values can never wipe it out.",
+    "For O(1) space keep a `candidate` and a `votes` counter. The same value as the candidate adds a vote, a different value removes one, and when the counter is 0 the value you are looking at becomes the candidate."
+  ],
+  "solution": "def majority_element(nums):\n    candidate, votes = None, 0\n    for x in nums:\n        if votes == 0:\n            candidate = x                       # nobody is ahead right now, so the current value takes over\n        votes += 1 if x == candidate else -1    # a different value cancels one vote for the candidate\n    return candidate\n",
+  "explanation": "**The idea (Boyer-Moore voting).** Keep one `candidate` and a `votes` counter. A value equal to the candidate adds a vote; a different value cancels one; when the counter is 0 the current value becomes the new candidate. Every cancellation pairs two *different* values, and the majority value appears more often than all the other values together, so it can never be cancelled completely: it is the candidate that is left at the end.\n\n**Complexity.** One pass: O(n) time and O(1) extra space.\n\n**Other ways that pass.** A dictionary of counts (`collections.Counter`) is O(n) time and O(n) space. Sorting and taking the middle item works too, because the majority value always covers the middle position: O(n log n). Counting each value with `nums.count(x)` is O(n²).\n\n**Note.** The voting trick relies on the guarantee that a majority exists. On a list without one it still returns some value, so check with a second counting pass if the guarantee is not yours to rely on.\n\n**Follow-up.** Find all values that appear more than a third of the time: the same idea with two candidates and two counters."
+}

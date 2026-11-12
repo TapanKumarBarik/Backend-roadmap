@@ -1,0 +1,31 @@
+{
+  "title": "Longest Increasing Subsequence",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Find the length of the longest strictly increasing subsequence of a list of numbers.",
+  "statement": "Return the length of the longest **strictly increasing** subsequence of `nums`. A subsequence keeps the original order but may skip elements; it does not have to be contiguous.\n\n- Equal values do not count as increasing: for `[7, 7, 7]` the answer is `1`.\n- An empty list gives `0`. Negative numbers and duplicates are fine.\n- Return only the length, not the subsequence.\n\n**Examples**\n\n```python\nlength_of_lis([10, 9, 2, 5, 3, 7, 101, 18])   # 4, for example 2, 3, 7, 101\nlength_of_lis([0, 1, 0, 3, 2, 3])             # 4\nlength_of_lis([7, 7, 7])                      # 1\n```\n\nComparing every pair of numbers (O(n²)) is a fine way to start, but the last tests use 30,000 numbers. Aim for O(n log n).",
+  "starter": "def length_of_lis(nums):\n    \"\"\"Return the length of the longest strictly increasing subsequence of nums (0 for an empty list).\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef reference_lis(nums):\n    # the plain O(n²) table: slow, but fine for the short lists below\n    best = [1] * len(nums)\n    for i in range(len(nums)):\n        for j in range(i):\n            if nums[j] < nums[i]:\n                best[i] = max(best[i], best[j] + 1)\n    return max(best, default=0)\nrng = random.Random(7)\nrandom_short_lists = [[rng.randint(-4, 4) for _ in range(rng.randint(0, 12))] for _ in range(300)]\ndef wrong_on(lists):\n    wrong = []\n    for nums in lists:\n        got, want = length_of_lis(list(nums)), reference_lis(nums)\n        if got != want:\n            wrong.append(f\"length_of_lis({nums}) returned {got}, expected {want}\")\n    return wrong[:3]",
+    "assert length_of_lis([10, 9, 2, 5, 3, 7, 101, 18]) == 4",
+    "assert length_of_lis([0, 1, 0, 3, 2, 3]) == 4",
+    "assert length_of_lis([7, 7, 7]) == 1",
+    "assert length_of_lis([]) == 0",
+    "assert length_of_lis([42]) == 1",
+    "assert length_of_lis([5, 4, 3, 2, 1]) == 1",
+    "assert length_of_lis([1, 2, 3, 4, 5]) == 5",
+    "assert length_of_lis([1, 5, 2, 3, 4]) == 4",
+    "assert length_of_lis([-3, -1, -2, 0]) == 3",
+    "assert length_of_lis([2, 2, 3, 3, 4]) == 3",
+    "assert wrong_on(random_short_lists) == []",
+    "assert length_of_lis([i % 1000 for i in range(30_000)]) == 1000",
+    "assert length_of_lis([3 * block + offset for block in range(10_000) for offset in (2, 1, 0)]) == 10_000"
+  ],
+  "hints": [
+    "For each position, think about the longest increasing subsequence that ends exactly there. How is it related to the answers for the earlier positions?",
+    "O(n²) is too slow for 30,000 numbers. Keep a list `tails` in which `tails[k]` is the smallest possible last value of an increasing subsequence of length `k + 1`. It stays sorted, so each new number can be placed with a binary search.",
+    "For a strictly increasing result, replace the first tail that is greater than or equal to the number (`bisect_left`). With `bisect_right`, `[7, 7, 7]` would wrongly give 3."
+  ],
+  "solution": "from bisect import bisect_left\n\n\ndef length_of_lis(nums):\n    # tails[k] is the smallest value an increasing subsequence of length k + 1 can end with\n    tails = []\n    for x in nums:\n        i = bisect_left(tails, x)       # first tail >= x; bisect_left keeps the subsequence strictly increasing\n        if i == len(tails):\n            tails.append(x)             # x extends the longest subsequence found so far\n        else:\n            tails[i] = x                # a smaller ending is never worse, so replace it\n    return len(tails)\n",
+  "explanation": "**Start simple.** Let `length[i]` be the longest increasing subsequence that *ends* at position `i`. It is one more than the best `length[j]` over the earlier positions `j` with a smaller value (or 1 if there is none), and the answer is the largest `length[i]`. Two nested loops: O(n²).\n\n**Faster: keep the best tails.** Keep a list `tails` where `tails[k]` is the smallest value an increasing subsequence of length `k + 1` can end with. It is always sorted. For each number `x`, binary-search the first tail that is `>= x` and overwrite it with `x` (a smaller ending is never worse); if `x` is bigger than every tail, append it. The length of `tails` is the answer. Using `bisect_left`, not `bisect_right`, is what keeps the subsequence *strictly* increasing: an equal value replaces its twin instead of extending the sequence.\n\n**Careful.** `tails` is not itself a valid subsequence; only its length means something. To recover an actual subsequence, remember a predecessor for every element.\n\n**Complexity.** O(n log n) time and O(n) space."
+}

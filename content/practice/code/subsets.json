@@ -1,0 +1,25 @@
+{
+  "title": "Subsets",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Generate every subset (the power set) of a list of distinct numbers with backtracking.",
+  "statement": "Given a list `nums` of distinct integers, return all of its subsets (the power set) as a list of lists.\n\n- Include the empty subset `[]` and the full list itself. A list of `n` numbers has `2**n` subsets.\n- The order of the subsets does not matter, and neither does the order of the numbers inside a subset: the tests sort both before comparing.\n- Every subset is a list of its own.\n\n**Examples**\n\n```python\nsubsets([1, 2, 3])   # [[], [1], [2], [3], [1, 2], [1, 3], [2, 3], [1, 2, 3]], in any order\nsubsets([5])         # [[], [5]]\nsubsets([])          # [[]]\n```",
+  "starter": "def subsets(nums):\n    \"\"\"Return every subset of nums (including [] and nums itself) as a list of lists, in any order.\"\"\"\n    ...\n",
+  "tests": [
+    "from itertools import combinations\ndef normalised(result):\n    \"\"\"Check the shape of the answer (a list of lists), then put it in a standard order: each subset sorted, and the list of subsets sorted.\"\"\"\n    if not isinstance(result, list) or not all(isinstance(subset, list) for subset in result):\n        raise AssertionError(f\"expected a list of lists, got {result!r}\"[:200])\n    return sorted(sorted(subset) for subset in result)\ndef every_subset(values):\n    \"\"\"The same answer worked out another way, with itertools.\"\"\"\n    ordered = sorted(values)\n    return sorted(list(chosen) for size in range(len(ordered) + 1) for chosen in combinations(ordered, size))",
+    "assert normalised(subsets([1, 2, 3])) == [[], [1], [1, 2], [1, 2, 3], [1, 3], [2], [2, 3], [3]]",
+    "assert normalised(subsets([5])) == [[], [5]]",
+    "assert normalised(subsets([])) == [[]]",
+    "assert normalised(subsets([3, -1, 2])) == [[], [-1], [-1, 2], [-1, 2, 3], [-1, 3], [2], [2, 3], [3]]",
+    "assert len(subsets(list(range(10)))) == 1024",
+    "assert len({id(subset) for subset in subsets([1, 2, 3, 4])}) == 16",
+    "assert normalised(subsets([9, 4, 7, 1, 6, 0, 2, 8, 5, 3, 11, 10, 12])) == every_subset(list(range(13)))"
+  ],
+  "hints": [
+    "Each number is either in a subset or out of it. How many subsets does that give for n numbers, and how could you build them by deciding one number at a time?",
+    "Backtracking: keep a list of the numbers chosen so far. Record a copy of it, then for each later number add it, recurse, and remove it again. Look only at numbers after the last one chosen, so `[1, 2]` and `[2, 1]` are not both built.",
+    "Store a copy of the list (`chosen[:]`), not the list itself. Otherwise every stored subset is the same object, and it ends up empty once the recursion has unwound."
+  ],
+  "solution": "def subsets(nums):\n    result = []\n    chosen = []\n\n    def build(start):\n        result.append(chosen[:])               # whatever is chosen so far is a subset (store a copy: chosen keeps changing)\n        for i in range(start, len(nums)):\n            chosen.append(nums[i])             # choose\n            build(i + 1)                       # explore every subset that extends it\n            chosen.pop()                       # un-choose, so the next branch starts clean\n\n    build(0)\n    return result\n",
+  "explanation": "**The idea.** Build each subset by deciding, one number at a time, whether to include it. Backtracking has three steps: **choose** a number (add it to `chosen`), **explore** (recurse to extend it), **un-choose** (remove it again so the next branch starts from the same state). Every partial `chosen` list is already a subset, so record it on the way in, not only at the end.\n\n**No repeats, any order.** Only numbers *after* the last chosen index may be added (`range(start, ...)`), so `[1, 2]` is built once and `[2, 1]` never.\n\n**Copy before you store.** `result.append(chosen)` would store the same list object every time; when backtracking empties it, every entry turns into `[]`. Store `chosen[:]`.\n\n**Complexity.** There are 2^n subsets and copying each costs up to n, so O(n · 2^n) time and space. The size of the output is the lower bound.\n\n**Another way.** Start from `[[]]` and, for each number, add a copy of every subset so far with that number appended. No recursion needed.\n\n**Follow-up.** If the input may contain duplicates, sort it first and skip a number equal to the one before it at the same level."
+}

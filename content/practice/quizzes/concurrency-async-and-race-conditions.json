@@ -1,0 +1,137 @@
+{
+  "title": "Concurrency, async and race conditions",
+  "topic": "concurrency",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md",
+  "description": "Processes, threads and async tasks, how races and deadlocks happen, and what keeps shared state correct: locks, atomic operations and optimistic checks.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A chat server must keep 10,000 WebSocket connections open at once, and almost all of them are idle at any moment. Which concurrency model fits best?",
+      "options": [
+        { "id": "a", "text": "One process per connection, so that a crash only affects one user" },
+        { "id": "b", "text": "One OS thread per connection, each blocked while it waits on its own socket" },
+        { "id": "c", "text": "Async tasks on an event loop, each resumed only when its connection is ready" },
+        { "id": "d", "text": "A single thread that checks each connection in turn and blocks until data arrives on it" }
+      ],
+      "answer": ["c"],
+      "explanation": "Idle connections spend nearly all their time waiting, so cheap async tasks win: a task is little more than a small object, while an OS thread needs its own stack and scheduler time and a process far more. One thread per connection works for a few thousand but gets costly, and blocking on one connection at a time lets a single silent client stall all the others."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Calling three independent APIs one after another takes about 900 ms, because each answers in about 300 ms and merging the results is instant. Starting all three at once with async I/O takes about 300 ms, even on one CPU core. Why?",
+      "options": [
+        { "id": "a", "text": "Async I/O spreads the three calls over three CPU cores, so they genuinely run in parallel" },
+        { "id": "b", "text": "It is all waiting, not computing, so one thread can start all three and resume each as its reply arrives" },
+        { "id": "c", "text": "Async I/O makes every individual call about three times faster, so the total drops by the same factor" },
+        { "id": "d", "text": "The runtime merges the three calls into one network request, so the three round trips become a single one" }
+      ],
+      "answer": ["b"],
+      "explanation": "The 900 ms is almost entirely waiting for the network, and waiting needs no CPU, so one event loop can start all three requests and continue each when its reply arrives. Each call still takes 300 ms, and the trick would not help CPU-bound work such as hashing or compressing, where the cores are the limit."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A server built on a single-threaded event loop (such as Node.js or Python's asyncio) is serving many requests. One handler calls a synchronous, CPU-heavy function that runs for 3 seconds. What happens to the other requests meanwhile?",
+      "options": [
+        { "id": "a", "text": "They are handled on other threads of the same process, so only the one slow request is affected" },
+        { "id": "b", "text": "The operating system moves them to idle CPU cores, so the server keeps serving them as usual" },
+        { "id": "c", "text": "Only requests for the same endpoint are delayed, because the loop schedules each route separately" },
+        { "id": "d", "text": "They all wait, because the loop cannot run anything else until the handler gives control back" }
+      ],
+      "answer": ["d"],
+      "explanation": "Async code is cooperative: the loop switches tasks only when one awaits something, and a long synchronous call never gives control back, so every other request, even a health check, stalls. Move CPU-heavy work to a worker pool of threads or processes, or split it into awaitable pieces."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "In a single-threaded async service, a handler runs two steps: balance = await db.get_balance(account), then await db.set_balance(account, balance - 10). Two requests for the same account run at the same moment. Can one of the two withdrawals be lost?",
+      "options": [
+        { "id": "a", "text": "Yes: each await lets the other request run, so both can read the same balance before either writes it back" },
+        { "id": "b", "text": "No: a single thread runs one request from start to finish before it starts the next" },
+        { "id": "c", "text": "No: the event loop runs awaited database calls strictly in the order they were issued, so they cannot overlap" },
+        { "id": "d", "text": "Yes, but only if the service also runs as several processes" }
+      ],
+      "answer": ["a"],
+      "explanation": "Async tasks interleave at every await, so a single thread does not mean one request at a time: both requests can read the same balance and both write balance - 10, losing one withdrawal. Make the change one atomic statement (SET balance = balance - 10 WHERE balance >= 10), or hold a lock or check a version across the whole read-then-write; more processes only add more ways to interleave."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Two requests run the same code at the same moment against shared state. Which of these sequences can go wrong?",
+      "options": [
+        { "id": "a", "text": "Read the stock level, check that it is above zero, then write stock - 1, as three separate steps in application code" },
+        { "id": "b", "text": "Run UPDATE items SET stock = stock - 1 WHERE id = 7 AND stock > 0, then check how many rows it changed" },
+        { "id": "c", "text": "Look up an email address and insert a new user if none was found, with no unique constraint on the email column" },
+        { "id": "d", "text": "Read a settings value that is loaded once at startup and never modified" },
+        { "id": "e", "text": "Increase a shared in-memory counter from several threads with count = count + 1 and no lock" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "In a, c and e there is a gap between reading or checking and writing, so both requests can pass the check or start from the same value (check-then-act and read-modify-write races). In b the database does the check and the change as one atomic statement, and d is safe because nothing ever writes to the data."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Two instances of the same service, running on different servers, can race on the same database row, and a mutex inside each instance's code does not prevent it.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "A mutex lives in one process's memory, so an instance on another machine never sees it. State shared between instances needs protection that the shared store (or a shared lock service) enforces: a unique constraint, an atomic UPDATE, a row lock inside a transaction, or a version check."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Two code paths each need both lock A and lock B, and they sometimes deadlock. Which changes would make a deadlock between them impossible?",
+      "options": [
+        { "id": "a", "text": "Make every code path take the locks in the same order, always A before B" },
+        { "id": "b", "text": "Take A, then try B without waiting; if B is busy, release A and retry after a short random pause" },
+        { "id": "c", "text": "Run the code paths on a larger thread pool, so that there are more threads to wait on" },
+        { "id": "d", "text": "Shorten the critical sections, so that the two paths rarely hold the locks at the same time" },
+        { "id": "e", "text": "Make the locks re-entrant, so that a thread can take a lock it already holds" }
+      ],
+      "answer": ["a", "b"],
+      "explanation": "A deadlock needs four things at once: exclusive locks, hold-and-wait, no way to take a lock away, and a circular wait. A global lock order removes the circular wait, and releasing what you hold when the next lock is busy removes hold-and-wait. More threads, shorter sections and re-entrancy only change how often the problem shows up or what one thread can do alone."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Hundreds of requests per second try to decrement the stock of one flash-sale item. The code reads the row's stock and version, then updates it with WHERE version equal to the version it read, and retries when no row matched. Why does this optimistic approach struggle here?",
+      "options": [
+        { "id": "a", "text": "Every update has to wait for a lock held by the writers ahead of it in line" },
+        { "id": "b", "text": "The version check only works when the version column has its own index, which a hot row lacks" },
+        { "id": "c", "text": "Most attempts find the version already changed, so they fail and retry, wasting work" },
+        { "id": "d", "text": "A version column cannot tell apart two writers whose updates arrive within the same millisecond" }
+      ],
+      "answer": ["c"],
+      "explanation": "Optimistic locking assumes conflicts are rare: nobody waits, and a stale write is detected and retried. On a hot row almost every attempt conflicts, so most of the work is thrown away and some requests may keep losing; let the database serialize those writers instead, ideally with one atomic UPDATE items SET stock = stock - 1 WHERE stock > 0."
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "text": "Requests are handed to a fixed pool of worker threads through a queue. A traffic spike fills the queue and the workers cannot keep up. Which response keeps the service healthiest?",
+      "options": [
+        { "id": "a", "text": "Let the queue grow as large as it needs to, so that no request is ever turned away, however long it has to wait" },
+        { "id": "b", "text": "Cap the queue and refuse new work fast (for example with a 503) so queued work still finishes on time" },
+        { "id": "c", "text": "Raise the pool to thousands of threads so that the backlog clears faster than before the spike" },
+        { "id": "d", "text": "Let every request wait with no timeout, because each one will be served in the end eventually" }
+      ],
+      "answer": ["b"],
+      "explanation": "A bounded queue gives back-pressure: when it is full, new work is refused or slowed, so memory use and waiting time stay limited and clients can back off and retry. An unbounded queue turns overload into ever longer waits and finally out-of-memory, and thousands of threads mostly add context switching and competition for the same CPUs and database connections."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "A payment endpoint looks up the client's idempotency key and, only if it is not found, charges the card and then saves the key with the result. This guarantees the card is charged once, even when two retries of the same request arrive at the same moment.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Both retries can run the lookup before either has saved the key, so both find nothing and both charge the card; the lookup and the save are a check-then-act race. Claim the key first with an atomic insert under a unique constraint (or take a lock on the key), and let the loser wait for the stored result or answer 409."
+    }
+  ]
+}

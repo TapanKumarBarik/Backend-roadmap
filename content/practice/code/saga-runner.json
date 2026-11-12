@@ -1,0 +1,59 @@
+{
+  "title": "Saga Runner",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md",
+  "description": "Run a chain of steps and, when one fails, undo the finished ones with their compensations, newest first.",
+  "statement": "A saga is a chain of steps, each with an action and a compensation that undoes it. Write `run_saga(steps)`, where `steps` is a list of `(name, action, compensation)` and `action` and `compensation` are functions that take no arguments. Leave `steps` as it is.\n\nRun the actions in order, once each. If an action raises an `Exception`, stop: no later step runs. Then run the compensations of the steps that already succeeded, newest first. The step that failed is not compensated. If a compensation raises, record it and carry on with the rest.\n\nReturn a dict with exactly these keys:\n\n- `\"status\"`: `\"completed\"` if every action succeeded; otherwise `\"rolled_back\"` if every compensation that had to run succeeded, or `\"rollback_failed\"` if any raised.\n- `\"failed_step\"`: the name of the step whose action raised, or `None`.\n- `\"compensated\"`: the names of the compensations that succeeded, in the order they ran.\n- `\"compensation_failed\"`: the names of the compensations that raised, in the order they ran.\n\n**Example**\n\n```python\nsteps = [(\"reserve\", reserve, release), (\"charge\", charge, refund), (\"ship\", ship, cancel)]\nrun_saga(steps)   # when ship() raises:\n# {\"status\": \"rolled_back\", \"failed_step\": \"ship\", \"compensated\": [\"charge\", \"reserve\"], \"compensation_failed\": []}\n```",
+  "starter": "def run_saga(steps):\n    \"\"\"Run the steps; if one fails, undo the finished ones in reverse order. Return the report described above.\"\"\"\n    ...\n",
+  "tests": [
+    "\ndef make_steps(names, failing=(), failing_undo=()):\n    \"\"\"Steps that record what runs in `events`. Actions named in `failing` raise after being recorded; so do compensations named in `failing_undo`.\"\"\"\n    events = []\n    steps = []\n    for name in names:\n        def action(name=name):\n            events.append(f\"do {name}\")\n            if name in failing:\n                raise RuntimeError(f\"{name} failed\")\n\n        def undo(name=name):\n            events.append(f\"undo {name}\")\n            if name in failing_undo:\n                raise RuntimeError(f\"undoing {name} failed\")\n\n        steps.append((name, action, undo))\n    return steps, events\n\nclass PaymentDeclined(Exception):\n    pass\n\ndef declined():\n    raise PaymentDeclined(\"card declined\")\n",
+    {
+      "name": "every step succeeds: completed, and nothing is compensated",
+      "code": "steps, events = make_steps([\"reserve\", \"charge\", \"ship\"])\nassert run_saga(steps) == {\"status\": \"completed\", \"failed_step\": None, \"compensated\": [], \"compensation_failed\": []}\nassert events == [\"do reserve\", \"do charge\", \"do ship\"]"
+    },
+    {
+      "name": "the example: ship fails, so charge and then reserve are undone, newest first",
+      "code": "steps, events = make_steps([\"reserve\", \"charge\", \"ship\"], failing={\"ship\"})\nassert run_saga(steps) == {\"status\": \"rolled_back\", \"failed_step\": \"ship\", \"compensated\": [\"charge\", \"reserve\"], \"compensation_failed\": []}\nassert events == [\"do reserve\", \"do charge\", \"do ship\", \"undo charge\", \"undo reserve\"]"
+    },
+    {
+      "name": "a failure in the middle: the failed step is not compensated and later steps never run",
+      "code": "steps, events = make_steps([\"a\", \"b\", \"c\", \"d\"], failing={\"b\"})\nassert run_saga(steps) == {\"status\": \"rolled_back\", \"failed_step\": \"b\", \"compensated\": [\"a\"], \"compensation_failed\": []}\nassert events == [\"do a\", \"do b\", \"undo a\"]"
+    },
+    {
+      "name": "the first step fails: there is nothing to undo",
+      "code": "steps, events = make_steps([\"reserve\", \"charge\"], failing={\"reserve\"})\nassert run_saga(steps) == {\"status\": \"rolled_back\", \"failed_step\": \"reserve\", \"compensated\": [], \"compensation_failed\": []}\nassert events == [\"do reserve\"]"
+    },
+    {
+      "name": "a compensation that fails is recorded, and the remaining compensations still run",
+      "code": "steps, events = make_steps([\"reserve\", \"charge\", \"ship\"], failing={\"ship\"}, failing_undo={\"charge\"})\nassert run_saga(steps) == {\"status\": \"rollback_failed\", \"failed_step\": \"ship\", \"compensated\": [\"reserve\"], \"compensation_failed\": [\"charge\"]}\nassert events == [\"do reserve\", \"do charge\", \"do ship\", \"undo charge\", \"undo reserve\"]"
+    },
+    {
+      "name": "every compensation fails: all are attempted, newest first",
+      "code": "steps, events = make_steps([\"a\", \"b\", \"c\", \"d\"], failing={\"d\"}, failing_undo={\"a\", \"b\", \"c\"})\nassert run_saga(steps) == {\"status\": \"rollback_failed\", \"failed_step\": \"d\", \"compensated\": [], \"compensation_failed\": [\"c\", \"b\", \"a\"]}\nassert events == [\"do a\", \"do b\", \"do c\", \"do d\", \"undo c\", \"undo b\", \"undo a\"]"
+    },
+    {
+      "name": "no steps at all: completed",
+      "code": "assert run_saga([]) == {\"status\": \"completed\", \"failed_step\": None, \"compensated\": [], \"compensation_failed\": []}"
+    },
+    {
+      "name": "any Exception from an action counts as a failure, not only RuntimeError",
+      "code": "events = []\nsteps = [\n    (\"reserve\", lambda: events.append(\"do reserve\"), lambda: events.append(\"undo reserve\")),\n    (\"charge\", declined, lambda: events.append(\"undo charge\")),\n    (\"ship\", lambda: events.append(\"do ship\"), lambda: events.append(\"undo ship\")),\n]\nassert run_saga(steps) == {\"status\": \"rolled_back\", \"failed_step\": \"charge\", \"compensated\": [\"reserve\"], \"compensation_failed\": []}\nassert events == [\"do reserve\", \"undo reserve\"]"
+    },
+    {
+      "name": "the list of steps is left as it was",
+      "code": "steps, events = make_steps([\"reserve\", \"charge\", \"ship\"], failing={\"ship\"})\nnames_before = [name for name, _, _ in steps]\nrun_saga(steps)\nassert [name for name, _, _ in steps] == names_before"
+    },
+    {
+      "name": "a long saga: the 400th of 500 steps fails and the 399 earlier steps are undone newest first",
+      "code": "names = [f\"step-{i}\" for i in range(500)]\nsteps, events = make_steps(names, failing={\"step-399\"})\nresult = run_saga(steps)\nundone = [f\"step-{i}\" for i in range(398, -1, -1)]\nassert result[\"failed_step\"] == \"step-399\"\nassert result[\"compensated\"] == undone\nassert events[-399:] == [f\"undo {name}\" for name in undone]"
+    }
+  ],
+  "hints": [
+    "Which steps need undoing when step k fails, and in which order? Keep track of the ones that finished.",
+    "Run the actions in a loop and remember each finished step. On the first exception stop, then loop over the finished steps backwards and call their compensations.",
+    "Wrap each compensation in its own `try`, so one failure does not stop the rest. Do not compensate the step that failed, and do not reverse or pop the list you were given."
+  ],
+  "solution": "def run_saga(steps):\n    completed = []                       # the steps whose action succeeded, oldest first\n    failed_step = None\n    for step in steps:\n        name, action, _ = step\n        try:\n            action()\n        except Exception:\n            failed_step = name\n            break                        # later steps never run\n        completed.append(step)\n\n    compensated, compensation_failed = [], []\n    if failed_step is not None:                          # when every action succeeded there is nothing to undo\n        for name, _, compensation in reversed(completed):    # newest first; the failed step is not in `completed`\n            try:\n                compensation()\n            except Exception:\n                compensation_failed.append(name)         # record it, then keep undoing the rest\n            else:\n                compensated.append(name)\n\n    if failed_step is None:\n        status = \"completed\"\n    elif compensation_failed:\n        status = \"rollback_failed\"\n    else:\n        status = \"rolled_back\"\n    return {\"status\": status, \"failed_step\": failed_step, \"compensated\": compensated, \"compensation_failed\": compensation_failed}\n",
+  "explanation": "**The idea.** A business operation that spans several services (reserve stock, charge a card, book a shipment) cannot use one database transaction. A saga replaces it with a sequence of local steps, each paired with a compensating action that undoes it in business terms (release the stock, refund the card). If step k fails, the effects of steps 0 to k-1 are already visible to the world, so you run their compensations, newest first, because later steps may depend on earlier ones.\n\n**The details the tests check.**\n- The failed step is not compensated: its action did not complete. (An action that can half-succeed has to clean up after itself, or be idempotent so that a retry is safe.)\n- A failing compensation must not stop the others; leaving them undone would be worse. Record it and report it, because a person or a retry job has to deal with what is left. That is the `rollback_failed` status.\n- Keep the list of completed steps separately from the input. You need the successful prefix, and `steps` must not change.\n\n**Real systems** run sagas as an orchestrator (a state machine that is saved after every step, so it can resume after a crash) or as choreography (each service reacts to events). Compensations must be idempotent, because a retry may run one twice.\n\n**Complexity.** O(n) calls. Follow-up: what if an action succeeds but the process dies before it records that? (Persist the intent first, and make every action and compensation idempotent.)"
+}

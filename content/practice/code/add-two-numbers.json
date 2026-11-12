@@ -1,0 +1,30 @@
+{
+  "title": "Add Two Numbers",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "intermediate",
+  "description": "Add two numbers stored as linked lists of digits in reverse order and return the sum as a list.",
+  "statement": "Two non-negative integers are stored in linked lists, one digit per node, **least significant digit first**: the number 342 is `2 -> 4 -> 3`. Write `add_two_numbers(first, second)`, which returns their sum as a new list in the same format. `ListNode` is given: each node has a `val` (a digit 0-9) and a `next` (`None` at the end).\n\n- Each input list has at least one node and no extra zeros at its end, so the number 0 is a single `0` node.\n- The two lists can have different lengths.\n- The result has no extra zero at its end either: 12 + 23 = 35 is `5 -> 3`, while 99 + 1 = 100 is `0 -> 0 -> 1`.\n- Build a new list. Leave the two input lists unchanged and do not reuse their nodes.\n\n**Examples**\n\n```\n81 + 245:   1 -> 8  +  5 -> 4 -> 2   gives   6 -> 2 -> 3\n99 + 1:     9 -> 9  +  1             gives   0 -> 0 -> 1\n0 + 0:      0       +  0             gives   0\n```",
+  "starter": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef add_two_numbers(first, second):\n    \"\"\"Return the head of a new list holding the sum of the two numbers, least significant digit first.\"\"\"\n    ...\n",
+  "tests": [
+    "def linked(digits):\n    head = None\n    for digit in reversed(digits):\n        head = ListNode(digit, head)\n    return head\ndef digits_of(head):\n    out = []\n    while head is not None and len(out) < 2_000:\n        out.append(head.val)\n        head = head.next\n    return out\ndef sum_of(a, b):\n    # Adds two digit lists (least significant first) and also checks that the inputs were left alone and the result is made of new nodes.\n    first, second = linked(a), linked(b)\n    result = add_two_numbers(first, second)\n    if digits_of(first) != list(a) or digits_of(second) != list(b):\n        raise AssertionError(\"the input lists must be left unchanged\")\n    given = set()\n    for head in (first, second):\n        while head is not None:\n            given.add(id(head))\n            head = head.next\n    node = result\n    while node is not None:\n        if id(node) in given:\n            raise AssertionError(\"the result must be a new list: it reuses a node of an input list\")\n        node = node.next\n    return digits_of(result)",
+    "assert sum_of([1, 8], [5, 4, 2]) == [6, 2, 3]",
+    "assert sum_of([9, 9], [1]) == [0, 0, 1]",
+    "assert sum_of([0], [0]) == [0]",
+    "assert sum_of([3], [4, 5, 6]) == [7, 5, 6]",
+    "assert sum_of([2, 1], [3, 2]) == [5, 3]",
+    "assert sum_of([9, 9, 9, 9], [1]) == [0, 0, 0, 0, 1]",
+    "assert sum_of([5, 5], [5, 5]) == [0, 1, 1]",
+    "assert sum_of([0, 0, 1], [0, 0, 2]) == [0, 0, 3]",
+    "assert sum_of([1], [2, 3, 4]) == [3, 3, 4]",
+    "assert sum_of([9] * 400, [1]) == [0] * 400 + [1]",
+    "big_a = [(i * 7 + 3) % 10 for i in range(300)]\nbig_b = [(i * 3 + 1) % 10 for i in range(280)]\nbig_sum = int(\"\".join(map(str, reversed(big_a)))) + int(\"\".join(map(str, reversed(big_b))))",
+    "assert sum_of(big_a, big_b) == [int(c) for c in reversed(str(big_sum))]"
+  ],
+  "hints": [
+    "Add the way you did in school: one column at a time, starting with the ones. Why is \"least significant digit first\" convenient for a linked list?",
+    "Walk both lists together. The column total is the two digits (0 for a list that has run out) plus the carry from the previous column. The digit to write is `total % 10`, the new carry is `total // 10`.",
+    "Keep going while either list has digits left OR the carry is not zero, or 99 + 1 loses its last digit. A dummy first node saves a special case for the head of the result."
+  ],
+  "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef add_two_numbers(first, second):\n    dummy = tail = ListNode()            # the result starts after this placeholder node\n    carry = 0\n    while first is not None or second is not None or carry:\n        column = carry\n        if first is not None:\n            column += first.val\n            first = first.next\n        if second is not None:\n            column += second.val\n            second = second.next\n        carry, digit = divmod(column, 10)\n        tail.next = ListNode(digit)\n        tail = tail.next\n    return dummy.next\n",
+  "explanation": "**The idea.** This is school addition. Because the digits are stored least significant first, the heads of both lists are the ones column, so you can add column by column while walking both lists forward. Keep a `carry`: the column total is `first digit + second digit + carry`; the digit you write is `total % 10` and the new carry is `total // 10` (`divmod` gives both).\n\n**The details.** A list that has run out contributes 0, so different lengths need no special case. The loop must continue while *either* list has digits left *or* the carry is not zero: that is what turns 99 + 1 into `0 -> 0 -> 1` instead of losing the last 1, and it is also why 12 + 23 = 35 gets no extra `0` node at the end. A dummy node before the first digit saves a special case for the first node of the result.\n\n**Complexity.** O(max(m, n)) time, and O(max(m, n)) space for the new list. Converting both lists to integers and back also works in Python, but only because Python integers have no size limit; the column method works for any digit storage. Follow-up: what if the digits were stored most significant first? You would need to start from the ends: reverse the lists first, or push the digits on two stacks."
+}

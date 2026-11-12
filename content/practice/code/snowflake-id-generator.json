@@ -1,0 +1,59 @@
+{
+  "title": "Snowflake ID Generator",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
+  "description": "Build a unique, time-ordered id generator from a timestamp, a worker id and a per-millisecond sequence.",
+  "statement": "Build `SnowflakeGenerator(worker_id, clock, wait, epoch=0)`, which hands out unique, increasing 64-bit-style ids without talking to any other machine. `clock()` returns the current time in whole milliseconds. `wait()` takes no arguments and returns after about a millisecond has passed (in the tests it advances the fake clock by exactly 1 ms, and nothing else does).\n\n`next_id()` reads `now = clock()` and returns `((now - epoch) << 22) | (worker_id << 12) | sequence`:\n\n- The first id, and the first id of every new millisecond, uses `sequence = 0`. Another id in the same millisecond as the last one uses the last sequence + 1.\n- The sequence has 12 bits (0 to 4095). When a millisecond already has 4096 ids, call `wait()` until `clock()` reports a later millisecond, and use that one.\n- If `clock()` is earlier than the millisecond of the last id, raise `ClockMovedBackwards`. That call changes nothing, so the generator works again once the clock catches up.\n- `worker_id` must be 0 to 1023, otherwise the constructor raises `ValueError`.\n\n**Example**\n\n```python\ngen = SnowflakeGenerator(3, clock, wait, epoch=1000)   # clock() reads 1005\ngen.next_id()   # 20983808  = (5 << 22) | (3 << 12) | 0\ngen.next_id()   # 20983809  same millisecond, sequence 1\n# the clock moves to 1006\ngen.next_id()   # 25178112  = (6 << 22) | (3 << 12) | 0\n```",
+  "starter": "class ClockMovedBackwards(Exception):\n    \"\"\"clock() reported a time earlier than the millisecond of the last id.\"\"\"\n\n\nclass SnowflakeGenerator:\n    def __init__(self, worker_id, clock, wait, epoch=0):\n        ...\n\n    def next_id(self):\n        \"\"\"Return the next id: ((now - epoch) << 22) | (worker_id << 12) | sequence.\"\"\"\n        ...\n",
+  "tests": [
+    "\nclass FakeClock:\n    \"\"\"Time in milliseconds. It moves only when a test sets it or wait() is called (wait advances it by 1 ms).\"\"\"\n    def __init__(self, now):\n        self.now = now\n        self.waits = 0\n        self.reads = 0\n\n    def __call__(self):\n        self.reads += 1\n        assert self.reads < 50_000, \"clock() was read 50,000 times without wait() being called; call wait() to let time pass instead of spinning\"\n        return self.now\n\n    def wait(self):\n        self.waits += 1\n        self.reads = 0\n        self.now += 1\n\n    def set(self, now):\n        self.now = now\n        self.reads = 0\n\n\ndef raises(exception_type, function, *args):\n    try:\n        function(*args)\n    except exception_type:\n        return True\n    except Exception as error:\n        raise AssertionError(f\"expected {exception_type.__name__}, got {type(error).__name__}: {error}\")\n    raise AssertionError(f\"expected {exception_type.__name__}, but nothing was raised\")\n",
+    {
+      "name": "the example: the sequence counts up inside a millisecond and restarts in the next",
+      "code": "clock = FakeClock(1005)\ngen = SnowflakeGenerator(3, clock, clock.wait, epoch=1000)\nassert gen.next_id() == 20983808\nassert gen.next_id() == 20983809\nclock.set(1006)\nassert gen.next_id() == 25178112"
+    },
+    {
+      "name": "five ids in one millisecond differ only in the sequence, and wait() is not called",
+      "code": "clock = FakeClock(1005)\ngen = SnowflakeGenerator(3, clock, clock.wait, epoch=1000)\nids = [gen.next_id() for _ in range(5)]\nassert ids == [(5 << 22) | (3 << 12) | sequence for sequence in range(5)]\nassert clock.waits == 0, f\"wait() was called {clock.waits} time(s) although no millisecond was full\""
+    },
+    {
+      "name": "the very first id may be issued at the epoch itself (sequence 0, not 1)",
+      "code": "clock = FakeClock(500)\ngen = SnowflakeGenerator(1, clock, clock.wait, epoch=500)\nassert gen.next_id() == 1 << 12\nassert gen.next_id() == (1 << 12) | 1\ndefault = FakeClock(0)\nassert SnowflakeGenerator(0, default, default.wait).next_id() == 0, \"epoch defaults to 0\""
+    },
+    {
+      "name": "real-world timestamps: milliseconds since 1970 with a custom epoch, and time jumping ahead",
+      "code": "epoch = 1_735_689_600_000\nclock = FakeClock(epoch + 123_456_789)\ngen = SnowflakeGenerator(513, clock, clock.wait, epoch=epoch)\nassert gen.next_id() == (123_456_789 << 22) | (513 << 12)\nclock.set(epoch + 123_456_792)\nassert gen.next_id() == (123_456_792 << 22) | (513 << 12)"
+    },
+    {
+      "name": "two workers asking in the same millisecond never get the same id",
+      "code": "clock = FakeClock(2000)\na = SnowflakeGenerator(1, clock, clock.wait, epoch=1000)\nb = SnowflakeGenerator(2, clock, clock.wait, epoch=1000)\nids_a = [a.next_id() for _ in range(5)]\nids_b = [b.next_id() for _ in range(5)]\nassert set(ids_a).isdisjoint(ids_b), f\"workers 1 and 2 produced the same id: {sorted(set(ids_a) & set(ids_b))}\"\nassert ids_b[0] - ids_a[0] == 1 << 12, \"the worker id sits in bits 12 to 21, just above the sequence\""
+    },
+    {
+      "name": "a millisecond holds 4096 ids (sequence 0 to 4095); if the clock moved on by itself nothing waits",
+      "code": "clock = FakeClock(5000)\ngen = SnowflakeGenerator(1023, clock, clock.wait)\nids = [gen.next_id() for _ in range(4096)]\nassert ids[0] == (5000 << 22) | (1023 << 12) | 0\nassert ids[-1] == (5000 << 22) | (1023 << 12) | 4095\nassert clock.waits == 0\nclock.set(5001)\nassert gen.next_id() == (5001 << 22) | (1023 << 12) | 0\nassert clock.waits == 0, \"the clock had already moved to the next millisecond, so there is nothing to wait for\""
+    },
+    {
+      "name": "the 4097th id in a millisecond waits for the next millisecond and restarts the sequence at 0",
+      "code": "clock = FakeClock(5000)\ngen = SnowflakeGenerator(7, clock, clock.wait)\nfor _ in range(4096):\n    gen.next_id()\nassert gen.next_id() == (5001 << 22) | (7 << 12) | 0\nassert clock.waits == 1, f\"expected one call to wait(), got {clock.waits}\"\nassert gen.next_id() == (5001 << 22) | (7 << 12) | 1"
+    },
+    {
+      "name": "a burst of 9000 ids in a frozen clock: strictly increasing, using two extra milliseconds",
+      "code": "clock = FakeClock(10_000)\ngen = SnowflakeGenerator(7, clock, clock.wait)\nids = [gen.next_id() for _ in range(9000)]\nassert all(earlier < later for earlier, later in zip(ids, ids[1:])), \"ids must be strictly increasing\"\nassert clock.waits == 2, f\"9000 ids need 3 milliseconds (4096 per millisecond), so 2 waits; wait() was called {clock.waits} times\"\nassert ids[-1] == (10_002 << 22) | (7 << 12) | 807"
+    },
+    {
+      "name": "a clock that goes backwards raises ClockMovedBackwards and the failed call changes nothing",
+      "code": "clock = FakeClock(2000)\ngen = SnowflakeGenerator(0, clock, clock.wait)\nfirst = gen.next_id()\nclock.set(1999)\nassert raises(ClockMovedBackwards, gen.next_id)\nclock.set(2000)\nassert gen.next_id() == first + 1, \"the refused call must not use up or reset the sequence\"\nclock.set(2001)\nassert gen.next_id() == 2001 << 22"
+    },
+    {
+      "name": "worker ids must fit in 10 bits: 0 to 1023",
+      "code": "clock = FakeClock(0)\nassert raises(ValueError, SnowflakeGenerator, 1024, clock, clock.wait)\nassert raises(ValueError, SnowflakeGenerator, -1, clock, clock.wait)\nassert SnowflakeGenerator(1023, clock, clock.wait).next_id() == 1023 << 12"
+    }
+  ],
+  "hints": [
+    "An id is three numbers glued into one integer. Which operation moves a number left by a fixed number of bits so the three fields do not overlap? And what must the generator remember between calls to know whether this is a new millisecond?",
+    "Remember the millisecond of the last id and its sequence. Same millisecond: sequence + 1. Later millisecond: sequence 0. When sequence + 1 would be 4096 the millisecond is full: call `wait()` until `clock()` has moved past it.",
+    "Start \"the last millisecond\" as `None`, not as 0 or the epoch, or the very first id at the epoch looks like a repeat. Check for a backwards clock before you change any state."
+  ],
+  "solution": "WORKER_BITS = 10\nSEQUENCE_BITS = 12\nMAX_WORKER_ID = (1 << WORKER_BITS) - 1\nMAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1\n\n\nclass ClockMovedBackwards(Exception):\n    \"\"\"clock() reported a time earlier than the millisecond of the last id.\"\"\"\n\n\nclass SnowflakeGenerator:\n    def __init__(self, worker_id, clock, wait, epoch=0):\n        if not 0 <= worker_id <= MAX_WORKER_ID:\n            raise ValueError(f\"worker_id must be between 0 and {MAX_WORKER_ID}, got {worker_id}\")\n        self._worker_id = worker_id\n        self._clock = clock\n        self._wait = wait\n        self._epoch = epoch\n        self._last_ms = None   # millisecond of the last id; None until the first one (0 would clash with an epoch-time id)\n        self._sequence = 0\n\n    def next_id(self):\n        now = self._clock()\n        if self._last_ms is not None and now < self._last_ms:\n            raise ClockMovedBackwards(f\"clock went back {self._last_ms - now} ms; refusing to issue an id\")\n        if now == self._last_ms:\n            sequence = self._sequence + 1\n            if sequence > MAX_SEQUENCE:            # this millisecond is full: wait for the next one\n                while now <= self._last_ms:\n                    self._wait()\n                    now = self._clock()\n                sequence = 0\n        else:\n            sequence = 0\n        self._last_ms, self._sequence = now, sequence\n        return ((now - self._epoch) << (WORKER_BITS + SEQUENCE_BITS)) | (self._worker_id << SEQUENCE_BITS) | sequence\n",
+  "explanation": "**The idea.** An id is three fields packed into one integer: the time since a custom epoch in the high bits, then the worker id, then a sequence number in the low bits. Because time is in the high bits, ids sort by creation time. Because each worker has its own bits, two workers can never collide. Because the sequence counts the ids inside one millisecond, one worker never repeats itself either. After each worker has been given its number, no coordination is needed.\n\n**The state is two numbers:** the millisecond of the last id and its sequence. Same millisecond: sequence + 1. Later millisecond: sequence 0. If sequence + 1 would be 4096 the millisecond is full, so wait for the clock to move on and start again at 0. Start with \"no previous millisecond\" (`None`), not `0`, or an id issued exactly at the epoch looks like a repeat.\n\n**A clock that goes backwards** (an NTP correction, a VM resumed from a pause) would issue an id smaller than one already handed out, possibly a duplicate. Refusing is the safe choice. Check it before you change any state, so a refused call leaves nothing behind.\n\n**Complexity.** O(1) per id, apart from the wait. Follow-up: what happens when a worker restarts and forgets `_last_ms`? (Persist it, or wait out the largest clock skew you tolerate before issuing.)"
+}

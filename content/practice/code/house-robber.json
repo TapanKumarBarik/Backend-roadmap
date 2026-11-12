@@ -1,0 +1,29 @@
+{
+  "title": "House Robber",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Find the most money you can take from a row of houses without robbing two neighbours.",
+  "statement": "`money[i]` is the cash in the `i`-th house along a street. You may rob any set of houses as long as no two of them are next to each other. Return the largest total you can take.\n\n- `money` holds non-negative integers and may be empty (the answer is then `0`).\n- Do not modify `money`.\n- Robbing the richest house first is not always right: for `[2, 3, 2]` the best is the two outer houses (`4`), not the middle one (`3`).\n\n**Examples**\n\n```python\nrob([1, 2, 3, 1])      # 4    (houses 0 and 2: 1 + 3)\nrob([2, 7, 9, 3, 1])   # 12   (houses 0, 2 and 4: 2 + 9 + 1)\nrob([])                # 0\n```\n\nTrying every allowed set of houses takes exponential time, and the tests include streets of 300 houses. Aim for O(n).",
+  "starter": "def rob(money):\n    \"\"\"Return the largest total of cash that can be taken without robbing two adjacent houses.\"\"\"\n    ...\n",
+  "tests": [
+    "assert rob([1, 2, 3, 1]) == 4",
+    "assert rob([2, 7, 9, 3, 1]) == 12",
+    "assert rob([]) == 0",
+    "assert rob([5]) == 5",
+    "assert rob([3, 8]) == 8",
+    "assert rob([2, 3, 2]) == 4",
+    "assert rob([2, 1, 1, 2]) == 4",
+    "street = [4, 1, 2, 7, 5, 3, 1]",
+    "assert rob(street) == 14",
+    "assert street == [4, 1, 2, 7, 5, 3, 1], \"rob must leave the list it was given unchanged\"",
+    "assert rob([1, 100] * 30) == 3000",
+    "assert rob(list(range(1, 301))) == 22650"
+  ],
+  "hints": [
+    "Decide house by house. Which two numbers about the houses you have already passed are enough to make the best choice for the next one?",
+    "Let `best[i]` be the most you can take from the first `i` houses. For house `i` you either skip it (`best[i - 1]`) or rob it, which forbids the house before, so you add its cash to `best[i - 2]`. Keep the larger.",
+    "`best` looks back only two steps, so two variables are enough. Also make sure an empty street and a one-house street give the right answer."
+  ],
+  "solution": "def rob(money):\n    best = 0              # the most we can take from the houses seen so far\n    best_before_last = 0  # the same, but for the street without its latest house\n    for cash in money:\n        # skip this house (keep `best`), or rob it on top of the best that leaves its neighbour alone\n        best, best_before_last = max(best, best_before_last + cash), best\n    return best\n",
+  "explanation": "**The idea.** Walk along the street and keep the best total for the houses seen so far. At each house you choose: skip it (the best stays as it was) or rob it, which rules out the previous house, so you add its cash to the best total from *two* houses back. Take the larger: `best[i] = max(best[i - 1], best[i - 2] + money[i])`.\n\n**Why simple rules fail.** Robbing the richest house first, or every other house, can miss the best plan. In `[2, 1, 1, 2]` the best is the two ends (4), which leaves a gap of two houses that \"every other house\" never produces.\n\n**Complexity.** The recurrence looks back only two houses, so two variables replace the whole table: O(n) time and O(1) space. Without remembering answers, a recursive version is exponential.\n\n**Follow-up.** If the street is a circle (the first and last houses are neighbours), solve it twice, once without the first house and once without the last, and keep the larger answer."
+}

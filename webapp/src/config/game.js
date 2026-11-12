@@ -1,8 +1,10 @@
 // The learning game: its rules (XP, levels, badges, which icon draws what) are in game.config.json at the root of the repository (its own file, because
 // site.config.json is in every visitor's first download and the game is not); the words on its screens are here.
 import game from '../../../game.config.json' with { type: 'json' };
+import { PROGRESS_KEYS } from './index.js';
 
-export const GAME = game;
+// The game's rules, with the progress-key prefixes (which belong to the site config: see config/index.js) beside them.
+export const GAME = { ...game, keys: PROGRESS_KEYS };
 
 export const GAME_COPY = {
   hero: {
@@ -76,6 +78,18 @@ export const GAME_COPY = {
     pace: 'Your pace',
     paceWeek: (n) => `${n} finished this week`,
     paceFinish: (date) => `On track to finish ${date}`
+  },
+  practice: {
+    heading: 'Practice today',
+    drill: "Today's drill",
+    drillMeta: (questions, xp) => `${questions} quick questions · +${xp} XP`,
+    daily: 'Problem of the day',
+    dailyMeta: (title, xp) => `${title} · +${xp} XP`,
+    start: 'Start',
+    solve: 'Solve',
+    done: 'Done',
+    solved: 'Solved',
+    all: 'All practice'
   },
   reward: {
     xp: (n) => `+${n} XP`,

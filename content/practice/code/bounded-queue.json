@@ -1,0 +1,58 @@
+{
+  "title": "Bounded Queue",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing/README.md",
+  "description": "Build a fixed-capacity FIFO queue on a ring buffer that refuses new items when it is full.",
+  "statement": "Implement a fixed-capacity FIFO queue, `BoundedQueue(capacity)`, as a **ring buffer**: allocate a list of `capacity` slots once and reuse them as items come and go, so nothing is ever grown, shifted or copied. A full queue refuses new items instead of growing: that is back-pressure, and the caller decides whether to wait, drop or fail.\n\n- `offer(item)` adds `item` at the tail and returns `True`. If the queue is full it returns `False` and changes nothing.\n- `poll()` removes and returns the oldest item, or returns `None` if the queue is empty.\n- `size()` is the number of items inside. `capacity` is at least 1.\n- Items can be anything except `None` (that is what `poll` answers for an empty queue), including `0` and `\"\"`.\n\n**Example**\n\n```python\nq = BoundedQueue(2)\nq.offer(\"a\")   # True\nq.offer(\"b\")   # True\nq.offer(\"c\")   # False: full, and \"c\" is not stored\nq.poll()       # \"a\"\nq.offer(\"c\")   # True: the slot \"a\" used is free again\nq.size()       # 2\n```",
+  "starter": "class BoundedQueue:\n    def __init__(self, capacity):\n        \"\"\"An empty queue that holds at most `capacity` items (capacity >= 1).\"\"\"\n        ...\n\n    def offer(self, item):\n        \"\"\"Append item and return True; return False, changing nothing, if the queue is full.\"\"\"\n        ...\n\n    def poll(self):\n        \"\"\"Remove and return the oldest item, or return None if the queue is empty.\"\"\"\n        ...\n\n    def size(self):\n        \"\"\"Return how many items are in the queue.\"\"\"\n        ...\n",
+  "tests": [
+    {
+      "name": "items come out in the order they went in",
+      "code": "q = BoundedQueue(3)\nassert [q.offer(item) for item in \"abc\"] == [True, True, True]\nassert [q.poll(), q.poll(), q.poll()] == [\"a\", \"b\", \"c\"]"
+    },
+    {
+      "name": "offer returns False when the queue is full, and the refused item is not stored",
+      "code": "q = BoundedQueue(2)\nassert [q.offer(1), q.offer(2), q.offer(3)] == [True, True, False]\nassert q.size() == 2\nassert [q.poll(), q.poll(), q.poll()] == [1, 2, None]"
+    },
+    {
+      "name": "poll on an empty queue returns None, again and again",
+      "code": "q = BoundedQueue(2)\nassert q.poll() == None\nassert q.size() == 0\nq.offer(\"x\")\nassert q.poll() == \"x\"\nassert [q.poll(), q.poll()] == [None, None]\nassert q.size() == 0"
+    },
+    {
+      "name": "size follows the offers and polls, and a refused offer does not count",
+      "code": "q = BoundedQueue(3)\nsizes = []\nfor item in [1, 2, 3, 4]:\n    q.offer(item)\n    sizes.append(q.size())\nfor _ in range(4):\n    q.poll()\n    sizes.append(q.size())\nassert sizes == [1, 2, 3, 3, 2, 1, 0, 0]"
+    },
+    {
+      "name": "a freed slot is reused: the tail wraps around to the start of the list",
+      "code": "q = BoundedQueue(3)\nfor item in [1, 2, 3]:\n    q.offer(item)\nassert q.poll() == 1\nassert q.offer(4) == True\nassert q.offer(5) == False\nassert [q.poll(), q.poll(), q.poll(), q.poll()] == [2, 3, 4, None]"
+    },
+    {
+      "name": "a queue that fills up part-way along the list is still full, not empty",
+      "code": "q = BoundedQueue(3)\nq.offer(\"x\")\nq.poll()\nq.offer(\"y\")\nq.poll()                            # the oldest item would now be in the last slot\nfor item in [1, 2, 3]:\n    assert q.offer(item) == True\nassert q.offer(4) == False\nassert q.size() == 3\nassert [q.poll(), q.poll(), q.poll()] == [1, 2, 3]"
+    },
+    {
+      "name": "stays correct while the indices wrap around hundreds of times",
+      "code": "q = BoundedQueue(3)\nout = []\nnumber = 0\nfor _ in range(500):\n    q.offer(number)\n    q.offer(number + 1)\n    number += 2\n    out.append(q.poll())\n    out.append(q.poll())\nassert out == list(range(1000))"
+    },
+    {
+      "name": "a queue of capacity 1",
+      "code": "q = BoundedQueue(1)\nassert q.offer(\"a\") == True\nassert q.offer(\"b\") == False\nassert q.poll() == \"a\"\nassert q.poll() == None\nassert q.offer(\"c\") == True\nassert q.poll() == \"c\""
+    },
+    {
+      "name": "0, \"\" and False are items like any other",
+      "code": "q = BoundedQueue(4)\nfor item in [0, \"\", False, 5]:\n    assert q.offer(item) == True\nassert q.size() == 4\nassert [q.poll(), q.poll(), q.poll(), q.poll()] == [0, \"\", False, 5]\nassert q.poll() == None"
+    },
+    {
+      "name": "behaves like a plain FIFO with a limit over 5,000 random offers and polls (capacity 4)",
+      "code": "import random\nfrom collections import deque\n\nrng = random.Random(5)\nreal, model = BoundedQueue(4), deque()\nfor step in range(5000):\n    if rng.random() < 0.55:\n        item = rng.randrange(1000)\n        accepted = real.offer(item)\n        assert accepted == (len(model) < 4), f\"step {step}: offer({item}) returned {accepted!r} while {len(model)} item(s) were inside\"\n        if accepted:\n            model.append(item)\n    else:\n        got = real.poll()\n        want = model.popleft() if model else None\n        assert got == want, f\"step {step}: poll() returned {got!r}, expected {want!r}\"\n    assert real.size() == len(model), f\"step {step}: size() is {real.size()!r}, expected {len(model)}\""
+    }
+  ],
+  "hints": [
+    "A list of fixed length, used as a circle. Which two numbers tell you where the oldest item is and where the next one goes?",
+    "Keep `head` (the index of the oldest item) and `count`. The next free slot is `(head + count) % capacity`, and `poll` moves `head` forward by one, also modulo the capacity.",
+    "Track the count, not just a tail index: with only a head and a tail, a full queue and an empty queue look the same (`head == tail`). Decide emptiness from the count, never from what a slot holds, because `0` and `\"\"` are valid items."
+  ],
+  "solution": "class BoundedQueue:\n    def __init__(self, capacity):\n        self._slots = [None] * capacity      # allocated once, reused for ever\n        self._head = 0                       # index of the oldest item\n        self._count = 0                      # how many items are inside\n\n    def offer(self, item):\n        if self._count == len(self._slots):\n            return False\n        tail = (self._head + self._count) % len(self._slots)    # the % wraps the index past the end back to 0\n        self._slots[tail] = item\n        self._count += 1\n        return True\n\n    def poll(self):\n        if self._count == 0:\n            return None\n        item = self._slots[self._head]\n        self._slots[self._head] = None       # do not keep a reference to an item that has left the queue\n        self._head = (self._head + 1) % len(self._slots)\n        self._count -= 1\n        return item\n\n    def size(self):\n        return self._count\n",
+  "explanation": "**The idea.** A ring buffer is a fixed list used as a circle. Remember where the oldest item is (`head`) and how many items there are (`count`). The next free slot is `(head + count) % capacity`; the `%` makes the index wrap from the end of the list back to 0. `offer` writes there and increases `count`; `poll` reads at `head`, moves `head` forward by one (also modulo `capacity`) and decreases `count`. Nothing is ever shifted or copied, so both are O(1), whereas `list.pop(0)` moves every remaining item.\n\n**Why keep a count.** If you track only a head and a tail index, a full queue and an empty queue both look like `head == tail`. A count (or one deliberately unused slot) removes the ambiguity.\n\n**Why bounded.** An unbounded queue between a fast producer and a slow consumer just grows until the process runs out of memory. A bound turns overload into a signal: `offer` returns `False` and the producer can slow down, drop the work, or fail. That is back-pressure. A multi-threaded version adds a lock and condition variables (see `queue.Queue(maxsize)`); this is its single-threaded core.\n\n**Details.** Clear the slot on `poll` so the buffer does not keep an item alive after it has left the queue. Return `None` for an empty queue before touching any slot, and do not decide emptiness by looking at what a slot holds: `0` and `\"\"` are legal items.\n\n**Complexity.** O(1) per call and O(capacity) memory."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Binary Search",
+  "topic": "binary-search-and-sorting",
+  "difficulty": "beginner",
+  "description": "Find a value in a sorted list by repeatedly halving the range, returning its index or -1.",
+  "statement": "Given a list `nums` sorted in ascending order and a `target`, return the index of `target` in `nums`, or `-1` if it is not there.\n\n- The values in `nums` are distinct, and the list may be empty.\n- Return `-1` (not `None`) when the target is absent.\n- Aim for **O(log n)**. The last tests pass a sequence of a billion numbers that supports only `len(nums)` and `nums[i]`, and count how many elements you look at, so scanning, slicing or copying it will not work.\n\n**Examples**\n\n```python\nbinary_search([-1, 0, 3, 5, 9, 12], 9)   # 4\nbinary_search([-1, 0, 3, 5, 9, 12], 2)   # -1\nbinary_search([], 7)                     # -1\n```",
+  "starter": "def binary_search(nums, target):\n    \"\"\"Return the index of target in the sorted list nums, or -1 if it is not there.\"\"\"\n    ...\n",
+  "tests": [
+    "class Billion:\n    \"\"\"A sorted sequence of a billion even numbers (position i holds 2 * i) that supports only len() and nums[i], and counts every look.\"\"\"\n    size = 1_000_000_000\n\n    def __init__(self):\n        self.looks = 0\n\n    def __len__(self):\n        return self.size\n\n    def __getitem__(self, i):\n        if not isinstance(i, int):\n            raise TypeError(\"a sequence of a billion numbers can only be read one position at a time, nums[i] (no slices)\")\n        self.looks += 1\n        if self.looks > 500:\n            raise AssertionError(\"looked at more than 500 elements of a list of a billion numbers: binary search needs about 30\")\n        if i < 0:\n            i += self.size\n        if not 0 <= i < self.size:\n            raise IndexError(\"list index out of range\")\n        return 2 * i\ndef in_a_billion(target):\n    return binary_search(Billion(), target)\ndef wrong_lookups():\n    \"\"\"Try every list size from 0 to 40 with the values 0, 2, 4, ...: look up every value, every gap between values, and one step beyond each end.\"\"\"\n    wrong = []\n    for size in range(41):\n        nums = [2 * i for i in range(size)]\n        shown = str(nums) if size <= 8 else f\"the {size} even numbers from 0\"\n        for target in range(-1, 2 * size + 2):\n            expected = target // 2 if target % 2 == 0 and 0 <= target < 2 * size else -1\n            got = binary_search(nums, target)\n            if got != expected:\n                wrong.append(f\"binary_search({shown}, {target}) returned {got}, expected {expected}\")\n    return wrong[:3]",
+    "assert binary_search([-1, 0, 3, 5, 9, 12], 9) == 4",
+    "assert binary_search([-1, 0, 3, 5, 9, 12], 2) == -1",
+    "assert binary_search([], 7) == -1",
+    "assert binary_search([5], 5) == 0",
+    "assert binary_search([5], 3) == -1",
+    "assert binary_search([2, 4, 6, 8, 10], 2) == 0",
+    "assert binary_search([2, 4, 6, 8, 10], 10) == 4",
+    "assert binary_search([1, 3], 3) == 1",
+    "assert wrong_lookups() == []",
+    "assert in_a_billion(2 * 123_456_789) == 123_456_789",
+    "assert in_a_billion(2 * 999_999_999) == 999_999_999",
+    "assert in_a_billion(2 * 123_456_789 + 1) == -1"
+  ],
+  "hints": [
+    "The list is sorted, so one comparison with the middle element tells you which half cannot contain the target. How much can you throw away each time?",
+    "Keep two indices, `lo` and `hi`, around the part of the list that may still hold the target. Compare `nums[mid]` with the target, then move `lo` or `hi` past `mid`.",
+    "Decide whether `hi` is included. With `lo <= hi` as the loop condition, both updates must skip `mid` (`mid + 1` and `mid - 1`) or the loop can run forever. When the range is empty, return `-1`."
+  ],
+  "solution": "def binary_search(nums, target):\n    lo, hi = 0, len(nums) - 1             # if the target is present, its index is in lo..hi\n    while lo <= hi:\n        mid = (lo + hi) // 2\n        if nums[mid] == target:\n            return mid\n        if nums[mid] < target:\n            lo = mid + 1                  # everything up to mid is too small\n        else:\n            hi = mid - 1                  # everything from mid on is too big\n    return -1\n",
+  "explanation": "**The idea.** Keep a range `lo..hi` of indices that could still hold the target. Look at the middle: if it is the target, you are done; if it is too small, the target can only be to its right, so discard the left half including `mid`; if it is too big, discard the right half. The range halves every step, so a billion elements take about 30 steps.\n\n**What goes wrong.** Off-by-one errors and endless loops. Decide what `lo` and `hi` mean and keep to it. Here both are inclusive, so the loop runs while `lo <= hi` and each update moves *past* `mid` (`mid + 1` or `mid - 1`). Setting `lo = mid` can loop forever.\n\n**Complexity.** O(log n) time, O(1) space. A recursive version that slices the list (`nums[mid + 1:]`) copies half of it at every step, which is O(n) overall; the billion-element tests reject that.\n\n**In real code** use `bisect.bisect_left(nums, target)`: it does the search and also tells you where a missing value would be inserted.\n\n**Follow-up.** With duplicates, which index should you return? Finding the first or the last one is the next step (see Find First and Last Position)."
+}

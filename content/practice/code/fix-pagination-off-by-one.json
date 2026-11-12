@@ -1,0 +1,30 @@
+{
+  "title": "Fix the Pagination Off-by-One",
+  "topic": "debugging",
+  "difficulty": "beginner",
+  "description": "Find why a page slicer loses the last item of a listing and never says it is done.",
+  "statement": "`paginate(items, page, per_page)` returns one page of a listing for an API, as a dict `{\"items\": [...], \"total\": n, \"has_next\": bool}`. Pages are numbered from 1.\n\n- `items` holds that page's items in order. The last page may be shorter than `per_page`, and a page after the last one is empty.\n- `total` is the length of the whole listing. `has_next` is `True` only when at least one more item follows this page.\n- `page` and `per_page` are at least 1.\n\n**Examples**\n\n```python\nids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\npaginate(ids, 1, 4)   # {\"items\": [1, 2, 3, 4], \"total\": 10, \"has_next\": True}\npaginate(ids, 3, 4)   # {\"items\": [9, 10], \"total\": 10, \"has_next\": False}\npaginate(ids, 4, 4)   # {\"items\": [], \"total\": 10, \"has_next\": False}\n```\n\n**Observed:** the first pages look right, but the last item of a listing never shows up on any page, and a client that keeps asking for the next page while `has_next` is true never stops.",
+  "starter": "def paginate(items, page, per_page):\n    \"\"\"Return one page of a listing as {\"items\": [...], \"total\": n, \"has_next\": bool}. Pages are numbered from 1.\"\"\"\n    total = len(items)\n    start = (page - 1) * per_page\n    end = min(start + per_page, total - 1)\n    return {\"items\": items[start:end], \"total\": total, \"has_next\": end < total}\n",
+  "tests": [
+    "IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\ndef walk(items, per_page):\n    \"\"\"Fetch page after page while has_next is true, the way a client does, and collect everything it was given.\"\"\"\n    seen = []\n    for page in range(1, len(items) // per_page + 3):      # a correct listing ends well within this many pages\n        result = paginate(items, page, per_page)\n        seen.extend(result[\"items\"])\n        if not result[\"has_next\"]:\n            return seen\n    raise AssertionError(f\"has_next was still True after {page} pages of a {len(items)}-item listing\")",
+    "assert paginate(IDS, 1, 4) == {\"items\": [1, 2, 3, 4], \"total\": 10, \"has_next\": True}",
+    "assert paginate(IDS, 2, 4)[\"items\"] == [5, 6, 7, 8]",
+    "assert paginate(list(range(100)), 3, 10)[\"items\"] == list(range(20, 30))",
+    "assert paginate(IDS, 3, 4) == {\"items\": [9, 10], \"total\": 10, \"has_next\": False}",
+    "assert paginate(IDS, 4, 4) == {\"items\": [], \"total\": 10, \"has_next\": False}",
+    "assert paginate(IDS, 2, 5) == {\"items\": [6, 7, 8, 9, 10], \"total\": 10, \"has_next\": False}",
+    "assert paginate(IDS, 1, 100) == {\"items\": IDS, \"total\": 10, \"has_next\": False}",
+    "assert paginate([\"only\"], 1, 5) == {\"items\": [\"only\"], \"total\": 1, \"has_next\": False}",
+    "assert paginate([], 1, 5) == {\"items\": [], \"total\": 0, \"has_next\": False}",
+    "assert walk(IDS, 4) == IDS",
+    "assert walk(list(range(100)), 10) == list(range(100))",
+    "assert paginate(list(range(100_000)), 5_000, 20)[\"items\"] == list(range(99_980, 100_000))"
+  ],
+  "hints": [
+    "Work through the last page by hand: ten items, four per page, page 3. Which items should it hold and which does the function return?",
+    "A slice stops before its end index. Compare what `end` is capped at with what it must be for the final item to be included.",
+    "`has_next` uses `end` too, so check both: it must be `False` on the last page and on pages after it, whether the last page is partial or exactly full."
+  ],
+  "solution": "def paginate(items, page, per_page):\n    total = len(items)\n    start = (page - 1) * per_page\n    end = min(start + per_page, total)      # a slice stops before `end`, so clamp to the length, not to the last index\n    return {\"items\": items[start:end], \"total\": total, \"has_next\": end < total}\n",
+  "explanation": "**The bug class: an off-by-one at the end of a half-open range.** A slice `items[start:end]` includes `start` and stops *before* `end`, so the largest useful `end` is `len(items)`, one past the last index. Clamping it to `len(items) - 1` (the last *index*) cuts the final item off the listing: it never appears on any page. `has_next` compared the same wrong `end` with `total`, so it said `True` on the last page and on every page after it, and a client following it never stopped.\n\n**Why it hides.** The clamp only matters on the last page. Pages 1 and 2 come out right, so a quick manual check passes. Off-by-one errors live at boundaries, so that is where to test: the first page, a middle page, a full last page, a partial last page, one page past the end, one item, no items.\n\n**Habits.**\n- Write down what each bound means (inclusive or exclusive, an index or a count) and keep one convention.\n- Test the invariant, not only examples: following the pages from 1 until `has_next` is false must return every item exactly once.\n- A slice never raises for an end past the length, so you do not need the clamp to slice safely. You need it only to report `has_next`.\n\n**Follow-up.** Offset pagination also skips or repeats items when the list changes between two requests. For a feed that keeps growing, use keyset (cursor) pagination: `WHERE id > :last_seen ORDER BY id LIMIT :n`."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Base62 URL Shortener",
+  "topic": "backend-coding",
+  "difficulty": "beginner",
+  "module": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
+  "description": "Turn a numeric ID into a short base62 code for a URL shortener, and back again.",
+  "statement": "A URL shortener gives every long URL a number (its database ID) and shows that number to users as a short code written in **base 62**. Write both directions:\n\n- `encode_base62(n)` turns a non-negative integer into its code. The 62 digits, in order of value, are `0-9`, then `a-z`, then `A-Z` (given as `ALPHABET`). `0` encodes as `\"0\"`, and no other code starts with a `\"0\"`.\n- `decode_base62(text)` turns a code back into the integer, so `decode_base62(encode_base62(n)) == n` for every `n`.\n- `decode_base62` raises `ValueError` if `text` is empty or has any character that is not one of the 62 digits: codes come from URLs that anyone can edit.\n\n**Examples**\n\n```python\nencode_base62(0)      # \"0\"\nencode_base62(61)     # \"Z\"\nencode_base62(62)     # \"10\"   (one 62 and no ones)\ndecode_base62(\"1z\")   # 97     (1 * 62 + 35)\n```",
+  "starter": "ALPHABET = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"\n\n\ndef encode_base62(n):\n    \"\"\"Return the base62 code of the non-negative integer n.\"\"\"\n    ...\n\n\ndef decode_base62(text):\n    \"\"\"Return the integer that a base62 code stands for; raise ValueError for an empty code or an unknown character.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises_value_error(function, argument):\n    try:\n        function(argument)\n    except ValueError:\n        return True\n    except Exception as error:\n        raise AssertionError(f\"expected a ValueError for {argument!r}, got {type(error).__name__}: {error}\")\n    raise AssertionError(f\"expected a ValueError for {argument!r}, but the call returned normally\")\ndef round_trip_failures(numbers):\n    return [n for n in numbers if decode_base62(encode_base62(n)) != n][:5]",
+    "assert encode_base62(0) == \"0\"",
+    "assert encode_base62(61) == \"Z\"",
+    "assert encode_base62(62) == \"10\"",
+    "assert decode_base62(\"1z\") == 97",
+    "assert [encode_base62(n) for n in (1, 9, 10, 35, 36)] == [\"1\", \"9\", \"a\", \"z\", \"A\"]",
+    "assert encode_base62(62**7 - 1) == \"ZZZZZZZ\"",
+    "assert encode_base62(62**7) == \"10000000\"",
+    "assert round_trip_failures(list(range(5000)) + [10**12, 62**7 - 1, 62**7, 2**64]) == []",
+    "assert decode_base62(encode_base62(2**128)) == 2**128",
+    "assert raises_value_error(decode_base62, \"ab-c\")",
+    "assert raises_value_error(decode_base62, \"\")"
+  ],
+  "hints": [
+    "It is the same as writing a number in binary or hexadecimal, with 62 symbols instead of 2 or 16. Which operations take the last digit off a number?",
+    "To encode, repeat `divmod(n, 62)`: the remainder chooses the next symbol (the last digit comes first) and the quotient is what is left. To decode, go left to right with `n = n * 62 + value_of_digit`.",
+    "Zero is the special case when encoding, because the loop produces nothing. When decoding, check every character against the alphabet yourself, and raise `ValueError` for an empty code as well."
+  ],
+  "solution": "ALPHABET = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"\nVALUE_OF = {digit: value for value, digit in enumerate(ALPHABET)}\n\n\ndef encode_base62(n):\n    if n == 0:\n        return ALPHABET[0]                      # the loop below would produce no digits at all\n    digits = []\n    while n:\n        n, remainder = divmod(n, 62)\n        digits.append(ALPHABET[remainder])      # least significant digit first...\n    return \"\".join(reversed(digits))            # ...so reverse at the end\n\n\ndef decode_base62(text):\n    if not text:\n        raise ValueError(\"a code cannot be empty\")\n    n = 0\n    for character in text:\n        if character not in VALUE_OF:\n            raise ValueError(f\"{character!r} is not a base62 digit\")\n        n = n * 62 + VALUE_OF[character]        # shift what we have by one digit and add the next\n    return n\n",
+  "explanation": "**Encoding** is repeated division, exactly like writing a number in binary or hex. `divmod(n, 62)` gives the next digit (the remainder) and what is left to encode (the quotient). The digits come out least significant first, so reverse them at the end. Zero needs a special case, because the loop would produce no digits for it.\n\n**Decoding** reads the digits from left to right and, for each one, multiplies the number so far by 62 before adding the digit's value (Horner's rule), so no powers are needed. Build the digit-to-value dictionary once rather than calling `ALPHABET.index` (a scan) for every character, and reject unknown characters yourself: a plain dictionary lookup would raise `KeyError`, not `ValueError`.\n\n**Why base 62.** Seven characters give 62⁷, about 3.5 trillion, codes, and all of them are safe in a URL path. Sequential IDs are guessable and reveal how many URLs exist; to avoid that, shuffle the alphabet, or encode a random or hashed value and retry on a collision. When many servers create IDs, give each one a block of IDs or use a time-ordered ID generator, so they never need to coordinate per request.\n\n**Complexity.** O(length of the code) in both directions."
+}

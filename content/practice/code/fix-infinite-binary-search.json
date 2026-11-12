@@ -1,0 +1,30 @@
+{
+  "title": "Fix the Infinite Binary Search",
+  "topic": "debugging",
+  "difficulty": "beginner",
+  "description": "Fix a binary search over sorted log timestamps that never converges for most targets.",
+  "statement": "`first_at_or_after(timestamps, since)` helps a reader seek into a log segment. `timestamps` holds the segment's event times (integer seconds) in ascending order. The function returns the index of the **first** entry that is `>= since`, so the reader can start there, or `len(timestamps)` when every entry is older than `since`.\n\n- Duplicates are allowed: return the index of the first of the equal entries.\n- An empty list returns `0`.\n\n**Examples**\n\n```python\nlog = [10, 20, 20, 30, 50]\nfirst_at_or_after(log, 20)    # 1\nfirst_at_or_after(log, 25)    # 3\nfirst_at_or_after(log, 99)    # 5\nfirst_at_or_after(log, 5)     # 0\n```\n\n**Observed:** most lookups fail with `RuntimeError: binary search did not converge`. That guard was added after the same bug once made the service hang. Only some lookups, such as a time before the first entry, still work.",
+  "starter": "def first_at_or_after(timestamps, since):\n    \"\"\"Index of the first entry of the sorted list `timestamps` that is >= `since`; len(timestamps) if there is none.\"\"\"\n    lo, hi = 0, len(timestamps)\n    for _ in range(64):          # a correct search needs about log2(n) steps; 64 covers any list that fits in memory\n        if lo >= hi:\n            return lo\n        mid = (lo + hi) // 2\n        if timestamps[mid] < since:\n            lo = mid\n        else:\n            hi = mid\n    raise RuntimeError(\"binary search did not converge\")\n",
+  "tests": [
+    "from bisect import bisect_left\ndef agrees_with_bisect(timestamps):\n    \"\"\"Ask for every `since` from just below the first entry to just above the last one, and compare with bisect_left.\"\"\"\n    low = timestamps[0] - 1 if timestamps else 0\n    high = timestamps[-1] + 2 if timestamps else 2\n    for since in range(low, high):\n        got, expected = first_at_or_after(timestamps, since), bisect_left(timestamps, since)\n        if got != expected:\n            raise AssertionError(f\"first_at_or_after({timestamps}, {since}) returned {got}, expected {expected}\")\n    return True\nLOG = [10, 20, 20, 30, 50]\nBIG = list(range(0, 400_000, 2))",
+    "assert first_at_or_after(LOG, 20) == 1",
+    "assert first_at_or_after(LOG, 25) == 3",
+    "assert first_at_or_after(LOG, 99) == 5",
+    "assert first_at_or_after(LOG, 5) == 0",
+    "assert first_at_or_after([], 7) == 0",
+    "assert first_at_or_after([7], 7) == 0",
+    "assert first_at_or_after([7], 8) == 1",
+    "assert agrees_with_bisect([3, 9])",
+    "assert agrees_with_bisect([1, 2, 3, 4, 5, 6, 7, 8, 9])",
+    "assert agrees_with_bisect([2, 2, 2, 5, 5, 8, 8, 8, 8, 11])",
+    "assert first_at_or_after(BIG, 250_001) == 125_001",
+    "assert first_at_or_after(BIG, 399_999) == 200_000"
+  ],
+  "hints": [
+    "Take `[10, 20, 30]` with `since = 30` and trace `lo`, `hi` and `mid` on paper until the loop ends. What happens to the range on each pass?",
+    "Every pass must make the range strictly smaller. For each branch, ask: if the entry at `mid` is too old, can `mid` itself still be the answer?",
+    "The two branches are not symmetric, because `hi` is exclusive and `lo` is inclusive. One branch must keep `mid` in the range and the other must step past it."
+  ],
+  "solution": "def first_at_or_after(timestamps, since):\n    lo, hi = 0, len(timestamps)\n    for _ in range(64):\n        if lo >= hi:\n            return lo\n        mid = (lo + hi) // 2\n        if timestamps[mid] < since:\n            lo = mid + 1             # timestamps[mid] is too old, so the answer is after it\n        else:\n            hi = mid                 # timestamps[mid] could be the answer: keep it inside the range\n    raise RuntimeError(\"binary search did not converge\")\n",
+  "explanation": "**The bug class: a loop whose range does not shrink.** The search keeps a half-open range `[lo, hi)` that must contain the answer, and every pass has to make the range strictly smaller. When `timestamps[mid] < since`, the entry at `mid` is too old and so is everything before it: the answer is at `mid + 1` or later. Setting `lo = mid` keeps `mid` in the range, and when `hi == lo + 1` the midpoint is `lo` again: nothing changes, forever. Every target whose answer is not index 0 ends up there. (`hi = mid` in the other branch is right: `hi` is exclusive and `mid` may itself be the answer.)\n\n**Why the guard matters.** An unbounded loop turns a bug into an outage: the request never returns and ties up a worker. A search over n items needs about log2(n) steps, so a bounded loop that raises turns a non-converging search into a fast, loud error. Keep that habit for any loop whose exit depends on a clever update.\n\n**Test it small and against an oracle.** The bugs in a search live at its edges: the empty list, one element, a target below, inside, between and above the data, duplicates. Compare against a trusted implementation (`bisect.bisect_left`) for every target on small lists.\n\n**In real code,** use `bisect.bisect_left`. Writing the loop yourself is for understanding, or for bisecting on something `bisect` cannot handle."
+}

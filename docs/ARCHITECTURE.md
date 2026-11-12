@@ -16,11 +16,12 @@ Cloudflare, backed by one SQLite database. **The lessons never touch the databas
 ```text
 content/        what the author writes
                   backend/ system-design/ genai/ learn/ lld/   the five curricula, one README.md per module
-                  practice/    quizzes, exercises and interview sets (JSON)
+                  practice/    quizzes, exercises, interview sets and coding problems (JSON)
                   paths.json   the learning paths      videos.json   the channel's videos and the module each belongs to
                   seo.json     titles and descriptions that override the generated ones
 webapp/         the React app (Vite).   src/components/<screen>  src/hooks  src/lib/<topic>  src/config (words)  src/styles
-                public/ holds what is served as it is: _headers, _redirects, the PDF notes under notes/, icons, privacy and terms
+                public/ holds what is served as it is: _headers, _redirects, the PDF notes under notes/, icons, privacy and terms,
+                and runner/ (Pyodide, the worker and the harness that run a learner's Python in the page)
 api/            the server: Hono routes (routes/), data helpers (lib/), the D1 migrations, the generated practice file, tests/
 functions/      the files Cloudflare Pages looks for; they hand /api/* and the community's pages to api/
 scripts/        build/ (makes dist/)  check/ (the gates)  maintain/ (sync and one-off jobs)  dev/ (screenshots, Lighthouse, Linux CI)  lib/ (shared, tested)
@@ -98,11 +99,21 @@ from the lesson.
 
 ## Practice
 
-Quizzes, exercises and interview sets (concepts, and coding questions) are **files in `content/practice/`**, not database
+Quizzes, exercises, interview sets (concepts, and coding questions) and coding problems are **files in `content/practice/`**, not database
 rows. `npm run practice:build` validates them and writes `api/generated/practice-content.json`, which the API is bundled with (CI
 regenerates it first; `npm run check` fails locally if the committed copy is stale). Answers and explanations never leave the server before
 a try. What a reader *does* with them (attempts, scores, weak areas, an exercise submission) is in the database. The validators
 are pure functions in `webapp/src/lib/practice/validate.js`, shared by the build, the API and the browser editor. [PRACTICE.md](PRACTICE.md).
+
+**Coding problems run in the reader's browser.** `webapp/public/runner/` serves Pyodide (CPython compiled to WebAssembly, in a folder named for its version so the
+browser keeps it for good, and the service worker keeps it for offline), a module worker (`py-worker.js`) and `harness.py`, the one file that decides whether a test
+passed. `lib/practice/pyRunner.js` owns the worker (one, shared; started when a coding screen opens; ended if a run passes `RUNNER.timeoutMs`), so nothing a learner
+writes can freeze the page, and none of it leaves their machine. The Content-Security-Policy gains `'wasm-unsafe-eval'` for it, and nothing else. `npm run check:code`
+runs every problem with `harness.py` in ordinary Python and in Pyodide (`scripts/lib/pyodideJudge.mjs`), so a problem that cannot be solved as written, or that only
+works on a desktop Python, fails CI. A problem solved is a progress mark (`practice/code/<slug>`), the same as a module, so it earns XP and keeps the streak.
+
+**Every day** there is a drill (five questions from across the quizzes, checked one at a time by the API) and a problem of the day, the same for everyone on a UTC day
+(`lib/practice/drill.js`, `codeProgress.js`).
 
 ## The account side
 
@@ -132,7 +143,7 @@ notice says what could not load.
 
 `site.config.json` holds everything that would otherwise be a literal in code: the site's name and URL, the developer's contact details,
 the repository, the content folder, the **curricula and their areas**, the placeholder sentence, the reading speed, every browser-storage
-key, the share cards' size and colours, the budgets, the screenshots. The app imports it through `webapp/src/config/`, the build and the
+key, the prefixes under which practice is saved as progress, the share cards' size and colours, the budgets, the screenshots. The app imports it through `webapp/src/config/`, the build and the
 checks through `scripts/lib/config.mjs`, the API directly. The words that appear on screen (home page, error messages, practice copy)
 live in `webapp/src/config/` too; those modules import their JSON with `with { type: 'json' }`, which lets the build reuse the home page's
 wording in plain Node. Colours, sizes and layers are tokens in `webapp/src/styles/tokens.css` ([DESIGN.md](DESIGN.md)).
@@ -195,6 +206,9 @@ To add a page, add an entry there. Look at it after a UI change; use git, not ol
 | add a tool page | an HTML entry in `webapp/tools/<name>/`, its script in `webapp/src/tools/`, an entry in `site.config.json -> tools`, a test in `tests/e2e/tools.e2e.mjs` and a line in `tests/e2e/audit.e2e.mjs` |
 | add a PDF note | a file in `webapp/public/notes/system-design/`, and a link from the lesson |
 | add or fix a quiz, exercise or interview set (concepts or coding) | a file in `content/practice/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
+| add or fix a coding problem to solve in the page | a file in `content/practice/code/`, then `npm run practice:build` and `npm run check:code` ([PRACTICE.md](PRACTICE.md#coding-problems-solved-in-the-page)) |
+| change how much XP a problem or a drill earns, or how long the drill is | `game.config.json` (`xp`, `drill`, `dailyProblem`) |
+| upgrade Pyodide | add the new version's folder to `webapp/public/runner/`, point `py-worker.js` and the cache rule in `webapp/public/_headers` and `sw.js` at it, delete the old folder (`runner/README.txt`) |
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
 | change home-page, navigation or error wording | `webapp/src/config/landing.js`, `nav.js`, `messages.js` |

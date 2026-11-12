@@ -1,0 +1,28 @@
+{
+  "title": "Jump Game",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Decide whether you can reach the last index of an array when each value is the longest jump from there.",
+  "statement": "You stand on index 0 of a list `nums` of non-negative integers. From index `i` you may jump forward any distance from 0 up to `nums[i]`: it is the longest jump, and a shorter one is always allowed. Write `can_jump(nums)`, which returns `True` if you can reach the last index and `False` if you cannot.\n\n- Standing on the last index already counts, so a list with one element always gives `True`.\n- A `0` is a dead end, but a long jump from an earlier index can go over it.\n- `nums` has at least one element and can have up to 100,000.\n\n**Examples**\n\n```python\ncan_jump([1, 3, 0, 2, 1])   # True:  index 0 -> 1 -> 4\ncan_jump([2, 1, 0, 0, 5])   # False: you can never get past the zeros\ncan_jump([0])               # True:  you are already on the last index\n```\n\nAim for O(n).",
+  "starter": "def can_jump(nums):\n    \"\"\"Return True if the last index can be reached from index 0, jumping at most nums[i] forward from index i.\"\"\"\n    ...\n",
+  "tests": [
+    "assert can_jump([1, 3, 0, 2, 1]) == True",
+    "assert can_jump([2, 1, 0, 0, 5]) == False",
+    "assert can_jump([0]) == True",
+    "assert can_jump([0, 1]) == False",
+    "assert can_jump([1, 0]) == True",
+    "assert can_jump([4, 0, 0, 0, 1]) == True",
+    "assert can_jump([2, 5, 0, 0, 0, 0, 1]) == True",
+    "assert can_jump([3, 0, 0, 0, 1]) == False",
+    "assert can_jump([1] * 100_000) == True",
+    "assert can_jump([2] * 40_000 + [0, 0, 0, 5]) == False",
+    "assert can_jump(list(range(50_000, 0, -1))) == True"
+  ],
+  "hints": [
+    "You do not need to find the jumps, only to know whether a way exists. If you can reach index i, which indices before i can you also reach?",
+    "The reachable indices always form a stretch from 0 up to some farthest index. Walk left to right, keeping the largest value of i + nums[i] seen so far.",
+    "If you ever stand at an index beyond that farthest reach, it is out of reach and so is everything after it: the answer is False. Otherwise, when the walk ends, it is True."
+  ],
+  "solution": "def can_jump(nums):\n    farthest = 0                      # the highest index we know how to reach; every index before it is reachable too\n    for i, jump in enumerate(nums):\n        if i > farthest:\n            return False              # index i cannot be reached, and neither can anything after it\n        farthest = max(farthest, i + jump)\n    return True\n",
+  "explanation": "**The idea.** You do not have to find the jumps, only to know whether a way exists. The indices you can reach always form an unbroken stretch from 0 up to some `farthest` index: if you can reach index 10 by a jump, you can also reach 9, 8, ... by taking shorter jumps from the same place. So walk left to right and keep `farthest = max(farthest, i + nums[i])`. While the index you are looking at is within `farthest`, it is reachable and may extend the stretch. The first index beyond `farthest` is out of reach, and so is everything after it.\n\n**What goes wrong.** Always jumping the longest distance fails on `[2, 5, 0, 0, 0, 0, 1]`: the long first jump lands on a zero, while a short one reaches the 5. Treating `nums[i]` as an exact jump length is the other usual slip. Trying every jump recursively is exponential, and a table that looks at all earlier indices for each index is O(n²); the tests use lists with tens of thousands of elements.\n\n**Complexity.** O(n) time and O(1) space. Follow-up: what is the smallest number of jumps? The same \"farthest reach\" idea, advanced one jump at a time like the levels of a breadth-first search, answers that in O(n) as well."
+}

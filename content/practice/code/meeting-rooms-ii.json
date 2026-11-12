@@ -1,0 +1,31 @@
+{
+  "title": "Meeting Rooms II",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "description": "Find the smallest number of rooms that can hold a list of meetings with no overlap in any room.",
+  "statement": "Each meeting is an interval `[start, end]`. Return the minimum number of rooms needed so that no two meetings in the same room overlap.\n\n- A meeting that ends at time `t` frees its room at `t`: another meeting may start at `t` in the same room, so `[1, 5]` and `[5, 8]` need only one room.\n- Meetings are not sorted, and several can share a start or an end time. Every meeting has `start < end`.\n- No meetings need no rooms: return `0`.\n\n**Examples**\n\n```python\nmin_meeting_rooms([[0, 30], [5, 10], [15, 20]])   # 2\nmin_meeting_rooms([[7, 10], [2, 4]])              # 1\nmin_meeting_rooms([[1, 5], [5, 8]])               # 1\n```\n\nAim for O(n log n): the last test has 30,000 meetings, too many to check every meeting against every room or against every other meeting.",
+  "starter": "def min_meeting_rooms(intervals):\n    \"\"\"Return the smallest number of rooms in which all the meetings fit without overlapping.\"\"\"\n    ...\n",
+  "tests": [
+    "import random",
+    "assert min_meeting_rooms([[0, 30], [5, 10], [15, 20]]) == 2",
+    "assert min_meeting_rooms([[7, 10], [2, 4]]) == 1",
+    "assert min_meeting_rooms([[1, 5], [5, 8]]) == 1",
+    "assert min_meeting_rooms([]) == 0",
+    "assert min_meeting_rooms([[1, 2]]) == 1",
+    "assert min_meeting_rooms([[1, 10], [2, 9], [3, 8], [4, 7]]) == 4",
+    "assert min_meeting_rooms([[1, 5], [1, 5], [1, 5]]) == 3",
+    "assert min_meeting_rooms([[1, 2], [2, 3], [3, 4]]) == 1",
+    "assert min_meeting_rooms([[9, 10], [4, 9], [4, 17]]) == 2",
+    "assert min_meeting_rooms([[0, 100], [10, 20], [30, 40], [50, 60]]) == 2",
+    "staggered = [[start, start + 10_000] for start in range(30_000)]      # each meeting starts one tick after the previous and lasts 10,000\nrandom.Random(5).shuffle(staggered)",
+    "assert min_meeting_rooms(staggered) == 10_000, \"too slow or wrong on 30,000 meetings with 10,000 of them running at once\"",
+    "assert min_meeting_rooms([[0, 10] for _ in range(5_000)]) == 5_000, \"too slow or wrong on 5,000 identical meetings\""
+  ],
+  "hints": [
+    "At any moment you need as many rooms as there are meetings in progress. So the answer is the largest number of meetings overlapping at once. How can you track that as time moves forward?",
+    "Sort the meetings by start time. Keep a min-heap of the end times of the meetings in progress: its smallest value tells you whether some room is already free.",
+    "A room whose meeting ends exactly when the next one starts is free, so compare with `<=`. The answer is the number of rooms you ever opened, which is the final size of the heap if you reuse a room by replacing its end time."
+  ],
+  "solution": "import heapq\n\n\ndef min_meeting_rooms(intervals):\n    ends = []                                        # a min-heap: when each room's current meeting ends\n    for start, end in sorted(intervals):\n        if ends and ends[0] <= start:                # the room that frees up first is already free\n            heapq.heapreplace(ends, end)             # reuse it: its new meeting ends at `end`\n        else:\n            heapq.heappush(ends, end)                # every room is busy: open a new one\n    return len(ends)\n",
+  "explanation": "**The idea.** At any moment you need one room per meeting in progress, so the answer is the largest number of meetings overlapping at one time. Process the meetings in order of start time and keep a min-heap of the *end times* of the rooms' current meetings. The root is the earliest end. If it is at or before the new meeting's start, that room is free: reuse it (replace the root with the new end). Otherwise every room is busy, so open a new one (push the new end). The heap never shrinks, so its final size is the number of rooms.\n\n**Why `<=`.** A meeting that ends at 5 and one that starts at 5 can share a room.\n\n**Another way.** Sort all the start times and all the end times separately, and sweep through them with two pointers, counting the meetings that have started but not ended. Same O(n log n), no heap.\n\n**Complexity.** O(n log n) time (the sort, then n heap operations of O(log n) each) and O(n) space. Checking each meeting against all the rooms is O(n · rooms), and against every other meeting O(n²). The same technique answers \"what is the peak number of concurrent connections in this log?\"."
+}

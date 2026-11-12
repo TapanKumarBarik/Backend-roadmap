@@ -1,0 +1,29 @@
+{
+  "title": "Fix the Float Money Bug",
+  "topic": "debugging",
+  "difficulty": "beginner",
+  "description": "Make an order total exact to the cent, tax rounded half up, instead of drifting with floats.",
+  "statement": "`order_total_cents(lines, tax_percent)` returns an order's total, tax included, as a whole number of **cents** (an `int`).\n\n- `lines` is a list of `(unit_price, quantity)`: the price in dollars as a float with at most two decimals, as it arrives from JSON (`19.99`), and an integer quantity. `tax_percent` has at most two decimals too (`8.25`). Nothing is negative.\n- The tax is computed once, on the whole subtotal, and rounded **half up** to a whole cent: `82.5` cents becomes `83`.\n- An order with no lines totals `0`.\n\n**Examples**\n\n```python\norder_total_cents([(19.99, 1)], 0)         # 1999\norder_total_cents([(0.10, 1)] * 10, 0)     # 100\norder_total_cents([(10.00, 1)], 8.25)      # 1083, the tax is 82.5 cents\n```\n\n**Observed:** some totals come out one cent too low, and ten items at $0.10 do not cost a dollar.",
+  "starter": "def order_total_cents(lines, tax_percent):\n    \"\"\"Total of an order in whole cents, tax included. `lines` is a list of (unit_price_in_dollars, quantity).\"\"\"\n    subtotal = 0.0\n    for unit_price, quantity in lines:\n        subtotal += unit_price * quantity\n    tax = subtotal * tax_percent / 100\n    return int((subtotal + tax) * 100)\n",
+  "tests": [
+    "assert order_total_cents([(19.99, 1)], 0) == 1999",
+    "assert order_total_cents([(0.10, 1)] * 10, 0) == 100",
+    "assert order_total_cents([(10.00, 1)], 8.25) == 1083",
+    "assert order_total_cents([(2.50, 4), (0.75, 2)], 0) == 1150",
+    "assert order_total_cents([(100.00, 1)], 8.25) == 10825",
+    "assert order_total_cents([], 8.25) == 0",
+    "assert order_total_cents([(0.29, 1), (1.15, 1), (4.35, 1)], 0) == 579",
+    "assert order_total_cents([(5.00, 1)], 8.1) == 541",
+    "assert order_total_cents([(19.99, 3)], 8.25) == 6492",
+    "assert order_total_cents([(0.05, 1), (0.05, 1)], 10) == 11, \"the tax is computed once on the subtotal (10 cents at 10% is 1 cent), not rounded line by line\"",
+    "assert order_total_cents([(0.10, 1)] * 1000, 0) == 10000",
+    "assert isinstance(order_total_cents([(19.99, 1)], 0), int), \"the total must be an int number of cents, not a float\""
+  ],
+  "hints": [
+    "Try `19.99 * 100` and `sum([0.1] * 10) * 100` in a console. Can a float hold `19.99` exactly? What does `int()` do with `1998.9999999999998`?",
+    "Do the arithmetic on whole numbers: integer cents, and a tax rate in hundredths of a percent (or `decimal.Decimal` values built from the text of each number). Convert once, at the start, and round only at the end.",
+    "Turn a price into cents with `round(price * 100)`, not `int(price * 100)`. And Python's own `round()` is not half up (`round(82.5)` is 82), so do the half-up step yourself."
+  ],
+  "solution": "def order_total_cents(lines, tax_percent):\n    # Work in whole cents. 19.99 is not exact as a float, but round() recovers the cents it was meant to be.\n    subtotal = sum(round(unit_price * 100) * quantity for unit_price, quantity in lines)\n    rate = round(tax_percent * 100)                  # hundredths of a percent: 8.25 -> 825\n    tax = (subtotal * rate + 5_000) // 10_000        # subtotal * rate / 10000, rounded half up in integers\n    return subtotal + tax\n",
+  "explanation": "**The bug class: floating-point money.** A float stores a binary fraction, and most decimal fractions are not exactly representable: `19.99` is really `19.989999999999998...`, so `19.99 * 100` is `1998.9999999999998` and `int()` cuts it to `1998`. Sums drift (ten times `0.10` is `0.9999999999999999`). The errors are tiny, but they flip a cent, and they depend on the order of the operations.\n\n**Fix: exact arithmetic.** Convert each price to integer cents once, at the edge, and keep everything as integers. Use `round(price * 100)`, never `int(price * 100)`. Then apply the rounding rule yourself: for non-negative integers, \"half up\" is `(n + d // 2) // d`. Python's `round()` is *not* half up (`round(82.5)` is `82`: it rounds halves to the even number) and cannot tell an exact half from a float that is merely close to one. `decimal.Decimal` with `ROUND_HALF_UP` works as well, but build it from text (`Decimal(str(price))`): `Decimal(19.99)` carries the float's error with it.\n\n**Habits.**\n- Store and move money as integer minor units (cents) or `Decimal`, never as float. Ask senders for strings or integer cents when you can.\n- State the rounding rule (half up, half even, down) and round once, where the business rule says.\n- Test the cases floats get wrong: `19.99`, `0.1 + 0.2`, long sums, exact halves."
+}

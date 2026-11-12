@@ -1,0 +1,29 @@
+{
+  "title": "Find Minimum in Rotated Sorted Array",
+  "topic": "binary-search-and-sorting",
+  "difficulty": "intermediate",
+  "description": "Find the smallest element of a sorted list that was rotated at an unknown point, in O(log n).",
+  "statement": "A list of **distinct** integers sorted in ascending order was rotated at an unknown point: some elements from the front were moved to the back, keeping their order. For example `[0, 1, 2, 4, 5, 6, 7]` can become `[4, 5, 6, 7, 0, 1, 2]`. Return the smallest element of the rotated list `nums`.\n\n- `nums` is never empty, and it may not be rotated at all.\n- Return the value, not its index.\n- Aim for **O(log n)**. The last tests pass a sequence of a billion numbers that supports only `len(nums)` and `nums[i]` and count how many elements you look at, so scanning or copying it will not work.\n\n**Examples**\n\n```python\nfind_min([3, 4, 5, 1, 2])          # 1\nfind_min([4, 5, 6, 7, 0, 1, 2])    # 0\nfind_min([11, 13, 15, 17])         # 11, the list is not rotated\n```",
+  "starter": "def find_min(nums):\n    \"\"\"Return the smallest element of the rotated sorted list nums.\"\"\"\n    ...\n",
+  "tests": [
+    "class RotatedBillion:\n    \"\"\"A billion distinct numbers: 5 * j - 7_000_000 for j = 0, 1, 2, ... sorted, then rotated so that position 0 holds j = shift.\n    It supports only len() and nums[i], and counts every look.\"\"\"\n    size = 1_000_000_000\n\n    def __init__(self, shift):\n        self.shift = shift\n        self.looks = 0\n\n    def __len__(self):\n        return self.size\n\n    def __getitem__(self, i):\n        if not isinstance(i, int):\n            raise TypeError(\"a sequence of a billion numbers can only be read one position at a time, nums[i] (no slices)\")\n        self.looks += 1\n        if self.looks > 500:\n            raise AssertionError(\"looked at more than 500 elements of a list of a billion numbers: this search needs about 30 steps\")\n        if i < 0:\n            i += self.size\n        if not 0 <= i < self.size:\n            raise IndexError(\"list index out of range\")\n        return 5 * ((i + self.shift) % self.size) - 7_000_000\ndef wrong_minimums():\n    \"\"\"Try every size from 1 to 14 and every rotation of a sorted list that starts at -10.\"\"\"\n    wrong = []\n    for size in range(1, 15):\n        base = [3 * i - 10 for i in range(size)]\n        for turn in range(size):\n            nums = base[turn:] + base[:turn]\n            got = find_min(list(nums))\n            if got != base[0]:\n                wrong.append(f\"find_min({nums}) returned {got}, expected {base[0]}\")\n    return wrong[:3]",
+    "assert find_min([3, 4, 5, 1, 2]) == 1",
+    "assert find_min([4, 5, 6, 7, 0, 1, 2]) == 0",
+    "assert find_min([11, 13, 15, 17]) == 11",
+    "assert find_min([2]) == 2",
+    "assert find_min([2, 1]) == 1",
+    "assert find_min([1, 2]) == 1",
+    "assert find_min([-3, -2, 5, -9, -8, -7]) == -9",
+    "assert wrong_minimums() == []",
+    "assert find_min(RotatedBillion(345_678_901)) == -7_000_000",
+    "assert find_min(RotatedBillion(1)) == -7_000_000",
+    "assert find_min(RotatedBillion(0)) == -7_000_000"
+  ],
+  "hints": [
+    "The minimum is the one element smaller than the element before it, the point where the rotation drops. Can you tell which side of the middle that point is on?",
+    "Compare `nums[mid]` with `nums[hi]`. If it is larger, the drop is to the right of `mid`; otherwise the minimum is at `mid` or to its left.",
+    "`mid` itself might be the minimum, so do not skip it: set `hi = mid` (not `mid - 1`) and loop while `lo < hi`. When the loop ends, `lo == hi` is the position of the minimum."
+  ],
+  "solution": "def find_min(nums):\n    lo, hi = 0, len(nums) - 1\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if nums[mid] > nums[hi]:\n            lo = mid + 1          # the drop (the minimum) is to the right of mid\n        else:\n            hi = mid              # mid itself may be the minimum, so keep it\n    return nums[lo]\n",
+  "explanation": "**The idea.** In a rotated sorted list the minimum is the \"drop\": the one element that is smaller than the element before it (or the first element, if the list was not rotated). Compare the middle with the **last** element. If `nums[mid] > nums[hi]`, the drop lies to the right of `mid`, so the minimum is in `mid + 1..hi`. Otherwise `mid..hi` is in order, so the minimum is at `mid` or to its left. Each step discards half the range.\n\n**Why `hi`, not `lo`.** The right end is a reliable reference: comparing `mid` with `hi` tells you which side the drop is on in every case, including a list that was not rotated at all. Comparing with `lo` is ambiguous when the whole list is in order.\n\n**Mind the bounds.** When `nums[mid] <= nums[hi]`, `mid` itself may be the minimum, so keep it: `hi = mid`, not `mid - 1`, and loop while `lo < hi`. The loop ends with `lo == hi` on the minimum.\n\n**Complexity.** O(log n) time, O(1) space.\n\n**Follow-up.** With duplicates, `nums[mid] == nums[hi]` tells you nothing about the side. Shrinking `hi` by one is safe, and the worst case becomes O(n)."
+}

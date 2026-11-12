@@ -1,0 +1,269 @@
+{
+  "title": "Logs, metrics and traces",
+  "topic": "observability",
+  "difficulty": "intermediate",
+  "module": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+  "description": "What logs, metrics and traces each answer, how to keep them useful and affordable, and how SLOs and alerts turn them into action.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "multiple",
+      "text": "Which of these questions are best answered by a metric rather than by logs or traces?",
+      "options": [
+        {
+          "id": "a",
+          "text": "What is the 99th percentile latency of the checkout API over the last hour?"
+        },
+        {
+          "id": "b",
+          "text": "What exact error message and stack trace did request 8f3a21 end with?"
+        },
+        {
+          "id": "c",
+          "text": "How many 5xx responses per second is the API returning right now?"
+        },
+        {
+          "id": "d",
+          "text": "Which downstream call made this one slow request take four seconds?"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "Metrics are cheap numbers aggregated over time, which makes them the right tool for rates, percentiles and thresholds. The exact error text of one request is a log's job, and finding which hop inside one slow request took the time is what a trace shows."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A request passes through four services, and each writes its own log lines. What makes it practical to find every line that belongs to one failing request?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sorting the lines from all four services by timestamp, so that each request's lines end up together"
+        },
+        {
+          "id": "b",
+          "text": "A request id created at the edge, passed along in a header and written on every log line as a field"
+        },
+        {
+          "id": "c",
+          "text": "Giving all four services the same log level and the same message format, so that lines can be matched up"
+        },
+        {
+          "id": "d",
+          "text": "Pointing all four services at one shared log file, so that the lines of a request sit next to each other"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Requests run in parallel and clocks differ between hosts, so timestamps interleave unrelated requests and cannot reliably group one. An id generated at the edge, forwarded in a header (or carried in the trace context) and written as a structured field on every line lets a single search return the whole story. Matching formats or a shared file do not tie lines to a request."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A service shows an average response time of about 110 ms, yet some users say pages hang for seconds. Out of every 100 requests, 98 take 50 ms and 2 take 3 seconds. What should you look at?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A gauge holding the latest response time, because it shows what users are feeling at this very moment"
+        },
+        {
+          "id": "b",
+          "text": "A counter of requests graphed as a rate, because slow requests show up as a drop in throughput"
+        },
+        {
+          "id": "c",
+          "text": "A shorter averaging window, because an average over ten seconds would make the slow requests visible"
+        },
+        {
+          "id": "d",
+          "text": "A latency histogram, so that you can read p95 and p99 instead of a mean that hides the slow tail"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A mean is dominated by the many fast requests: (98 x 50 ms + 2 x 3000 ms) / 100 is only about 109 ms, while 2 percent of users wait three seconds. A histogram records how many requests fall into each latency bucket, so you can read percentiles; here p99 is about three seconds, which the mean hides completely. Averaging over a shorter window does not change what a mean hides."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "You are building dashboards for a request-serving API and for the CPUs, disks and connection pools it depends on. Which method fits which?",
+      "options": [
+        {
+          "id": "a",
+          "text": "RED for the API (rate, errors, duration); USE for the CPUs, disks and pools (utilization, saturation, errors)"
+        },
+        {
+          "id": "b",
+          "text": "USE for the API (utilization, saturation, errors); RED for the CPUs, disks and pools (rate, errors, duration)"
+        },
+        {
+          "id": "c",
+          "text": "RED for both, because every component can be described by the number and the outcome of the requests it handles"
+        },
+        {
+          "id": "d",
+          "text": "USE for both, because utilization is the first number to look at in any kind of system, whatever it does"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "RED (rate, errors, duration) looks at a service the way its callers experience it, which makes it the natural set for an API or an endpoint. USE (utilization, saturation, errors) looks at a resource such as a CPU, a disk or a connection pool, and is how you find the bottleneck behind a slow service. The two complement each other rather than compete."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A developer adds a user_id label to a request counter in a Prometheus-style metrics system, and the service has two million users. Why is that a problem?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Label values are limited to a few characters, so most user ids would be cut short and collide with one another"
+        },
+        {
+          "id": "b",
+          "text": "Counters stop increasing once any label has more than about a thousand different values, so counts go wrong"
+        },
+        {
+          "id": "c",
+          "text": "Every distinct label value creates its own time series, so memory and storage grow with the number of users"
+        },
+        {
+          "id": "d",
+          "text": "The label turns the counter into a gauge, which then resets to zero whenever the service restarts or redeploys"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Each unique combination of label values is stored as its own time series, so a per-user label multiplies the series count by the number of users and can exhaust the metrics server's memory. Per-user detail belongs in logs or traces; metrics should be labelled with values from a small, bounded set such as route, method and status class."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "It is safe to log full request bodies at INFO level in production, as long as only engineers can read the logs.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Bodies often contain passwords, tokens, card numbers or personal data, and logs are copied to many systems, kept for a long time and read by many people. That spreads data beyond the protection it was meant to have and can break rules such as GDPR or PCI DSS. Log identifiers and outcomes instead, and mask or drop sensitive fields before anything is written."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Service A calls service B over HTTP, but B's work appears in the tracing tool as a separate trace instead of a child of A's span. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A and B are written in different programming languages, and traces cannot cross language boundaries"
+        },
+        {
+          "id": "b",
+          "text": "A did not send the trace context (such as the traceparent header), so B started a new trace"
+        },
+        {
+          "id": "c",
+          "text": "Spans can only be nested when both services write their logs to the same central system"
+        },
+        {
+          "id": "d",
+          "text": "B samples a larger share of requests than A does, and that alone splits each trace into two"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each service must read the incoming trace context (the W3C traceparent header, for example) and send it on in its own outgoing calls; without it the callee has no parent and starts a new trace. Instrumentation libraries do this for common HTTP clients and servers, but custom clients, message queues and background jobs often need it added by hand."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "Head-based sampling, which decides at the start of a request whether to record its trace, can discard most of the rare failing or slow requests you wanted to see.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "The decision is made before the outcome is known, so a 1 percent sample keeps only about 1 percent of the errors too. Tail-based sampling waits until the trace is complete and then keeps what is interesting, such as errors and slow requests, at the cost of buffering spans until then."
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "text": "A service has an SLO of 99.9% successful requests over 30 days, and an incident in the first week has already used about 80% of that period's error budget. What does the error-budget approach suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Ship faster than before, because an SLO is only a target and an incident does not limit what you release"
+        },
+        {
+          "id": "b",
+          "text": "Loosen the SLO to 99% so that the error budget becomes large again for the rest of the month"
+        },
+        {
+          "id": "c",
+          "text": "Change nothing until the 30 days are over, then write up how the service performed against its target"
+        },
+        {
+          "id": "d",
+          "text": "Slow down risky changes and put effort into reliability until the budget has recovered"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "An SLO leaves a small allowance for failure (99.9% over 30 days is about 43 minutes of full outage), and that allowance is the error budget. Spending most of it early is a signal to favor stability work over risky launches until it recovers; loosening the SLO just to get budget back defeats the purpose of having one."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Which of these make good alerts to page the on-call engineer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The checkout success rate has been below its SLO threshold for the last five minutes"
+        },
+        {
+          "id": "b",
+          "text": "The 99th percentile latency of the search API has been above two seconds for ten minutes"
+        },
+        {
+          "id": "c",
+          "text": "CPU on one of the web servers went above 80% for a full minute during the afternoon peak"
+        },
+        {
+          "id": "d",
+          "text": "A single request to the payments endpoint returned a 500 error and was retried successfully"
+        },
+        {
+          "id": "e",
+          "text": "One node's disk is 70% full, and the volume has been growing about 1% a day for a month"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Page on symptoms that users feel, such as errors and latency measured against the SLO, because they matter directly and they catch causes nobody predicted. One busy CPU, one failed-and-retried request or a disk with weeks of room are causes or noise that rarely need a human at 3 a.m.; keep them on dashboards or as low-urgency tickets."
+    }
+  ]
+}

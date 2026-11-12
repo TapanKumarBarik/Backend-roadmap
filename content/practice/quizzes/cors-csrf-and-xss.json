@@ -1,0 +1,136 @@
+{
+  "title": "CORS, CSRF and XSS",
+  "topic": "security",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/02-xss-and-csrf/README.md",
+  "description": "What the same-origin policy and CORS protect, and how to defend against forged requests, injected scripts and clickjacking.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "multiple",
+      "text": "Which of these URLs have the same origin as https://shop.example.com/cart?",
+      "options": [
+        { "id": "a", "text": "https://shop.example.com/account/orders" },
+        { "id": "b", "text": "http://shop.example.com/cart" },
+        { "id": "c", "text": "https://api.example.com/cart" },
+        { "id": "d", "text": "https://shop.example.com:443/help" },
+        { "id": "e", "text": "https://shop.example.com:8443/cart" }
+      ],
+      "answer": ["a", "d"],
+      "explanation": "An origin is the combination of scheme, host and port; the path does not matter. Port 443 is the default for https, so spelling it out changes nothing, while a different scheme, a different subdomain or a different port makes a different origin."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "If an API sends CORS headers that allow only https://app.example.com, programs such as curl or a server-side script can no longer call it.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "CORS is a rule that browsers apply to web pages: it decides whether a page from another origin may read a response. curl and other servers do not enforce it, so the API still needs authentication and authorization on every request."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "JavaScript on https://app.example.com sends fetch with the method PUT and a JSON body to https://api.example.com. What does the browser do first?",
+      "options": [
+        { "id": "a", "text": "It sends an OPTIONS preflight first and sends the PUT only if the answer allows it" },
+        { "id": "b", "text": "It sends the PUT straight away and checks the CORS headers when the response arrives" },
+        { "id": "c", "text": "It refuses to send any cross-origin PUT request, whatever the other server says" },
+        { "id": "d", "text": "It shows the user a prompt asking for permission to contact the other site" }
+      ],
+      "answer": ["a"],
+      "explanation": "A cross-origin request that is not simple, such as a PUT or one with a JSON content type or an Authorization header, triggers a preflight OPTIONS request in which the server states which origins, methods and headers it accepts. Simple requests, like a basic GET or a form-style POST, skip it and are sent at once, which is also why CORS alone does not stop CSRF."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "An API copies whatever Origin header it receives into Access-Control-Allow-Origin and also sends Access-Control-Allow-Credentials: true. What is the problem?",
+      "options": [
+        { "id": "a", "text": "Browsers reject the response, because those two headers may never be used together" },
+        { "id": "b", "text": "Attackers can log in without a valid session, because the API no longer checks any credentials" },
+        { "id": "c", "text": "Any website can have a visitor's browser call the API with their cookies and read the data" },
+        { "id": "d", "text": "Only simple GET requests are affected, because preflighted requests simply ignore these headers" }
+      ],
+      "answer": ["c"],
+      "explanation": "The server is telling browsers that every origin may read credentialed responses, so a malicious page can fetch a visitor's private data using their own cookies. A wildcard * with credentials is refused by browsers, which is why people reflect the origin instead; the fix is a fixed allowlist of trusted origins. Authentication is not bypassed; the attacker borrows the victim's session."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A banking site keeps users signed in with a session cookie. A hidden form on a malicious page submits a POST to the bank's transfer endpoint. Why can that work, and what stops it?",
+      "options": [
+        { "id": "a", "text": "The page reads the cookie with JavaScript and copies it, so the cookie should be marked HttpOnly" },
+        { "id": "b", "text": "Browsers attach the bank's cookie to any request to the bank; use SameSite and a CSRF token" },
+        { "id": "c", "text": "The form travels over plain HTTP where anyone can read it, so the endpoint must use HTTPS" },
+        { "id": "d", "text": "CORS lets the other site read the bank's response, so the CORS headers should be removed" }
+      ],
+      "answer": ["b"],
+      "explanation": "CSRF abuses the fact that cookies are attached automatically, so the forged request arrives with the victim's real session. SameSite cookies stop browsers sending the cookie on most cross-site requests, and a secret CSRF token that the attacker cannot read makes the request impossible to forge. HttpOnly guards against scripts reading the cookie, which is a different attack, and the forged request never needs to read the response."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A forum saves each post in its database and shows it to every reader without encoding it. An attacker posts a script tag, and it runs in every reader's browser. What is this, and what is the root fix?",
+      "options": [
+        { "id": "a", "text": "Reflected XSS; stop using GET requests for the forum's search page" },
+        { "id": "b", "text": "DOM-based XSS; set the HttpOnly flag on the forum's session cookie" },
+        { "id": "c", "text": "Stored XSS; delete script tags from posts when they are saved" },
+        { "id": "d", "text": "Stored XSS; encode each post for HTML when it is displayed" }
+      ],
+      "answer": ["d"],
+      "explanation": "Stored XSS keeps the payload on the server and hits every visitor who views it, unlike reflected XSS (echoed back from one request) or DOM-based XSS (created by script running in the browser). The root fix is to encode data for the place it is written, such as HTML text; deleting script tags on the way in is easy to bypass with other tags and event attributes, and does nothing for data already stored."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these are safe ways to show untrusted text, such as a value from the URL or from an API, in a web page?",
+      "options": [
+        { "id": "a", "text": "Assign it with element.textContent" },
+        { "id": "b", "text": "Assign it with element.innerHTML after removing any script tags" },
+        { "id": "c", "text": "Render it through a template engine or UI framework that escapes values by default" },
+        { "id": "d", "text": "Build an inline onclick attribute from it after removing double quotes" }
+      ],
+      "answer": ["a", "c"],
+      "explanation": "textContent and auto-escaping templates treat the value as plain text, never as markup. innerHTML parses it as HTML, and removing script tags does not help because other elements, such as an img with an onerror handler, also run code. Gluing a value into an inline event handler after stripping quotes fails for the same reason: you are still building code out of data."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A page is served with Content-Security-Policy: script-src 'self'. An attacker manages to inject an inline script tag into it. What does the browser do?",
+      "options": [
+        { "id": "a", "text": "It runs it, because the page that contains the script was served from the same origin" },
+        { "id": "b", "text": "It blocks it, because inline scripts are refused unless the policy allows them" },
+        { "id": "c", "text": "It runs it, but stops it from reading cookies or other stored data" },
+        { "id": "d", "text": "It blocks it only after the server has confirmed that the script is really malicious" }
+      ],
+      "answer": ["b"],
+      "explanation": "script-src 'self' tells the browser to run only scripts loaded from your own origin, and inline script blocks are refused unless the policy opts in, for example with unsafe-inline or a nonce. CSP limits what injected markup can do, but it is a second line of defence: you still need output encoding to remove the bug itself."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "If a session cookie is marked HttpOnly, a cross-site scripting bug can no longer be used to act as the logged-in user.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "HttpOnly stops scripts from reading the cookie, so it cannot be copied away, but injected script still runs inside the victim's logged-in page and can send requests that carry the cookie automatically. It limits the damage of XSS; it does not remove the need to fix it."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "An attacker loads your 'Delete account' page in a transparent iframe on their own site and tricks visitors into clicking its button. Which response header tells browsers not to display your pages inside other sites' frames?",
+      "options": [
+        { "id": "a", "text": "Strict-Transport-Security: max-age=31536000" },
+        { "id": "b", "text": "X-Content-Type-Options: nosniff" },
+        { "id": "c", "text": "Access-Control-Allow-Origin: https://example.com" },
+        { "id": "d", "text": "Content-Security-Policy: frame-ancestors 'self'" }
+      ],
+      "answer": ["d"],
+      "explanation": "frame-ancestors lists the origins that may embed the page, and 'none' or 'self' stops other sites from framing it, so a hidden overlay cannot trick users into clicking. The older X-Frame-Options header does a similar job. HSTS, nosniff and the CORS headers control HTTPS use, content-type guessing and cross-origin reads, not framing."
+    }
+  ]
+}

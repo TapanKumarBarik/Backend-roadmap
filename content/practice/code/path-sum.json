@@ -1,0 +1,30 @@
+{
+  "title": "Path Sum",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "beginner",
+  "description": "Decide whether some root-to-leaf path in a binary tree has node values that add up to a given sum.",
+  "statement": "Write `has_path_sum(root, target_sum)`, which returns `True` if some path from the root down to a **leaf** has node values that add up to exactly `target_sum`, otherwise `False`. `TreeNode` is given: each node has a `val`, a `left` and a `right` (`None` when there is no child).\n\n- A leaf is a node with no children. A path that ends at a node that still has a child does not count.\n- Values can be negative or zero.\n- An empty tree (`root` is `None`) has no path: return `False`, even when `target_sum` is 0.\n\n**Example**\n\n```\n        7\n       / \\\n      4   9          has_path_sum(root, 17)   # True,  7 + 4 + 6\n     / \\   \\         has_path_sum(root, 11)   # False, 7 + 4 stops at the node 4, which has children\n    2   6   3        has_path_sum(root, 19)   # True,  7 + 9 + 3\n```\n\nThe tests write a tree level by level, left to right, with `None` for a missing child: this one is `[7, 4, 9, 2, 6, None, 3]`.",
+  "starter": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef has_path_sum(root, target_sum):\n    \"\"\"Return True if a root-to-leaf path has values adding up to target_sum.\"\"\"\n    ...\n",
+  "tests": [
+    "def tree_from(levels):\n    # [7, 4, 9, 2, 6, None, 3]: level by level, left to right, None for a missing child (a missing node has no children listed)\n    nodes = [None if v is None else TreeNode(v) for v in levels]\n    children = iter(nodes[1:])\n    for node in nodes:\n        if node is not None:\n            node.left = next(children, None)\n            node.right = next(children, None)\n    return nodes[0] if nodes else None\ndef leaning_left(n):\n    # a tree that is one path of n nodes, every value 1\n    levels = [1]\n    for _ in range(n - 1):\n        levels += [1, None]\n    return tree_from(levels)",
+    "assert has_path_sum(tree_from([7, 4, 9, 2, 6, None, 3]), 17) == True",
+    "assert has_path_sum(tree_from([7, 4, 9, 2, 6, None, 3]), 11) == False",
+    "assert has_path_sum(tree_from([7, 4, 9, 2, 6, None, 3]), 19) == True",
+    "assert has_path_sum(tree_from([]), 0) == False",
+    "assert has_path_sum(tree_from([5]), 5) == True",
+    "assert has_path_sum(tree_from([5]), 4) == False",
+    "assert has_path_sum(tree_from([1, 2]), 1) == False",
+    "assert has_path_sum(tree_from([1, 2]), 3) == True",
+    "assert has_path_sum(tree_from([10, -5, 8]), 5) == True",
+    "assert has_path_sum(leaning_left(300), 300) == True",
+    "assert has_path_sum(tree_from([1] * 2047), 11) == True",
+    "assert has_path_sum(tree_from([1] * 2047), 10) == False"
+  ],
+  "hints": [
+    "Rather than adding values on the way down, subtract each node's value from the target. What must the remaining target be when you stand on a leaf?",
+    "Ask the same question of each child with the smaller target; the answer is True if either child's subtree has such a path. Decide first what the answer is for a leaf and for `None`.",
+    "A leaf has no children at all; a node with one child is not a leaf. An empty tree has no path, even for target 0. Values can be negative, so do not stop when the running sum passes the target."
+  ],
+  "solution": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef has_path_sum(root, target_sum):\n    if root is None:\n        return False\n    remaining = target_sum - root.val\n    if root.left is None and root.right is None:      # a leaf: the path ends here\n        return remaining == 0\n    return has_path_sum(root.left, remaining) or has_path_sum(root.right, remaining)\n",
+  "explanation": "**The idea.** Walk down from the root and subtract each node's value from the target as you go. A path works when, at a leaf, nothing is left: the remaining target is exactly 0. Every node asks its children the same question with a smaller target, which makes a short recursion: the answer is `True` if the left subtree or the right subtree has such a path.\n\n**The traps.** (1) A leaf is a node with no children at all. A node with only one child is not a leaf, so a path that stops there does not count. (2) An empty tree has no path, even for target 0. If you return `remaining == 0` for `None`, a node with a single child wrongly counts as a leaf, because its missing child \"ends the path\". (3) Values can be negative, so a running sum that goes past the target can still come back; never give up on \"sum > target\".\n\n**Complexity.** O(n) time (each node is visited at most once) and O(h) space for the recursion, where h is the height of the tree. Follow-up: return the path itself, or all such paths. Keep the current path in a list and remove the last node when you go back up: that is backtracking."
+}

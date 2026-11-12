@@ -1,0 +1,71 @@
+{
+  "title": "Latency Percentiles from Access Logs",
+  "topic": "data-processing",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them/README.md",
+  "description": "Parse access-log lines into p50, p95 and p99 latency per endpoint, counting the malformed lines.",
+  "statement": "Write `latency_percentiles(lines)` for an access log. A good line looks like `2025-01-03T10:00:01Z GET /api/users 200 34ms`: five whitespace-separated fields: a timestamp, a method, a path, a status made of digits, and a latency made of digits followed by `ms`. `lines` is any iterable of strings; read it once.\n\nReturn `(stats, malformed)`:\n\n- `stats` maps each endpoint, written `\"<method> <path>\"` (like `\"GET /api/users\"`), to `{\"count\": n, \"p50\": ..., \"p95\": ..., \"p99\": ...}`, with latencies as ints in milliseconds.\n- `malformed` is how many lines did not fit the format (a blank line is one). They are otherwise ignored.\n- Percentiles use the nearest-rank method: sort the endpoint's `n` latencies; the `p`-th percentile is the value at 1-based rank `ceil(p * n / 100)`.\n\n**Example**\n\n```python\nlines = [\"2025-01-03T10:00:01Z GET /api/users 200 34ms\",\n         \"2025-01-03T10:00:02Z GET /api/users 200 120ms\",\n         \"not a log line\"]\nlatency_percentiles(lines)\n# ({'GET /api/users': {'count': 2, 'p50': 34, 'p95': 120, 'p99': 120}}, 1)\n```\n\nAim for O(n log n) in the number of lines.",
+  "starter": "def latency_percentiles(lines):\n    \"\"\"Return (stats, malformed): p50/p95/p99 latency per \"<method> <path>\", and the number of malformed lines.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport random\n\ndef log_line(latency, path=\"/api/users\", method=\"GET\", status=200, stamp=\"2025-01-03T10:00:01Z\"):\n    return f\"{stamp} {method} {path} {status} {latency}ms\"\n",
+    {
+      "name": "the example: two good lines and one malformed line",
+      "code": "lines = [\"2025-01-03T10:00:01Z GET /api/users 200 34ms\", \"2025-01-03T10:00:02Z GET /api/users 200 120ms\", \"not a log line\"]\nstats, malformed = latency_percentiles(lines)\nassert stats == {\"GET /api/users\": {\"count\": 2, \"p50\": 34, \"p95\": 120, \"p99\": 120}}\nassert malformed == 1"
+    },
+    {
+      "name": "ten latencies in any order: p50 is the 5th smallest, p95 and p99 the 10th",
+      "code": "stats, malformed = latency_percentiles([log_line(v) for v in [50, 10, 90, 30, 70, 20, 100, 60, 40, 80]])\nassert stats == {\"GET /api/users\": {\"count\": 10, \"p50\": 50, \"p95\": 100, \"p99\": 100}}\nassert malformed == 0"
+    },
+    {
+      "name": "twenty latencies: p50 is the 10th, p95 the 19th, p99 the 20th",
+      "code": "values = list(range(10, 210, 10))\nrandom.Random(1).shuffle(values)\nstats, malformed = latency_percentiles([log_line(v) for v in values])\nassert stats == {\"GET /api/users\": {\"count\": 20, \"p50\": 100, \"p95\": 190, \"p99\": 200}}"
+    },
+    {
+      "name": "nine latencies: ranks round up, ceil(4.5) = 5 and ceil(8.55) = 9",
+      "code": "stats, malformed = latency_percentiles([log_line(v) for v in [90, 20, 10, 80, 30, 70, 40, 60, 50]])\nassert stats == {\"GET /api/users\": {\"count\": 9, \"p50\": 50, \"p95\": 90, \"p99\": 90}}"
+    },
+    {
+      "name": "a single request: every percentile is its latency",
+      "code": "stats, malformed = latency_percentiles([log_line(7)])\nassert stats == {\"GET /api/users\": {\"count\": 1, \"p50\": 7, \"p95\": 7, \"p99\": 7}}"
+    },
+    {
+      "name": "rank boundaries: 100 latencies give ranks 50, 95, 99; 101 give ranks 51, 96, 100",
+      "code": "stats, malformed = latency_percentiles([log_line(v) for v in range(100, 0, -1)])\nassert stats == {\"GET /api/users\": {\"count\": 100, \"p50\": 50, \"p95\": 95, \"p99\": 99}}\nstats, malformed = latency_percentiles([log_line(v) for v in range(1, 102)])\nassert stats == {\"GET /api/users\": {\"count\": 101, \"p50\": 51, \"p95\": 96, \"p99\": 100}}"
+    },
+    {
+      "name": "repeated latencies are separate samples",
+      "code": "stats, malformed = latency_percentiles([log_line(v) for v in [5, 9, 5, 5, 5]])\nassert stats == {\"GET /api/users\": {\"count\": 5, \"p50\": 5, \"p95\": 9, \"p99\": 9}}"
+    },
+    {
+      "name": "endpoints are told apart by method and path",
+      "code": "lines = [log_line(10), log_line(30, method=\"POST\"), log_line(20, \"/api/orders\"), log_line(40), log_line(50, \"/api/orders\")]\nstats, malformed = latency_percentiles(lines)\nassert stats == {\n    \"GET /api/users\": {\"count\": 2, \"p50\": 10, \"p95\": 40, \"p99\": 40},\n    \"POST /api/users\": {\"count\": 1, \"p50\": 30, \"p95\": 30, \"p99\": 30},\n    \"GET /api/orders\": {\"count\": 2, \"p50\": 20, \"p95\": 50, \"p99\": 50},\n}"
+    },
+    {
+      "name": "malformed lines are skipped and counted: blank, too few or too many fields, bad status or latency",
+      "code": "bad = [\n    \"\",\n    \"   \",\n    \"garbage\",\n    \"2025-01-03T10:00:03Z GET /api/users 200\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 34\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 fastms\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 -5ms\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 3.5ms\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 ms\",\n    \"2025-01-03T10:00:03Z GET /api/users OK 34ms\",\n    \"2025-01-03T10:00:03Z GET /api/users 200 34ms extra\",\n    \"GET /api/users 200 34ms\",\n]\nstats, malformed = latency_percentiles(bad + [log_line(25)])\nassert malformed == len(bad), f\"{len(bad)} of these 13 lines are malformed, you counted {malformed}\"\nassert stats == {\"GET /api/users\": {\"count\": 1, \"p50\": 25, \"p95\": 25, \"p99\": 25}}"
+    },
+    {
+      "name": "extra spaces, tabs and a trailing newline are fine",
+      "code": "lines = [\"2025-01-03T10:00:01Z  GET   /api/users 200\\t34ms\\n\", \" 2025-01-03T10:00:02Z GET /api/users 200 36ms \"]\nstats, malformed = latency_percentiles(lines)\nassert malformed == 0\nassert stats == {\"GET /api/users\": {\"count\": 2, \"p50\": 34, \"p95\": 36, \"p99\": 36}}"
+    },
+    {
+      "name": "no lines, or only malformed lines: no endpoints",
+      "code": "stats, malformed = latency_percentiles([])\nassert (stats, malformed) == ({}, 0)\nstats, malformed = latency_percentiles([\"x\", \"\"])\nassert (stats, malformed) == ({}, 2)"
+    },
+    {
+      "name": "any iterable works, a generator included: the lines are read once",
+      "code": "stats, malformed = latency_percentiles(log_line(v) for v in [30, 10, 20])\nassert stats == {\"GET /api/users\": {\"count\": 3, \"p50\": 20, \"p95\": 30, \"p99\": 30}}"
+    },
+    {
+      "name": "a big log: 60,000 lines over three endpoints",
+      "code": "rng = random.Random(7)\nlines = []\nfor path in [\"/api/users\", \"/api/orders\", \"/health\"]:\n    latencies = list(range(1, 20_001))\n    rng.shuffle(latencies)\n    lines.extend(log_line(v, path) for v in latencies)\nrng.shuffle(lines)\nstats, malformed = latency_percentiles(lines)\nassert stats == {f\"GET {path}\": {\"count\": 20_000, \"p50\": 10_000, \"p95\": 19_000, \"p99\": 19_800} for path in [\"/api/users\", \"/api/orders\", \"/health\"]}\nassert malformed == 0"
+    }
+  ],
+  "hints": [
+    "Split the job into three steps: turn each line into an (endpoint, latency) pair or reject it, collect the latencies per endpoint, then compute the percentiles of each collection. Which step needs the values sorted?",
+    "Nearest rank: sort the `n` latencies of an endpoint; the `p`-th percentile is the value at position `ceil(p * n / 100)` counting from 1. With 20 values, p95 is the 19th and p99 is the 20th.",
+    "Compute the ceiling with integer arithmetic and remember that ranks start at 1 while list indexes start at 0. A line is valid only with exactly 5 fields, a status of digits, and a latency of digits followed by `ms`."
+  ],
+  "solution": "def parse(line):\n    \"\"\"Return (\"<method> <path>\", latency_ms) for a good line, or None for a malformed one.\"\"\"\n    parts = line.split()\n    if len(parts) != 5:\n        return None\n    _, method, path, status, latency = parts\n    digits = latency[:-2]\n    if not (status.isascii() and status.isdigit() and latency.endswith(\"ms\") and digits.isascii() and digits.isdigit()):\n        return None\n    return f\"{method} {path}\", int(digits)\n\n\ndef nearest_rank(sorted_values, percent):\n    rank = -(-percent * len(sorted_values) // 100)    # ceil(percent * n / 100) in integer arithmetic\n    return sorted_values[rank - 1]                    # ranks start at 1, list indexes at 0\n\n\ndef latency_percentiles(lines):\n    latencies = {}                                    # endpoint -> list of latencies\n    malformed = 0\n    for line in lines:\n        parsed = parse(line)\n        if parsed is None:\n            malformed += 1\n            continue\n        endpoint, latency = parsed\n        latencies.setdefault(endpoint, []).append(latency)\n\n    stats = {}\n    for endpoint, values in latencies.items():\n        values.sort()\n        stats[endpoint] = {\n            \"count\": len(values),\n            \"p50\": nearest_rank(values, 50),\n            \"p95\": nearest_rank(values, 95),\n            \"p99\": nearest_rank(values, 99),\n        }\n    return stats, malformed\n",
+  "explanation": "**The idea.** Three separate jobs: parse each line into an endpoint and a latency (or reject it), group the latencies by endpoint, then take percentiles per group. Only the last one needs the values sorted, and it needs them once per endpoint, so the whole thing is O(n log n).\n\n**Nearest rank.** For `n` sorted values the `p`-th percentile is the value at 1-based position `ceil(p * n / 100)`. It always returns a value that really happened, which is what you want when you say \"95% of requests took at most this long\". Do the ceiling with integers: `-(-p * n // 100)`. The usual slips are a 0-based index (off by one), `int()` or `round()` instead of a ceiling (wrong for n = 9, or at p99), and libraries that interpolate between samples (`statistics.quantiles`, NumPy's default), which give different numbers.\n\n**Why percentiles.** Averages hide the slow tail. A service with a 50 ms median and a 2 s p99 hurts one user in a hundred badly, and the mean barely moves.\n\n**Malformed input.** A log pipeline must never crash on one bad line: count it, skip it, and surface the count so that someone notices when it grows. Validate strictly (`isdigit` also accepts some non-ASCII digits, hence `isascii`).\n\n**At scale** you cannot keep every latency. Streaming sketches (HDR histogram, t-digest) keep fixed-size summaries of the distribution and give approximate percentiles; and percentiles from several machines cannot be averaged, but their histograms can be merged. Follow-up: why is the mean of two p99 values not the p99 of the combined traffic?"
+}

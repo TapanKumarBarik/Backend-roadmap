@@ -1,0 +1,30 @@
+{
+  "title": "Kth Largest Element",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "description": "Find the k-th largest number in an unsorted list without sorting the whole list.",
+  "statement": "Given a list of integers `nums` and an integer `k`, return the `k`-th largest number in `nums`.\n\n- It is the k-th largest in sorted order, so repeated values count separately: in `[5, 5, 4]` the 1st and 2nd largest are both `5`, and the 3rd is `4`.\n- You may assume `1 <= k <= len(nums)`. Negative numbers are fine.\n\n**Examples**\n\n```python\nkth_largest([3, 2, 1, 5, 6, 4], 2)             # 5\nkth_largest([3, 2, 3, 1, 2, 4, 5, 5, 6], 4)    # 4\nkth_largest([5, 5, 4], 3)                      # 4\n```\n\nSorting the whole list works but does more work than a small `k` needs, and the last two tests reject it. One is too big for anything quadratic. The other hands you numbers that count how often they are compared, and allows 8 comparisons per number (sorting 20,000 numbers takes about 13 per number).",
+  "starter": "def kth_largest(nums, k):\n    \"\"\"Return the k-th largest value in nums (repeated values count separately).\"\"\"\n    ...\n",
+  "tests": [
+    "import math\nimport random\nclass Counted(int):\n    \"\"\"A whole number that counts how often it is compared with another number.\"\"\"\n    comparisons = 0\n    def __lt__(self, other):\n        Counted.comparisons += 1\n        return int.__lt__(self, other)\n    def __le__(self, other):\n        Counted.comparisons += 1\n        return int.__le__(self, other)\n    def __gt__(self, other):\n        Counted.comparisons += 1\n        return int.__gt__(self, other)\n    def __ge__(self, other):\n        Counted.comparisons += 1\n        return int.__ge__(self, other)\n    def __neg__(self):\n        return Counted(-int(self))\ndef few_comparisons(n, k, per_number):\n    # Calls kth_largest on the numbers 0..n-1 in a shuffled order, wrapped so that every comparison between two numbers is counted.\n    values = list(range(n))\n    random.Random(5).shuffle(values)\n    numbers = [Counted(v) for v in values]\n    Counted.comparisons = 0\n    answer = kth_largest(numbers, k)\n    used = Counted.comparisons\n    assert answer == n - k, f\"kth_largest returned {answer!r} for the shuffled numbers 0..{n - 1} and k = {k}; expected {n - k}\"\n    limit = per_number * n\n    assert used <= limit, (f\"your code compared numbers {used:,} times on {n:,} numbers (k = {k}); this test allows {limit:,}, \"\n                           f\"and sorting everything needs about {int(n * math.log2(n)):,}. Keep only the k largest as you go.\")\n    return True",
+    "assert kth_largest([3, 2, 1, 5, 6, 4], 2) == 5",
+    "assert kth_largest([3, 2, 3, 1, 2, 4, 5, 5, 6], 4) == 4",
+    "assert kth_largest([5, 5, 4], 3) == 4",
+    "assert kth_largest([5, 5, 4], 2) == 5",
+    "assert kth_largest([7], 1) == 7",
+    "assert kth_largest([4, 9, 2, 7], 1) == 9",
+    "assert kth_largest([4, 9, 2, 7], 4) == 2",
+    "assert kth_largest([-1, -5, -3, -5], 3) == -5",
+    "assert kth_largest([2, 2, 2, 2], 3) == 2",
+    "big = [(i * 7919) % 40_000 for i in range(40_000)]",
+    "assert kth_largest(big, 20_000) == 20_000, \"too slow or wrong on 40,000 numbers with k = 20,000; removing the maximum k times is O(n*k)\"",
+    "assert few_comparisons(n=20_000, k=5, per_number=8)"
+  ],
+  "hints": [
+    "Sorting everything finds the answer, but you only need the top k. What could you keep track of that never holds more than k numbers?",
+    "Keep a min-heap of the k largest numbers seen so far. Its root is the smallest of them, which is the k-th largest overall. A new number only matters if it is bigger than that root.",
+    "`heapq` is a min-heap. `heapq.heapreplace(heap, x)` removes the root and adds `x` in one step. Test `x > heap[0]` first, so most numbers cost only one comparison."
+  ],
+  "solution": "import heapq\n\n\ndef kth_largest(nums, k):\n    heap = nums[:k]                         # the k largest numbers seen so far; the smallest of them is at heap[0]\n    heapq.heapify(heap)\n    for x in nums[k:]:\n        if x > heap[0]:                     # x beats the weakest of the current top k\n            heapq.heapreplace(heap, x)      # drop that one and keep x\n    return heap[0]\n",
+  "explanation": "**The idea.** Keep a min-heap that holds the `k` largest numbers seen so far. Its smallest element, the root `heap[0]`, is then the k-th largest overall. Start with the first `k` numbers. For every later number `x`: if `x` is bigger than the root it belongs among the k largest, so replace the root with it (`heapq.heapreplace`); otherwise ignore it. Only `k` numbers are ever in the heap, and most numbers cost a single comparison.\n\n**Why a *min*-heap for the *largest*?** You want to throw away the weakest of the k candidates cheaply, and that is the root of a min-heap. (`heapq` only provides a min-heap anyway.)\n\n**Complexity.** O(n log k) time, close to n comparisons when k is small, and O(k) space. Sorting everything is O(n log n); the last test counts comparisons to show the difference. Quickselect finds the answer in O(n) on average (O(n²) in the worst case) by partitioning like quicksort and recursing into one side only. `heapq.nlargest(k, nums)[-1]` is the standard-library shortcut for the heap approach.\n\n**Streaming follow-up.** If numbers keep arriving, keep the heap between arrivals: the answer is always `heap[0]`."
+}

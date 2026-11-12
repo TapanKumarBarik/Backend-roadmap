@@ -7,15 +7,16 @@ export { DIFFICULTY } from './difficulty.js';
 
 export const PRACTICE = {
   title: 'Practice',
-  intro: 'Check what you know, work through problems, and rehearse the questions interviews ask, from backend concepts to coding problems. Your quiz attempts are kept when you are signed in.',
+  intro: 'Write and run real code against tests in your browser, check what you know with quizzes, and rehearse the questions interviews ask. What you solve counts towards your level and your streak.',
   tabs: [
+    { id: 'code', label: 'Code practice', empty: 'No problem matches those filters.' },
     { id: 'quizzes', label: 'Quizzes', empty: 'No quiz matches those filters.' },
     { id: 'coding', label: 'Coding questions', empty: 'No coding set matches those filters.' },
     { id: 'interview', label: 'Interview prep', empty: 'No interview set matches those filters.' },
     { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' }
   ],
   // The kind of item each tab opens, as it is written in the item's address (an interview set is of concepts or of coding questions).
-  tabKind: { quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
+  tabKind: { code: 'code', quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
   allTopics: 'All topics',
   allLevels: 'All levels'
 };
@@ -81,15 +82,26 @@ export const WORKSPACE = {
 
 export const ME = {
   title: 'My learning',
-  intro: 'Where you are, what you have done, and what to do next. It is built from your own progress, notes, attempts and submissions.'
+  intro: 'Where you are, what you have done, and what to do next. It is built from your own progress, notes, attempts and submissions.',
+  code: {
+    heading: 'Code practice',
+    empty: (total) => `You have not solved a coding problem yet. Practice has ${total}, each one run in your browser.`,
+    summary: (solved, total) => `${solved} of ${total} problems solved`,
+    topic: (label) => label,
+    next: (title) => `Next: ${title}`,
+    all: 'All coding problems'
+  }
 };
 
 // On the front door and the dashboard: a few quizzes and coding sets, and the way in to all of them.
 export const STRIP = {
   heading: 'Practise what you learn',
-  lead: 'Quizzes, coding interview questions and exercises, each tied to the lesson that teaches it where there is one.',
+  lead: 'Write and run real code in your browser, test yourself with quizzes, and rehearse the questions interviews ask.',
   all: 'All practice',
   items: 3, // how many quizzes it shows
+  code: 'Solve it in the page',
+  codeShown: 3, // how many coding problems it shows (the easiest ones, by title)
+  codeLevel: 'beginner',
   quizzes: 'Test yourself',
   coding: 'Coding interview questions',
   codingShown: 3
@@ -100,7 +112,7 @@ export { RELATED } from './related.js';
 // The admins' editor for the quizzes, exercises and interview sets.
 export const CONTENT_EDITOR = {
   heading: 'Edit the content',
-  lead: 'Change a quiz, an exercise or an interview set (concepts or coding questions), or start a new quiz. Saving commits it to the repository (so it is in the history) and the site is rebuilt with it. A file with a problem is not saved.',
+  lead: 'Change a quiz, an exercise, an interview set (concepts or coding questions) or a coding problem, or start a new quiz. Saving commits it to the repository (so it is in the history) and the site is rebuilt with it. A file with a problem is not saved.',
   pick: 'Open one',
   none: 'Choose…',
   newQuiz: 'A new quiz: its address name',

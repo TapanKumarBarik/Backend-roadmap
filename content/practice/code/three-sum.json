@@ -1,0 +1,30 @@
+{
+  "title": "3Sum",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "intermediate",
+  "description": "Find every unique triplet of numbers in a list that adds up to zero.",
+  "statement": "Given a list of integers `nums`, return every **unique** triplet `[a, b, c]` of numbers that add up to zero.\n\n- The three numbers must come from three different positions in `nums`.\n- Triplets are unique by value: if `-1`, `0` and `1` each appear several times, `[-1, 0, 1]` is still reported once.\n- The order of the triplets, and the order of the numbers inside a triplet, do not matter (the tests sort them).\n- Return `[]` when there is no such triplet, including when `nums` has fewer than three numbers.\n\n**Examples**\n\n```python\nthree_sum([-1, 0, 1, 2, -1, -4])   # [[-1, -1, 2], [-1, 0, 1]]\nthree_sum([0, 0, 0, 0])            # [[0, 0, 0]]\nthree_sum([1, 2])                  # []\n```\n\nAim for O(n²): the last test has 1,000 numbers, far too many to try every triplet.",
+  "starter": "def three_sum(nums):\n    \"\"\"Return every unique triplet [a, b, c] from nums (three different positions) with a + b + c == 0.\"\"\"\n    ...\n",
+  "tests": [
+    "import itertools\nimport random\ndef sorted_triplets(result):\n    # Put a result in a standard order, so that any valid order of triplets and of numbers passes.\n    assert isinstance(result, list), f\"expected a list of triplets, got {result!r}\"\n    for triplet in result:\n        assert len(triplet) == 3, f\"every triplet needs exactly three numbers, got {triplet!r}\"\n    return sorted(sorted(triplet) for triplet in result)\ndef brute_force(nums):\n    found = set()\n    for i, j, k in itertools.combinations(range(len(nums)), 3):\n        if nums[i] + nums[j] + nums[k] == 0:\n            found.add(tuple(sorted((nums[i], nums[j], nums[k]))))\n    return sorted(list(triplet) for triplet in found)\ndef agrees_with_brute_force_on_small_random_lists():\n    rng = random.Random(11)\n    for _ in range(300):\n        nums = [rng.randint(-5, 5) for _ in range(rng.randint(0, 9))]\n        got = sorted_triplets(three_sum(list(nums)))\n        assert got == brute_force(nums), f\"three_sum({nums}) returned {got}, expected {brute_force(nums)}\"\n    return True",
+    "assert sorted_triplets(three_sum([-1, 0, 1, 2, -1, -4])) == [[-1, -1, 2], [-1, 0, 1]]",
+    "assert sorted_triplets(three_sum([0, 0, 0, 0])) == [[0, 0, 0]]",
+    "assert sorted_triplets(three_sum([1, 2])) == []",
+    "assert sorted_triplets(three_sum([])) == []",
+    "assert sorted_triplets(three_sum([0, 0])) == []",
+    "assert sorted_triplets(three_sum([-1, 2])) == []",
+    "assert sorted_triplets(three_sum([-2, 0, 0, 2, 2])) == [[-2, 0, 2]]",
+    "assert sorted_triplets(three_sum([-1, -1, -1, 2, 2])) == [[-1, -1, 2]]",
+    "assert sorted_triplets(three_sum([-4, -2, -2, -2, 0, 1, 2, 2, 2, 3, 3, 4, 4, 6, 6])) == [[-4, -2, 6], [-4, 0, 4], [-4, 1, 3], [-4, 2, 2], [-2, -2, 4], [-2, 0, 2]]",
+    "assert agrees_with_brute_force_on_small_random_lists()",
+    "big = random.Random(12).sample(range(-30_000, 30_000), 1000)\nbig_values = set(big)\nexpected_big = sorted([a, b, -(a + b)] for a, b in itertools.combinations(sorted(big), 2) if -(a + b) > b and -(a + b) in big_values)",
+    "assert sorted_triplets(three_sum(list(big))) == expected_big, \"too slow or wrong on 1,000 numbers; trying every triplet is O(n^3)\""
+  ],
+  "hints": [
+    "Checking every triplet is O(n³). If you fix the first number `a`, what is left is a two-number problem: find a pair that adds up to `-a`. Would sorting the list help with that?",
+    "After sorting, put one pointer just after `a` and one at the end. Sum too small: move the left pointer up. Sum too big: move the right pointer down. Sum zero: record the triplet and keep going.",
+    "For uniqueness, skip a first number equal to the one before it, and after recording a triplet skip over repeats of the second number. The three numbers must come from three different positions."
+  ],
+  "solution": "def three_sum(nums):\n    nums = sorted(nums)                        # sorted: two pointers work, and equal numbers sit side by side\n    triplets = []\n    for i, a in enumerate(nums):\n        if a > 0:\n            break                              # the smallest of the three is positive, so the sum cannot be 0\n        if i and a == nums[i - 1]:\n            continue                           # same first number as the last round: same triplets again\n        low, high = i + 1, len(nums) - 1\n        while low < high:\n            total = a + nums[low] + nums[high]\n            if total < 0:\n                low += 1\n            elif total > 0:\n                high -= 1\n            else:\n                triplets.append([a, nums[low], nums[high]])\n                low += 1\n                while low < high and nums[low] == nums[low - 1]:\n                    low += 1                   # skip repeats of the second number\n    return triplets\n",
+  "explanation": "**The idea.** Checking every triplet is O(n³). Instead, sort the list and fix the first number `a`. What is left is a two-number problem, \"find a pair that adds up to `-a`\", which a sorted list solves with two pointers. Start one pointer just after `a` and one at the end: if the sum is too small move the left pointer up, if it is too big move the right pointer down, and when it is zero record the triplet.\n\n**Uniqueness comes from the sort.** Equal numbers sit next to each other, so they are easy to skip: skip a first number equal to the previous one, and after recording a triplet skip over repeats of the second number. Each triplet is then produced exactly once and no set is needed. This is where most wrong answers go wrong.\n\n**Complexity.** O(n²) time (the sort is O(n log n); the loop over `a` with a two-pointer scan inside dominates) and O(1) extra space apart from the output. Once `a` is positive no triplet can sum to zero, so the loop can stop there.\n\n**Follow-up.** 4Sum: fix two numbers and run the same two-pointer scan inside, for O(n³)."
+}

@@ -6,6 +6,7 @@ import Journey from './Journey.jsx';
 import QuestComplete from './QuestComplete.jsx';
 import LibraryHero from './LibraryHero.jsx';
 import NextUp from './NextUp.jsx';
+import PracticeToday from './PracticeToday.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import { fetchPracticeCatalog } from '../../lib/practiceApi.js';
 import { buildIndex } from '../../lib/game/stats.js';
@@ -89,6 +90,7 @@ export default function PathDashboard({
           />
         )}
         {mode === 'finished' && <QuestComplete path={path} nextPath={nextPath} onPick={onPickPath} onChoose={() => onChoosing(true)} onToast={onToast} />}
+        {practice && <PracticeToday catalog={catalog} statusMap={statusMap} onOpen={practice.onOpenPractice} />}
       </div>
       <PlayerCard game={game} target={target} onTarget={setTarget} />
       {mode === 'library'

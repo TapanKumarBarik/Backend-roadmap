@@ -1,0 +1,29 @@
+{
+  "title": "Group Anagrams",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Group a list of words so that words that are anagrams of each other end up together.",
+  "statement": "Given a list of lowercase `words`, group together the words that are anagrams of each other, and return the groups as a list of lists.\n\n- Every word goes into exactly one group, and all the words of a group are anagrams of each other.\n- Repeated words are all kept: `[\"a\", \"a\"]` gives `[[\"a\", \"a\"]]`.\n- The order of the groups, and the order of the words inside a group, do not matter (the tests sort both before comparing).\n- The empty string is a word like any other (`[\"\"]` gives `[[\"\"]]`). An empty list gives `[]`.\n\n**Examples**\n\n```python\ngroup_anagrams([\"eat\", \"tea\", \"tan\", \"ate\", \"nat\", \"bat\"])\n# [[\"eat\", \"tea\", \"ate\"], [\"tan\", \"nat\"], [\"bat\"]]   in any order\ngroup_anagrams([\"\"])      # [[\"\"]]\ngroup_anagrams([\"a\"])     # [[\"a\"]]\n```\n\nComparing every word with every other word is too slow for the last test (about 17,000 words).",
+  "starter": "def group_anagrams(words):\n    \"\"\"Return the words as a list of groups; the words in one group are anagrams of each other.\"\"\"\n    ...\n",
+  "tests": [
+    "import itertools\nimport random\ndef as_groups(result):\n    # Put a result in a standard order, so that any valid order of groups and of words passes.\n    assert isinstance(result, list), f\"expected a list of groups, got {result!r}\"\n    for group in result:\n        assert isinstance(group, list), f\"every group must be a list of words, got {group!r}\"\n    return sorted(sorted(group) for group in result)",
+    "assert as_groups(group_anagrams([\"eat\", \"tea\", \"tan\", \"ate\", \"nat\", \"bat\"])) == [[\"ate\", \"eat\", \"tea\"], [\"bat\"], [\"nat\", \"tan\"]]",
+    "assert as_groups(group_anagrams([\"\"])) == [[\"\"]]",
+    "assert as_groups(group_anagrams([\"a\"])) == [[\"a\"]]",
+    "assert as_groups(group_anagrams([])) == []",
+    "assert as_groups(group_anagrams([\"a\", \"a\"])) == [[\"a\", \"a\"]]",
+    "assert as_groups(group_anagrams([\"abc\", \"def\", \"ghi\"])) == [[\"abc\"], [\"def\"], [\"ghi\"]]",
+    "assert as_groups(group_anagrams([\"aab\", \"abb\", \"baa\", \"bab\"])) == [[\"aab\", \"baa\"], [\"abb\", \"bab\"]]",
+    "assert as_groups(group_anagrams([\"ad\", \"bc\", \"da\", \"\"])) == [[\"\"], [\"ad\", \"da\"], [\"bc\"]]",
+    "assert as_groups(group_anagrams([\"listen\", \"google\", \"silent\", \"gogole\", \"enlist\"])) == [[\"enlist\", \"listen\", \"silent\"], [\"gogole\", \"google\"]]",
+    "rng = random.Random(3)\nmany_words, many_groups = [], []\nfor letters in itertools.combinations_with_replacement(\"abcdefghijklmn\", 5):\n    shuffled = list(letters)\n    rng.shuffle(shuffled)\n    group = [\"\".join(letters), \"\".join(shuffled)]\n    many_words += group\n    many_groups.append(sorted(group))\nrng.shuffle(many_words)",
+    "assert as_groups(group_anagrams(many_words)) == sorted(many_groups), \"too slow or wrong on about 17,000 words\""
+  ],
+  "hints": [
+    "Two words are anagrams exactly when they have the same letters. Can you give every word a \"fingerprint\" that is identical for all of its anagrams?",
+    "Sorting the letters of a word gives such a fingerprint. Use it as a dictionary key whose value is the list of words with that fingerprint.",
+    "A list cannot be a dictionary key, but a string or a tuple can. And comparing every word with every other word will time out on the last test."
+  ],
+  "solution": "from collections import defaultdict\n\n\ndef group_anagrams(words):\n    groups = defaultdict(list)\n    for word in words:\n        groups[\"\".join(sorted(word))].append(word)   # anagrams have the same letters once sorted\n    return list(groups.values())\n",
+  "explanation": "**The idea.** All the anagrams of a word have the same letters, so sorting the letters of a word gives a \"fingerprint\" that every anagram shares: `\"eat\"`, `\"tea\"` and `\"ate\"` all become `\"aet\"`. Use the fingerprint as a dictionary key and collect the words that share it.\n\n**Why a string key.** Dictionary keys must be hashable. A list of letters is not, but `\"\".join(sorted(word))` is a string, and a tuple of letter counts would be too.\n\n**Complexity.** For n words of length up to k, O(n · k log k) time. Counting the letters into a tuple of 26 numbers instead of sorting makes the key O(k), so the whole thing O(n · k) for lowercase words. Comparing every word with every other word would be O(n²).\n\n**Follow-up.** How would you handle capital letters or accents? Decide whether `\"Eat\"` and `\"tea\"` are anagrams, then lowercase or normalise each word before you build its key."
+}

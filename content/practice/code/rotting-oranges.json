@@ -1,0 +1,30 @@
+{
+  "title": "Rotting Oranges",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Find how many minutes it takes for rot to spread through a grid of oranges, or -1 if some never rot.",
+  "statement": "A grid holds `0` for an empty cell, `1` for a fresh orange and `2` for a rotten orange. Every minute, each fresh orange that is directly above, below, left or right of a rotten orange becomes rotten. Write `rotting_oranges(grid)`, which returns the number of minutes after which no fresh orange is left, or `-1` if some fresh orange can never rot.\n\n- All rotten oranges spread rot at the same time. Diagonal neighbors do not count.\n- If there is no fresh orange to begin with, the answer is `0`, even when there is no rotten orange either.\n- The grid has at least one cell and can have tens of thousands. You may change `grid` while you work.\n\n**Examples**\n\n```python\nrotting_oranges([[2, 1, 0],\n                 [1, 1, 1],\n                 [0, 0, 1]])        # 4\nrotting_oranges([[2, 1, 0],\n                 [0, 0, 1]])        # -1, the orange on the right is cut off\nrotting_oranges([[2, 1, 1, 1, 2]])  # 2, rot spreads from both ends\n```\n\nAim for time proportional to the number of cells.",
+  "starter": "def rotting_oranges(grid):\n    \"\"\"Return the minutes until no fresh orange is left, or -1 if some fresh orange never rots.\"\"\"\n    ...\n",
+  "tests": [
+    "def minutes(*rows):\n    # each row is written as a string of digits: \"211\" is [2, 1, 1]\n    return rotting_oranges([[int(c) for c in row] for row in rows])",
+    "assert minutes(\"210\", \"111\", \"001\") == 4",
+    "assert minutes(\"210\", \"001\") == -1",
+    "assert minutes(\"21112\") == 2",
+    "assert minutes(\"02\") == 0",
+    "assert minutes(\"1\") == -1",
+    "assert minutes(\"0\") == 0",
+    "assert minutes(\"22\", \"02\") == 0",
+    "assert minutes(\"201\") == -1",
+    "assert minutes(\"2111\", \"1111\", \"1112\") == 2",
+    "def serpentine(rows, cols):\n    # corridors of fresh oranges on the even rows, joined through one gap in each wall row (the gaps alternate between the two ends)\n    grid = []\n    for r in range(rows):\n        if r % 2 == 0:\n            grid.append(\"1\" * cols)\n        else:\n            gap = cols - 1 if (r // 2) % 2 == 0 else 0\n            grid.append(\"0\" * gap + \"1\" + \"0\" * (cols - gap - 1))\n    grid[0] = \"2\" + grid[0][1:]\n    return grid\none_corner_rotten = [\"2\" + \"1\" * 199] + [\"1\" * 200] * 199",
+    "assert minutes(*one_corner_rotten) == 398",
+    "assert minutes(*serpentine(81, 100)) == 4139"
+  ],
+  "hints": [
+    "The minute at which a fresh orange rots is its distance from the nearest rotten orange. Which kind of search measures distances on a grid, and how can it start from several oranges at once?",
+    "Put every rotten orange in the queue first (a multi-source breadth-first search) and count the fresh ones. Process the queue one round at a time, taking only the oranges that were in it when the round began: each round is one minute.",
+    "Stop as soon as no fresh orange is left, so that you do not count an extra minute in which nothing rots. If the queue is empty while fresh oranges remain, return -1."
+  ],
+  "solution": "from collections import deque\n\n\ndef rotting_oranges(grid):\n    rows, cols = len(grid), len(grid[0])\n    queue = deque()                  # every orange that is rotten right now\n    fresh = 0\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == 2:\n                queue.append((r, c))\n            elif grid[r][c] == 1:\n                fresh += 1\n\n    minutes = 0\n    while queue and fresh:\n        minutes += 1\n        for _ in range(len(queue)):  # exactly the oranges that were rotten when this minute began\n            r, c = queue.popleft()\n            for nr, nc in ((r + 1, c), (r - 1, c), (r, c + 1), (r, c - 1)):\n                if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == 1:\n                    grid[nr][nc] = 2\n                    fresh -= 1\n                    queue.append((nr, nc))\n    return -1 if fresh else minutes\n",
+  "explanation": "**The idea.** The minute at which a fresh orange rots is its distance, in steps, from the nearest rotten orange. That is a shortest-path question on a grid, and since rot spreads from all rotten oranges at once, the search starts from all of them at once: put every rotten orange in the queue before you begin (a *multi-source* breadth-first search). Each round of the search, taking exactly the oranges that were in the queue when the round began, is one minute.\n\n**Counting.** Count the fresh oranges first. Each time one rots, decrement the count; when it reaches 0 you are done, and the number of rounds so far is the answer. If the queue runs dry while some fresh orange remains, nothing can ever reach it: return `-1`. Stop the loop as soon as no fresh orange is left, or you count one minute too many (the round in which nothing new rots).\n\n**Why not simulate?** Scanning the whole grid every minute is O(minutes × cells) and too slow on a long thin grid; the queue touches each cell a constant number of times, so it is O(rows × cols). Follow-up: starting a search from each rotten orange separately and taking the largest distance is wrong, because an orange rots when the *nearest* rotten one reaches it."
+}

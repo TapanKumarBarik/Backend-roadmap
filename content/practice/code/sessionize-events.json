@@ -1,0 +1,41 @@
+{
+  "title": "Sessionize Events",
+  "topic": "data-processing",
+  "difficulty": "intermediate",
+  "module": "backend/17-kafka-and-streaming/05-stream-processing-windows-joins-and-state/README.md",
+  "description": "Group a user's unsorted event timestamps into sessions separated by an inactivity gap.",
+  "statement": "Write `sessionize(timestamps, gap)`. `timestamps` is a list of one user's event times in seconds, in any order, and `gap` is the inactivity limit in seconds.\n\nGroup the events into sessions. An event stays in the session of the event just before it (by time) when the two are at most `gap` seconds apart; a bigger difference starts a new session. So a session can last much longer than `gap`, as long as it never goes quiet for more than `gap` seconds.\n\n- Return a list of `(start, end, count)` tuples, one per session, ordered by `start`: the first and last timestamp in the session and how many events it holds.\n- Events with equal timestamps are separate events and each one counts.\n- No events: return `[]`. Do not change `timestamps`.\n\n**Examples**\n\n```python\nsessionize([100, 160, 3000, 3030], 600)   # [(100, 160, 2), (3000, 3030, 2)]\nsessionize([30, 10, 20], 10)              # [(10, 30, 3)]: exactly `gap` apart stays in the session\nsessionize([0, 11], 10)                   # [(0, 0, 1), (11, 11, 1)]\n```\n\nAim for O(n log n).",
+  "starter": "def sessionize(timestamps, gap):\n    \"\"\"Return [(start, end, count), ...]: the sessions of these events, ordered by start.\"\"\"\n    ...\n",
+  "tests": [
+    "\nimport random\n",
+    "assert sessionize([100, 160, 3000, 3030], 600) == [(100, 160, 2), (3000, 3030, 2)]",
+    "assert sessionize([30, 10, 20], 10) == [(10, 30, 3)]",
+    "assert sessionize([0, 11], 10) == [(0, 0, 1), (11, 11, 1)]",
+    "assert sessionize([], 60) == []",
+    "assert sessionize([42], 60) == [(42, 42, 1)]",
+    "assert sessionize([1000, 100, 2000, 1100, 130], 300) == [(100, 130, 2), (1000, 1100, 2), (2000, 2000, 1)]",
+    "assert sessionize([5, 5, 5], 0) == [(5, 5, 3)]",
+    "assert sessionize([6, 5, 5, 8], 0) == [(5, 5, 2), (6, 6, 1), (8, 8, 1)]",
+    "assert sessionize([-100, 50, -90], 20) == [(-100, -90, 2), (50, 50, 1)]",
+    "assert sessionize([1.5, 0.5, 4.0, 1.0], 1.0) == [(0.5, 1.5, 3), (4.0, 4.0, 1)]",
+    {
+      "name": "a session may last far longer than the gap: 100 events 25 s apart with a gap of 30",
+      "code": "assert sessionize(list(range(0, 2500, 25)), 30) == [(0, 2475, 100)]"
+    },
+    {
+      "name": "the list passed in is not changed (no sorting in place)",
+      "code": "events = [30, 10, 20, 500]\nsessionize(events, 10)\nassert events == [30, 10, 20, 500]"
+    },
+    {
+      "name": "60,000 shuffled events in 1,200 sessions of 50",
+      "code": "events = [session * 10_000 + 10 * k for session in range(1200) for k in range(50)]\nrandom.Random(3).shuffle(events)\nexpected = [(session * 10_000, session * 10_000 + 490, 50) for session in range(1200)]\nassert sessionize(events, 100) == expected"
+    }
+  ],
+  "hints": [
+    "A session is ended by silence, so you need the events in time order. What is the first thing to do with unsorted input?",
+    "Sort a copy, then walk through once, keeping the session that is still open. If the next event is at most `gap` after the previous one, extend the session; otherwise close it and start a new one.",
+    "Compare each event with the previous event, not with the start of the session. A difference of exactly `gap` stays in the session. Use `sorted(...)`, not `.sort()`, so the list you were given is untouched."
+  ],
+  "solution": "def sessionize(timestamps, gap):\n    sessions = []                                       # (start, end, count), the last one is still open\n    for t in sorted(timestamps):                        # sorted() leaves the caller's list alone\n        if sessions and t - sessions[-1][1] <= gap:     # within `gap` of the previous event: same session\n            start, _, count = sessions[-1]\n            sessions[-1] = (start, t, count + 1)\n        else:\n            sessions.append((t, t, 1))\n    return sessions\n",
+  "explanation": "**The idea.** Sessions are defined by silence, so look at events in time order. Sort the timestamps, then sweep once: if the next event is at most `gap` after the previous one it extends the open session, otherwise it starts a new one. Comparing with the *previous event*, not with the start of the session, is what lets a busy session run on for hours.\n\n**Details.** The boundary matters: a difference of exactly `gap` stays in the session (`<=`), one more second splits it. Use `sorted(...)`, not `list.sort()`, to leave the caller's list alone. Equal timestamps need no special case: their difference is 0, which is never more than a non-negative gap.\n\n**In production** this is the first step of most analytics on user behaviour (session length, pages per session, bounce rate). The same sweep works on a stream if events arrive in order; with late events you need a watermark or a session-window operator (Flink, Beam, Spark Structured Streaming), which also merges two sessions when a late event bridges the gap between them.\n\n**Complexity.** O(n log n) for the sort and O(n) for the sweep. Follow-up: if the events were already sorted, how little memory could you use? (One open session at a time.)"
+}

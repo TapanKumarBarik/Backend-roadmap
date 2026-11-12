@@ -1,0 +1,26 @@
+{
+  "title": "Climbing Stairs",
+  "topic": "dynamic-programming",
+  "difficulty": "beginner",
+  "description": "Count the distinct ways to climb a staircase taking one or two steps at a time.",
+  "statement": "Return the number of distinct ways to climb a staircase of `n` steps when every move is either 1 step or 2 steps.\n\n- `n` is a whole number, `0` or more. For `n = 0` there is exactly one way: take no steps.\n- The order of the moves matters: `1 + 2` and `2 + 1` are two different ways to climb 3 steps.\n- The count grows very fast, so return it exactly (Python integers never overflow).\n\n**Examples**\n\n```python\nclimb_stairs(1)   # 1   (just 1)\nclimb_stairs(3)   # 3   (1+1+1, 1+2, 2+1)\nclimb_stairs(5)   # 8\n```\n\nTrying every sequence of moves takes exponential time, and the tests go up to `n = 90`. Aim for O(n).",
+  "starter": "def climb_stairs(n):\n    \"\"\"Return the number of distinct sequences of 1-step and 2-step moves that climb exactly n steps.\"\"\"\n    ...\n",
+  "tests": [
+    "assert climb_stairs(1) == 1",
+    "assert climb_stairs(3) == 3",
+    "assert climb_stairs(5) == 8",
+    "assert climb_stairs(0) == 1",
+    "assert climb_stairs(2) == 2",
+    "assert climb_stairs(4) == 5",
+    "assert climb_stairs(10) == 89",
+    "assert climb_stairs(45) == 1836311903",
+    "assert climb_stairs(90) == 4660046610375530309"
+  ],
+  "hints": [
+    "Think about the very last move before you stand on step `n`. Where could you have been one move earlier?",
+    "You arrive from step `n - 1` with a 1-step move or from step `n - 2` with a 2-step move, so the count for `n` is the sum of the counts for those two steps. Only the last two counts are ever needed.",
+    "Get the starting values right (one way to be on step 0, one way to be on step 1), and build upward with a loop instead of calling the function twice from itself."
+  ],
+  "solution": "def climb_stairs(n):\n    two_back, one_back = 1, 1          # ways to stand on step 0 and on step 1\n    for _ in range(n - 1):\n        two_back, one_back = one_back, two_back + one_back\n    return one_back\n",
+  "explanation": "**The idea.** Look at the last move. However you climbed, you reached step `n` either with a 1-step move from step `n - 1` or with a 2-step move from step `n - 2`. Those two groups of routes never overlap, so `ways(n) = ways(n - 1) + ways(n - 2)`. That is the Fibonacci sequence, shifted by one.\n\n**Why not write it as plain recursion.** A function that calls itself twice solves the same smaller questions again and again, and the number of calls grows as fast as the answer does (exponentially). Either remember each answer once (a cache) or build up from the bottom. Because each value needs only the previous two, a loop with two variables is enough.\n\n**Complexity.** O(n) time, O(1) space. Do not use the closed formula with floating point: it is already wrong around `n = 70`, which is why the tests go to 90. Variants (steps of 1, 2 or 3; some steps broken; each step has a cost) only change the recurrence."
+}

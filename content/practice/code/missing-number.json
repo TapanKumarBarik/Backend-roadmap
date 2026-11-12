@@ -1,0 +1,28 @@
+{
+  "title": "Missing Number",
+  "topic": "math-and-bits",
+  "difficulty": "beginner",
+  "description": "Find the one number from 0 to n that is missing from a list of n distinct numbers.",
+  "statement": "Write `missing_number(nums)`. The list `nums` holds `n` **different** integers (`n` is `len(nums)`), every one of them in the range `0` to `n` inclusive. That range has `n + 1` numbers, so exactly one of them is missing. Return it.\n\n- The items are in no particular order.\n- The missing number can be `0` or `n` itself.\n- An empty list has `n = 0`, so the only number in its range, `0`, is the missing one.\n\n**Examples**\n\n```python\nmissing_number([3, 0, 1])                    # 2\nmissing_number([0, 1])                       # 2, the missing number is n itself\nmissing_number([9, 6, 4, 2, 3, 5, 7, 0, 1])  # 8\n```\n\nChecking `i in nums` for every `i` from 0 to `n` is O(n²) and too slow for a long list. Aim for O(n) time.",
+  "starter": "def missing_number(nums):\n    \"\"\"Return the one number in 0..len(nums) that is not in nums.\"\"\"\n    ...\n",
+  "tests": [
+    "assert missing_number([3, 0, 1]) == 2",
+    "assert missing_number([0, 1]) == 2",
+    "assert missing_number([9, 6, 4, 2, 3, 5, 7, 0, 1]) == 8",
+    "assert missing_number([1]) == 0",
+    "assert missing_number([0]) == 1",
+    "assert missing_number([]) == 0",
+    "assert missing_number([1, 2, 3, 4, 5]) == 0",
+    "assert missing_number([4, 3, 2, 1, 0]) == 5",
+    "assert missing_number([2, 0, 3, 5, 1]) == 4",
+    "scrambled = [(i * 31) % 100_001 for i in range(100_001)]",
+    "assert missing_number([v for v in scrambled if v != 73_219]) == 73_219, \"wrong or too slow for 100,000 numbers in a scrambled order\""
+  ],
+  "hints": [
+    "You know exactly which numbers the complete set `0 … n` contains, even though nobody gave it to you. How could you compare \"everything\" with \"what I have\" without searching for each number?",
+    "The sum of `0 … n` has a closed form. Compare it with the sum of the list. (Another route: XOR all the numbers `0 … n` together with all the items, so that every present number cancels itself.)",
+    "`n` is `len(nums)`, not the largest item: when the missing number is `n` itself, the largest item in the list is `n - 1`."
+  ],
+  "solution": "def missing_number(nums):\n    n = len(nums)\n    expected_total = n * (n + 1) // 2     # 0 + 1 + ... + n\n    return expected_total - sum(nums)\n",
+  "explanation": "**The idea.** You know exactly what the complete set `0, 1, …, n` adds up to: `n * (n + 1) / 2`. The list has the same numbers minus one, so its sum is smaller by exactly the missing number. Subtract and you are done: one pass, no extra memory.\n\n**The XOR way.** `a ^ a == 0` and `a ^ 0 == a`, so if you XOR together every index `0 … n` and every item of the list, each number that is present appears twice and cancels out; what is left is the missing number. The sum can get large in languages with fixed-size integers (it overflows), and XOR never does; in Python integers do not overflow, so either works.\n\n**Details to get right.** `n` is `len(nums)`, not `max(nums)` or `len(nums) - 1`: when the missing number is the largest one (`n` itself), the biggest item in the list is only `n - 1`.\n\n**Complexity.** O(n) time, O(1) extra space. A set of the items, or a sorted copy, also works at the cost of O(n) space or O(n log n) time.\n\n**Follow-up.** What if two numbers are missing? The sum alone no longer identifies them; the sum and the sum of squares do, or you can split the range around the XOR of the two."
+}

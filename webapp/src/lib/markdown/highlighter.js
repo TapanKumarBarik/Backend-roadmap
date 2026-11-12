@@ -10,6 +10,7 @@
 // unhighlighted code.
 import hljs from 'highlight.js/lib/core';
 import { hljsRanges } from './hljsRanges.js';
+import { escapeHtml } from './escapeHtml.js';
 import bash from 'highlight.js/lib/languages/bash';
 import cpp from 'highlight.js/lib/languages/cpp';
 import csharp from 'highlight.js/lib/languages/csharp';
@@ -69,6 +70,15 @@ GRAMMARS.forEach(([name, lang]) => hljs.registerLanguage(name, lang));
 export function highlight(code, lang) {
   if (!lang || !hljs.getLanguage(lang)) return;
   try { hljs.highlightElement(code); } catch { /* highlighting is optional */ }
+}
+
+/**
+ * `code` as HTML, with the coloured parts in hljs-* spans and everything else escaped, for a place that draws code itself and lays its own
+ * text over it (the practice editor). Plain escaped text for a language that is not coloured.
+ */
+export function toHtml(code, lang) {
+  if (!supports(lang)) return escapeHtml(code);
+  try { return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value; } catch { return escapeHtml(code); }
 }
 
 /** Whether a language name is one this highlighter colours. */

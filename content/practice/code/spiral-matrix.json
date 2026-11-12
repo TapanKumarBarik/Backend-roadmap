@@ -1,0 +1,30 @@
+{
+  "title": "Spiral Matrix",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Read the cells of a matrix in clockwise spiral order, starting at the top-left corner.",
+  "statement": "Write `spiral_order(matrix)`, which returns every value of the matrix as a list in clockwise spiral order: start at the top-left cell, go right along the top row, down the right column, left along the bottom row and up the left column, then keep spiralling inwards until each cell has been read once.\n\n- `matrix` is a list of rows, all the same length; it does not have to be square. An empty matrix (`[]`) gives `[]`.\n- A matrix with a single row or a single column is read from one end to the other, and no cell is repeated.\n- Leave `matrix` unchanged.\n\n**Examples**\n\n```python\nspiral_order([[1, 2, 3],\n              [4, 5, 6],\n              [7, 8, 9]])          # [1, 2, 3, 6, 9, 8, 7, 4, 5]\n\nspiral_order([[1, 2, 3, 4],\n              [5, 6, 7, 8],\n              [9, 10, 11, 12]])    # [1, 2, 3, 4, 8, 12, 11, 10, 9, 5, 6, 7]\n\nspiral_order([[1], [2], [3]])      # [1, 2, 3]\n```",
+  "starter": "def spiral_order(matrix):\n    \"\"\"Return the values of matrix as a list, in clockwise spiral order from the top-left cell.\"\"\"\n    ...\n",
+  "tests": [
+    "def reference_spiral(matrix):\n    # A slow reference built differently from the usual solutions: walk cell by cell and turn right at the edge or at a cell already visited.\n    rows, cols = len(matrix), len(matrix[0])\n    visited = [[False] * cols for _ in range(rows)]\n    row = col = 0\n    d_row, d_col = 0, 1\n    order = []\n    for _ in range(rows * cols):\n        order.append(matrix[row][col])\n        visited[row][col] = True\n        ahead_row, ahead_col = row + d_row, col + d_col\n        if not (0 <= ahead_row < rows and 0 <= ahead_col < cols) or visited[ahead_row][ahead_col]:\n            d_row, d_col = d_col, -d_row\n        row, col = row + d_row, col + d_col\n    return order\ndef unchanged_after_reading(matrix):\n    before = [list(row) for row in matrix]\n    spiral_order(matrix)\n    return matrix == before",
+    "assert spiral_order([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) == [1, 2, 3, 6, 9, 8, 7, 4, 5]",
+    "assert spiral_order([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]) == [1, 2, 3, 4, 8, 12, 11, 10, 9, 5, 6, 7]",
+    "assert spiral_order([[1], [2], [3]]) == [1, 2, 3]",
+    "assert spiral_order([[1, 2, 3, 4, 5]]) == [1, 2, 3, 4, 5]",
+    "assert spiral_order([[1, 2], [3, 4]]) == [1, 2, 4, 3]",
+    "assert spiral_order([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]) == [1, 2, 4, 6, 8, 10, 9, 7, 5, 3]",
+    "assert spiral_order([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]) == [1, 2, 3, 6, 9, 12, 11, 10, 7, 4, 5, 8]",
+    "assert spiral_order([]) == []",
+    "assert unchanged_after_reading([[1, 2, 3], [4, 5, 6]]), \"spiral_order must leave the matrix it reads unchanged\"",
+    "wide = [[row * 70 + col for col in range(70)] for row in range(51)]\ntall = [[row * 3 + col for col in range(3)] for row in range(400)]",
+    "assert spiral_order(wide) == reference_spiral(wide)",
+    "assert spiral_order(tall) == reference_spiral(tall)"
+  ],
+  "hints": [
+    "Think of the matrix as an onion. What does the outer layer look like, and what is left when you peel it off?",
+    "Keep four boundaries: top, bottom, left, right. Read along the top, down the right side, back along the bottom and up the left side; then move all four boundaries one step inwards and go round again while they still enclose something.",
+    "The bottom row and the left column of a ring only exist if the ring has at least two rows and at least two columns. Without that check, a single leftover row or column is read twice."
+  ],
+  "solution": "def spiral_order(matrix):\n    if not matrix:\n        return []\n    order = []\n    top, bottom = 0, len(matrix) - 1\n    left, right = 0, len(matrix[0]) - 1\n    while top <= bottom and left <= right:\n        order.extend(matrix[top][left:right + 1])                     # along the top, left to right\n        for row in range(top + 1, bottom + 1):                        # down the right edge\n            order.append(matrix[row][right])\n        if top < bottom and left < right:                             # only a ring with 2+ rows and 2+ columns has a way back\n            order.extend(reversed(matrix[bottom][left:right]))        # along the bottom, right to left (its last cell is already read)\n            for row in range(bottom - 1, top, -1):                    # up the left edge\n                order.append(matrix[row][left])\n        top, bottom, left, right = top + 1, bottom - 1, left + 1, right - 1\n    return order\n",
+  "explanation": "**The idea.** Peel the matrix like an onion. Four numbers, `top`, `bottom`, `left` and `right`, mark the ring you are on. Read its four edges in turn (top row, right column, bottom row backwards, left column upwards), then move all four numbers one step inwards and repeat while they still enclose something.\n\n**The trap.** When what is left is a single row or a single column, the \"way back\" (the bottom row and the left column) is the same cells you have just read. The check `top < bottom and left < right` before the return trip stops them being read twice. The loop condition `top <= bottom and left <= right` ends the walk when nothing is left, and an empty matrix has to be caught before you ask for `len(matrix[0])`.\n\n**Complexity.** O(rows × columns) time, since every cell is read once, and O(1) extra space besides the answer.\n\n**Other ways.** Take the first row off, rotate what is left a quarter turn with `zip(*rest)` and repeat: short, but it copies the matrix again and again, and it empties your input unless you copy it first. Or walk cell by cell and turn right when the next cell is off the grid or already read: easy to get right, at the price of a grid of visited cells.\n\n**Follow-up.** Do the reverse: fill an empty n × n grid with `1 … n²` in spiral order."
+}

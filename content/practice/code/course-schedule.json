@@ -1,0 +1,29 @@
+{
+  "title": "Course Schedule",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "advanced",
+  "description": "Order courses so every prerequisite comes first, or report that the prerequisites form a cycle.",
+  "statement": "There are `n` courses, numbered `0` to `n - 1`. `prerequisites` is a list of pairs `[course, needs]`: you must take `needs` before `course`. Return an order in which all `n` courses can be taken, as a list of the course numbers, or `[]` if no such order exists because the prerequisites go round in a cycle.\n\n- `n` is at least `1`. Courses without prerequisites still belong in the order.\n- If several orders work, any of them is accepted: the tests check that yours is complete and respects every prerequisite.\n- A course may list itself as a prerequisite (impossible, so `[]`), and the same pair may appear more than once.\n\n**Examples**\n\n```python\ncourse_order(2, [[1, 0]])           # [0, 1]: course 0 comes first\ncourse_order(2, [[1, 0], [0, 1]])   # [], each one needs the other\ncourse_order(3, [])                 # any order of 0, 1, 2, for example [0, 1, 2]\n```\n\nAim for O(n + p) with p prerequisites: the large tests have tens of thousands of courses.",
+  "starter": "def course_order(n, prerequisites):\n    \"\"\"Return an order of the courses 0..n-1 that respects every [course, needs] pair, or [] if there is a cycle.\"\"\"\n    ...\n",
+  "tests": [
+    "def brief(value):\n    text = repr(value)\n    return text if len(text) <= 100 else text[:97] + \"...\"\ndef valid_order(n, prerequisites):\n    \"\"\"Call course_order and check its answer: every course exactly once, and every prerequisite before the course that needs it.\"\"\"\n    order = course_order(n, [list(pair) for pair in prerequisites])\n    if not isinstance(order, list):\n        raise AssertionError(f\"expected a list with all {n} courses, got {brief(order)}\")\n    if sorted(order) != list(range(n)):\n        raise AssertionError(f\"the order must hold each course from 0 to {n - 1} exactly once, got {brief(order)}\")\n    position = {course: i for i, course in enumerate(order)}\n    for course, needs in prerequisites:\n        if position[needs] > position[course]:\n            raise AssertionError(f\"course {course} comes before its prerequisite {needs} in {brief(order)}\")\n    return True\ntree_of_courses = [[i, (i - 1) // 2] for i in range(1, 20_000)]",
+    "assert course_order(2, [[1, 0]]) == [0, 1]",
+    "assert course_order(2, [[1, 0], [0, 1]]) == []",
+    "assert valid_order(3, [])",
+    "assert valid_order(4, [[1, 0], [2, 0], [3, 1], [3, 2]])",
+    "assert course_order(1, [[0, 0]]) == []",
+    "assert course_order(1, []) == [0]",
+    "assert course_order(5, [[2, 1], [3, 2], [1, 3]]) == []",
+    "assert valid_order(3, [[1, 0], [1, 0], [2, 1]])",
+    "assert valid_order(300, [[i, i - 1] for i in range(1, 300)])",
+    "assert valid_order(20_000, tree_of_courses)",
+    "assert course_order(20_000, tree_of_courses + [[0, 19_999]]) == []"
+  ],
+  "hints": [
+    "Draw an arrow from each course to the courses that need it. When is it impossible to take every course?",
+    "Keep, for every course, the number of prerequisites it still waits for. Repeatedly take a course whose count is zero, add it to the order, and lower the count of every course that needed it.",
+    "If you finish with fewer than `n` courses in the order, the rest are waiting on each other: return `[]`. Mind the direction of the pairs: in `[course, needs]` the arrow goes from `needs` to `course`."
+  ],
+  "solution": "from collections import defaultdict, deque\n\n\ndef course_order(n, prerequisites):\n    unlocks = defaultdict(list)                # course -> the courses that need it\n    waiting = [0] * n                          # how many prerequisites each course still has\n    for course, needs in prerequisites:\n        unlocks[needs].append(course)\n        waiting[course] += 1\n    ready = deque(course for course in range(n) if waiting[course] == 0)\n    order = []\n    while ready:\n        course = ready.popleft()\n        order.append(course)\n        for later in unlocks[course]:\n            waiting[later] -= 1\n            if waiting[later] == 0:\n                ready.append(later)\n    return order if len(order) == n else []    # fewer than n: some courses are waiting on each other\n",
+  "explanation": "**The idea.** Think of each prerequisite as an arrow from the course you must take first to the course that needs it. An order exists exactly when the arrows contain no cycle. **Kahn's algorithm** builds the order directly: take a course that has no unmet prerequisite, put it in the order, and cross it off the lists of the courses that were waiting for it. Any of those left with nothing to wait for joins the queue.\n\n**Detecting a cycle.** Courses on a cycle each wait for another one on it, so none of them ever reaches zero. If the order ends up shorter than `n`, return `[]`, not the partial order. A course that lists itself is the smallest cycle.\n\n**Mind the direction.** In `[course, needs]` the arrow points from `needs` to `course`. Reversing it gives an order that answers the opposite question and fails the first example.\n\n**Complexity.** O(n + p) time and space for n courses and p prerequisites, because each arrow is handled once. Finding the next ready course by scanning all courses every time would be O(n²).\n\n**Another way.** A depth-first search that marks nodes \"in progress\" and \"done\" finds a cycle when it meets an in-progress node, and the finishing order, reversed, is a valid order. This is how a build system orders its steps, and its \"circular dependency\" error is this algorithm failing."
+}

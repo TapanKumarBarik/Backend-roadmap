@@ -4,5 +4,6 @@ export const RELATED = {
   check: (questions) => `Check yourself · ${questions} questions`,
   quiz: (title) => `Quiz: ${title}`,
   exercise: (title) => `Exercise: ${title}`,
-  interview: (title) => `Interview questions: ${title}`
+  interview: (title) => `Interview questions: ${title}`,
+  code: (title) => `Code it: ${title}`
 };

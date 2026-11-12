@@ -52,6 +52,69 @@ test('the catalog lists everything, and nothing in it or in a quiz gives an answ
   assert.equal((await call(null, 'GET', '/practice/quizzes/nope')).status, 404);
 });
 
+test('coding problems are listed, served without their solution, and the solution comes from a route of its own', async () => {
+  const slugs = Object.keys(practiceContent.code);
+  assert.ok(slugs.length >= 3, 'there are coding problems');
+  const { json, raw } = await call(null, 'GET', '/practice/catalog');
+  assert.deepEqual(json.code.map((c) => c.slug), slugs, 'everything in git is listed');
+  assert.ok(json.code.every((c) => c.title && c.topic && c.difficulty && c.description && c.tests >= 3));
+  assert.doesNotMatch(raw, /"solution"|"statement"|"starter"|"explanation"/, 'the list carries no problem text');
+
+  const slug = slugs[0];
+  const problem = await call(null, 'GET', `/practice/code/${slug}`);
+  assert.equal(problem.status, 200);
+  assert.equal(problem.json.slug, slug);
+  assert.ok(problem.json.statement && problem.json.starter && problem.json.tests.length >= 3);
+  assert.doesNotMatch(problem.raw, /"solution"|"explanation"/, 'the model solution is not sent with the problem');
+
+  const solution = await call(null, 'GET', `/practice/code/${slug}/solution`);
+  assert.equal(solution.status, 200);
+  assert.equal(solution.json.solution, practiceContent.code[slug].solution);
+  assert.ok(solution.json.explanation);
+  assert.equal((await call(null, 'GET', '/practice/code/nope')).status, 404);
+  assert.equal((await call(null, 'GET', '/practice/code/nope/solution')).status, 404);
+});
+
+test('the daily drill is the same for everyone, comes without answers, and each answer is checked on the server', async () => {
+  const anon = await call(null, 'GET', '/practice/drill');
+  assert.equal(anon.status, 200);
+  assert.match(anon.json.day, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(anon.json.questions.length, 5);
+  assert.doesNotMatch(anon.raw, /"answer"|"explanation"/, 'the answers are not sent with the questions');
+  assert.equal(new Set(anon.json.questions.map((q) => q.key)).size, 5);
+  assert.deepEqual((await call(ada, 'GET', '/practice/drill')).json, anon.json, 'the same drill for everyone');
+
+  for (const q of anon.json.questions) {
+    const quiz = practiceContent.quizzes[q.quiz];
+    const truth = quiz.questions.find((x) => x.id === q.id);
+    const right = await call(null, 'POST', '/practice/drill/check', { day: anon.json.day, key: q.key, chosen: truth.answer });
+    assert.deepEqual([right.status, right.json.correct], [200, true]);
+    assert.deepEqual(right.json.answer, truth.answer);
+    assert.ok(right.json.explanation);
+    const wrongId = truth.options.find((o) => !truth.answer.includes(o.id)).id;
+    assert.equal((await call(null, 'POST', '/practice/drill/check', { day: anon.json.day, key: q.key, chosen: [wrongId] })).json.correct, false);
+    assert.equal((await call(null, 'POST', '/practice/drill/check', { day: anon.json.day, key: q.key, chosen: [] })).json.correct, false, 'no answer is not right');
+  }
+  const [first] = anon.json.questions;
+  assert.equal((await call(null, 'POST', '/practice/drill/check', { day: anon.json.day, key: 'nope/q1', chosen: ['a'] })).status, 400, 'a question that is not in the drill');
+  assert.equal((await call(null, 'POST', '/practice/drill/check', { day: '2001-01-01', key: first.key, chosen: ['a'] })).status, 400, 'an old day');
+  assert.equal((await call(null, 'POST', '/practice/drill/check', { day: 'today', key: first.key, chosen: ['a'] })).status, 400);
+  assert.equal((await call(null, 'POST', '/practice/drill/check', { key: first.key })).status, 400);
+  assert.equal((await call(null, 'GET', '/practice/drill?day=2999-01-01')).status, 400, 'a day that has not come');
+});
+
+test("a solved problem and a finished drill are saved as progress like a module, and the admin's count of a reader's modules leaves them out", async () => {
+  const marks = ['backend/01-request-response-fundamentals/06-http-caching/README.md', 'practice/code/two-sum', 'practice/drill/2026-11-12'];
+  const now = new Date().toISOString();
+  env.DB.raw.prepare('INSERT INTO users (user_id, email, name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)').run('user-ada@example.com', 'ada@example.com', 'Ada Lovelace', now, now);
+  for (const path of marks) assert.equal((await call(ada, 'PUT', `/progress/${path}`, { status: 'done' })).status, 204, path);
+  const mine = await call(ada, 'GET', '/progress');
+  assert.deepEqual(Object.keys(mine.json).sort(), [...marks].sort(), 'practice follows the account like a module does');
+  const users = await call(owner, 'GET', '/manage/users');
+  assert.equal(users.status, 200);
+  assert.equal(users.json.users.find((u) => u.email === 'ada@example.com').progress, 1, 'one module, not three marks');
+});
+
 test('a try is scored on the server for single, multiple and true/false questions, and the answers come back with it', async () => {
   const all = await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
   assert.equal(all.status, 200);

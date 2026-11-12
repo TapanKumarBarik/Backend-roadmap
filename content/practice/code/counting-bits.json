@@ -1,0 +1,27 @@
+{
+  "title": "Counting Bits",
+  "topic": "math-and-bits",
+  "difficulty": "intermediate",
+  "description": "List how many 1 bits each number from 0 to n has, in linear time.",
+  "statement": "Write `count_bits(n)`, which returns a list of `n + 1` integers: the item at index `i` is the number of `1` bits in the binary form of `i`, for every `i` from 0 to `n`.\n\n- `n` is a non-negative integer, so the list always has at least one item: `count_bits(0)` is `[0]`.\n- Return a list of `int`.\n\n**Examples**\n\n```python\ncount_bits(2)    # [0, 1, 1]\ncount_bits(5)    # [0, 1, 1, 2, 1, 2], because 5 is 101 in binary\ncount_bits(0)    # [0]\n```\n\n`n` can be in the hundreds of thousands. Aim for O(n) in total.",
+  "starter": "def count_bits(n):\n    \"\"\"Return a list whose item i is the number of 1 bits in the binary form of i, for i from 0 to n.\"\"\"\n    ...\n",
+  "tests": [
+    "def check_large(n, bit_length):\n    # n is 2**bit_length - 1, so across 0..n every bit position is set in exactly half of the numbers.\n    bits = count_bits(n)\n    if len(bits) != n + 1:\n        raise AssertionError(f\"count_bits({n}) should return {n + 1} items, got {len(bits)}\")\n    if sum(bits) != bit_length * 2 ** (bit_length - 1):\n        raise AssertionError(f\"the counts for 0..{n} should add up to {bit_length * 2 ** (bit_length - 1)}, but add up to {sum(bits)}\")\n    for i in (1, 2, 3, 1000, 65535, 65536, n // 2, n // 2 + 1, n * 3 // 4, n):\n        if bits[i] != bin(i).count(\"1\"):\n            raise AssertionError(f\"count_bits({n})[{i}] should be {bin(i).count('1')}, got {bits[i]}\")\n    return True",
+    "assert count_bits(2) == [0, 1, 1]",
+    "assert count_bits(5) == [0, 1, 1, 2, 1, 2]",
+    "assert count_bits(0) == [0]",
+    "assert count_bits(1) == [0, 1]",
+    "assert count_bits(16) == [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1]",
+    "assert count_bits(255)[-1] == 8 and count_bits(256)[-1] == 1, \"the last count must be 8 for n = 255 (all eight bits set) and 1 for n = 256\"",
+    "assert count_bits(1000) == [bin(i).count(\"1\") for i in range(1001)]",
+    "assert all(type(b) is int for b in count_bits(40)), \"the counts must be ints\"",
+    "assert check_large(2**19 - 1, 19), \"wrong, or too slow, for n = 524,287\""
+  ],
+  "hints": [
+    "Write the numbers 0 to 8 in binary next to their bit counts. Compare 5 (101) with 2 (10), and 6 (110) with 3 (11). Can the count of a number be got from the count of a smaller one?",
+    "Drop the last binary digit of `i` and you get a smaller number whose answer you already have. How does the count for `i` relate to that answer and to the digit you dropped?",
+    "Shifting right by one (`i >> 1`) drops the last digit, and `i & 1` is the digit that was dropped. Fill the list in increasing order of `i`, so the smaller number is always ready; it has `n + 1` items, so the loop has to reach `n`."
+  ],
+  "solution": "def count_bits(n):\n    bits = [0] * (n + 1)\n    for i in range(1, n + 1):\n        # i has the same 1 bits as i // 2 (its last bit dropped), plus one if that last bit is 1\n        bits[i] = bits[i >> 1] + (i & 1)\n    return bits\n",
+  "explanation": "**The idea.** Shifting `i` one place right (`i >> 1`) drops its last binary digit and gives a smaller number, `i // 2`, whose count you have already worked out. So the count for `i` is the count for `i >> 1` plus the digit you dropped, which is `i & 1`. Fill the list from 0 upwards and every answer is built from an earlier one in a single step: no counting loop per number.\n\n**Why it works.** `6` is `110` and `3` is `11`: dropping the final 0 changes nothing. `7` is `111` and `3` is `11`: dropping the final 1 loses one bit. Another way to see it: `bits[i] = bits[i & (i - 1)] + 1`, since `i & (i - 1)` removes the lowest 1 bit.\n\n**Complexity.** O(n) time and O(n) space, which is the size of the answer.\n\n**Other ways that pass.** `bin(i).count(\"1\")` for each number, or `i.bit_count()` (Python 3.10+, the one-liner you would write in practice). They cost O(log n) per number, which is fast enough here because the work happens in C. The point of the exercise is the relation between neighbouring answers, which turns up again in many bit and dynamic-programming problems.\n\n**Mistakes to avoid.** A list of length `n` instead of `n + 1` (the range must reach `n`). Building the list with `bits = bits + [x]` in a loop, which copies the whole list every time and is O(n²).\n\n**Follow-up.** Add one more power of two at a time: the counts for `2**k … 2**(k+1) - 1` are the counts for `0 … 2**k - 1`, each plus one."
+}

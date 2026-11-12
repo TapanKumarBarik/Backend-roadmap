@@ -1,0 +1,30 @@
+{
+  "title": "Merge K Sorted Lists",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "advanced",
+  "description": "Merge k already-sorted lists of numbers into one sorted list, the way a log merger or external sort does.",
+  "statement": "Given `lists`, a list of `k` lists of integers that are each already sorted in ascending order, return one list that contains every number from all of them, in ascending order.\n\n- Duplicates are kept: merging `[1, 1]` and `[1]` gives `[1, 1, 1]`.\n- Some of the lists may be empty, and `lists` itself may be empty. If there is nothing to merge, return `[]`.\n- Do not change the input lists.\n\n**Examples**\n\n```python\nmerge_k_sorted([[1, 4, 5], [1, 3, 4], [2, 6]])   # [1, 1, 2, 3, 4, 4, 5, 6]\nmerge_k_sorted([[], [1], []])                    # [1]\nmerge_k_sorted([])                               # []\n```\n\nAim for O(N log k) for N numbers in total: the last test has 5,000 lists, too many to look at the front of every list for each number.",
+  "starter": "def merge_k_sorted(lists):\n    \"\"\"Return all the numbers of the sorted lists as one sorted list; the input lists are not changed.\"\"\"\n    ...\n",
+  "tests": [
+    "import random",
+    "assert merge_k_sorted([[1, 4, 5], [1, 3, 4], [2, 6]]) == [1, 1, 2, 3, 4, 4, 5, 6]",
+    "assert merge_k_sorted([[], [1], []]) == [1]",
+    "assert merge_k_sorted([]) == []",
+    "assert merge_k_sorted([[]]) == []",
+    "assert merge_k_sorted([[3, 5, 8]]) == [3, 5, 8]",
+    "assert merge_k_sorted([[2, 2], [2], [2, 2, 2]]) == [2, 2, 2, 2, 2, 2]",
+    "assert merge_k_sorted([[-5, 0, 7], [-6], [-1, 1, 2, 3, 4], []]) == [-6, -5, -1, 0, 1, 2, 3, 4, 7]",
+    "given = [[1, 3], [2], [0, 4]]",
+    "assert merge_k_sorted(given) == [0, 1, 2, 3, 4]",
+    "assert given == [[1, 3], [2], [0, 4]], \"merge_k_sorted must not change the lists it is given\"",
+    "rng = random.Random(7)\nmany = [sorted(rng.randint(0, 100_000) for _ in range(6)) for _ in range(5_000)]",
+    "assert merge_k_sorted(many) == sorted(x for lst in many for x in lst), \"too slow or wrong on 5,000 lists of 6 numbers; looking at the front of every list for each number is too much work\""
+  ],
+  "hints": [
+    "The smallest number not yet used is always at the front of one of the lists. Checking all k fronts for every number is slow when k is large. What structure gives you the minimum of k items quickly?",
+    "Put the first number of every non-empty list on a min-heap, as `(value, which_list, position)`. Pop the smallest, add it to the result, and push the next number from that same list.",
+    "When two values are equal, Python compares the next item of the tuples, so keep the list index as the second item. Leave empty lists out when you build the first heap."
+  ],
+  "solution": "import heapq\n\n\ndef merge_k_sorted(lists):\n    # one heap entry per list: (its next value, which list, the position of that value);\n    # the list index comes before anything else that could not be compared, and breaks ties between equal values\n    heap = [(lst[0], i, 0) for i, lst in enumerate(lists) if lst]\n    heapq.heapify(heap)\n    merged = []\n    while heap:\n        value, i, position = heapq.heappop(heap)\n        merged.append(value)\n        if position + 1 < len(lists[i]):\n            heapq.heappush(heap, (lists[i][position + 1], i, position + 1))\n    return merged\n",
+  "explanation": "**The idea.** The smallest number not used yet is always at the front of one of the k lists. Finding it by looking at all k fronts costs O(k) for every number. A min-heap finds it in O(log k): keep one entry per list, as `(value, list_index, position)`. Pop the smallest, append it to the result, and push the next number of the same list, if it has one.\n\n**Why the tuple has three parts.** Python compares tuples item by item. When two values are equal it falls through to the list index, which is always different, so it never has to compare anything that cannot be ordered.\n\n**Complexity.** O(N log k) time for N numbers in total, and O(k) extra space for the heap. This is the merge step of an external sort, and how sorted log files are combined. The standard library has `heapq.merge(*lists)`, which does it lazily. `sorted()` of all the lists joined is also fast in practice, because Timsort notices the k sorted runs, but it needs all N numbers in memory at once.\n\n**Follow-up.** The same heap merges k sorted *streams* without holding them in memory. What would you change if the lists were linked lists?"
+}

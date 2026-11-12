@@ -1,0 +1,28 @@
+{
+  "title": "Partition Equal Subset Sum",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Decide whether a list of positive integers can be split into two groups with the same sum.",
+  "statement": "Write `can_partition(nums)`, which returns `True` if the positive integers in `nums` can be split into two groups with equal sums, and `False` if they cannot. Every number goes into exactly one of the two groups.\n\n- The groups can have different sizes. Equal numbers are separate items: `[2, 2]` splits into `{2}` and `{2}`.\n- `nums` has at least one number, and every number is at least 1.\n- `nums` can hold around a hundred numbers of up to 100 each, so trying every way to split it is not an option.\n\n**Examples**\n\n```python\ncan_partition([3, 1, 4, 2, 2])   # True,  {4, 2} and {3, 1, 2} both add up to 6\ncan_partition([1, 2, 5])         # False, no group adds up to 4\ncan_partition([1, 2, 4])         # False, the total is odd\n```",
+  "starter": "def can_partition(nums):\n    \"\"\"Return True if nums can be split into two groups with equal sums.\"\"\"\n    ...\n",
+  "tests": [
+    "assert can_partition([3, 1, 4, 2, 2]) == True",
+    "assert can_partition([1, 2, 5]) == False",
+    "assert can_partition([1, 2, 4]) == False",
+    "assert can_partition([7]) == False",
+    "assert can_partition([9, 9]) == True",
+    "assert can_partition([9, 8]) == False",
+    "assert can_partition([4, 4, 3, 3, 3, 3]) == True",
+    "assert can_partition([1, 1, 1, 1, 10]) == False",
+    "assert can_partition([4, 10, 2]) == False",
+    "assert can_partition([10] * 29 + [1, 1]) == False",
+    "assert can_partition([(i * 53) % 97 + 1 for i in range(100)]) == True"
+  ],
+  "hints": [
+    "If the two groups have equal sums, how much must each one be? When is that impossible straight away?",
+    "The question becomes: is there a group of the numbers that adds up to exactly half of the total? Keep track of which sums can be made with the numbers you have looked at so far.",
+    "Each number can be used only once. If you update a list of reachable sums in place, go from the highest sum down to the number, or a number can be used twice in the same pass."
+  ],
+  "solution": "def can_partition(nums):\n    total = sum(nums)\n    if total % 2:\n        return False                         # an odd total can never be split into two equal halves\n    target = total // 2\n    can_make = [False] * (target + 1)        # can_make[s]: some group of the numbers seen so far adds up to s\n    can_make[0] = True                       # the empty group\n    for number in nums:\n        for s in range(target, number - 1, -1):      # downwards, so each number is used at most once\n            if can_make[s - number]:\n                can_make[s] = True\n    return can_make[target]\n",
+  "explanation": "**The idea.** If the two groups have equal sums, each one is half of the total. So the total must be even, and the question becomes: is there a group of the numbers that adds up to exactly `total // 2`? (The rest then adds up to the same.) This is the subset-sum, or 0/1 knapsack, problem.\n\n**The table.** Let `can_make[s]` say whether some group of the numbers seen so far adds up to `s`. Start with only `can_make[0]` true (the empty group). For each number `x`, every sum `s - x` that was reachable makes `s` reachable too. Update the list from the highest sum down to `x`: going upwards would let the same number be used twice in one pass, and `[4, 10, 2]` would wrongly give `True` (4 + 4 = 8).\n\n**Complexity.** O(n × total) time and O(total) space. That is fine for numbers of moderate size but not for huge ones; the problem is hard in general, which is why trying every split (2ⁿ) and clever greed both fail. Follow-up: Python integers make a neat bit set. `bits |= bits << x` for each number marks all reachable sums in one big-integer operation, and `bits >> target & 1` reads the answer."
+}

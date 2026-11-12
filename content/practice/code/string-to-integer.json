@@ -1,0 +1,30 @@
+{
+  "title": "String to Integer (atoi)",
+  "topic": "strings-and-parsing",
+  "difficulty": "intermediate",
+  "description": "Parse the leading integer of a string like a careful atoi, clamped to the signed 32-bit range.",
+  "statement": "A config loader has to read a number out of sloppy text. Write `string_to_int(text)` that turns the start of `text` into an `int`, the way a careful `atoi` does. Go through the text once, from the left:\n\n1. Skip leading spaces.\n2. Take one optional sign, `+` or `-`.\n3. Read the digits `0` to `9` until the first character that is not one (or the end). Ignore everything after it.\n4. If no digit was read, the result is `0`.\n5. Clamp the result to the signed 32-bit range, `-2147483648` to `2147483647`.\n\nNo spaces are allowed between the sign and the digits, leading zeros are fine, and the digits can go on for thousands of characters.\n\n**Examples**\n\n```python\nstring_to_int(\"   -42\")            # -42\nstring_to_int(\"4193 with words\")   # 4193\nstring_to_int(\"words and 987\")     # 0, it stops before reading any digit\nstring_to_int(\"91283472332\")       # 2147483647, clamped\n```",
+  "starter": "def string_to_int(text):\n    \"\"\"Return the integer at the start of text (spaces, optional sign, digits), clamped to 32 bits; 0 if there is none.\"\"\"\n    ...\n",
+  "tests": [
+    "def all_give(expected, *texts):\n    for text in texts:\n        got = string_to_int(text)\n        shown = repr(text) if len(text) <= 40 else repr(text[:20]) + f\"... ({len(text)} characters)\"\n        assert got == expected and type(got) is int, f\"string_to_int({shown}) should be the int {expected}, got {got!r}\"\n    return True",
+    "assert string_to_int(\"   -42\") == -42",
+    "assert string_to_int(\"4193 with words\") == 4193",
+    "assert string_to_int(\"words and 987\") == 0",
+    "assert string_to_int(\"91283472332\") == 2147483647",
+    "assert all_give(0, \"\", \"   \", \"+\", \"-\", \"abc\", \"+-5\", \"-+5\", \"- 5\", \"--5\", \"-0\", \"000\")",
+    "assert all_give(7, \"+7\", \"007\", \"+0007\", \"7.9\", \"7e3\", \"7-3\", \" 7 \", \"0\" * 5000 + \"7\")",
+    "assert all_give(-5, \"-5\", \"-005\", \"  -5abc\", \"-5-5\", \"-5.9\")",
+    "assert all_give(2147483647, \"2147483647\", \"2147483648\", \"+2147483648\", \"99999999999999999999\", \"  2147483647abc\")",
+    "assert all_give(-2147483648, \"-2147483648\", \"-2147483649\", \"-99999999999999999999\")",
+    "assert all_give(12, \"12\\N{ARABIC-INDIC DIGIT FOUR}\", \"12\\N{ARABIC-INDIC DIGIT FIVE}x\")",
+    "assert string_to_int(\"1\" + \"0\" * 5000) == 2147483647",
+    "assert string_to_int(\"-\" + \"9\" * 5000) == -2147483648"
+  ],
+  "hints": [
+    "Think of four phases that you pass through once, left to right: spaces, sign, digits, stop. Keep one index and move it forward.",
+    "Collect the value digit by digit with `value = value * 10 + digit`. Apply the sign and clamp at the very end.",
+    "Two traps: `int()` refuses a string of more than 4300 digits, so stop reading once the value is already past the limit; and `isdigit()` accepts digits from other alphabets, so compare each character with `\"0\"` and `\"9\"` instead."
+  ],
+  "solution": "def string_to_int(text):\n    i = 0\n    while i < len(text) and text[i] == \" \":\n        i += 1\n\n    sign = 1\n    if i < len(text) and text[i] in \"+-\":\n        if text[i] == \"-\":\n            sign = -1\n        i += 1\n\n    value = 0\n    while i < len(text) and \"0\" <= text[i] <= \"9\":\n        value = value * 10 + (ord(text[i]) - ord(\"0\"))\n        if value > 2**31:                      # already beyond both limits: the rest cannot change the clamped result\n            break\n        i += 1\n\n    return max(-2**31, min(2**31 - 1, sign * value))\n",
+  "explanation": "**The idea.** It is a small state machine with four phases in a fixed order: spaces, an optional sign, digits, stop. One index walks the string and each phase moves it as far as it can. Whatever comes after the digits is simply never read.\n\n**Why \"no digits means 0\" needs no special case.** If the digit loop never runs, `value` is still `0`, and `sign * 0` is `0`, so `\"-\"`, `\"abc\"` and `\"- 5\"` all fall out of the same code.\n\n**Clamping.** Build the number as `value * 10 + digit`, apply the sign, then clamp with `max(min(...))`. `-2147483648` is a valid input and must come out unchanged. In a language with fixed-width integers you would have to test for overflow before multiplying; Python integers never overflow, but `int()` refuses a string of more than 4300 digits, and stopping as soon as the value is past the limit is faster on huge input anyway.\n\n**Usual mistakes.** Accepting `\"+-5\"` or `\"- 5\"`, using `str.isdigit()` (it accepts digits from other alphabets, which `int()` then happily parses), and clamping before the sign is applied.\n\n**Follow-up.** Write the same function for 64-bit integers, or let it accept a decimal point and return a float."
+}

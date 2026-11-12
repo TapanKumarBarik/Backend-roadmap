@@ -1,0 +1,29 @@
+{
+  "title": "Run-Length Encoding",
+  "topic": "strings-and-parsing",
+  "difficulty": "beginner",
+  "description": "Compress runs of repeated characters into character-plus-count pairs, and expand them back.",
+  "statement": "Run-length encoding stores each run of a repeated character as the character followed by the length of the run, which compresses data with long repeats, such as bitmaps. Write two functions:\n\n- `rle_encode(text)` replaces every maximal run of one character with that character and its decimal count, with no separators. A character that is not repeated gets the count `1`.\n- `rle_decode(encoded)` is the exact inverse, so `rle_decode(rle_encode(text)) == text`.\n\n`text` contains no digits (letters, spaces and punctuation are fine), so a digit in the encoded form always belongs to a count. A count can have several digits: twelve `w` become `w12`. `rle_decode` only receives well-formed input, a non-digit character followed by its count, again and again. The empty string encodes to `\"\"` and decodes to `\"\"`.\n\n**Examples**\n\n```python\nrle_encode(\"aaabcc\")    # \"a3b1c2\"\nrle_encode(\"w\" * 12)    # \"w12\"\nrle_decode(\"a3b1c2\")    # \"aaabcc\"\n```",
+  "starter": "def rle_encode(text):\n    \"\"\"Return text with each run of one character replaced by the character and the run length (\"aaabcc\" gives \"a3b1c2\").\"\"\"\n    ...\n\n\ndef rle_decode(encoded):\n    \"\"\"Return the original text for a string made by rle_encode (\"a3b1c2\" gives \"aaabcc\").\"\"\"\n    ...\n",
+  "tests": [
+    "assert rle_encode(\"aaabcc\") == \"a3b1c2\"",
+    "assert rle_encode(\"w\" * 12) == \"w12\"",
+    "assert rle_decode(\"a3b1c2\") == \"aaabcc\"",
+    "assert rle_encode(\"\") == \"\"",
+    "assert rle_decode(\"\") == \"\"",
+    "assert rle_encode(\"aaaaaaaaaabbb\") == \"a10b3\"",
+    "assert rle_decode(\"a10b3\") == \"aaaaaaaaaabbb\"",
+    "assert rle_encode(\"ab  !!\") == \"a1b1 2!2\"",
+    "import random\nrng = random.Random(42)\nwords = [\"\".join(rng.choice(\"ab -\") for _ in range(rng.randint(0, 30))) for _ in range(300)]\nwords += [\"z\" * n for n in (1, 9, 10, 11, 99, 100, 101)]\ndef round_trips(items):\n    for word in items:\n        back = rle_decode(rle_encode(word))\n        assert back == word, f\"rle_decode(rle_encode({word!r})) gave {back!r}, expected {word!r}\"\n    return True",
+    "assert round_trips(words)",
+    "assert rle_encode(\"x\" * 100_000 + \"y\") == \"x100000y1\"",
+    "assert rle_decode(\"x100000y1\") == \"x\" * 100_000 + \"y\""
+  ],
+  "hints": [
+    "Walk the string once. What do you need to remember while you are inside a run, and what should happen when the character changes?",
+    "Encoding: count how many times the current character repeats, append the character and the count, and jump past the run. Decoding: read one character, then read digits for as long as there are digits.",
+    "A count can have more than one digit, so do not assume it has one. And do not forget the last run: nothing follows it to trigger the write."
+  ],
+  "solution": "def rle_encode(text):\n    pieces = []\n    i = 0\n    while i < len(text):\n        j = i\n        while j < len(text) and text[j] == text[i]:\n            j += 1                             # j ends just past the run that starts at i\n        pieces.append(f\"{text[i]}{j - i}\")\n        i = j\n    return \"\".join(pieces)\n\n\ndef rle_decode(encoded):\n    pieces = []\n    i = 0\n    while i < len(encoded):\n        char = encoded[i]\n        i += 1\n        start = i\n        while i < len(encoded) and encoded[i].isdigit():\n            i += 1                             # the count may have several digits\n        pieces.append(char * int(encoded[start:i]))\n    return \"\".join(pieces)\n",
+  "explanation": "**The idea.** Walk the string with an index. At the start of a run, move a second index forward while the character stays the same; the run length is the difference. Write the character and the length, then jump to the end of the run. Decoding is the same walk the other way: take one character, read digits for as long as there are digits, and repeat the character that many times.\n\n**Why the digits are unambiguous.** The text never contains a digit, so the digits after a character can only be its count, however many there are. That is what lets the decoder read the count greedily.\n\n**Complexity.** O(n) in both directions. Collect the pieces in a list and `join` them once at the end instead of growing a string in a loop.\n\n**Usual mistakes.** Reading a single digit as the count (it breaks at 10), forgetting to write the last run after the loop, and leaving out the `1` for single characters. That last one is a popular shortcut, but it is a different format.\n\n**Follow-up.** Real text may contain digits; a format has to escape them or prefix each run with its length. `itertools.groupby(text)` gives you the runs directly, so `\"\".join(f\"{ch}{len(list(run))}\" for ch, run in groupby(text))` is the compact encoder."
+}

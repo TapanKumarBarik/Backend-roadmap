@@ -1,0 +1,28 @@
+{
+  "title": "Capacity to Ship Packages",
+  "topic": "binary-search-and-sorting",
+  "difficulty": "advanced",
+  "description": "Find the smallest ship capacity that delivers packages, in order, within a given number of days.",
+  "statement": "A warehouse must ship packages weighing `weights[0]`, `weights[1]`, ... kilograms, **in that order**. Each day the ship takes the next packages in line, as many as fit under its weight `capacity` (it may carry less, and a package is never split), and sails. Return the smallest `capacity` that gets every package shipped within `days` days.\n\n- Packages cannot be reordered or skipped. Weights are positive integers and there is at least one package.\n- `days` is at least `1` and may be larger than the number of packages.\n- The ship must be able to carry the heaviest package, so the answer is never below `max(weights)`.\n- Aim for O(n log S), where S is the total weight: the large tests are too big for anything that tries every capacity.\n\n**Examples**\n\n```python\nship_within_days([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 5)   # 15: 1-5, then 6-7, then 8, then 9, then 10\nship_within_days([3, 2, 2, 4, 1, 4], 3)                # 6\nship_within_days([5, 5, 5], 10)                        # 5\n```",
+  "starter": "def ship_within_days(weights, days):\n    \"\"\"Return the smallest ship capacity that ships all the packages, in order, within the given number of days.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef days_needed(weights, capacity):\n    \"\"\"The definition, the slow obvious way: load the packages in order, and start a new day when the next one does not fit.\"\"\"\n    days, load = 1, 0\n    for weight in weights:\n        if load + weight > capacity:\n            days, load = days + 1, 0\n        load += weight\n    return days\ndef smallest_capacity(weights, days):\n    \"\"\"Brute force: try capacities one by one, starting at the heaviest package.\"\"\"\n    capacity = max(weights)\n    while days_needed(weights, capacity) > days:\n        capacity += 1\n    return capacity\ndef wrong_answers():\n    \"\"\"200 random small cases (seeded) checked against the brute force.\"\"\"\n    rng = random.Random(42)\n    wrong = []\n    for _ in range(200):\n        weights = [rng.randint(1, 20) for _ in range(rng.randint(1, 12))]\n        days = rng.randint(1, len(weights) + 2)\n        got = ship_within_days(list(weights), days)\n        expected = smallest_capacity(weights, days)\n        if got != expected:\n            wrong.append(f\"ship_within_days({weights}, {days}) returned {got}, expected {expected}\")\n    return wrong[:3]",
+    "assert ship_within_days([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 5) == 15",
+    "assert ship_within_days([3, 2, 2, 4, 1, 4], 3) == 6",
+    "assert ship_within_days([5, 5, 5], 10) == 5",
+    "assert ship_within_days([7], 1) == 7",
+    "assert ship_within_days([1, 2, 3, 4, 5], 1) == 15",
+    "assert ship_within_days([1, 2, 3, 4, 5], 5) == 5",
+    "assert ship_within_days([1, 1, 10, 1, 1], 2) == 12",
+    "assert wrong_answers() == []",
+    "assert ship_within_days([7] * 10_000, 7) == 10_003",
+    "assert ship_within_days([50_000] * 10_000, 3) == 166_700_000"
+  ],
+  "hints": [
+    "Instead of searching through the packages, search for the answer itself. If a ship of capacity `c` is enough, would a bigger ship also be enough?",
+    "For one fixed capacity, a single pass counts the days needed: keep loading until the next package would not fit, then start a new day. The answer lies between the heaviest single package and the total weight.",
+    "Binary search over capacities for the first one that needs at most `days` days. If a capacity works it might be the answer, so keep it (`hi = mid`); if it does not, rule it out (`lo = mid + 1`)."
+  ],
+  "solution": "def ship_within_days(weights, days):\n    def days_needed(capacity):\n        used, load = 1, 0\n        for weight in weights:\n            if load + weight > capacity:       # it does not fit today: start a new day\n                used, load = used + 1, 0\n            load += weight\n        return used\n\n    lo, hi = max(weights), sum(weights)        # at least the heaviest package, at most everything in one day\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if days_needed(mid) <= days:\n            hi = mid                           # mid is enough; perhaps something smaller is too\n        else:\n            lo = mid + 1\n    return lo\n",
+  "explanation": "**The idea.** You cannot binary search the packages, but you can binary search the **answer**. If a ship of capacity `c` gets the job done in time, so does any bigger ship. So \"does capacity `c` work?\" is false, false, ..., true, true as `c` grows, and the answer is the first `true`.\n\n**Checking one capacity.** A single greedy pass: keep loading packages until the next one would not fit, then start a new day. With the order fixed, this uses the fewest days that capacity allows.\n\n**The range.** The answer is at least the heaviest package (a smaller ship could never carry it) and at most the total weight (everything in one day). A lower start makes the day count meaningless; the `[5, 5, 5]` example with ten days catches it.\n\n**The loop.** When a capacity works, keep it as a candidate (`hi = mid`); when it does not, rule it out (`lo = mid + 1`). Stop when `lo == hi`.\n\n**Complexity.** O(n log S) time for n packages of total weight S (about log S steps, each one pass over the packages), O(1) extra space.\n\n**Follow-up.** The same pattern solves \"split an array into k parts with the smallest possible largest sum\", \"minimum eating speed\" and \"minimum time to finish all jobs\"."
+}

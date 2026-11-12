@@ -1,0 +1,30 @@
+{
+  "title": "Fast Power",
+  "topic": "math-and-bits",
+  "difficulty": "intermediate",
+  "description": "Raise a number to a huge integer power, negative powers included, without looping n times.",
+  "statement": "Write `fast_power(x, n)`, which returns `x` raised to the integer power `n`, without using `**`, `pow()` or `math.pow`.\n\n- `n` may be positive, zero or negative. `x ** 0` is `1` for every `x`, and `x ** -n` is `1 / x ** n` (`x` is never `0` when `n` is negative).\n- `x` may be negative or fractional, and `n` may be huge, around 2**31 in either direction.\n- Floating-point results are not exact, so the tests accept an answer that is within a tiny tolerance of the true value.\n\n**Examples**\n\n```python\nfast_power(2.0, 10)    # 1024.0\nfast_power(2.0, -2)    # 0.25\nfast_power(-3, 3)      # -27\nfast_power(5, 0)       # 1\n```\n\nMultiplying `x` by itself `n` times would take billions of steps for `n = 2**31`. Aim for O(log n) multiplications.",
+  "starter": "def fast_power(x, n):\n    \"\"\"Return x raised to the integer power n (n may be zero or negative), without using ** or pow().\"\"\"\n    ...\n",
+  "tests": [
+    "def close(actual, expected, tolerance=1e-9):\n    # Floats are only approximately right, so compare the size of the difference (relative to the answer once that is bigger than 1).\n    from numbers import Real\n    if isinstance(actual, bool) or not isinstance(actual, Real):\n        raise AssertionError(f\"expected a number, got {actual!r}\")\n    if not abs(actual - expected) <= tolerance * max(1.0, abs(expected)):\n        raise AssertionError(f\"expected about {expected!r}, got {actual!r} (off by {abs(actual - expected):.3g})\")\n    return True",
+    "assert close(fast_power(2.0, 10), 1024.0)",
+    "assert close(fast_power(2.0, -2), 0.25)",
+    "assert close(fast_power(-3, 3), -27)",
+    "assert close(fast_power(5, 0), 1)",
+    "assert close(fast_power(2.1, 3), 9.261)",
+    "assert close(fast_power(10, -3), 0.001)",
+    "assert close(fast_power(-2.0, 4), 16.0)",
+    "assert close(fast_power(1.5, 11), 86.49755859375)",
+    "assert close(fast_power(0, 7), 0) and close(fast_power(0, 0), 1)",
+    "assert close(fast_power(3, 40), 3**40)",
+    "assert close(fast_power(1.0000000001, 2**31), 1.0000000001 ** (2**31), 1e-6)",
+    "assert close(fast_power(1.0000000001, -(2**31)), 1.0000000001 ** -(2**31), 1e-6)"
+  ],
+  "hints": [
+    "`x ** 8` takes 7 multiplications one at a time, but only 3 if you keep squaring: `x`, `x²`, `x⁴`, `x⁸`. What happens to the exponent each time you square the base?",
+    "Write the exponent in binary: 13 = 8 + 4 + 1, so `x**13 = x**8 * x**4 * x**1`. Keep squaring `x`, and for every 1 bit of `n` multiply the current square into the result.",
+    "For a negative `n`, work with `1 / x` and `-n`. `n == 0` must give 1 for every `x`, which a result that starts at 1 and a loop that stops when `n` reaches 0 give you for free."
+  ],
+  "solution": "def fast_power(x, n):\n    if n < 0:\n        x, n = 1 / x, -n               # x ** -n is (1 / x) ** n\n    result = 1\n    while n:\n        if n & 1:                      # this bit of the exponent is 1: multiply in the matching power of x\n            result *= x\n        x *= x                         # x, x**2, x**4, x**8, ...\n        n >>= 1\n    return result\n",
+  "explanation": "**The idea.** Squaring doubles an exponent in a single multiplication: from `x` you get `x²`, then `x⁴`, then `x⁸`. Any exponent is a sum of powers of two (its binary digits), so `x¹³ = x⁸ · x⁴ · x¹` (13 is `1101` in binary). Walk the bits of `n` from the lowest: keep squaring `x`, and whenever the current bit is 1, multiply the current square into the result. That is about `log₂ n` squarings and at most as many extra multiplications, so `n = 2**31` needs around 60 multiplications instead of two billion.\n\n**Negative exponents.** `x ** -n` is `1 / x ** n`, so switch to `1 / x` and `-n` first (or divide at the end). `n == 0` skips the loop and gives 1 for every `x`, as it should.\n\n**Why the tests use a tolerance.** Every floating-point multiplication rounds, and squaring doubles whatever relative error `x` already has, so after 31 squarings the last digits of the result no longer match what `x ** n` gives. The error is tiny, but exact `==` would be wrong. Integers do not have this problem: `fast_power(3, 40)` is exact.\n\n**Recursive form.** `half = fast_power(x, n // 2)`, then `half * half`, times `x` if `n` is odd. Its depth is only `log₂ n`, but negative `n` needs care: `-5 // 2` is `-3` in Python, so handle the sign before recursing.\n\n**Follow-up.** Modular exponentiation: the same loop with `% m` after every multiplication computes `x**n % m` without huge numbers; it is the heart of RSA and of many hash functions. (Python's own `pow(x, n, m)` does it.)"
+}

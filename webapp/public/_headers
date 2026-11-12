@@ -4,8 +4,11 @@
 #    Analytics (auto-injected by the proxied zone; cookie-less, privacy-first)
 #  - i.ytimg.com (video thumbnails) and www.youtube-nocookie.com (the player,
 #    which only loads once a reader presses play) for the videos in modules
+#  - script-src 'wasm-unsafe-eval' for the Python runner of the practice screens (public/runner/): Pyodide is CPython
+#    compiled to WebAssembly, and a browser will not compile WebAssembly under this policy without it. It allows compiling
+#    WebAssembly only, not eval() or new Function(); the runner is served from this site, never from another.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://stroadmapprogress.blob.core.windows.net https://*.googleusercontent.com https://i.ytimg.com; font-src 'self'; connect-src 'self' https://stroadmapprogress.blob.core.windows.net https://cloudflareinsights.com; frame-src 'self' https://stroadmapprogress.blob.core.windows.net https://view.officeapps.live.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://stroadmapprogress.blob.core.windows.net https://*.googleusercontent.com https://i.ytimg.com; font-src 'self'; connect-src 'self' https://stroadmapprogress.blob.core.windows.net https://cloudflareinsights.com; frame-src 'self' https://stroadmapprogress.blob.core.windows.net https://view.officeapps.live.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
@@ -13,6 +16,10 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 
 /assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Pyodide lives in a folder named for its version (see public/runner/README.txt), so its files never change under one address.
+/runner/pyodide-314.0.7/*
   Cache-Control: public, max-age=31536000, immutable
 
 # The app's shell, kept as a file for the pages the server draws when they are asked for (api/pages/blogPages.js). It is a

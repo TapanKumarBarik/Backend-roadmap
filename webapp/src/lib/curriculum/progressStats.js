@@ -1,4 +1,5 @@
 import { isModule } from './nodeKind.js';
+import { isPracticeKey } from '../practice/progressKeys.js';
 
 // A track is as done as the modules inside it: there is no separate "I read the overview" to tick.
 export function derivedStatus({ done, wip, total }) {
@@ -47,8 +48,8 @@ export function dayKey(d) {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 }
 
-// How many modules were marked done on each of the last `days` days, oldest
-// first. Only 'done' counts — 'wip' churns as you move through a module and
+// How many things (modules, and solved problems and finished drills) were marked done on each of the last `days` days, oldest
+// first: a day of practice is a day of work. Only 'done' counts — 'wip' churns as you move through a module and
 // would make the strip measure fidgeting rather than progress.
 export function activityByDay(statusMap, timeMap, days = 91, now = Date.now()) {
   const counts = new Map();
@@ -67,13 +68,13 @@ export function activityByDay(statusMap, timeMap, days = 91, now = Date.now()) {
   return out;
 }
 
-// Modules completed in the last 7 days vs the 7 before that.
+// Modules completed in the last 7 days vs the 7 before that (a solved problem or a finished drill is not a module).
 export function weeklyCounts(statusMap, timeMap, now = Date.now()) {
   const weekAgo = now - 7 * DAY;
   const twoWeeksAgo = now - 14 * DAY;
   let thisWeek = 0, lastWeek = 0, total = 0;
   for (const [path, iso] of Object.entries(timeMap)) {
-    if (statusMap[path] !== 'done') continue;
+    if (statusMap[path] !== 'done' || isPracticeKey(path)) continue;
     const t = Date.parse(iso);
     if (Number.isNaN(t)) continue;
     total++;
@@ -95,7 +96,7 @@ export function paceEstimate(statusMap, timeMap, totalModules, now = Date.now(),
   const windowStart = now - 28 * DAY;
   let recent = 0, done = 0;
   for (const [path, iso] of Object.entries(timeMap)) {
-    if (statusMap[path] !== 'done') continue;
+    if (statusMap[path] !== 'done' || isPracticeKey(path)) continue;
     const t = Date.parse(iso);
     if (Number.isNaN(t)) continue;
     done++;
@@ -103,7 +104,7 @@ export function paceEstimate(statusMap, timeMap, totalModules, now = Date.now(),
   }
   // Count of done modules can exceed timeMap's coverage (rows predating
   // updatedAt), so take the larger of the two for "remaining".
-  const doneTotal = Object.values(statusMap).filter((s) => s === 'done').length;
+  const doneTotal = Object.entries(statusMap).filter(([path, s]) => s === 'done' && !isPracticeKey(path)).length;
   const remaining = scopeFiles
     ? scopeFiles.filter((f) => statusMap[f] !== 'done').length
     : Math.max(0, totalModules - Math.max(done, doneTotal));

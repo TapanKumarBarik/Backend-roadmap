@@ -1,0 +1,31 @@
+{
+  "title": "Exponential Backoff with Full Jitter",
+  "topic": "caching-and-limits",
+  "difficulty": "beginner",
+  "module": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md",
+  "description": "Compute the list of retry delays: exponential growth, a cap, and full jitter from an injected random source.",
+  "statement": "Write `backoff_schedule(attempts, base, cap, rng=random.random, factor=2)`, which returns a list of the delays (in seconds) to wait after failed attempts 1, 2, ..., `attempts` of a retried call: exponential backoff with **full jitter**.\n\n- Delay `k` has a ceiling: `base` for the first, then `factor` times the previous ceiling, but never more than `cap` (even the first one is limited by `cap`).\n- Full jitter: delay `k` is `rng()` times its ceiling, so it falls anywhere from `0` up to the ceiling. `rng` is a function returning a float in `[0, 1)`. Call it exactly once per delay, in order.\n- `attempts` can be large (a job that has been retrying for hours): the schedule must not crash or slow down. `attempts == 0` gives `[]`.\n\n**Examples**\n\n```python\nbackoff_schedule(5, base=1, cap=10, rng=lambda: 0.5)   # [0.5, 1.0, 2.0, 4.0, 5.0]  (ceilings 1, 2, 4, 8, 10)\nbackoff_schedule(3, base=2, cap=100, rng=lambda: 0.0)  # [0.0, 0.0, 0.0]\nbackoff_schedule(0, base=1, cap=10)                    # []\n```",
+  "starter": "import random\n\n\ndef backoff_schedule(attempts, base, cap, rng=random.random, factor=2):\n    \"\"\"Return the list of `attempts` delays: delay k is rng() times min(cap, base * factor ** (k - 1)).\"\"\"\n    ...\n",
+  "tests": [
+    "scenario = \"a fake random source that counts how often it is asked\"\nclass Rng:\n    \"\"\"A fake random source: answers the given numbers one after another (repeating the last) and counts how often it was asked.\"\"\"\n    def __init__(self, *values):\n        self.values = values\n        self.calls = 0\n\n    def __call__(self):\n        value = self.values[min(self.calls, len(self.values) - 1)]\n        self.calls += 1\n        return value",
+    "assert backoff_schedule(5, base=1, cap=10, rng=lambda: 0.5) == [0.5, 1.0, 2.0, 4.0, 5.0]",
+    "assert backoff_schedule(3, base=2, cap=100, rng=lambda: 0.0) == [0.0, 0.0, 0.0]",
+    "assert backoff_schedule(0, base=1, cap=10) == []",
+    "rng = Rng(0.75, 0.5, 0.25, 0.125)",
+    "assert backoff_schedule(4, base=4, cap=1000, rng=rng) == [3.0, 4.0, 4.0, 4.0]",
+    "assert rng.calls == 4, \"call rng exactly once per delay, in order\"",
+    "assert backoff_schedule(3, base=10, cap=4, rng=lambda: 0.5) == [2.0, 2.0, 2.0]",
+    "assert backoff_schedule(5, base=1, factor=3, cap=20, rng=lambda: 0.5) == [0.5, 1.5, 4.5, 10.0, 10.0]",
+    "assert backoff_schedule(4, base=2, factor=1.5, cap=100, rng=lambda: 0.5) == [1.0, 1.5, 2.25, 3.375]",
+    "schedule = backoff_schedule(2000, base=0.5, cap=60, rng=lambda: 0.5)",
+    "assert schedule[:8] == [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0]",
+    "assert (len(schedule), set(schedule[7:])) == (2000, {30.0}), \"after the cap is reached every delay stays at cap * rng()\""
+  ],
+  "hints": [
+    "Start by writing the ceilings only (no randomness): what are they for `base=1`, `factor=2`, `cap=10`? Then think about how `rng()` turns a ceiling into a delay.",
+    "Keep the current ceiling in a variable. The first ceiling is `base` (limited by `cap`); after each delay multiply it by `factor`, again limited by `cap`. The delay itself is `rng()` times the ceiling.",
+    "Do not compute `factor ** k` directly: with thousands of attempts it overflows. Stop growing once you reach the cap. And call `rng()` exactly once per delay."
+  ],
+  "solution": "import random\n\n\ndef backoff_schedule(attempts, base, cap, rng=random.random, factor=2):\n    delays = []\n    ceiling = min(cap, base)                     # the most the next delay may be\n    for _ in range(attempts):\n        delays.append(rng() * ceiling)           # full jitter: anywhere from 0 up to the ceiling\n        ceiling = min(cap, ceiling * factor)     # grow, but stop at the cap (which also keeps the numbers small)\n    return delays\n",
+  "explanation": "**The idea.** After the k-th failure a client waits up to `base * factor ** (k - 1)` seconds, never more than `cap`. The growing ceiling gives a struggling service room to recover, and the cap keeps one unlucky job from sleeping for hours. **Full jitter** then picks the real delay uniformly between 0 and the ceiling. Without it, clients that failed together retry together, in waves (a thundering herd); spreading them out is what makes backoff actually relieve the service.\n\n**Why the ceiling is updated step by step.** `factor ** k` overflows for large `k` (a float raises `OverflowError`, an int becomes huge), and a job can be retried thousands of times. Multiplying the ceiling by `factor` each step and stopping at `cap` keeps the numbers small. Passing `rng` in is what makes the function testable: with a fake source the \"random\" delays are exact.\n\n**Complexity.** O(attempts) time and space.\n\n**Usual mistakes.** An off-by-one in the exponent (the first ceiling is `base`, not `base * factor`); forgetting that the cap also applies to the first delay; calling `rng` once and reusing the number.\n\n**Follow-up.** The AWS Architecture Blog compares \"equal jitter\" (half the ceiling fixed, half random) and \"decorrelated jitter\" (each delay random between `base` and three times the previous one). Real retry code also stops after a maximum number of attempts or a total deadline."
+}

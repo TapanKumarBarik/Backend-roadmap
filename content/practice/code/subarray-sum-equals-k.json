@@ -1,0 +1,29 @@
+{
+  "title": "Subarray Sum Equals K",
+  "topic": "arrays-and-hashing",
+  "difficulty": "intermediate",
+  "description": "Count the contiguous subarrays of a list whose sum is exactly k, negative numbers allowed.",
+  "statement": "Given a list of integers `nums` and an integer `k`, return how many **contiguous** subarrays of `nums` add up to exactly `k`.\n\n- A subarray is a non-empty run of neighbouring items. Subarrays are counted by position, so equal values in different places count separately: `[0, 0, 0]` with `k = 0` has 6 of them.\n- `nums` can contain negative numbers and zeros.\n- An empty list has no subarrays, so the answer is `0`.\n\n**Examples**\n\n```python\nsubarray_sum([1, 1, 1], 2)    # 2: the first two ones, and the last two\nsubarray_sum([1, 2, 3], 3)    # 2: [1, 2] and [3]\nsubarray_sum([1, -1, 0], 0)   # 3: [1, -1], [0] and [1, -1, 0]\n```\n\nAim for O(n): the last tests have 100,000 numbers, which rules out trying every subarray.",
+  "starter": "def subarray_sum(nums, k):\n    \"\"\"Return the number of contiguous, non-empty subarrays of nums whose sum is exactly k.\"\"\"\n    ...\n",
+  "tests": [
+    "assert subarray_sum([1, 1, 1], 2) == 2",
+    "assert subarray_sum([1, 2, 3], 3) == 2",
+    "assert subarray_sum([1, -1, 0], 0) == 3",
+    "assert subarray_sum([], 0) == 0",
+    "assert subarray_sum([5], 5) == 1",
+    "assert subarray_sum([5], 0) == 0",
+    "assert subarray_sum([0, 0, 0], 0) == 6",
+    "assert subarray_sum([-1, -1, 1], 0) == 1",
+    "assert subarray_sum([2, -2, 2, -2], 0) == 4",
+    "assert subarray_sum([3, 4, 7, 2, -3, 1, 4, 2], 7) == 4",
+    "assert subarray_sum([1, -1] * 50_000, 0) == 2_500_000_000, \"too slow or wrong on 100,000 numbers; trying every subarray is O(n^2)\"",
+    "assert subarray_sum([1, -1] * 50_000, 1) == 1_250_025_000, \"too slow or wrong on 100,000 numbers; trying every subarray is O(n^2)\""
+  ],
+  "hints": [
+    "Trying every start and end is O(n²). Think about prefix sums: the sum of a subarray is the difference of two prefix sums.",
+    "At each position you have the running prefix sum `p`. Every earlier prefix equal to `p - k` gives one subarray ending here that sums to `k`. Keep a dictionary that counts how often each prefix sum has occurred.",
+    "Put the empty prefix (sum 0) in the dictionary before you start, and look up `p - k` before you add `p` to the dictionary."
+  ],
+  "solution": "def subarray_sum(nums, k):\n    seen = {0: 1}                            # prefix sum -> how many times it has occurred; the empty prefix has sum 0\n    total = count = 0\n    for x in nums:\n        total += x\n        count += seen.get(total - k, 0)      # each earlier prefix equal to total - k ends a subarray with sum k right here\n        seen[total] = seen.get(total, 0) + 1\n    return count\n",
+  "explanation": "**The idea.** Let `prefix[j]` be the sum of the first `j` numbers. The subarray from position `i` up to (not including) `j` sums to `prefix[j] - prefix[i]`, so it equals `k` exactly when `prefix[i] == prefix[j] - k`. Scan once with a running prefix sum, and at each step add the number of earlier prefixes equal to `running - k`: those are the subarrays that end here and add up to `k`. A dictionary from prefix sum to how often it occurred makes every lookup O(1).\n\n**Why not a sliding window?** A window can decide to grow or shrink only when adding a number always makes the sum bigger. With negative numbers that is false, so the window technique gives wrong answers here.\n\n**The two details.** Start the dictionary with `{0: 1}` for the empty prefix, or subarrays that begin at index 0 are missed. And look up `total - k` *before* recording `total`; recording first would make `k = 0` count empty subarrays.\n\n**Complexity.** O(n) time, O(n) space."
+}

@@ -1,0 +1,27 @@
+{
+  "title": "Maximum Depth of a Binary Tree",
+  "topic": "linked-lists-and-trees",
+  "difficulty": "beginner",
+  "description": "Find how many levels a binary tree has: the number of nodes on its longest root-to-leaf path.",
+  "statement": "Return the maximum depth of a binary tree: the number of nodes on the longest path from the root down to a leaf. `TreeNode` is given: each node has a `val`, a `left` and a `right` (`None` when there is no child).\n\n- An empty tree (`root` is `None`) has depth `0`, and a tree with only a root has depth `1`: count nodes, not edges.\n- The longest path can be on either side, and it can bend left and right as it goes down.\n- The trees in the tests are at most a few hundred levels deep, so ordinary recursion is fine.\n\n**Examples**\n\n```python\n#     3\n#    / \\\n#   9   20\n#      /  \\\n#     15   7\nroot = TreeNode(3, TreeNode(9), TreeNode(20, TreeNode(15), TreeNode(7)))\nmax_depth(root)          # 3\nmax_depth(TreeNode(1))   # 1\nmax_depth(None)          # 0\n```\n\nIn the tests a tree is written level by level, with `None` for a missing child: `[3, 9, 20, None, None, 15, 7]` is the tree above.",
+  "starter": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef max_depth(root):\n    \"\"\"Return the number of nodes on the longest path from the root to a leaf (0 for an empty tree).\"\"\"\n    ...\n",
+  "tests": [
+    "from collections import deque\ndef tree(values):\n    \"\"\"Build a tree from values listed level by level, None for a missing child: [3, 9, 20, None, None, 15, 7].\"\"\"\n    if not values or values[0] is None:\n        return None\n    root = TreeNode(values[0])\n    queue = deque([root])\n    position = 1\n    while queue and position < len(values):\n        node = queue.popleft()\n        for side in (\"left\", \"right\"):\n            if position < len(values) and values[position] is not None:\n                child = TreeNode(values[position])\n                setattr(node, side, child)\n                queue.append(child)\n            position += 1\n    return root\ndef chain(length, side):\n    \"\"\"A tree that is a single path of `length` nodes, always going to `side` (\"left\" or \"right\").\"\"\"\n    root = node = TreeNode(0)\n    for value in range(1, length):\n        child = TreeNode(value)\n        setattr(node, side, child)\n        node = child\n    return root\ndef perfect(levels):\n    \"\"\"A full tree with that many levels (2**levels - 1 nodes).\"\"\"\n    root = TreeNode(1)\n    level = [root]\n    for _ in range(levels - 1):\n        below = []\n        for node in level:\n            node.left, node.right = TreeNode(0), TreeNode(0)\n            below += [node.left, node.right]\n        level = below\n    return root",
+    "assert max_depth(tree([3, 9, 20, None, None, 15, 7])) == 3",
+    "assert max_depth(TreeNode(1)) == 1",
+    "assert max_depth(None) == 0",
+    "assert max_depth(chain(5, \"left\")) == 5",
+    "assert max_depth(chain(5, \"right\")) == 5",
+    "assert max_depth(tree([1, 2, 3, 4, 5, None, 6, None, None, None, None, None, 7])) == 4",
+    "assert max_depth(tree([1, 2, None, None, 3, 4])) == 4",
+    "assert max_depth(chain(300, \"left\")) == 300",
+    "assert max_depth(perfect(16)) == 16"
+  ],
+  "hints": [
+    "A tree is a root plus a left tree and a right tree. If you knew the depth of each of those two, what would the depth of the whole tree be?",
+    "Recursion: the depth of an empty tree is `0`; otherwise it is `1` plus the larger of the depths of the two children.",
+    "Call your function once for each child and keep the results (in variables, or straight into `max`). Asking for the same subtree's depth more than once multiplies the work at every level."
+  ],
+  "solution": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef max_depth(root):\n    if root is None:\n        return 0\n    return 1 + max(max_depth(root.left), max_depth(root.right))\n",
+  "explanation": "**The idea.** A tree is a root plus two smaller trees, so its depth can be defined in terms of theirs: an empty tree has depth 0, and any other tree is one level deeper than the deeper of its two subtrees. Writing that sentence as code is the whole solution.\n\n**One call per child.** Each subtree's depth is computed once and kept. Asking for the same subtree's depth again (once in a comparison and once in the result, say) multiplies the work at every level and turns O(n) into exponential time. The last test, a tree of 65,535 nodes, exposes it.\n\n**Without recursion.** A very deep tree runs into Python's recursion limit (about 1000 frames). A breadth-first pass that counts levels with a queue does the same job with no recursion.\n\n**Complexity.** O(n) time and O(h) stack space for height h: O(log n) for a balanced tree, O(n) for a single path.\n\n**Follow-up.** Minimum depth, the shortest path to a *leaf*. Careful: a node with one child is not a leaf, so an empty side must not count as depth 0 there."
+}

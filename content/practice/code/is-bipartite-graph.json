@@ -1,0 +1,31 @@
+{
+  "title": "Is Graph Bipartite?",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Decide whether the nodes of an undirected graph can be split into two groups with every edge between them.",
+  "statement": "Write `is_bipartite(graph)`, which returns `True` if the nodes of an undirected graph can be split into two groups so that every edge joins a node of one group to a node of the other, and `False` if they cannot. The graph is an adjacency list: nodes are numbered `0` to `len(graph) - 1`, and `graph[i]` lists the nodes connected to node `i`.\n\n- The graph is undirected: `j` is in `graph[i]` exactly when `i` is in `graph[j]`. No node is connected to itself.\n- The graph can be in several separate pieces, and a node can have no connections at all.\n- The empty graph (`graph` is `[]`) can be split, so it gives `True`.\n- The graph has at most a few hundred nodes.\n\n**Examples**\n\n```python\nis_bipartite([[1, 3], [0, 2], [1, 3], [0, 2]])   # True, groups {0, 2} and {1, 3}: a square\nis_bipartite([[1, 2], [0, 2], [0, 1]])           # False, a triangle\nis_bipartite([[1], [0], [3], [2], []])           # True, two separate edges and a lonely node\n```",
+  "starter": "def is_bipartite(graph):\n    \"\"\"Return True if the nodes can be split into two groups with every edge going between the groups.\"\"\"\n    ...\n",
+  "tests": [
+    "def cycle(n):\n    # n nodes in a ring, each connected to the next and the previous\n    return [[(i - 1) % n, (i + 1) % n] for i in range(n)]\ndef complete_bipartite(left, right):\n    # nodes 0..left-1 are each connected to nodes left..left+right-1, and the other way round\n    return [list(range(left, left + right)) for _ in range(left)] + [list(range(left)) for _ in range(right)]",
+    "assert is_bipartite([[1, 3], [0, 2], [1, 3], [0, 2]]) == True",
+    "assert is_bipartite([[1, 2], [0, 2], [0, 1]]) == False",
+    "assert is_bipartite([[1], [0], [3], [2], []]) == True",
+    "assert is_bipartite([[1], [0], [3, 4], [2, 4], [2, 3]]) == False",
+    "assert is_bipartite([]) == True",
+    "assert is_bipartite([[]]) == True",
+    "assert is_bipartite(cycle(6)) == True",
+    "assert is_bipartite(cycle(5)) == False",
+    "assert is_bipartite(cycle(400)) == True",
+    "assert is_bipartite(cycle(401)) == False",
+    "assert is_bipartite(complete_bipartite(40, 40)) == True",
+    "crowded = complete_bipartite(40, 40)\ncrowded[0].append(1)\ncrowded[1].append(0)",
+    "assert is_bipartite(crowded) == False"
+  ],
+  "hints": [
+    "Imagine painting every node red or blue so that no edge joins two nodes of the same color. Once you have painted one node, what color must all of its neighbors have?",
+    "Search the graph (breadth first or depth first), painting each newly met node the opposite color of the node you came from. If you meet a neighbor that already has the same color as the current node, the answer is False.",
+    "The graph may be in several pieces. Start a new search from every node that is still unpainted, not only from node 0."
+  ],
+  "solution": "from collections import deque\n\n\ndef is_bipartite(graph):\n    side = [None] * len(graph)               # None = not met yet, otherwise 0 or 1\n    for start in range(len(graph)):          # every separate piece of the graph needs its own search\n        if side[start] is not None:\n            continue\n        side[start] = 0\n        queue = deque([start])\n        while queue:\n            node = queue.popleft()\n            for neighbor in graph[node]:\n                if side[neighbor] is None:\n                    side[neighbor] = 1 - side[node]      # a neighbor must be in the other group\n                    queue.append(neighbor)\n                elif side[neighbor] == side[node]:       # two connected nodes forced into the same group\n                    return False\n    return True\n",
+  "explanation": "**The idea.** Splitting the nodes into two groups with every edge between the groups is the same as painting them with two colors so that no edge joins two nodes of the same color. Once one node of a connected piece has a color, all its neighbors are forced to the other color, and so on outward. So search the graph (breadth first here, depth first works too), painting each new node the opposite color of the node you reached it from. If you ever look at a neighbor that is already painted the same color as the current node, the answer is `False`.\n\n**Odd cycles.** A graph is bipartite exactly when it has no cycle of odd length: going around an odd cycle forces the same color on two neighbors. That is also why a triangle fails and a square works.\n\n**Separate pieces.** One search only reaches the nodes connected to its start. Start a new search from every node that is still unpainted, or a bad piece that is not connected to node 0 goes unnoticed. Lonely nodes need nothing.\n\n**Complexity.** O(V + E) time and O(V) space. Follow-up: return the two groups, not just the yes/no. The same coloring decides \"can these people be split into two teams if some pairs dislike each other?\"."
+}

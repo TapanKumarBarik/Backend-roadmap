@@ -1,0 +1,29 @@
+{
+  "title": "Decode Ways",
+  "topic": "dynamic-programming",
+  "difficulty": "intermediate",
+  "description": "Count the ways a string of digits can be read as letters, where 1 is A and 26 is Z.",
+  "statement": "Letters are encoded as numbers: `A` is 1, `B` is 2, and so on up to `Z` is 26. A message was encoded by writing its numbers one after another, so the digits can often be read in more than one way. Write `num_decodings(digits)`, which returns how many different letter strings the digit string `digits` could stand for.\n\n- Each letter is one or two digits: `1` to `9`, or `10` to `26`. A number never has a leading zero, so `\"06\"` is not `F`, and `\"0\"` on its own is not a letter.\n- So a `0` is only valid as the second digit of `10` or `20`. Any other `0` (at the start, after a 3 to 9, or after another 0) makes that reading invalid.\n- Return `0` when there is no valid reading at all. `digits` has at least one character, all of them digits, and can have around a hundred. Return the exact count.\n\n**Examples**\n\n```python\nnum_decodings(\"226\")   # 3: 2|2|6 (BBF), 22|6 (VF) and 2|26 (BZ)\nnum_decodings(\"27\")    # 1: only 2|7 (BG), because 27 is not a letter\nnum_decodings(\"100\")   # 0: 10 is J, but the last 0 is left on its own\n```",
+  "starter": "def num_decodings(digits):\n    \"\"\"Return the number of ways to read the digit string as letters (A = 1 ... Z = 26).\"\"\"\n    ...\n",
+  "tests": [
+    "assert num_decodings(\"226\") == 3",
+    "assert num_decodings(\"27\") == 1",
+    "assert num_decodings(\"100\") == 0",
+    "assert num_decodings(\"12\") == 2",
+    "assert num_decodings(\"10\") == 1",
+    "assert num_decodings(\"0\") == 0",
+    "assert num_decodings(\"06\") == 0",
+    "assert num_decodings(\"2101\") == 1",
+    "assert num_decodings(\"12120\") == 3",
+    "assert num_decodings(\"301\") == 0",
+    "assert num_decodings(\"1\" * 80) == 37889062373143906",
+    "assert num_decodings(\"26\" * 40) == 2 ** 40"
+  ],
+  "hints": [
+    "Look at the last digit of the string. It is a letter on its own, or the second half of a two-digit letter. How does the count for the whole string relate to the counts for shorter beginnings of it?",
+    "Let ways(i) be the number of readings of the first i digits, with ways(0) = 1. Add ways(i-1) when the last digit is 1 to 9, and add ways(i-2) when the last two digits make a number from 10 to 26.",
+    "Zero is the trap: a 0 alone is never a letter, and a pair like \"06\" is not a letter either. Check that the pair is between 10 and 26, not just at most 26."
+  ],
+  "solution": "def num_decodings(digits):\n    # Walk the digits once. `current` is the number of readings of the digits seen so far,\n    # `previous` the number for the digits before the latest one. The empty start has one reading.\n    previous, current = 0, 1\n    for i, digit in enumerate(digits):\n        readings = 0\n        if digit != \"0\":\n            readings += current                           # this digit is a letter on its own (1 to 9)\n        if i > 0 and 10 <= int(digits[i - 1:i + 1]) <= 26:\n            readings += previous                          # this digit and the one before it form a letter (10 to 26)\n        previous, current = current, readings\n    return current\n",
+  "explanation": "**The idea.** Look at the last digit of the string. It is either a letter on its own (1 to 9), or the second half of a two-digit letter (10 to 26). So the number of readings of the first `i` digits is the number of readings of the first `i - 1` digits (if the last digit alone is valid) plus the number of readings of the first `i - 2` digits (if the last two digits are valid). The empty prefix has exactly one reading. It is the same shape as climbing stairs, with conditions on which steps are allowed, and it needs only the last two counts, not a whole table.\n\n**Zero is the trap.** A `0` can never stand alone, so it adds nothing for its own sake; it only works as the end of `10` or `20`, where it makes the pair valid and the digit before it must not count on its own. Checking `int(pair) <= 26` is not enough: `\"06\"` is 6, so the lower bound `10 <=` matters. In `\"100\"` the second 0 has no 1 or 2 in front of it, so the count drops to 0.\n\n**Complexity.** O(n) time and O(1) space. Recursing on the string without remembering results is exponential: eighty `1`s have nearly 4 × 10¹⁶ readings, which the tests use. Follow-up: list all the readings instead of counting them (backtracking), or allow a `*` that stands for any digit 1 to 9."
+}

@@ -1,4 +1,4 @@
-// What a quiz, an exercise or an interview set must look like. Pure (no files): the build reads them from git
+// What a quiz, an exercise, an interview set or a coding problem must look like. Pure (no files): the build reads them from git
 // (scripts/lib/practice.mjs) and the admin editor checks one before it commits it (api/routes/content.js).
 
 export const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'];
@@ -43,6 +43,47 @@ export function exerciseProblems(slug, item) {
   return problems;
 }
 
+// A problem to solve in code (kind "code"): what the reader is told, the function to start from, the tests their code is judged by (Python, run
+// in their browser: public/runner/harness.py), and the model solution they can look at once they have tried. A test is a piece of Python that
+// runs after theirs in the same namespace; one with an `assert` in it is a case that passes or fails, one without is set-up for the next.
+export const CODE_RULES = { minCases: 3, maxTests: 60, maxHints: 5 };
+
+const isTest = (test) => isText(test) || (!!test && typeof test === 'object' && !Array.isArray(test) && isText(test.code) && (test.name === undefined || isText(test.name)));
+
+/**
+ * True when a test is a case that passes or fails: it has an `assert` of its own, not only inside a function or class it defines (a helper that asserts
+ * is set-up). Python is not parsed here: a line that starts a def or class opens a block that lasts while the lines after it are indented further.
+ */
+export function isCase(test) {
+  const code = typeof test === 'string' ? test : test.code;
+  let blockIndent = null;
+  for (const line of code.split('\n')) {
+    if (!line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    if (blockIndent !== null && indent > blockIndent) continue;
+    blockIndent = null;
+    const text = line.trimStart();
+    if (/^(async\s+def|def|class)\b/.test(text)) blockIndent = indent;
+    else if (/^assert\b/.test(text)) return true;
+  }
+  return false;
+}
+
+/** A test as { name, code }: a test is written as its code alone, or as { name, code } when the line of its first assert is not a good name. */
+export const testParts = (test) => (typeof test === 'string' ? { name: null, code: test } : { name: test.name || null, code: test.code });
+
+export function codeProblems(slug, item) {
+  const at = `code ${slug}`;
+  const problems = [];
+  for (const field of ['title', 'topic', 'description', 'statement', 'starter', 'solution', 'explanation']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
+  if (!DIFFICULTIES.includes(item.difficulty)) problems.push(`${at}: difficulty must be one of ${DIFFICULTIES.join(', ')}`);
+  const tests = Array.isArray(item.tests) ? item.tests : [];
+  if (!tests.length || tests.length > CODE_RULES.maxTests || !tests.every(isTest)) problems.push(`${at}: tests must be a list of 1 to ${CODE_RULES.maxTests} pieces of Python (or { name, code })`);
+  else if (tests.filter(isCase).length < CODE_RULES.minCases) problems.push(`${at}: needs at least ${CODE_RULES.minCases} tests with an assert in them`);
+  if (item.hints !== undefined && !(Array.isArray(item.hints) && item.hints.length <= CODE_RULES.maxHints && item.hints.every(isText))) problems.push(`${at}: hints must be a list of at most ${CODE_RULES.maxHints} texts`);
+  return problems;
+}
+
 export function interviewProblems(slug, item) {
   const at = `interview ${slug}`;
   const problems = [];
@@ -58,10 +99,11 @@ export function interviewProblems(slug, item) {
 export const FOLDERS = {
   quizzes: 'practice/quizzes',
   exercises: 'practice/exercises',
-  interview: 'practice/interview'
+  interview: 'practice/interview',
+  code: 'practice/code'
 };
 
-const PATH = /^practice\/(quizzes|exercises|interview)\/([a-z0-9][a-z0-9-]*)\.json$/;
+const PATH = /^practice\/(quizzes|exercises|interview|code)\/([a-z0-9][a-z0-9-]*)\.json$/;
 
 /** True for the path of a practice file, relative to content/: "practice/quizzes/http-caching.json", "practice/interview/caching.json". */
 export const isPracticePath = (relative) => PATH.test(String(relative || ''));
@@ -74,5 +116,6 @@ export function practiceFileProblems(relative, item) {
   const slug = m[2];
   if (m[1] === 'quizzes') return quizProblems(slug, item);
   if (m[1] === 'exercises') return exerciseProblems(slug, item);
+  if (m[1] === 'code') return codeProblems(slug, item);
   return interviewProblems(slug, item);
 }

@@ -364,6 +364,11 @@
       }
     }
   },
+  "progressKeys": {
+    "_about": "How a piece of practice is saved in a reader's progress, next to the modules: a coding problem solved is `<code><slug>`, a daily drill finished is `<drill><day>`. They are stored in readers' progress (browser and server), so they never change.",
+    "code": "practice/code/",
+    "drill": "practice/drill/"
+  },
   "storage": {
     "lastFile": "docs.lastFile",
     "activePath": "docs.activePath",
@@ -423,7 +428,10 @@
       "PostView": 14,
       "PathDashboard": 20,
       "PathPicker": 14,
-      "Reward": 12
+      "Reward": 12,
+      "PracticeView": 24,
+      "CodeProblemView": 30,
+      "DrillView": 26
     }
   },
   "screenshots": {
@@ -507,6 +515,15 @@
         "name": "practice",
         "path": "/practice/",
         "height": 1300
+      },
+      {
+        "name": "code-problem",
+        "path": "/practice/code/two-sum/",
+        "height": 1000
+      },
+      {
+        "name": "drill",
+        "path": "/practice/drill/"
       },
       {
         "name": "quiz",

@@ -1,0 +1,28 @@
+{
+  "title": "Combination Sum",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "intermediate",
+  "description": "Find every distinct combination of numbers, each usable any number of times, that adds up to a target.",
+  "statement": "Given a list of distinct positive integers `candidates` and a positive integer `target`, return every distinct combination of candidates that adds up to `target`. Each candidate may be used **any number of times**.\n\n- Two combinations are the same when they use each number the same number of times, so `[2, 3, 3]` and `[3, 2, 3]` are one combination, to be returned once.\n- The order of the combinations, and of the numbers inside each one, does not matter: the tests sort both.\n- If no combination reaches the target, return `[]`.\n\n**Examples**\n\n```python\ncombination_sum([2, 3, 6, 7], 7)   # [[2, 2, 3], [7]], in any order\ncombination_sum([2, 3, 5], 8)      # [[2, 2, 2, 2], [2, 3, 3], [3, 5]]\ncombination_sum([2], 1)            # []\n```\n\nBuild each combination once. Listing every ordering of it and removing the repeats is far too slow for the large tests.",
+  "starter": "def combination_sum(candidates, target):\n    \"\"\"Return every distinct combination of candidates (each reusable) that sums to target, as a list of lists.\"\"\"\n    ...\n",
+  "tests": [
+    "def normalised(result):\n    \"\"\"Check the shape of the answer (a list of lists), then put it in a standard order: each combination sorted, and the list of combinations sorted.\"\"\"\n    if not isinstance(result, list) or not all(isinstance(combination, list) for combination in result):\n        raise AssertionError(f\"expected a list of lists, got {result!r}\"[:200])\n    return sorted(sorted(combination) for combination in result)\ndef expected_combinations(candidates, target):\n    \"\"\"The same answer worked out another way: take the candidates one at a time and extend the combinations of every smaller total.\"\"\"\n    ways = {total: [] for total in range(target + 1)}\n    ways[0] = [[]]\n    for candidate in sorted(candidates):\n        for total in range(candidate, target + 1):\n            ways[total] += [combination + [candidate] for combination in ways[total - candidate]]\n    return sorted(sorted(combination) for combination in ways[target])",
+    "assert normalised(combination_sum([2, 3, 6, 7], 7)) == [[2, 2, 3], [7]]",
+    "assert normalised(combination_sum([2, 3, 5], 8)) == [[2, 2, 2, 2], [2, 3, 3], [3, 5]]",
+    "assert combination_sum([2], 1) == []",
+    "assert normalised(combination_sum([2], 4)) == [[2, 2]]",
+    "assert normalised(combination_sum([1], 5)) == [[1, 1, 1, 1, 1]]",
+    "assert combination_sum([], 5) == []",
+    "assert normalised(combination_sum([7, 3, 2], 3)) == [[3]]",
+    "assert normalised(combination_sum([5, 10, 3], 10)) == [[5, 5], [10]]",
+    "assert normalised(combination_sum([2, 3, 5, 7], 30)) == expected_combinations([2, 3, 5, 7], 30)",
+    "assert normalised(combination_sum([7, 2, 5, 3], 60)) == expected_combinations([2, 3, 5, 7], 60)"
+  ],
+  "hints": [
+    "Build one combination at a time. After choosing a number, how much of the target is left, when is a combination finished, and when is a branch hopeless?",
+    "Recurse with the remaining target. To avoid listing the same combination in different orders, allow only candidates at or after the current index. A number may be reused, so recurse with `i`, not `i + 1`.",
+    "Stop a branch when the remaining target would go below zero; if you sorted the candidates, stop the loop at the first one that is too big. Store a copy of the chosen list when the remaining target is exactly zero."
+  ],
+  "solution": "def combination_sum(candidates, target):\n    candidates = sorted(candidates)\n    result = []\n    chosen = []\n\n    def build(start, remaining):\n        if remaining == 0:\n            result.append(chosen[:])           # the target is reached exactly: store a copy\n            return\n        for i in range(start, len(candidates)):\n            if candidates[i] > remaining:\n                break                          # sorted: every later candidate is too big as well\n            chosen.append(candidates[i])\n            build(i, remaining - candidates[i])    # i, not i + 1: the same number may be used again\n            chosen.pop()\n\n    build(0, target)\n    return result\n",
+  "explanation": "**The idea.** Build a combination one number at a time and keep track of what is left of the target. When nothing is left, record the combination; a number larger than what is left cannot be used. This is backtracking again: choose a number, explore with the smaller remaining target, un-choose it.\n\n**Each combination once.** Choose candidates in the order of the list. After picking `candidates[i]`, only that same number or a later one may follow (`range(start, ...)`, recursing with `i`, not `i + 1`, because reuse is allowed). That builds `[2, 3, 3]` but never `[3, 2, 3]`. If every step could pick any candidate, each combination would come out in all its orders and need removing duplicates afterwards; for target 60 that is billions of orderings.\n\n**Pruning.** Sorting the candidates lets you `break` as soon as one is larger than the remaining target, because all later ones are too. Without sorting, `continue` works too, with a few more checks.\n\n**Complexity.** The number of combinations can be exponential, so the cost follows the size of the answer; pruning keeps the search to branches that can still succeed.\n\n**Follow-up.** If each candidate may be used only once, recurse with `i + 1`; when the list has duplicates, sort it and skip a number equal to the one before it at the same level."
+}

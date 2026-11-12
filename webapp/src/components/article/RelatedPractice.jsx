@@ -4,12 +4,13 @@ import { followInApp } from '../../lib/linkClick.js';
 import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { RELATED } from '../../config/related.js';
 
-// The practice that goes with a lesson, from the catalog's `module` links: its quizzes, exercises and interview questions. It says
+// The practice that goes with a lesson, from the catalog's `module` links: its coding problems, quizzes, exercises and interview questions. It says
 // nothing when there is none, or while the catalog is on its way, or if it cannot be fetched.
 export default function RelatedPractice({ path, practice }) {
   const { data: catalog } = useLoader(fetchPracticeCatalog);
   if (!catalog || !practice) return null;
   const items = [
+    ...(catalog.code || []).filter((c) => c.module === path).map((c) => ({ key: `code/${c.slug}`, label: RELATED.code(c.title), href: pageUrl(PRACTICE_ROUTE, `code/${c.slug}`), go: () => practice.onOpenPractice(`code/${c.slug}`) })),
     ...catalog.quizzes.filter((c) => c.module === path).map((c) => ({ key: `quiz/${c.slug}`, label: RELATED.quiz(c.title), href: pageUrl(PRACTICE_ROUTE, `quiz/${c.slug}`), go: () => practice.onOpenPractice(`quiz/${c.slug}`) })),
     ...catalog.exercises.filter((c) => c.module === path).map((c) => ({ key: `exercise/${c.slug}`, label: RELATED.exercise(c.title), href: pageUrl(PRACTICE_ROUTE, `exercise/${c.slug}`), go: () => practice.onOpenPractice(`exercise/${c.slug}`) })),
     ...[...catalog.interview, ...catalog.coding].filter((c) => c.module === path).map((c) => ({ key: `interview/${c.slug}`, label: RELATED.interview(c.title), href: pageUrl(PRACTICE_ROUTE, `interview/${c.slug}`), go: () => practice.onOpenPractice(`interview/${c.slug}`) }))

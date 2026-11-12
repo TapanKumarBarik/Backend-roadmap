@@ -1,0 +1,26 @@
+{
+  "title": "Fix the Late-Binding Closures",
+  "topic": "debugging",
+  "difficulty": "intermediate",
+  "description": "Fix a loop that builds one email job per user but sends every job to the last user.",
+  "statement": "`build_welcome_jobs(users, send_email)` prepares the welcome emails for new users without sending them yet. It returns a list with one job per user, in the same order. A job is a function that takes no arguments. Calling it sends that user's email: `send_email(to, subject)` with the user's `\"email\"` and the subject `\"Welcome, <name>!\"`.\n\n- A worker runs the jobs later, in any order, and may run a job more than once.\n- `users` is any iterable of dicts with `\"name\"` and `\"email\"`; it is read once. Building the jobs sends nothing.\n\n**Example**\n\n```python\nsent = []\njobs = build_welcome_jobs(users, lambda to, subject: sent.append((to, subject)))   # users: Ann, then Bo\njobs[0]()\nsent    # [(\"ann@example.com\", \"Welcome, Ann!\")]\n```\n\n**Observed:** every job sends the welcome email of the last user in the list.",
+  "starter": "def build_welcome_jobs(users, send_email):\n    \"\"\"Return one zero-argument job per user; running a job sends that user's welcome email with send_email(to, subject).\"\"\"\n    jobs = []\n    for user in users:\n        subject = f\"Welcome, {user['name']}!\"\n        jobs.append(lambda: send_email(user[\"email\"], subject))\n    return jobs\n",
+  "tests": [
+    "ANN = {\"name\": \"Ann\", \"email\": \"ann@example.com\"}\nBO = {\"name\": \"Bo\", \"email\": \"bo@example.com\"}\nCY = {\"name\": \"Cy\", \"email\": \"cy@example.com\"}\nSENT_ANN = (\"ann@example.com\", \"Welcome, Ann!\")\nSENT_BO = (\"bo@example.com\", \"Welcome, Bo!\")\nSENT_CY = (\"cy@example.com\", \"Welcome, Cy!\")\ndef run_jobs(users, order=None, times=1):\n    \"\"\"Build the jobs for `users`, run them in the given order (default: list order), `times` times each, and return what was sent.\"\"\"\n    sent = []\n    jobs = build_welcome_jobs(users, lambda to, subject: sent.append((to, subject)))\n    for index in (range(len(jobs)) if order is None else order):\n        for _ in range(times):\n            jobs[index]()\n    return sent\ndef sent_while_building(users):\n    sent = []\n    build_welcome_jobs(users, lambda to, subject: sent.append((to, subject)))\n    return sent\nMANY = [{\"name\": f\"user{i}\", \"email\": f\"user{i}@example.com\"} for i in range(1000)]",
+    "assert run_jobs([ANN]) == [SENT_ANN]",
+    "assert run_jobs([ANN, BO, CY]) == [SENT_ANN, SENT_BO, SENT_CY]",
+    "assert run_jobs([ANN, BO, CY], order=[2, 0, 1]) == [SENT_CY, SENT_ANN, SENT_BO]",
+    "assert run_jobs([ANN, BO], times=2) == [SENT_ANN, SENT_ANN, SENT_BO, SENT_BO]",
+    "assert run_jobs(user for user in [ANN, BO, CY]) == [SENT_ANN, SENT_BO, SENT_CY]",
+    "assert sent_while_building([ANN, BO, CY]) == []",
+    "assert run_jobs([]) == []",
+    "assert run_jobs(MANY) == [(f\"user{i}@example.com\", f\"Welcome, user{i}!\") for i in range(1000)]"
+  ],
+  "hints": [
+    "Print the user inside each job after the loop has finished. Which user do they all see? When does the job look up `user`: when you create it, or when you call it?",
+    "Each job should carry its own copy of the values it needs. Three common ways: `functools.partial`, a small factory function that builds the job, or default arguments.",
+    "Check every variable the job uses, not just one: `user` and `subject` both change on each pass of the loop."
+  ],
+  "solution": "from functools import partial\n\n\ndef build_welcome_jobs(users, send_email):\n    jobs = []\n    for user in users:\n        subject = f\"Welcome, {user['name']}!\"\n        # partial stores the two values now; a lambda would look `user` and `subject` up when it is called\n        jobs.append(partial(send_email, user[\"email\"], subject))\n    return jobs\n",
+  "explanation": "**The bug class: late binding in closures.** A function body looks up the variables it uses *when it runs*, not when it is defined. The lambda does not capture the values of `user` and `subject`, it captures the *variables*, which belong to the enclosing function and are reassigned on every pass of the loop. By the time a job runs the loop has finished, and both variables hold the last user's values. So every job sends the last user's email.\n\n**Fixes.** Bind the values at the moment you create the job:\n- `functools.partial(send_email, user[\"email\"], subject)` stores the values now (used above).\n- A small factory function (`def make_job(user): ...; return lambda: ...`): each call has its own `user` and `subject` variables.\n- Default arguments (`lambda user=user, subject=subject: ...`), which are evaluated when the lambda is defined.\n\nBind **every** variable the job uses. Fixing `user` but leaving `subject` late-bound sends the right address with the wrong subject.\n\n**Where it bites in backends.** Registering routes, event handlers or deferred jobs in a loop, `executor.submit(lambda: ...)`, callbacks added in a loop: anywhere the call happens after the loop. Comprehensions behave the same way. A good habit: whenever a lambda or inner function is created inside a loop, ask \"when does it run?\"."
+}

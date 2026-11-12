@@ -1,0 +1,270 @@
+{
+  "title": "Redis data structures and patterns",
+  "topic": "caching",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases/README.md",
+  "description": "Which Redis type fits which job, plus TTLs and eviction, stampede protection, atomic counters and locks, persistence, scaling out and what blocks the server.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which pair of design choices mostly explains why Redis can answer simple commands in well under a millisecond?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Values are compressed before they are stored, and every query result is cached again on the client side"
+        },
+        {
+          "id": "b",
+          "text": "Data lives in memory and commands run one at a time on one thread, so there is no disk wait or lock contention"
+        },
+        {
+          "id": "c",
+          "text": "Reads come from disk through a very large page cache, while writes are only flushed to the storage device once an hour"
+        },
+        {
+          "id": "d",
+          "text": "Commands run in parallel on every CPU core, and fine-grained row locks keep them from interfering"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Redis holds the whole dataset in RAM, so a command never waits for a disk read, and one thread executes commands one at a time, so there are no locks to fight over and no cost for switching between threads. Disk is used only for persistence, and neither compression nor extra CPU cores is what makes it quick."
+    },
+    {
+      "id": "q2",
+      "type": "multiple",
+      "text": "Which statements about choosing a Redis data type are correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A hash suits an object such as a user profile, where you read or change one field without rewriting the rest"
+        },
+        {
+          "id": "b",
+          "text": "A sorted set suits a leaderboard, because its members stay ordered by score and the top few can be read directly"
+        },
+        {
+          "id": "c",
+          "text": "A set suits a timeline, because it keeps its members in the order they were added and lets you page through them"
+        },
+        {
+          "id": "d",
+          "text": "A list suits looking up one item by its value in constant time, because lists are indexed by value, not by position"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "A hash groups related fields under one key, and a sorted set keeps unique members ranked by a numeric score. A set is unordered and holds each member once, so it fits membership tests and intersections rather than timelines. A list is ordered by position, so finding an item by its value means scanning it."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "In a cache-aside setup, a very popular key expires and 2,000 requests miss at the same moment, each rebuilding the same expensive value from the database. What is the standard way to stop this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add more database replicas so that each of the 2,000 identical queries runs a little faster than before"
+        },
+        {
+          "id": "b",
+          "text": "Have every client retry immediately, in a tight loop, until the value finally shows up in the cache again"
+        },
+        {
+          "id": "c",
+          "text": "Switch the cache to write-through, so that the key is always rewritten well before it has a chance to expire"
+        },
+        {
+          "id": "d",
+          "text": "Let one request take a short SET NX EX lock and rebuild the value while the rest wait or use a stale copy"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "When many requests miss together they all repeat the same expensive rebuild and can overwhelm the database. The fix is to let one winner hold a short lock (SET key value NX EX seconds), rebuild the value and refill the cache while the others wait briefly or serve a slightly stale copy. Extra replicas only make duplicate work cheaper, tight retries make the pile-up worse, and write-through does not stop keys from expiring or being evicted."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "Overwriting a key that has a TTL with a plain SET (no expiry option) keeps the old TTL, so the key still expires on schedule.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "SET replaces the value and discards any existing TTL unless you pass EX or PX again, or use KEEPTTL. A cache refresh that forgets this quietly turns an expiring key into one that lives until it is evicted or deleted."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "One Redis instance holds both disposable cache entries and login sessions, with maxmemory-policy set to allkeys-lru. When memory runs short, some users are suddenly logged out. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "allkeys-lru may evict any key, sessions included, so data you cannot lose needs an instance that does not evict"
+        },
+        {
+          "id": "b",
+          "text": "LRU removes the oldest keys by creation time, and the sessions happen to be the oldest keys in the instance"
+        },
+        {
+          "id": "c",
+          "text": "Keys that carry a TTL, as sessions usually do, are evicted first under every LRU policy, whatever else is stored"
+        },
+        {
+          "id": "d",
+          "text": "Redis evicts the largest keys first when memory is short, and session objects are bigger than cache entries"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "allkeys-lru treats every key as a candidate, so a cache that shares an instance with sessions can lose sessions along with cache entries. Keep must-not-lose data on a separate instance that does not evict, or use volatile-lru and give only the cache entries a TTL. LRU means least recently used, not oldest, largest or soonest to expire."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A worker takes a lock with SET lock:report abc123 NX EX 30, does its job, then releases it with DEL lock:report. What is the main weakness of this pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "NX makes the SET block until the lock is free, so a worker that asks for the lock can end up waiting forever"
+        },
+        {
+          "id": "b",
+          "text": "SET with NX and EX is really two separate commands, so two workers can both believe that they now hold the lock"
+        },
+        {
+          "id": "c",
+          "text": "If the job overruns 30 seconds, another worker gets the lock, and the first worker's DEL then deletes theirs"
+        },
+        {
+          "id": "d",
+          "text": "EX makes Redis delete the key from every replica at once, so the lock can vanish long before the job is finished"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The lock can expire while the first worker is still running; a second worker then acquires it, and the first worker's unconditional DEL removes the second worker's lock. Store a unique token as the value, release only if it still matches (a short Lua script makes the check and the delete one atomic step), and size the TTL to the job. SET with NX and EX is one atomic command, and NX returns at once rather than waiting."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "A fixed-window rate limiter that runs INCR on a per-minute counter key can let a client send almost twice the limit in a short burst that straddles two windows.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "A client can use its whole allowance in the last second of one minute and again in the first second of the next, and each window still looks within its limit. A sliding window (for example a sorted set of request timestamps) or a token bucket smooths this out, at the cost of more work per request."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A Redis server holds data you would hate to lose. It takes an RDB snapshot every 15 minutes and has AOF switched off. What can you lose if it crashes, and what is the usual way to lose less?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing, because Redis writes a final snapshot as it goes down; AOF would only help with disk space"
+        },
+        {
+          "id": "b",
+          "text": "Only the few commands in flight at that instant; AOF is needed for replicas and not for crash recovery"
+        },
+        {
+          "id": "c",
+          "text": "Everything, because an RDB file cannot be loaded after a crash, and only an AOF can be replayed at start-up"
+        },
+        {
+          "id": "d",
+          "text": "Up to the last 15 minutes of writes; AOF with fsync every second would cut that to about a second"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "An RDB file is a point-in-time snapshot, so everything written after the latest one is gone after a crash. AOF logs every write, and with fsync once per second it limits the loss to about a second (fsync on every write loses the least but is the slowest). A crashed process does not get to write a final snapshot, and RDB files do load fine at start-up."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Redis executes commands one at a time on a single main thread. Which of these can make every other client wait?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Running KEYS * on a database that holds millions of keys"
+        },
+        {
+          "id": "b",
+          "text": "Reading a hash with millions of fields in a single HGETALL call"
+        },
+        {
+          "id": "c",
+          "text": "Running INCR on a counter key that a thousand clients update every second"
+        },
+        {
+          "id": "d",
+          "text": "Setting a short string value with SET and an expiry time on a busy instance"
+        },
+        {
+          "id": "e",
+          "text": "Running a Lua script that loops over millions of elements"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "e"
+      ],
+      "explanation": "Anything that touches every element, such as KEYS, HGETALL on a huge hash or a long-running script, holds the single thread until it finishes, so every other client queues behind it. INCR and SET on a small value take microseconds. Use SCAN and HSCAN to walk the data in small batches, and avoid giant keys."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "A Redis primary is using 90% of its machine's RAM and the dataset keeps growing. Which change actually addresses that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add read replicas, so that the data is spread across more machines"
+        },
+        {
+          "id": "b",
+          "text": "Shard the keys across several primaries, for example with Redis Cluster"
+        },
+        {
+          "id": "c",
+          "text": "Turn on AOF, so that older data can be kept on disk instead of in memory"
+        },
+        {
+          "id": "d",
+          "text": "Set maxmemory above the machine's RAM, so that the operating system swaps the rest"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A replica is a full copy of its primary, so it needs just as much memory and does nothing for capacity. Redis Cluster splits the keys across primaries by hash slot, so each node holds only a share. AOF is a durability log, not a way to hold data outside memory, and swapping makes Redis latency collapse."
+    }
+  ]
+}

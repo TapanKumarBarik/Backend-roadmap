@@ -1,0 +1,28 @@
+{
+  "title": "Word Ladder",
+  "topic": "graphs-and-backtracking",
+  "difficulty": "advanced",
+  "description": "Find the shortest chain of one-letter word changes from one word to another, using words from a list.",
+  "statement": "Write `word_ladder(begin_word, end_word, word_list)`, which returns the number of words in the **shortest** transformation sequence from `begin_word` to `end_word`, or `0` if there is none.\n\n- Each step changes exactly one letter, and every word after the first must be in `word_list`. `begin_word` does not have to be in the list.\n- The length counts both ends: `cat -> cot` has length 2.\n- All words are lower case and have the same length, and `begin_word` and `end_word` are different.\n- If `end_word` is not in `word_list`, the answer is `0`.\n- The list can hold thousands of words.\n\n**Examples**\n\n```python\nword_ladder(\"cold\", \"warm\", [\"cord\", \"card\", \"ward\", \"warm\", \"worm\"])   # 5: cold, cord, card, ward, warm\nword_ladder(\"cat\", \"cot\", [\"cot\"])                                      # 2\nword_ladder(\"cold\", \"warm\", [\"cord\", \"card\", \"ward\"])                   # 0, \"warm\" is not in the list\n```\n\nComparing every word with every other word is too slow for a long list.",
+  "starter": "def word_ladder(begin_word, end_word, word_list):\n    \"\"\"Return the length of the shortest chain of one-letter changes from begin_word to end_word, or 0.\"\"\"\n    ...\n",
+  "tests": [
+    "assert word_ladder(\"cold\", \"warm\", [\"cord\", \"card\", \"ward\", \"warm\", \"worm\"]) == 5",
+    "assert word_ladder(\"cat\", \"cot\", [\"cot\"]) == 2",
+    "assert word_ladder(\"cold\", \"warm\", [\"cord\", \"card\", \"ward\"]) == 0",
+    "assert word_ladder(\"cat\", \"dog\", [\"dot\", \"dog\", \"cog\"]) == 0",
+    "assert word_ladder(\"cat\", \"dog\", [\"cog\", \"dot\", \"dog\", \"cot\"]) == 4",
+    "assert word_ladder(\"aaa\", \"ccc\", [\"aab\", \"abb\", \"bbb\", \"bbc\", \"bcc\", \"ccc\", \"aac\", \"acc\"]) == 4",
+    "assert word_ladder(\"cat\", \"cot\", [\"cat\", \"cot\"]) == 2",
+    "dictionary = [\"\".join(\"abcdefghi\"[(n // 9 ** k) % 9] for k in range(4)) for n in range(9 ** 4)]",
+    "assert word_ladder(\"aaaa\", \"iiii\", list(dictionary)) == 5",
+    "cut_off = [w for w in dictionary if sum(a != b for a, b in zip(w, \"iiii\")) != 1]",
+    "assert word_ladder(\"aaaa\", \"iiii\", cut_off) == 0"
+  ],
+  "hints": [
+    "Think of each word as a node, with an edge between two words that differ in one letter. What does \"shortest transformation\" mean on that graph, and which search finds it?",
+    "A breadth-first search from `begin_word` finds the shortest path; the first time you reach `end_word` is the answer. The costly part is finding a word's neighbors: comparing it with every other word is O(N).",
+    "Find neighbors without comparing all pairs: group the words by pattern (`c*ld`, `co*d`, ...) in a dictionary, or try all 26 letters at each position and look the result up in a set. Mark words as seen when you queue them, and remember the answer counts words, not steps."
+  ],
+  "solution": "from collections import defaultdict, deque\n\n\ndef word_ladder(begin_word, end_word, word_list):\n    words = set(word_list)\n    if end_word not in words:\n        return 0\n\n    # Group the words by \"pattern\": the word with one letter replaced by a star (\"c*ld\", \"co*d\", ...).\n    # Words in the same group differ in exactly that one position, so they are neighbors.\n    groups = defaultdict(list)\n    for word in words | {begin_word}:\n        for i in range(len(word)):\n            groups[word[:i] + \"*\" + word[i + 1:]].append(word)\n\n    queue = deque([(begin_word, 1)])\n    seen = {begin_word}\n    while queue:\n        word, length = queue.popleft()\n        for i in range(len(word)):\n            for neighbor in groups[word[:i] + \"*\" + word[i + 1:]]:\n                if neighbor == end_word:\n                    return length + 1\n                if neighbor not in seen:\n                    seen.add(neighbor)\n                    queue.append((neighbor, length + 1))\n    return 0\n",
+  "explanation": "**The idea.** Think of every word as a node and join two words when they differ in exactly one letter. A shortest transformation is then a shortest path in an unweighted graph, which breadth-first search finds: it explores all words one change away, then two changes away, and so on, so the first time it reaches `end_word` the number of words on the way is the shortest. Mark a word as seen when you queue it, so nothing is queued twice.\n\n**The expensive part is finding neighbors.** Comparing a word with every other word costs O(N) per word, O(N²) overall, too slow for thousands of words. Two faster ways: group the words by pattern (`c*ld`, `co*d`, `col*`, ...) in a dictionary, so the neighbors of a word are the other members of its groups; or try every letter in every position and look the result up in a set. Both cost O(length) lookups per word instead of O(N).\n\n**Counting.** The answer counts words, not steps, so `cat -> cot` is 2. Words missing from the list are not allowed, and neither is an `end_word` that is not in it.\n\n**Complexity.** About O(N × L²) time with the pattern groups (L is the word length, because building each pattern costs O(L)). Follow-up: a *bidirectional* search, from both ends at once, explores far fewer words on a big list; and returning the ladder itself, or all shortest ladders, needs the parent of each word."
+}

@@ -37,7 +37,7 @@ async function open(url, { email = 'reader@example.com', ...options } = {}) {
   return { ...opened, env };
 }
 
-test('the top bar has Practice and My Learning, and Practice lists the quizzes, coding sets, interview sets and exercises', async () => {
+test('the top bar has Practice and My Learning, and Practice lists the coding problems, quizzes, coding sets, interview sets and exercises', async () => {
   const { context, page, problems, goto } = await open('/#__practice');
   await goto();
   await page.getByRole('heading', { level: 2, name: 'Practice' }).waitFor();
@@ -47,7 +47,9 @@ test('the top bar has Practice and My Learning, and Practice lists the quizzes, 
   assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
 
   const tablist = page.getByRole('tablist', { name: /practice/i });
-  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
+  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Code practice', 'Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
+  assert.ok(await page.locator('.cm-topic').count() > 0, 'the coding problems are on the first tab, as a map of topics');
+  await tablist.getByRole('tab', { name: /^Quizzes/ }).click();
   assert.ok(await page.getByRole('link', { name: /HTTP caching/i }).count() > 0, 'the quizzes are listed');
   await tablist.getByRole('tab', { name: /^Coding questions/ }).click();
   assert.ok(await page.locator('.pr-card').count() > 0, 'and the coding sets');
@@ -565,6 +567,7 @@ test('the admin edits a quiz in the browser: it is checked, a problem is named, 
 test('Practice recommends what to take: the easiest quizzes to a new reader, and the topic that went badly to one who has tried', async () => {
   const fresh = await open('/practice/', { email: null });
   await fresh.goto();
+  await fresh.page.getByRole('tab', { name: /^Quizzes/ }).click();
   await fresh.page.locator('.pr-recs .pr-rec').first().waitFor();
   assert.equal(await fresh.page.locator('.pr-recs .pr-rec').count(), 3, 'three suggestions');
   assert.match(await fresh.page.locator('.pr-recs .pr-rec').first().innerText(), /A good place to start/);
@@ -579,6 +582,7 @@ test('Practice recommends what to take: the easiest quizzes to a new reader, and
   await page.getByRole('button', { name: 'Check my answers' }).click();
   await page.locator('.pr-score').waitFor();
   await page.getByRole('button', { name: '← All practice' }).click();
+  await page.getByRole('tab', { name: /^Quizzes/ }).click();
   await page.locator('.pr-recs').waitFor();
   const topic = practiceContent.quizzes['http-caching'].topic;
   await page.locator('.pr-rec__why.is-weak', { hasText: new RegExp(`of the ${topic} questions right`) }).first().waitFor();

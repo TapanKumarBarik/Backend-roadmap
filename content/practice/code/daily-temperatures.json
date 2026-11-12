@@ -1,0 +1,29 @@
+{
+  "title": "Daily Temperatures",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "description": "For each day, count how many days you must wait for a warmer temperature.",
+  "statement": "Given a list `temps` of daily temperatures, return a list `answer` of the same length where `answer[i]` is the number of days you have to wait after day `i` for a **strictly warmer** day. If no later day is warmer, `answer[i]` is `0`.\n\n- A later day with the same temperature does not count as warmer.\n- Temperatures can be negative. An empty list gives `[]`.\n\n**Examples**\n\n```python\ndaily_temperatures([73, 74, 75, 71, 69, 72, 76, 73])   # [1, 1, 4, 2, 1, 1, 0, 0]\ndaily_temperatures([30, 40, 50, 60])                    # [1, 1, 1, 0]\ndaily_temperatures([60, 50, 40])                        # [0, 0, 0]\n```\n\nAim for O(n): in the last tests (100,000 days), scanning ahead from every day takes about five billion steps.",
+  "starter": "def daily_temperatures(temps):\n    \"\"\"Return, for each day, the number of days until a strictly warmer temperature (0 if there is none).\"\"\"\n    ...\n",
+  "tests": [
+    "assert daily_temperatures([73, 74, 75, 71, 69, 72, 76, 73]) == [1, 1, 4, 2, 1, 1, 0, 0]",
+    "assert daily_temperatures([30, 40, 50, 60]) == [1, 1, 1, 0]",
+    "assert daily_temperatures([60, 50, 40]) == [0, 0, 0]",
+    "assert daily_temperatures([]) == []",
+    "assert daily_temperatures([70]) == [0]",
+    "assert daily_temperatures([70, 70, 71]) == [2, 1, 0]",
+    "assert daily_temperatures([70, 70, 70]) == [0, 0, 0]",
+    "assert daily_temperatures([89, 62, 70, 58, 47, 47, 46, 76, 100, 70]) == [8, 1, 5, 4, 3, 2, 1, 1, 0, 0]",
+    "assert daily_temperatures([-5, -10, -3]) == [2, 1, 0]",
+    "assert daily_temperatures(list(range(100_000, 0, -1))) == [0] * 100_000, \"too slow or wrong on 100,000 days that only get colder; scanning ahead from every day is O(n^2)\"",
+    "valley = list(range(50_000, 0, -1)) + list(range(1, 50_001))        # 50,000 down, then 50,000 up",
+    "assert daily_temperatures(valley) == [0] + [100_000 - 2 * i for i in range(1, 50_000)] + [1] * 49_999 + [0], \"too slow or wrong on a valley of 100,000 days\""
+  ],
+  "hints": [
+    "Looking ahead from every day is slow when temperatures only fall. Try looking back instead: when today arrives, which earlier days has it just answered?",
+    "Keep a stack of the indexes of days that have not found a warmer day yet. While today is warmer than the day on top, pop that day and set its answer to the difference between the two indexes. Then push today.",
+    "Compare with `<`, so equal temperatures stay waiting. Days left on the stack at the end keep the answer `0`."
+  ],
+  "solution": "def daily_temperatures(temps):\n    answer = [0] * len(temps)\n    waiting = []                                   # days still waiting for a warmer day; their temperatures never rise towards the top\n    for today, temp in enumerate(temps):\n        while waiting and temps[waiting[-1]] < temp:\n            colder_day = waiting.pop()\n            answer[colder_day] = today - colder_day\n        waiting.append(today)\n    return answer\n",
+  "explanation": "**The idea.** Looking ahead from every day is O(n²) when the temperatures keep falling. Look *back* instead: keep a stack of the days that have not found a warmer day yet. Their temperatures never go up as you move towards the top of the stack, because a warmer day would already have answered the colder ones below it. When today is warmer than the day on top, that day has found its answer, `today - that_day`: pop it and record the distance. Keep popping while today is warmer, then push today.\n\n**Why it is O(n).** Every day is pushed once and popped at most once. Days still on the stack at the end never found a warmer day, so they keep the `0` they started with.\n\n**Strictly warmer.** Compare with `<`, so that equal temperatures stay on the stack.\n\n**Follow-up.** This pattern is called a monotonic stack. It also finds the next greater element, the stock span, and the largest rectangle in a histogram."
+}

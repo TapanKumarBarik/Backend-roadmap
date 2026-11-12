@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cx } from '../../lib/cx.js';
 import { GlyphPaths } from './glyphs.jsx';
+import '../../styles/crest.css';
 
 const R = 34;
 const CIRCUMFERENCE = 2 * Math.PI * R;

@@ -1,0 +1,29 @@
+{
+  "title": "Longest Common Prefix",
+  "topic": "strings-and-parsing",
+  "difficulty": "beginner",
+  "description": "Find the longest prefix that every string in a list starts with.",
+  "statement": "Write `longest_common_prefix(strings)`, which returns the longest string that every string in the list `strings` starts with (for example, the shared \"folder\" of a set of object-storage keys).\n\n- An empty list has no common prefix: return `\"\"`.\n- Return `\"\"` as well when the strings share no first character, or when any of them is empty.\n- A list with one string returns that string. Matching is case-sensitive.\n\n**Examples**\n\n```python\nlongest_common_prefix([\"flower\", \"flow\", \"flight\"])        # \"fl\"\nlongest_common_prefix([\"api/v1/users\", \"api/v1/orders\"])   # \"api/v1/\"\nlongest_common_prefix([\"dog\", \"racecar\"])                  # \"\"\n```",
+  "starter": "def longest_common_prefix(strings):\n    \"\"\"Return the longest string that every string in the list starts with (an empty string if there is none).\"\"\"\n    ...\n",
+  "tests": [
+    "assert longest_common_prefix([\"flower\", \"flow\", \"flight\"]) == \"fl\"",
+    "assert longest_common_prefix([\"api/v1/users\", \"api/v1/orders\"]) == \"api/v1/\"",
+    "assert longest_common_prefix([\"dog\", \"racecar\"]) == \"\"",
+    "assert longest_common_prefix([]) == \"\"",
+    "assert longest_common_prefix([\"solo\"]) == \"solo\"",
+    "assert longest_common_prefix([\"abc\", \"\", \"abd\"]) == \"\"",
+    "assert longest_common_prefix([\"abcd\", \"abcd\", \"abcx\"]) == \"abc\"",
+    "assert longest_common_prefix([\"prefix-a\", \"prefix-b\", \"pre\", \"prefix-c\"]) == \"pre\"",
+    "assert longest_common_prefix([\"same\", \"same\", \"same\"]) == \"same\"",
+    "assert longest_common_prefix([\"Apple\", \"apple\"]) == \"\"",
+    "object_keys = [\"backend-\" + \"z\" * 1000 + str(i) for i in range(100)]",
+    "assert longest_common_prefix(object_keys) == \"backend-\" + \"z\" * 1000"
+  ],
+  "hints": [
+    "Whatever the answer is, every string starts with it. How long can it possibly be, judging only by the lengths of the strings?",
+    "Look at position 0 in every string, then position 1, and so on. The first position where the strings disagree (or where one of them ends) is where the prefix stops.",
+    "Handle the empty list before you look inside it, and never index past the end of a shorter string. The short string can be one in the middle of the list."
+  ],
+  "solution": "def longest_common_prefix(strings):\n    if not strings:\n        return \"\"\n    shortest = min(strings, key=len)          # the prefix cannot be longer than the shortest string\n    for i, char in enumerate(shortest):\n        if any(s[i] != char for s in strings):\n            return shortest[:i]               # position i is the first place where somebody disagrees\n    return shortest\n",
+  "explanation": "**The idea.** The common prefix cannot be longer than the shortest string, so scan that string one position at a time and ask whether every string has the same character there. The first position where one of them disagrees is where the prefix ends. If nobody ever disagrees, the whole shortest string is the prefix.\n\n**Why the empty cases fall out.** An empty list is handled up front. An empty string in the list is the shortest string, so the loop body never runs and the answer is `\"\"`.\n\n**Complexity.** O(S) time, where S is the total number of characters, and O(1) extra space. You cannot beat that in the worst case: identical strings have to be read in full to know they are identical.\n\n**Usual mistakes.** Indexing past the end of a shorter string, forgetting the empty list, and comparing only the first and last string of the list as given (a short string in the middle breaks that).\n\n**Follow-up.** The common prefix of a whole list equals the common prefix of just `min(strings)` and `max(strings)`, because the smallest and the largest string in sorted order differ the most. Python's `os.path.commonprefix` does this job, but writing it once yourself is the point."
+}

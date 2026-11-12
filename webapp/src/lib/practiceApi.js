@@ -13,7 +13,7 @@ const send = (method, url, body) => fetch(url, {
   body: body === undefined ? undefined : JSON.stringify(body)
 });
 
-/** Everything there is to practise: { quizzes, exercises, interview, coding }, as cards (no answers, no long text). */
+/** Everything there is to practise: { quizzes, exercises, interview, coding, code }, as cards (no answers, no long text). */
 // The catalog is the same for everyone and changes only with a deploy, and a lesson, the dashboard and the Practice Center all ask for it:
 // it is fetched once per visit, and asked for again only after a failure.
 let catalog = null;
@@ -31,11 +31,22 @@ export const fetchQuiz = async (slug) => answer(await fetch(`/api/practice/quizz
 /** Scores a try. `only` (question ids) scores just those, as a retry of the ones missed: it is not kept. */
 export const submitQuizAttempt = async (slug, answers, only) => answer(await send('POST', `/api/practice/quizzes/${encodeURIComponent(slug)}/attempts`, only ? { answers, only } : { answers }), 'failed to score the quiz');
 
+/** Today's drill: { day, questions: [{ key, quiz, quizTitle, topic, id, type, text, options, choose }] }, without answers. `day` ("2026-11-12") asks for that day's. */
+export const fetchDrill = async (day) => answer(await fetch(day ? `/api/practice/drill?day=${encodeURIComponent(day)}` : '/api/practice/drill'), 'failed to load the drill');
+
+/** Checks one answer of a drill: { correct, answer, explanation }. `chosen` is the option ids picked. */
+export const checkDrillAnswer = async (day, key, chosen) => answer(await send('POST', '/api/practice/drill/check', { day, key, chosen }), 'failed to check your answer');
+
 /** Where the signed-in reader is weak: { topics: [{ topic, correct, total, percent }], missed: [{ quiz, title, question, text }] }. */
 export const fetchWeakAreas = async () => answer(await fetch('/api/practice/weak-areas'), 'failed to load your weak areas');
 
 /** The signed-in reader's tries, newest first: [{ id, quiz, title, score, max, at }]. */
 export const fetchQuizAttempts = async () => answer(await fetch('/api/practice/attempts'), 'failed to load your attempts');
+
+/** A coding problem without its solution: { slug, title, topic, difficulty, description, statement, starter, tests, hints, module }. */
+export const fetchCodeProblem = async (slug) => answer(await fetch(`/api/practice/code/${encodeURIComponent(slug)}`), 'failed to load the problem');
+/** The model solution of a coding problem and how it works: { solution, explanation }. */
+export const fetchCodeSolution = async (slug) => answer(await fetch(`/api/practice/code/${encodeURIComponent(slug)}/solution`), 'failed to load the solution');
 
 export const fetchExercise = async (slug) => answer(await fetch(`/api/practice/exercises/${encodeURIComponent(slug)}`), 'failed to load the exercise');
 export const fetchInterviewSet = async (slug) => answer(await fetch(`/api/practice/interview/${encodeURIComponent(slug)}`), 'failed to load the questions');

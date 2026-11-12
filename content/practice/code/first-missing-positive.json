@@ -1,0 +1,30 @@
+{
+  "title": "First Missing Positive",
+  "topic": "arrays-and-hashing",
+  "difficulty": "advanced",
+  "description": "Find the smallest positive integer missing from an unsorted list in linear time.",
+  "statement": "Write `first_missing_positive(nums)`, which returns the smallest positive integer (1, 2, 3, ...) that does not appear in the list `nums`.\n\n- The list is not sorted. It may contain duplicates, zero, negative numbers and numbers far bigger than the list is long.\n- If the list is empty, or contains no `1`, the answer is `1`.\n- Your function may rearrange or overwrite the items of `nums` while it works; the tests never look at the list afterwards.\n\n**Examples**\n\n```python\nfirst_missing_positive([1, 2, 0])            # 3\nfirst_missing_positive([3, 4, -1, 1])        # 2\nfirst_missing_positive([7, 8, 9, 11, 12])    # 1\n```\n\nAsking `x in nums` for each candidate `x` is O(n²) and too slow for a long list. Aim for O(n) time; as a stretch, try to use no extra memory beyond a few variables.",
+  "starter": "def first_missing_positive(nums):\n    \"\"\"Return the smallest positive integer that is not in nums.\"\"\"\n    ...\n",
+  "tests": [
+    "assert first_missing_positive([1, 2, 0]) == 3",
+    "assert first_missing_positive([3, 4, -1, 1]) == 2",
+    "assert first_missing_positive([7, 8, 9, 11, 12]) == 1",
+    "assert first_missing_positive([]) == 1",
+    "assert first_missing_positive([1]) == 2",
+    "assert first_missing_positive([2]) == 1",
+    "assert first_missing_positive([1, 1, 1]) == 2",
+    "assert first_missing_positive([-5, -1, 0]) == 1",
+    "assert first_missing_positive([4, 3, 2, 1]) == 5",
+    "assert first_missing_positive([2**40, 1, 2, 3]) == 4",
+    "scrambled = [(i * 7919) % 50_000 + 1 for i in range(50_000)]\none_value_short = [v for v in scrambled if v != 31_337]",
+    "assert first_missing_positive(scrambled) == 50_001, \"wrong or too slow when 1 to 50,000 are all present, in a scrambled order\"",
+    "assert first_missing_positive(one_value_short) == 31_337, \"wrong or too slow when only 31,337 is missing from 1 to 50,000\""
+  ],
+  "hints": [
+    "With `n` numbers in the list, how large can the answer be at most? Think about a list that holds exactly `1 … n` in some order.",
+    "So only the values `1 … n` matter; ignore everything else. You need to know which of them are present: a table of flags would do it, but you can use the list itself, parking value `v` at index `v - 1`.",
+    "Swap a value into its slot only if that slot does not already hold the same value, or duplicates make you loop forever. If every slot holds its own number, the answer is `n + 1`."
+  ],
+  "solution": "def first_missing_positive(nums):\n    n = len(nums)\n    # With n items the answer can only be 1 .. n + 1, so only the values 1 .. n matter. Park each of them in \"its\" slot: value v goes to index v - 1.\n    for i in range(n):\n        while 1 <= nums[i] <= n and nums[nums[i] - 1] != nums[i]:\n            slot = nums[i] - 1                           # work out the slot first: nums[i] changes during the swap\n            nums[i], nums[slot] = nums[slot], nums[i]\n    # The first slot that does not hold its own number shows which number is missing.\n    for i in range(n):\n        if nums[i] != i + 1:\n            return i + 1\n    return n + 1\n",
+  "explanation": "**The key observation.** A list of `n` items cannot contain more than `n` different positive numbers, so the answer is always somewhere in `1 … n + 1`. Everything else (zero, negatives, huge numbers) can be ignored.\n\n**A simple O(n) way.** Put the items in a set, then count up from 1 until a number is not in it. That takes O(n) time and O(n) extra space and is perfectly good.\n\n**The O(1)-space way (the one in the solution).** Use the list itself as the set. Value `v` belongs at index `v - 1`, so swap every value in `1 … n` into its own slot. Each swap puts at least one value where it belongs for good, so the swaps total at most `n` and the whole thing is O(n) even though there is a `while` inside the `for`. Afterwards the first slot `i` that does not hold `i + 1` tells you the answer is `i + 1`; if every slot is right, the answer is `n + 1`.\n\n**Details that bite.**\n\n- Swap only when the target slot does not already hold the same value. With duplicates (`[1, 1]`) a plain swap would swap a value with itself forever.\n- Work out the slot index before swapping. `nums[i], nums[nums[i] - 1] = ...` changes `nums[i]` before the second target is evaluated and corrupts the list.\n\n**Complexity.** O(n) time, O(1) extra space; it rewrites the caller's list, which is why the statement allows that."
+}

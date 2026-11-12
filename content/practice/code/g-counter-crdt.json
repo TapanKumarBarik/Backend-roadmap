@@ -1,0 +1,71 @@
+{
+  "title": "G-Counter CRDT",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "system-design/01-core-fundamentals/13-cap-theorem/README.md",
+  "description": "Build a grow-only counter that replicas can merge in any order, any number of times, and still agree.",
+  "statement": "A G-Counter is a counter that every replica keeps locally and that replicas sync by exchanging their state. Each replica counts only its own increments, and the value is the sum over all replicas. Implement `GCounter(replica_id, snapshot=None)`:\n\n- `increment(amount=1)` adds `amount` to this replica's own count. `amount` must be a positive integer: `0` or a negative number raises `ValueError`, and the counter stays as it was.\n- `value()` returns the sum of every replica's count.\n- `merge(other)` folds another `GCounter`'s state into this one, in place, keeping the **larger** count for each replica. It never changes `other` and never shares state with it.\n- `snapshot()` returns a copy of the state as `{replica_id: count}`; a new counter has `{}`. If `snapshot` is passed to the constructor, it is copied as the starting state.\n\nMerging must give the same result in any order, any grouping and any number of repetitions. That is what lets replicas converge.\n\n**Example**\n\n```python\na, b = GCounter(\"a\"), GCounter(\"b\")\na.increment(3); b.increment(5)    # two replicas count concurrently\na.merge(b); b.merge(a)\na.value(), b.value()              # (8, 8)\na.merge(b)                        # merging again changes nothing\na.value()                         # 8\n```",
+  "starter": "class GCounter:\n    def __init__(self, replica_id, snapshot=None):\n        ...\n\n    def increment(self, amount=1):\n        \"\"\"Add `amount` (a positive int) to this replica's own count.\"\"\"\n        ...\n\n    def value(self):\n        \"\"\"The counter's value: the sum of every replica's count.\"\"\"\n        ...\n\n    def merge(self, other):\n        \"\"\"Fold another GCounter's state into this one, keeping the larger count for each replica.\"\"\"\n        ...\n\n    def snapshot(self):\n        \"\"\"A copy of the state: {replica_id: count}.\"\"\"\n        ...\n",
+  "tests": [
+    "\nimport random\n\ndef raises(exception_type, function, *args):\n    try:\n        function(*args)\n    except exception_type:\n        return True\n    except Exception as error:\n        raise AssertionError(f\"expected {exception_type.__name__}, got {type(error).__name__}: {error}\")\n    raise AssertionError(f\"expected {exception_type.__name__}, but nothing was raised\")\n\ndef join(x, y):\n    \"\"\"A fresh counter holding the merge of x and y; neither of them is changed.\"\"\"\n    result = GCounter(\"scratch\", x.snapshot())\n    result.merge(y)\n    return result\n\ndef exchange(schedule):\n    \"\"\"Three replicas count 2, 3 and 5, then merge as scheduled: (destination, source) pairs. Returns every replica's snapshot.\"\"\"\n    replicas = {name: GCounter(name) for name in \"abc\"}\n    replicas[\"a\"].increment(2)\n    replicas[\"b\"].increment(3)\n    replicas[\"c\"].increment(5)\n    for destination, source in schedule:\n        replicas[destination].merge(replicas[source])\n    return {name: replica.snapshot() for name, replica in replicas.items()}\n",
+    {
+      "name": "the example: two replicas count concurrently, merge, and agree on 8",
+      "code": "a, b = GCounter(\"a\"), GCounter(\"b\")\na.increment(3)\nb.increment(5)\na.merge(b)\nb.merge(a)\nassert a.value() == 8\nassert b.value() == 8\na.merge(b)\nassert a.value() == 8, \"merging the same state again must change nothing\""
+    },
+    {
+      "name": "increment() adds one by default; snapshot() shows the state and value() sums it",
+      "code": "c = GCounter(\"a\")\nassert c.value() == 0\nassert c.snapshot() == {}\nc.increment()\nc.increment(4)\nassert c.snapshot() == {\"a\": 5}\nassert c.value() == 5"
+    },
+    {
+      "name": "a counter can start from a snapshot, which is copied",
+      "code": "start = {\"a\": 2, \"b\": 3}\nc = GCounter(\"a\", start)\nstart[\"a\"] = 100\nassert c.snapshot() == {\"a\": 2, \"b\": 3}, \"the constructor must copy the snapshot it is given\"\nassert c.value() == 5\nc.increment(1)\nassert c.snapshot() == {\"a\": 3, \"b\": 3}\nassert start == {\"a\": 100, \"b\": 3}, \"the dict passed to the constructor must not be changed\""
+    },
+    {
+      "name": "snapshot() returns a copy: changing it changes nothing",
+      "code": "c = GCounter(\"a\")\nc.increment(2)\ncopy = c.snapshot()\ncopy[\"a\"] = 50\ncopy[\"z\"] = 1\nassert c.snapshot() == {\"a\": 2}"
+    },
+    {
+      "name": "merge keeps the larger count per replica, so a stale state cannot roll a counter back",
+      "code": "a, b = GCounter(\"a\"), GCounter(\"b\")\na.increment(2)\nb.merge(a)\na.increment(3)\na.merge(b)\nassert a.snapshot() == {\"a\": 5}, \"b only knows a at 2, but a is already at 5\"\nb.merge(a)\nassert b.snapshot() == {\"a\": 5}"
+    },
+    {
+      "name": "merge is commutative: x with y equals y with x",
+      "code": "x = GCounter(\"x\", {\"x\": 3, \"y\": 1})\ny = GCounter(\"y\", {\"x\": 1, \"y\": 4, \"z\": 2})\nassert join(x, y).snapshot() == {\"x\": 3, \"y\": 4, \"z\": 2}\nassert join(y, x).snapshot() == {\"x\": 3, \"y\": 4, \"z\": 2}"
+    },
+    {
+      "name": "merge is associative: (x with y) with z equals x with (y with z)",
+      "code": "x = GCounter(\"x\", {\"x\": 3, \"y\": 1})\ny = GCounter(\"y\", {\"x\": 1, \"y\": 4, \"z\": 2})\nz = GCounter(\"z\", {\"z\": 7, \"w\": 1})\nassert join(join(x, y), z).snapshot() == {\"x\": 3, \"y\": 4, \"z\": 7, \"w\": 1}\nassert join(x, join(y, z)).snapshot() == {\"x\": 3, \"y\": 4, \"z\": 7, \"w\": 1}"
+    },
+    {
+      "name": "merge is idempotent: merging a counter with itself, or the same state twice, changes nothing",
+      "code": "x = GCounter(\"x\", {\"x\": 3, \"y\": 1})\ny = GCounter(\"y\", {\"y\": 4})\nx.merge(x)\nassert x.snapshot() == {\"x\": 3, \"y\": 1}, \"merging a counter with itself must change nothing\"\nx.merge(y)\nonce = x.snapshot()\nx.merge(y)\nassert x.snapshot() == once, \"merging the same state a second time must give the same result as merging it once\"\nassert once == {\"x\": 3, \"y\": 4}"
+    },
+    {
+      "name": "replicas converge whatever order they exchange state in, even with repeated messages",
+      "code": "everything = {\"a\": 2, \"b\": 3, \"c\": 5}\nagreed = {\"a\": everything, \"b\": everything, \"c\": everything}\nring = [(\"a\", \"b\"), (\"b\", \"c\"), (\"c\", \"a\"), (\"a\", \"b\"), (\"b\", \"c\")]\nstar = [(\"c\", \"a\"), (\"c\", \"b\"), (\"a\", \"c\"), (\"b\", \"c\")]\nbackwards = [(\"c\", \"b\"), (\"b\", \"a\"), (\"a\", \"c\"), (\"c\", \"b\"), (\"b\", \"a\")]\nrepeated = [(\"a\", \"b\"), (\"a\", \"b\"), (\"c\", \"a\"), (\"b\", \"c\"), (\"b\", \"c\"), (\"a\", \"c\"), (\"c\", \"b\"), (\"a\", \"b\")]\nassert exchange(ring) == agreed\nassert exchange(star) == agreed\nassert exchange(backwards) == agreed\nassert exchange(repeated) == agreed"
+    },
+    {
+      "name": "merge changes only self: the other counter is untouched and shares no state with it",
+      "code": "a, b = GCounter(\"a\"), GCounter(\"b\")\nb.increment(4)\na.merge(b)\na.increment(1)\nb.increment(1)\nassert b.snapshot() == {\"b\": 5}, \"after a.merge(b), changing a must not change b\"\nassert a.snapshot() == {\"a\": 1, \"b\": 4}, \"after a.merge(b), changing b must not change a\""
+    },
+    {
+      "name": "increment() accepts only positive amounts",
+      "code": "c = GCounter(\"a\")\nassert raises(ValueError, c.increment, 0)\nassert raises(ValueError, c.increment, -3)\nassert c.value() == 0, \"a refused increment must not change the counter\""
+    },
+    {
+      "name": "300 random increments and exchanges among 5 replicas, then everyone agrees with the total",
+      "code": "rng = random.Random(3)\nnames = [\"a\", \"b\", \"c\", \"d\", \"e\"]\nreplicas = {name: GCounter(name) for name in names}\ntotal = 0\nfor _ in range(300):\n    if rng.random() < 0.5:\n        name, amount = rng.choice(names), rng.randint(1, 5)\n        replicas[name].increment(amount)\n        total += amount\n    else:\n        destination, source = rng.sample(names, 2)\n        replicas[destination].merge(replicas[source])\nfor destination in names:\n    for source in names:\n        replicas[destination].merge(replicas[source])\nassert [replicas[name].value() for name in names] == [total] * 5"
+    },
+    {
+      "name": "the three merge laws hold for 200 random triples of states",
+      "code": "rng = random.Random(11)\n\ndef random_counter():\n    return GCounter(\"r\", {replica: rng.randint(1, 9) for replica in \"abcd\" if rng.random() < 0.7})\n\ndef broken_law(trials):\n    for _ in range(trials):\n        x, y, z = random_counter(), random_counter(), random_counter()\n        if join(x, y).snapshot() != join(y, x).snapshot():\n            return f\"not commutative for {x.snapshot()} and {y.snapshot()}\"\n        if join(join(x, y), z).snapshot() != join(x, join(y, z)).snapshot():\n            return f\"not associative for {x.snapshot()}, {y.snapshot()} and {z.snapshot()}\"\n        if join(x, x).snapshot() != x.snapshot():\n            return f\"not idempotent for {x.snapshot()}\"\n    return \"none\"\n\nassert broken_law(200) == \"none\""
+    }
+  ],
+  "hints": [
+    "If two replicas wrote to one shared number they would overwrite each other. What if every replica only ever wrote to a slot of its own?",
+    "Keep a dict from replica id to count. `increment` raises only your own entry; `value` is the sum of all entries. `merge` takes the larger count for each replica.",
+    "Use `max`, not `+`, when merging: a state that arrives twice, or late, must not be counted again or lose newer information. Copy the dicts so two counters never share one."
+  ],
+  "solution": "class GCounter:\n    def __init__(self, replica_id, snapshot=None):\n        self._replica_id = replica_id\n        self._counts = dict(snapshot or {})       # replica id -> how many increments that replica has made\n\n    def increment(self, amount=1):\n        if amount <= 0:\n            raise ValueError(f\"a grow-only counter can only grow; got {amount}\")\n        self._counts[self._replica_id] = self._counts.get(self._replica_id, 0) + amount\n\n    def value(self):\n        return sum(self._counts.values())\n\n    def merge(self, other):\n        # Per replica keep the larger count. max() is commutative, associative and idempotent,\n        # and so therefore is the merge.\n        for replica, count in other._counts.items():\n            if count > self._counts.get(replica, 0):\n                self._counts[replica] = count\n\n    def snapshot(self):\n        return dict(self._counts)\n",
+  "explanation": "**The idea.** A shared counter is hard to replicate, because two replicas that both read 5 and both write 6 lose an update. A G-Counter avoids that by giving every replica its own slot: a replica only ever increases its own count, so no two replicas write the same slot. The value is the sum of the slots.\n\n**Why the merge is safe.** To combine two states, take the larger count for each replica. Taking a maximum is commutative (the order does not matter), associative (the grouping does not matter) and idempotent (merging the same state twice is the same as once). Those three laws are exactly what you need when messages can arrive late, out of order or twice, which is why replicas that eventually see each other's state converge. Adding the counts instead of taking the maximum would double count a state that is received twice.\n\n**What it cannot do.** It only grows. A counter that can also go down is a PN-Counter: two G-Counters, one for increments and one for decrements, with the value equal to their difference.\n\n**Complexity.** `increment` is O(1); `merge`, `value` and `snapshot` are O(number of replicas). Follow-up: the state grows with the number of replicas that ever incremented. How could a system retire a replica?"
+}

@@ -1,0 +1,55 @@
+{
+  "title": "LRU Cache",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md",
+  "description": "Build a fixed-size cache that evicts the least recently used key, in constant time.",
+  "statement": "Build an `LRUCache` that holds at most `capacity` entries. When it is full and a new key arrives, it discards the entry that was **used least recently**.\n\n- `get(key)` returns the stored value, or `None` if the key is not in the cache. A hit counts as a use of the key.\n- `put(key, value)` stores the pair and counts as a use. Writing a key that is already there replaces its value and never evicts anything.\n- Keys can be any hashable values. Values can be anything, including `0` and `\"\"`. `capacity` is at least 1.\n\n**Example**\n\n```python\ncache = LRUCache(2)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\ncache.get(\"a\")       # 1, and \"a\" is now the most recently used\ncache.put(\"c\", 3)    # full: \"b\" was used least recently, so it is evicted\ncache.get(\"b\")       # None\ncache.get(\"a\")       # 1\n```\n\n`get` and `put` must both be O(1). One test counts how often your code compares keys, so a cache that scans its keys fails.",
+  "starter": "class LRUCache:\n    def __init__(self, capacity):\n        \"\"\"A cache that holds at most `capacity` entries (capacity >= 1).\"\"\"\n        ...\n\n    def get(self, key):\n        \"\"\"Return the value stored for key and mark key as most recently used; return None if it is not cached.\"\"\"\n        ...\n\n    def put(self, key, value):\n        \"\"\"Store value under key and mark it most recently used. A new key beyond capacity evicts the least recently used one.\"\"\"\n        ...\n",
+  "tests": [
+    "\nclass CountedKey:\n    \"\"\"A key that counts every time Python compares it with another key by value.\"\"\"\n    comparisons = 0\n\n    def __init__(self, number):\n        self.number = number\n\n    def __hash__(self):\n        return self.number\n\n    def __eq__(self, other):\n        CountedKey.comparisons += 1\n        return isinstance(other, CountedKey) and self.number == other.number\n\n\nclass SlowLRU:\n    \"\"\"The obviously correct (and slow) cache that the random test compares against.\"\"\"\n\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.order = []                      # least recently used first\n        self.data = {}\n\n    def get(self, key):\n        if key not in self.data:\n            return None\n        self.order.remove(key)\n        self.order.append(key)\n        return self.data[key]\n\n    def put(self, key, value):\n        if key in self.data:\n            self.order.remove(key)\n        elif len(self.data) == self.capacity:\n            del self.data[self.order.pop(0)]\n        self.order.append(key)\n        self.data[key] = value\n",
+    {
+      "name": "evicts the least recently used key (the example above)",
+      "code": "cache = LRUCache(2)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\nassert cache.get(\"a\") == 1\ncache.put(\"c\", 3)\nassert cache.get(\"b\") == None\nassert cache.get(\"a\") == 1\nassert cache.get(\"c\") == 3"
+    },
+    {
+      "name": "a key that was never stored is a miss",
+      "code": "cache = LRUCache(3)\nassert cache.get(\"missing\") == None\ncache.put(\"a\", 1)\nassert cache.get(\"b\") == None\nassert cache.get(\"a\") == 1"
+    },
+    {
+      "name": "a read protects a key from eviction",
+      "code": "cache = LRUCache(3)\nfor key in \"abc\":\n    cache.put(key, key.upper())\ncache.get(\"a\")                      # \"a\" is now the newest, so \"b\" is the oldest\ncache.put(\"d\", \"D\")\nassert [cache.get(key) for key in \"abcd\"] == [\"A\", None, \"C\", \"D\"]"
+    },
+    {
+      "name": "overwriting a key replaces its value and counts as a use",
+      "code": "cache = LRUCache(2)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\ncache.put(\"a\", 10)                  # \"a\" is rewritten, so \"b\" is now the oldest\ncache.put(\"c\", 3)\nassert [cache.get(key) for key in \"abc\"] == [10, None, 3]"
+    },
+    {
+      "name": "overwriting a key in a full cache evicts nothing",
+      "code": "cache = LRUCache(2)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\ncache.put(\"b\", 20)                  # \"b\" is already there, so the cache does not grow\nassert cache.get(\"a\") == 1\nassert cache.get(\"b\") == 20"
+    },
+    {
+      "name": "a cache of capacity 1 keeps only the newest key",
+      "code": "cache = LRUCache(1)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\nassert cache.get(\"a\") == None\nassert cache.get(\"b\") == 2\ncache.put(\"b\", 3)\nassert cache.get(\"b\") == 3"
+    },
+    {
+      "name": "0, \"\" and False are stored and refreshed like any other value",
+      "code": "cache = LRUCache(2)\ncache.put(\"zero\", 0)\ncache.put(\"empty\", \"\")\nassert cache.get(\"zero\") == 0       # a hit on a falsy value still counts as a use\ncache.put(\"flag\", False)            # evicts \"empty\"\nassert cache.get(\"empty\") == None\nassert cache.get(\"zero\") == 0\nassert cache.get(\"flag\") == False"
+    },
+    {
+      "name": "4,000 random gets and puts give the same answers as a slow, obviously correct cache",
+      "code": "import random\n\nrng = random.Random(11)\nreal, model = LRUCache(5), SlowLRU(5)\nfor step in range(4000):\n    key = rng.randrange(12)\n    if rng.random() < 0.5:\n        value = rng.randrange(100)\n        real.put(key, value)\n        model.put(key, value)\n    else:\n        got, want = real.get(key), model.get(key)\n        assert got == want, f\"step {step}: get({key}) returned {got!r}, expected {want!r}\""
+    },
+    {
+      "name": "get and put do not scan through the keys (they are O(1))",
+      "code": "keys = [CountedKey(number) for number in range(600)]\ncache = LRUCache(300)\nCountedKey.comparisons = 0\nfor key in keys:                          # 600 puts, 300 of them evicting\n    cache.put(key, key.number)\nfor key in reversed(keys[300:]):          # the cache holds keys[300:]; read the newest first\n    cache.get(key)\nfor key in keys[:300]:                    # these were evicted: misses\n    cache.get(key)\ncalls = 600 + 300 + 300\nused = CountedKey.comparisons\nassert used <= 10 * calls, f\"your cache compared keys {used:,} times in {calls:,} get and put calls; each call should find its key without scanning the others\""
+    }
+  ],
+  "hints": [
+    "You need two things at once: find a key instantly, and know which key was used longest ago. Which built-in structure gives the first, and what could keep track of the second?",
+    "Keep the entries ordered by how recently they were used: a hit or a write moves the key to the newest end, and an eviction removes the oldest end. A dict plus a doubly linked list does this, and `collections.OrderedDict` already is that pair.",
+    "Two details people get wrong: writing a key that already exists must not evict anything, but must still count as a use; and a stored `0` or `\"\"` is a hit, so test with `key in ...`, not with the truthiness of the value."
+  ],
+  "solution": "from collections import OrderedDict\n\n\nclass LRUCache:\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._items = OrderedDict()          # least recently used first, most recently used last\n\n    def get(self, key):\n        if key not in self._items:\n            return None\n        self._items.move_to_end(key)         # a read counts as a use\n        return self._items[key]\n\n    def put(self, key, value):\n        self._items[key] = value             # a new key lands last; an existing key keeps its old place...\n        self._items.move_to_end(key)         # ...so move it last: a write counts as a use too\n        if len(self._items) > self._capacity:\n            self._items.popitem(last=False)  # over capacity: evict the least recently used key\n",
+  "explanation": "**The idea.** A cache has to do two things at once: find a key instantly (a hash table) and always know which key was used longest ago (an ordering that is cheap to update). Keep the keys in recency order: every `get` or `put` moves the key to the \"newest\" end, and an eviction removes the \"oldest\" end. `OrderedDict` is exactly a hash table plus a doubly linked list, so `move_to_end` and `popitem(last=False)` are both O(1).\n\n**The details that break naive versions.** Overwriting a key that is already there must not evict anything (the cache did not grow), but it does count as a use. And check `key in items`, not the truthiness of the value: a stored `0` or `\"\"` is a hit.\n\n**Without `OrderedDict`.** The classic interview version is a dict from key to a node of your own doubly linked list. Moving a node to the front and removing the tail are pointer updates, and sentinel head and tail nodes remove the special cases for an empty list.\n\n**Complexity.** O(1) per call and O(capacity) memory. Follow-ups worth preparing: a lock around each method for threads, a time-to-live per entry, and evicting the least *frequently* used entry (LFU) instead."
+}

@@ -1,0 +1,137 @@
+{
+  "title": "SQL window functions and query tuning",
+  "topic": "databases",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
+  "description": "Ranking, running totals and LAG with window functions, then reading EXPLAIN plans and fixing slow queries: SARGability, N+1 and pagination.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Scores sorted from highest to lowest are 100, 90, 90 and 80. For the row with 80, what do RANK() and DENSE_RANK() return?",
+      "options": [
+        { "id": "a", "text": "RANK 3 and DENSE_RANK 3" },
+        { "id": "b", "text": "RANK 4 and DENSE_RANK 3" },
+        { "id": "c", "text": "RANK 4 and DENSE_RANK 4" },
+        { "id": "d", "text": "RANK 3 and DENSE_RANK 4" }
+      ],
+      "answer": ["b"],
+      "explanation": "RANK leaves a gap after a tie, giving 1, 2, 2, 4, while DENSE_RANK does not, giving 1, 2, 2, 3. ROW_NUMBER would number the rows 1, 2, 3, 4 and pick an arbitrary order between the tied rows."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A query selects ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC) AS rn and adds WHERE rn = 1 to keep each customer's latest order. It fails. Why, and what is the fix?",
+      "options": [
+        { "id": "a", "text": "WHERE runs before window functions, so rn does not exist yet; filter in an outer query or a CTE" },
+        { "id": "b", "text": "ROW_NUMBER cannot be combined with PARTITION BY unless the query also contains a GROUP BY clause" },
+        { "id": "c", "text": "Window functions are allowed only in the ORDER BY clause, so the whole expression has to move there" },
+        { "id": "d", "text": "rn is a reserved word in SQL, so the alias has to be written in quotes before it can be used" }
+      ],
+      "answer": ["a"],
+      "explanation": "The logical order is FROM, WHERE, GROUP BY, HAVING, then the SELECT list where window functions are computed, so neither a window result nor its alias is available to WHERE. Put the window query in a CTE or subquery and filter on rn in the outer query."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "SUM(amount) OVER (ORDER BY sale_day) is used for a running total, and two rows share the same sale_day. What do those two rows show by default?",
+      "options": [
+        { "id": "a", "text": "Different totals, because the database adds the rows one at a time in the order they happen to be stored" },
+        { "id": "b", "text": "NULL for both, because a tie makes the running order ambiguous and the sum cannot be defined" },
+        { "id": "c", "text": "An error, because the ORDER BY inside OVER must be unique for the frame to be computed" },
+        { "id": "d", "text": "The same total for both, including both amounts, because tied rows count as peers in the default frame" }
+      ],
+      "answer": ["d"],
+      "explanation": "With an ORDER BY and no explicit frame, the default is RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, which includes every row that ties with the current one on the sort key. For strict row-by-row totals write ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW, or add a unique tiebreaker column to the ORDER BY."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "orders has an index on created_at, but WHERE DATE(created_at) = '2025-03-01' still scans the whole table. What is the problem, and the usual fix?",
+      "options": [
+        { "id": "a", "text": "The index only supports equality on exact timestamps, so the column has to be cast to text first" },
+        { "id": "b", "text": "DATE() is deprecated, so the planner skips every index when a query uses it in a condition" },
+        { "id": "c", "text": "A function on the column hides it from the index; compare the bare column with a range" },
+        { "id": "d", "text": "Timestamp columns cannot be indexed at all; add a separate date column and index that one instead" }
+      ],
+      "answer": ["c"],
+      "explanation": "The planner can use a plain B-tree index only when the indexed column appears on its own, so wrapping it in DATE() forces a scan that evaluates the function on every row. Rewrite the condition as created_at >= '2025-03-01' AND created_at < '2025-03-02', or create an index on the expression itself."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A feed endpoint runs ORDER BY id LIMIT 20 OFFSET 200000 and gets slower the deeper the page. Which change addresses the cause?",
+      "options": [
+        { "id": "a", "text": "Add a second index on id, so the database can skip the first 200000 rows without reading them" },
+        { "id": "b", "text": "Raise the LIMIT to 200, so there are fewer pages and the offsets stay smaller overall" },
+        { "id": "c", "text": "Run SELECT COUNT(*) first, so the planner knows the table size and can plan the skip" },
+        { "id": "d", "text": "Pass the last id seen and query WHERE id > :last_id ORDER BY id LIMIT 20" }
+      ],
+      "answer": ["d"],
+      "explanation": "With OFFSET the database still has to walk past and discard all 200000 earlier rows before it returns 20, so the cost grows with the page number. Keyset (seek) pagination uses the index to jump straight to the first row after the last id seen, so each page costs about the same and rows added meanwhile do not shift the pages."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A page shows 50 orders, and for each order the code runs SELECT * FROM customers WHERE id = ?, so 51 queries run in all. What is the problem, and the usual fix?",
+      "options": [
+        { "id": "a", "text": "customers.id needs an index; once it has one, the 51 queries are fast enough and nothing else changes" },
+        { "id": "b", "text": "It is an N+1 pattern; load the customers with a JOIN or one WHERE id IN (...) query" },
+        { "id": "c", "text": "Nothing needs fixing, because the database caches the 50 lookups and runs them as one" },
+        { "id": "d", "text": "The queries should be wrapped in one transaction, which turns them into a single round trip" }
+      ],
+      "answer": ["b"],
+      "explanation": "One query for the list plus one per row is the N+1 pattern: the cost is 51 round trips and 51 plans, not slow individual lookups. A JOIN or a single WHERE id IN (...) query needs one or two queries whatever N is. A transaction does not merge queries into one round trip, and an index would only speed up each of the 50 lookups a little."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which statements about reading query plans with EXPLAIN are true?",
+      "options": [
+        { "id": "a", "text": "A plain EXPLAIN, without ANALYZE, runs the query and reports its real timings" },
+        { "id": "b", "text": "A Seq Scan can be the cheapest plan when the query needs a large share of the table's rows" },
+        { "id": "c", "text": "An Index Scan is always faster than a Seq Scan, so every Seq Scan node is a bug" },
+        { "id": "d", "text": "A big gap between estimated and actual rows in EXPLAIN ANALYZE often points to stale or too-coarse statistics" },
+        { "id": "e", "text": "EXPLAIN ANALYZE on an UPDATE really performs the update, so wrap it in a transaction you roll back" }
+      ],
+      "answer": ["b", "d", "e"],
+      "explanation": "A Seq Scan is the cheapest plan when most of the table is needed, so it is not automatically a problem, and a plain EXPLAIN only shows the plan without running anything. ANALYZE executes the statement and adds actual rows and timings, so a row estimate far from the real count suggests stale statistics, and an UPDATE or DELETE under ANALYZE changes data unless you roll back."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which statements about WHERE, GROUP BY and HAVING are true?",
+      "options": [
+        { "id": "a", "text": "HAVING filters groups after aggregation, so it can test results such as COUNT(*) > 5" },
+        { "id": "b", "text": "WHERE COUNT(*) > 5 is valid and keeps only the groups with more than five rows" },
+        { "id": "c", "text": "Rows removed by WHERE never reach the aggregate functions, so they are not counted or summed" },
+        { "id": "d", "text": "A plain-column condition such as status = 'paid' runs faster in HAVING than in WHERE, because HAVING sees fewer rows" },
+        { "id": "e", "text": "COUNT(column) skips rows where the column is NULL, while COUNT(*) counts every row" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "WHERE decides which rows get grouped, so removed rows never reach COUNT or SUM, while HAVING filters the finished groups and is where an aggregate condition belongs. An aggregate in WHERE is an error, and a plain-column condition belongs in WHERE rather than HAVING because it can then discard rows before the grouping work is done. COUNT(*) counts rows, but COUNT(column) ignores NULLs."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "In PostgreSQL 12 and later, a simple non-recursive CTE that is referenced only once is normally inlined into the outer query, so the planner can push filters and use indexes through it.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Before version 12 every CTE was computed on its own and acted as an optimisation fence. Now a side-effect-free CTE used once is folded in like a subquery; writing AS MATERIALIZED restores the old behaviour, and a CTE referenced more than once is materialized by default."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "Comparing each row with the previous row's value, such as a day-over-day revenue change, requires a self-join, because window functions cannot read other rows.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "LAG(revenue) OVER (ORDER BY day) returns the previous row's value, and LEAD returns the next row's, so the comparison needs no self-join. At the edge of a partition they return NULL unless you pass a default, and PARTITION BY restarts the lookback for each group."
+    }
+  ]
+}

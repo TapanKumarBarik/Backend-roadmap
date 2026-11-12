@@ -1,0 +1,270 @@
+{
+  "title": "Message queues and event streaming",
+  "topic": "messaging",
+  "difficulty": "intermediate",
+  "module": "backend/06-background-processing-and-realtime/10-message-brokers-kafka/README.md",
+  "description": "Queues versus logs, delivery guarantees, ordering, consumer groups, acknowledgements, dead-letter queues and backpressure.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A consumer has processed and acknowledged a message. What typically happens to that message in a classic RabbitMQ-style queue and in a Kafka-style log?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The queue keeps it so that other consumers can read it later; the log deletes it so that the topic does not keep growing"
+        },
+        {
+          "id": "b",
+          "text": "Both delete it at once, so replaying old messages means asking the producers to publish them again"
+        },
+        {
+          "id": "c",
+          "text": "The queue removes it; the log keeps it until the retention limit, and each consumer group tracks its own position"
+        },
+        {
+          "id": "d",
+          "text": "Both keep it indefinitely, like rows in a database, and each consumer skips the ones it has already seen"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A queue broker treats a message as a unit of work, so an acknowledgement removes it. A log broker only appends records and lets each consumer group track its own position (offset), so records stay until the retention time or size limit removes them, whether or not anyone has read them."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A consumer inserts a row into its SQL database and crashes before it acknowledges the message, so the broker delivers the message again after the restart. What actually prevents a duplicate row?",
+      "options": [
+        {
+          "id": "a",
+          "text": "An idempotent handler, such as a unique constraint on the message id, so that a second insert is ignored"
+        },
+        {
+          "id": "b",
+          "text": "Wrapping the database insert and the broker acknowledgement in a single ordinary database transaction"
+        },
+        {
+          "id": "c",
+          "text": "Raising the acknowledgement timeout so that the broker no longer needs to redeliver anything at all"
+        },
+        {
+          "id": "d",
+          "text": "Turning on the broker's exactly-once delivery setting, which also covers the writes made to your database"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The database and the broker are separate systems, so an ordinary database transaction cannot include the acknowledgement, and the crash window between the insert and the acknowledgement always exists. What makes a redelivery harmless is an idempotent handler. A longer timeout does not close that window, and broker-level exactly-once features only cover state kept inside the broker."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "If a consumer acknowledges a message before processing it and then crashes halfway through, the broker will not deliver that message again, so the work is lost.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Once a message is acknowledged the broker considers it done and removes it, or moves the offset past it. Acknowledging first gives at-most-once delivery: no duplicates, but possible loss. Acknowledging after the work is saved gives at-least-once delivery, which loses nothing but can repeat a message."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A topic has 6 partitions. All events for one customer must be processed in the order they were produced. What should the producer do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nothing, because a topic keeps a single global order across all of its partitions anyway"
+        },
+        {
+          "id": "b",
+          "text": "Add more partitions, because with more of them the broker can order the messages more strictly"
+        },
+        {
+          "id": "c",
+          "text": "Have every consumer sort the events it receives by their timestamps before it handles them"
+        },
+        {
+          "id": "d",
+          "text": "Use the customer id as the message key, so that all of its events go to one partition"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A broker only guarantees order inside a single partition, and the message key decides which partition a record goes to, so one key gives one ordered sequence. There is no order across partitions, more partitions make that weaker rather than stronger, and a consumer cannot sort a stream while later events may still be on their way."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "A member of a consumer group crashes and the group rebalances. Which statements are correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The crashed member's partitions are reassigned to the members that are still alive"
+        },
+        {
+          "id": "b",
+          "text": "Work the crashed member had finished but not yet committed may be done again by whoever takes over"
+        },
+        {
+          "id": "c",
+          "text": "The group goes back to the first message of every partition and reads everything again"
+        },
+        {
+          "id": "d",
+          "text": "The broker guarantees that no message is handled twice across the handover"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The group coordinator hands the orphaned partitions to the surviving members, which resume from the last committed offset. Anything processed after that commit is seen again, so handlers still have to tolerate duplicates; the group does not rewind to the start."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A job usually takes about 90 seconds, but the broker's acknowledgement timeout (SQS calls it the visibility timeout) is 30 seconds. What should you expect?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The broker cancels the job after 30 seconds and reports to the producer that it has failed"
+        },
+        {
+          "id": "b",
+          "text": "The broker assumes the consumer died and offers the message again, so the job can run twice"
+        },
+        {
+          "id": "c",
+          "text": "The consumer is paused until the job has finished, and nothing else about the delivery changes"
+        },
+        {
+          "id": "d",
+          "text": "The message goes straight to the dead-letter queue as soon as the first 30 seconds are over"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A message that is not acknowledged within the timeout is assumed to have been lost with its consumer, so it is delivered again while the slow but healthy consumer is still working. Set the timeout above the slowest normal job, or extend it while the job runs, and keep the handler idempotent. A dead-letter queue normally takes a message only after it has been rejected or has failed too many times."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "One malformed message makes the consumer throw an error every time it is delivered. The broker keeps redelivering it, and the consumers spend their time failing on it instead of working through the rest of the queue. What is the standard fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cap the delivery attempts, move the message to a dead-letter queue and alert someone to look at it"
+        },
+        {
+          "id": "b",
+          "text": "Acknowledge the message when the handler fails, so it disappears and the rest of the queue moves on"
+        },
+        {
+          "id": "c",
+          "text": "Retry it immediately and without any limit, because a transient error will clear sooner or later"
+        },
+        {
+          "id": "d",
+          "text": "Add more consumers to the queue, so that one of them eventually manages to get it through"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A poison message fails no matter who handles it, so unlimited retries or extra consumers only burn capacity and delay the healthy messages. A retry limit plus a dead-letter queue keeps the main flow moving and keeps the message for investigation, whereas acknowledging it on failure silently throws the data away."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "A consumer group on a partitioned topic falls further and further behind because producers publish faster than it can process. Which actions actually relieve the pressure?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add consumers to the group, up to the number of partitions"
+        },
+        {
+          "id": "b",
+          "text": "Make each handler faster, for example by writing to the database in batches"
+        },
+        {
+          "id": "c",
+          "text": "Reject or slow down publishing when the backlog passes a limit, so that producers feel the pressure"
+        },
+        {
+          "id": "d",
+          "text": "Raise the retention period so that the backlog can grow longer before it is deleted"
+        },
+        {
+          "id": "e",
+          "text": "Make the broker redeliver unacknowledged messages more often"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "More consumers (up to the partition count), a faster handler and a limit on the producers (backpressure) all change the balance between supply and demand. A longer retention only postpones the moment when unread messages are lost, and more frequent redelivery adds work instead of removing it."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "A consumer group on a log-based broker that was offline for longer than the topic's retention period can still read every message it missed.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Retention is applied to the log itself, whether or not anyone has read the records, so a record that has aged out is gone. A group that was away too long resumes at the oldest record that remains (or at the newest, depending on its reset setting) and the gap is lost, so retention should exceed your longest realistic outage."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "Which of these is the weakest fit for putting a message queue in the middle?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sending a welcome email to a user after they have signed up for an account"
+        },
+        {
+          "id": "b",
+          "text": "Resizing an uploaded photo into several smaller sizes"
+        },
+        {
+          "id": "c",
+          "text": "Returning search results to a user who is waiting on the page"
+        },
+        {
+          "id": "d",
+          "text": "Telling the analytics service that an order was placed"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A queue suits work that can happen later, can be retried and does not have to answer the caller right now. A user waiting for results needs a direct, low-latency reply, so routing it through a broker adds delay and another moving part for no gain. The other three can all finish after the request has returned."
+    }
+  ]
+}

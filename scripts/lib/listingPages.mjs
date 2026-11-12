@@ -27,8 +27,8 @@ const crumbList = (site, crumbs) => ({
  * @param {string} input.site        the site's address, "https://example.com"
  * @param {string} input.siteName
  * @param {{ '@type': string }} input.author
- * @param {{ quizzes: object, exercises: object, interview: object } | null} [input.practice]   api/generated/practice-content.json
- * @returns {Array<{ url: string, title: string, fullTitle: string, description: string, body: string, ld: object }>}
+ * @param {{ quizzes: object, exercises: object, interview: object, code?: object } | null} [input.practice]   api/generated/practice-content.json
+ * @returns {Array<{ url: string, title: string, fullTitle: string, description: string, body: string, ld: object, noindex?: boolean }>}
  */
 export function listingPages({ paths, videos, playlists, titles, urlOf, site, siteName, author, practice = null }) {
   const pages = [];
@@ -133,8 +133,8 @@ const plain = (markdown) => String(markdown).replace(/[`*_>#]/g, '').replace(/\s
 const firstSentence = (text) => { const t = plain(text); const end = t.search(/[.!?](\s|$)/); return end > 0 ? t.slice(0, end + 1) : t; };
 
 // The Practice Center. What is public is what a reader sees before they start: a quiz's questions and options (never its answers
-// or explanations), an exercise's brief, and an interview set's questions with their model answers (they are there to be read: a
-// set of coding questions is a FAQ with worked solutions).
+// or explanations), an exercise's brief, a coding problem's statement and starting code (never its solution), and an interview set's
+// questions with their model answers (they are there to be read: a set of coding questions is a FAQ with worked solutions).
 function practicePages({ practice, titles, urlOf, site, siteName, full, home }) {
   const out = [];
   const lessonLink = (module) => (module && urlOf(module) && titles[module] ? `<p>${esc(LISTING_COPY.readTheLesson)}: ${link(urlOf(module), titles[module].title)}</p>` : '');
@@ -156,19 +156,21 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
   const quizzes = entries(practice.quizzes);
   const exercises = entries(practice.exercises);
   const interview = entries(practice.interview);
+  const code = entries(practice.code);
   const isCoding = ([, s]) => s.section === 'coding';
   const concepts = interview.filter((e) => !isCoding(e));
   const coding = interview.filter(isCoding);
   const indexUrl = pageUrl(PRACTICE_ROUTE);
   const practiceCrumb = { title: LISTING_COPY.practiceTitle, url: indexUrl };
   const itemLink = (kind, slug, title, extra = '') => `<li>${link(pageUrl(PRACTICE_ROUTE, `${kind}/${slug}`), title)}${extra}</li>`;
-  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, concepts.length, coding.length);
+  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, concepts.length, coding.length, code.length);
   out.push({
     url: indexUrl,
     title: LISTING_COPY.practiceTitle,
     fullTitle: full(LISTING_COPY.practiceTitle),
     description: indexDescription,
     body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(LISTING_COPY.practiceTitle)}</h1><p>${esc(LISTING_COPY.practiceLead)}</p></header>`
+      + `<section><h2>${esc(LISTING_COPY.codeProblems)}</h2><ul>${code.map(([slug, p]) => itemLink('code', slug, p.title, ` <small>${level(p)}</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.quizzes)}</h2><ul>${quizzes.map(([slug, q]) => itemLink('quiz', slug, q.title, ` <small>${level(q)} · ${q.questions.length} questions</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.exercises)}</h2><ul>${exercises.map(([slug, e]) => itemLink('exercise', slug, e.title, ` <small>${level(e)}</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.codingSets)}</h2><ul>${coding.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`
@@ -180,6 +182,19 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
         crumbList(site, [home, practiceCrumb])
       ]
     }
+  });
+
+  // The drill changes every day and is a screen to use, not a page to be found: it has an address so that opening it directly works, and says so
+  // to search engines.
+  const drillUrl = pageUrl(PRACTICE_ROUTE, 'drill');
+  out.push({
+    url: drillUrl,
+    title: LISTING_COPY.drillTitle,
+    fullTitle: full(LISTING_COPY.drillTitle),
+    description: LISTING_COPY.drillDescription,
+    noindex: true,
+    body: `<nav aria-label="Breadcrumb">${link('/', siteName)} › ${link(indexUrl, LISTING_COPY.practiceTitle)}</nav><header><h1>${esc(LISTING_COPY.drillTitle)}</h1><p>${esc(LISTING_COPY.drillLead)}</p></header><p>${link(indexUrl, LISTING_COPY.allPractice)}</p>`,
+    ld: { '@context': 'https://schema.org', '@graph': [crumbList(site, [home, practiceCrumb, { title: LISTING_COPY.drillTitle, url: drillUrl }])] }
   });
 
   const itemPage = (kind, slug, item, { description, body, ld }) => {
@@ -194,6 +209,14 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     });
   };
 
+  for (const [slug, p] of code) {
+    const description = LISTING_COPY.codeDescription(p);
+    itemPage('code', slug, { ...p, title: LISTING_COPY.codeTitle(p.title) }, {
+      description,
+      body: `<div>${renderMarkdownDoc(p.statement)}</div><section><h2>${esc(LISTING_COPY.codeStarter)}</h2><pre><code>${esc(p.starter)}</code></pre></section><p>${esc(LISTING_COPY.codeRun)}</p>`,
+      ld: (url) => resource(p.title, url, description, p, 'Coding exercise')
+    });
+  }
   for (const [slug, q] of quizzes) {
     const description = LISTING_COPY.quizDescription(q);
     itemPage('quiz', slug, q, {

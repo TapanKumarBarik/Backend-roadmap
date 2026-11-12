@@ -1,0 +1,137 @@
+{
+  "title": "Pagination, versioning and errors in API design",
+  "topic": "api-design",
+  "difficulty": "intermediate",
+  "module": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md",
+  "description": "Offset and cursor pagination, which API changes break clients, how to evolve and deprecate safely, and how to report errors, conflicts and rate limits.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A mobile app loads a busy feed with GET /posts?sort=-created_at&limit=20&offset=40. While the user reads that page, ten new posts are published. What does the app get when it then asks for offset=60?",
+      "options": [
+        { "id": "a", "text": "Ten posts are skipped and the user never sees them" },
+        { "id": "b", "text": "Ten posts from the previous page show up again, as every post moved down ten places" },
+        { "id": "c", "text": "The same posts as before, because the database keeps a snapshot from the first page's query" },
+        { "id": "d", "text": "An error, because the server notices that the data has changed since the first page was served" }
+      ],
+      "answer": ["b"],
+      "explanation": "An offset is only a position in the current ordering, so ten inserts at the top push every older post down ten places and the next page repeats ten posts from the previous one (deletions would cause skips instead). A cursor that names the last post seen, such as WHERE created_at < :last_seen, is not affected by what is inserted above it, and the database keeps no snapshot between separate requests."
+    },
+    {
+      "id": "q2",
+      "type": "multiple",
+      "text": "Which statements about cursor (keyset) pagination are correct?",
+      "options": [
+        { "id": "a", "text": "The next page starts right after the last item seen, so items inserted above it neither shift the page nor repeat on it" },
+        { "id": "b", "text": "The sort order needs a unique tie-breaker such as id; otherwise items that share a timestamp can be skipped or repeated at a page boundary" },
+        { "id": "c", "text": "Clients can jump straight to page 50 as easily as they can with offsets" },
+        { "id": "d", "text": "The same filters and sort order must be sent with every request that uses the cursor, because it only means something for the query that produced it" },
+        { "id": "e", "text": "An exact total count becomes free, because the cursor carries it" }
+      ],
+      "answer": ["a", "b", "d"],
+      "explanation": "A cursor stores a position in a sorted, unique order (usually the last item's sort key), so with an index each page is a quick seek that inserts do not disturb; the tie-breaker keeps that order strictly defined, and the filters and sort must stay the same for the cursor to mean anything. The price is that you cannot jump to an arbitrary page, and a total count still needs its own query."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "Returning an opaque cursor token (or a ready-made 'next' link) instead of expecting clients to build the next request themselves lets the server change how paging works later without breaking clients.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "If clients only pass the token back untouched, its contents (a key, a timestamp, an encoded filter) are an implementation detail the server can change freely. Clients that decode or assemble cursors themselves start depending on that format, so the API can no longer change it; links the client simply follows are the light end of hypermedia (HATEOAS) for the same reason."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Which changes to a live JSON API are safe for existing clients, assuming those clients ignore fields they do not recognise?",
+      "options": [
+        { "id": "a", "text": "Adding a new optional field to a response" },
+        { "id": "b", "text": "Renaming a response field from total to total_amount" },
+        { "id": "c", "text": "Adding a new optional query parameter whose default keeps the old behaviour" },
+        { "id": "d", "text": "Making a request field that used to be optional required" },
+        { "id": "e", "text": "Adding a new endpoint" }
+      ],
+      "answer": ["a", "c", "e"],
+      "explanation": "Additive changes leave every request and response that already worked still working. A rename removes the name clients read, and a newly required request field breaks every client that does not send it yet; changing the type or meaning of a field is breaking in the same way."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "The team wants to rename the response field total to total_amount. What is the least disruptive way to do it?",
+      "options": [
+        { "id": "a", "text": "Rename it now and describe the change in the release notes, because the new name is much clearer" },
+        { "id": "b", "text": "Rename it now and raise the patch number, so clients can see that something changed" },
+        { "id": "c", "text": "Return both fields, announce a removal date for total, and drop it after clients have moved" },
+        { "id": "d", "text": "Publish a /v2 with the new name and switch /v1 off on the same day" }
+      ],
+      "answer": ["c"],
+      "explanation": "Expand, then contract: while both names exist nothing breaks, and an announced sunset date (for example in a Sunset header and the changelog) gives clients time to move. Renaming in place breaks every client that reads the old name, whatever number you bump; a new major version is for breaking changes you cannot avoid, and switching v1 off the same day only moves the break."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "An API follows JSON Merge Patch semantics for PATCH. A client sends PATCH /users/42 with the body {\"nickname\": null}. What should the server do?",
+      "options": [
+        { "id": "a", "text": "Clear the stored nickname and leave every other field as it is" },
+        { "id": "b", "text": "Ignore the field, because null carries no value" },
+        { "id": "c", "text": "Reject the request, because null is not a valid value for any field" },
+        { "id": "d", "text": "Replace the whole user with one whose only value is a null nickname" }
+      ],
+      "answer": ["a"],
+      "explanation": "In Merge Patch a field that is present is applied (null means remove or clear it) and a field that is absent is left alone, so the server must tell null from omission. Treating null as 'not sent' makes it impossible to clear a field, and treating the body as a full replacement would erase everything else, which is what PUT does."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Which of these failures is best reported as 409 Conflict, rather than as a validation error such as 400 or 422?",
+      "options": [
+        { "id": "a", "text": "The body leaves out the quantity field, which this endpoint requires in every request that is sent to it" },
+        { "id": "b", "text": "The end date in the body is earlier than the start date that appears in the same body" },
+        { "id": "c", "text": "The body is cut off halfway through, so it cannot be parsed as JSON at all" },
+        { "id": "d", "text": "The room was booked by someone else a moment ago, so the request clashes with current state" }
+      ],
+      "answer": ["d"],
+      "explanation": "400 and 422 mean the request itself is faulty (it cannot be parsed, or it parses but breaks a rule), so the fix is a different body. 409 means the request is fine in itself but clashes with the current state of the resource, such as a taken slot, a duplicate or an edit made by someone else, so it may succeed after the client re-reads the state. Many APIs use 400 for every validation failure; what matters most is using one convention consistently."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Which error response is easiest for many different clients to handle correctly and consistently?",
+      "options": [
+        { "id": "a", "text": "Status 500 for every failure, so clients need only one rule, with the real reason written in the body" },
+        { "id": "b", "text": "The right 4xx or 5xx status plus one body shape everywhere: a stable code, a message and field details" },
+        { "id": "c", "text": "A correct status code plus a carefully worded free-text message that clients read to decide what to do next" },
+        { "id": "d", "text": "A tailor-made error shape for each endpoint, with each one described in that endpoint's documentation" }
+      ],
+      "answer": ["b"],
+      "explanation": "The status code tells caches, proxies and retry logic what class of failure happened, and a stable machine-readable code lets clients branch without parsing text, while the message stays free for humans and can be reworded or translated safely. One shape on every endpoint (for example application/problem+json) means each client needs only one error handler."
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "text": "A client sends more than its allowed 100 requests per minute. Which response is best?",
+      "options": [
+        { "id": "a", "text": "403 Forbidden, because the client is no longer allowed to call the API" },
+        { "id": "b", "text": "503 Service Unavailable, because the server is too busy for this client" },
+        { "id": "c", "text": "429 Too Many Requests, with a Retry-After header saying when to try again" },
+        { "id": "d", "text": "200 OK with an empty result, so that well-behaved clients carry on without errors" }
+      ],
+      "answer": ["c"],
+      "explanation": "429 tells the client it is sending too much, and Retry-After says when trying again makes sense, so a well-behaved client backs off instead of hammering the API. 403 suggests the access is withdrawn for good, 503 blames the server although the problem is this client's rate, and a fake 200 hides the problem. Many APIs also return headers such as X-RateLimit-Remaining so that clients can slow down before they hit the limit."
+    },
+    {
+      "id": "q10",
+      "type": "truefalse",
+      "text": "When a client retries a POST /payments request after a timeout, it should send a freshly generated Idempotency-Key on every attempt, so that the server can tell the attempts apart.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "The key identifies the operation, not the attempt: every retry of the same payment must reuse the same key, so the server recognises the repeat and returns the first result instead of charging again. A new key on each attempt makes every retry look like a brand-new payment."
+    }
+  ]
+}

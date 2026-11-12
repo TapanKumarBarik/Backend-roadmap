@@ -1,0 +1,28 @@
+{
+  "title": "Container With Most Water",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "intermediate",
+  "description": "Pick two walls that, with the ground, hold the most water.",
+  "statement": "`height[i]` is the height of a vertical wall standing at position `i`. Pick two walls: together with the ground they form a container that holds `min(height of the two walls) * (distance between them)` water. Return the largest amount any pair of walls can hold.\n\n- The distance between walls `i` and `j` is `j - i`, and the two walls must be different ones.\n- Walls between the two you pick make no difference: they neither help nor block.\n- With fewer than two walls there is no container, so the answer is `0`. Heights are non-negative integers.\n\n**Examples**\n\n```python\nmax_area([1, 8, 6, 2, 5, 4, 8, 3, 7])   # 49: the walls of height 8 and 7, seven apart\nmax_area([1, 1])                         # 1\nmax_area([4])                            # 0\n```\n\nAim for O(n): the last tests have 50,000 walls, too many to try every pair.",
+  "starter": "def max_area(height):\n    \"\"\"Return the largest min(height[i], height[j]) * (j - i) over all pairs of walls i < j (0 if there are fewer than two).\"\"\"\n    ...\n",
+  "tests": [
+    "assert max_area([1, 8, 6, 2, 5, 4, 8, 3, 7]) == 49",
+    "assert max_area([1, 1]) == 1",
+    "assert max_area([4]) == 0",
+    "assert max_area([]) == 0",
+    "assert max_area([4, 3, 2, 1, 4]) == 16",
+    "assert max_area([1, 2, 1]) == 2",
+    "assert max_area([0, 2]) == 0",
+    "assert max_area([2, 0, 3]) == 4",
+    "assert max_area([1, 100, 100, 1]) == 100",
+    "assert max_area(list(range(1, 50_001))) == 625_000_000, \"too slow or wrong on 50,000 walls; trying every pair is O(n^2)\"",
+    "assert max_area([5000] + [1] * 49_998 + [5000]) == 249_995_000, \"too slow or wrong on 50,000 walls; trying every pair is O(n^2)\""
+  ],
+  "hints": [
+    "Start with the widest container, the first and last wall. What limits how much water it holds, and what could you change to hold more?",
+    "Keep a pointer at each end and move one of them inwards each step. Moving the taller wall can never help (less width, same limit), so move the shorter one.",
+    "Update the best area before every move. When the two walls have the same height, moving either pointer is fine."
+  ],
+  "solution": "def max_area(height):\n    left, right = 0, len(height) - 1\n    best = 0\n    while left < right:\n        best = max(best, min(height[left], height[right]) * (right - left))\n        if height[left] < height[right]:\n            left += 1                  # the shorter wall limits the water: it is the only one worth moving\n        else:\n            right -= 1\n    return best\n",
+  "explanation": "**The idea.** Start with the widest container, the first and last wall. Its water level is set by the *shorter* wall. Moving the taller wall inwards can only make things worse: the width shrinks and the level is still capped by the same short wall. The only move that can ever help is moving the shorter wall, in the hope of finding a taller one. So: keep a pointer at each end, record the area, move the pointer at the shorter wall inwards, and repeat until they meet.\n\n**Why no better pair is missed.** When you move off the shorter wall, every pair that wall could still form with the walls between the pointers is narrower than the pair you just measured and no taller than that wall, so none of them can beat it.\n\n**Complexity.** O(n) time and O(1) space; trying every pair is O(n²). The explanation of *why* moving the shorter wall is safe is the part worth being able to say out loud.\n\n**Follow-up.** \"Trapping Rain Water\" looks similar, but there every wall in between matters and water is held between all of them."
+}

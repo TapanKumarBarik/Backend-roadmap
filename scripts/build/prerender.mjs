@@ -299,12 +299,13 @@ for (const listing of listings) {
     url: listing.url,
     type: 'website',
     body: listing.body,
-    ld: listing.ld
+    ld: listing.ld,
+    noindex: !!listing.noindex
   });
   const dir = path.join(DIST, ...listing.url.split('/').filter(Boolean));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), out);
-  urls.push({ url: listing.url });
+  if (!listing.noindex) urls.push({ url: listing.url });
 }
 
 // The tools are pages of their own, built by Vite from their HTML (site.config.json -> tools); only the sitemap is written here.

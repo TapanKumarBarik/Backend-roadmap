@@ -1,0 +1,59 @@
+{
+  "title": "Consistent Hash Ring",
+  "topic": "backend-coding",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store/README.md",
+  "description": "Map keys to servers with a hash ring and virtual nodes so that few keys move when servers change.",
+  "statement": "Build `HashRing(nodes=(), replicas=100)`, which maps keys to servers (nodes) so that adding or removing a node moves only a small share of the keys.\n\nEach node sits on a circle at `replicas` positions (its virtual nodes), each position being the hash of the node's name plus the replica number. `node_for(key)` hashes the key onto the circle and returns the node at the first position after it, going clockwise and wrapping around from the end.\n\n- `add(node)` puts a node on the ring (adding one that is already there changes nothing). `remove(node)` takes it off (removing one that is not there changes nothing).\n- `node_for` returns `None` for an empty ring. Nodes and keys are strings.\n- Hash with `hashlib.md5`, not `hash()`: Python's string hash changes every time the interpreter starts, so keys would move after a restart.\n- A node's positions depend only on its own name, never on the other nodes or on the order they were added in.\n\n**Example**\n\n```python\nring = HashRing([\"cache-1\", \"cache-2\", \"cache-3\"])\nring.node_for(\"user:42\")   # one of the three nodes, always the same for this key\nring.remove(\"cache-2\")     # only the keys that lived on cache-2 move; every other key stays put\n```",
+  "starter": "import bisect\nimport hashlib\n\n\nclass HashRing:\n    def __init__(self, nodes=(), replicas=100):\n        \"\"\"A ring with the given nodes, each placed at `replicas` positions.\"\"\"\n        ...\n\n    def add(self, node):\n        \"\"\"Put `node` on the ring; do nothing if it is already there.\"\"\"\n        ...\n\n    def remove(self, node):\n        \"\"\"Take `node` off the ring; do nothing if it is not there.\"\"\"\n        ...\n\n    def node_for(self, key):\n        \"\"\"Return the node that owns `key`, or None if the ring is empty.\"\"\"\n        ...\n",
+  "tests": [
+    "\nKEYS = [f\"user:{i}\" for i in range(2000)]\n\ndef placement(ring, keys=KEYS):\n    return {key: ring.node_for(key) for key in keys}\n\ndef difference(before, after):\n    \"\"\"The first key that lives on a different node in `after`, described; None when no key differs.\"\"\"\n    for key in before:\n        if before[key] != after[key]:\n            return f\"{key!r} was on {before[key]!r} and is on {after[key]!r}\"\n    return None\n",
+    {
+      "name": "an empty ring has no owner for a key",
+      "code": "assert HashRing().node_for(\"user:1\") == None"
+    },
+    {
+      "name": "with one node, that node owns every key",
+      "code": "assert set(placement(HashRing([\"only\"])).values()) == {\"only\"}"
+    },
+    {
+      "name": "a key always goes to the same node, whatever order the nodes were added in",
+      "code": "first = HashRing([\"a\", \"b\", \"c\"])\nsecond = HashRing([\"c\", \"a\", \"b\"])\nthird = HashRing()\nfor node in [\"b\", \"c\", \"a\"]:\n    third.add(node)\nassert difference(placement(first), placement(second)) == None\nassert difference(placement(first), placement(third)) == None"
+    },
+    {
+      "name": "virtual nodes even out the load: with 10 nodes each owns between 5% and 16% of 5,000 keys",
+      "code": "names = [f\"cache-{i}\" for i in range(10)]\nring = HashRing(names)\nsessions = [f\"session:{i}\" for i in range(5000)]\ncounts = {}\nfor key in sessions:\n    node = ring.node_for(key)\n    counts[node] = counts.get(node, 0) + 1\nassert sorted(counts, key=str) == sorted(names), f\"the keys went to {sorted(counts, key=str)}, expected every one of the 10 nodes\"\nshares = {node: round(count / len(sessions), 3) for node, count in counts.items()}\nassert all(0.05 < share < 0.16 for share in shares.values()), f\"uneven shares: {shares}\""
+    },
+    {
+      "name": "removing a node moves only the keys that were on it",
+      "code": "ring = HashRing([\"a\", \"b\", \"c\", \"d\"])\nbefore = placement(ring)\nring.remove(\"c\")\nafter = placement(ring)\nassert [key for key in KEYS if before[key] != \"c\" and before[key] != after[key]] == []\nassert \"c\" not in set(after.values()), \"keys are still being sent to the removed node\""
+    },
+    {
+      "name": "adding a node only takes keys from the others, and about a quarter of them for a 4th node",
+      "code": "ring = HashRing([\"a\", \"b\", \"c\"])\nbefore = placement(ring)\nring.add(\"d\")\nafter = placement(ring)\nmoved = [key for key in KEYS if before[key] != after[key]]\nassert [key for key in moved if after[key] != \"d\"] == []\nassert 0.10 < len(moved) / len(KEYS) < 0.40, f\"{len(moved) / len(KEYS):.0%} of the keys moved; about a quarter should\""
+    },
+    {
+      "name": "adding a node and removing it again puts every key back",
+      "code": "ring = HashRing([\"a\", \"b\", \"c\"])\nbefore = placement(ring)\nring.add(\"d\")\nring.remove(\"d\")\nassert difference(before, placement(ring)) == None"
+    },
+    {
+      "name": "no key falls off the end of the ring (try one position per node)",
+      "code": "ring = HashRing([\"a\", \"b\", \"c\"], replicas=1)\nowners = set(placement(ring).values())\nassert owners <= {\"a\", \"b\", \"c\"}, f\"keys were sent to {owners - {'a', 'b', 'c'}}, which is not a node\""
+    },
+    {
+      "name": "adding a node twice is the same as adding it once",
+      "code": "ring = HashRing([\"a\", \"b\"])\nring.add(\"b\")\nring.add(\"b\")\nring.remove(\"b\")\nassert set(placement(ring).values()) == {\"a\"}"
+    },
+    {
+      "name": "removing an unknown node changes nothing; removing the last node empties the ring",
+      "code": "ring = HashRing([\"a\", \"b\"])\nbefore = placement(ring)\nring.remove(\"zzz\")\nassert difference(before, placement(ring)) == None\nring.remove(\"a\")\nring.remove(\"b\")\nassert ring.node_for(\"user:1\") == None"
+    }
+  ],
+  "hints": [
+    "Picture the range of hash values bent into a circle. Where would you put the servers, where does a key land, and which server owns it? What keeps the lookup fast?",
+    "Keep the positions (the hash of `node#replica`) in a sorted list, with a dict from position to node. For a key, binary-search (`bisect`) the first position after its hash, and wrap around to the start when you run off the end.",
+    "Use `% len(positions)` for the wrap-around, and make adding an existing node and removing an unknown one do nothing, or duplicate positions and ghosts of removed nodes stay behind. Hash with md5: `hash()` of a string differs in every run."
+  ],
+  "solution": "import bisect\nimport hashlib\n\n\nclass HashRing:\n    def __init__(self, nodes=(), replicas=100):\n        self._replicas = replicas\n        self._nodes = set()\n        self._owner = {}                  # position on the ring -> node\n        self._positions = []              # the positions, sorted\n        for node in nodes:\n            self.add(node)\n\n    @staticmethod\n    def _hash(text):\n        return int(hashlib.md5(text.encode(\"utf-8\")).hexdigest(), 16)\n\n    def add(self, node):\n        if node in self._nodes:\n            return\n        self._nodes.add(node)\n        for replica in range(self._replicas):\n            self._owner[self._hash(f\"{node}#{replica}\")] = node\n        self._positions = sorted(self._owner)\n\n    def remove(self, node):\n        if node not in self._nodes:\n            return\n        self._nodes.discard(node)\n        self._owner = {position: owner for position, owner in self._owner.items() if owner != node}\n        self._positions = sorted(self._owner)\n\n    def node_for(self, key):\n        if not self._positions:\n            return None\n        index = bisect.bisect(self._positions, self._hash(key)) % len(self._positions)   # first position after the key, wrapping\n        return self._owner[self._positions[index]]\n",
+  "explanation": "**The problem with `hash(key) % n`.** Going from `n` to `n + 1` servers changes the answer for almost every key, so nearly the whole cache is invalidated at once.\n\n**The ring.** Hash each server onto a circle (here the integers up to 2¹²⁸, wrapping around). A key belongs to the first server clockwise from the key's own hash. A new server now takes over only the keys between it and its predecessor (about 1/n of them), and a removed server hands its keys to the next one clockwise; nothing else moves.\n\n**Virtual nodes.** With one point per server the arcs are very uneven, so one server can own several times more keys than another. Placing each server at many points (`replicas`) averages that out, and it also spreads a removed server's keys across all the others instead of dumping them on one neighbour.\n\n**Implementation.** A sorted list of positions and a dict from position to node: a lookup is a binary search (`bisect`) followed by `% len(positions)` to wrap around. Positions come only from the node's name and the replica number, which is what makes \"only the changed node's keys move\" true. Hash with `hashlib.md5`; the built-in `hash()` of a string is randomised in every process.\n\n**Complexity.** Lookup is O(log(nodes × replicas)). Adding or removing a node costs the hashing of its `replicas` positions plus a re-sort here; a balanced tree would avoid the re-sort. Distributed caches, sharded databases and load balancers use this idea."
+}
