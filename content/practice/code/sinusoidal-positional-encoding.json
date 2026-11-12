@@ -1,0 +1,30 @@
+{
+  "title": "Sinusoidal Positional Encoding",
+  "topic": "llm-and-genai",
+  "difficulty": "beginner",
+  "module": "genai/02-transformer-architecture/10-sinusoidal-positional-encoding/README.md",
+  "description": "Build the table of sine and cosine waves that tells a transformer where each token sits in the sequence.",
+  "statement": "Attention by itself does not know the order of the tokens, so the original transformer adds a vector that depends on the position. Write `positional_encoding(seq_len, d_model)`, which returns a list of `seq_len` rows, each a list of `d_model` numbers:\n\n- For position `pos` (from 0) and each pair of columns `2i` and `2i + 1` (`i` from 0):\n  - `row[2i] = sin(pos / 10000 ** (2i / d_model))`\n  - `row[2i + 1] = cos(pos / 10000 ** (2i / d_model))`\n- `d_model` must be even, otherwise raise `ValueError`. `seq_len = 0` gives `[]`.\n\n```python\npositional_encoding(2, 4)\n# [[0.0, 1.0, 0.0, 1.0],\n#  [0.8415, 0.5403, 0.01, 1.0]]      (rounded to 4 places)\n```",
+  "starter": "import math\n\n\ndef positional_encoding(seq_len, d_model):\n    \"\"\"Return the seq_len x d_model table of sinusoidal position encodings.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]",
+    "assert rounded(positional_encoding(2, 4)) == [[0.0, 1.0, 0.0, 1.0], [0.8415, 0.5403, 0.01, 1.0]]",
+    "assert rounded(positional_encoding(3, 4))[2] == [0.9093, -0.4161, 0.02, 0.9998]",
+    "assert rounded(positional_encoding(51, 8))[50] == [-0.2624, 0.965, -0.9589, 0.2837, 0.4794, 0.8776, 0.05, 0.9988]",
+    "assert positional_encoding(1, 6) == [[0.0, 1.0, 0.0, 1.0, 0.0, 1.0]], \"position 0 is sin(0) = 0 and cos(0) = 1 in every pair\"",
+    "assert positional_encoding(0, 4) == []",
+    "assert len(positional_encoding(7, 10)) == 7 and all(len(row) == 10 for row in positional_encoding(7, 10))",
+    "assert rounded(positional_encoding(2, 2)) == [[0.0, 1.0], [0.8415, 0.5403]], \"d_model = 2: a single pair, the fastest wave\"",
+    "table = positional_encoding(20, 16)",
+    "assert all(abs(row[2 * i] ** 2 + row[2 * i + 1] ** 2 - 1) < 1e-12 for row in table for i in range(8)), \"each (sin, cos) pair lies on the unit circle\"",
+    "assert len({tuple(round(v, 6) for v in row) for row in table}) == 20, \"every position gets a different row\"",
+    "assert raises(ValueError, positional_encoding, 3, 5)"
+  ],
+  "hints": [
+    "Handle the odd `d_model` first. Then loop over positions and, inside it, over the `d_model // 2` pairs of columns.",
+    "For pair `i` the angle is `pos / 10000 ** (2 * i / d_model)`. The even column is its sine, the odd column its cosine.",
+    "Check position 0 by hand: every sine is 0 and every cosine is 1."
+  ],
+  "solution": "import math\n\n\ndef positional_encoding(seq_len, d_model):\n    if d_model % 2 != 0:\n        raise ValueError(\"d_model must be even\")\n    table = []\n    for pos in range(seq_len):\n        row = []\n        for i in range(d_model // 2):\n            angle = pos / 10000 ** (2 * i / d_model)\n            row.append(math.sin(angle))\n            row.append(math.cos(angle))\n        table.append(row)\n    return table\n",
+  "explanation": "**The idea.** Each pair of columns is a sine and a cosine of the same angle, and the angle is `pos` divided by a wavelength that grows from 1 (the first pair, fast waves) to about 10000 (the last pair, very slow waves). Together the pairs work like the digits of a clock: the fast pairs change at every position and tell neighbours apart, the slow ones barely move and tell you roughly where you are in a long text.\n\n**Why sines and cosines.** The encoding of position `pos + k` is a *rotation* of the encoding of `pos`, whatever `pos` is, so a model can learn to attend to \"the token 3 places back\" with one fixed linear map. The values stay between -1 and 1, and the table can be computed for positions longer than any seen in training (although models do not always use such positions well).\n\n**What replaced it.** Many modern models use rotary position embeddings (RoPE) or ALiBi instead, which apply the position inside the attention scores rather than adding it to the input. The same idea of frequencies at many scales remains.\n\n**Complexity.** O(seq_len x d_model).\n\n**Usual mistakes.** Using `i` instead of `2 * i` in the exponent; swapping sine and cosine; indexing the pairs from 1; building the table from a different base than 10000."
+}

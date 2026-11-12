@@ -1,0 +1,33 @@
+{
+  "title": "KV Cache Memory Math",
+  "topic": "llm-and-genai",
+  "difficulty": "beginner",
+  "module": "genai/14-inference-and-serving-vllm/04-kv-cache-memory-math/README.md",
+  "description": "Work out how much GPU memory a transformer's key-value cache needs, and how many requests fit beside the model.",
+  "statement": "When a model generates text it keeps the keys and values of every earlier token in every layer, so it does not recompute them: the **KV cache**. It is often the memory that limits how many requests a GPU can serve. Write two functions.\n\n**`kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2)`**: the bytes for the cache of `batch` sequences of `seq_len` tokens. For every token, every layer stores one key and one value (that is the factor 2), each with `kv_heads * head_dim` numbers of `dtype_bytes` bytes (2 for fp16 or bf16, 1 for int8 or fp8).\n\n**`max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1)`**: how many sequences fit. Memory you may use is `gpu_bytes * (1 - reserve_fraction)` (the rest is kept back for activations and overhead). The model's weights come out of that; what is left holds caches. Return the number of **whole** sequences that fit, never below 0.\n\n```python\nGiB = 2 ** 30\nper_seq = kv_cache_bytes(layers=32, kv_heads=8, head_dim=128, seq_len=8192)   # 1073741824: 1 GiB\nmax_concurrent_sequences(80 * GiB, 16 * GiB, per_seq)                         # 56\n```",
+  "starter": "def kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2):\n    \"\"\"Return the size of the KV cache in bytes.\"\"\"\n    ...\n\n\ndef max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1):\n    \"\"\"Return how many whole sequences' caches fit next to the model weights.\"\"\"\n    ...\n",
+  "tests": [
+    "GiB = 2 ** 30",
+    "assert kv_cache_bytes(32, 8, 128, 8192) == 1073741824, \"32 layers, 8 KV heads of 128, 8192 tokens, fp16: 1 GiB\"",
+    "assert kv_cache_bytes(32, 32, 128, 8192) == 4 * GiB, \"full multi-head attention keeps 4 times as many KV heads as this grouped-query model\"",
+    "assert kv_cache_bytes(32, 8, 128, 4096, batch=4) == 2 * GiB, \"half the length, four times the sequences\"",
+    "assert kv_cache_bytes(32, 8, 128, 8192, dtype_bytes=1) == GiB // 2, \"an 8-bit cache is half the size\"",
+    "assert kv_cache_bytes(80, 8, 128, 8192) == 2684354560",
+    "assert kv_cache_bytes(1, 1, 1, 1) == 4, \"one layer, one head of size 1, one token: a key and a value, 2 bytes each\"",
+    "assert kv_cache_bytes(32, 8, 128, 0) == 0",
+    "per_seq = kv_cache_bytes(32, 8, 128, 8192)",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), per_seq) == 56, \"72 GiB usable - 15.5 GiB of weights = 56.5 sequences\"",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), 4 * per_seq) == 14",
+    "assert max_concurrent_sequences(24 * GiB, int(15.5 * GiB), per_seq) == 6",
+    "assert max_concurrent_sequences(16 * GiB, int(15.5 * GiB), per_seq) == 0, \"the weights alone do not leave room: 0, not a negative number\"",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), per_seq, reserve_fraction=0.0) == 64",
+    "assert max_concurrent_sequences(80 * GiB, 0, per_seq, reserve_fraction=0.5) == 40, \"a half kept back, no model\""
+  ],
+  "hints": [
+    "Count what is stored for one token in one layer: a key and a value, each `kv_heads * head_dim` numbers long. Then scale by layers, tokens, batch and bytes per number.",
+    "For the capacity: usable memory is `gpu_bytes * (1 - reserve_fraction)`. Take the model's weights off that and divide what is left by the size of one sequence's cache.",
+    "Divide with `//` so that you only count whole sequences, and return 0 when there is nothing left after the weights."
+  ],
+  "solution": "def kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2):\n    # 2 = one key and one value per token, per layer\n    return 2 * layers * kv_heads * head_dim * seq_len * batch * dtype_bytes\n\n\ndef max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1):\n    free_for_caches = gpu_bytes * (1 - reserve_fraction) - model_bytes\n    if free_for_caches <= 0:\n        return 0\n    return int(free_for_caches // per_sequence_bytes)\n",
+  "explanation": "**The idea.** For every token already in the context, each layer keeps a key vector and a value vector (that is where the `2` comes from), each of `kv_heads x head_dim` numbers. Multiply by the number of layers, the length of the sequence, the batch and the bytes per number. The cache grows **linearly with the context length and with the number of concurrent requests**, which is why a long-context chat service runs out of GPU memory long before it runs out of compute.\n\n**Why the number of KV heads matters.** Modern models use *grouped-query attention*: many query heads share a few key-value heads (8 here, against 32 query heads). That makes the cache 4 times smaller than full multi-head attention at almost no loss in quality, and it is the reason long contexts are affordable. Quantising the cache to 8 bits halves it again.\n\n**What it means for serving.** The second function is capacity planning: after the weights are loaded, the rest of the GPU is a pool of cache space that decides how many requests can be in flight. Serving systems such as vLLM manage that pool in pages (PagedAttention) so that no memory is wasted on sequences' unused space.\n\n**Complexity.** O(1).\n\n**Usual mistakes.** Forgetting the factor 2 for keys *and* values; using the number of query heads instead of KV heads; mixing GB (10^9) and GiB (2^30); a negative capacity when the model alone does not fit."
+}

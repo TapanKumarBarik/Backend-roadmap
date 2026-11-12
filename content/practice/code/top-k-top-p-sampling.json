@@ -1,0 +1,34 @@
+{
+  "title": "Top-k and Top-p Sampling",
+  "topic": "llm-and-genai",
+  "difficulty": "intermediate",
+  "module": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md",
+  "description": "Cut a language model's next-token distribution down to the likely tokens before sampling from it.",
+  "statement": "A language model gives a probability for every token in its vocabulary. Sampling from all of them lets rare, odd tokens through, so models usually first cut the distribution. Write `filter_probs(probs, top_k=None, top_p=None)`, which returns a new list the same length as `probs` (`probs` are non-negative and sum to 1):\n\n1. **top-k** (if given): keep only the `top_k` largest probabilities (on a tie the lower index is kept first), set the others to `0.0`, and **renormalise** so the list sums to 1 again.\n2. **top-p**, or *nucleus* (if given): order the tokens that are left by probability, highest first (ties: lower index first), and keep the smallest group at the top whose probabilities add up to **at least** `top_p`. There is always at least one token. Set the others to `0.0` and renormalise.\n\nWhen both are given, top-k is applied first and top-p works on the renormalised result. `top_k` must be at least 1 and `top_p` in `(0, 1]`; otherwise raise `ValueError`.\n\n```python\nprobs = [0.5, 0.25, 0.125, 0.0625, 0.0625]\nfilter_probs(probs, top_k=2)    # [0.6667, 0.3333, 0.0, 0.0, 0.0]   (rounded)\nfilter_probs(probs, top_p=0.9)  # [0.5333, 0.2667, 0.1333, 0.0667, 0.0]\n```",
+  "starter": "def filter_probs(probs, top_k=None, top_p=None):\n    \"\"\"Return the distribution after top-k and/or top-p filtering, renormalised to sum to 1.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(values, places=4):\n    return [round(v, places) for v in values]\nprobs = [0.5, 0.25, 0.125, 0.0625, 0.0625]",
+    "assert rounded(filter_probs(probs, top_k=2)) == [0.6667, 0.3333, 0.0, 0.0, 0.0]",
+    "assert rounded(filter_probs(probs, top_k=3)) == [0.5714, 0.2857, 0.1429, 0.0, 0.0]",
+    "assert rounded(filter_probs(probs, top_p=0.75)) == [0.6667, 0.3333, 0.0, 0.0, 0.0], \"0.5 + 0.25 reaches 0.75 exactly: two tokens are enough\"",
+    "assert rounded(filter_probs(probs, top_p=0.76)) == [0.5714, 0.2857, 0.1429, 0.0, 0.0], \"just over 0.75: one more token\"",
+    "assert rounded(filter_probs(probs, top_p=0.5)) == [1.0, 0.0, 0.0, 0.0, 0.0], \"the top token alone already reaches it\"",
+    "assert rounded(filter_probs(probs, top_p=1.0)) == probs, \"top_p = 1 keeps everything\"",
+    "assert rounded(filter_probs(probs, top_k=3, top_p=0.8)) == [0.6667, 0.3333, 0.0, 0.0, 0.0], \"top-p looks at the renormalised top-3: 0.5714 + 0.2857 = 0.857\"",
+    "assert filter_probs(probs) == probs and filter_probs(probs) is not probs, \"no filter: the same numbers, in a new list\"",
+    "assert rounded(filter_probs([0.25, 0.25, 0.25, 0.25], top_k=2)) == [0.5, 0.5, 0.0, 0.0], \"equal probabilities: the lower indexes are kept\"",
+    "assert rounded(filter_probs([0.1, 0.5, 0.4], top_k=1)) == [0.0, 1.0, 0.0], \"the order of the list is kept\"",
+    "assert abs(sum(filter_probs([0.3, 0.3, 0.2, 0.2], top_p=0.5)) - 1.0) < 1e-12",
+    "assert probs == [0.5, 0.25, 0.125, 0.0625, 0.0625], \"the input is not modified\"",
+    "assert raises(ValueError, filter_probs, probs, top_k=0)",
+    "assert raises(ValueError, filter_probs, probs, top_p=0)",
+    "assert raises(ValueError, filter_probs, probs, top_p=1.5)"
+  ],
+  "hints": [
+    "Write a helper that takes the indexes to keep, zeroes the rest and divides by the new total. Both filters can use it.",
+    "For top-p, sort the indexes by probability (highest first), then add them to the kept set one at a time until the running total reaches `top_p`: include the token that makes it reach.",
+    "Run top-k first, then compute top-p on its output, not on the original list."
+  ],
+  "solution": "def _keep(probs, indexes):\n    \"\"\"Zero every probability whose index is not in `indexes`, then renormalise.\"\"\"\n    kept = [p if i in indexes else 0.0 for i, p in enumerate(probs)]\n    total = sum(kept)\n    return [p / total for p in kept]\n\n\ndef filter_probs(probs, top_k=None, top_p=None):\n    if top_k is not None and top_k < 1:\n        raise ValueError(\"top_k must be at least 1\")\n    if top_p is not None and not 0 < top_p <= 1:\n        raise ValueError(\"top_p must be in (0, 1]\")\n    result = list(probs)\n    if top_k is not None:\n        order = sorted(range(len(result)), key=lambda i: (-result[i], i))\n        result = _keep(result, set(order[:top_k]))\n    if top_p is not None:\n        order = sorted(range(len(result)), key=lambda i: (-result[i], i))\n        total, keep = 0.0, set()\n        for i in order:\n            keep.add(i)\n            total += result[i]\n            if total >= top_p:\n                break\n        result = _keep(result, keep)\n    return result\n",
+  "explanation": "**The idea.** *Top-k* always keeps a fixed number of candidates, however sure or unsure the model is. *Top-p* (nucleus sampling) keeps as many as it takes to cover a share `p` of the probability: one token when the model is confident, many when it is not. After cutting, the remaining probabilities must be **renormalised** so they sum to 1 again, and only then do you draw a token.\n\n**Order matters.** Applying top-p to the original numbers gives a different answer than applying it after top-k has removed some mass. The test with both parameters fixes the order: top-k first, then top-p on the renormalised result (this is also what common libraries do).\n\n**Why it exists.** With the full distribution, a long tail of thousands of unlikely tokens adds up to a real chance of a bad pick at every step, and over hundreds of steps the text wanders. Temperature reshapes the distribution; top-k and top-p remove the tail. They are usually combined, e.g. temperature 0.7 with top-p 0.9.\n\n**Complexity.** O(n log n) for the sorts.\n\n**Usual mistakes.** Forgetting to renormalise; stopping *before* the cumulative probability reaches `top_p` instead of at the token that reaches it; keeping zero tokens when the first one already exceeds `top_p`; ties resolved differently each call."
+}

@@ -10119,6 +10119,44 @@
    "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef add_two_numbers(first, second):\n    dummy = tail = ListNode()            # the result starts after this placeholder node\n    carry = 0\n    while first is not None or second is not None or carry:\n        column = carry\n        if first is not None:\n            column += first.val\n            first = first.next\n        if second is not None:\n            column += second.val\n            second = second.next\n        carry, digit = divmod(column, 10)\n        tail.next = ListNode(digit)\n        tail = tail.next\n    return dummy.next\n",
    "explanation": "**The idea.** This is school addition. Because the digits are stored least significant first, the heads of both lists are the ones column, so you can add column by column while walking both lists forward. Keep a `carry`: the column total is `first digit + second digit + carry`; the digit you write is `total % 10` and the new carry is `total // 10` (`divmod` gives both).\n\n**The details.** A list that has run out contributes 0, so different lengths need no special case. The loop must continue while *either* list has digits left *or* the carry is not zero: that is what turns 99 + 1 into `0 -> 0 -> 1` instead of losing the last 1, and it is also why 12 + 23 = 35 gets no extra `0` node at the end. A dummy node before the first digit saves a special case for the first node of the result.\n\n**Complexity.** O(max(m, n)) time, and O(max(m, n)) space for the new list. Converting both lists to integers and back also works in Python, but only because Python integers have no size limit; the column method works for any digit storage. Follow-up: what if the digits were stored most significant first? You would need to start from the ends: reverse the lists first, or push the digits on two stacks."
   },
+  "agent-tool-loop": {
+   "title": "The Agent Loop",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/10-ai-agents/07-the-agent-loop-termination-and-limits/README.md",
+   "description": "Run a model in a loop: let it call tools, feed it the results, and stop at an answer, or at a step limit.",
+   "statement": "An agent is a loop: ask the model what to do, run the tool it asks for, show it the result, repeat until it answers. Write `run_agent(llm, tools, question, max_steps=5)`.\n\n- `llm(messages)` is the model: it takes the conversation so far (a list of message dicts) and returns a dict that is either `{\"final\": \"text\"}` (the answer) or `{\"tool\": \"name\", \"args\": {...}}` (a tool to run). Give it a **copy** of the conversation each time.\n- `tools` is a dict from tool name to a function; a tool is called as `tools[name](**args)`.\n- The conversation starts as `[{\"role\": \"user\", \"content\": question}]`. When the model asks for a tool, append `{\"role\": \"assistant\", \"tool\": name, \"args\": args}`, then run it and append `{\"role\": \"tool\", \"name\": name, \"content\": str(result)}`. A final answer is appended as `{\"role\": \"assistant\", \"content\": text}` and ends the loop.\n- **Tool problems are reported to the model, not raised.** A tool name that is not in `tools` gives the content `\"error: unknown tool NAME\"`; a tool that raises gives `\"error: ExceptionName: message\"`. The loop goes on, so the model can try something else.\n- The model may be asked at most `max_steps` times. Return `{\"answer\": text or None, \"steps\": number of model calls, \"messages\": the conversation}`. If the limit is reached without a final answer, the answer is `None`.",
+   "starter": "def run_agent(llm, tools, question, max_steps=5):\n    \"\"\"Run the loop and return {\"answer\": ..., \"steps\": ..., \"messages\": [...]}.\"\"\"\n    ...\n",
+   "tests": [
+    "def scripted(*replies):\n    \"\"\"A fake model that gives the replies one by one, and remembers what it was shown each time.\"\"\"\n    queue = list(replies)\n    shown = []\n    def llm(messages):\n        shown.append(list(messages))\n        return queue.pop(0)\n    llm.shown = shown\n    return llm\ntools = {\"add\": lambda a, b: a + b, \"divide\": lambda a, b: a / b, \"info\": lambda: {\"ok\": True}}\nask = {\"role\": \"user\", \"content\": \"What is 2 + 3?\"}\nllm = scripted({\"tool\": \"add\", \"args\": {\"a\": 2, \"b\": 3}}, {\"final\": \"The sum is 5\"})\nresult = run_agent(llm, tools, \"What is 2 + 3?\")",
+    "assert result[\"answer\"] == \"The sum is 5\" and result[\"steps\"] == 2",
+    "assert result[\"messages\"] == [ask, {\"role\": \"assistant\", \"tool\": \"add\", \"args\": {\"a\": 2, \"b\": 3}}, {\"role\": \"tool\", \"name\": \"add\", \"content\": \"5\"}, {\"role\": \"assistant\", \"content\": \"The sum is 5\"}]",
+    "assert llm.shown[0] == [ask] and llm.shown[1][-1] == {\"role\": \"tool\", \"name\": \"add\", \"content\": \"5\"}, \"the model sees the tool result on its next turn, and was given a copy each time\"",
+    "llm = scripted({\"final\": \"Hi\"})",
+    "assert run_agent(llm, tools, \"hello\") == {\"answer\": \"Hi\", \"steps\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}, {\"role\": \"assistant\", \"content\": \"Hi\"}]}",
+    "llm = scripted({\"tool\": \"weather\", \"args\": {}}, {\"final\": \"I cannot check the weather\"})\nresult = run_agent(llm, tools, \"weather?\")",
+    "assert result[\"messages\"][2] == {\"role\": \"tool\", \"name\": \"weather\", \"content\": \"error: unknown tool weather\"}, \"an unknown tool is told to the model\"",
+    "assert result[\"answer\"] == \"I cannot check the weather\" and result[\"steps\"] == 2",
+    "llm = scripted({\"tool\": \"divide\", \"args\": {\"a\": 1, \"b\": 0}}, {\"final\": \"cannot divide\"})",
+    "assert run_agent(llm, tools, \"1/0\")[\"messages\"][2][\"content\"] == \"error: ZeroDivisionError: division by zero\", \"a tool that raises is reported, not raised\"",
+    "llm = scripted({\"tool\": \"add\", \"args\": {\"x\": 1}}, {\"final\": \"oops\"})",
+    "assert run_agent(llm, tools, \"bad args\")[\"messages\"][2][\"content\"].startswith(\"error: TypeError\"), \"wrong arguments are a tool error too\"",
+    "llm = scripted({\"tool\": \"info\", \"args\": {}}, {\"final\": \"done\"})",
+    "assert run_agent(llm, tools, \"info\")[\"messages\"][2][\"content\"] == \"{'ok': True}\", \"the result is turned into text with str()\"",
+    "endless = scripted(*[{\"tool\": \"add\", \"args\": {\"a\": 1, \"b\": 1}}] * 10)\nresult = run_agent(endless, tools, \"loop\", max_steps=3)",
+    "assert result[\"answer\"] is None and result[\"steps\"] == 3 and len(endless.shown) == 3, \"the model is asked three times, then the loop stops\"",
+    "assert len(result[\"messages\"]) == 1 + 3 * 2, \"the question, then three tool calls with their results\"",
+    "assert run_agent(scripted(), tools, \"never asked\", max_steps=0) == {\"answer\": None, \"steps\": 0, \"messages\": [{\"role\": \"user\", \"content\": \"never asked\"}]}",
+    "assert run_agent(scripted({\"final\": \"a\"}), tools, \"q\", max_steps=1)[\"answer\"] == \"a\", \"a final answer on the last allowed step counts\""
+   ],
+   "hints": [
+    "Build a `messages` list and loop while `steps < max_steps`. Each time: call `llm(list(messages))` (a copy) and count the step.",
+    "If the reply has a `\"final\"`, append it as an assistant message and return. Otherwise append the assistant's tool request, then run the tool and append its result as a `\"tool\"` message.",
+    "Wrap the tool call in `try/except Exception` and turn the error into the message content; check for an unknown name before calling. When the loop ends without a final answer, return `answer` as `None`."
+   ],
+   "solution": "def run_agent(llm, tools, question, max_steps=5):\n    messages = [{\"role\": \"user\", \"content\": question}]\n    steps = 0\n    while steps < max_steps:\n        reply = llm(list(messages))                 # the model gets a copy, so it cannot change our record\n        steps += 1\n        if \"final\" in reply:\n            messages.append({\"role\": \"assistant\", \"content\": reply[\"final\"]})\n            return {\"answer\": reply[\"final\"], \"steps\": steps, \"messages\": messages}\n\n        name, args = reply[\"tool\"], reply.get(\"args\", {})\n        messages.append({\"role\": \"assistant\", \"tool\": name, \"args\": args})\n        if name not in tools:\n            content = f\"error: unknown tool {name}\"\n        else:\n            try:\n                content = str(tools[name](**args))\n            except Exception as error:               # tell the model what went wrong; it may be able to fix its call\n                content = f\"error: {type(error).__name__}: {error}\"\n        messages.append({\"role\": \"tool\", \"name\": name, \"content\": content})\n    return {\"answer\": None, \"steps\": steps, \"messages\": messages}\n",
+   "explanation": "**The idea.** The agent is nothing more than a `while` loop around the model: ask, act, observe, repeat. Everything an \"agent framework\" adds (planning, memory, many tools) is built on this loop, so it is worth being able to write it from scratch.\n\n**Two things make it safe to run.** *A step limit*: models sometimes loop forever, calling the same tool over and over, and every step costs tokens and time; the cap guarantees the loop ends and that the caller finds out (`answer` is `None`). *Errors become observations*: a model that asks for a tool that does not exist, or passes bad arguments, should be told so in the conversation, because it can often correct itself on the next step. Raising an exception would crash the whole run instead.\n\n**What a real loop adds.** Validating the model's reply (it may return neither a tool nor an answer); a limit on total tokens or cost, not only steps; detecting repeated identical calls; timeouts on tools; permission checks before a tool with side effects runs; and logging every step, because the trace is how you debug an agent.\n\n**Complexity.** One model call per step: the loop's cost is `max_steps` times the model's.\n\n**Usual mistakes.** Passing the live message list to the model (it can see, and mutate, what the loop appends later); letting a tool exception escape; an off-by-one that allows `max_steps + 1` calls; not appending the assistant's tool request, so the conversation the model sees has results with no request."
+  },
   "backoff-schedule": {
    "title": "Exponential Backoff with Full Jitter",
    "topic": "caching-and-limits",
@@ -10349,6 +10387,39 @@
    "solution": "import hashlib\n\n\nclass BloomFilter:\n    def __init__(self, size, hashes, seed=0):\n        self._size = size\n        self._hashes = hashes\n        self._seed = seed\n        self._bits = bytearray((size + 7) // 8)    # `size` bits, packed 8 to a byte\n\n    def _positions(self, item):\n        for i in range(self._hashes):\n            digest = hashlib.sha256(f\"{self._seed}:{i}:{item}\".encode()).digest()\n            yield int.from_bytes(digest[:8], \"big\") % self._size\n\n    def add(self, item):\n        for position in self._positions(item):\n            self._bits[position // 8] |= 1 << (position % 8)\n\n    def might_contain(self, item):\n        return all(self._bits[position // 8] >> (position % 8) & 1 for position in self._positions(item))\n",
    "explanation": "**The idea.** A Bloom filter is an array of `size` bits. To add an item, compute `hashes` positions from it and set those bits. To ask about an item, compute the same positions: if any bit is 0 the item was certainly never added (so there are no false negatives); if all are 1 it was probably added, but other items may have set those bits by chance (a false positive).\n\n**Deriving k hash functions.** One SHA-256 call per position, with the loop counter `i` in the input, gives `hashes` independent-looking positions; the seed gives whole families of them. Python's built-in `hash()` of a string is randomised per process, so a filter saved by one process could not be read by another. Reduce with `% size` so every position fits.\n\n**Sizing.** With `m` bits, `k` hashes and `n` items the false-positive rate is about `(1 - e^(-kn/m))^k`. For 10,000 bits, 7 hashes and 1000 items that is about 0.8%, which is why the test allows 3%. For a given `m` and `n`, the best `k` is about `(m / n) * ln 2`.\n\n**Limits.** You cannot remove an item (clearing a bit could erase another item's trace); a counting Bloom filter keeps small counters instead of bits. Real uses: skipping disk reads for keys that certainly do not exist (LSM-tree databases), a crawler's \"seen this URL?\" check, cheap cache-miss tests. Follow-up: how would two nodes combine their filters? (Bitwise OR of two filters with the same size, hashes and seed.)"
   },
+  "bm25-ranking": {
+   "title": "BM25 Keyword Ranking",
+   "topic": "llm-and-genai",
+   "difficulty": "advanced",
+   "module": "genai/09-retrieval-augmented-generation/06-keyword-search-and-bm25/README.md",
+   "description": "Rank documents for a search query with BM25, the keyword scoring that still powers search and hybrid RAG.",
+   "statement": "Write `bm25_rank(query, docs, k1=1.5, b=0.75)`, which ranks a list of text documents for a query with the BM25 formula and returns `(doc_index, score)` pairs.\n\n- **Tokens:** lowercase the text and take the runs of letters and digits (`re.findall(r\"[a-z0-9]+\", text.lower())`). `\"Cat!\"` is the token `cat`; `\"cats\"` is a different token.\n- The query's terms are its **distinct** tokens (a repeated word counts once).\n- For a term `t`, `n_t` is the number of documents that contain it and `N` the number of documents. `idf(t) = ln(1 + (N - n_t + 0.5) / (n_t + 0.5))`.\n- A document's score is the sum over the query terms of `idf(t) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))`, where `tf` is how many times the term occurs in the document, `dl` the document's length in tokens and `avgdl` the average length over all documents.\n- Return only documents with a score above 0, highest first (ties: lower index first). No documents, or only empty ones, give `[]`.\n\n```python\ndocs = [\"the cat sat on the mat\", \"the dog chased the cat\", \"dogs and cats are pets\", \"a cat is a cat is a cat\"]\nbm25_rank(\"cat\", docs)   # [(3, 0.5487), (1, 0.3856), (0, 0.3567)]   (scores rounded to 4 places)\n```",
+   "starter": "import math\nimport re\n\n\ndef bm25_rank(query, docs, k1=1.5, b=0.75):\n    \"\"\"Return [(doc_index, score), ...] for the documents that match the query, best first.\"\"\"\n    ...\n",
+   "tests": [
+    "docs = [\"the cat sat on the mat\", \"the dog chased the cat\", \"dogs and cats are pets\", \"a cat is a cat is a cat\"]\ndef rounded(pairs, places=4):\n    return [(i, round(score, places)) for i, score in pairs]",
+    "assert rounded(bm25_rank(\"cat\", docs)) == [(3, 0.5487), (1, 0.3856), (0, 0.3567)]",
+    "assert rounded(bm25_rank(\"dog cat\", docs)) == [(1, 1.6872), (3, 0.5487), (0, 0.3567)], \"a document with a rare term and a common one wins\"",
+    "assert rounded(bm25_rank(\"cat cat\", docs)) == rounded(bm25_rank(\"cat\", docs)), \"a repeated query word counts once\"",
+    "assert rounded(bm25_rank(\"Cat!\", docs)) == rounded(bm25_rank(\"cat\", docs)), \"case and punctuation do not matter\"",
+    "assert rounded(bm25_rank(\"the\", docs)) == [(1, 1.0463), (0, 0.9902)]",
+    "assert rounded(bm25_rank(\"cat\", docs, k1=1.2, b=0.0)) == [(3, 0.5605), (0, 0.3567), (1, 0.3567)], \"with b = 0 the length of the document is ignored; equal scores keep index order\"",
+    "assert bm25_rank(\"zebra\", docs) == [], \"no document contains the term\"",
+    "assert bm25_rank(\"cat\", []) == []",
+    "assert bm25_rank(\"\", docs) == []",
+    "assert bm25_rank(\"cat\", [\"\", \"\"]) == [], \"only empty documents\"",
+    "assert [i for i, _ in bm25_rank(\"cats\", docs)] == [2], \"no stemming: cats is not cat\"",
+    "assert [i for i, _ in bm25_rank(\"cat\", [\"cat\"] * 3)] == [0, 1, 2], \"identical documents tie, in index order\"",
+    "many = [\"alpha beta\"] * 2000 + [\"gamma alpha beta\"]",
+    "assert bm25_rank(\"gamma\", many)[0][0] == 2000 and len(bm25_rank(\"alpha\", many)) == 2001"
+   ],
+   "hints": [
+    "Split the work: tokenise every document once, then compute `avgdl` and, for each query term, how many documents contain it.",
+    "Per document and term: `idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))`. Terms the document lacks have `tf = 0` and add nothing, so you can sum over all query terms.",
+    "Handle the edge cases: no documents, documents that are all empty (`avgdl == 0`), and a term that no document contains (no `idf`). Sort by `(-score, index)`."
+   ],
+   "solution": "import math\nimport re\nfrom collections import Counter\n\n\ndef _tokens(text):\n    return re.findall(r\"[a-z0-9]+\", text.lower())\n\n\ndef bm25_rank(query, docs, k1=1.5, b=0.75):\n    tokenised = [_tokens(doc) for doc in docs]\n    if not tokenised:\n        return []\n    avgdl = sum(len(doc) for doc in tokenised) / len(tokenised)\n    if avgdl == 0:\n        return []\n    terms = set(_tokens(query))\n    holders = {t: sum(1 for doc in tokenised if t in doc) for t in terms}   # n_t: documents containing the term\n    idf = {t: math.log(1 + (len(docs) - n + 0.5) / (n + 0.5)) for t, n in holders.items() if n}\n    ranked = []\n    for index, doc in enumerate(tokenised):\n        counts = Counter(doc)\n        norm = k1 * (1 - b + b * len(doc) / avgdl)\n        score = sum(weight * counts[t] * (k1 + 1) / (counts[t] + norm) for t, weight in idf.items())\n        if score > 0:\n            ranked.append((index, score))\n    ranked.sort(key=lambda pair: (-pair[1], pair[0]))\n    return ranked\n",
+   "explanation": "**The idea.** Two intuitions in one formula. A term that is **rare** across the collection says more about a document than a common one (`idf`: \"the\" is in half the documents, \"gamma\" in one). And more occurrences help, but with **diminishing returns** and relative to length: the `tf` term saturates (`k1` controls how fast), and a long document needs more occurrences than a short one to score the same (`b` controls how much length matters). That is why the document that says \"cat\" three times scores well, but not three times as well.\n\n**Why it still matters.** BM25 is exact-word matching: it finds product codes, error messages, names and rare terms that an embedding model blurs. Vector search finds meaning but misses exact strings. Good RAG systems use both and merge the results (see the Reciprocal Rank Fusion problem).\n\n**Complexity.** O(total tokens + documents x query terms).\n\n**Usual mistakes.** Counting the query's repeated words repeatedly; forgetting to tokenise the query the same way as the documents; `idf` that goes negative (the `1 +` inside the logarithm is the variant that keeps it positive); dividing by zero when every document is empty; stemming or not stemming inconsistently."
+  },
   "bounded-queue": {
    "title": "Bounded Queue",
    "topic": "backend-coding",
@@ -10406,6 +10477,42 @@
    ],
    "solution": "class BoundedQueue:\n    def __init__(self, capacity):\n        self._slots = [None] * capacity      # allocated once, reused for ever\n        self._head = 0                       # index of the oldest item\n        self._count = 0                      # how many items are inside\n\n    def offer(self, item):\n        if self._count == len(self._slots):\n            return False\n        tail = (self._head + self._count) % len(self._slots)    # the % wraps the index past the end back to 0\n        self._slots[tail] = item\n        self._count += 1\n        return True\n\n    def poll(self):\n        if self._count == 0:\n            return None\n        item = self._slots[self._head]\n        self._slots[self._head] = None       # do not keep a reference to an item that has left the queue\n        self._head = (self._head + 1) % len(self._slots)\n        self._count -= 1\n        return item\n\n    def size(self):\n        return self._count\n",
    "explanation": "**The idea.** A ring buffer is a fixed list used as a circle. Remember where the oldest item is (`head`) and how many items there are (`count`). The next free slot is `(head + count) % capacity`; the `%` makes the index wrap from the end of the list back to 0. `offer` writes there and increases `count`; `poll` reads at `head`, moves `head` forward by one (also modulo `capacity`) and decreases `count`. Nothing is ever shifted or copied, so both are O(1), whereas `list.pop(0)` moves every remaining item.\n\n**Why keep a count.** If you track only a head and a tail index, a full queue and an empty queue both look like `head == tail`. A count (or one deliberately unused slot) removes the ambiguity.\n\n**Why bounded.** An unbounded queue between a fast producer and a slow consumer just grows until the process runs out of memory. A bound turns overload into a signal: `offer` returns `False` and the producer can slow down, drop the work, or fail. That is back-pressure. A multi-threaded version adds a lock and condition variables (see `queue.Queue(maxsize)`); this is its single-threaded core.\n\n**Details.** Clear the slot on `poll` so the buffer does not keep an item alive after it has left the queue. Return `None` for an empty queue before touching any slot, and do not decide emptiness by looking at what a slot holds: `0` and `\"\"` are legal items.\n\n**Complexity.** O(1) per call and O(capacity) memory."
+  },
+  "byte-pair-encoding": {
+   "title": "Train and Apply a BPE Tokenizer",
+   "topic": "llm-and-genai",
+   "difficulty": "advanced",
+   "module": "genai/01-tokens-and-language-modeling/04-building-a-bpe-tokenizer-from-scratch/README.md",
+   "description": "Learn subword merges from a small corpus the way GPT-style tokenizers do, then use them to split new words.",
+   "statement": "Byte-pair encoding builds a vocabulary of subwords by repeatedly merging the most common neighbouring pair. Write two functions.\n\n**`train_bpe(corpus, num_merges)`**: `corpus` is a list of words (a word that appears several times in the list counts several times).\n\n- Every word starts as a sequence of its characters.\n- A round counts every pair of **adjacent** symbols over all the words (a word counts as often as it is in `corpus`; overlapping positions are all counted, so `\"aaa\"` has two `(\"a\", \"a\")` pairs). The pair with the highest count is **merged**: wherever it occurs, scanning each word left to right without overlap, the two symbols are replaced by one symbol, their concatenation. A tie in the count goes to the smallest pair when compared as tuples of strings.\n- Do `num_merges` rounds, or stop early when no word has two symbols left. Return the pairs that were merged, in order, as a list of tuples `(left, right)`.\n\n**`bpe_encode(word, merges)`**: split `word` into characters, then apply each merge from `merges` **in order** (each one scanning left to right without overlap) and return the list of tokens.\n\n```python\ncorpus = [\"low\"] * 5 + [\"lower\"] * 2 + [\"newest\"] * 6 + [\"widest\"] * 3\nmerges = train_bpe(corpus, 4)    # [(\"e\", \"s\"), (\"es\", \"t\"), (\"l\", \"o\"), (\"lo\", \"w\")]\nbpe_encode(\"lowest\", merges)     # [\"low\", \"est\"]      a word that is not in the corpus, built from pieces that are\nbpe_encode(\"aaa\", [(\"a\", \"a\")])  # [\"aa\", \"a\"]\n```",
+   "starter": "def train_bpe(corpus, num_merges):\n    \"\"\"Return the list of merged pairs, in the order they were learned.\"\"\"\n    ...\n\n\ndef bpe_encode(word, merges):\n    \"\"\"Split `word` into tokens by applying the merges in order.\"\"\"\n    ...\n",
+   "tests": [
+    "corpus = [\"low\"] * 5 + [\"lower\"] * 2 + [\"newest\"] * 6 + [\"widest\"] * 3",
+    "assert train_bpe(corpus, 4) == [(\"e\", \"s\"), (\"es\", \"t\"), (\"l\", \"o\"), (\"lo\", \"w\")], \"(e, s) and (s, t) both occur 9 times: the smaller pair first\"",
+    "assert train_bpe(corpus, 6) == [(\"e\", \"s\"), (\"es\", \"t\"), (\"l\", \"o\"), (\"lo\", \"w\"), (\"e\", \"w\"), (\"ew\", \"est\")]",
+    "assert train_bpe(corpus, 0) == []",
+    "assert train_bpe([\"aaaa\"], 2) == [(\"a\", \"a\"), (\"aa\", \"aa\")], \"overlapping pairs are counted; the merge itself does not overlap\"",
+    "assert train_bpe([\"ab\"], 5) == [(\"a\", \"b\")], \"it stops when no word has a pair left\"",
+    "assert train_bpe([], 3) == []",
+    "assert train_bpe([\"abab\", \"abab\", \"cd\"], 3) == [(\"a\", \"b\"), (\"ab\", \"ab\"), (\"c\", \"d\")], \"a repeated word counts every time it is repeated\"",
+    "merges = train_bpe(corpus, 10)",
+    "assert bpe_encode(\"lowest\", merges[:4]) == [\"low\", \"est\"]",
+    "assert bpe_encode(\"lowest\", merges) == [\"low\", \"est\"]",
+    "assert bpe_encode(\"newer\", merges) == [\"n\", \"ew\", \"e\", \"r\"], \"merges are applied in the order they were learned\"",
+    "assert bpe_encode(\"zebra\", merges) == [\"z\", \"e\", \"b\", \"r\", \"a\"], \"characters never seen in training stay single characters\"",
+    "assert bpe_encode(\"\", merges) == []",
+    "assert bpe_encode(\"aaa\", [(\"a\", \"a\")]) == [\"aa\", \"a\"], \"a merge scans left to right\"",
+    "assert bpe_encode(\"aaaa\", [(\"a\", \"a\"), (\"aa\", \"aa\")]) == [\"aaaa\"]",
+    "assert bpe_encode(\"abc\", []) == [\"a\", \"b\", \"c\"]",
+    "assert \"\".join(bpe_encode(\"widest\", merges)) == \"widest\", \"the tokens always spell the word\""
+   ],
+   "hints": [
+    "Keep each distinct word as a list of symbols together with how many times it occurs. A helper that merges one pair into a list of symbols will be used by both functions.",
+    "Each round: count adjacent pairs weighted by the word's frequency, choose the pair with the highest count, apply the merge to every word. `min` with the key `(-count, pair)` picks the highest count and breaks ties by the smallest pair.",
+    "The merge helper must scan left to right and skip past the two symbols it just joined, so that `\"aaa\"` becomes `[\"aa\", \"a\"]`. `bpe_encode` applies the merges in the given order, nothing smarter."
+   ],
+   "solution": "from collections import Counter\n\n\ndef _merge(symbols, pair):\n    \"\"\"Replace every non-overlapping occurrence of `pair` in the list of symbols, scanning left to right.\"\"\"\n    merged, i = [], 0\n    while i < len(symbols):\n        if i + 1 < len(symbols) and (symbols[i], symbols[i + 1]) == pair:\n            merged.append(symbols[i] + symbols[i + 1])\n            i += 2\n        else:\n            merged.append(symbols[i])\n            i += 1\n    return merged\n\n\ndef train_bpe(corpus, num_merges):\n    frequencies = Counter(corpus)\n    words = {word: list(word) for word in frequencies}\n    merges = []\n    for _ in range(num_merges):\n        counts = Counter()\n        for word, symbols in words.items():\n            for pair in zip(symbols, symbols[1:]):\n                counts[pair] += frequencies[word]\n        if not counts:\n            break\n        best = min(counts, key=lambda pair: (-counts[pair], pair))     # most frequent; the smallest pair on a tie\n        merges.append(best)\n        words = {word: _merge(symbols, best) for word, symbols in words.items()}\n    return merges\n\n\ndef bpe_encode(word, merges):\n    symbols = list(word)\n    for pair in merges:\n        symbols = _merge(symbols, pair)\n    return symbols\n",
+   "explanation": "**The idea.** Start with characters and let the data decide what the vocabulary is: the pair that occurs most often is glued into one new symbol, and the process repeats. Frequent words end up as a single token, rarer ones as a few pieces, and a word never seen before can still be spelled from smaller pieces, so there is no \"unknown word\". The learned list of merges *is* the tokenizer.\n\n**Applying it.** Encoding replays the merges **in the order they were learned**; applying them in another order gives a different split. That is why the test for `\"newer\"` is `[\"n\", \"ew\", \"e\", \"r\"]`: the merge `(\"e\", \"w\")` was learned before any merge could build `\"er\"`.\n\n**Real tokenizers.** GPT-style models run the same algorithm on *bytes* (so any text, in any language or emoji, can be encoded), first splitting the text with a regular expression into words so merges do not cross word boundaries, with tens of thousands of merges, and an efficient data structure instead of rescanning every word each round. That cost is why vocabulary size is a design decision: more merges give shorter sequences (cheaper attention) but a larger embedding table.\n\n**Complexity.** O(num_merges x total symbols) here.\n\n**Usual mistakes.** Counting each distinct word once instead of by its frequency; letting a merge overlap itself (`\"aaa\"` with `(\"a\", \"a\")` gives `[\"aa\", \"a\"]`, not `[\"aa\", \"aa\"]`); breaking ties by insertion order, which is not stable; re-deriving `symbols` from the word each round instead of updating them."
   },
   "capacity-to-ship-packages": {
    "title": "Capacity to Ship Packages",
@@ -10739,6 +10846,73 @@
    ],
    "solution": "def contains_duplicate(nums):\n    seen = set()\n    for x in nums:\n        if x in seen:\n            return True\n        seen.add(x)\n    return False\n",
    "explanation": "**The idea.** For each number you only need to know whether you have met it before. A `set` answers \"is `x` in here?\" in O(1), so a single pass is enough: if `x` is already in the set you have found a repeat, otherwise add it. Stopping at the first repeat means a duplicate near the start costs almost nothing.\n\n**The one-liner.** `len(set(nums)) != len(nums)` is the same idea in one line. It always builds the whole set, so it cannot stop early.\n\n**Complexity.** O(n) time and O(n) extra space. The trade-off to know: sorting a copy and comparing neighbours costs O(n log n) time but needs no set. (Sorting the input in place would use O(1) extra space, but it changes the caller's list, which this problem does not allow.)\n\n**Mistake to avoid.** Testing `x in seen` against a *list* instead of a set looks the same but scans the list every time, which is O(n²) overall."
+  },
+  "context-budget-packer": {
+   "title": "Pack Retrieved Chunks Into a Token Budget",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction/README.md",
+   "description": "Choose which retrieved chunks go into the prompt so the best ones fit the model's context budget.",
+   "statement": "A RAG prompt has a limited number of tokens for retrieved context. Write `pack_context(chunks, budget)`, where each chunk is a dict `{\"id\": ..., \"tokens\": int, \"score\": float}` (`tokens` is its size, `score` how relevant it is, higher is better).\n\nGo through the chunks from the **highest score to the lowest** (equal scores: the one earlier in `chunks` first). Take a chunk if it fits in the budget that is left; otherwise **skip it and carry on** with the next one, as a smaller, lower-ranked chunk may still fit. Return the ids of the chunks taken, in the order they were taken. A budget of zero or less gives `[]`.\n\n```python\nchunks = [\n    {\"id\": \"A\", \"tokens\": 900, \"score\": 0.9},\n    {\"id\": \"B\", \"tokens\": 500, \"score\": 0.8},\n    {\"id\": \"C\", \"tokens\": 300, \"score\": 0.7},\n    {\"id\": \"D\", \"tokens\": 100, \"score\": 0.6},\n]\npack_context(chunks, 1000)   # [\"A\", \"D\"]   (900 used; B and C do not fit in the 100 left; D does)\n```",
+   "starter": "def pack_context(chunks, budget):\n    \"\"\"Return the ids of the chunks that go into the prompt, best score first.\"\"\"\n    ...\n",
+   "tests": [
+    "def chunk(id, tokens, score):\n    return {\"id\": id, \"tokens\": tokens, \"score\": score}\nchunks = [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8), chunk(\"C\", 300, 0.7), chunk(\"D\", 100, 0.6)]",
+    "assert pack_context(chunks, 1000) == [\"A\", \"D\"], \"B and C are skipped, not the end of the search\"",
+    "assert pack_context(chunks, 1800) == [\"A\", \"B\", \"C\", \"D\"]",
+    "assert pack_context(chunks, 1799) == [\"A\", \"B\", \"C\"], \"D (100) would be one token too many: 900 + 500 + 300 = 1700, so 1799 - 1700 = 99\"",
+    "assert pack_context(chunks, 899) == [\"B\", \"C\"], \"A (900) does not fit; B and C do (800); D needs 100 and only 99 is left\"",
+    "assert pack_context(chunks, 99) == []",
+    "assert pack_context(chunks, 0) == [] and pack_context(chunks, -5) == []",
+    "assert pack_context([], 1000) == []",
+    "assert pack_context(list(reversed(chunks)), 1000) == [\"A\", \"D\"], \"the order of the input does not matter, only the scores\"",
+    "assert pack_context([chunk(\"x\", 10, 0.5), chunk(\"y\", 10, 0.5), chunk(\"z\", 10, 0.5)], 20) == [\"x\", \"y\"], \"equal scores: the earlier chunk first\"",
+    "assert pack_context([chunk(\"low\", 5, 0.1), chunk(\"high\", 5, 0.9)], 5) == [\"high\"], \"the better chunk gets the space\"",
+    "assert pack_context([chunk(\"exact\", 100, 0.5)], 100) == [\"exact\"], \"a chunk that fits exactly is taken\"",
+    "original = [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8)]\npack_context(original, 1000)",
+    "assert original == [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8)], \"the chunks are not modified or reordered\"",
+    "many = [chunk(i, 1 + i % 7, 1 - i / 10000) for i in range(5000)]",
+    "assert len(pack_context(many, 3000)) > 600"
+   ],
+   "hints": [
+    "Sort the chunks (their indexes, so the input is untouched) by score, highest first, with the index as the tie-breaker.",
+    "Keep a running `left` budget. For each chunk, if its tokens are at most `left`, take it and subtract.",
+    "Do not stop at a chunk that does not fit: continue with the next one."
+   ],
+   "solution": "def pack_context(chunks, budget):\n    if budget <= 0:\n        return []\n    order = sorted(range(len(chunks)), key=lambda i: (-chunks[i][\"score\"], i))\n    left = budget\n    taken = []\n    for i in order:\n        if chunks[i][\"tokens\"] <= left:\n            taken.append(chunks[i][\"id\"])\n            left -= chunks[i][\"tokens\"]\n    return taken\n",
+   "explanation": "**The idea.** Rank the chunks by relevance and spend the budget from the top. When one does not fit, *skip* it and try the next: stopping at the first chunk that does not fit would waste the space that smaller chunks could use (the first test).\n\n**What this is, and what it is not.** It is a greedy method, not an optimal one. Choosing the set of chunks with the highest total score under a token limit is the knapsack problem; greedy by score does not always find the best set, but it keeps the most relevant chunks first, which is what you want, and it is fast and predictable. Production systems add more rules: a maximum per source so one document does not crowd out the others, deduplication of near-identical chunks, and putting the best chunks at the start and end of the prompt, because models attend to those more than to the middle.\n\n**Budget in tokens, not characters.** The budget must be counted in the same tokens the model uses, and must leave room for the system prompt, the question and the answer the model will write.\n\n**Complexity.** O(n log n).\n\n**Usual mistakes.** Breaking out of the loop at the first chunk that does not fit; sorting the input list in place; keeping the original order instead of the score order in the result; off-by-one at exactly the budget."
+  },
+  "cosine-similarity-search": {
+   "title": "Nearest Vectors by Cosine Similarity",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics/README.md",
+   "description": "Find the stored embeddings closest in direction to a query embedding: the core of vector search.",
+   "statement": "Embeddings turn text into lists of numbers, and \"similar\" texts get vectors that point the same way. Write `top_k_similar(query, vectors, k)`, which returns the `k` stored vectors most similar to the query as a list of `(index, score)` pairs.\n\n- The score is the **cosine similarity**: `dot(a, b) / (|a| * |b|)`, a number from -1 to 1.\n- If either vector is all zeros, the score is `0.0` (instead of dividing by zero).\n- Sort from the highest score to the lowest; vectors with equal scores come in index order.\n- If `k` is larger than the number of vectors, return them all. Raise `ValueError` if `k < 1`.\n\n```python\nvectors = [[1, 0], [0, 1], [1, 1], [-1, 0]]\ntop_k_similar([1, 0.1], vectors, 2)   # [(0, 0.995), (2, 0.774)]   (scores rounded to 3 places)\n```",
+   "starter": "import math\n\n\ndef top_k_similar(query, vectors, k):\n    \"\"\"Return the k (index, cosine_similarity) pairs most similar to `query`, best first.\"\"\"\n    ...\n",
+   "tests": [
+    "import random\ndef raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(pairs, places=4):\n    return [(i, round(score, places)) for i, score in pairs]\nvectors = [[1, 0], [0, 1], [1, 1], [-1, 0]]",
+    "assert rounded(top_k_similar([1, 0.1], vectors, 2)) == [(0, 0.995), (2, 0.774)]",
+    "assert rounded(top_k_similar([1, 0.1], vectors, 4)) == [(0, 0.995), (2, 0.774), (1, 0.0995), (3, -0.995)], \"negative similarity is allowed, and ranks last\"",
+    "assert rounded(top_k_similar([2, 4, 6], [[1, 2, 3]], 1)) == [(0, 1.0)], \"length does not matter, only direction\"",
+    "assert rounded(top_k_similar([1, 0], [[0, 1]], 1)) == [(0, 0.0)], \"perpendicular vectors score 0\"",
+    "assert rounded(top_k_similar([1, 2], [[-1, -2]], 1)) == [(0, -1.0)], \"opposite direction\"",
+    "assert top_k_similar([1, 0], [[1, 0], [2, 0], [3, 0]], 3) == [(0, 1.0), (1, 1.0), (2, 1.0)], \"equal scores keep index order\"",
+    "assert top_k_similar([1, 0], [[1, 0], [2, 0], [3, 0]], 2) == [(0, 1.0), (1, 1.0)]",
+    "assert rounded(top_k_similar([0, 0], [[1, 2], [3, 4]], 2)) == [(0, 0.0), (1, 0.0)], \"a zero query scores 0 with everything\"",
+    "assert rounded(top_k_similar([1, 2], [[0, 0], [1, 2]], 2)) == [(1, 1.0), (0, 0.0)], \"a zero stored vector scores 0\"",
+    "assert len(top_k_similar([1, 0], vectors, 99)) == 4, \"k beyond the data returns everything\"",
+    "assert top_k_similar([1, 0], [], 3) == []",
+    "assert raises(ValueError, top_k_similar, [1, 0], vectors, 0)",
+    "rng = random.Random(5)\nmany = [[rng.uniform(-1, 1) for _ in range(8)] for _ in range(20000)]\nmany[12345] = [3.0, 0, 0, 0, 0, 0, 0, 0]\nbest = top_k_similar([1.0, 0, 0, 0, 0, 0, 0, 0], many, 3)",
+    "assert best[0] == (12345, 1.0) and len(best) == 3 and best[1][1] >= best[2][1], \"20,000 vectors\""
+   ],
+   "hints": [
+    "Write a helper for the cosine of two vectors first, and decide what it returns for a zero vector.",
+    "Score every vector with its index, then keep the `k` best. `heapq.nlargest` takes a `key`.",
+    "For equal scores the lower index must come first. Include the index in the key so that it breaks ties in the right direction."
+   ],
+   "solution": "import heapq\nimport math\n\n\ndef _cosine(a, b):\n    norm_a = math.sqrt(sum(x * x for x in a))\n    norm_b = math.sqrt(sum(x * x for x in b))\n    if norm_a == 0 or norm_b == 0:\n        return 0.0\n    return sum(x * y for x, y in zip(a, b)) / (norm_a * norm_b)\n\n\ndef top_k_similar(query, vectors, k):\n    if k < 1:\n        raise ValueError(\"k must be at least 1\")\n    scored = ((index, _cosine(query, vector)) for index, vector in enumerate(vectors))\n    # nlargest by (score, then the lower index): -index makes the lower index \"larger\" on equal scores\n    return heapq.nlargest(k, scored, key=lambda pair: (pair[1], -pair[0]))\n",
+   "explanation": "**The idea.** Cosine similarity compares direction and ignores length: `dot(a, b) / (|a| * |b|)`. That is what you want for text embeddings, where a long document and a short one about the same thing point the same way but have different lengths. If you normalise every vector to length 1 once when you store it, the cosine is just the dot product, which is how most vector databases make it fast.\n\n**Top k without sorting everything.** `heapq.nlargest(k, ...)` keeps a heap of size `k`, so it is O(n log k) rather than O(n log n). The key `(score, -index)` makes equal scores come in index order, because a lower index gives a *larger* `-index`.\n\n**Where this goes next.** Exact search like this reads every vector, which is fine for thousands and too slow for hundreds of millions. Vector databases use approximate indexes (HNSW graphs, IVF clusters) that look at a small fraction of them and trade a little recall for a lot of speed. The similarity measure stays the same.\n\n**Usual mistakes.** Dividing by a zero norm; sorting by score only (ties in arbitrary order); using the Euclidean distance on vectors of different lengths and calling it cosine."
   },
   "count-primes": {
    "title": "Count Primes",
@@ -11188,6 +11362,47 @@
    ],
    "solution": "import itertools\n\n\nclass EventBus:\n    def __init__(self):\n        self._subscribers = {}              # topic -> {subscription id: function}, in subscription order\n        self._ids = itertools.count()\n\n    def subscribe(self, topic, fn):\n        subscription = next(self._ids)      # every subscription has its own id, even for the same function\n        self._subscribers.setdefault(topic, {})[subscription] = fn\n\n        def unsubscribe():\n            self._subscribers.get(topic, {}).pop(subscription, None)   # harmless the second time\n\n        return unsubscribe\n\n    def publish(self, topic, payload):\n        errors = []\n        # iterate over a copy: a subscriber may subscribe or unsubscribe while it runs\n        for fn in list(self._subscribers.get(topic, {}).values()):\n            try:\n                fn(payload)\n            except Exception as error:\n                errors.append(error)\n        return errors\n",
    "explanation": "**The idea.** Keep, for each topic, its subscribers in the order they arrived. `publish` loops over them and calls each one inside its own `try`/`except`, so one failure is collected instead of ending the loop. Returning the exceptions (rather than raising the first, or hiding them) lets the publisher decide what to do with them, for example log them.\n\n**Each subscription needs an identity.** `unsubscribe` is a closure over something that names *this* subscription. If you remove \"the function\" with `list.remove(fn)`, then subscribing the same function twice makes the second unsubscribe remove the wrong one. Giving every subscription its own id, and keeping them in a dict (which remembers insertion order), solves it and makes removal O(1).\n\n**Loop over a copy.** If a subscriber unsubscribes itself while you iterate the live list, the element after it shifts into its slot and the loop skips it; if one subscribes a new function, the loop may run it in the same publish. `list(...)` of the subscribers, taken when the publish starts, avoids both. Node's `EventEmitter` does the same.\n\n**Follow-up.** Real buses add wildcard topics, subscriber priorities, async delivery (and then ordering and back-pressure questions), and a `once` helper built on exactly the \"unsubscribe inside the callback\" case above."
+  },
+  "extract-json-from-llm-output": {
+   "title": "Extract JSON From a Model's Answer",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/07-prompt-engineering/08-structured-output-prompting/README.md",
+   "description": "Pull the first valid JSON object or array out of a reply that also has prose and code fences around it.",
+   "statement": "Models asked for JSON often wrap it in words or a Markdown fence. Write `extract_json(text, kind=None)`, which finds the **first** place in `text` where a valid JSON object or array starts, and returns the parsed value.\n\n- Only objects (`{...}`) and arrays (`[...]`) count. A bare number or string in the text (`3`, `\"x\"`) is not returned.\n- Look at candidates from left to right. A `{` or `[` that does not start valid JSON (`{curly}`, `{'a': 1}`, a truncated object) is skipped, and the search goes on after it.\n- The braces inside JSON strings are part of the string (`{\"msg\": \"use } here\"}` is one object).\n- `kind=\"object\"` or `kind=\"array\"` considers only that type of value; any other `kind` except `None` raises `ValueError`.\n- If there is no valid object or array, return `None`.\n\n```python\nextract_json('Sure!\\n```json\\n{\"ok\": true, \"n\": [1, 2]}\\n```\\nAnything else?')   # {\"ok\": True, \"n\": [1, 2]}\nextract_json('Use {curly} braces: {\"a\": 1}')                                      # {\"a\": 1}\nextract_json('See [1] for details: {\"id\": 7}', kind=\"object\")                     # {\"id\": 7}\n```",
+   "starter": "import json\n\n\ndef extract_json(text, kind=None):\n    \"\"\"Return the first JSON object or array found in `text`, or None.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert extract_json('Sure!\\n```json\\n{\"ok\": true, \"n\": [1, 2]}\\n```\\nAnything else?') == {\"ok\": True, \"n\": [1, 2]}",
+    "assert extract_json('{\"a\": 1}') == {\"a\": 1}",
+    "assert extract_json('[1, 2, 3] and {\"x\": 1}') == [1, 2, 3], \"the first one, whatever its type\"",
+    "assert extract_json('Use {curly} braces: {\"a\": 1}') == {\"a\": 1}, \"an opening brace that does not start JSON is skipped\"",
+    "assert extract_json('{\"n\": 1} then {\"n\": 2}') == {\"n\": 1}",
+    "assert extract_json('{\"a\": {\"b\": [1, {\"c\": 2}]}} trailing words') == {\"a\": {\"b\": [1, {\"c\": 2}]}}, \"nested structures\"",
+    "assert extract_json('before {\"msg\": \"use } and { carefully\"} after') == {\"msg\": \"use } and { carefully\"}, \"braces inside strings\"",
+    "assert extract_json('{\"name\": \"Zoë\", \"ok\": \"✓\"}') == {\"name\": \"Zoë\", \"ok\": \"✓\"}",
+    "assert extract_json(\"I have 3 apples\") is None, \"a bare number is not an object or an array\"",
+    "assert extract_json('The answer is \"yes\"') is None",
+    "assert extract_json(\"{'a': 1}\") is None, \"single quotes are not JSON\"",
+    "assert extract_json('{\"a\": 1,}') is None, \"neither is a trailing comma\"",
+    "assert extract_json('{\"a\": [1, 2') is None, \"a truncated answer\"",
+    "assert extract_json(\"\") is None",
+    "assert extract_json('See [1] for details: {\"id\": 7}') == [1], \"citation brackets are valid JSON too\"",
+    "assert extract_json('See [1] for details: {\"id\": 7}', kind=\"object\") == {\"id\": 7}",
+    "assert extract_json('{\"a\": 1} [5]', kind=\"array\") == [5]",
+    "assert extract_json('{\"a\": 1}', kind=\"array\") is None",
+    "assert extract_json('broken {\"a\": 1} {\"b\": 2}', kind=\"object\") == {\"a\": 1}",
+    "assert raises(ValueError, extract_json, '{\"a\": 1}', kind=\"string\")",
+    "long_text = \"{ \" * 3000 + '{\"found\": true}'",
+    "assert extract_json(long_text) == {\"found\": True}, \"thousands of false starts\""
+   ],
+   "hints": [
+    "Do not parse the braces yourself. `json.JSONDecoder().raw_decode(text, index)` parses a value starting at `index` and raises `ValueError` if there is none.",
+    "Loop over the positions of the text; at each `{` or `[` try `raw_decode`, return the value if it works, move on if it raises.",
+    "`raw_decode` would also accept a string or a number at that position, but you only try it at an opening brace or bracket, so those never come back. For `kind`, change which characters you try."
+   ],
+   "solution": "import json\n\n\ndef extract_json(text, kind=None):\n    starts = {\"object\": \"{\", \"array\": \"[\"}\n    if kind is None:\n        wanted = \"{[\"\n    elif kind in starts:\n        wanted = starts[kind]\n    else:\n        raise ValueError(\"kind must be None, 'object' or 'array'\")\n    decoder = json.JSONDecoder()\n    for position, char in enumerate(text):\n        if char not in wanted:\n            continue\n        try:\n            value, _ = decoder.raw_decode(text, position)      # parses one value starting exactly here\n        except ValueError:\n            continue                                           # not JSON from this brace: try the next one\n        return value\n    return None\n",
+   "explanation": "**The idea.** Let the real JSON parser do the hard part. `json.JSONDecoder().raw_decode(text, position)` parses one JSON value that **starts at** a position and tells you where it ended, ignoring whatever follows. So: try every `{` and `[` in turn, and return the first one that parses. Braces inside strings, nesting and escapes are handled by the parser, which a regular expression or brace counting would get wrong.\n\n**Why this matters.** Even with \"reply only with JSON\" in the prompt, models add a sentence before, a code fence around, or a polite line after, and a strict `json.loads` on the whole reply fails. Extracting the JSON is the cheap first defence; the better ones are the provider's structured-output or JSON mode, which constrains the decoding itself, and validating the result against a schema, with a retry that shows the model its error.\n\n**The `[1]` trap.** Text citations like `[1]` are valid JSON arrays, so \"the first JSON\" can be a footnote. If you know the shape you expect, say so (`kind=\"object\"`).\n\n**Complexity.** Each failed start costs a parse attempt that stops at the first error, so the work is usually small; the worst case, a long text of nothing but `{`, is quadratic.\n\n**Usual mistakes.** Taking everything between the first `{` and the last `}`; counting braces without knowing about strings; catching every exception (hiding real bugs); returning a bare number from `raw_decode` because it also accepts those."
   },
   "fast-power": {
    "title": "Fast Power",
@@ -11766,6 +11981,41 @@
    "solution": "def validate_signup(form, errors=None):\n    \"\"\"Return the list of problems found in a signup form (empty when the form is fine).\n\n    Pass your own list as `errors` to collect the problems of several forms into one report.\n    \"\"\"\n    if errors is None:\n        errors = []          # a new list for every call that was not given one\n    if \"@\" not in form.get(\"email\", \"\"):\n        errors.append(\"email must contain @\")\n    if len(form.get(\"password\", \"\")) < 8:\n        errors.append(\"password must have at least 8 characters\")\n    return errors\n",
    "explanation": "**What happens.** A default value is evaluated once, when the `def` statement runs, not on every call. `errors=[]` creates a single list and stores it on the function (`validate_signup.__defaults__`). Every call that does not pass `errors` gets that same list and appends to it, so it keeps growing for as long as the process lives. In a web server, one request then sees the errors of another.\n\n**The fix.** Use `None` as the default and create the list inside the function: `if errors is None: errors = []`.\n\n**Why `is None`, not `errors = errors or []`.** An empty list that the caller passes is falsy, so `or []` would quietly swap it for a new list and the caller's list would stay empty. `is None` replaces only an argument that was not given at all.\n\n**Where else this bites.** Any mutable default: `{}`, `set()`, a list or dict in a class attribute shared by all instances, or a default such as `now=datetime.now()`, which is computed once at import time. Immutable defaults (numbers, strings, tuples, `None`) are safe. Linters flag the pattern (`B006` in flake8-bugbear), and dataclasses refuse a mutable default and ask for `field(default_factory=list)`."
   },
+  "fixed-size-chunking": {
+   "title": "Chunk Text With Overlap",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies/README.md",
+   "description": "Cut a token list into fixed-size, overlapping windows, the first step of preparing documents for retrieval.",
+   "statement": "Before documents are embedded and searched, they are cut into chunks. Write `chunk_tokens(tokens, size, overlap)`, which returns a list of chunks, each a list of tokens:\n\n- A chunk holds `size` tokens. The next chunk starts `size - overlap` tokens after the start of the one before, so neighbours share `overlap` tokens.\n- The last chunk may be shorter than `size`. Stop as soon as a chunk reaches the end of `tokens`: never produce a chunk that is only a tail of the previous one.\n- Fewer tokens than `size` give one chunk with all of them; an empty list gives `[]`.\n- Raise `ValueError` unless `size >= 1` and `0 <= overlap < size`.\n\n```python\nchunk_tokens(list(\"abcdefghij\"), size=4, overlap=1)\n# [['a','b','c','d'], ['d','e','f','g'], ['g','h','i','j']]\nchunk_tokens(list(\"abcdefghi\"), size=4, overlap=2)\n# [['a','b','c','d'], ['c','d','e','f'], ['e','f','g','h'], ['g','h','i']]\n```",
+   "starter": "def chunk_tokens(tokens, size, overlap):\n    \"\"\"Return the overlapping chunks of `tokens`.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef spelled(chunks):\n    return [\"\".join(chunk) for chunk in chunks]",
+    "assert spelled(chunk_tokens(list(\"abcdefghij\"), 4, 1)) == [\"abcd\", \"defg\", \"ghij\"]",
+    "assert spelled(chunk_tokens(list(\"abcdefghij\"), 4, 2)) == [\"abcd\", \"cdef\", \"efgh\", \"ghij\"], \"the last window ends exactly at the end: no extra chunk\"",
+    "assert spelled(chunk_tokens(list(\"abcdefghi\"), 4, 2)) == [\"abcd\", \"cdef\", \"efgh\", \"ghi\"], \"the last chunk is shorter\"",
+    "assert spelled(chunk_tokens(list(\"abc\"), 4, 1)) == [\"abc\"], \"fewer tokens than one chunk\"",
+    "assert chunk_tokens([], 3, 1) == []",
+    "assert spelled(chunk_tokens(list(\"abcdefgh\"), 4, 0)) == [\"abcd\", \"efgh\"], \"no overlap\"",
+    "assert spelled(chunk_tokens(list(\"abcdefgh\"), 4, 3)) == [\"abcd\", \"bcde\", \"cdef\", \"defg\", \"efgh\"], \"overlap of size - 1: a window moving one token at a time\"",
+    "assert spelled(chunk_tokens(list(\"abcd\"), 4, 2)) == [\"abcd\"], \"exactly one chunk long\"",
+    "assert chunk_tokens([1, 2, 3], 2, 0) == [[1, 2], [3]], \"tokens can be anything, not just characters\"",
+    "tokens = list(range(1000))\nchunks = chunk_tokens(tokens, 128, 32)",
+    "assert [len(c) for c in chunks[:-1]] == [128] * (len(chunks) - 1) and chunks[-1][-1] == 999 and len(chunks) == 11 and len(chunks[-1]) == 40",
+    "assert all(a[-32:] == b[:32] for a, b in zip(chunks, chunks[1:])), \"neighbouring chunks share their 32 boundary tokens\"",
+    "assert tokens == list(range(1000)), \"the input is not modified\"",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 0, 0)",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 2, 2)",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 2, -1)"
+   ],
+   "hints": [
+    "Reject impossible settings first. Then keep a `start` index and slice `tokens[start:start + size]`.",
+    "Move `start` forward by `size - overlap` each time.",
+    "Stop when the chunk you just took reaches the end of the list: if `start + size >= len(tokens)`, the next window would only repeat the tail."
+   ],
+   "solution": "def chunk_tokens(tokens, size, overlap):\n    if size < 1 or not 0 <= overlap < size:\n        raise ValueError(\"need size >= 1 and 0 <= overlap < size\")\n    chunks = []\n    start = 0\n    while start < len(tokens):\n        chunks.append(tokens[start:start + size])\n        if start + size >= len(tokens):          # this chunk reaches the end: the next would only repeat its tail\n            break\n        start += size - overlap\n    return chunks\n",
+   "explanation": "**The idea.** Slide a window of `size` tokens along the text, moving `size - overlap` at a time. The overlap exists so that a sentence cut in half by a chunk boundary still appears whole in one of the two chunks, which helps retrieval find it.\n\n**The stopping rule.** Without the `break`, a text whose length fits the stride exactly would get one more chunk that is just the last `overlap` tokens again, a duplicate that wastes an embedding and shows up twice in the results.\n\n**Choosing the numbers.** Chunks that are too small lose context (a pronoun without its noun); too large and one embedding must average many topics, and the retrieved text eats the model's context window. Sizes of a few hundred tokens with 10 to 20 percent overlap are a common starting point, and then you measure retrieval quality on your own questions. Better strategies cut at sentence, paragraph or heading boundaries; this fixed-size window is the baseline they are compared with.\n\n**Complexity.** O(n) tokens copied, times the overlap factor.\n\n**Usual mistakes.** An infinite loop when `overlap >= size`; emitting a last chunk that is a tail of the previous one; mutating or slicing the input incorrectly at the end."
+  },
   "flatten-json": {
    "title": "Flatten and Unflatten JSON",
    "topic": "apis-and-data",
@@ -11867,6 +12117,37 @@
    ],
    "solution": "class GCounter:\n    def __init__(self, replica_id, snapshot=None):\n        self._replica_id = replica_id\n        self._counts = dict(snapshot or {})       # replica id -> how many increments that replica has made\n\n    def increment(self, amount=1):\n        if amount <= 0:\n            raise ValueError(f\"a grow-only counter can only grow; got {amount}\")\n        self._counts[self._replica_id] = self._counts.get(self._replica_id, 0) + amount\n\n    def value(self):\n        return sum(self._counts.values())\n\n    def merge(self, other):\n        # Per replica keep the larger count. max() is commutative, associative and idempotent,\n        # and so therefore is the merge.\n        for replica, count in other._counts.items():\n            if count > self._counts.get(replica, 0):\n                self._counts[replica] = count\n\n    def snapshot(self):\n        return dict(self._counts)\n",
    "explanation": "**The idea.** A shared counter is hard to replicate, because two replicas that both read 5 and both write 6 lose an update. A G-Counter avoids that by giving every replica its own slot: a replica only ever increases its own count, so no two replicas write the same slot. The value is the sum of the slots.\n\n**Why the merge is safe.** To combine two states, take the larger count for each replica. Taking a maximum is commutative (the order does not matter), associative (the grouping does not matter) and idempotent (merging the same state twice is the same as once). Those three laws are exactly what you need when messages can arrive late, out of order or twice, which is why replicas that eventually see each other's state converge. Adding the counts instead of taking the maximum would double count a state that is received twice.\n\n**What it cannot do.** It only grows. A counter that can also go down is a PN-Counter: two G-Counters, one for increments and one for decrements, with the value equal to their difference.\n\n**Complexity.** `increment` is O(1); `merge`, `value` and `snapshot` are O(number of replicas). Follow-up: the state grows with the number of replicas that ever incremented. How could a system retire a replica?"
+  },
+  "gini-best-split": {
+   "title": "Best Split for a Decision Tree",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Find the threshold on one feature that splits labelled data into the purest two groups, by Gini impurity.",
+   "statement": "A decision tree chooses each split to make the two sides as \"pure\" as possible. Write `best_split(xs, ys)`, which looks at one numeric feature `xs` with labels `ys` and returns `(threshold, impurity)`.\n\n- The **Gini impurity** of a group is `1 - sum(p ** 2)`, where `p` runs over the share of each label in the group (`0` for a group of one label).\n- A split sends items with `x <= threshold` left and the rest right. Its **impurity** is the average of the two groups' impurities, weighted by their sizes.\n- The candidate thresholds are the midpoints between consecutive **distinct** sorted values of `xs`.\n- Return the candidate with the lowest impurity. When two candidates differ by less than `1e-12`, the **smaller** threshold wins.\n- If there is no candidate (fewer than two items, or all `xs` equal) return `None`.\n\n```python\nbest_split([1, 2, 3, 10, 11, 12], [0, 0, 0, 1, 1, 1])   # (6.5, 0.0)\nbest_split([1, 2, 3, 4], [0, 1, 0, 1])                  # (1.5, 0.3333)   (rounded; 3.5 is just as good, and larger)\n```\n\nAim for O(n log n): the tests include 50,000 items.",
+   "starter": "def best_split(xs, ys):\n    \"\"\"Return (threshold, weighted_gini) for the best split of the feature xs, or None.\"\"\"\n    ...\n",
+   "tests": [
+    "assert best_split([1, 2, 3, 10, 11, 12], [0, 0, 0, 1, 1, 1]) == (6.5, 0.0)",
+    "threshold, impurity = best_split([1, 2, 3, 4], [0, 1, 0, 1])",
+    "assert (threshold, round(impurity, 4)) == (1.5, 0.3333), \"1.5 and 3.5 are equally good: the smaller one is returned\"",
+    "threshold, impurity = best_split([1, 1, 2, 2], [0, 1, 1, 1])",
+    "assert (threshold, round(impurity, 4)) == (1.5, 0.25), \"only one midpoint between distinct values\"",
+    "assert best_split([5, 1, 3, 9, 7], [\"no\", \"no\", \"no\", \"yes\", \"yes\"]) == (6.0, 0.0), \"the input need not be sorted: the midpoint of 5 and 7\"",
+    "assert best_split([1, 2], [\"a\", \"b\"]) == (1.5, 0.0)",
+    "assert best_split([4, 4, 4], [0, 1, 0]) is None, \"all the values are equal: nothing to split on\"",
+    "assert best_split([7], [1]) is None",
+    "assert best_split([], []) is None",
+    "threshold, impurity = best_split([1, 2, 3, 4, 5, 6], [\"a\", \"a\", \"b\", \"b\", \"c\", \"c\"])",
+    "assert (threshold, round(impurity, 4)) == (2.5, 0.3333), \"three labels: left is pure, right has b and c twice each\"",
+    "n = 50000",
+    "assert best_split(list(range(n)), [0] * (n // 2) + [1] * (n // 2)) == (24999.5, 0.0), \"50,000 items must not take a pass over the data for each candidate\""
+   ],
+   "hints": [
+    "After sorting by `xs`, a threshold between positions `i` and `i + 1` puts the first `i + 1` items on the left. How could you get the label counts of both sides without recounting from scratch for each `i`?",
+    "Sweep once: start with every label counted on the right, then move one item at a time to the left, updating the two counters.",
+    "Skip positions where the next `x` equals this one. Compare impurities with a small tolerance (`impurity < best - 1e-12`) so floating-point noise cannot decide a tie."
+   ],
+   "solution": "from collections import Counter\n\n\ndef best_split(xs, ys):\n    n = len(xs)\n    if n < 2:\n        return None\n    pairs = sorted(zip(xs, ys), key=lambda pair: pair[0])\n    right = Counter(y for _, y in pairs)\n    left = Counter()\n\n    def gini(counts, size):\n        return 1 - sum((c / size) ** 2 for c in counts.values()) if size else 0.0\n\n    best = None\n    for i in range(n - 1):\n        x, y = pairs[i]\n        left[y] += 1\n        right[y] -= 1\n        if x == pairs[i + 1][0]:\n            continue                                        # not a boundary between distinct values\n        size_left = i + 1\n        impurity = (size_left * gini(left, size_left) + (n - size_left) * gini(right, n - size_left)) / n\n        if best is None or impurity < best[1] - 1e-12:      # a tie keeps the smaller threshold\n            best = ((x + pairs[i + 1][0]) / 2, impurity)\n    return best\n",
+   "explanation": "**The idea.** Sort by the feature once. Then sweep from left to right, moving one item at a time from the \"right\" group to the \"left\" group while keeping a count of each label in both. Updating two counters is O(1), so each candidate threshold costs only the work of computing the two impurities (O(number of labels)), instead of a pass over all the items. Only boundaries between *distinct* values are candidates, because a threshold cannot separate equal values.\n\n**Gini impurity** is the chance that two items drawn at random from the group have different labels. It is 0 for a pure group and largest when the labels are evenly mixed. A tree learner tries every feature, takes the best split of each, picks the best of those, and recurses on both sides. This function is that inner step; that sweep is why trees train in O(n log n) per feature per level.\n\n**Complexity.** O(n log n) for the sort, O(n x labels) for the sweep.\n\n**Usual mistakes.** Recounting both groups for every candidate (quadratic); offering a threshold between two equal values; a floating-point tie broken by luck, not by the rule (compare with a small tolerance); forgetting that `<=` goes left.\n\n**Follow-up.** Information gain uses entropy instead of Gini; the splits are almost always the same. Without a depth limit or pruning a tree keeps splitting until it memorises the training data."
   },
   "group-anagrams": {
    "title": "Group Anagrams",
@@ -12159,6 +12440,98 @@
    "solution": "def can_jump(nums):\n    farthest = 0                      # the highest index we know how to reach; every index before it is reachable too\n    for i, jump in enumerate(nums):\n        if i > farthest:\n            return False              # index i cannot be reached, and neither can anything after it\n        farthest = max(farthest, i + jump)\n    return True\n",
    "explanation": "**The idea.** You do not have to find the jumps, only to know whether a way exists. The indices you can reach always form an unbroken stretch from 0 up to some `farthest` index: if you can reach index 10 by a jump, you can also reach 9, 8, ... by taking shorter jumps from the same place. So walk left to right and keep `farthest = max(farthest, i + nums[i])`. While the index you are looking at is within `farthest`, it is reachable and may extend the stretch. The first index beyond `farthest` is out of reach, and so is everything after it.\n\n**What goes wrong.** Always jumping the longest distance fails on `[2, 5, 0, 0, 0, 0, 1]`: the long first jump lands on a zero, while a short one reaches the 5. Treating `nums[i]` as an exact jump length is the other usual slip. Trying every jump recursively is exponential, and a table that looks at all earlier indices for each index is O(n²); the tests use lists with tens of thousands of elements.\n\n**Complexity.** O(n) time and O(1) space. Follow-up: what is the smallest number of jumps? The same \"farthest reach\" idea, advanced one jump at a time like the levels of a breadth-first search, answers that in O(n) as well."
   },
+  "k-fold-indices": {
+   "title": "K-Fold Splits",
+   "topic": "ml-from-scratch",
+   "difficulty": "beginner",
+   "description": "Split n items into k train/test folds so every item is tested exactly once.",
+   "statement": "Cross-validation trains and tests a model `k` times, each time holding out a different part of the data. Write `k_fold(n, k)`, which returns `k` pairs `(train, test)`. Each is a list of item indices (`0` to `n - 1`), and:\n\n- The `test` lists are consecutive blocks, in order: the first test fold starts at index `0`.\n- If `n` is not divisible by `k`, the **first** `n % k` folds get one extra item. So fold sizes differ by at most one.\n- `train` is every index that is not in `test`, in ascending order.\n- Raise `ValueError` if `k < 2` or `k > n`.\n\n```python\nk_fold(6, 3)\n# [([2, 3, 4, 5], [0, 1]), ([0, 1, 4, 5], [2, 3]), ([0, 1, 2, 3], [4, 5])]\n\nk_fold(5, 2)\n# [([3, 4], [0, 1, 2]), ([0, 1, 2], [3, 4])]\n```",
+   "starter": "def k_fold(n, k):\n    \"\"\"Return k (train_indices, test_indices) pairs over the indices 0..n-1.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert k_fold(6, 3) == [([2, 3, 4, 5], [0, 1]), ([0, 1, 4, 5], [2, 3]), ([0, 1, 2, 3], [4, 5])]",
+    "assert k_fold(5, 2) == [([3, 4], [0, 1, 2]), ([0, 1, 2], [3, 4])]",
+    "assert [len(test) for _, test in k_fold(10, 3)] == [4, 3, 3], \"the first n % k folds are the larger ones\"",
+    "assert k_fold(3, 3) == [([1, 2], [0]), ([0, 2], [1]), ([0, 1], [2])], \"k == n is leave-one-out\"",
+    "assert all(isinstance(train, list) and isinstance(test, list) for train, test in k_fold(4, 2)), \"lists, not tuples or ranges\"",
+    "folds = k_fold(103, 5)\ntested = [i for _, test in folds for i in test]",
+    "assert sorted(tested) == list(range(103)), \"every item is tested exactly once\"",
+    "assert all(sorted(train + test) == list(range(103)) and not set(train) & set(test) for train, test in folds), \"train and test never overlap, and together are everything\"",
+    "assert sorted(len(test) for _, test in folds) == [20, 20, 21, 21, 21]",
+    "assert raises(ValueError, k_fold, 5, 1)",
+    "assert raises(ValueError, k_fold, 3, 4)"
+   ],
+   "hints": [
+    "Find the size of each test fold first. If `n` does not divide evenly, which folds get the extra items?",
+    "`divmod(n, k)` gives the base size and the remainder. Keep a `start` index and move it forward by each fold's size.",
+    "The training set is everything before the test block plus everything after it: two ranges joined."
+   ],
+   "solution": "def k_fold(n, k):\n    if k < 2 or k > n:\n        raise ValueError(\"k must be at least 2 and at most n\")\n    base, extra = divmod(n, k)\n    folds = []\n    start = 0\n    for fold in range(k):\n        size = base + (1 if fold < extra else 0)\n        test = list(range(start, start + size))\n        train = list(range(0, start)) + list(range(start + size, n))\n        folds.append((train, test))\n        start += size\n    return folds\n",
+   "explanation": "**The idea.** `divmod(n, k)` gives the base fold size and how many folds need one more item. Walk through the folds, cut out the next block as the test set and keep everything else as the training set.\n\n**Why it matters.** One train/test split gives one noisy estimate of how good a model is. Averaging over `k` splits uses all the data for both purposes and shows how much the score varies. Real code shuffles first (`shuffle=True`), uses **stratified** folds to keep class ratios, or splits by time or by user for data where rows are not independent, because a random split of time-ordered or grouped data leaks the future or the same user into the test set.\n\n**Complexity.** O(n x k) here, because each fold builds its training list.\n\n**Usual mistakes.** Giving the remainder to the last fold; forgetting that the first fold starts at 0; building `train` with a nested loop and an `in` check on a list (quadratic)."
+  },
+  "k-means": {
+   "title": "K-Means Clustering",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Group points into k clusters by moving centroids to the mean of the points nearest to them, until nothing changes.",
+   "statement": "Write `kmeans(points, k, max_iter=100)`, which groups `points` (a list of equal-length tuples or lists of numbers) into `k` clusters with Lloyd's algorithm, and returns `(labels, centroids)`.\n\n- The starting centroids are the **first `k` points**, in order.\n- Repeat at most `max_iter` rounds. In each round:\n  1. **Assign** every point to its nearest centroid (squared Euclidean distance; on a tie the centroid with the lower index wins).\n  2. If no label differs from the previous round's, stop. (The first round always counts as a change.)\n  3. Otherwise move every centroid to the mean of the points assigned to it. A centroid with no points keeps its place.\n- `labels[i]` is the centroid index of `points[i]` from the **last assignment** made. `centroids` is a list of lists of floats.\n\n```python\nkmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2)\n# ([0, 0, 1, 1], [[0.0, 0.5], [10.0, 10.5]])\n```",
+   "starter": "def kmeans(points, k, max_iter=100):\n    \"\"\"Return (labels, centroids) for `points` grouped into k clusters.\"\"\"\n    ...\n",
+   "tests": [
+    "import random\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]",
+    "assert kmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2) == ([0, 0, 1, 1], [[0.0, 0.5], [10.0, 10.5]])",
+    "labels, centroids = kmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2, max_iter=1)",
+    "assert (labels, rounded(centroids)) == ([0, 1, 1, 1], [[0.0, 0.0], [6.6667, 7.3333]]), \"one round: the first assignment, then the first move\"",
+    "assert kmeans([(0, 0), (0, 0), (0, 0)], 2) == ([0, 0, 0], [[0.0, 0.0], [0.0, 0.0]]), \"equal distances go to the lower index, and a centroid with no points stays put\"",
+    "labels, centroids = kmeans([(1,), (2,), (9,), (10,), (11,), (30,)], 2)",
+    "assert (labels, centroids) == ([0, 0, 1, 1, 1, 1], [[1.5], [15.0]]), \"the start (1, 2) decides the answer: 30 pulls the second cluster up\"",
+    "labels, centroids = kmeans([(1,), (2,), (3,), (10,), (11,), (12,), (20,), (21,), (22,)], 3)",
+    "assert (labels, centroids) == ([0, 1, 1, 2, 2, 2, 2, 2, 2], [[1.0], [2.5], [16.0]]), \"starting from the first three points, not the three natural groups\"",
+    "assert kmeans([(5, 5)], 1) == ([0], [[5.0, 5.0]])",
+    "assert kmeans([[1.0, 2.0], [3.0, 6.0]], 1) == ([0, 0], [[2.0, 4.0]]), \"k = 1: one centroid at the mean of everything\"",
+    "rng = random.Random(3)\nblob_a = [(rng.gauss(0, 1), rng.gauss(0, 1)) for _ in range(100)]\nblob_b = [(rng.gauss(50, 1), rng.gauss(50, 1)) for _ in range(100)]\nlabels, centroids = kmeans([blob_a[0], blob_b[0]] + blob_a[1:] + blob_b[1:], 2)",
+    "assert labels[0] != labels[1] and set(labels[2:101]) == {labels[0]} and set(labels[101:]) == {labels[1]}, \"two well separated blobs end up as two clusters\"",
+    "assert abs(centroids[1][0] - 50) < 1 and abs(centroids[0][0]) < 1"
+   ],
+   "hints": [
+    "Split it into the two steps: a function (or a loop) that gives every point a label, and one that turns labels into new centroids.",
+    "Convergence is when the new labels equal the previous labels. Keep the previous labels around (start with `None` so the first round always counts as a change).",
+    "Use a strict `<` when looking for the nearest centroid so a tie keeps the lower index, and skip the update for a cluster with no members."
+   ],
+   "solution": "def kmeans(points, k, max_iter=100):\n    centroids = [[float(v) for v in p] for p in points[:k]]\n    labels = None\n    for _ in range(max_iter):\n        new_labels = []\n        for p in points:\n            best, best_distance = 0, None\n            for j, c in enumerate(centroids):\n                distance = sum((a - b) ** 2 for a, b in zip(p, c))\n                if best_distance is None or distance < best_distance:       # strict: a tie keeps the lower index\n                    best, best_distance = j, distance\n            new_labels.append(best)\n        if new_labels == labels:\n            break\n        labels = new_labels\n        for j in range(k):\n            members = [p for p, label in zip(points, labels) if label == j]\n            if members:\n                centroids[j] = [sum(column) / len(members) for column in zip(*members)]\n    return labels, centroids\n",
+   "explanation": "**The idea.** Alternate two steps that each can only lower the total squared distance from points to their centroids: *assign* every point to the nearest centroid, then *update* every centroid to the mean of its points (the mean is the point that minimises the sum of squared distances). When the assignment stops changing, so does everything after it, and the algorithm has converged.\n\n**It finds a local optimum, not the best one.** The second test starts from the first `k` points and ends with a clustering that a person would not choose. Real implementations pick the starting centroids with **k-means++** (spread out, chosen with probability proportional to distance) and run several restarts, keeping the one with the smallest total distance.\n\n**Complexity.** O(rounds x n x k x d).\n\n**Usual mistakes.** Letting an empty cluster's centroid become a division by zero (or `(0, 0)`); comparing the centroids instead of the labels to detect convergence (floats); using `<=` so that ties go to the last centroid; modifying the input points.\n\n**Follow-up.** How do you choose `k`? Plot the total squared distance against `k` (the elbow), or use the silhouette score."
+  },
+  "knn-classifier": {
+   "title": "K-Nearest Neighbours",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Classify a point by a vote among its k nearest training points, with clear rules for ties.",
+   "statement": "Write `knn_predict(train_X, train_y, x, k)`, which predicts the label of the point `x` from labelled training points. `train_X[i]` is a list of numbers and `train_y[i]` its label (any hashable value).\n\n- Distance is Euclidean. The `k` nearest training points are the neighbours; if two are the same distance away, the one that comes **first** in `train_X` is nearer.\n- If `k` is larger than the number of training points, use them all.\n- The prediction is the label with the **most** neighbours.\n- If labels tie on votes, choose the one whose **nearest** neighbour is closer to `x`.\n- Raise `ValueError` if `k < 1` or there are no training points.\n\n```python\nX, y = [[0], [3], [4]], [\"a\", \"b\", \"a\"]\nknn_predict(X, y, [3.4], k=2)   # \"b\": one vote each, and 3 is nearer to 3.4 than 4 is\nknn_predict(X, y, [3.6], k=2)   # \"a\"\nknn_predict(X, y, [3.6], k=3)   # \"a\": two votes to one\n```",
+   "starter": "def knn_predict(train_X, train_y, x, k):\n    \"\"\"Return the most common label among the k training points nearest to x.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\nX, y = [[0], [3], [4]], [\"a\", \"b\", \"a\"]",
+    "assert knn_predict(X, y, [3.4], k=2) == \"b\"",
+    "assert knn_predict(X, y, [3.6], k=2) == \"a\"",
+    "assert knn_predict(X, y, [3.6], k=3) == \"a\"",
+    "points, labels = [[0], [1], [2], [10], [11]], [\"a\", \"a\", \"a\", \"b\", \"b\"]",
+    "assert knn_predict(points, labels, [1.4], k=3) == \"a\"",
+    "assert knn_predict(points, labels, [10.4], k=1) == \"b\"",
+    "assert knn_predict(points, labels, [6], k=3) == \"a\", \"ties in distance go to the earlier training point: 2 and 10 are both 4 away, then 1 and 11 are both 5 away\"",
+    "assert knn_predict(points, labels, [6], k=2) == \"a\", \"one vote each, the nearest neighbours are equally near: the earlier point decides\"",
+    "assert knn_predict(points, labels, [7], k=2) == \"b\"",
+    "assert knn_predict(points, labels, [5], k=99) == \"a\", \"k beyond the data uses everything: three a, two b\"",
+    "assert knn_predict([[0, 0], [5, 5], [0, 1]], [1, 2, 1], [1, 1], k=1) == 1, \"two dimensions; labels can be numbers\"",
+    "assert knn_predict([[0, 0], [3, 4]], [\"near\", \"far\"], [3, 3.9], k=1) == \"far\"",
+    "assert raises(ValueError, knn_predict, X, y, [1], 0)",
+    "assert raises(ValueError, knn_predict, [], [], [1], 1)"
+   ],
+   "hints": [
+    "Sort the indices of the training points by distance to `x`. What do you sort by so that equal distances put the earlier point first?",
+    "Take the first `k` indices, count votes per label in a dict, and remember for each label how far down the sorted list its first neighbour was.",
+    "Pick the label with the most votes; among equal votes, pick the one whose first neighbour came earliest. `min` with a tuple key `(-votes, first_rank)` does it."
+   ],
+   "solution": "import math\n\n\ndef knn_predict(train_X, train_y, x, k):\n    if k < 1 or not train_X:\n        raise ValueError(\"need k >= 1 and some training points\")\n    ranked = sorted(range(len(train_X)), key=lambda i: (math.dist(train_X[i], x), i))   # nearest first, earlier point first on a tie\n    neighbours = ranked[:k]\n    votes = {}\n    nearest_rank = {}\n    for rank, i in enumerate(neighbours):\n        label = train_y[i]\n        votes[label] = votes.get(label, 0) + 1\n        nearest_rank.setdefault(label, rank)             # the first time we see a label is its nearest neighbour\n    return min(votes, key=lambda label: (-votes[label], nearest_rank[label]))\n",
+   "explanation": "**The idea.** There is no training: the \"model\" is the data. To classify a point, sort the training points by distance, keep the first `k`, and take a vote. Sorting by the pair `(distance, index)` makes the tie rule automatic, and walking the neighbours in order records the rank of each label's first neighbour, which is its nearest one: exactly what the vote tie-break needs.\n\n**Why `k` matters.** `k = 1` follows every noisy point and overfits; a large `k` smooths the boundary and eventually just predicts the biggest class. Choose it with cross-validation, and use an odd `k` for two classes to avoid ties.\n\n**Costs.** O(n log n) per prediction here (O(n) with a heap or `nsmallest`), and the whole training set must be in memory. In high dimensions distances stop meaning much (the curse of dimensionality), and features on different scales let one feature dominate, so scale first (see the Standard Scaler problem). Production systems use approximate nearest-neighbour indexes (HNSW, IVF) instead of scanning everything; that is how vector databases work.\n\n**Usual mistakes.** Not sorting by index on ties; breaking vote ties by label order instead of distance; using Manhattan distance by accident."
+  },
   "kth-largest-element": {
    "title": "Kth Largest Element",
    "topic": "stacks-heaps-and-intervals",
@@ -12218,6 +12591,39 @@
    ],
    "solution": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n\ndef kth_smallest(root, k):\n    stack = []                       # nodes whose left subtree we are still walking down\n    node = root\n    while stack or node is not None:\n        while node is not None:      # go as far left as possible\n            stack.append(node)\n            node = node.left\n        node = stack.pop()           # the next value in sorted order\n        k -= 1\n        if k == 0:\n            return node.val\n        node = node.right\n",
    "explanation": "**The idea.** A binary search tree is sorted by construction: visiting a node's left subtree, then the node, then its right subtree (an *in-order* traversal) produces the values in ascending order. So the k-th node visited is the k-th smallest value. Count the nodes as you visit them and stop as soon as the counter reaches `k`.\n\n**Iteratively.** Keep a stack of the nodes whose left subtrees you are still walking down: push nodes while going left, pop one (that is the next value in order), count it, then move to its right child. A recursive helper or a generator does the same. Counting from 1 rather than 0 is the usual off-by-one.\n\n**Complexity.** O(h + k) time, where h is the height of the tree (you walk down h levels to reach the smallest value, then take k steps), and O(h) space for the stack. Collecting all the values into a list and indexing it is simpler, but always costs O(n) time and space. Follow-up: if the tree changes often and you must answer many k-th queries, store in every node how many nodes its left subtree has; each query then follows a single path down in O(h)."
+  },
+  "kv-cache-memory": {
+   "title": "KV Cache Memory Math",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/14-inference-and-serving-vllm/04-kv-cache-memory-math/README.md",
+   "description": "Work out how much GPU memory a transformer's key-value cache needs, and how many requests fit beside the model.",
+   "statement": "When a model generates text it keeps the keys and values of every earlier token in every layer, so it does not recompute them: the **KV cache**. It is often the memory that limits how many requests a GPU can serve. Write two functions.\n\n**`kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2)`**: the bytes for the cache of `batch` sequences of `seq_len` tokens. For every token, every layer stores one key and one value (that is the factor 2), each with `kv_heads * head_dim` numbers of `dtype_bytes` bytes (2 for fp16 or bf16, 1 for int8 or fp8).\n\n**`max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1)`**: how many sequences fit. Memory you may use is `gpu_bytes * (1 - reserve_fraction)` (the rest is kept back for activations and overhead). The model's weights come out of that; what is left holds caches. Return the number of **whole** sequences that fit, never below 0.\n\n```python\nGiB = 2 ** 30\nper_seq = kv_cache_bytes(layers=32, kv_heads=8, head_dim=128, seq_len=8192)   # 1073741824: 1 GiB\nmax_concurrent_sequences(80 * GiB, 16 * GiB, per_seq)                         # 56\n```",
+   "starter": "def kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2):\n    \"\"\"Return the size of the KV cache in bytes.\"\"\"\n    ...\n\n\ndef max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1):\n    \"\"\"Return how many whole sequences' caches fit next to the model weights.\"\"\"\n    ...\n",
+   "tests": [
+    "GiB = 2 ** 30",
+    "assert kv_cache_bytes(32, 8, 128, 8192) == 1073741824, \"32 layers, 8 KV heads of 128, 8192 tokens, fp16: 1 GiB\"",
+    "assert kv_cache_bytes(32, 32, 128, 8192) == 4 * GiB, \"full multi-head attention keeps 4 times as many KV heads as this grouped-query model\"",
+    "assert kv_cache_bytes(32, 8, 128, 4096, batch=4) == 2 * GiB, \"half the length, four times the sequences\"",
+    "assert kv_cache_bytes(32, 8, 128, 8192, dtype_bytes=1) == GiB // 2, \"an 8-bit cache is half the size\"",
+    "assert kv_cache_bytes(80, 8, 128, 8192) == 2684354560",
+    "assert kv_cache_bytes(1, 1, 1, 1) == 4, \"one layer, one head of size 1, one token: a key and a value, 2 bytes each\"",
+    "assert kv_cache_bytes(32, 8, 128, 0) == 0",
+    "per_seq = kv_cache_bytes(32, 8, 128, 8192)",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), per_seq) == 56, \"72 GiB usable - 15.5 GiB of weights = 56.5 sequences\"",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), 4 * per_seq) == 14",
+    "assert max_concurrent_sequences(24 * GiB, int(15.5 * GiB), per_seq) == 6",
+    "assert max_concurrent_sequences(16 * GiB, int(15.5 * GiB), per_seq) == 0, \"the weights alone do not leave room: 0, not a negative number\"",
+    "assert max_concurrent_sequences(80 * GiB, int(15.5 * GiB), per_seq, reserve_fraction=0.0) == 64",
+    "assert max_concurrent_sequences(80 * GiB, 0, per_seq, reserve_fraction=0.5) == 40, \"a half kept back, no model\""
+   ],
+   "hints": [
+    "Count what is stored for one token in one layer: a key and a value, each `kv_heads * head_dim` numbers long. Then scale by layers, tokens, batch and bytes per number.",
+    "For the capacity: usable memory is `gpu_bytes * (1 - reserve_fraction)`. Take the model's weights off that and divide what is left by the size of one sequence's cache.",
+    "Divide with `//` so that you only count whole sequences, and return 0 when there is nothing left after the weights."
+   ],
+   "solution": "def kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch=1, dtype_bytes=2):\n    # 2 = one key and one value per token, per layer\n    return 2 * layers * kv_heads * head_dim * seq_len * batch * dtype_bytes\n\n\ndef max_concurrent_sequences(gpu_bytes, model_bytes, per_sequence_bytes, reserve_fraction=0.1):\n    free_for_caches = gpu_bytes * (1 - reserve_fraction) - model_bytes\n    if free_for_caches <= 0:\n        return 0\n    return int(free_for_caches // per_sequence_bytes)\n",
+   "explanation": "**The idea.** For every token already in the context, each layer keeps a key vector and a value vector (that is where the `2` comes from), each of `kv_heads x head_dim` numbers. Multiply by the number of layers, the length of the sequence, the batch and the bytes per number. The cache grows **linearly with the context length and with the number of concurrent requests**, which is why a long-context chat service runs out of GPU memory long before it runs out of compute.\n\n**Why the number of KV heads matters.** Modern models use *grouped-query attention*: many query heads share a few key-value heads (8 here, against 32 query heads). That makes the cache 4 times smaller than full multi-head attention at almost no loss in quality, and it is the reason long contexts are affordable. Quantising the cache to 8 bits halves it again.\n\n**What it means for serving.** The second function is capacity planning: after the weights are loaded, the rest of the GPU is a pool of cache space that decides how many requests can be in flight. Serving systems such as vLLM manage that pool in pages (PagedAttention) so that no memory is wasted on sequences' unused space.\n\n**Complexity.** O(1).\n\n**Usual mistakes.** Forgetting the factor 2 for keys *and* values; using the number of query heads instead of KV heads; mixing GB (10^9) and GiB (2^30); a negative capacity when the model alone does not fit."
   },
   "lamport-clock": {
    "title": "Lamport Clock",
@@ -12388,6 +12794,34 @@
    "solution": "from collections import OrderedDict, defaultdict\n\n\nclass LFUCache:\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._values = {}                          # key -> value\n        self._uses = {}                            # key -> how many times it has been used\n        self._buckets = defaultdict(OrderedDict)   # uses -> the keys with that many uses, least recently used first\n        self._fewest = 0                           # the smallest use count that has a bucket\n\n    def _count_use(self, key):\n        \"\"\"Move key from its bucket to the next one.\"\"\"\n        uses = self._uses[key]\n        bucket = self._buckets[uses]\n        del bucket[key]\n        if not bucket:\n            del self._buckets[uses]\n            if self._fewest == uses:\n                self._fewest = uses + 1\n        self._uses[key] = uses + 1\n        self._buckets[uses + 1][key] = None        # last in the bucket = most recently used\n\n    def get(self, key):\n        if key not in self._values:\n            return None\n        self._count_use(key)\n        return self._values[key]\n\n    def put(self, key, value):\n        if self._capacity <= 0:\n            return\n        if key in self._values:\n            self._values[key] = value\n            self._count_use(key)\n            return\n        if len(self._values) >= self._capacity:\n            bucket = self._buckets[self._fewest]\n            victim, _ = bucket.popitem(last=False)     # the least recently used of the least used\n            if not bucket:\n                del self._buckets[self._fewest]\n            del self._values[victim]\n            del self._uses[victim]\n        self._values[key] = value\n        self._uses[key] = 1\n        self._buckets[1][key] = None\n        self._fewest = 1                               # a new key has been used once\n",
    "explanation": "**The idea.** Eviction needs the entry with the smallest use count and, among those, the oldest use. One list of all entries makes that a scan. Instead group the keys by use count: `buckets[n]` holds the keys used exactly `n` times, in order of last use. An `OrderedDict` is a hash map that remembers order, so it can remove a key from the middle and pop the oldest one in O(1). Also remember `fewest`, the smallest count that has a bucket. A hit moves a key from bucket `n` to bucket `n + 1`; an eviction pops the oldest key of bucket `fewest`.\n\n**The bookkeeping people get wrong.** `fewest` must go up when a hit empties the smallest bucket, and must be reset to 1 whenever a new key is inserted. A `put` on an existing key is a use. An evicted key must forget its count, or it comes back as a veteran.\n\n**Complexity.** O(1) per `get` and `put`. A heap of `(uses, last_use, key)` with lazy deletion is O(log n) and also passes.\n\n**Follow-up.** Pure LFU keeps yesterday's favourites forever: a key that was hot once and is never used again outlives newer keys. Real caches age the counts (TinyLFU in Caffeine, for example). LRU has the opposite weakness, where one big scan flushes everything."
   },
+  "linear-regression-gradient-descent": {
+   "title": "Linear Regression by Gradient Descent",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Fit a line y = w*x + b by repeatedly stepping the weight and bias down the gradient of the mean squared error.",
+   "statement": "Write `fit_line(xs, ys, lr, steps)`, which fits `y = w * x + b` to the points with **batch gradient descent** and returns `(w, b)`.\n\n- Start from `w = 0` and `b = 0`.\n- The loss is the mean squared error, `MSE = (1/n) * sum((w * x + b - y) ** 2)`.\n- Each step computes the gradient over **all** the points (before changing anything), then updates both numbers at once: `w -= lr * dw` and `b -= lr * db`, where `dw` and `db` are the derivatives of the MSE with respect to `w` and `b`.\n- Do exactly `steps` steps. With `steps = 0` the answer is `(0.0, 0.0)`.\n\n```python\nfit_line([0, 1, 2, 3, 4], [1, 3, 5, 7, 9], lr=0.01, steps=1)      # (0.28, 0.1)   after one step\nfit_line([0, 1, 2, 3, 4], [1, 3, 5, 7, 9], lr=0.05, steps=2000)   # (2.0, 1.0)    (to a few decimals): y = 2x + 1\n```",
+   "starter": "def fit_line(xs, ys, lr, steps):\n    \"\"\"Return (w, b) after `steps` steps of gradient descent on the mean squared error.\"\"\"\n    ...\n",
+   "tests": [
+    "def near(pair, expected, places=3):\n    return tuple(round(v, places) for v in pair) == expected\nxs, ys = [0, 1, 2, 3, 4], [1, 3, 5, 7, 9]",
+    "assert near(fit_line(xs, ys, lr=0.01, steps=1), (0.28, 0.1)), \"one step from (0, 0)\"",
+    "assert near(fit_line(xs, ys, lr=0.01, steps=2), (0.5224, 0.1868), 4), \"two steps: the gradient is recomputed from the new w and b\"",
+    "assert fit_line(xs, ys, lr=0.01, steps=0) == (0.0, 0.0)",
+    "assert near(fit_line(xs, ys, lr=0.05, steps=2000), (2.0, 1.0)), \"it finds y = 2x + 1\"",
+    "assert near(fit_line([1, 2, 3], [2, 4, 6], lr=0.05, steps=3000), (2.0, 0.0)), \"y = 2x, no offset\"",
+    "assert near(fit_line([0, 10, 20, 30], [5, 5, 5, 5], lr=0.001, steps=20000), (0.0, 5.0)), \"a flat line\"",
+    "assert near(fit_line([1, 2, 3, 4], [8, 6, 4, 2], lr=0.05, steps=3000), (-2.0, 10.0)), \"a falling line\"",
+    "w, b = fit_line([0, 1, 2, 3], [0.1, 1.9, 4.2, 5.8], lr=0.02, steps=5000)",
+    "assert (round(w, 2), round(b, 2)) == (1.94, 0.09), \"noisy data: the least-squares line\"",
+    "assert fit_line(xs, ys, lr=0.01, steps=1) == fit_line(list(xs), list(ys), lr=0.01, steps=1)"
+   ],
+   "hints": [
+    "Write the loss for one point and differentiate it with respect to `w`, then `b`. Then average the derivative over the points.",
+    "Per step: compute every error `w*x + b - y`, then `dw = 2/n * sum(error * x)` and `db = 2/n * sum(error)`.",
+    "Compute `dw` and `db` from the same errors before you change `w` or `b`."
+   ],
+   "solution": "def fit_line(xs, ys, lr, steps):\n    w, b = 0.0, 0.0\n    n = len(xs)\n    for _ in range(steps):\n        errors = [w * x + b - y for x, y in zip(xs, ys)]\n        dw = 2 / n * sum(e * x for e, x in zip(errors, xs))\n        db = 2 / n * sum(errors)\n        w -= lr * dw\n        b -= lr * db\n    return w, b\n",
+   "explanation": "**The idea.** The mean squared error is a bowl-shaped function of `w` and `b`. Its gradient points uphill, so stepping a small distance (`lr`, the learning rate) the other way lowers the loss. Differentiating `(1/n) * sum((w*x + b - y)^2)` gives `dw = 2/n * sum(error * x)` and `db = 2/n * sum(error)`, where `error = w*x + b - y`.\n\n**Compute both gradients from the same errors.** Update `w` after you have computed `db`, or the bias step would use a weight that has already moved. This is \"batch\" gradient descent: every step looks at all the data. Stochastic gradient descent looks at one point or a small batch per step.\n\n**The learning rate.** Too large and the steps overshoot, so the loss grows instead of shrinking; too small and it takes forever. Features on very different scales make a narrow valley that is slow to descend, which is why scaling (see the Standard Scaler problem) speeds things up.\n\n**Complexity.** O(steps x n).\n\n**Usual mistakes.** Forgetting the `2` from the derivative of the square (it only rescales the learning rate, but the tests expect the true gradient); updating `w` before computing `db`; dividing by `n` twice."
+  },
   "linked-list-cycle-start": {
    "title": "Linked List Cycle Start",
    "topic": "linked-lists-and-trees",
@@ -12416,6 +12850,37 @@
    ],
    "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef cycle_start(head):\n    slow = fast = head\n    while fast is not None and fast.next is not None:\n        slow = slow.next\n        fast = fast.next.next\n        if slow is fast:                  # they met inside the cycle\n            slow = head\n            while slow is not fast:       # the head and the meeting point are the same distance from the start\n                slow = slow.next\n                fast = fast.next\n            return slow\n    return None                           # fast fell off the end: no cycle\n",
    "explanation": "**Two questions.** Is there a cycle, and where does it begin? Move `slow` one step and `fast` two steps at a time. On a list that ends, `fast` reaches `None`. On a list with a cycle both pointers end up inside it, and `fast` gains one node on `slow` every round, so they must land on the same node.\n\n**Finding the start.** Suppose the tail before the cycle has `a` nodes and the pointers meet `b` nodes into a cycle of length `c`. `fast` has walked twice as far as `slow`, so `a + b` is a whole number of laps. That means walking `a` more steps from the meeting point brings you to the cycle's first node, and walking `a` steps from the head does too. So restart one pointer at the head, move both one step at a time, and they meet exactly at the start.\n\n**The usual mistakes.** Comparing `val`s instead of nodes (values repeat), and returning the first meeting point, which is *some* node in the cycle, not its first.\n\n**Complexity.** O(n) time and O(1) space. Remembering visited nodes in a `set` is also O(n) time but needs O(n) space; remembering them in a `list` is O(n²) time.\n\n**Follow-up.** How would you find the *length* of the cycle? Leave one pointer at the meeting point and count how many steps the other needs to come back to it."
+  },
+  "logistic-regression-step": {
+   "title": "One Step of Logistic Regression",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Write a stable sigmoid and one gradient-descent step on the log loss, then watch it learn a boundary.",
+   "statement": "Logistic regression predicts the probability that an item is positive as `p = sigmoid(w . x + b)`, where `sigmoid(z) = 1 / (1 + exp(-z))`.\n\nWrite two functions:\n\n- `sigmoid(z)`: it must not overflow for large positive or negative `z` (`sigmoid(-1000)` is `0.0`, `sigmoid(1000)` is `1.0`).\n- `logistic_step(w, b, X, y, lr)`: one step of gradient descent on the mean **log loss**. `w` is a list of weights, `b` the bias, `X` a list of rows (each as long as `w`), `y` the 0/1 labels. For each row the error is `p - y`; the gradient is the mean over rows of `error * x_j` for each weight and the mean of `error` for the bias. Return `(new_w, new_b)` as a new list and a float. Do not change `w`.\n\n```python\nlogistic_step([0, 0], 0, [[1, 2], [3, 4]], [1, 0], lr=0.1)   # ([-0.05, -0.05], 0.0)\n```",
+   "starter": "import math\n\n\ndef sigmoid(z):\n    \"\"\"Return 1 / (1 + exp(-z)) without overflowing.\"\"\"\n    ...\n\n\ndef logistic_step(w, b, X, y, lr):\n    \"\"\"Return (new_w, new_b) after one gradient-descent step on the mean log loss.\"\"\"\n    ...\n",
+   "tests": [
+    "def rounded(values, places=6):\n    return [round(v, places) for v in values]",
+    "assert sigmoid(0) == 0.5",
+    "assert round(sigmoid(2), 6) == 0.880797",
+    "assert round(sigmoid(-2), 6) == 0.119203",
+    "assert sigmoid(-1000) == 0.0, \"no OverflowError for very negative numbers\"",
+    "assert sigmoid(1000) == 1.0",
+    "new_w, new_b = logistic_step([0, 0], 0, [[1, 2], [3, 4]], [1, 0], lr=0.1)",
+    "assert (rounded(new_w), round(new_b, 6)) == ([-0.05, -0.05], 0.0)",
+    "original = [0.5, -0.5]\nnew_w, new_b = logistic_step(original, 0.1, [[1, 0], [0, 1], [1, 1]], [1, 0, 1], lr=1.0)",
+    "assert original == [0.5, -0.5], \"the weights given are not modified\"",
+    "assert (rounded(new_w), round(new_b, 6)) == ([0.776455, -0.475431], 0.242684), \"a step from non-zero weights and a bias\"",
+    "assert logistic_step([1.0], 0.0, [[2.0]], [1], lr=0.0) == ([1.0], 0.0), \"a learning rate of 0 changes nothing\"",
+    "X, y = [[0], [1], [2], [3]], [0, 0, 1, 1]\nw, b = [0.0], 0.0\nfor _ in range(500):\n    w, b = logistic_step(w, b, X, y, lr=0.5)",
+    "assert [int(sigmoid(w[0] * row[0] + b) > 0.5) for row in X] == [0, 0, 1, 1], \"repeated steps learn the boundary between 1 and 2\""
+   ],
+   "hints": [
+    "For the log loss the gradient for weight `j` is the average of `(p - y) * x_j` over the rows. What is `p` for a row?",
+    "Compute the error `p - y` for every row first, from the current weights, then build the new weights and the new bias from those errors.",
+    "`math.exp(-z)` overflows for very negative `z`. Handle negative and non-negative `z` differently."
+   ],
+   "solution": "import math\n\n\ndef sigmoid(z):\n    if z >= 0:\n        return 1 / (1 + math.exp(-z))\n    e = math.exp(z)          # z is negative here, so e is small and cannot overflow\n    return e / (1 + e)\n\n\ndef logistic_step(w, b, X, y, lr):\n    n = len(X)\n    errors = [sigmoid(sum(wj * xj for wj, xj in zip(w, row)) + b) - target for row, target in zip(X, y)]\n    new_w = [wj - lr * sum(e * row[j] for e, row in zip(errors, X)) / n for j, wj in enumerate(w)]\n    new_b = b - lr * sum(errors) / n\n    return new_w, new_b\n",
+   "explanation": "**The idea.** For the log loss `-(y log p + (1 - y) log(1 - p))` with `p = sigmoid(w . x + b)`, the derivative with respect to each weight collapses to the beautifully simple `(p - y) * x_j`, and to the bias `(p - y)`. That is the same form as linear regression's gradient, with the prediction passed through a sigmoid. Average over the rows, step against it.\n\n**Stable sigmoid.** `1 / (1 + exp(-z))` overflows when `z` is very negative, because `exp(-z)` is huge. For negative `z` use the algebraically equal `exp(z) / (1 + exp(z))`, in which the exponential is tiny. This branch-on-sign trick appears throughout machine learning code.\n\n**Compute all the errors first.** Every weight's gradient must use the errors of the *old* weights.\n\n**Complexity.** O(n x d) per step.\n\n**Usual mistakes.** Updating a weight before computing the others; using the raw `z` where the sigmoid output belongs; modifying `w` in place; dividing by `n` for the weights but not the bias.\n\n**Follow-up.** Without regularisation, on data that a line separates perfectly the weights grow without bound as you keep stepping; regularisation (an L2 penalty) keeps them finite."
   },
   "longest-common-prefix": {
    "title": "Longest Common Prefix",
@@ -13128,6 +13593,36 @@
    "solution": "def missing_number(nums):\n    n = len(nums)\n    expected_total = n * (n + 1) // 2     # 0 + 1 + ... + n\n    return expected_total - sum(nums)\n",
    "explanation": "**The idea.** You know exactly what the complete set `0, 1, …, n` adds up to: `n * (n + 1) / 2`. The list has the same numbers minus one, so its sum is smaller by exactly the missing number. Subtract and you are done: one pass, no extra memory.\n\n**The XOR way.** `a ^ a == 0` and `a ^ 0 == a`, so if you XOR together every index `0 … n` and every item of the list, each number that is present appears twice and cancels out; what is left is the missing number. The sum can get large in languages with fixed-size integers (it overflows), and XOR never does; in Python integers do not overflow, so either works.\n\n**Details to get right.** `n` is `len(nums)`, not `max(nums)` or `len(nums) - 1`: when the missing number is the largest one (`n` itself), the biggest item in the list is only `n - 1`.\n\n**Complexity.** O(n) time, O(1) extra space. A set of the items, or a sorted copy, also works at the cost of O(n) space or O(n log n) time.\n\n**Follow-up.** What if two numbers are missing? The sum alone no longer identifies them; the sum and the sum of squares do, or you can split the range around the XOR of the two."
   },
+  "mlp-forward-pass": {
+   "title": "Forward Pass of a Neural Network",
+   "topic": "ml-from-scratch",
+   "difficulty": "beginner",
+   "description": "Run an input through a small multi-layer network, layer by layer: weights, bias, activation.",
+   "statement": "A neural network is layers of the same operation. Write `forward(x, layers)`, which sends the input vector `x` (a list of numbers) through each layer in turn and returns the output vector.\n\nA layer is a tuple `(weights, biases, activation)`:\n\n- `weights` is a list of rows, one per output unit; each row has one number per input.\n- `biases` has one number per output unit.\n- Output unit `j` is `activation(sum(weights[j][i] * input[i]) + biases[j])`.\n- `activation` is one of `\"relu\"` (`max(0, z)`), `\"tanh\"`, `\"sigmoid\"` (`1 / (1 + exp(-z))`) or `\"linear\"` (`z`). Anything else raises `ValueError`.\n\nThe output of each layer is the input of the next. With no layers, the output is `x` itself.\n\n```python\nlayers = [([[1, 1], [1, -1]], [0, 0], \"relu\"),    # 2 inputs -> 2 units\n          ([[1, 1]], [0], \"linear\")]              # 2 inputs -> 1 unit\nforward([3, 1], layers)   # [6]    (hidden: relu([4, 2]) = [4, 2]; output: 4 + 2)\n```",
+   "starter": "import math\n\n\ndef forward(x, layers):\n    \"\"\"Return the output of the network for the input vector x.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ntwo_layers = [([[1, 1], [1, -1]], [0, 0], \"relu\"), ([[1, 1]], [0], \"linear\")]",
+    "assert forward([3, 1], two_layers) == [6]",
+    "assert forward([1, 2], [([[1, 0], [0, -1]], [0, 0], \"relu\")]) == [1, 0], \"relu clips the negative unit to 0\"",
+    "assert forward([5, 6], []) == [5, 6], \"no layers: the input comes back\"",
+    "assert forward([2], [([[3], [-1]], [1, 1], \"linear\")]) == [7, -1], \"weights times input, plus the bias, for each unit\"",
+    "assert [round(v, 4) for v in forward([0.5, -1.0], [([[0.2, -0.4], [0.7, 0.1]], [0.1, -0.2], \"tanh\"), ([[1.5, -1.0]], [0.3], \"sigmoid\")])] == [0.7419], \"tanh then sigmoid\"",
+    "assert round(forward([0], [([[1]], [0], \"sigmoid\")])[0], 6) == 0.5",
+    "assert forward([1000], [([[1]], [0], \"sigmoid\")]) == [1.0], \"a very large input must not overflow\"",
+    "assert forward([-1000], [([[1]], [0], \"sigmoid\")]) == [0.0], \"nor a very negative one\"",
+    "assert forward([1, 1, 1], [([[1, 2, 3]], [-6], \"relu\")]) == [0.0], \"exactly at the kink\"",
+    "xor = [([[1, 1], [1, 1]], [0, -1], \"relu\"), ([[1, -2]], [0], \"linear\")]",
+    "assert [forward(list(p), xor)[0] for p in [(0, 0), (0, 1), (1, 0), (1, 1)]] == [0, 1, 1, 0], \"two layers can compute XOR, which one layer cannot\"",
+    "assert raises(ValueError, forward, [1], [([[1]], [0], \"swish\")])"
+   ],
+   "hints": [
+    "One layer: for each row of `weights` take the dot product with the input, add that unit's bias. Write that as a list comprehension producing the layer's output.",
+    "Put the activation functions in a dict keyed by name, and look the name up once per layer so an unknown name raises `ValueError`.",
+    "The output list of one layer becomes the input list of the next, so reassign `x` inside the loop. A sigmoid computed as `1 / (1 + exp(-z))` overflows for very negative `z`: use the other form for negative numbers."
+   ],
+   "solution": "import math\n\n\ndef _sigmoid(z):\n    if z >= 0:\n        return 1 / (1 + math.exp(-z))\n    e = math.exp(z)\n    return e / (1 + e)\n\n\nACTIVATIONS = {\n    \"relu\": lambda z: max(0.0, z),\n    \"tanh\": math.tanh,\n    \"sigmoid\": _sigmoid,\n    \"linear\": lambda z: z,\n}\n\n\ndef forward(x, layers):\n    for weights, biases, activation in layers:\n        if activation not in ACTIVATIONS:\n            raise ValueError(f\"unknown activation {activation!r}\")\n        f = ACTIVATIONS[activation]\n        x = [f(sum(w * v for w, v in zip(row, x)) + bias) for row, bias in zip(weights, biases)]\n    return x\n",
+   "explanation": "**The idea.** One layer is a matrix-vector product plus a bias, then a non-linear function applied to every number. A network is that, repeated. Training (backpropagation) is the same computation run backwards to find how to change each weight; the forward pass is what runs when you serve predictions.\n\n**Why the non-linearity matters.** Without it, two layers collapse into one (a matrix times a matrix is a matrix), and the network could only draw straight lines. The last test is XOR, the classic function that no single layer can compute; with a `relu` in between, two layers can.\n\n**Complexity.** O(total number of weights).\n\n**Usual mistakes.** Applying the activation before adding the bias; confusing which axis of `weights` is the input and which the output; letting `exp` overflow in the sigmoid; applying `relu` to the output layer of a regression model.\n\n**Follow-up.** In practice this is one `numpy` or `torch` call per layer (`x @ W.T + b`), vectorised over a whole batch. Writing it once by hand is the way to see what those libraries do."
+  },
   "move-zeroes": {
    "title": "Move Zeroes",
    "topic": "two-pointers-and-sliding-window",
@@ -13156,6 +13651,36 @@
    ],
    "solution": "def move_zeroes(nums):\n    next_slot = 0                       # everything before this index is a non-zero item, still in its original order\n    for i, value in enumerate(nums):\n        if value != 0:\n            nums[next_slot], nums[i] = nums[i], nums[next_slot]   # the zeros skipped so far end up behind the writer\n            next_slot += 1\n",
    "explanation": "**The idea (two pointers).** One pointer, `i`, reads every item. The other, `next_slot`, marks where the next non-zero item belongs. Whenever the reader finds a non-zero item it is swapped into `next_slot`, and `next_slot` moves one step on. The non-zero items arrive in `next_slot` in the order the reader met them, which is why their order is kept, and the zeros are pushed behind the writer without ever being moved on purpose.\n\n**Complexity.** One pass: O(n) time and O(1) extra space.\n\n**Fewer writes.** The swap writes two slots even when `next_slot == i` (no zero has been skipped yet). Skipping the swap in that case, or copying the non-zero items forward and then filling the tail with zeros, writes less. The tests do not care, but it matters when writes are expensive (flash memory, a database).\n\n**Mistakes to avoid.** Calling `remove(0)` or `pop(i)` while walking the list: every call shifts the rest, so it is O(n²), and removing during a `for` loop makes you skip the item after each removal. Building a new list and returning it: the caller's list stays as it was.\n\n**Follow-up.** The same writer-and-reader pattern removes duplicates from a sorted list in place, or removes every occurrence of a given value."
+  },
+  "ndcg-at-k": {
+   "title": "NDCG@k for Ranking",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Score a ranked list of results against the best possible order, rewarding relevant results near the top.",
+   "statement": "Search and recommendation systems are judged on how good the **top** of a ranked list is. Write `ndcg_at_k(relevances, k)`, where `relevances[i]` is the graded relevance (0, 1, 2, 3, ...) of the result the system put at position `i` (best guess first).\n\n- **DCG@k** is the sum, over the first `k` positions, of `relevance / log2(position + 1)` with positions counted from 1: the first result is divided by `log2(2) = 1`, the second by `log2(3)`, and so on. (So a relevant result counts for less the further down it is.)\n- **IDCG@k** is the DCG@k of the best possible order of the **same** relevances (sorted from highest to lowest, over all the results, not only the first `k`).\n- The result is `DCG@k / IDCG@k`, a number from 0 to 1. If IDCG@k is 0 (nothing is relevant), return `0.0`.\n- If `k` is larger than the list, use the whole list. Raise `ValueError` if `k < 1`.\n\n```python\nndcg_at_k([3, 2, 3, 0, 1, 2], 6)   # 0.9608\nndcg_at_k([0, 3, 0, 3], 2)         # 0.3869\n```",
+   "starter": "import math\n\n\ndef ndcg_at_k(relevances, k):\n    \"\"\"Return DCG@k divided by the DCG@k of the ideal ordering of the same relevances.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(ndcg_at_k([3, 2, 3, 0, 1, 2], 6), 4) == 0.9608",
+    "assert round(ndcg_at_k([3, 2, 3, 0, 1, 2], 3), 4) == 0.9778",
+    "assert round(ndcg_at_k([0, 3, 0, 3], 2), 4) == 0.3869, \"the ideal list is [3, 3] even though the system ranked a 0 first\"",
+    "assert ndcg_at_k([3, 3, 2, 1, 0], 5) == 1.0, \"already in the best order\"",
+    "assert ndcg_at_k([3, 2, 1], 1) == 1.0, \"at k = 1 only the first result counts, and it is the best one\"",
+    "assert ndcg_at_k([0, 0, 0], 3) == 0.0, \"nothing is relevant: 0.0, not a division by zero\"",
+    "assert ndcg_at_k([0, 0, 3], 2) == 0.0, \"the only relevant result is below the cut-off\"",
+    "assert round(ndcg_at_k([1, 0, 2], 3), 4) == 0.7602",
+    "assert round(ndcg_at_k([0, 1, 2, 3], 4), 4) == 0.6138, \"the best order, reversed\"",
+    "assert round(ndcg_at_k([1, 2], 10), 4) == round(ndcg_at_k([1, 2], 2), 4), \"k beyond the list is the whole list\"",
+    "assert ndcg_at_k([], 3) == 0.0",
+    "assert raises(ValueError, ndcg_at_k, [1, 2], 0)"
+   ],
+   "hints": [
+    "Write a small function `dcg(values)` first. The first position's discount is `log2(2)`: what is the discount of position `i` (counting from 0)?",
+    "The ideal ranking is the same relevances sorted from highest to lowest; compute `dcg` on that.",
+    "Truncate to `k` inside `dcg` (after sorting, for the ideal list), and return `0.0` when the ideal DCG is `0`."
+   ],
+   "solution": "import math\n\n\ndef ndcg_at_k(relevances, k):\n    if k < 1:\n        raise ValueError(\"k must be at least 1\")\n\n    def dcg(values):\n        return sum(rel / math.log2(position + 2) for position, rel in enumerate(values[:k]))\n\n    ideal = dcg(sorted(relevances, reverse=True))\n    return dcg(relevances) / ideal if ideal else 0.0\n",
+   "explanation": "**The idea.** *Gain* is the relevance of a result; *discount* shrinks it by `log2(position + 1)` because users rarely look far down; *cumulative* adds up the first `k`. The raw DCG depends on how relevant the results available for that query are, so you cannot compare two queries. Dividing by the DCG of the best possible ordering **normalises** it to 0 to 1.\n\n**What \"ideal\" means.** The best list is built from all the results that exist for the query, not just the ones the system returned in its top `k`; the second test shows why: a system that put a 0 first and missed one of the 3s scores low.\n\n**Where it is used.** It is the standard offline metric for search ranking and recommender systems, and for judging the retrieval step of a RAG pipeline when relevance has grades. Binary relevance (relevant or not) gives MRR, hit rate and precision@k, which are simpler but ignore how good a result is.\n\n**Complexity.** O(n log n) for the sort.\n\n**Usual mistakes.** Counting positions from 0 in the logarithm (`log2(0)` fails; the first position divides by `log2(2)`); computing the ideal from only the first `k` returned items; the exponential-gain variant `2 ** rel - 1` (also common, but it is not the one asked for here)."
   },
   "normalize-url-path": {
    "title": "Normalize a URL Path",
@@ -13394,6 +13919,41 @@
    "solution": "def pascals_triangle(num_rows):\n    rows = []\n    for i in range(num_rows):\n        row = [1] * (i + 1)                                 # the first and last number of every row are 1\n        for j in range(1, i):\n            row[j] = rows[i - 1][j - 1] + rows[i - 1][j]    # the two numbers above\n        rows.append(row)\n    return rows\n",
    "explanation": "**The idea.** Each row is made from the row before it, so build the triangle row by row and keep the rows you have made. Counting the rows from 0, row `i` has `i + 1` numbers; the ends are 1, and every inner number `row[j]` is `previous[j - 1] + previous[j]`. The first two rows have no inner numbers, which is why the loop over `j` simply does nothing for them and no special case is needed.\n\n**Complexity.** The triangle has about n²/2 numbers and each costs one addition, so O(n²) time and space, which is the size of the answer.\n\n**Another way.** Entry `k` of row `r` is the binomial coefficient C(r, k), so you can also fill a row without the previous one: `C(r, k + 1) = C(r, k) * (r - k) // (k + 1)`. Use integer division, not `/`: floats lose digits once the numbers pass 2**53, which the larger tests do.\n\n**Mistakes to avoid.** Appending the same list object to the result twice and then changing it, so that several rows turn into the same list. Off-by-one in the row length (row `i` has `i + 1` entries). Returning floats.\n\n**Follow-up.** Return only row `k`, using O(k) memory: update a single list in place from right to left."
   },
+  "pass-at-k": {
+   "title": "The pass@k Estimator",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/15-evaluation-observability-and-safety/05-benchmark-suites-and-their-limits/README.md",
+   "description": "Estimate the chance that at least one of k sampled solutions is correct from n samples of which c passed.",
+   "statement": "Code-generating models are scored by **pass@k**: the probability that at least one of `k` attempts passes the tests. A fair way to estimate it: generate `n` samples for a problem, count the `c` that pass, and compute the probability that `k` samples drawn from those `n` without replacement contain at least one passing sample:\n\n`pass@k = 1 - C(n - c, k) / C(n, k)`\n\nWrite `pass_at_k(n, c, k)` returning that number as a float. If fewer than `k` samples fail (`n - c < k`) every draw contains a passing one, so the answer is `1.0`. Raise `ValueError` unless `0 <= c <= n` and `1 <= k <= n`.\n\nIt must stay accurate and fast when `n` is large (the tests use `n = 100000`), so do not compute the huge binomial coefficients directly.\n\n```python\npass_at_k(10, 3, 1)    # 0.3\npass_at_k(10, 3, 5)    # 0.916667\npass_at_k(10, 0, 5)    # 0.0\n```",
+   "starter": "def pass_at_k(n, c, k):\n    \"\"\"Return the unbiased pass@k estimate from n samples of which c are correct.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(pass_at_k(10, 3, 1), 6) == 0.3, \"k = 1: simply the share that passed\"",
+    "assert round(pass_at_k(10, 3, 5), 6) == 0.916667, \"1 - C(7, 5) / C(10, 5) = 1 - 21/252\"",
+    "assert pass_at_k(10, 0, 5) == 0.0, \"nothing passed\"",
+    "assert pass_at_k(10, 10, 3) == 1.0, \"everything passed\"",
+    "assert round(pass_at_k(200, 20, 1), 6) == 0.1",
+    "assert round(pass_at_k(200, 20, 10), 6) == 0.660226",
+    "assert round(pass_at_k(1000, 1, 10), 6) == 0.01, \"one passing sample in 1000, ten tries\"",
+    "assert pass_at_k(5, 2, 4) == 1.0, \"only 3 samples fail, so any 4 contain a pass\"",
+    "assert round(pass_at_k(5, 2, 3), 6) == 0.9, \"1 - C(3, 3) / C(5, 3) = 1 - 1/10\"",
+    "assert round(pass_at_k(100000, 5, 100), 6) == 0.00499, \"n = 100,000: the binomial coefficients here have hundreds of digits\"",
+    "assert 0 <= pass_at_k(50, 7, 5) <= 1",
+    "assert pass_at_k(30, 4, 3) <= pass_at_k(30, 4, 6) <= pass_at_k(30, 4, 12), \"more tries never hurt\"",
+    "assert raises(ValueError, pass_at_k, 10, 11, 1)",
+    "assert raises(ValueError, pass_at_k, 10, -1, 1)",
+    "assert raises(ValueError, pass_at_k, 10, 3, 0)",
+    "assert raises(ValueError, pass_at_k, 10, 3, 11)"
+   ],
+   "hints": [
+    "Think about the opposite event: all `k` samples you draw are failures. In how many ways can you pick `k` of the `n - c` failures, out of all ways to pick `k` of `n`?",
+    "`C(n - c, k) / C(n, k)` equals the product, for `i` from `n - c + 1` to `n`, of `1 - k / i`. That is only `c` multiplications of numbers below 1.",
+    "If `n - c < k`, you cannot draw `k` failures, so the answer is exactly `1.0` (and the product formula would include a zero or negative factor)."
+   ],
+   "solution": "def pass_at_k(n, c, k):\n    if not (0 <= c <= n and 1 <= k <= n):\n        raise ValueError(\"need 0 <= c <= n and 1 <= k <= n\")\n    if n - c < k:\n        return 1.0\n    # C(n-c, k) / C(n, k) is the product of (1 - k / i) for i from n-c+1 to n: no huge numbers\n    all_fail = 1.0\n    for i in range(n - c + 1, n + 1):\n        all_fail *= 1.0 - k / i\n    return 1.0 - all_fail\n",
+   "explanation": "**The idea.** The chance that **none** of `k` samples (drawn from the `n` without replacement) passes is the number of ways to pick `k` failures out of the `n - c` that failed, divided by the number of ways to pick any `k` of the `n`: `C(n - c, k) / C(n, k)`. Pass@k is one minus that.\n\n**Why not just run `k` samples?** Because that estimate is noisy and biased. Generating `n` samples (say 200) and using this formula gives an *unbiased* estimate for every `k` up to `n` from the same run, with much lower variance. It is how HumanEval-style results are reported.\n\n**The numerically stable form.** `C(n - c, k) / C(n, k)` simplifies to the product of `(1 - k / i)` for `i` from `n - c + 1` to `n`: only `c` factors, each between 0 and 1, so there are no huge integers and no overflow. (Python integers would not overflow, but they would be slow with hundreds of digits, and the same code in `numpy` would break.)\n\n**Reading it.** Pass@1 is the single-try success rate; pass@10 is what you get if you can sample ten times and run the tests to pick the one that works, which is how many coding agents operate. The gap between them tells you how much a verifier is worth.\n\n**Complexity.** O(c).\n\n**Usual mistakes.** Using `c / n` raised to the power `k` (the with-replacement version, which is biased); computing the factorials; forgetting the case `n - c < k`."
+  },
   "path-sum": {
    "title": "Path Sum",
    "topic": "linked-lists-and-trees",
@@ -13450,6 +14010,63 @@
    "solution": "def permutations(nums):\n    result = []\n    chosen = []\n    used = [False] * len(nums)\n\n    def build():\n        if len(chosen) == len(nums):\n            result.append(chosen[:])           # every position is filled: store a copy, chosen keeps changing\n            return\n        for i in range(len(nums)):\n            if not used[i]:\n                used[i] = True                 # choose nums[i] for the next position\n                chosen.append(nums[i])\n                build()                        # fill the remaining positions\n                chosen.pop()                   # un-choose, so the next number can take this position\n                used[i] = False\n\n    build()\n    return result\n",
    "explanation": "**The idea.** Fill the positions one at a time. For each position, try every number that has not been used yet: **choose** it, **explore** by filling the remaining positions, then **un-choose** it so the next number can have the position. When every position is filled you have one permutation.\n\n**Tracking what is used.** A `used` list with one flag per index tells you in O(1) which numbers are still free. Set the flag before the recursive call and clear it after. Testing `nums[i] in chosen` also works, but it is slower.\n\n**Copy before you store,** exactly as in Subsets: `chosen[:]`, not `chosen`.\n\n**Subsets versus permutations.** In Subsets the order does not matter, so you only ever move forward through the list. Here order is the whole point, so every position may take any unused number, starting from the beginning of the list again.\n\n**Complexity.** There are n! permutations and copying each costs O(n), so O(n · n!) time and space. The output size is the lower bound. For the empty list the loop does nothing and the empty arrangement is stored once.\n\n**Follow-up.** If the numbers can repeat, sort them first and skip a number equal to the previous one when that previous one is still unused at this position."
   },
+  "population-stability-index": {
+   "title": "Population Stability Index",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Measure how far a feature has drifted between the data a model was trained on and what it sees now.",
+   "statement": "A model's input data changes over time (\"drift\"). The **population stability index** compares two histograms of the same feature, in the same buckets: `expected` (counts when the model was trained) and `actual` (counts now).\n\nWrite `psi(expected, actual, floor=0.0001)`:\n\n1. Turn each list of counts into proportions (each count divided by that list's total).\n2. Raise any proportion below `floor` to `floor`, so that an empty bucket does not make the logarithm blow up. (Do not renormalise after.)\n3. `PSI = sum((a - e) * ln(a / e))` over the buckets, where `e` and `a` are the proportions.\n\nRaise `ValueError` if the two lists have different lengths, or if either has a total of 0.\n\n```python\npsi([25, 25, 25, 25], [10, 20, 30, 40])   # 0.2282   (rounded to 4 places)\npsi([5, 5], [5, 5])                       # 0.0\n```",
+   "starter": "import math\n\n\ndef psi(expected, actual, floor=0.0001):\n    \"\"\"Return the population stability index of two histograms (lists of bucket counts).\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(psi([25, 25, 25, 25], [10, 20, 30, 40]), 4) == 0.2282",
+    "assert psi([5, 5], [5, 5]) == 0.0",
+    "assert psi([100, 200, 300, 400], [1, 2, 3, 4]) == 0.0, \"the same shape at a different size is no drift: counts become proportions\"",
+    "assert round(psi([100, 200, 300, 400], [110, 190, 310, 390]), 5) == 0.00205, \"a small shift\"",
+    "assert round(psi([10, 90], [90, 10]), 4) == 3.5156, \"the two buckets swapped\"",
+    "assert round(psi([50, 50, 0, 0], [25, 25, 25, 25]), 4) == 4.257, \"buckets that were empty are floored, so they count heavily instead of crashing\"",
+    "assert round(psi([10, 20, 30, 40], [25, 25, 25, 25]), 4) == 0.2282, \"it is symmetric: swapping the two histograms gives the same number\"",
+    "assert round(psi([1, 1], [3, 1], floor=0.2), 4) == round(psi([1, 1], [3, 1]), 4), \"the floor changes nothing when no bucket is below it\"",
+    "assert raises(ValueError, psi, [1, 2], [1, 2, 3])",
+    "assert raises(ValueError, psi, [0, 0], [1, 2])",
+    "assert raises(ValueError, psi, [1, 2], [0, 0])"
+   ],
+   "hints": [
+    "First turn the counts into proportions so the two lists are comparable, whatever their totals.",
+    "Each bucket adds `(a - e) * math.log(a / e)`. What happens to `a / e` when a bucket is empty? Apply the floor to the proportions before you divide.",
+    "Validate first: lists of different lengths, and a total of zero, are `ValueError`s."
+   ],
+   "solution": "import math\n\n\ndef psi(expected, actual, floor=0.0001):\n    if len(expected) != len(actual):\n        raise ValueError(\"the histograms need the same buckets\")\n    expected_total, actual_total = sum(expected), sum(actual)\n    if expected_total == 0 or actual_total == 0:\n        raise ValueError(\"a histogram with no counts cannot be compared\")\n    total = 0.0\n    for e_count, a_count in zip(expected, actual):\n        e = max(e_count / expected_total, floor)\n        a = max(a_count / actual_total, floor)\n        total += (a - e) * math.log(a / e)\n    return total\n",
+   "explanation": "**The idea.** Each bucket contributes `(a - e) * ln(a / e)`. Both factors have the same sign (if the bucket grew, `a - e` and `ln(a / e)` are both positive; if it shrank, both are negative), so every term is zero or positive, and the sum is zero only when the distributions are identical. It is a symmetric version of the KL divergence.\n\n**Reading it.** A common rule of thumb in credit-risk and ML monitoring: below 0.1 is stable, 0.1 to 0.25 is a moderate shift worth a look, above 0.25 is a significant shift (retrain, or find out what changed upstream). The buckets usually come from the *training* data's quantiles, so each starts with about the same share.\n\n**Why the floor.** A bucket that was empty at training time but has data now would divide by zero; replacing a zero with a tiny share keeps the score finite but large, which is the right signal: \"something appeared that the model never saw\".\n\n**Complexity.** O(buckets).\n\n**Usual mistakes.** Using counts instead of proportions; dividing by zero or taking `log(0)` on an empty bucket; subtracting in the wrong order (the formula is symmetric in sign, but `ln(e / a)` with `(a - e)` would be negative).\n\n**Follow-up.** PSI looks at one feature at a time and at its marginal distribution only; the Kolmogorov-Smirnov test, and monitoring the model's *output* distribution and its live accuracy, catch other kinds of drift."
+  },
+  "precision-recall-f1": {
+   "title": "Precision, Recall and F1",
+   "topic": "ml-from-scratch",
+   "difficulty": "beginner",
+   "description": "Score a classifier honestly: precision, recall, F1 and accuracy from true and predicted labels.",
+   "statement": "Write `classification_scores(y_true, y_pred, positive=1)`, which compares the true labels with a model's predictions and returns a dict with four numbers:\n\n- `\"precision\"`: of the items predicted positive, the fraction that really are (`TP / (TP + FP)`).\n- `\"recall\"`: of the items that really are positive, the fraction found (`TP / (TP + FN)`).\n- `\"f1\"`: the harmonic mean of precision and recall, `2 * p * r / (p + r)`.\n- `\"accuracy\"`: the fraction of all items predicted correctly.\n\nA ratio whose denominator is zero is `0.0` (a model that predicts nothing positive has precision `0.0`, not an error). `positive` is the label that counts as the positive class; labels can be any values (numbers or strings). Raise `ValueError` if the two lists have different lengths or are empty.\n\n```python\nclassification_scores([1, 0, 1, 1, 0, 1], [1, 0, 0, 1, 1, 1])\n# {\"precision\": 0.75, \"recall\": 0.75, \"f1\": 0.75, \"accuracy\": 0.6667}   (rounded to 4 places)\n\nclassification_scores([\"spam\", \"ham\", \"spam\"], [\"spam\", \"spam\", \"ham\"], positive=\"spam\")\n# {\"precision\": 0.5, \"recall\": 0.5, \"f1\": 0.5, \"accuracy\": 0.3333}\n```",
+   "starter": "def classification_scores(y_true, y_pred, positive=1):\n    \"\"\"Return {\"precision\": ..., \"recall\": ..., \"f1\": ..., \"accuracy\": ...} for the predictions.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef scores(*args, **kwargs):\n    return {name: round(value, 4) for name, value in classification_scores(*args, **kwargs).items()}",
+    "assert scores([1, 0, 1, 1, 0, 1], [1, 0, 0, 1, 1, 1]) == {\"precision\": 0.75, \"recall\": 0.75, \"f1\": 0.75, \"accuracy\": 0.6667}",
+    "assert scores([\"spam\", \"ham\", \"spam\"], [\"spam\", \"spam\", \"ham\"], positive=\"spam\") == {\"precision\": 0.5, \"recall\": 0.5, \"f1\": 0.5, \"accuracy\": 0.3333}",
+    "assert scores([1, 1, 0, 0], [1, 1, 0, 0]) == {\"precision\": 1.0, \"recall\": 1.0, \"f1\": 1.0, \"accuracy\": 1.0}",
+    "assert scores([1, 1, 0], [0, 0, 0]) == {\"precision\": 0.0, \"recall\": 0.0, \"f1\": 0.0, \"accuracy\": 0.3333}, \"no positive predictions: precision is 0.0, not an error\"",
+    "assert scores([0, 0, 0, 0], [0, 0, 0, 1]) == {\"precision\": 0.0, \"recall\": 0.0, \"f1\": 0.0, \"accuracy\": 0.75}, \"no positive items: recall is 0.0\"",
+    "assert scores([1, 1, 1, 0], [1, 0, 0, 0]) == {\"precision\": 1.0, \"recall\": 0.3333, \"f1\": 0.5, \"accuracy\": 0.5}",
+    "assert scores([0] * 95 + [1] * 5, [0] * 100) == {\"precision\": 0.0, \"recall\": 0.0, \"f1\": 0.0, \"accuracy\": 0.95}, \"95% accurate and useless: it never finds a positive\"",
+    "assert scores([True, False, True], [True, True, True], positive=True) == {\"precision\": 0.6667, \"recall\": 1.0, \"f1\": 0.8, \"accuracy\": 0.6667}",
+    "assert raises(ValueError, classification_scores, [1, 0], [1])",
+    "assert raises(ValueError, classification_scores, [], [])"
+   ],
+   "hints": [
+    "Start with three counters: items that are positive and predicted positive, items that are not positive but were predicted positive, and items that are positive but were not predicted so.",
+    "Precision divides the first counter by the number predicted positive; recall divides it by the number that really are positive. Write one small helper that divides and returns `0.0` when the bottom is zero.",
+    "F1 uses precision and recall, not the raw counts, and it also has a zero denominator when both are `0.0`."
+   ],
+   "solution": "def classification_scores(y_true, y_pred, positive=1):\n    if len(y_true) != len(y_pred) or not y_true:\n        raise ValueError(\"need two lists of the same, non-zero length\")\n    tp = sum(1 for t, p in zip(y_true, y_pred) if t == positive and p == positive)\n    fp = sum(1 for t, p in zip(y_true, y_pred) if t != positive and p == positive)\n    fn = sum(1 for t, p in zip(y_true, y_pred) if t == positive and p != positive)\n    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)\n\n    def ratio(top, bottom):\n        return top / bottom if bottom else 0.0\n\n    precision = ratio(tp, tp + fp)\n    recall = ratio(tp, tp + fn)\n    return {\n        \"precision\": precision,\n        \"recall\": recall,\n        \"f1\": ratio(2 * precision * recall, precision + recall),\n        \"accuracy\": correct / len(y_true),\n    }\n",
+   "explanation": "**The idea.** Count three things against the positive class: true positives (`TP`: predicted positive and right), false positives (`FP`: predicted positive and wrong) and false negatives (`FN`: missed). Precision asks \"when the model says yes, how often is it right?\", recall asks \"of all the real yeses, how many did it find?\", and F1 is their harmonic mean, which is low unless **both** are high (an arithmetic mean would let a model that flags everything look fine).\n\n**Why accuracy alone misleads.** On 95 negatives and 5 positives, \"always predict negative\" is 95% accurate and finds nothing. Fraud, abuse and rare-disease detection are all like this, so you read precision and recall for the class you care about.\n\n**Complexity.** O(n) time, O(1) extra space.\n\n**Usual mistakes.** Dividing by zero when nothing is predicted positive; hard-coding `1` as the positive label; computing F1 as `(p + r) / 2`.\n\n**Follow-up.** Moving the decision threshold trades precision for recall; `roc_auc` (next) measures how well the scores rank positives above negatives *before* you pick a threshold."
+  },
   "product-of-array-except-self": {
    "title": "Product of Array Except Self",
    "topic": "arrays-and-hashing",
@@ -13481,6 +14098,39 @@
    ],
    "solution": "def product_except_self(nums):\n    out = [1] * len(nums)\n    left = 1\n    for i in range(len(nums)):                 # out[i] = product of everything to the left of i\n        out[i] = left\n        left *= nums[i]\n    right = 1\n    for i in range(len(nums) - 1, -1, -1):     # then multiply in the product of everything to the right of i\n        out[i] *= right\n        right *= nums[i]\n    return out\n",
    "explanation": "**The idea.** The answer for position `i` is (the product of everything to its left) times (the product of everything to its right). Neither side contains `nums[i]`, so there is nothing to divide out, and zeros need no special care.\n\n**Two passes.** Walk left to right with a running product and store it in `out[i]` *before* multiplying `nums[i]` into it. Then walk right to left with a second running product and multiply that into each `out[i]` in the same way. After both passes `out[i]` holds left times right.\n\n**Why not divide?** \"Total product divided by `nums[i]`\" breaks as soon as a zero appears: you divide by zero, or the total is `0` and hides every other product. Special-casing zeros is possible but easy to get wrong; this approach has no special cases.\n\n**Complexity.** O(n) time. Apart from the output list, the extra space is O(1). Two helper lists (`left_products` and `right_products`) are easier to read and also O(n) time, with O(n) extra space.\n\n**Follow-up.** The same prefix-and-suffix idea answers \"the maximum of all the others\", or any other operation you can combine step by step."
+  },
+  "prompt-template-renderer": {
+   "title": "A Safe Prompt Template Renderer",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/07-prompt-engineering/07-prompt-templates-and-variables/README.md",
+   "description": "Fill {{placeholders}} in a prompt template, fail loudly on a missing variable, and never expand what a value contains.",
+   "statement": "Prompts are built from templates with variables. Write `render(template, variables)`, which replaces each placeholder `{{name}}` in the text with the value of that variable.\n\n- A placeholder is two opening braces, optional spaces, a name (a letter or underscore, then letters, digits or underscores), optional spaces, and two closing braces: `{{name}}` or `{{ name }}`. Anything else that merely looks like one (`{{ }}`, `{{1abc}}`, `{{a b}}`) is ordinary text and stays as it is, and so do single braces (`{\"a\": 1}` is fine).\n- The value is turned into text with `str(...)`.\n- A placeholder whose name is not in `variables` raises `KeyError` with the name as its argument. Extra variables are ignored.\n- **A value is never searched for placeholders.** If a variable's value contains `{{secret}}`, that text is inserted as it is, even if there is a variable called `secret`.\n\n```python\nrender(\"Hello {{ name }}, you have {{n}} messages.\", {\"name\": \"Ada\", \"n\": 3})   # \"Hello Ada, you have 3 messages.\"\nrender(\"Q: {{question}}\", {\"question\": \"{{secret}}\", \"secret\": \"PASSWORD\"})     # \"Q: {{secret}}\"\n```",
+   "starter": "import re\n\n\ndef render(template, variables):\n    \"\"\"Return the template with every {{name}} replaced by str(variables[name]).\"\"\"\n    ...\n",
+   "tests": [
+    "def missing(template, variables):\n    \"\"\"The name a KeyError was raised for, or fail the test if there was none.\"\"\"\n    try:\n        render(template, variables)\n    except KeyError as error:\n        return error.args[0]\n    raise AssertionError(\"expected a KeyError for the missing variable\")",
+    "assert render(\"Hello {{name}}!\", {\"name\": \"Ada\"}) == \"Hello Ada!\"",
+    "assert render(\"Hello {{ name }}, you have {{n}} messages.\", {\"name\": \"Ada\", \"n\": 3}) == \"Hello Ada, you have 3 messages.\", \"spaces inside are allowed and values become text\"",
+    "assert render(\"{{a}}{{b}}{{a}}\", {\"a\": \"1\", \"b\": \"2\"}) == \"121\", \"a variable can be used more than once\"",
+    "assert render(\"no placeholders here\", {\"unused\": 1}) == \"no placeholders here\", \"extra variables are ignored\"",
+    "assert render('{\"role\": \"user\", \"content\": \"{{text}}\"}', {\"text\": \"hi\"}) == '{\"role\": \"user\", \"content\": \"hi\"}', \"single braces are text\"",
+    "assert render(\"Q: {{question}}\", {\"question\": \"{{secret}}\", \"secret\": \"PASSWORD\"}) == \"Q: {{secret}}\", \"a value is inserted as it is, never expanded\"",
+    "assert render(\"{{a}}\", {\"a\": \"{{a}}\"}) == \"{{a}}\", \"and a value that names itself does not loop\"",
+    "assert render(\"{{x}}\", {\"x\": None}) == \"None\" and render(\"{{x}}\", {\"x\": [1, 2]}) == \"[1, 2]\", \"str() of the value\"",
+    "assert render(\"{{ }} {{1abc}} {{a b}} {{}}\", {}) == \"{{ }} {{1abc}} {{a b}} {{}}\", \"not placeholders: left alone, no error\"",
+    "assert render(\"{{_private1}}\", {\"_private1\": \"ok\"}) == \"ok\"",
+    "assert missing(\"Hi {{name}}\", {}) == \"name\"",
+    "assert missing(\"{{a}} and {{b}}\", {\"a\": 1}) == \"b\", \"the missing one is named\"",
+    "assert render(\"\", {}) == \"\"",
+    "assert render(\"{{{name}}}\", {\"name\": \"x\"}) == \"{x}\", \"three braces: the inner pair is the placeholder\""
+   ],
+   "hints": [
+    "A regular expression with one capture group for the name, and `re.sub` with a function as the replacement, does this in one pass.",
+    "The pattern: `\\{\\{`, optional whitespace, the name `[A-Za-z_][A-Za-z0-9_]*`, optional whitespace, `\\}\\}`.",
+    "Raise `KeyError(name)` inside the replacement function when the name is missing. Do not run a second substitution over the result."
+   ],
+   "solution": "import re\n\n_PLACEHOLDER = re.compile(r\"\\{\\{\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\}\\}\")\n\n\ndef render(template, variables):\n    def fill(match):\n        name = match.group(1)\n        if name not in variables:\n            raise KeyError(name)\n        return str(variables[name])\n\n    # re.sub reads the template once and never looks at what it inserted, so a value cannot add placeholders\n    return _PLACEHOLDER.sub(fill, template)\n",
+   "explanation": "**The idea.** One pass over the template with a regular expression and a function that supplies each replacement. `re.sub` never rescans the text it has produced, which is exactly the guarantee wanted here.\n\n**Why not `str.replace` in a loop.** Replacing the variables one after another lets the value of the first one contain `{{second}}`, and the second pass then expands it. When a value comes from a user (a document, a message), that lets them reach other variables: a system prompt, a retrieved secret, another user's data. That is a form of **prompt injection** you create yourself, in the template engine, before any model sees the text. The same reasoning is behind parameterised SQL queries.\n\n**Fail loudly.** A missing variable that silently renders as an empty string sends the model a broken prompt and the bug appears as \"the answers got worse\". Raising at render time catches it in a test.\n\n**Complexity.** O(length of template + values).\n\n**Usual mistakes.** Chained `.replace` calls; treating `{{ name }}` (spaces) and `{{name}}` differently; matching names with `\\w+` that accepts `1abc`; `.format()` with user-controlled text (it can read attributes: `\"{0.__class__}\"`).\n\n**Follow-up.** Escaping is the other half: if the template is HTML or JSON, a value must be escaped for that format, which is a different problem from placeholder expansion."
   },
   "queue-using-two-stacks": {
    "title": "Queue Using Two Stacks",
@@ -13516,6 +14166,34 @@
    ],
    "solution": "class QueueWithTwoStacks:\n    def __init__(self):\n        self._inbox = []      # new items are pushed here\n        self._outbox = []     # items waiting to leave, with the front of the queue on top\n\n    def push(self, x):\n        self._inbox.append(x)\n\n    def pop(self):\n        self._refill_outbox()\n        return self._outbox.pop()\n\n    def peek(self):\n        self._refill_outbox()\n        return self._outbox[-1]\n\n    def empty(self):\n        return not self._inbox and not self._outbox\n\n    def _refill_outbox(self):\n        if not self._outbox:                      # only when it is empty, or newer items would jump the queue\n            while self._inbox:\n                self._outbox.append(self._inbox.pop())    # pouring one stack into another reverses it\n",
    "explanation": "**The idea.** A stack reverses the order of what you put in, and two reversals restore it. New items are pushed onto an *inbox* stack. Items leave from an *outbox* stack. When the outbox is empty and you need the front item, pour the whole inbox into the outbox: the oldest item, which was at the bottom of the inbox, ends up on top.\n\n**The rule that keeps the order right.** Move items only when the outbox is *empty*. If you pour while the outbox still holds older items, the newer ones land on top of them and come out too early. `empty()` has to look at both stacks, because after a `pop` everything that is left may be in the outbox alone.\n\n**Why amortised O(1).** One `pop` may move many items, but each item is moved from the inbox to the outbox at most once in its life. So n operations cost O(n) in total, even though a single operation can cost O(n). Moving every item back and forth on each operation would make the last tests take minutes.\n\n**In practice.** `collections.deque` is a real queue with O(1) operations at both ends; use it outside of exercises like this one. The two-stack queue is still worth knowing: it comes up in interviews, and it is how queues are built in languages where lists are immutable stacks."
+  },
+  "reciprocal-rank-fusion": {
+   "title": "Reciprocal Rank Fusion",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/09-retrieval-augmented-generation/07-hybrid-search/README.md",
+   "description": "Merge several ranked result lists, such as keyword and vector search, into one without comparing their scores.",
+   "statement": "Hybrid search runs more than one retriever (keyword search, vector search) and merges the ranked lists. Their scores are not comparable, so **reciprocal rank fusion** uses only the positions. Write `rrf(rankings, k=60)`:\n\n- `rankings` is a list of ranked lists of ids, best first. Positions start at 1.\n- Each id gets `1 / (k + position)` from every ranking it appears in; its score is the sum. An id that is repeated inside one ranking counts only at its first position.\n- Return a list of `(id, score)` pairs, highest score first. When scores are equal, the id that **appeared first** (scanning the rankings in order, each from the top) comes first.\n- No rankings, or empty ones, give `[]`.\n\n```python\nrrf([[\"a\", \"b\", \"c\"], [\"b\", \"c\", \"d\"]])\n# [(\"b\", 0.032522), (\"c\", 0.032002), (\"a\", 0.016393), (\"d\", 0.015873)]   (scores rounded to 6 places)\n```",
+   "starter": "def rrf(rankings, k=60):\n    \"\"\"Return [(id, fused_score), ...], best first.\"\"\"\n    ...\n",
+   "tests": [
+    "def rounded(pairs, places=6):\n    return [(item, round(score, places)) for item, score in pairs]",
+    "assert rounded(rrf([[\"a\", \"b\", \"c\"], [\"b\", \"c\", \"d\"]])) == [(\"b\", 0.032522), (\"c\", 0.032002), (\"a\", 0.016393), (\"d\", 0.015873)]",
+    "assert rounded(rrf([[\"a\", \"b\"], [\"b\", \"a\"]])) == [(\"a\", 0.032522), (\"b\", 0.032522)], \"equal scores: the id seen first comes first\"",
+    "assert rounded(rrf([[\"x\", \"y\", \"z\"]], k=0)) == [(\"x\", 1.0), (\"y\", 0.5), (\"z\", 0.333333)], \"k = 0 and one list: 1/1, 1/2, 1/3\"",
+    "assert rounded(rrf([[\"a\", \"a\", \"b\"]])) == [(\"a\", 0.016393), (\"b\", 0.015873)], \"a repeat in the same list counts once, at its first position; b is still third\"",
+    "assert rrf([]) == [] and rrf([[], []]) == []",
+    "assert rounded(rrf([[\"d1\", \"d2\", \"d3\", \"d4\"], [\"d3\", \"d1\", \"d9\"], [\"d5\", \"d3\"]], k=10)) == [(\"d3\", 0.251166), (\"d1\", 0.174242), (\"d5\", 0.090909), (\"d2\", 0.083333), (\"d9\", 0.076923), (\"d4\", 0.071429)]",
+    "assert [item for item, _ in rrf([[3, 1, 2], [2, 3, 1]])] == [3, 2, 1], \"ids can be numbers\"",
+    "lists = [[f\"doc{(i * 7 + j) % 50}\" for j in range(50)] for i in range(40)]",
+    "assert len(rrf(lists)) == 50, \"forty lists of fifty\""
+   ],
+   "hints": [
+    "Keep a dict from id to score. For each ranking, walk it with positions starting at 1 and add `1 / (k + position)`.",
+    "Ignore an id that was already seen earlier in the same ranking (keep a small set per ranking).",
+    "For ties, remember the order in which ids were first seen across all rankings and sort by `(-score, first_seen)`."
+   ],
+   "solution": "def rrf(rankings, k=60):\n    scores = {}\n    appeared = {}                                  # when each id was first seen, for breaking ties\n    for ranking in rankings:\n        seen_here = set()\n        for position, item in enumerate(ranking, start=1):\n            if item in seen_here:\n                continue\n            seen_here.add(item)\n            scores[item] = scores.get(item, 0.0) + 1 / (k + position)\n            appeared.setdefault(item, len(appeared))\n    return sorted(scores.items(), key=lambda pair: (-pair[1], appeared[pair[0]]))\n",
+   "explanation": "**The idea.** Keyword scores (BM25) and vector scores (cosine) live on different scales, so adding them or averaging them is meaningless. Ranks are comparable: first is first, whatever the scale. Each ranking \"votes\" `1 / (k + position)` for each result, so a result near the top of several lists wins, and one that only a single retriever liked still gets a place.\n\n**What `k` does.** It softens the difference between the top positions. With `k = 60` (the value from the original paper) the first place is worth `1/61` and the tenth `1/70`: the top matters, but a result at rank 10 in three lists beats one at rank 1 in a single list. A small `k` makes the top positions dominate.\n\n**Why it is popular.** No tuning, no score normalisation, and it works with any number of retrievers. Vector databases and search engines offer it as the default way to do hybrid search.\n\n**Complexity.** O(total results log distinct results).\n\n**Usual mistakes.** Counting positions from 0 (a result at the top would divide by `k`, fine, but the numbers no longer match the standard formula); letting a repeated id count twice; unstable tie-breaking, so the order changes between runs."
   },
   "remove-nth-node-from-end": {
    "title": "Remove Nth Node From End",
@@ -13631,6 +14309,35 @@
    ],
    "solution": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n\ndef reverse_list(head):\n    previous = None\n    while head:\n        head.next, previous, head = previous, head, head.next\n    return previous\n",
    "explanation": "**The idea.** Walk the list once. For each node, point its `next` at the node before it instead of the one after it. You need to remember the previous node (it starts as `None`, which becomes the new tail), and you must save the next node before you overwrite the pointer, or you lose the rest of the list.\n\n**The three moves for each node,** done together so nothing is lost: `head.next = previous`, `previous = head`, `head = (old) head.next`. Python's tuple assignment does all three at once, evaluating the right side first.\n\n**Complexity.** O(n) time, O(1) space. The recursive version is also O(n) time but uses O(n) stack, which fails on a long list in Python (the recursion limit is about 1000), so say which one you chose and why."
+  },
+  "roc-auc": {
+   "title": "ROC AUC",
+   "topic": "ml-from-scratch",
+   "difficulty": "intermediate",
+   "description": "Compute the area under the ROC curve: how often a random positive scores above a random negative.",
+   "statement": "A classifier gives each item a score. The **AUC** is the probability that a randomly chosen positive item has a higher score than a randomly chosen negative one, where a tie counts as one half.\n\nWrite `roc_auc(y_true, scores)`, where `y_true` holds `1` (positive) or `0` (negative) and `scores[i]` is the score of item `i`. Return the AUC as a float between 0 and 1. Raise `ValueError` if the lists differ in length, or if the labels are all the same (there is nothing to compare).\n\n```python\nroc_auc([0, 0, 1, 1], [0.1, 0.4, 0.35, 0.8])   # 0.75   (3 of the 4 positive-negative pairs are ranked correctly)\nroc_auc([0, 1], [0.5, 0.5])                    # 0.5    (a tie is half a win)\nroc_auc([0, 1], [0.9, 0.1])                    # 0.0\n```\n\nAim for O(n log n): the tests include 20,000 items, where comparing every pair is far too slow.",
+   "starter": "def roc_auc(y_true, scores):\n    \"\"\"Return the probability that a random positive outscores a random negative (ties count one half).\"\"\"\n    ...\n",
+   "tests": [
+    "import random\ndef raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert roc_auc([0, 0, 1, 1], [0.1, 0.4, 0.35, 0.8]) == 0.75",
+    "assert roc_auc([0, 1], [0.5, 0.5]) == 0.5",
+    "assert roc_auc([0, 1], [0.9, 0.1]) == 0.0",
+    "assert roc_auc([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9]) == 1.0, \"every positive is above every negative\"",
+    "assert roc_auc([1, 0, 1, 0, 1], [3, 3, 3, 3, 3]) == 0.5, \"all scores equal: no ranking at all\"",
+    "assert roc_auc([1, 1, 0, 0, 0], [0.9, 0.5, 0.5, 0.2, 0.1]) == (1 + 1 + 1 + 0.5 + 1 + 1) / 6, \"a tie between a positive and a negative is half a win\"",
+    "assert roc_auc([0, 1, 1, 0], [-3, 2, 5, -1]) == 1.0, \"scores can be negative, and need not be probabilities\"",
+    "assert raises(ValueError, roc_auc, [1, 1, 1], [0.1, 0.2, 0.3])",
+    "assert raises(ValueError, roc_auc, [0, 1], [0.1])",
+    "n = 10000\npairs = [(0, 2 * i) for i in range(n)] + [(1, 2 * i + 1) for i in range(n)]\nrandom.Random(7).shuffle(pairs)\nlabels, values = [p[0] for p in pairs], [p[1] for p in pairs]",
+    "assert round(roc_auc(labels, values), 6) == 0.50005, \"20,000 items: a positive 2j+1 beats the negatives 0, 2, ..., 2j\""
+   ],
+   "hints": [
+    "Think of the definition as counting pairs. Is there a way to count them without looking at each pair? What does sorting by score give you?",
+    "After sorting, the rank of an item (1 for the lowest score) says how many items it beats. Add up the ranks of the positives and subtract what that sum would be if all positives came first from the bottom.",
+    "Equal scores must all get the same, average rank. Find each run of equal scores in the sorted order and give every member the run's average rank."
+   ],
+   "solution": "def roc_auc(y_true, scores):\n    if len(y_true) != len(scores):\n        raise ValueError(\"labels and scores must have the same length\")\n    positives = sum(1 for y in y_true if y == 1)\n    negatives = len(y_true) - positives\n    if positives == 0 or negatives == 0:\n        raise ValueError(\"AUC needs both classes\")\n\n    order = sorted(range(len(scores)), key=lambda i: scores[i])\n    rank_sum = 0.0          # sum of the (1-based) ranks of the positives, tied scores sharing their average rank\n    start = 0\n    while start < len(order):\n        end = start\n        while end + 1 < len(order) and scores[order[end + 1]] == scores[order[start]]:\n            end += 1\n        average_rank = (start + end) / 2 + 1\n        rank_sum += average_rank * sum(1 for i in order[start:end + 1] if y_true[i] == 1)\n        start = end + 1\n    return (rank_sum - positives * (positives + 1) / 2) / (positives * negatives)\n",
+   "explanation": "**The idea.** Comparing every positive with every negative is O(P x N). The same number falls out of one sort. Sort all items by score and give each the rank 1, 2, 3, ... (items with equal scores share the average of their ranks, which is what makes a tie worth one half). The sum of the positives' ranks, minus the smallest it could possibly be (`P(P+1)/2`, if every positive were below every negative), counts exactly the winning pairs. Divide by `P x N` pairs.\n\n**Why people use it.** AUC does not depend on a threshold, so it compares models before you pick one, and it does not care how the scores are scaled, only how they rank. It is also known as the Mann-Whitney U statistic.\n\n**Complexity.** O(n log n) for the sort, O(n) for the scan.\n\n**Usual mistakes.** Ignoring ties (a model that gives everyone the same score must get 0.5, not 0 or 1); using 0-based ranks; building the full pair list.\n\n**Follow-up.** AUC says nothing about calibration (whether a score of 0.8 means 80%), and on a very imbalanced problem the precision-recall curve is usually the more honest picture."
   },
   "rotate-array": {
    "title": "Rotate Array",
@@ -13778,6 +14485,42 @@
    ],
    "solution": "def run_saga(steps):\n    completed = []                       # the steps whose action succeeded, oldest first\n    failed_step = None\n    for step in steps:\n        name, action, _ = step\n        try:\n            action()\n        except Exception:\n            failed_step = name\n            break                        # later steps never run\n        completed.append(step)\n\n    compensated, compensation_failed = [], []\n    if failed_step is not None:                          # when every action succeeded there is nothing to undo\n        for name, _, compensation in reversed(completed):    # newest first; the failed step is not in `completed`\n            try:\n                compensation()\n            except Exception:\n                compensation_failed.append(name)         # record it, then keep undoing the rest\n            else:\n                compensated.append(name)\n\n    if failed_step is None:\n        status = \"completed\"\n    elif compensation_failed:\n        status = \"rollback_failed\"\n    else:\n        status = \"rolled_back\"\n    return {\"status\": status, \"failed_step\": failed_step, \"compensated\": compensated, \"compensation_failed\": compensation_failed}\n",
    "explanation": "**The idea.** A business operation that spans several services (reserve stock, charge a card, book a shipment) cannot use one database transaction. A saga replaces it with a sequence of local steps, each paired with a compensating action that undoes it in business terms (release the stock, refund the card). If step k fails, the effects of steps 0 to k-1 are already visible to the world, so you run their compensations, newest first, because later steps may depend on earlier ones.\n\n**The details the tests check.**\n- The failed step is not compensated: its action did not complete. (An action that can half-succeed has to clean up after itself, or be idempotent so that a retry is safe.)\n- A failing compensation must not stop the others; leaving them undone would be worse. Record it and report it, because a person or a retry job has to deal with what is left. That is the `rollback_failed` status.\n- Keep the list of completed steps separately from the input. You need the successful prefix, and `steps` must not change.\n\n**Real systems** run sagas as an orchestrator (a state machine that is saved after every step, so it can resume after a crash) or as choreography (each service reacts to events). Compensations must be idempotent, because a retry may run one twice.\n\n**Complexity.** O(n) calls. Follow-up: what if an action succeeds but the process dies before it records that? (Persist the intent first, and make every action and compensation idempotent.)"
+  },
+  "scaled-dot-product-attention": {
+   "title": "Scaled Dot-Product Attention",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/02-transformer-architecture/06-scaled-dot-product-attention/README.md",
+   "description": "Compute the attention weights and output of one attention head, optionally with a causal mask.",
+   "statement": "Attention lets each position in a sequence take a weighted mix of the values at other positions. Write `attention(Q, K, V, causal=False)` for lists of lists of numbers: `Q` has one row (a query vector of length `d`) per position, `K` one row (length `d`) per key, and `V` one row (any length) per key, with as many rows in `V` as in `K`.\n\nFor each query row `i`:\n\n1. Its **scores** are the dot product of the query with every key, divided by `sqrt(d)`.\n2. With `causal=True`, a position may not look ahead: keys `j > i` are excluded (their weight is exactly `0.0`). With a causal mask `Q` and `K` must have the same number of rows, otherwise raise `ValueError`.\n3. The **weights** are the softmax of the (unmasked) scores, so they sum to 1.\n4. The output row is the weights-weighted sum of the rows of `V`.\n\nReturn `(output, weights)`.\n\n```python\nI = [[1, 0], [0, 1]]\nattention(I, I, I)               # output [[0.6698, 0.3302], [0.3302, 0.6698]]\nattention(I, I, I, causal=True)  # output [[1.0, 0.0], [0.3302, 0.6698]]\n```",
+   "starter": "import math\n\n\ndef attention(Q, K, V, causal=False):\n    \"\"\"Return (output, weights) for scaled dot-product attention.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]\nI = [[1, 0], [0, 1]]\nout, weights = attention(I, I, I)",
+    "assert rounded(out) == [[0.6698, 0.3302], [0.3302, 0.6698]]",
+    "assert rounded(weights) == [[0.6698, 0.3302], [0.3302, 0.6698]]",
+    "out, weights = attention(I, I, I, causal=True)",
+    "assert rounded(weights) == [[1.0, 0.0], [0.3302, 0.6698]], \"the first position can only see itself\"",
+    "assert rounded(out) == [[1.0, 0.0], [0.3302, 0.6698]]",
+    "out, weights = attention([[1, 0]], [[1, 0], [0, 1], [1, 1]], [[10, 0], [0, 10], [5, 5]])",
+    "assert rounded(weights) == [[0.4011, 0.1978, 0.4011]], \"one query attends to three keys\"",
+    "assert rounded(out) == [[6.0167, 3.9833]], \"the output has the width of V, not of K\"",
+    "out, weights = attention([[100, 0], [0, 100]], [[100, 0], [0, 100]], [[1, 2], [3, 4]])",
+    "assert rounded(weights) == [[1.0, 0.0], [0.0, 1.0]], \"huge scores (10,000 / 1.41) must not overflow\"",
+    "assert rounded(out) == [[1.0, 2.0], [3.0, 4.0]]",
+    "out, weights = attention([[1, 2, 3, 4]], [[1, 2, 3, 4], [0, 0, 0, 0]], [[1], [3]])",
+    "assert rounded(weights) == [[1.0, 0.0]] and rounded(out) == [[1.0]], \"d = 4: the scores are divided by 2 (30 / 2 = 15 against 0)\"",
+    "out, weights = attention([[1, 1]], [[1, 1], [1, 1]], [[2], [4]])",
+    "assert rounded(weights) == [[0.5, 0.5]] and rounded(out) == [[3.0]], \"equal scores: an even mix\"",
+    "assert all(abs(sum(row) - 1.0) < 1e-12 for row in attention(I + [[1, 1]], I + [[1, 1]], I + [[1, 1]])[1]), \"every row of weights sums to 1\"",
+    "assert raises(ValueError, attention, [[1, 0]], I, I, causal=True)"
+   ],
+   "hints": [
+    "For one query: a score per key (the dot product, divided by `sqrt(d)`), a softmax over the scores, then a weighted sum of the rows of `V`.",
+    "Subtract the largest score before taking `exp` so that huge scores cannot overflow.",
+    "For the causal mask, only take the softmax over the keys `0..i` and give the later keys weight `0.0`. Do not zero them after a full softmax."
+   ],
+   "solution": "import math\n\n\ndef _softmax(scores):\n    biggest = max(scores)\n    exps = [math.exp(s - biggest) for s in scores]\n    total = sum(exps)\n    return [e / total for e in exps]\n\n\ndef attention(Q, K, V, causal=False):\n    if causal and len(Q) != len(K):\n        raise ValueError(\"a causal mask needs as many queries as keys\")\n    scale = math.sqrt(len(Q[0]))\n    output, weights = [], []\n    for i, query in enumerate(Q):\n        scores = [sum(q * k for q, k in zip(query, key)) / scale for key in K]\n        limit = i + 1 if causal else len(K)          # a causal query only sees keys 0..i\n        row = _softmax(scores[:limit]) + [0.0] * (len(K) - limit)\n        weights.append(row)\n        output.append([sum(row[j] * V[j][c] for j in range(len(V))) for c in range(len(V[0]))])\n    return output, weights\n",
+   "explanation": "**The idea.** A query asks \"what am I looking for?\", each key says \"what do I contain?\", and the dot product is the match score. Softmax turns the scores into weights that sum to 1, and the output is the weighted average of the values. That is the whole mechanism behind a transformer head: `softmax(Q K^T / sqrt(d)) V`.\n\n**Why divide by `sqrt(d)`.** A dot product of two random vectors of length `d` has a spread that grows like `sqrt(d)`. Without the division, long vectors produce huge scores, the softmax saturates (one weight near 1, the rest near 0), and its gradients vanish. The test with `d = 4` and scores of 30 shows the scale at work.\n\n**The causal mask.** When a model is trained to predict the next token, position `i` must not read tokens after it, or it could just copy the answer. Masking is done *before* the softmax (the future keys are excluded, as if their scores were minus infinity) so the visible weights still sum to 1. Setting weights to zero *after* the softmax would leave rows that no longer sum to 1.\n\n**Complexity.** O(n x m x d) for the scores: the cost that makes long contexts expensive.\n\n**Usual mistakes.** Forgetting the scale; masking after the softmax; subtracting no maximum, so large scores overflow `exp`; making the output as wide as `K` instead of `V`."
   },
   "search-in-rotated-sorted-array": {
    "title": "Search in Rotated Sorted Array",
@@ -13968,6 +14711,36 @@
    "solution": "def single_number(nums):\n    result = 0\n    for x in nums:\n        result ^= x       # a ^ a == 0 and 0 ^ b == b, so every pair cancels itself out, wherever the copies are\n    return result\n",
    "explanation": "**The idea.** XOR (`^`) combines two numbers bit by bit: a bit of the result is 1 where the two inputs differ. Three properties do all the work: `a ^ a == 0` (a number cancels itself), `a ^ 0 == a` (zero changes nothing), and the order does not matter. So if you XOR every item together, each pair cancels to 0, wherever its two copies sit, and what remains is the single value.\n\n**Complexity.** One pass: O(n) time and O(1) extra space. Counting with a dictionary (`collections.Counter`) is also O(n) time but needs O(n) space; sorting and looking for the item that does not match its neighbour is O(n log n).\n\n**Other ways.** With a set of the distinct values, `2 * sum(set(nums)) - sum(nums)` is the single value too: the doubled sum of the distinct values counts the single one twice, and the plain sum counts it once.\n\n**Mistakes to avoid.** Comparing neighbours in a sorted list and forgetting the case where the single value is the largest (it has no neighbour to differ from). Treating `0` specially: `0` can be the single value, and XOR returns it correctly.\n\n**Follow-up.** What if every value appears three times except one? XOR no longer cancels; count each bit position modulo 3 instead."
   },
+  "sinusoidal-positional-encoding": {
+   "title": "Sinusoidal Positional Encoding",
+   "topic": "llm-and-genai",
+   "difficulty": "beginner",
+   "module": "genai/02-transformer-architecture/10-sinusoidal-positional-encoding/README.md",
+   "description": "Build the table of sine and cosine waves that tells a transformer where each token sits in the sequence.",
+   "statement": "Attention by itself does not know the order of the tokens, so the original transformer adds a vector that depends on the position. Write `positional_encoding(seq_len, d_model)`, which returns a list of `seq_len` rows, each a list of `d_model` numbers:\n\n- For position `pos` (from 0) and each pair of columns `2i` and `2i + 1` (`i` from 0):\n  - `row[2i] = sin(pos / 10000 ** (2i / d_model))`\n  - `row[2i + 1] = cos(pos / 10000 ** (2i / d_model))`\n- `d_model` must be even, otherwise raise `ValueError`. `seq_len = 0` gives `[]`.\n\n```python\npositional_encoding(2, 4)\n# [[0.0, 1.0, 0.0, 1.0],\n#  [0.8415, 0.5403, 0.01, 1.0]]      (rounded to 4 places)\n```",
+   "starter": "import math\n\n\ndef positional_encoding(seq_len, d_model):\n    \"\"\"Return the seq_len x d_model table of sinusoidal position encodings.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]",
+    "assert rounded(positional_encoding(2, 4)) == [[0.0, 1.0, 0.0, 1.0], [0.8415, 0.5403, 0.01, 1.0]]",
+    "assert rounded(positional_encoding(3, 4))[2] == [0.9093, -0.4161, 0.02, 0.9998]",
+    "assert rounded(positional_encoding(51, 8))[50] == [-0.2624, 0.965, -0.9589, 0.2837, 0.4794, 0.8776, 0.05, 0.9988]",
+    "assert positional_encoding(1, 6) == [[0.0, 1.0, 0.0, 1.0, 0.0, 1.0]], \"position 0 is sin(0) = 0 and cos(0) = 1 in every pair\"",
+    "assert positional_encoding(0, 4) == []",
+    "assert len(positional_encoding(7, 10)) == 7 and all(len(row) == 10 for row in positional_encoding(7, 10))",
+    "assert rounded(positional_encoding(2, 2)) == [[0.0, 1.0], [0.8415, 0.5403]], \"d_model = 2: a single pair, the fastest wave\"",
+    "table = positional_encoding(20, 16)",
+    "assert all(abs(row[2 * i] ** 2 + row[2 * i + 1] ** 2 - 1) < 1e-12 for row in table for i in range(8)), \"each (sin, cos) pair lies on the unit circle\"",
+    "assert len({tuple(round(v, 6) for v in row) for row in table}) == 20, \"every position gets a different row\"",
+    "assert raises(ValueError, positional_encoding, 3, 5)"
+   ],
+   "hints": [
+    "Handle the odd `d_model` first. Then loop over positions and, inside it, over the `d_model // 2` pairs of columns.",
+    "For pair `i` the angle is `pos / 10000 ** (2 * i / d_model)`. The even column is its sine, the odd column its cosine.",
+    "Check position 0 by hand: every sine is 0 and every cosine is 1."
+   ],
+   "solution": "import math\n\n\ndef positional_encoding(seq_len, d_model):\n    if d_model % 2 != 0:\n        raise ValueError(\"d_model must be even\")\n    table = []\n    for pos in range(seq_len):\n        row = []\n        for i in range(d_model // 2):\n            angle = pos / 10000 ** (2 * i / d_model)\n            row.append(math.sin(angle))\n            row.append(math.cos(angle))\n        table.append(row)\n    return table\n",
+   "explanation": "**The idea.** Each pair of columns is a sine and a cosine of the same angle, and the angle is `pos` divided by a wavelength that grows from 1 (the first pair, fast waves) to about 10000 (the last pair, very slow waves). Together the pairs work like the digits of a clock: the fast pairs change at every position and tell neighbours apart, the slow ones barely move and tell you roughly where you are in a long text.\n\n**Why sines and cosines.** The encoding of position `pos + k` is a *rotation* of the encoding of `pos`, whatever `pos` is, so a model can learn to attend to \"the token 3 places back\" with one fixed linear map. The values stay between -1 and 1, and the table can be computed for positions longer than any seen in training (although models do not always use such positions well).\n\n**What replaced it.** Many modern models use rotary position embeddings (RoPE) or ALiBi instead, which apply the position inside the attention scores rather than adding it to the input. The same idea of frequencies at many scales remains.\n\n**Complexity.** O(seq_len x d_model).\n\n**Usual mistakes.** Using `i` instead of `2 * i` in the exponent; swapping sine and cosine; indexing the pairs from 1; building the table from a different base than 10000."
+  },
   "sliding-window-rate-limiter": {
    "title": "Sliding Window Rate Limiter",
    "topic": "caching-and-limits",
@@ -14060,6 +14833,36 @@
    "solution": "WORKER_BITS = 10\nSEQUENCE_BITS = 12\nMAX_WORKER_ID = (1 << WORKER_BITS) - 1\nMAX_SEQUENCE = (1 << SEQUENCE_BITS) - 1\n\n\nclass ClockMovedBackwards(Exception):\n    \"\"\"clock() reported a time earlier than the millisecond of the last id.\"\"\"\n\n\nclass SnowflakeGenerator:\n    def __init__(self, worker_id, clock, wait, epoch=0):\n        if not 0 <= worker_id <= MAX_WORKER_ID:\n            raise ValueError(f\"worker_id must be between 0 and {MAX_WORKER_ID}, got {worker_id}\")\n        self._worker_id = worker_id\n        self._clock = clock\n        self._wait = wait\n        self._epoch = epoch\n        self._last_ms = None   # millisecond of the last id; None until the first one (0 would clash with an epoch-time id)\n        self._sequence = 0\n\n    def next_id(self):\n        now = self._clock()\n        if self._last_ms is not None and now < self._last_ms:\n            raise ClockMovedBackwards(f\"clock went back {self._last_ms - now} ms; refusing to issue an id\")\n        if now == self._last_ms:\n            sequence = self._sequence + 1\n            if sequence > MAX_SEQUENCE:            # this millisecond is full: wait for the next one\n                while now <= self._last_ms:\n                    self._wait()\n                    now = self._clock()\n                sequence = 0\n        else:\n            sequence = 0\n        self._last_ms, self._sequence = now, sequence\n        return ((now - self._epoch) << (WORKER_BITS + SEQUENCE_BITS)) | (self._worker_id << SEQUENCE_BITS) | sequence\n",
    "explanation": "**The idea.** An id is three fields packed into one integer: the time since a custom epoch in the high bits, then the worker id, then a sequence number in the low bits. Because time is in the high bits, ids sort by creation time. Because each worker has its own bits, two workers can never collide. Because the sequence counts the ids inside one millisecond, one worker never repeats itself either. After each worker has been given its number, no coordination is needed.\n\n**The state is two numbers:** the millisecond of the last id and its sequence. Same millisecond: sequence + 1. Later millisecond: sequence 0. If sequence + 1 would be 4096 the millisecond is full, so wait for the clock to move on and start again at 0. Start with \"no previous millisecond\" (`None`), not `0`, or an id issued exactly at the epoch looks like a repeat.\n\n**A clock that goes backwards** (an NTP correction, a VM resumed from a pause) would issue an id smaller than one already handed out, possibly a duplicate. Refusing is the safe choice. Check it before you change any state, so a refused call leaves nothing behind.\n\n**Complexity.** O(1) per id, apart from the wait. Follow-up: what happens when a worker restarts and forgets `_last_ms`? (Persist it, or wait out the largest clock skew you tolerate before issuing.)"
   },
+  "softmax": {
+   "title": "Softmax with Temperature",
+   "topic": "ml-from-scratch",
+   "difficulty": "beginner",
+   "description": "Turn a list of scores into probabilities that sum to 1, without overflowing, with a temperature that sharpens or flattens them.",
+   "statement": "Write `softmax(logits, temperature=1.0)`, which turns a list of raw scores (logits) into a list of probabilities.\n\n- Each logit is divided by `temperature` first, then the result is the softmax: `exp(x_i) / sum(exp(x_j))`.\n- A **low** temperature (below 1) makes the largest probability bigger; a **high** one flattens the list towards equal probabilities.\n- It must work for any scores a model can produce, including `1000` or `-1000`: a naive `exp(1000)` overflows.\n- An empty list gives `[]`. A `temperature` that is zero or negative raises `ValueError`.\n\n```python\nsoftmax([1, 2, 3])       # [0.09, 0.2447, 0.6652]   (rounded to 4 places)\nsoftmax([1000, 1001])    # [0.2689, 0.7311]\nsoftmax([1, 2], 0.5)     # [0.1192, 0.8808]\n```",
+   "starter": "import math\n\n\ndef softmax(logits, temperature=1.0):\n    \"\"\"Return the probabilities for `logits`, as a list of floats that sum to 1.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(values, places=4):\n    return [round(v, places) for v in values]",
+    "assert rounded(softmax([1, 2, 3])) == [0.09, 0.2447, 0.6652]",
+    "assert rounded(softmax([2.0, 1.0, 0.1])) == [0.659, 0.2424, 0.0986]",
+    "assert rounded(softmax([0, 0, 0, 0])) == [0.25, 0.25, 0.25, 0.25]",
+    "assert rounded(softmax([1000, 1001])) == [0.2689, 0.7311], \"large logits must not overflow\"",
+    "assert rounded(softmax([-1000, 0])) == [0.0, 1.0], \"very negative logits must not break it either\"",
+    "assert rounded(softmax([1, 2], 0.5)) == [0.1192, 0.8808], \"a low temperature sharpens\"",
+    "assert rounded(softmax([1, 2], 2)) == [0.3775, 0.6225], \"a high temperature flattens\"",
+    "assert rounded(softmax([3, 1], 0.01)) == [1.0, 0.0]",
+    "assert softmax([]) == []",
+    "assert abs(sum(softmax([0.3, -2.5, 7.1, 7.1, 0.0])) - 1.0) < 1e-12, \"the probabilities sum to 1\"",
+    "assert raises(ValueError, softmax, [1.0], 0)",
+    "assert raises(ValueError, softmax, [1.0], -1)"
+   ],
+   "hints": [
+    "Try `softmax([1000, 1001])` by hand with the formula. What goes wrong with `exp(1000)`, and what could you do to the scores before you take `exp` that does not change the answer?",
+    "Subtracting the same number from every logit leaves the result unchanged. Subtract the largest one, so the largest exponent is 0.",
+    "Divide by the temperature before anything else, and check the temperature before you check for an empty list (or after, but be consistent with what the statement says)."
+   ],
+   "solution": "import math\n\n\ndef softmax(logits, temperature=1.0):\n    if temperature <= 0:\n        raise ValueError(\"temperature must be positive\")\n    if not logits:\n        return []\n    scaled = [x / temperature for x in logits]\n    biggest = max(scaled)\n    exps = [math.exp(x - biggest) for x in scaled]   # the largest becomes exp(0) = 1, so nothing overflows\n    total = sum(exps)\n    return [e / total for e in exps]\n",
+   "explanation": "**The idea.** `exp` grows so fast that `exp(1000)` is too large for a float. But softmax does not change if you subtract the same number from every logit (it cancels in the fraction), so subtract the largest one first: the biggest term becomes `exp(0) = 1`, and every other term is between 0 and 1. That is the \"log-sum-exp trick\", and every deep-learning library does it.\n\n**Temperature** is just a division before the softmax. Language models use it when they sample the next token: a temperature near 0 makes the model almost always pick its top choice (it approaches `argmax`), while a high temperature spreads the probability onto less likely tokens, which reads as \"more creative\" and \"more random\".\n\n**Complexity.** O(n) time and space.\n\n**Usual mistakes.** Subtracting the maximum of the *original* logits (it must be the maximum after dividing by the temperature if you subtract after; subtracting before dividing also works, but be consistent); computing `exp` of everything first and normalising after; forgetting the empty list.\n\n**Follow-up.** Cross-entropy loss is `-log(softmax(logits)[correct])`, and it can be computed directly as `logsumexp(logits) - logits[correct]` without ever forming the probabilities."
+  },
   "sort-colors": {
    "title": "Sort Colors",
    "topic": "binary-search-and-sorting",
@@ -14117,6 +14920,35 @@
    ],
    "solution": "def spiral_order(matrix):\n    if not matrix:\n        return []\n    order = []\n    top, bottom = 0, len(matrix) - 1\n    left, right = 0, len(matrix[0]) - 1\n    while top <= bottom and left <= right:\n        order.extend(matrix[top][left:right + 1])                     # along the top, left to right\n        for row in range(top + 1, bottom + 1):                        # down the right edge\n            order.append(matrix[row][right])\n        if top < bottom and left < right:                             # only a ring with 2+ rows and 2+ columns has a way back\n            order.extend(reversed(matrix[bottom][left:right]))        # along the bottom, right to left (its last cell is already read)\n            for row in range(bottom - 1, top, -1):                    # up the left edge\n                order.append(matrix[row][left])\n        top, bottom, left, right = top + 1, bottom - 1, left + 1, right - 1\n    return order\n",
    "explanation": "**The idea.** Peel the matrix like an onion. Four numbers, `top`, `bottom`, `left` and `right`, mark the ring you are on. Read its four edges in turn (top row, right column, bottom row backwards, left column upwards), then move all four numbers one step inwards and repeat while they still enclose something.\n\n**The trap.** When what is left is a single row or a single column, the \"way back\" (the bottom row and the left column) is the same cells you have just read. The check `top < bottom and left < right` before the return trip stops them being read twice. The loop condition `top <= bottom and left <= right` ends the walk when nothing is left, and an empty matrix has to be caught before you ask for `len(matrix[0])`.\n\n**Complexity.** O(rows × columns) time, since every cell is read once, and O(1) extra space besides the answer.\n\n**Other ways.** Take the first row off, rotate what is left a quarter turn with `zip(*rest)` and repeat: short, but it copies the matrix again and again, and it empties your input unless you copy it first. Or walk cell by cell and turn right when the next cell is off the grid or already read: easy to get right, at the price of a grid of visited cells.\n\n**Follow-up.** Do the reverse: fill an empty n × n grid with `1 … n²` in spiral order."
+  },
+  "standard-scaler": {
+   "title": "Standard Scaler Without Leakage",
+   "topic": "ml-from-scratch",
+   "difficulty": "beginner",
+   "description": "Standardise features with the mean and spread of the training data only, then apply the same numbers to new data.",
+   "statement": "Write a class `StandardScaler` that rescales every column of a table of numbers to mean 0 and standard deviation 1.\n\n- `fit(rows)`: learn the mean and the **population** standard deviation (divide by `n`, not `n - 1`) of each column. `rows` is a list of equal-length lists of numbers. Returns the scaler itself.\n- `transform(rows)`: return a **new** list of lists with each value replaced by `(value - mean) / std`, using the numbers learned in `fit`, never the numbers of the rows being transformed. A column whose standard deviation is `0` becomes all `0.0`.\n- `fit_transform(rows)`: `fit`, then `transform`, on the same rows.\n- Calling `transform` before `fit` raises `RuntimeError`.\n\nThe point of keeping `fit` and `transform` apart: you fit on the **training** data and then transform both training and test data with those same numbers. Fitting on the test data leaks it into the model.\n\n```python\nscaler = StandardScaler().fit([[1, 10], [2, 10], [3, 10]])\nscaler.transform([[2, 10], [4, 10]])   # [[0.0, 0.0], [2.4495, 0.0]]   (rounded)\n```",
+   "starter": "class StandardScaler:\n    \"\"\"Scales each column to mean 0 and standard deviation 1, using the statistics of the rows it was fitted on.\"\"\"\n\n    def fit(self, rows):\n        ...\n\n    def transform(self, rows):\n        ...\n\n    def fit_transform(self, rows):\n        ...\n",
+   "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table):\n    return [[round(v, 4) for v in row] for row in table]\ntrain = [[1, 10], [2, 10], [3, 10]]\nscaler = StandardScaler()",
+    "assert scaler.fit(train) is scaler, \"fit returns the scaler, so calls can be chained\"",
+    "assert rounded(scaler.transform(train)) == [[-1.2247, 0.0], [0.0, 0.0], [1.2247, 0.0]]",
+    "assert rounded(scaler.transform([[2, 10], [4, 10]])) == [[0.0, 0.0], [2.4495, 0.0]], \"new rows use the mean and spread of the training rows\"",
+    "assert rounded(scaler.transform([[100, 5]])) == [[120.025, 0.0]], \"and a constant training column stays 0.0, whatever arrives\"",
+    "assert rounded(scaler.transform(train)) == [[-1.2247, 0.0], [0.0, 0.0], [1.2247, 0.0]], \"transforming new rows did not change what was learned\"",
+    "assert train == [[1, 10], [2, 10], [3, 10]], \"the rows given are not modified\"",
+    "assert rounded(StandardScaler().fit_transform([[0, 5], [10, 7], [20, 9], [30, 11]])) == [[-1.3416, -1.3416], [-0.4472, -0.4472], [0.4472, 0.4472], [1.3416, 1.3416]]",
+    "assert rounded(StandardScaler().fit_transform([[4.0]])) == [[0.0]], \"a single row has no spread\"",
+    "assert raises(RuntimeError, StandardScaler().transform, [[1, 2]])",
+    "mean_of_columns = [sum(col) / 4 for col in zip(*StandardScaler().fit_transform([[3, -8], [9, 0], [1, 4], [7, 2]]))]",
+    "assert all(abs(m) < 1e-9 for m in mean_of_columns), \"the transformed training columns have mean 0\""
+   ],
+   "hints": [
+    "`zip(*rows)` turns a list of rows into columns. What do you need to remember about each column after `fit`?",
+    "Store the mean and the population standard deviation of every column on `self` in `fit`. `transform` should only read them.",
+    "A column with standard deviation 0 would divide by zero. Decide what its values become (the statement says `0.0`) and test for it per column, not once for the whole table."
+   ],
+   "solution": "class StandardScaler:\n    def __init__(self):\n        self.means = None\n        self.stds = None\n\n    def fit(self, rows):\n        columns = list(zip(*rows))\n        self.means = [sum(col) / len(col) for col in columns]\n        self.stds = [(sum((v - m) ** 2 for v in col) / len(col)) ** 0.5 for col, m in zip(columns, self.means)]\n        return self\n\n    def transform(self, rows):\n        if self.means is None:\n            raise RuntimeError(\"call fit before transform\")\n        return [\n            [(v - m) / s if s else 0.0 for v, m, s in zip(row, self.means, self.stds)]\n            for row in rows\n        ]\n\n    def fit_transform(self, rows):\n        return self.fit(rows).transform(rows)\n",
+   "explanation": "**The idea.** `fit` computes per-column statistics once and stores them. `transform` only reads them. That separation is the whole lesson: the statistics describe the **training** data, and every later row (validation, test, or a request to your model server) is scaled with those same numbers.\n\n**What goes wrong otherwise.** If you call `fit` on all the data before splitting, the test rows have influenced the mean and spread your model trains on. Scores look better than they will in production. It is called *data leakage*, and it is one of the most common reasons a model that looked great offline disappoints live. The same applies to any learned preprocessing: imputers, encoders, PCA.\n\n**Complexity.** O(rows x columns) for each method.\n\n**Usual mistakes.** Dividing by zero on a constant column; using `n - 1` (the sample standard deviation) when the statement says `n`; modifying the rows in place; recomputing the statistics inside `transform`."
   },
   "string-to-integer": {
    "title": "String to Integer (atoi)",
@@ -14346,6 +15178,40 @@
    ],
    "solution": "import heapq\nfrom collections import Counter\n\n\ndef top_k_frequent(nums, k):\n    counts = Counter(nums)                    # value -> how many times it occurs\n    # nlargest keeps a heap of only k candidates, so we never sort every distinct value\n    best = heapq.nlargest(k, counts.items(), key=lambda item: item[1])\n    return [value for value, _ in best]\n",
    "explanation": "**The idea.** First count how often each value occurs (a dictionary, or `collections.Counter`). Then pick the k values with the biggest counts. `heapq.nlargest(k, ...)` does that with a small heap that only ever holds k candidates, instead of sorting every distinct value.\n\n**Three ways to pick.** Sorting the distinct values by count is O(d log d) for d distinct values, and is perfectly acceptable. A heap of size k is O(d log k), better when k is small. Bucket sort is O(n): a count is at most `len(nums)`, so put each value in `buckets[count]` and read the buckets from the highest count down until you have k values.\n\n**Ties.** When values tie for the last place, any of them may be returned, and the tests accept every choice. `Counter(nums).most_common(k)` does the counting and the picking in one call.\n\n**Mistake to avoid.** `nums.count(x)` for each value looks harmless but rescans the whole list every time: O(n²)."
+  },
+  "top-k-top-p-sampling": {
+   "title": "Top-k and Top-p Sampling",
+   "topic": "llm-and-genai",
+   "difficulty": "intermediate",
+   "module": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md",
+   "description": "Cut a language model's next-token distribution down to the likely tokens before sampling from it.",
+   "statement": "A language model gives a probability for every token in its vocabulary. Sampling from all of them lets rare, odd tokens through, so models usually first cut the distribution. Write `filter_probs(probs, top_k=None, top_p=None)`, which returns a new list the same length as `probs` (`probs` are non-negative and sum to 1):\n\n1. **top-k** (if given): keep only the `top_k` largest probabilities (on a tie the lower index is kept first), set the others to `0.0`, and **renormalise** so the list sums to 1 again.\n2. **top-p**, or *nucleus* (if given): order the tokens that are left by probability, highest first (ties: lower index first), and keep the smallest group at the top whose probabilities add up to **at least** `top_p`. There is always at least one token. Set the others to `0.0` and renormalise.\n\nWhen both are given, top-k is applied first and top-p works on the renormalised result. `top_k` must be at least 1 and `top_p` in `(0, 1]`; otherwise raise `ValueError`.\n\n```python\nprobs = [0.5, 0.25, 0.125, 0.0625, 0.0625]\nfilter_probs(probs, top_k=2)    # [0.6667, 0.3333, 0.0, 0.0, 0.0]   (rounded)\nfilter_probs(probs, top_p=0.9)  # [0.5333, 0.2667, 0.1333, 0.0667, 0.0]\n```",
+   "starter": "def filter_probs(probs, top_k=None, top_p=None):\n    \"\"\"Return the distribution after top-k and/or top-p filtering, renormalised to sum to 1.\"\"\"\n    ...\n",
+   "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(values, places=4):\n    return [round(v, places) for v in values]\nprobs = [0.5, 0.25, 0.125, 0.0625, 0.0625]",
+    "assert rounded(filter_probs(probs, top_k=2)) == [0.6667, 0.3333, 0.0, 0.0, 0.0]",
+    "assert rounded(filter_probs(probs, top_k=3)) == [0.5714, 0.2857, 0.1429, 0.0, 0.0]",
+    "assert rounded(filter_probs(probs, top_p=0.75)) == [0.6667, 0.3333, 0.0, 0.0, 0.0], \"0.5 + 0.25 reaches 0.75 exactly: two tokens are enough\"",
+    "assert rounded(filter_probs(probs, top_p=0.76)) == [0.5714, 0.2857, 0.1429, 0.0, 0.0], \"just over 0.75: one more token\"",
+    "assert rounded(filter_probs(probs, top_p=0.5)) == [1.0, 0.0, 0.0, 0.0, 0.0], \"the top token alone already reaches it\"",
+    "assert rounded(filter_probs(probs, top_p=1.0)) == probs, \"top_p = 1 keeps everything\"",
+    "assert rounded(filter_probs(probs, top_k=3, top_p=0.8)) == [0.6667, 0.3333, 0.0, 0.0, 0.0], \"top-p looks at the renormalised top-3: 0.5714 + 0.2857 = 0.857\"",
+    "assert filter_probs(probs) == probs and filter_probs(probs) is not probs, \"no filter: the same numbers, in a new list\"",
+    "assert rounded(filter_probs([0.25, 0.25, 0.25, 0.25], top_k=2)) == [0.5, 0.5, 0.0, 0.0], \"equal probabilities: the lower indexes are kept\"",
+    "assert rounded(filter_probs([0.1, 0.5, 0.4], top_k=1)) == [0.0, 1.0, 0.0], \"the order of the list is kept\"",
+    "assert abs(sum(filter_probs([0.3, 0.3, 0.2, 0.2], top_p=0.5)) - 1.0) < 1e-12",
+    "assert probs == [0.5, 0.25, 0.125, 0.0625, 0.0625], \"the input is not modified\"",
+    "assert raises(ValueError, filter_probs, probs, top_k=0)",
+    "assert raises(ValueError, filter_probs, probs, top_p=0)",
+    "assert raises(ValueError, filter_probs, probs, top_p=1.5)"
+   ],
+   "hints": [
+    "Write a helper that takes the indexes to keep, zeroes the rest and divides by the new total. Both filters can use it.",
+    "For top-p, sort the indexes by probability (highest first), then add them to the kept set one at a time until the running total reaches `top_p`: include the token that makes it reach.",
+    "Run top-k first, then compute top-p on its output, not on the original list."
+   ],
+   "solution": "def _keep(probs, indexes):\n    \"\"\"Zero every probability whose index is not in `indexes`, then renormalise.\"\"\"\n    kept = [p if i in indexes else 0.0 for i, p in enumerate(probs)]\n    total = sum(kept)\n    return [p / total for p in kept]\n\n\ndef filter_probs(probs, top_k=None, top_p=None):\n    if top_k is not None and top_k < 1:\n        raise ValueError(\"top_k must be at least 1\")\n    if top_p is not None and not 0 < top_p <= 1:\n        raise ValueError(\"top_p must be in (0, 1]\")\n    result = list(probs)\n    if top_k is not None:\n        order = sorted(range(len(result)), key=lambda i: (-result[i], i))\n        result = _keep(result, set(order[:top_k]))\n    if top_p is not None:\n        order = sorted(range(len(result)), key=lambda i: (-result[i], i))\n        total, keep = 0.0, set()\n        for i in order:\n            keep.add(i)\n            total += result[i]\n            if total >= top_p:\n                break\n        result = _keep(result, keep)\n    return result\n",
+   "explanation": "**The idea.** *Top-k* always keeps a fixed number of candidates, however sure or unsure the model is. *Top-p* (nucleus sampling) keeps as many as it takes to cover a share `p` of the probability: one token when the model is confident, many when it is not. After cutting, the remaining probabilities must be **renormalised** so they sum to 1 again, and only then do you draw a token.\n\n**Order matters.** Applying top-p to the original numbers gives a different answer than applying it after top-k has removed some mass. The test with both parameters fixes the order: top-k first, then top-p on the renormalised result (this is also what common libraries do).\n\n**Why it exists.** With the full distribution, a long tail of thousands of unlikely tokens adds up to a real chance of a bad pick at every step, and over hundreds of steps the text wanders. Temperature reshapes the distribution; top-k and top-p remove the tail. They are usually combined, e.g. temperature 0.7 with top-p 0.9.\n\n**Complexity.** O(n log n) for the sorts.\n\n**Usual mistakes.** Forgetting to renormalise; stopping *before* the cumulative probability reaches `top_p` instead of at the token that reaches it; keeping zero tokens when the first one already exceeds `top_p`; ties resolved differently each call."
   },
   "transactional-outbox": {
    "title": "Transactional Outbox",

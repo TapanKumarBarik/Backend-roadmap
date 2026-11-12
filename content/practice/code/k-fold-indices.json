@@ -1,0 +1,29 @@
+{
+  "title": "K-Fold Splits",
+  "topic": "ml-from-scratch",
+  "difficulty": "beginner",
+  "description": "Split n items into k train/test folds so every item is tested exactly once.",
+  "statement": "Cross-validation trains and tests a model `k` times, each time holding out a different part of the data. Write `k_fold(n, k)`, which returns `k` pairs `(train, test)`. Each is a list of item indices (`0` to `n - 1`), and:\n\n- The `test` lists are consecutive blocks, in order: the first test fold starts at index `0`.\n- If `n` is not divisible by `k`, the **first** `n % k` folds get one extra item. So fold sizes differ by at most one.\n- `train` is every index that is not in `test`, in ascending order.\n- Raise `ValueError` if `k < 2` or `k > n`.\n\n```python\nk_fold(6, 3)\n# [([2, 3, 4, 5], [0, 1]), ([0, 1, 4, 5], [2, 3]), ([0, 1, 2, 3], [4, 5])]\n\nk_fold(5, 2)\n# [([3, 4], [0, 1, 2]), ([0, 1, 2], [3, 4])]\n```",
+  "starter": "def k_fold(n, k):\n    \"\"\"Return k (train_indices, test_indices) pairs over the indices 0..n-1.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert k_fold(6, 3) == [([2, 3, 4, 5], [0, 1]), ([0, 1, 4, 5], [2, 3]), ([0, 1, 2, 3], [4, 5])]",
+    "assert k_fold(5, 2) == [([3, 4], [0, 1, 2]), ([0, 1, 2], [3, 4])]",
+    "assert [len(test) for _, test in k_fold(10, 3)] == [4, 3, 3], \"the first n % k folds are the larger ones\"",
+    "assert k_fold(3, 3) == [([1, 2], [0]), ([0, 2], [1]), ([0, 1], [2])], \"k == n is leave-one-out\"",
+    "assert all(isinstance(train, list) and isinstance(test, list) for train, test in k_fold(4, 2)), \"lists, not tuples or ranges\"",
+    "folds = k_fold(103, 5)\ntested = [i for _, test in folds for i in test]",
+    "assert sorted(tested) == list(range(103)), \"every item is tested exactly once\"",
+    "assert all(sorted(train + test) == list(range(103)) and not set(train) & set(test) for train, test in folds), \"train and test never overlap, and together are everything\"",
+    "assert sorted(len(test) for _, test in folds) == [20, 20, 21, 21, 21]",
+    "assert raises(ValueError, k_fold, 5, 1)",
+    "assert raises(ValueError, k_fold, 3, 4)"
+  ],
+  "hints": [
+    "Find the size of each test fold first. If `n` does not divide evenly, which folds get the extra items?",
+    "`divmod(n, k)` gives the base size and the remainder. Keep a `start` index and move it forward by each fold's size.",
+    "The training set is everything before the test block plus everything after it: two ranges joined."
+  ],
+  "solution": "def k_fold(n, k):\n    if k < 2 or k > n:\n        raise ValueError(\"k must be at least 2 and at most n\")\n    base, extra = divmod(n, k)\n    folds = []\n    start = 0\n    for fold in range(k):\n        size = base + (1 if fold < extra else 0)\n        test = list(range(start, start + size))\n        train = list(range(0, start)) + list(range(start + size, n))\n        folds.append((train, test))\n        start += size\n    return folds\n",
+  "explanation": "**The idea.** `divmod(n, k)` gives the base fold size and how many folds need one more item. Walk through the folds, cut out the next block as the test set and keep everything else as the training set.\n\n**Why it matters.** One train/test split gives one noisy estimate of how good a model is. Averaging over `k` splits uses all the data for both purposes and shows how much the score varies. Real code shuffles first (`shuffle=True`), uses **stratified** folds to keep class ratios, or splits by time or by user for data where rows are not independent, because a random split of time-ordered or grouped data leaks the future or the same user into the test set.\n\n**Complexity.** O(n x k) here, because each fold builds its training list.\n\n**Usual mistakes.** Giving the remainder to the last fold; forgetting that the first fold starts at 0; building `train` with a nested loop and an `in` check on a list (quadratic)."
+}

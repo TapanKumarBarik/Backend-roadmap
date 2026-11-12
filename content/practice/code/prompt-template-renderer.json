@@ -1,0 +1,33 @@
+{
+  "title": "A Safe Prompt Template Renderer",
+  "topic": "llm-and-genai",
+  "difficulty": "beginner",
+  "module": "genai/07-prompt-engineering/07-prompt-templates-and-variables/README.md",
+  "description": "Fill {{placeholders}} in a prompt template, fail loudly on a missing variable, and never expand what a value contains.",
+  "statement": "Prompts are built from templates with variables. Write `render(template, variables)`, which replaces each placeholder `{{name}}` in the text with the value of that variable.\n\n- A placeholder is two opening braces, optional spaces, a name (a letter or underscore, then letters, digits or underscores), optional spaces, and two closing braces: `{{name}}` or `{{ name }}`. Anything else that merely looks like one (`{{ }}`, `{{1abc}}`, `{{a b}}`) is ordinary text and stays as it is, and so do single braces (`{\"a\": 1}` is fine).\n- The value is turned into text with `str(...)`.\n- A placeholder whose name is not in `variables` raises `KeyError` with the name as its argument. Extra variables are ignored.\n- **A value is never searched for placeholders.** If a variable's value contains `{{secret}}`, that text is inserted as it is, even if there is a variable called `secret`.\n\n```python\nrender(\"Hello {{ name }}, you have {{n}} messages.\", {\"name\": \"Ada\", \"n\": 3})   # \"Hello Ada, you have 3 messages.\"\nrender(\"Q: {{question}}\", {\"question\": \"{{secret}}\", \"secret\": \"PASSWORD\"})     # \"Q: {{secret}}\"\n```",
+  "starter": "import re\n\n\ndef render(template, variables):\n    \"\"\"Return the template with every {{name}} replaced by str(variables[name]).\"\"\"\n    ...\n",
+  "tests": [
+    "def missing(template, variables):\n    \"\"\"The name a KeyError was raised for, or fail the test if there was none.\"\"\"\n    try:\n        render(template, variables)\n    except KeyError as error:\n        return error.args[0]\n    raise AssertionError(\"expected a KeyError for the missing variable\")",
+    "assert render(\"Hello {{name}}!\", {\"name\": \"Ada\"}) == \"Hello Ada!\"",
+    "assert render(\"Hello {{ name }}, you have {{n}} messages.\", {\"name\": \"Ada\", \"n\": 3}) == \"Hello Ada, you have 3 messages.\", \"spaces inside are allowed and values become text\"",
+    "assert render(\"{{a}}{{b}}{{a}}\", {\"a\": \"1\", \"b\": \"2\"}) == \"121\", \"a variable can be used more than once\"",
+    "assert render(\"no placeholders here\", {\"unused\": 1}) == \"no placeholders here\", \"extra variables are ignored\"",
+    "assert render('{\"role\": \"user\", \"content\": \"{{text}}\"}', {\"text\": \"hi\"}) == '{\"role\": \"user\", \"content\": \"hi\"}', \"single braces are text\"",
+    "assert render(\"Q: {{question}}\", {\"question\": \"{{secret}}\", \"secret\": \"PASSWORD\"}) == \"Q: {{secret}}\", \"a value is inserted as it is, never expanded\"",
+    "assert render(\"{{a}}\", {\"a\": \"{{a}}\"}) == \"{{a}}\", \"and a value that names itself does not loop\"",
+    "assert render(\"{{x}}\", {\"x\": None}) == \"None\" and render(\"{{x}}\", {\"x\": [1, 2]}) == \"[1, 2]\", \"str() of the value\"",
+    "assert render(\"{{ }} {{1abc}} {{a b}} {{}}\", {}) == \"{{ }} {{1abc}} {{a b}} {{}}\", \"not placeholders: left alone, no error\"",
+    "assert render(\"{{_private1}}\", {\"_private1\": \"ok\"}) == \"ok\"",
+    "assert missing(\"Hi {{name}}\", {}) == \"name\"",
+    "assert missing(\"{{a}} and {{b}}\", {\"a\": 1}) == \"b\", \"the missing one is named\"",
+    "assert render(\"\", {}) == \"\"",
+    "assert render(\"{{{name}}}\", {\"name\": \"x\"}) == \"{x}\", \"three braces: the inner pair is the placeholder\""
+  ],
+  "hints": [
+    "A regular expression with one capture group for the name, and `re.sub` with a function as the replacement, does this in one pass.",
+    "The pattern: `\\{\\{`, optional whitespace, the name `[A-Za-z_][A-Za-z0-9_]*`, optional whitespace, `\\}\\}`.",
+    "Raise `KeyError(name)` inside the replacement function when the name is missing. Do not run a second substitution over the result."
+  ],
+  "solution": "import re\n\n_PLACEHOLDER = re.compile(r\"\\{\\{\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\}\\}\")\n\n\ndef render(template, variables):\n    def fill(match):\n        name = match.group(1)\n        if name not in variables:\n            raise KeyError(name)\n        return str(variables[name])\n\n    # re.sub reads the template once and never looks at what it inserted, so a value cannot add placeholders\n    return _PLACEHOLDER.sub(fill, template)\n",
+  "explanation": "**The idea.** One pass over the template with a regular expression and a function that supplies each replacement. `re.sub` never rescans the text it has produced, which is exactly the guarantee wanted here.\n\n**Why not `str.replace` in a loop.** Replacing the variables one after another lets the value of the first one contain `{{second}}`, and the second pass then expands it. When a value comes from a user (a document, a message), that lets them reach other variables: a system prompt, a retrieved secret, another user's data. That is a form of **prompt injection** you create yourself, in the template engine, before any model sees the text. The same reasoning is behind parameterised SQL queries.\n\n**Fail loudly.** A missing variable that silently renders as an empty string sends the model a broken prompt and the bug appears as \"the answers got worse\". Raising at render time catches it in a test.\n\n**Complexity.** O(length of template + values).\n\n**Usual mistakes.** Chained `.replace` calls; treating `{{ name }}` (spaces) and `{{name}}` differently; matching names with `\\w+` that accepts `1abc`; `.format()` with user-controlled text (it can read attributes: `\"{0.__class__}\"`).\n\n**Follow-up.** Escaping is the other half: if the template is HTML or JSON, a value must be escaped for that format, which is a different problem from placeholder expansion."
+}

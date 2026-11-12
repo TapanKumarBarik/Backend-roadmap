@@ -1,0 +1,30 @@
+{
+  "title": "Softmax with Temperature",
+  "topic": "ml-from-scratch",
+  "difficulty": "beginner",
+  "description": "Turn a list of scores into probabilities that sum to 1, without overflowing, with a temperature that sharpens or flattens them.",
+  "statement": "Write `softmax(logits, temperature=1.0)`, which turns a list of raw scores (logits) into a list of probabilities.\n\n- Each logit is divided by `temperature` first, then the result is the softmax: `exp(x_i) / sum(exp(x_j))`.\n- A **low** temperature (below 1) makes the largest probability bigger; a **high** one flattens the list towards equal probabilities.\n- It must work for any scores a model can produce, including `1000` or `-1000`: a naive `exp(1000)` overflows.\n- An empty list gives `[]`. A `temperature` that is zero or negative raises `ValueError`.\n\n```python\nsoftmax([1, 2, 3])       # [0.09, 0.2447, 0.6652]   (rounded to 4 places)\nsoftmax([1000, 1001])    # [0.2689, 0.7311]\nsoftmax([1, 2], 0.5)     # [0.1192, 0.8808]\n```",
+  "starter": "import math\n\n\ndef softmax(logits, temperature=1.0):\n    \"\"\"Return the probabilities for `logits`, as a list of floats that sum to 1.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(values, places=4):\n    return [round(v, places) for v in values]",
+    "assert rounded(softmax([1, 2, 3])) == [0.09, 0.2447, 0.6652]",
+    "assert rounded(softmax([2.0, 1.0, 0.1])) == [0.659, 0.2424, 0.0986]",
+    "assert rounded(softmax([0, 0, 0, 0])) == [0.25, 0.25, 0.25, 0.25]",
+    "assert rounded(softmax([1000, 1001])) == [0.2689, 0.7311], \"large logits must not overflow\"",
+    "assert rounded(softmax([-1000, 0])) == [0.0, 1.0], \"very negative logits must not break it either\"",
+    "assert rounded(softmax([1, 2], 0.5)) == [0.1192, 0.8808], \"a low temperature sharpens\"",
+    "assert rounded(softmax([1, 2], 2)) == [0.3775, 0.6225], \"a high temperature flattens\"",
+    "assert rounded(softmax([3, 1], 0.01)) == [1.0, 0.0]",
+    "assert softmax([]) == []",
+    "assert abs(sum(softmax([0.3, -2.5, 7.1, 7.1, 0.0])) - 1.0) < 1e-12, \"the probabilities sum to 1\"",
+    "assert raises(ValueError, softmax, [1.0], 0)",
+    "assert raises(ValueError, softmax, [1.0], -1)"
+  ],
+  "hints": [
+    "Try `softmax([1000, 1001])` by hand with the formula. What goes wrong with `exp(1000)`, and what could you do to the scores before you take `exp` that does not change the answer?",
+    "Subtracting the same number from every logit leaves the result unchanged. Subtract the largest one, so the largest exponent is 0.",
+    "Divide by the temperature before anything else, and check the temperature before you check for an empty list (or after, but be consistent with what the statement says)."
+  ],
+  "solution": "import math\n\n\ndef softmax(logits, temperature=1.0):\n    if temperature <= 0:\n        raise ValueError(\"temperature must be positive\")\n    if not logits:\n        return []\n    scaled = [x / temperature for x in logits]\n    biggest = max(scaled)\n    exps = [math.exp(x - biggest) for x in scaled]   # the largest becomes exp(0) = 1, so nothing overflows\n    total = sum(exps)\n    return [e / total for e in exps]\n",
+  "explanation": "**The idea.** `exp` grows so fast that `exp(1000)` is too large for a float. But softmax does not change if you subtract the same number from every logit (it cancels in the fraction), so subtract the largest one first: the biggest term becomes `exp(0) = 1`, and every other term is between 0 and 1. That is the \"log-sum-exp trick\", and every deep-learning library does it.\n\n**Temperature** is just a division before the softmax. Language models use it when they sample the next token: a temperature near 0 makes the model almost always pick its top choice (it approaches `argmax`), while a high temperature spreads the probability onto less likely tokens, which reads as \"more creative\" and \"more random\".\n\n**Complexity.** O(n) time and space.\n\n**Usual mistakes.** Subtracting the maximum of the *original* logits (it must be the maximum after dividing by the temperature if you subtract after; subtracting before dividing also works, but be consistent); computing `exp` of everything first and normalising after; forgetting the empty list.\n\n**Follow-up.** Cross-entropy loss is `-log(softmax(logits)[correct])`, and it can be computed directly as `logsumexp(logits) - logits[correct]` without ever forming the probabilities."
+}

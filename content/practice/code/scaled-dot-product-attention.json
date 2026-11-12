@@ -1,0 +1,36 @@
+{
+  "title": "Scaled Dot-Product Attention",
+  "topic": "llm-and-genai",
+  "difficulty": "intermediate",
+  "module": "genai/02-transformer-architecture/06-scaled-dot-product-attention/README.md",
+  "description": "Compute the attention weights and output of one attention head, optionally with a causal mask.",
+  "statement": "Attention lets each position in a sequence take a weighted mix of the values at other positions. Write `attention(Q, K, V, causal=False)` for lists of lists of numbers: `Q` has one row (a query vector of length `d`) per position, `K` one row (length `d`) per key, and `V` one row (any length) per key, with as many rows in `V` as in `K`.\n\nFor each query row `i`:\n\n1. Its **scores** are the dot product of the query with every key, divided by `sqrt(d)`.\n2. With `causal=True`, a position may not look ahead: keys `j > i` are excluded (their weight is exactly `0.0`). With a causal mask `Q` and `K` must have the same number of rows, otherwise raise `ValueError`.\n3. The **weights** are the softmax of the (unmasked) scores, so they sum to 1.\n4. The output row is the weights-weighted sum of the rows of `V`.\n\nReturn `(output, weights)`.\n\n```python\nI = [[1, 0], [0, 1]]\nattention(I, I, I)               # output [[0.6698, 0.3302], [0.3302, 0.6698]]\nattention(I, I, I, causal=True)  # output [[1.0, 0.0], [0.3302, 0.6698]]\n```",
+  "starter": "import math\n\n\ndef attention(Q, K, V, causal=False):\n    \"\"\"Return (output, weights) for scaled dot-product attention.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]\nI = [[1, 0], [0, 1]]\nout, weights = attention(I, I, I)",
+    "assert rounded(out) == [[0.6698, 0.3302], [0.3302, 0.6698]]",
+    "assert rounded(weights) == [[0.6698, 0.3302], [0.3302, 0.6698]]",
+    "out, weights = attention(I, I, I, causal=True)",
+    "assert rounded(weights) == [[1.0, 0.0], [0.3302, 0.6698]], \"the first position can only see itself\"",
+    "assert rounded(out) == [[1.0, 0.0], [0.3302, 0.6698]]",
+    "out, weights = attention([[1, 0]], [[1, 0], [0, 1], [1, 1]], [[10, 0], [0, 10], [5, 5]])",
+    "assert rounded(weights) == [[0.4011, 0.1978, 0.4011]], \"one query attends to three keys\"",
+    "assert rounded(out) == [[6.0167, 3.9833]], \"the output has the width of V, not of K\"",
+    "out, weights = attention([[100, 0], [0, 100]], [[100, 0], [0, 100]], [[1, 2], [3, 4]])",
+    "assert rounded(weights) == [[1.0, 0.0], [0.0, 1.0]], \"huge scores (10,000 / 1.41) must not overflow\"",
+    "assert rounded(out) == [[1.0, 2.0], [3.0, 4.0]]",
+    "out, weights = attention([[1, 2, 3, 4]], [[1, 2, 3, 4], [0, 0, 0, 0]], [[1], [3]])",
+    "assert rounded(weights) == [[1.0, 0.0]] and rounded(out) == [[1.0]], \"d = 4: the scores are divided by 2 (30 / 2 = 15 against 0)\"",
+    "out, weights = attention([[1, 1]], [[1, 1], [1, 1]], [[2], [4]])",
+    "assert rounded(weights) == [[0.5, 0.5]] and rounded(out) == [[3.0]], \"equal scores: an even mix\"",
+    "assert all(abs(sum(row) - 1.0) < 1e-12 for row in attention(I + [[1, 1]], I + [[1, 1]], I + [[1, 1]])[1]), \"every row of weights sums to 1\"",
+    "assert raises(ValueError, attention, [[1, 0]], I, I, causal=True)"
+  ],
+  "hints": [
+    "For one query: a score per key (the dot product, divided by `sqrt(d)`), a softmax over the scores, then a weighted sum of the rows of `V`.",
+    "Subtract the largest score before taking `exp` so that huge scores cannot overflow.",
+    "For the causal mask, only take the softmax over the keys `0..i` and give the later keys weight `0.0`. Do not zero them after a full softmax."
+  ],
+  "solution": "import math\n\n\ndef _softmax(scores):\n    biggest = max(scores)\n    exps = [math.exp(s - biggest) for s in scores]\n    total = sum(exps)\n    return [e / total for e in exps]\n\n\ndef attention(Q, K, V, causal=False):\n    if causal and len(Q) != len(K):\n        raise ValueError(\"a causal mask needs as many queries as keys\")\n    scale = math.sqrt(len(Q[0]))\n    output, weights = [], []\n    for i, query in enumerate(Q):\n        scores = [sum(q * k for q, k in zip(query, key)) / scale for key in K]\n        limit = i + 1 if causal else len(K)          # a causal query only sees keys 0..i\n        row = _softmax(scores[:limit]) + [0.0] * (len(K) - limit)\n        weights.append(row)\n        output.append([sum(row[j] * V[j][c] for j in range(len(V))) for c in range(len(V[0]))])\n    return output, weights\n",
+  "explanation": "**The idea.** A query asks \"what am I looking for?\", each key says \"what do I contain?\", and the dot product is the match score. Softmax turns the scores into weights that sum to 1, and the output is the weighted average of the values. That is the whole mechanism behind a transformer head: `softmax(Q K^T / sqrt(d)) V`.\n\n**Why divide by `sqrt(d)`.** A dot product of two random vectors of length `d` has a spread that grows like `sqrt(d)`. Without the division, long vectors produce huge scores, the softmax saturates (one weight near 1, the rest near 0), and its gradients vanish. The test with `d = 4` and scores of 30 shows the scale at work.\n\n**The causal mask.** When a model is trained to predict the next token, position `i` must not read tokens after it, or it could just copy the answer. Masking is done *before* the softmax (the future keys are excluded, as if their scores were minus infinity) so the visible weights still sum to 1. Setting weights to zero *after* the softmax would leave rows that no longer sum to 1.\n\n**Complexity.** O(n x m x d) for the scores: the cost that makes long contexts expensive.\n\n**Usual mistakes.** Forgetting the scale; masking after the softmax; subtracting no maximum, so large scores overflow `exp`; making the output as wide as `K` instead of `V`."
+}

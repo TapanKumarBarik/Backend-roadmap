@@ -1,0 +1,29 @@
+{
+  "title": "ROC AUC",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Compute the area under the ROC curve: how often a random positive scores above a random negative.",
+  "statement": "A classifier gives each item a score. The **AUC** is the probability that a randomly chosen positive item has a higher score than a randomly chosen negative one, where a tie counts as one half.\n\nWrite `roc_auc(y_true, scores)`, where `y_true` holds `1` (positive) or `0` (negative) and `scores[i]` is the score of item `i`. Return the AUC as a float between 0 and 1. Raise `ValueError` if the lists differ in length, or if the labels are all the same (there is nothing to compare).\n\n```python\nroc_auc([0, 0, 1, 1], [0.1, 0.4, 0.35, 0.8])   # 0.75   (3 of the 4 positive-negative pairs are ranked correctly)\nroc_auc([0, 1], [0.5, 0.5])                    # 0.5    (a tie is half a win)\nroc_auc([0, 1], [0.9, 0.1])                    # 0.0\n```\n\nAim for O(n log n): the tests include 20,000 items, where comparing every pair is far too slow.",
+  "starter": "def roc_auc(y_true, scores):\n    \"\"\"Return the probability that a random positive outscores a random negative (ties count one half).\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert roc_auc([0, 0, 1, 1], [0.1, 0.4, 0.35, 0.8]) == 0.75",
+    "assert roc_auc([0, 1], [0.5, 0.5]) == 0.5",
+    "assert roc_auc([0, 1], [0.9, 0.1]) == 0.0",
+    "assert roc_auc([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9]) == 1.0, \"every positive is above every negative\"",
+    "assert roc_auc([1, 0, 1, 0, 1], [3, 3, 3, 3, 3]) == 0.5, \"all scores equal: no ranking at all\"",
+    "assert roc_auc([1, 1, 0, 0, 0], [0.9, 0.5, 0.5, 0.2, 0.1]) == (1 + 1 + 1 + 0.5 + 1 + 1) / 6, \"a tie between a positive and a negative is half a win\"",
+    "assert roc_auc([0, 1, 1, 0], [-3, 2, 5, -1]) == 1.0, \"scores can be negative, and need not be probabilities\"",
+    "assert raises(ValueError, roc_auc, [1, 1, 1], [0.1, 0.2, 0.3])",
+    "assert raises(ValueError, roc_auc, [0, 1], [0.1])",
+    "n = 10000\npairs = [(0, 2 * i) for i in range(n)] + [(1, 2 * i + 1) for i in range(n)]\nrandom.Random(7).shuffle(pairs)\nlabels, values = [p[0] for p in pairs], [p[1] for p in pairs]",
+    "assert round(roc_auc(labels, values), 6) == 0.50005, \"20,000 items: a positive 2j+1 beats the negatives 0, 2, ..., 2j\""
+  ],
+  "hints": [
+    "Think of the definition as counting pairs. Is there a way to count them without looking at each pair? What does sorting by score give you?",
+    "After sorting, the rank of an item (1 for the lowest score) says how many items it beats. Add up the ranks of the positives and subtract what that sum would be if all positives came first from the bottom.",
+    "Equal scores must all get the same, average rank. Find each run of equal scores in the sorted order and give every member the run's average rank."
+  ],
+  "solution": "def roc_auc(y_true, scores):\n    if len(y_true) != len(scores):\n        raise ValueError(\"labels and scores must have the same length\")\n    positives = sum(1 for y in y_true if y == 1)\n    negatives = len(y_true) - positives\n    if positives == 0 or negatives == 0:\n        raise ValueError(\"AUC needs both classes\")\n\n    order = sorted(range(len(scores)), key=lambda i: scores[i])\n    rank_sum = 0.0          # sum of the (1-based) ranks of the positives, tied scores sharing their average rank\n    start = 0\n    while start < len(order):\n        end = start\n        while end + 1 < len(order) and scores[order[end + 1]] == scores[order[start]]:\n            end += 1\n        average_rank = (start + end) / 2 + 1\n        rank_sum += average_rank * sum(1 for i in order[start:end + 1] if y_true[i] == 1)\n        start = end + 1\n    return (rank_sum - positives * (positives + 1) / 2) / (positives * negatives)\n",
+  "explanation": "**The idea.** Comparing every positive with every negative is O(P x N). The same number falls out of one sort. Sort all items by score and give each the rank 1, 2, 3, ... (items with equal scores share the average of their ranks, which is what makes a tie worth one half). The sum of the positives' ranks, minus the smallest it could possibly be (`P(P+1)/2`, if every positive were below every negative), counts exactly the winning pairs. Divide by `P x N` pairs.\n\n**Why people use it.** AUC does not depend on a threshold, so it compares models before you pick one, and it does not care how the scores are scaled, only how they rank. It is also known as the Mann-Whitney U statistic.\n\n**Complexity.** O(n log n) for the sort, O(n) for the scan.\n\n**Usual mistakes.** Ignoring ties (a model that gives everyone the same score must get 0.5, not 0 or 1); using 0-based ranks; building the full pair list.\n\n**Follow-up.** AUC says nothing about calibration (whether a score of 0.8 means 80%), and on a very imbalanced problem the precision-recall curve is usually the more honest picture."
+}

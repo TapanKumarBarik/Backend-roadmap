@@ -1,0 +1,31 @@
+{
+  "title": "K-Means Clustering",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Group points into k clusters by moving centroids to the mean of the points nearest to them, until nothing changes.",
+  "statement": "Write `kmeans(points, k, max_iter=100)`, which groups `points` (a list of equal-length tuples or lists of numbers) into `k` clusters with Lloyd's algorithm, and returns `(labels, centroids)`.\n\n- The starting centroids are the **first `k` points**, in order.\n- Repeat at most `max_iter` rounds. In each round:\n  1. **Assign** every point to its nearest centroid (squared Euclidean distance; on a tie the centroid with the lower index wins).\n  2. If no label differs from the previous round's, stop. (The first round always counts as a change.)\n  3. Otherwise move every centroid to the mean of the points assigned to it. A centroid with no points keeps its place.\n- `labels[i]` is the centroid index of `points[i]` from the **last assignment** made. `centroids` is a list of lists of floats.\n\n```python\nkmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2)\n# ([0, 0, 1, 1], [[0.0, 0.5], [10.0, 10.5]])\n```",
+  "starter": "def kmeans(points, k, max_iter=100):\n    \"\"\"Return (labels, centroids) for `points` grouped into k clusters.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef rounded(table, places=4):\n    return [[round(v, places) for v in row] for row in table]",
+    "assert kmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2) == ([0, 0, 1, 1], [[0.0, 0.5], [10.0, 10.5]])",
+    "labels, centroids = kmeans([(0, 0), (0, 1), (10, 10), (10, 11)], 2, max_iter=1)",
+    "assert (labels, rounded(centroids)) == ([0, 1, 1, 1], [[0.0, 0.0], [6.6667, 7.3333]]), \"one round: the first assignment, then the first move\"",
+    "assert kmeans([(0, 0), (0, 0), (0, 0)], 2) == ([0, 0, 0], [[0.0, 0.0], [0.0, 0.0]]), \"equal distances go to the lower index, and a centroid with no points stays put\"",
+    "labels, centroids = kmeans([(1,), (2,), (9,), (10,), (11,), (30,)], 2)",
+    "assert (labels, centroids) == ([0, 0, 1, 1, 1, 1], [[1.5], [15.0]]), \"the start (1, 2) decides the answer: 30 pulls the second cluster up\"",
+    "labels, centroids = kmeans([(1,), (2,), (3,), (10,), (11,), (12,), (20,), (21,), (22,)], 3)",
+    "assert (labels, centroids) == ([0, 1, 1, 2, 2, 2, 2, 2, 2], [[1.0], [2.5], [16.0]]), \"starting from the first three points, not the three natural groups\"",
+    "assert kmeans([(5, 5)], 1) == ([0], [[5.0, 5.0]])",
+    "assert kmeans([[1.0, 2.0], [3.0, 6.0]], 1) == ([0, 0], [[2.0, 4.0]]), \"k = 1: one centroid at the mean of everything\"",
+    "rng = random.Random(3)\nblob_a = [(rng.gauss(0, 1), rng.gauss(0, 1)) for _ in range(100)]\nblob_b = [(rng.gauss(50, 1), rng.gauss(50, 1)) for _ in range(100)]\nlabels, centroids = kmeans([blob_a[0], blob_b[0]] + blob_a[1:] + blob_b[1:], 2)",
+    "assert labels[0] != labels[1] and set(labels[2:101]) == {labels[0]} and set(labels[101:]) == {labels[1]}, \"two well separated blobs end up as two clusters\"",
+    "assert abs(centroids[1][0] - 50) < 1 and abs(centroids[0][0]) < 1"
+  ],
+  "hints": [
+    "Split it into the two steps: a function (or a loop) that gives every point a label, and one that turns labels into new centroids.",
+    "Convergence is when the new labels equal the previous labels. Keep the previous labels around (start with `None` so the first round always counts as a change).",
+    "Use a strict `<` when looking for the nearest centroid so a tie keeps the lower index, and skip the update for a cluster with no members."
+  ],
+  "solution": "def kmeans(points, k, max_iter=100):\n    centroids = [[float(v) for v in p] for p in points[:k]]\n    labels = None\n    for _ in range(max_iter):\n        new_labels = []\n        for p in points:\n            best, best_distance = 0, None\n            for j, c in enumerate(centroids):\n                distance = sum((a - b) ** 2 for a, b in zip(p, c))\n                if best_distance is None or distance < best_distance:       # strict: a tie keeps the lower index\n                    best, best_distance = j, distance\n            new_labels.append(best)\n        if new_labels == labels:\n            break\n        labels = new_labels\n        for j in range(k):\n            members = [p for p, label in zip(points, labels) if label == j]\n            if members:\n                centroids[j] = [sum(column) / len(members) for column in zip(*members)]\n    return labels, centroids\n",
+  "explanation": "**The idea.** Alternate two steps that each can only lower the total squared distance from points to their centroids: *assign* every point to the nearest centroid, then *update* every centroid to the mean of its points (the mean is the point that minimises the sum of squared distances). When the assignment stops changing, so does everything after it, and the algorithm has converged.\n\n**It finds a local optimum, not the best one.** The second test starts from the first `k` points and ends with a clustering that a person would not choose. Real implementations pick the starting centroids with **k-means++** (spread out, chosen with probability proportional to distance) and run several restarts, keeping the one with the smallest total distance.\n\n**Complexity.** O(rounds x n x k x d).\n\n**Usual mistakes.** Letting an empty cluster's centroid become a division by zero (or `(0, 0)`); comparing the centroids instead of the labels to detect convergence (floats); using `<=` so that ties go to the last centroid; modifying the input points.\n\n**Follow-up.** How do you choose `k`? Plot the total squared distance against `k` (the elbow), or use the silhouette score."
+}

@@ -1,0 +1,31 @@
+{
+  "title": "One Step of Logistic Regression",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Write a stable sigmoid and one gradient-descent step on the log loss, then watch it learn a boundary.",
+  "statement": "Logistic regression predicts the probability that an item is positive as `p = sigmoid(w . x + b)`, where `sigmoid(z) = 1 / (1 + exp(-z))`.\n\nWrite two functions:\n\n- `sigmoid(z)`: it must not overflow for large positive or negative `z` (`sigmoid(-1000)` is `0.0`, `sigmoid(1000)` is `1.0`).\n- `logistic_step(w, b, X, y, lr)`: one step of gradient descent on the mean **log loss**. `w` is a list of weights, `b` the bias, `X` a list of rows (each as long as `w`), `y` the 0/1 labels. For each row the error is `p - y`; the gradient is the mean over rows of `error * x_j` for each weight and the mean of `error` for the bias. Return `(new_w, new_b)` as a new list and a float. Do not change `w`.\n\n```python\nlogistic_step([0, 0], 0, [[1, 2], [3, 4]], [1, 0], lr=0.1)   # ([-0.05, -0.05], 0.0)\n```",
+  "starter": "import math\n\n\ndef sigmoid(z):\n    \"\"\"Return 1 / (1 + exp(-z)) without overflowing.\"\"\"\n    ...\n\n\ndef logistic_step(w, b, X, y, lr):\n    \"\"\"Return (new_w, new_b) after one gradient-descent step on the mean log loss.\"\"\"\n    ...\n",
+  "tests": [
+    "def rounded(values, places=6):\n    return [round(v, places) for v in values]",
+    "assert sigmoid(0) == 0.5",
+    "assert round(sigmoid(2), 6) == 0.880797",
+    "assert round(sigmoid(-2), 6) == 0.119203",
+    "assert sigmoid(-1000) == 0.0, \"no OverflowError for very negative numbers\"",
+    "assert sigmoid(1000) == 1.0",
+    "new_w, new_b = logistic_step([0, 0], 0, [[1, 2], [3, 4]], [1, 0], lr=0.1)",
+    "assert (rounded(new_w), round(new_b, 6)) == ([-0.05, -0.05], 0.0)",
+    "original = [0.5, -0.5]\nnew_w, new_b = logistic_step(original, 0.1, [[1, 0], [0, 1], [1, 1]], [1, 0, 1], lr=1.0)",
+    "assert original == [0.5, -0.5], \"the weights given are not modified\"",
+    "assert (rounded(new_w), round(new_b, 6)) == ([0.776455, -0.475431], 0.242684), \"a step from non-zero weights and a bias\"",
+    "assert logistic_step([1.0], 0.0, [[2.0]], [1], lr=0.0) == ([1.0], 0.0), \"a learning rate of 0 changes nothing\"",
+    "X, y = [[0], [1], [2], [3]], [0, 0, 1, 1]\nw, b = [0.0], 0.0\nfor _ in range(500):\n    w, b = logistic_step(w, b, X, y, lr=0.5)",
+    "assert [int(sigmoid(w[0] * row[0] + b) > 0.5) for row in X] == [0, 0, 1, 1], \"repeated steps learn the boundary between 1 and 2\""
+  ],
+  "hints": [
+    "For the log loss the gradient for weight `j` is the average of `(p - y) * x_j` over the rows. What is `p` for a row?",
+    "Compute the error `p - y` for every row first, from the current weights, then build the new weights and the new bias from those errors.",
+    "`math.exp(-z)` overflows for very negative `z`. Handle negative and non-negative `z` differently."
+  ],
+  "solution": "import math\n\n\ndef sigmoid(z):\n    if z >= 0:\n        return 1 / (1 + math.exp(-z))\n    e = math.exp(z)          # z is negative here, so e is small and cannot overflow\n    return e / (1 + e)\n\n\ndef logistic_step(w, b, X, y, lr):\n    n = len(X)\n    errors = [sigmoid(sum(wj * xj for wj, xj in zip(w, row)) + b) - target for row, target in zip(X, y)]\n    new_w = [wj - lr * sum(e * row[j] for e, row in zip(errors, X)) / n for j, wj in enumerate(w)]\n    new_b = b - lr * sum(errors) / n\n    return new_w, new_b\n",
+  "explanation": "**The idea.** For the log loss `-(y log p + (1 - y) log(1 - p))` with `p = sigmoid(w . x + b)`, the derivative with respect to each weight collapses to the beautifully simple `(p - y) * x_j`, and to the bias `(p - y)`. That is the same form as linear regression's gradient, with the prediction passed through a sigmoid. Average over the rows, step against it.\n\n**Stable sigmoid.** `1 / (1 + exp(-z))` overflows when `z` is very negative, because `exp(-z)` is huge. For negative `z` use the algebraically equal `exp(z) / (1 + exp(z))`, in which the exponential is tiny. This branch-on-sign trick appears throughout machine learning code.\n\n**Compute all the errors first.** Every weight's gradient must use the errors of the *old* weights.\n\n**Complexity.** O(n x d) per step.\n\n**Usual mistakes.** Updating a weight before computing the others; using the raw `z` where the sigmoid output belongs; modifying `w` in place; dividing by `n` for the weights but not the bias.\n\n**Follow-up.** Without regularisation, on data that a line separates perfectly the weights grow without bound as you keep stepping; regularisation (an L2 penalty) keeps them finite."
+}

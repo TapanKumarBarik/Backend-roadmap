@@ -1,0 +1,33 @@
+{
+  "title": "BM25 Keyword Ranking",
+  "topic": "llm-and-genai",
+  "difficulty": "advanced",
+  "module": "genai/09-retrieval-augmented-generation/06-keyword-search-and-bm25/README.md",
+  "description": "Rank documents for a search query with BM25, the keyword scoring that still powers search and hybrid RAG.",
+  "statement": "Write `bm25_rank(query, docs, k1=1.5, b=0.75)`, which ranks a list of text documents for a query with the BM25 formula and returns `(doc_index, score)` pairs.\n\n- **Tokens:** lowercase the text and take the runs of letters and digits (`re.findall(r\"[a-z0-9]+\", text.lower())`). `\"Cat!\"` is the token `cat`; `\"cats\"` is a different token.\n- The query's terms are its **distinct** tokens (a repeated word counts once).\n- For a term `t`, `n_t` is the number of documents that contain it and `N` the number of documents. `idf(t) = ln(1 + (N - n_t + 0.5) / (n_t + 0.5))`.\n- A document's score is the sum over the query terms of `idf(t) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))`, where `tf` is how many times the term occurs in the document, `dl` the document's length in tokens and `avgdl` the average length over all documents.\n- Return only documents with a score above 0, highest first (ties: lower index first). No documents, or only empty ones, give `[]`.\n\n```python\ndocs = [\"the cat sat on the mat\", \"the dog chased the cat\", \"dogs and cats are pets\", \"a cat is a cat is a cat\"]\nbm25_rank(\"cat\", docs)   # [(3, 0.5487), (1, 0.3856), (0, 0.3567)]   (scores rounded to 4 places)\n```",
+  "starter": "import math\nimport re\n\n\ndef bm25_rank(query, docs, k1=1.5, b=0.75):\n    \"\"\"Return [(doc_index, score), ...] for the documents that match the query, best first.\"\"\"\n    ...\n",
+  "tests": [
+    "docs = [\"the cat sat on the mat\", \"the dog chased the cat\", \"dogs and cats are pets\", \"a cat is a cat is a cat\"]\ndef rounded(pairs, places=4):\n    return [(i, round(score, places)) for i, score in pairs]",
+    "assert rounded(bm25_rank(\"cat\", docs)) == [(3, 0.5487), (1, 0.3856), (0, 0.3567)]",
+    "assert rounded(bm25_rank(\"dog cat\", docs)) == [(1, 1.6872), (3, 0.5487), (0, 0.3567)], \"a document with a rare term and a common one wins\"",
+    "assert rounded(bm25_rank(\"cat cat\", docs)) == rounded(bm25_rank(\"cat\", docs)), \"a repeated query word counts once\"",
+    "assert rounded(bm25_rank(\"Cat!\", docs)) == rounded(bm25_rank(\"cat\", docs)), \"case and punctuation do not matter\"",
+    "assert rounded(bm25_rank(\"the\", docs)) == [(1, 1.0463), (0, 0.9902)]",
+    "assert rounded(bm25_rank(\"cat\", docs, k1=1.2, b=0.0)) == [(3, 0.5605), (0, 0.3567), (1, 0.3567)], \"with b = 0 the length of the document is ignored; equal scores keep index order\"",
+    "assert bm25_rank(\"zebra\", docs) == [], \"no document contains the term\"",
+    "assert bm25_rank(\"cat\", []) == []",
+    "assert bm25_rank(\"\", docs) == []",
+    "assert bm25_rank(\"cat\", [\"\", \"\"]) == [], \"only empty documents\"",
+    "assert [i for i, _ in bm25_rank(\"cats\", docs)] == [2], \"no stemming: cats is not cat\"",
+    "assert [i for i, _ in bm25_rank(\"cat\", [\"cat\"] * 3)] == [0, 1, 2], \"identical documents tie, in index order\"",
+    "many = [\"alpha beta\"] * 2000 + [\"gamma alpha beta\"]",
+    "assert bm25_rank(\"gamma\", many)[0][0] == 2000 and len(bm25_rank(\"alpha\", many)) == 2001"
+  ],
+  "hints": [
+    "Split the work: tokenise every document once, then compute `avgdl` and, for each query term, how many documents contain it.",
+    "Per document and term: `idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))`. Terms the document lacks have `tf = 0` and add nothing, so you can sum over all query terms.",
+    "Handle the edge cases: no documents, documents that are all empty (`avgdl == 0`), and a term that no document contains (no `idf`). Sort by `(-score, index)`."
+  ],
+  "solution": "import math\nimport re\nfrom collections import Counter\n\n\ndef _tokens(text):\n    return re.findall(r\"[a-z0-9]+\", text.lower())\n\n\ndef bm25_rank(query, docs, k1=1.5, b=0.75):\n    tokenised = [_tokens(doc) for doc in docs]\n    if not tokenised:\n        return []\n    avgdl = sum(len(doc) for doc in tokenised) / len(tokenised)\n    if avgdl == 0:\n        return []\n    terms = set(_tokens(query))\n    holders = {t: sum(1 for doc in tokenised if t in doc) for t in terms}   # n_t: documents containing the term\n    idf = {t: math.log(1 + (len(docs) - n + 0.5) / (n + 0.5)) for t, n in holders.items() if n}\n    ranked = []\n    for index, doc in enumerate(tokenised):\n        counts = Counter(doc)\n        norm = k1 * (1 - b + b * len(doc) / avgdl)\n        score = sum(weight * counts[t] * (k1 + 1) / (counts[t] + norm) for t, weight in idf.items())\n        if score > 0:\n            ranked.append((index, score))\n    ranked.sort(key=lambda pair: (-pair[1], pair[0]))\n    return ranked\n",
+  "explanation": "**The idea.** Two intuitions in one formula. A term that is **rare** across the collection says more about a document than a common one (`idf`: \"the\" is in half the documents, \"gamma\" in one). And more occurrences help, but with **diminishing returns** and relative to length: the `tf` term saturates (`k1` controls how fast), and a long document needs more occurrences than a short one to score the same (`b` controls how much length matters). That is why the document that says \"cat\" three times scores well, but not three times as well.\n\n**Why it still matters.** BM25 is exact-word matching: it finds product codes, error messages, names and rare terms that an embedding model blurs. Vector search finds meaning but misses exact strings. Good RAG systems use both and merge the results (see the Reciprocal Rank Fusion problem).\n\n**Complexity.** O(total tokens + documents x query terms).\n\n**Usual mistakes.** Counting the query's repeated words repeatedly; forgetting to tokenise the query the same way as the documents; `idf` that goes negative (the `1 +` inside the logarithm is the variant that keeps it positive); dividing by zero when every document is empty; stemming or not stemming inconsistently."
+}

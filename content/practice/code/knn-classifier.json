@@ -1,0 +1,32 @@
+{
+  "title": "K-Nearest Neighbours",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Classify a point by a vote among its k nearest training points, with clear rules for ties.",
+  "statement": "Write `knn_predict(train_X, train_y, x, k)`, which predicts the label of the point `x` from labelled training points. `train_X[i]` is a list of numbers and `train_y[i]` its label (any hashable value).\n\n- Distance is Euclidean. The `k` nearest training points are the neighbours; if two are the same distance away, the one that comes **first** in `train_X` is nearer.\n- If `k` is larger than the number of training points, use them all.\n- The prediction is the label with the **most** neighbours.\n- If labels tie on votes, choose the one whose **nearest** neighbour is closer to `x`.\n- Raise `ValueError` if `k < 1` or there are no training points.\n\n```python\nX, y = [[0], [3], [4]], [\"a\", \"b\", \"a\"]\nknn_predict(X, y, [3.4], k=2)   # \"b\": one vote each, and 3 is nearer to 3.4 than 4 is\nknn_predict(X, y, [3.6], k=2)   # \"a\"\nknn_predict(X, y, [3.6], k=3)   # \"a\": two votes to one\n```",
+  "starter": "def knn_predict(train_X, train_y, x, k):\n    \"\"\"Return the most common label among the k training points nearest to x.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\nX, y = [[0], [3], [4]], [\"a\", \"b\", \"a\"]",
+    "assert knn_predict(X, y, [3.4], k=2) == \"b\"",
+    "assert knn_predict(X, y, [3.6], k=2) == \"a\"",
+    "assert knn_predict(X, y, [3.6], k=3) == \"a\"",
+    "points, labels = [[0], [1], [2], [10], [11]], [\"a\", \"a\", \"a\", \"b\", \"b\"]",
+    "assert knn_predict(points, labels, [1.4], k=3) == \"a\"",
+    "assert knn_predict(points, labels, [10.4], k=1) == \"b\"",
+    "assert knn_predict(points, labels, [6], k=3) == \"a\", \"ties in distance go to the earlier training point: 2 and 10 are both 4 away, then 1 and 11 are both 5 away\"",
+    "assert knn_predict(points, labels, [6], k=2) == \"a\", \"one vote each, the nearest neighbours are equally near: the earlier point decides\"",
+    "assert knn_predict(points, labels, [7], k=2) == \"b\"",
+    "assert knn_predict(points, labels, [5], k=99) == \"a\", \"k beyond the data uses everything: three a, two b\"",
+    "assert knn_predict([[0, 0], [5, 5], [0, 1]], [1, 2, 1], [1, 1], k=1) == 1, \"two dimensions; labels can be numbers\"",
+    "assert knn_predict([[0, 0], [3, 4]], [\"near\", \"far\"], [3, 3.9], k=1) == \"far\"",
+    "assert raises(ValueError, knn_predict, X, y, [1], 0)",
+    "assert raises(ValueError, knn_predict, [], [], [1], 1)"
+  ],
+  "hints": [
+    "Sort the indices of the training points by distance to `x`. What do you sort by so that equal distances put the earlier point first?",
+    "Take the first `k` indices, count votes per label in a dict, and remember for each label how far down the sorted list its first neighbour was.",
+    "Pick the label with the most votes; among equal votes, pick the one whose first neighbour came earliest. `min` with a tuple key `(-votes, first_rank)` does it."
+  ],
+  "solution": "import math\n\n\ndef knn_predict(train_X, train_y, x, k):\n    if k < 1 or not train_X:\n        raise ValueError(\"need k >= 1 and some training points\")\n    ranked = sorted(range(len(train_X)), key=lambda i: (math.dist(train_X[i], x), i))   # nearest first, earlier point first on a tie\n    neighbours = ranked[:k]\n    votes = {}\n    nearest_rank = {}\n    for rank, i in enumerate(neighbours):\n        label = train_y[i]\n        votes[label] = votes.get(label, 0) + 1\n        nearest_rank.setdefault(label, rank)             # the first time we see a label is its nearest neighbour\n    return min(votes, key=lambda label: (-votes[label], nearest_rank[label]))\n",
+  "explanation": "**The idea.** There is no training: the \"model\" is the data. To classify a point, sort the training points by distance, keep the first `k`, and take a vote. Sorting by the pair `(distance, index)` makes the tie rule automatic, and walking the neighbours in order records the rank of each label's first neighbour, which is its nearest one: exactly what the vote tie-break needs.\n\n**Why `k` matters.** `k = 1` follows every noisy point and overfits; a large `k` smooths the boundary and eventually just predicts the biggest class. Choose it with cross-validation, and use an odd `k` for two classes to avoid ties.\n\n**Costs.** O(n log n) per prediction here (O(n) with a heap or `nsmallest`), and the whole training set must be in memory. In high dimensions distances stop meaning much (the curse of dimensionality), and features on different scales let one feature dominate, so scale first (see the Standard Scaler problem). Production systems use approximate nearest-neighbour indexes (HNSW, IVF) instead of scanning everything; that is how vector databases work.\n\n**Usual mistakes.** Not sorting by index on ties; breaking vote ties by label order instead of distance; using Manhattan distance by accident."
+}

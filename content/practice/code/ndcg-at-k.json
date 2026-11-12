@@ -1,0 +1,30 @@
+{
+  "title": "NDCG@k for Ranking",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Score a ranked list of results against the best possible order, rewarding relevant results near the top.",
+  "statement": "Search and recommendation systems are judged on how good the **top** of a ranked list is. Write `ndcg_at_k(relevances, k)`, where `relevances[i]` is the graded relevance (0, 1, 2, 3, ...) of the result the system put at position `i` (best guess first).\n\n- **DCG@k** is the sum, over the first `k` positions, of `relevance / log2(position + 1)` with positions counted from 1: the first result is divided by `log2(2) = 1`, the second by `log2(3)`, and so on. (So a relevant result counts for less the further down it is.)\n- **IDCG@k** is the DCG@k of the best possible order of the **same** relevances (sorted from highest to lowest, over all the results, not only the first `k`).\n- The result is `DCG@k / IDCG@k`, a number from 0 to 1. If IDCG@k is 0 (nothing is relevant), return `0.0`.\n- If `k` is larger than the list, use the whole list. Raise `ValueError` if `k < 1`.\n\n```python\nndcg_at_k([3, 2, 3, 0, 1, 2], 6)   # 0.9608\nndcg_at_k([0, 3, 0, 3], 2)         # 0.3869\n```",
+  "starter": "import math\n\n\ndef ndcg_at_k(relevances, k):\n    \"\"\"Return DCG@k divided by the DCG@k of the ideal ordering of the same relevances.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(ndcg_at_k([3, 2, 3, 0, 1, 2], 6), 4) == 0.9608",
+    "assert round(ndcg_at_k([3, 2, 3, 0, 1, 2], 3), 4) == 0.9778",
+    "assert round(ndcg_at_k([0, 3, 0, 3], 2), 4) == 0.3869, \"the ideal list is [3, 3] even though the system ranked a 0 first\"",
+    "assert ndcg_at_k([3, 3, 2, 1, 0], 5) == 1.0, \"already in the best order\"",
+    "assert ndcg_at_k([3, 2, 1], 1) == 1.0, \"at k = 1 only the first result counts, and it is the best one\"",
+    "assert ndcg_at_k([0, 0, 0], 3) == 0.0, \"nothing is relevant: 0.0, not a division by zero\"",
+    "assert ndcg_at_k([0, 0, 3], 2) == 0.0, \"the only relevant result is below the cut-off\"",
+    "assert round(ndcg_at_k([1, 0, 2], 3), 4) == 0.7602",
+    "assert round(ndcg_at_k([0, 1, 2, 3], 4), 4) == 0.6138, \"the best order, reversed\"",
+    "assert round(ndcg_at_k([1, 2], 10), 4) == round(ndcg_at_k([1, 2], 2), 4), \"k beyond the list is the whole list\"",
+    "assert ndcg_at_k([], 3) == 0.0",
+    "assert raises(ValueError, ndcg_at_k, [1, 2], 0)"
+  ],
+  "hints": [
+    "Write a small function `dcg(values)` first. The first position's discount is `log2(2)`: what is the discount of position `i` (counting from 0)?",
+    "The ideal ranking is the same relevances sorted from highest to lowest; compute `dcg` on that.",
+    "Truncate to `k` inside `dcg` (after sorting, for the ideal list), and return `0.0` when the ideal DCG is `0`."
+  ],
+  "solution": "import math\n\n\ndef ndcg_at_k(relevances, k):\n    if k < 1:\n        raise ValueError(\"k must be at least 1\")\n\n    def dcg(values):\n        return sum(rel / math.log2(position + 2) for position, rel in enumerate(values[:k]))\n\n    ideal = dcg(sorted(relevances, reverse=True))\n    return dcg(relevances) / ideal if ideal else 0.0\n",
+  "explanation": "**The idea.** *Gain* is the relevance of a result; *discount* shrinks it by `log2(position + 1)` because users rarely look far down; *cumulative* adds up the first `k`. The raw DCG depends on how relevant the results available for that query are, so you cannot compare two queries. Dividing by the DCG of the best possible ordering **normalises** it to 0 to 1.\n\n**What \"ideal\" means.** The best list is built from all the results that exist for the query, not just the ones the system returned in its top `k`; the second test shows why: a system that put a 0 first and missed one of the 3s scores low.\n\n**Where it is used.** It is the standard offline metric for search ranking and recommender systems, and for judging the retrieval step of a RAG pipeline when relevance has grades. Binary relevance (relevant or not) gives MRR, hit rate and precision@k, which are simpler but ignore how good a result is.\n\n**Complexity.** O(n log n) for the sort.\n\n**Usual mistakes.** Counting positions from 0 in the logarithm (`log2(0)` fails; the first position divides by `log2(2)`); computing the ideal from only the first `k` returned items; the exponential-gain variant `2 ** rel - 1` (also common, but it is not the one asked for here)."
+}

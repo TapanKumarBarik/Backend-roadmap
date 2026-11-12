@@ -1,0 +1,34 @@
+{
+  "title": "Pack Retrieved Chunks Into a Token Budget",
+  "topic": "llm-and-genai",
+  "difficulty": "intermediate",
+  "module": "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction/README.md",
+  "description": "Choose which retrieved chunks go into the prompt so the best ones fit the model's context budget.",
+  "statement": "A RAG prompt has a limited number of tokens for retrieved context. Write `pack_context(chunks, budget)`, where each chunk is a dict `{\"id\": ..., \"tokens\": int, \"score\": float}` (`tokens` is its size, `score` how relevant it is, higher is better).\n\nGo through the chunks from the **highest score to the lowest** (equal scores: the one earlier in `chunks` first). Take a chunk if it fits in the budget that is left; otherwise **skip it and carry on** with the next one, as a smaller, lower-ranked chunk may still fit. Return the ids of the chunks taken, in the order they were taken. A budget of zero or less gives `[]`.\n\n```python\nchunks = [\n    {\"id\": \"A\", \"tokens\": 900, \"score\": 0.9},\n    {\"id\": \"B\", \"tokens\": 500, \"score\": 0.8},\n    {\"id\": \"C\", \"tokens\": 300, \"score\": 0.7},\n    {\"id\": \"D\", \"tokens\": 100, \"score\": 0.6},\n]\npack_context(chunks, 1000)   # [\"A\", \"D\"]   (900 used; B and C do not fit in the 100 left; D does)\n```",
+  "starter": "def pack_context(chunks, budget):\n    \"\"\"Return the ids of the chunks that go into the prompt, best score first.\"\"\"\n    ...\n",
+  "tests": [
+    "def chunk(id, tokens, score):\n    return {\"id\": id, \"tokens\": tokens, \"score\": score}\nchunks = [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8), chunk(\"C\", 300, 0.7), chunk(\"D\", 100, 0.6)]",
+    "assert pack_context(chunks, 1000) == [\"A\", \"D\"], \"B and C are skipped, not the end of the search\"",
+    "assert pack_context(chunks, 1800) == [\"A\", \"B\", \"C\", \"D\"]",
+    "assert pack_context(chunks, 1799) == [\"A\", \"B\", \"C\"], \"D (100) would be one token too many: 900 + 500 + 300 = 1700, so 1799 - 1700 = 99\"",
+    "assert pack_context(chunks, 899) == [\"B\", \"C\"], \"A (900) does not fit; B and C do (800); D needs 100 and only 99 is left\"",
+    "assert pack_context(chunks, 99) == []",
+    "assert pack_context(chunks, 0) == [] and pack_context(chunks, -5) == []",
+    "assert pack_context([], 1000) == []",
+    "assert pack_context(list(reversed(chunks)), 1000) == [\"A\", \"D\"], \"the order of the input does not matter, only the scores\"",
+    "assert pack_context([chunk(\"x\", 10, 0.5), chunk(\"y\", 10, 0.5), chunk(\"z\", 10, 0.5)], 20) == [\"x\", \"y\"], \"equal scores: the earlier chunk first\"",
+    "assert pack_context([chunk(\"low\", 5, 0.1), chunk(\"high\", 5, 0.9)], 5) == [\"high\"], \"the better chunk gets the space\"",
+    "assert pack_context([chunk(\"exact\", 100, 0.5)], 100) == [\"exact\"], \"a chunk that fits exactly is taken\"",
+    "original = [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8)]\npack_context(original, 1000)",
+    "assert original == [chunk(\"A\", 900, 0.9), chunk(\"B\", 500, 0.8)], \"the chunks are not modified or reordered\"",
+    "many = [chunk(i, 1 + i % 7, 1 - i / 10000) for i in range(5000)]",
+    "assert len(pack_context(many, 3000)) > 600"
+  ],
+  "hints": [
+    "Sort the chunks (their indexes, so the input is untouched) by score, highest first, with the index as the tie-breaker.",
+    "Keep a running `left` budget. For each chunk, if its tokens are at most `left`, take it and subtract.",
+    "Do not stop at a chunk that does not fit: continue with the next one."
+  ],
+  "solution": "def pack_context(chunks, budget):\n    if budget <= 0:\n        return []\n    order = sorted(range(len(chunks)), key=lambda i: (-chunks[i][\"score\"], i))\n    left = budget\n    taken = []\n    for i in order:\n        if chunks[i][\"tokens\"] <= left:\n            taken.append(chunks[i][\"id\"])\n            left -= chunks[i][\"tokens\"]\n    return taken\n",
+  "explanation": "**The idea.** Rank the chunks by relevance and spend the budget from the top. When one does not fit, *skip* it and try the next: stopping at the first chunk that does not fit would waste the space that smaller chunks could use (the first test).\n\n**What this is, and what it is not.** It is a greedy method, not an optimal one. Choosing the set of chunks with the highest total score under a token limit is the knapsack problem; greedy by score does not always find the best set, but it keeps the most relevant chunks first, which is what you want, and it is fast and predictable. Production systems add more rules: a maximum per source so one document does not crowd out the others, deduplication of near-identical chunks, and putting the best chunks at the start and end of the prompt, because models attend to those more than to the middle.\n\n**Budget in tokens, not characters.** The budget must be counted in the same tokens the model uses, and must leave room for the system prompt, the question and the answer the model will write.\n\n**Complexity.** O(n log n).\n\n**Usual mistakes.** Breaking out of the loop at the first chunk that does not fit; sorting the input list in place; keeping the original order instead of the score order in the result; off-by-one at exactly the budget."
+}

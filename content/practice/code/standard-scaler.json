@@ -1,0 +1,29 @@
+{
+  "title": "Standard Scaler Without Leakage",
+  "topic": "ml-from-scratch",
+  "difficulty": "beginner",
+  "description": "Standardise features with the mean and spread of the training data only, then apply the same numbers to new data.",
+  "statement": "Write a class `StandardScaler` that rescales every column of a table of numbers to mean 0 and standard deviation 1.\n\n- `fit(rows)`: learn the mean and the **population** standard deviation (divide by `n`, not `n - 1`) of each column. `rows` is a list of equal-length lists of numbers. Returns the scaler itself.\n- `transform(rows)`: return a **new** list of lists with each value replaced by `(value - mean) / std`, using the numbers learned in `fit`, never the numbers of the rows being transformed. A column whose standard deviation is `0` becomes all `0.0`.\n- `fit_transform(rows)`: `fit`, then `transform`, on the same rows.\n- Calling `transform` before `fit` raises `RuntimeError`.\n\nThe point of keeping `fit` and `transform` apart: you fit on the **training** data and then transform both training and test data with those same numbers. Fitting on the test data leaks it into the model.\n\n```python\nscaler = StandardScaler().fit([[1, 10], [2, 10], [3, 10]])\nscaler.transform([[2, 10], [4, 10]])   # [[0.0, 0.0], [2.4495, 0.0]]   (rounded)\n```",
+  "starter": "class StandardScaler:\n    \"\"\"Scales each column to mean 0 and standard deviation 1, using the statistics of the rows it was fitted on.\"\"\"\n\n    def fit(self, rows):\n        ...\n\n    def transform(self, rows):\n        ...\n\n    def fit_transform(self, rows):\n        ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(table):\n    return [[round(v, 4) for v in row] for row in table]\ntrain = [[1, 10], [2, 10], [3, 10]]\nscaler = StandardScaler()",
+    "assert scaler.fit(train) is scaler, \"fit returns the scaler, so calls can be chained\"",
+    "assert rounded(scaler.transform(train)) == [[-1.2247, 0.0], [0.0, 0.0], [1.2247, 0.0]]",
+    "assert rounded(scaler.transform([[2, 10], [4, 10]])) == [[0.0, 0.0], [2.4495, 0.0]], \"new rows use the mean and spread of the training rows\"",
+    "assert rounded(scaler.transform([[100, 5]])) == [[120.025, 0.0]], \"and a constant training column stays 0.0, whatever arrives\"",
+    "assert rounded(scaler.transform(train)) == [[-1.2247, 0.0], [0.0, 0.0], [1.2247, 0.0]], \"transforming new rows did not change what was learned\"",
+    "assert train == [[1, 10], [2, 10], [3, 10]], \"the rows given are not modified\"",
+    "assert rounded(StandardScaler().fit_transform([[0, 5], [10, 7], [20, 9], [30, 11]])) == [[-1.3416, -1.3416], [-0.4472, -0.4472], [0.4472, 0.4472], [1.3416, 1.3416]]",
+    "assert rounded(StandardScaler().fit_transform([[4.0]])) == [[0.0]], \"a single row has no spread\"",
+    "assert raises(RuntimeError, StandardScaler().transform, [[1, 2]])",
+    "mean_of_columns = [sum(col) / 4 for col in zip(*StandardScaler().fit_transform([[3, -8], [9, 0], [1, 4], [7, 2]]))]",
+    "assert all(abs(m) < 1e-9 for m in mean_of_columns), \"the transformed training columns have mean 0\""
+  ],
+  "hints": [
+    "`zip(*rows)` turns a list of rows into columns. What do you need to remember about each column after `fit`?",
+    "Store the mean and the population standard deviation of every column on `self` in `fit`. `transform` should only read them.",
+    "A column with standard deviation 0 would divide by zero. Decide what its values become (the statement says `0.0`) and test for it per column, not once for the whole table."
+  ],
+  "solution": "class StandardScaler:\n    def __init__(self):\n        self.means = None\n        self.stds = None\n\n    def fit(self, rows):\n        columns = list(zip(*rows))\n        self.means = [sum(col) / len(col) for col in columns]\n        self.stds = [(sum((v - m) ** 2 for v in col) / len(col)) ** 0.5 for col, m in zip(columns, self.means)]\n        return self\n\n    def transform(self, rows):\n        if self.means is None:\n            raise RuntimeError(\"call fit before transform\")\n        return [\n            [(v - m) / s if s else 0.0 for v, m, s in zip(row, self.means, self.stds)]\n            for row in rows\n        ]\n\n    def fit_transform(self, rows):\n        return self.fit(rows).transform(rows)\n",
+  "explanation": "**The idea.** `fit` computes per-column statistics once and stores them. `transform` only reads them. That separation is the whole lesson: the statistics describe the **training** data, and every later row (validation, test, or a request to your model server) is scaled with those same numbers.\n\n**What goes wrong otherwise.** If you call `fit` on all the data before splitting, the test rows have influenced the mean and spread your model trains on. Scores look better than they will in production. It is called *data leakage*, and it is one of the most common reasons a model that looked great offline disappoints live. The same applies to any learned preprocessing: imputers, encoders, PCA.\n\n**Complexity.** O(rows x columns) for each method.\n\n**Usual mistakes.** Dividing by zero on a constant column; using `n - 1` (the sample standard deviation) when the statement says `n`; modifying the rows in place; recomputing the statistics inside `transform`."
+}

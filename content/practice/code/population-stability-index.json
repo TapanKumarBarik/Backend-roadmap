@@ -1,0 +1,29 @@
+{
+  "title": "Population Stability Index",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Measure how far a feature has drifted between the data a model was trained on and what it sees now.",
+  "statement": "A model's input data changes over time (\"drift\"). The **population stability index** compares two histograms of the same feature, in the same buckets: `expected` (counts when the model was trained) and `actual` (counts now).\n\nWrite `psi(expected, actual, floor=0.0001)`:\n\n1. Turn each list of counts into proportions (each count divided by that list's total).\n2. Raise any proportion below `floor` to `floor`, so that an empty bucket does not make the logarithm blow up. (Do not renormalise after.)\n3. `PSI = sum((a - e) * ln(a / e))` over the buckets, where `e` and `a` are the proportions.\n\nRaise `ValueError` if the two lists have different lengths, or if either has a total of 0.\n\n```python\npsi([25, 25, 25, 25], [10, 20, 30, 40])   # 0.2282   (rounded to 4 places)\npsi([5, 5], [5, 5])                       # 0.0\n```",
+  "starter": "import math\n\n\ndef psi(expected, actual, floor=0.0001):\n    \"\"\"Return the population stability index of two histograms (lists of bucket counts).\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(psi([25, 25, 25, 25], [10, 20, 30, 40]), 4) == 0.2282",
+    "assert psi([5, 5], [5, 5]) == 0.0",
+    "assert psi([100, 200, 300, 400], [1, 2, 3, 4]) == 0.0, \"the same shape at a different size is no drift: counts become proportions\"",
+    "assert round(psi([100, 200, 300, 400], [110, 190, 310, 390]), 5) == 0.00205, \"a small shift\"",
+    "assert round(psi([10, 90], [90, 10]), 4) == 3.5156, \"the two buckets swapped\"",
+    "assert round(psi([50, 50, 0, 0], [25, 25, 25, 25]), 4) == 4.257, \"buckets that were empty are floored, so they count heavily instead of crashing\"",
+    "assert round(psi([10, 20, 30, 40], [25, 25, 25, 25]), 4) == 0.2282, \"it is symmetric: swapping the two histograms gives the same number\"",
+    "assert round(psi([1, 1], [3, 1], floor=0.2), 4) == round(psi([1, 1], [3, 1]), 4), \"the floor changes nothing when no bucket is below it\"",
+    "assert raises(ValueError, psi, [1, 2], [1, 2, 3])",
+    "assert raises(ValueError, psi, [0, 0], [1, 2])",
+    "assert raises(ValueError, psi, [1, 2], [0, 0])"
+  ],
+  "hints": [
+    "First turn the counts into proportions so the two lists are comparable, whatever their totals.",
+    "Each bucket adds `(a - e) * math.log(a / e)`. What happens to `a / e` when a bucket is empty? Apply the floor to the proportions before you divide.",
+    "Validate first: lists of different lengths, and a total of zero, are `ValueError`s."
+  ],
+  "solution": "import math\n\n\ndef psi(expected, actual, floor=0.0001):\n    if len(expected) != len(actual):\n        raise ValueError(\"the histograms need the same buckets\")\n    expected_total, actual_total = sum(expected), sum(actual)\n    if expected_total == 0 or actual_total == 0:\n        raise ValueError(\"a histogram with no counts cannot be compared\")\n    total = 0.0\n    for e_count, a_count in zip(expected, actual):\n        e = max(e_count / expected_total, floor)\n        a = max(a_count / actual_total, floor)\n        total += (a - e) * math.log(a / e)\n    return total\n",
+  "explanation": "**The idea.** Each bucket contributes `(a - e) * ln(a / e)`. Both factors have the same sign (if the bucket grew, `a - e` and `ln(a / e)` are both positive; if it shrank, both are negative), so every term is zero or positive, and the sum is zero only when the distributions are identical. It is a symmetric version of the KL divergence.\n\n**Reading it.** A common rule of thumb in credit-risk and ML monitoring: below 0.1 is stable, 0.1 to 0.25 is a moderate shift worth a look, above 0.25 is a significant shift (retrain, or find out what changed upstream). The buckets usually come from the *training* data's quantiles, so each starts with about the same share.\n\n**Why the floor.** A bucket that was empty at training time but has data now would divide by zero; replacing a zero with a tiny share keeps the score finite but large, which is the right signal: \"something appeared that the model never saw\".\n\n**Complexity.** O(buckets).\n\n**Usual mistakes.** Using counts instead of proportions; dividing by zero or taking `log(0)` on an empty bucket; subtracting in the wrong order (the formula is symmetric in sign, but `ln(e / a)` with `(a - e)` would be negative).\n\n**Follow-up.** PSI looks at one feature at a time and at its marginal distribution only; the Kolmogorov-Smirnov test, and monitoring the model's *output* distribution and its live accuracy, catch other kinds of drift."
+}

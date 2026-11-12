@@ -1,0 +1,31 @@
+{
+  "title": "Best Split for a Decision Tree",
+  "topic": "ml-from-scratch",
+  "difficulty": "intermediate",
+  "description": "Find the threshold on one feature that splits labelled data into the purest two groups, by Gini impurity.",
+  "statement": "A decision tree chooses each split to make the two sides as \"pure\" as possible. Write `best_split(xs, ys)`, which looks at one numeric feature `xs` with labels `ys` and returns `(threshold, impurity)`.\n\n- The **Gini impurity** of a group is `1 - sum(p ** 2)`, where `p` runs over the share of each label in the group (`0` for a group of one label).\n- A split sends items with `x <= threshold` left and the rest right. Its **impurity** is the average of the two groups' impurities, weighted by their sizes.\n- The candidate thresholds are the midpoints between consecutive **distinct** sorted values of `xs`.\n- Return the candidate with the lowest impurity. When two candidates differ by less than `1e-12`, the **smaller** threshold wins.\n- If there is no candidate (fewer than two items, or all `xs` equal) return `None`.\n\n```python\nbest_split([1, 2, 3, 10, 11, 12], [0, 0, 0, 1, 1, 1])   # (6.5, 0.0)\nbest_split([1, 2, 3, 4], [0, 1, 0, 1])                  # (1.5, 0.3333)   (rounded; 3.5 is just as good, and larger)\n```\n\nAim for O(n log n): the tests include 50,000 items.",
+  "starter": "def best_split(xs, ys):\n    \"\"\"Return (threshold, weighted_gini) for the best split of the feature xs, or None.\"\"\"\n    ...\n",
+  "tests": [
+    "assert best_split([1, 2, 3, 10, 11, 12], [0, 0, 0, 1, 1, 1]) == (6.5, 0.0)",
+    "threshold, impurity = best_split([1, 2, 3, 4], [0, 1, 0, 1])",
+    "assert (threshold, round(impurity, 4)) == (1.5, 0.3333), \"1.5 and 3.5 are equally good: the smaller one is returned\"",
+    "threshold, impurity = best_split([1, 1, 2, 2], [0, 1, 1, 1])",
+    "assert (threshold, round(impurity, 4)) == (1.5, 0.25), \"only one midpoint between distinct values\"",
+    "assert best_split([5, 1, 3, 9, 7], [\"no\", \"no\", \"no\", \"yes\", \"yes\"]) == (6.0, 0.0), \"the input need not be sorted: the midpoint of 5 and 7\"",
+    "assert best_split([1, 2], [\"a\", \"b\"]) == (1.5, 0.0)",
+    "assert best_split([4, 4, 4], [0, 1, 0]) is None, \"all the values are equal: nothing to split on\"",
+    "assert best_split([7], [1]) is None",
+    "assert best_split([], []) is None",
+    "threshold, impurity = best_split([1, 2, 3, 4, 5, 6], [\"a\", \"a\", \"b\", \"b\", \"c\", \"c\"])",
+    "assert (threshold, round(impurity, 4)) == (2.5, 0.3333), \"three labels: left is pure, right has b and c twice each\"",
+    "n = 50000",
+    "assert best_split(list(range(n)), [0] * (n // 2) + [1] * (n // 2)) == (24999.5, 0.0), \"50,000 items must not take a pass over the data for each candidate\""
+  ],
+  "hints": [
+    "After sorting by `xs`, a threshold between positions `i` and `i + 1` puts the first `i + 1` items on the left. How could you get the label counts of both sides without recounting from scratch for each `i`?",
+    "Sweep once: start with every label counted on the right, then move one item at a time to the left, updating the two counters.",
+    "Skip positions where the next `x` equals this one. Compare impurities with a small tolerance (`impurity < best - 1e-12`) so floating-point noise cannot decide a tie."
+  ],
+  "solution": "from collections import Counter\n\n\ndef best_split(xs, ys):\n    n = len(xs)\n    if n < 2:\n        return None\n    pairs = sorted(zip(xs, ys), key=lambda pair: pair[0])\n    right = Counter(y for _, y in pairs)\n    left = Counter()\n\n    def gini(counts, size):\n        return 1 - sum((c / size) ** 2 for c in counts.values()) if size else 0.0\n\n    best = None\n    for i in range(n - 1):\n        x, y = pairs[i]\n        left[y] += 1\n        right[y] -= 1\n        if x == pairs[i + 1][0]:\n            continue                                        # not a boundary between distinct values\n        size_left = i + 1\n        impurity = (size_left * gini(left, size_left) + (n - size_left) * gini(right, n - size_left)) / n\n        if best is None or impurity < best[1] - 1e-12:      # a tie keeps the smaller threshold\n            best = ((x + pairs[i + 1][0]) / 2, impurity)\n    return best\n",
+  "explanation": "**The idea.** Sort by the feature once. Then sweep from left to right, moving one item at a time from the \"right\" group to the \"left\" group while keeping a count of each label in both. Updating two counters is O(1), so each candidate threshold costs only the work of computing the two impurities (O(number of labels)), instead of a pass over all the items. Only boundaries between *distinct* values are candidates, because a threshold cannot separate equal values.\n\n**Gini impurity** is the chance that two items drawn at random from the group have different labels. It is 0 for a pure group and largest when the labels are evenly mixed. A tree learner tries every feature, takes the best split of each, picks the best of those, and recurses on both sides. This function is that inner step; that sweep is why trees train in O(n log n) per feature per level.\n\n**Complexity.** O(n log n) for the sort, O(n x labels) for the sweep.\n\n**Usual mistakes.** Recounting both groups for every candidate (quadratic); offering a threshold between two equal values; a floating-point tie broken by luck, not by the rule (compare with a small tolerance); forgetting that `<=` goes left.\n\n**Follow-up.** Information gain uses entropy instead of Gini; the splits are almost always the same. Without a depth limit or pruning a tree keeps splitting until it memorises the training data."
+}

@@ -1,0 +1,33 @@
+{
+  "title": "Nearest Vectors by Cosine Similarity",
+  "topic": "llm-and-genai",
+  "difficulty": "beginner",
+  "module": "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics/README.md",
+  "description": "Find the stored embeddings closest in direction to a query embedding: the core of vector search.",
+  "statement": "Embeddings turn text into lists of numbers, and \"similar\" texts get vectors that point the same way. Write `top_k_similar(query, vectors, k)`, which returns the `k` stored vectors most similar to the query as a list of `(index, score)` pairs.\n\n- The score is the **cosine similarity**: `dot(a, b) / (|a| * |b|)`, a number from -1 to 1.\n- If either vector is all zeros, the score is `0.0` (instead of dividing by zero).\n- Sort from the highest score to the lowest; vectors with equal scores come in index order.\n- If `k` is larger than the number of vectors, return them all. Raise `ValueError` if `k < 1`.\n\n```python\nvectors = [[1, 0], [0, 1], [1, 1], [-1, 0]]\ntop_k_similar([1, 0.1], vectors, 2)   # [(0, 0.995), (2, 0.774)]   (scores rounded to 3 places)\n```",
+  "starter": "import math\n\n\ndef top_k_similar(query, vectors, k):\n    \"\"\"Return the k (index, cosine_similarity) pairs most similar to `query`, best first.\"\"\"\n    ...\n",
+  "tests": [
+    "import random\ndef raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef rounded(pairs, places=4):\n    return [(i, round(score, places)) for i, score in pairs]\nvectors = [[1, 0], [0, 1], [1, 1], [-1, 0]]",
+    "assert rounded(top_k_similar([1, 0.1], vectors, 2)) == [(0, 0.995), (2, 0.774)]",
+    "assert rounded(top_k_similar([1, 0.1], vectors, 4)) == [(0, 0.995), (2, 0.774), (1, 0.0995), (3, -0.995)], \"negative similarity is allowed, and ranks last\"",
+    "assert rounded(top_k_similar([2, 4, 6], [[1, 2, 3]], 1)) == [(0, 1.0)], \"length does not matter, only direction\"",
+    "assert rounded(top_k_similar([1, 0], [[0, 1]], 1)) == [(0, 0.0)], \"perpendicular vectors score 0\"",
+    "assert rounded(top_k_similar([1, 2], [[-1, -2]], 1)) == [(0, -1.0)], \"opposite direction\"",
+    "assert top_k_similar([1, 0], [[1, 0], [2, 0], [3, 0]], 3) == [(0, 1.0), (1, 1.0), (2, 1.0)], \"equal scores keep index order\"",
+    "assert top_k_similar([1, 0], [[1, 0], [2, 0], [3, 0]], 2) == [(0, 1.0), (1, 1.0)]",
+    "assert rounded(top_k_similar([0, 0], [[1, 2], [3, 4]], 2)) == [(0, 0.0), (1, 0.0)], \"a zero query scores 0 with everything\"",
+    "assert rounded(top_k_similar([1, 2], [[0, 0], [1, 2]], 2)) == [(1, 1.0), (0, 0.0)], \"a zero stored vector scores 0\"",
+    "assert len(top_k_similar([1, 0], vectors, 99)) == 4, \"k beyond the data returns everything\"",
+    "assert top_k_similar([1, 0], [], 3) == []",
+    "assert raises(ValueError, top_k_similar, [1, 0], vectors, 0)",
+    "rng = random.Random(5)\nmany = [[rng.uniform(-1, 1) for _ in range(8)] for _ in range(20000)]\nmany[12345] = [3.0, 0, 0, 0, 0, 0, 0, 0]\nbest = top_k_similar([1.0, 0, 0, 0, 0, 0, 0, 0], many, 3)",
+    "assert best[0] == (12345, 1.0) and len(best) == 3 and best[1][1] >= best[2][1], \"20,000 vectors\""
+  ],
+  "hints": [
+    "Write a helper for the cosine of two vectors first, and decide what it returns for a zero vector.",
+    "Score every vector with its index, then keep the `k` best. `heapq.nlargest` takes a `key`.",
+    "For equal scores the lower index must come first. Include the index in the key so that it breaks ties in the right direction."
+  ],
+  "solution": "import heapq\nimport math\n\n\ndef _cosine(a, b):\n    norm_a = math.sqrt(sum(x * x for x in a))\n    norm_b = math.sqrt(sum(x * x for x in b))\n    if norm_a == 0 or norm_b == 0:\n        return 0.0\n    return sum(x * y for x, y in zip(a, b)) / (norm_a * norm_b)\n\n\ndef top_k_similar(query, vectors, k):\n    if k < 1:\n        raise ValueError(\"k must be at least 1\")\n    scored = ((index, _cosine(query, vector)) for index, vector in enumerate(vectors))\n    # nlargest by (score, then the lower index): -index makes the lower index \"larger\" on equal scores\n    return heapq.nlargest(k, scored, key=lambda pair: (pair[1], -pair[0]))\n",
+  "explanation": "**The idea.** Cosine similarity compares direction and ignores length: `dot(a, b) / (|a| * |b|)`. That is what you want for text embeddings, where a long document and a short one about the same thing point the same way but have different lengths. If you normalise every vector to length 1 once when you store it, the cosine is just the dot product, which is how most vector databases make it fast.\n\n**Top k without sorting everything.** `heapq.nlargest(k, ...)` keeps a heap of size `k`, so it is O(n log k) rather than O(n log n). The key `(score, -index)` makes equal scores come in index order, because a lower index gives a *larger* `-index`.\n\n**Where this goes next.** Exact search like this reads every vector, which is fine for thousands and too slow for hundreds of millions. Vector databases use approximate indexes (HNSW graphs, IVF clusters) that look at a small fraction of them and trade a little recall for a lot of speed. The similarity measure stays the same.\n\n**Usual mistakes.** Dividing by a zero norm; sorting by score only (ties in arbitrary order); using the Euclidean distance on vectors of different lengths and calling it cosine."
+}

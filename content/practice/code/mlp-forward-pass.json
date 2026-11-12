@@ -1,0 +1,30 @@
+{
+  "title": "Forward Pass of a Neural Network",
+  "topic": "ml-from-scratch",
+  "difficulty": "beginner",
+  "description": "Run an input through a small multi-layer network, layer by layer: weights, bias, activation.",
+  "statement": "A neural network is layers of the same operation. Write `forward(x, layers)`, which sends the input vector `x` (a list of numbers) through each layer in turn and returns the output vector.\n\nA layer is a tuple `(weights, biases, activation)`:\n\n- `weights` is a list of rows, one per output unit; each row has one number per input.\n- `biases` has one number per output unit.\n- Output unit `j` is `activation(sum(weights[j][i] * input[i]) + biases[j])`.\n- `activation` is one of `\"relu\"` (`max(0, z)`), `\"tanh\"`, `\"sigmoid\"` (`1 / (1 + exp(-z))`) or `\"linear\"` (`z`). Anything else raises `ValueError`.\n\nThe output of each layer is the input of the next. With no layers, the output is `x` itself.\n\n```python\nlayers = [([[1, 1], [1, -1]], [0, 0], \"relu\"),    # 2 inputs -> 2 units\n          ([[1, 1]], [0], \"linear\")]              # 2 inputs -> 1 unit\nforward([3, 1], layers)   # [6]    (hidden: relu([4, 2]) = [4, 2]; output: 4 + 2)\n```",
+  "starter": "import math\n\n\ndef forward(x, layers):\n    \"\"\"Return the output of the network for the input vector x.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ntwo_layers = [([[1, 1], [1, -1]], [0, 0], \"relu\"), ([[1, 1]], [0], \"linear\")]",
+    "assert forward([3, 1], two_layers) == [6]",
+    "assert forward([1, 2], [([[1, 0], [0, -1]], [0, 0], \"relu\")]) == [1, 0], \"relu clips the negative unit to 0\"",
+    "assert forward([5, 6], []) == [5, 6], \"no layers: the input comes back\"",
+    "assert forward([2], [([[3], [-1]], [1, 1], \"linear\")]) == [7, -1], \"weights times input, plus the bias, for each unit\"",
+    "assert [round(v, 4) for v in forward([0.5, -1.0], [([[0.2, -0.4], [0.7, 0.1]], [0.1, -0.2], \"tanh\"), ([[1.5, -1.0]], [0.3], \"sigmoid\")])] == [0.7419], \"tanh then sigmoid\"",
+    "assert round(forward([0], [([[1]], [0], \"sigmoid\")])[0], 6) == 0.5",
+    "assert forward([1000], [([[1]], [0], \"sigmoid\")]) == [1.0], \"a very large input must not overflow\"",
+    "assert forward([-1000], [([[1]], [0], \"sigmoid\")]) == [0.0], \"nor a very negative one\"",
+    "assert forward([1, 1, 1], [([[1, 2, 3]], [-6], \"relu\")]) == [0.0], \"exactly at the kink\"",
+    "xor = [([[1, 1], [1, 1]], [0, -1], \"relu\"), ([[1, -2]], [0], \"linear\")]",
+    "assert [forward(list(p), xor)[0] for p in [(0, 0), (0, 1), (1, 0), (1, 1)]] == [0, 1, 1, 0], \"two layers can compute XOR, which one layer cannot\"",
+    "assert raises(ValueError, forward, [1], [([[1]], [0], \"swish\")])"
+  ],
+  "hints": [
+    "One layer: for each row of `weights` take the dot product with the input, add that unit's bias. Write that as a list comprehension producing the layer's output.",
+    "Put the activation functions in a dict keyed by name, and look the name up once per layer so an unknown name raises `ValueError`.",
+    "The output list of one layer becomes the input list of the next, so reassign `x` inside the loop. A sigmoid computed as `1 / (1 + exp(-z))` overflows for very negative `z`: use the other form for negative numbers."
+  ],
+  "solution": "import math\n\n\ndef _sigmoid(z):\n    if z >= 0:\n        return 1 / (1 + math.exp(-z))\n    e = math.exp(z)\n    return e / (1 + e)\n\n\nACTIVATIONS = {\n    \"relu\": lambda z: max(0.0, z),\n    \"tanh\": math.tanh,\n    \"sigmoid\": _sigmoid,\n    \"linear\": lambda z: z,\n}\n\n\ndef forward(x, layers):\n    for weights, biases, activation in layers:\n        if activation not in ACTIVATIONS:\n            raise ValueError(f\"unknown activation {activation!r}\")\n        f = ACTIVATIONS[activation]\n        x = [f(sum(w * v for w, v in zip(row, x)) + bias) for row, bias in zip(weights, biases)]\n    return x\n",
+  "explanation": "**The idea.** One layer is a matrix-vector product plus a bias, then a non-linear function applied to every number. A network is that, repeated. Training (backpropagation) is the same computation run backwards to find how to change each weight; the forward pass is what runs when you serve predictions.\n\n**Why the non-linearity matters.** Without it, two layers collapse into one (a matrix times a matrix is a matrix), and the network could only draw straight lines. The last test is XOR, the classic function that no single layer can compute; with a `relu` in between, two layers can.\n\n**Complexity.** O(total number of weights).\n\n**Usual mistakes.** Applying the activation before adding the bias; confusing which axis of `weights` is the input and which the output; letting `exp` overflow in the sigmoid; applying `relu` to the output layer of a regression model.\n\n**Follow-up.** In practice this is one `numpy` or `torch` call per layer (`x @ W.T + b`), vectorised over a whole batch. Writing it once by hand is the way to see what those libraries do."
+}

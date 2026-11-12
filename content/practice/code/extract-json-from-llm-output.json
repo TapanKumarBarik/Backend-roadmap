@@ -1,0 +1,41 @@
+{
+  "title": "Extract JSON From a Model's Answer",
+  "topic": "llm-and-genai",
+  "difficulty": "intermediate",
+  "module": "genai/07-prompt-engineering/08-structured-output-prompting/README.md",
+  "description": "Pull the first valid JSON object or array out of a reply that also has prose and code fences around it.",
+  "statement": "Models asked for JSON often wrap it in words or a Markdown fence. Write `extract_json(text, kind=None)`, which finds the **first** place in `text` where a valid JSON object or array starts, and returns the parsed value.\n\n- Only objects (`{...}`) and arrays (`[...]`) count. A bare number or string in the text (`3`, `\"x\"`) is not returned.\n- Look at candidates from left to right. A `{` or `[` that does not start valid JSON (`{curly}`, `{'a': 1}`, a truncated object) is skipped, and the search goes on after it.\n- The braces inside JSON strings are part of the string (`{\"msg\": \"use } here\"}` is one object).\n- `kind=\"object\"` or `kind=\"array\"` considers only that type of value; any other `kind` except `None` raises `ValueError`.\n- If there is no valid object or array, return `None`.\n\n```python\nextract_json('Sure!\\n```json\\n{\"ok\": true, \"n\": [1, 2]}\\n```\\nAnything else?')   # {\"ok\": True, \"n\": [1, 2]}\nextract_json('Use {curly} braces: {\"a\": 1}')                                      # {\"a\": 1}\nextract_json('See [1] for details: {\"id\": 7}', kind=\"object\")                     # {\"id\": 7}\n```",
+  "starter": "import json\n\n\ndef extract_json(text, kind=None):\n    \"\"\"Return the first JSON object or array found in `text`, or None.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args, **kwargs):\n    try:\n        function(*args, **kwargs)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert extract_json('Sure!\\n```json\\n{\"ok\": true, \"n\": [1, 2]}\\n```\\nAnything else?') == {\"ok\": True, \"n\": [1, 2]}",
+    "assert extract_json('{\"a\": 1}') == {\"a\": 1}",
+    "assert extract_json('[1, 2, 3] and {\"x\": 1}') == [1, 2, 3], \"the first one, whatever its type\"",
+    "assert extract_json('Use {curly} braces: {\"a\": 1}') == {\"a\": 1}, \"an opening brace that does not start JSON is skipped\"",
+    "assert extract_json('{\"n\": 1} then {\"n\": 2}') == {\"n\": 1}",
+    "assert extract_json('{\"a\": {\"b\": [1, {\"c\": 2}]}} trailing words') == {\"a\": {\"b\": [1, {\"c\": 2}]}}, \"nested structures\"",
+    "assert extract_json('before {\"msg\": \"use } and { carefully\"} after') == {\"msg\": \"use } and { carefully\"}, \"braces inside strings\"",
+    "assert extract_json('{\"name\": \"Zoë\", \"ok\": \"✓\"}') == {\"name\": \"Zoë\", \"ok\": \"✓\"}",
+    "assert extract_json(\"I have 3 apples\") is None, \"a bare number is not an object or an array\"",
+    "assert extract_json('The answer is \"yes\"') is None",
+    "assert extract_json(\"{'a': 1}\") is None, \"single quotes are not JSON\"",
+    "assert extract_json('{\"a\": 1,}') is None, \"neither is a trailing comma\"",
+    "assert extract_json('{\"a\": [1, 2') is None, \"a truncated answer\"",
+    "assert extract_json(\"\") is None",
+    "assert extract_json('See [1] for details: {\"id\": 7}') == [1], \"citation brackets are valid JSON too\"",
+    "assert extract_json('See [1] for details: {\"id\": 7}', kind=\"object\") == {\"id\": 7}",
+    "assert extract_json('{\"a\": 1} [5]', kind=\"array\") == [5]",
+    "assert extract_json('{\"a\": 1}', kind=\"array\") is None",
+    "assert extract_json('broken {\"a\": 1} {\"b\": 2}', kind=\"object\") == {\"a\": 1}",
+    "assert raises(ValueError, extract_json, '{\"a\": 1}', kind=\"string\")",
+    "long_text = \"{ \" * 3000 + '{\"found\": true}'",
+    "assert extract_json(long_text) == {\"found\": True}, \"thousands of false starts\""
+  ],
+  "hints": [
+    "Do not parse the braces yourself. `json.JSONDecoder().raw_decode(text, index)` parses a value starting at `index` and raises `ValueError` if there is none.",
+    "Loop over the positions of the text; at each `{` or `[` try `raw_decode`, return the value if it works, move on if it raises.",
+    "`raw_decode` would also accept a string or a number at that position, but you only try it at an opening brace or bracket, so those never come back. For `kind`, change which characters you try."
+  ],
+  "solution": "import json\n\n\ndef extract_json(text, kind=None):\n    starts = {\"object\": \"{\", \"array\": \"[\"}\n    if kind is None:\n        wanted = \"{[\"\n    elif kind in starts:\n        wanted = starts[kind]\n    else:\n        raise ValueError(\"kind must be None, 'object' or 'array'\")\n    decoder = json.JSONDecoder()\n    for position, char in enumerate(text):\n        if char not in wanted:\n            continue\n        try:\n            value, _ = decoder.raw_decode(text, position)      # parses one value starting exactly here\n        except ValueError:\n            continue                                           # not JSON from this brace: try the next one\n        return value\n    return None\n",
+  "explanation": "**The idea.** Let the real JSON parser do the hard part. `json.JSONDecoder().raw_decode(text, position)` parses one JSON value that **starts at** a position and tells you where it ended, ignoring whatever follows. So: try every `{` and `[` in turn, and return the first one that parses. Braces inside strings, nesting and escapes are handled by the parser, which a regular expression or brace counting would get wrong.\n\n**Why this matters.** Even with \"reply only with JSON\" in the prompt, models add a sentence before, a code fence around, or a polite line after, and a strict `json.loads` on the whole reply fails. Extracting the JSON is the cheap first defence; the better ones are the provider's structured-output or JSON mode, which constrains the decoding itself, and validating the result against a schema, with a retry that shows the model its error.\n\n**The `[1]` trap.** Text citations like `[1]` are valid JSON arrays, so \"the first JSON\" can be a footnote. If you know the shape you expect, say so (`kind=\"object\"`).\n\n**Complexity.** Each failed start costs a parse attempt that stops at the first error, so the work is usually small; the worst case, a long text of nothing but `{`, is quadratic.\n\n**Usual mistakes.** Taking everything between the first `{` and the last `}`; counting braces without knowing about strings; catching every exception (hiding real bugs); returning a bare number from `raw_decode` because it also accepts those."
+}

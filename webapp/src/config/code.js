@@ -17,6 +17,8 @@ export const CODE_TOPICS = [
   { id: 'apis-and-data', label: 'APIs & data handling', glyph: 'plug' },
   { id: 'distributed-systems', label: 'Distributed systems', glyph: 'network' },
   { id: 'data-processing', label: 'Data processing', glyph: 'pipeline' },
+  { id: 'ml-from-scratch', label: 'Machine learning from scratch', glyph: 'chart' },
+  { id: 'llm-and-genai', label: 'LLM & GenAI building blocks', glyph: 'spark' },
   { id: 'debugging', label: 'Bug hunt', glyph: 'bug' }
 ];
 export const CODE_TOPIC_FALLBACK_GLYPH = 'code';

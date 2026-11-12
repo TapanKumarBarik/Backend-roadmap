@@ -1,0 +1,35 @@
+{
+  "title": "The pass@k Estimator",
+  "topic": "llm-and-genai",
+  "difficulty": "intermediate",
+  "module": "genai/15-evaluation-observability-and-safety/05-benchmark-suites-and-their-limits/README.md",
+  "description": "Estimate the chance that at least one of k sampled solutions is correct from n samples of which c passed.",
+  "statement": "Code-generating models are scored by **pass@k**: the probability that at least one of `k` attempts passes the tests. A fair way to estimate it: generate `n` samples for a problem, count the `c` that pass, and compute the probability that `k` samples drawn from those `n` without replacement contain at least one passing sample:\n\n`pass@k = 1 - C(n - c, k) / C(n, k)`\n\nWrite `pass_at_k(n, c, k)` returning that number as a float. If fewer than `k` samples fail (`n - c < k`) every draw contains a passing one, so the answer is `1.0`. Raise `ValueError` unless `0 <= c <= n` and `1 <= k <= n`.\n\nIt must stay accurate and fast when `n` is large (the tests use `n = 100000`), so do not compute the huge binomial coefficients directly.\n\n```python\npass_at_k(10, 3, 1)    # 0.3\npass_at_k(10, 3, 5)    # 0.916667\npass_at_k(10, 0, 5)    # 0.0\n```",
+  "starter": "def pass_at_k(n, c, k):\n    \"\"\"Return the unbiased pass@k estimate from n samples of which c are correct.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")",
+    "assert round(pass_at_k(10, 3, 1), 6) == 0.3, \"k = 1: simply the share that passed\"",
+    "assert round(pass_at_k(10, 3, 5), 6) == 0.916667, \"1 - C(7, 5) / C(10, 5) = 1 - 21/252\"",
+    "assert pass_at_k(10, 0, 5) == 0.0, \"nothing passed\"",
+    "assert pass_at_k(10, 10, 3) == 1.0, \"everything passed\"",
+    "assert round(pass_at_k(200, 20, 1), 6) == 0.1",
+    "assert round(pass_at_k(200, 20, 10), 6) == 0.660226",
+    "assert round(pass_at_k(1000, 1, 10), 6) == 0.01, \"one passing sample in 1000, ten tries\"",
+    "assert pass_at_k(5, 2, 4) == 1.0, \"only 3 samples fail, so any 4 contain a pass\"",
+    "assert round(pass_at_k(5, 2, 3), 6) == 0.9, \"1 - C(3, 3) / C(5, 3) = 1 - 1/10\"",
+    "assert round(pass_at_k(100000, 5, 100), 6) == 0.00499, \"n = 100,000: the binomial coefficients here have hundreds of digits\"",
+    "assert 0 <= pass_at_k(50, 7, 5) <= 1",
+    "assert pass_at_k(30, 4, 3) <= pass_at_k(30, 4, 6) <= pass_at_k(30, 4, 12), \"more tries never hurt\"",
+    "assert raises(ValueError, pass_at_k, 10, 11, 1)",
+    "assert raises(ValueError, pass_at_k, 10, -1, 1)",
+    "assert raises(ValueError, pass_at_k, 10, 3, 0)",
+    "assert raises(ValueError, pass_at_k, 10, 3, 11)"
+  ],
+  "hints": [
+    "Think about the opposite event: all `k` samples you draw are failures. In how many ways can you pick `k` of the `n - c` failures, out of all ways to pick `k` of `n`?",
+    "`C(n - c, k) / C(n, k)` equals the product, for `i` from `n - c + 1` to `n`, of `1 - k / i`. That is only `c` multiplications of numbers below 1.",
+    "If `n - c < k`, you cannot draw `k` failures, so the answer is exactly `1.0` (and the product formula would include a zero or negative factor)."
+  ],
+  "solution": "def pass_at_k(n, c, k):\n    if not (0 <= c <= n and 1 <= k <= n):\n        raise ValueError(\"need 0 <= c <= n and 1 <= k <= n\")\n    if n - c < k:\n        return 1.0\n    # C(n-c, k) / C(n, k) is the product of (1 - k / i) for i from n-c+1 to n: no huge numbers\n    all_fail = 1.0\n    for i in range(n - c + 1, n + 1):\n        all_fail *= 1.0 - k / i\n    return 1.0 - all_fail\n",
+  "explanation": "**The idea.** The chance that **none** of `k` samples (drawn from the `n` without replacement) passes is the number of ways to pick `k` failures out of the `n - c` that failed, divided by the number of ways to pick any `k` of the `n`: `C(n - c, k) / C(n, k)`. Pass@k is one minus that.\n\n**Why not just run `k` samples?** Because that estimate is noisy and biased. Generating `n` samples (say 200) and using this formula gives an *unbiased* estimate for every `k` up to `n` from the same run, with much lower variance. It is how HumanEval-style results are reported.\n\n**The numerically stable form.** `C(n - c, k) / C(n, k)` simplifies to the product of `(1 - k / i)` for `i` from `n - c + 1` to `n`: only `c` factors, each between 0 and 1, so there are no huge integers and no overflow. (Python integers would not overflow, but they would be slow with hundreds of digits, and the same code in `numpy` would break.)\n\n**Reading it.** Pass@1 is the single-try success rate; pass@10 is what you get if you can sample ten times and run the tests to pick the one that works, which is how many coding agents operate. The gap between them tells you how much a verifier is worth.\n\n**Complexity.** O(c).\n\n**Usual mistakes.** Using `c / n` raised to the power `k` (the with-replacement version, which is biased); computing the factorials; forgetting the case `n - c < k`."
+}

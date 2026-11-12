@@ -1,0 +1,35 @@
+{
+  "title": "Chunk Text With Overlap",
+  "topic": "llm-and-genai",
+  "difficulty": "beginner",
+  "module": "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies/README.md",
+  "description": "Cut a token list into fixed-size, overlapping windows, the first step of preparing documents for retrieval.",
+  "statement": "Before documents are embedded and searched, they are cut into chunks. Write `chunk_tokens(tokens, size, overlap)`, which returns a list of chunks, each a list of tokens:\n\n- A chunk holds `size` tokens. The next chunk starts `size - overlap` tokens after the start of the one before, so neighbours share `overlap` tokens.\n- The last chunk may be shorter than `size`. Stop as soon as a chunk reaches the end of `tokens`: never produce a chunk that is only a tail of the previous one.\n- Fewer tokens than `size` give one chunk with all of them; an empty list gives `[]`.\n- Raise `ValueError` unless `size >= 1` and `0 <= overlap < size`.\n\n```python\nchunk_tokens(list(\"abcdefghij\"), size=4, overlap=1)\n# [['a','b','c','d'], ['d','e','f','g'], ['g','h','i','j']]\nchunk_tokens(list(\"abcdefghi\"), size=4, overlap=2)\n# [['a','b','c','d'], ['c','d','e','f'], ['e','f','g','h'], ['g','h','i']]\n```",
+  "starter": "def chunk_tokens(tokens, size, overlap):\n    \"\"\"Return the overlapping chunks of `tokens`.\"\"\"\n    ...\n",
+  "tests": [
+    "def raises(error, function, *args):\n    try:\n        function(*args)\n    except error:\n        return True\n    except Exception as other:\n        raise AssertionError(f\"expected {error.__name__}, got {type(other).__name__}: {other}\")\n    raise AssertionError(f\"expected {error.__name__} to be raised\")\ndef spelled(chunks):\n    return [\"\".join(chunk) for chunk in chunks]",
+    "assert spelled(chunk_tokens(list(\"abcdefghij\"), 4, 1)) == [\"abcd\", \"defg\", \"ghij\"]",
+    "assert spelled(chunk_tokens(list(\"abcdefghij\"), 4, 2)) == [\"abcd\", \"cdef\", \"efgh\", \"ghij\"], \"the last window ends exactly at the end: no extra chunk\"",
+    "assert spelled(chunk_tokens(list(\"abcdefghi\"), 4, 2)) == [\"abcd\", \"cdef\", \"efgh\", \"ghi\"], \"the last chunk is shorter\"",
+    "assert spelled(chunk_tokens(list(\"abc\"), 4, 1)) == [\"abc\"], \"fewer tokens than one chunk\"",
+    "assert chunk_tokens([], 3, 1) == []",
+    "assert spelled(chunk_tokens(list(\"abcdefgh\"), 4, 0)) == [\"abcd\", \"efgh\"], \"no overlap\"",
+    "assert spelled(chunk_tokens(list(\"abcdefgh\"), 4, 3)) == [\"abcd\", \"bcde\", \"cdef\", \"defg\", \"efgh\"], \"overlap of size - 1: a window moving one token at a time\"",
+    "assert spelled(chunk_tokens(list(\"abcd\"), 4, 2)) == [\"abcd\"], \"exactly one chunk long\"",
+    "assert chunk_tokens([1, 2, 3], 2, 0) == [[1, 2], [3]], \"tokens can be anything, not just characters\"",
+    "tokens = list(range(1000))\nchunks = chunk_tokens(tokens, 128, 32)",
+    "assert [len(c) for c in chunks[:-1]] == [128] * (len(chunks) - 1) and chunks[-1][-1] == 999 and len(chunks) == 11 and len(chunks[-1]) == 40",
+    "assert all(a[-32:] == b[:32] for a, b in zip(chunks, chunks[1:])), \"neighbouring chunks share their 32 boundary tokens\"",
+    "assert tokens == list(range(1000)), \"the input is not modified\"",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 0, 0)",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 2, 2)",
+    "assert raises(ValueError, chunk_tokens, [1, 2, 3], 2, -1)"
+  ],
+  "hints": [
+    "Reject impossible settings first. Then keep a `start` index and slice `tokens[start:start + size]`.",
+    "Move `start` forward by `size - overlap` each time.",
+    "Stop when the chunk you just took reaches the end of the list: if `start + size >= len(tokens)`, the next window would only repeat the tail."
+  ],
+  "solution": "def chunk_tokens(tokens, size, overlap):\n    if size < 1 or not 0 <= overlap < size:\n        raise ValueError(\"need size >= 1 and 0 <= overlap < size\")\n    chunks = []\n    start = 0\n    while start < len(tokens):\n        chunks.append(tokens[start:start + size])\n        if start + size >= len(tokens):          # this chunk reaches the end: the next would only repeat its tail\n            break\n        start += size - overlap\n    return chunks\n",
+  "explanation": "**The idea.** Slide a window of `size` tokens along the text, moving `size - overlap` at a time. The overlap exists so that a sentence cut in half by a chunk boundary still appears whole in one of the two chunks, which helps retrieval find it.\n\n**The stopping rule.** Without the `break`, a text whose length fits the stride exactly would get one more chunk that is just the last `overlap` tokens again, a duplicate that wastes an embedding and shows up twice in the results.\n\n**Choosing the numbers.** Chunks that are too small lose context (a pronoun without its noun); too large and one embedding must average many topics, and the retrieved text eats the model's context window. Sizes of a few hundred tokens with 10 to 20 percent overlap are a common starting point, and then you measure retrieval quality on your own questions. Better strategies cut at sentence, paragraph or heading boundaries; this fixed-size window is the baseline they are compared with.\n\n**Complexity.** O(n) tokens copied, times the overlap factor.\n\n**Usual mistakes.** An infinite loop when `overlap >= size`; emitting a last chunk that is a tail of the previous one; mutating or slicing the input incorrectly at the end."
+}
