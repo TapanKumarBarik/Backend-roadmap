@@ -47,7 +47,7 @@ test('the top bar has Practice and My Learning, and Practice lists the coding pr
   assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
 
   const tablist = page.getByRole('tablist', { name: /practice/i });
-  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Code practice', 'Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
+  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Code practice', 'Study plans', 'Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
   assert.ok(await page.locator('.cm-topic').count() > 0, 'the coding problems are on the first tab, as a map of topics');
   await tablist.getByRole('tab', { name: /^Quizzes/ }).click();
   assert.ok(await page.getByRole('link', { name: /HTTP caching/i }).count() > 0, 'the quizzes are listed');

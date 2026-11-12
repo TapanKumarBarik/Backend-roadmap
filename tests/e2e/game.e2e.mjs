@@ -99,7 +99,8 @@ test('a streak is the days in a row, and the daily goal is the reader\'s own cho
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const player = page.locator('.gm-player');
   await player.waitFor();
-  assert.match(await player.innerText(), /3-day streak/, 'today, yesterday and the day before: the fourth mark is after a gap');
+  assert.match(await player.innerText(), /5-day streak/, 'today, yesterday and the day before, then one missed day that the weekly streak freeze covers, then the fourth mark');
+  assert.match(await player.innerText(), /covered by a streak freeze/, 'the strip says which day was covered');
   assert.match(await player.innerText(), /Goal reached/);
 
   const two = player.getByRole('button', { name: '2 things' });
@@ -109,6 +110,15 @@ test('a streak is the days in a row, and the daily goal is the reader\'s own cho
   await page.reload({ waitUntil: 'networkidle' });
   assert.equal(await page.locator('.gm-player').getByRole('button', { name: '2 things' }).getAttribute('aria-pressed'), 'true', 'the choice is kept');
   assert.deepEqual(real(problems), []);
+  await context.close();
+});
+
+test('a streak freeze covers one missed day a week, so a longer gap still ends the streak', async () => {
+  const { context, page } = await openWith({ done: 4, ago: [0, 1, 2, 6] });
+  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const player = page.locator('.gm-player');
+  await player.waitFor();
+  assert.match(await player.innerText(), /3-day streak/, 'three days missed in a row: the freeze covers one of them at most, and the streak ends at the next');
   await context.close();
 });
 

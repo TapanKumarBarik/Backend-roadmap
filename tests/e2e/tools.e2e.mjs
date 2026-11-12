@@ -322,3 +322,21 @@ test('a reader shares their progress as a picture, and may publish a public prof
   await gone.context.close();
   await context.close();
 });
+
+test('the command palette leads to a study plan, the mock interview, the level check and the review', async () => {
+  const { context, page, goto } = await open('/');
+  await goto();
+  for (const [query, label, heading] of [
+    ['> sql for developers', `Study plan — ${practiceContent.plans[PLAN].title}`, practiceContent.plans[PLAN].title],
+    ['> mock interview', 'Mock interview', 'Mock interview'],
+    ['> find your level', 'Find your level', 'Find your level'],
+    ['> review what you missed', 'Review what you missed', 'Review']
+  ]) {
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder(/Search modules/).fill(query);
+    await page.locator('#palList').getByText(label).first().waitFor();
+    await page.keyboard.press('Enter');
+    await page.getByRole('heading', { level: 2, name: heading }).waitFor();
+  }
+  await context.close();
+});
