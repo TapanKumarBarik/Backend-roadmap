@@ -55,3 +55,8 @@ export const FEED_PATH_PREFIX = 'feed:';
 export const feedCommentPath = (postId) => FEED_PATH_PREFIX + postId;
 /** A design challenge's discussion, under 'challenge:<kind>/<slug>'. */
 export const CHALLENGE_PATH_PREFIX = 'challenge:';
+/** A coding problem's discussion, under 'code:<slug>'. */
+export const PROBLEM_PATH_PREFIX = 'code:';
+export const problemCommentPath = (slug) => PROBLEM_PATH_PREFIX + slug;
+/** The most a comment may hold, anywhere: the API refuses more, and the app does not offer to share what would not fit. */
+export const COMMENT_MAX_CHARS = 2000;

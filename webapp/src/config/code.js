@@ -118,6 +118,22 @@ export const RUN = {
 };
 
 // One coding problem: the statement, the editor, the tests and what they say.
+/** The discussion under a problem: questions, and solutions people choose to share. */
+export const DISCUSS = {
+  heading: 'Discuss',
+  empty: 'No one has posted here yet. Ask what is unclear, or share how you solved it.',
+  placeholder: 'Ask about this problem, or share your solution…',
+  submit: 'Post',
+  signIn: 'Sign in with Google to join the discussion',
+  spoiler: 'People share their solutions here, so reading this before you have tried the problem can give the answer away.',
+  open: 'Open the discussion',
+  share: 'Share my solution',
+  shareIntro: 'My solution:',
+  shareNote: 'Your code is put in the box below. Read it, add a few words on how it works, then post it.',
+  shareEmpty: 'Write your solution in the editor, then share it from here. It is the code in the editor that is shared.',
+  tooLong: (max) => `Your solution is longer than a comment can be (${max} characters), so it cannot be shared here. You can still describe the idea in words.`
+};
+
 export const CODE = {
   back: '← All practice',
   editorLabel: 'Your Python code',

@@ -5,6 +5,7 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { commentAnchor } from '../../lib/comments.js';
+import { commentParts } from '../../lib/commentText.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { useConfirm } from '../ui/Dialog.jsx';
 
@@ -21,6 +22,8 @@ const ORDER = { oldest: chronological, newest: (a, b) => chronological(b, a), to
 const answerFirst = (order) => (a, b) => (Number(!!b.isAnswer) - Number(!!a.isAnswer)) || order(a, b);
 // How long a comment that a link named is held in view while the page above it settles.
 const SETTLE_MS = 4000;
+// A box that holds code is taller, and set in the code font, so the code can be read before it is posted.
+const codeIn = (text) => (text.includes('```') ? 'has-code' : undefined);
 
 function CommentRow({ comment, isReply, linked, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
   const [editing, setEditing] = useState(false);
@@ -43,7 +46,7 @@ function CommentRow({ comment, isReply, linked, user, onLogin, onReply, onEdit, 
   if (editing) {
     return (
       <div id={id} className={'comment' + where}>
-        <MentionTextarea value={editText} onChange={setEditText} participants={participants} autoFocus />
+        <MentionTextarea value={editText} onChange={setEditText} participants={participants} className={codeIn(editText)} autoFocus />
         <div className="comment-form-actions">
           <button onClick={() => { onEdit(comment.id, editText); setEditing(false); }}>Save</button>
           <button onClick={() => { setEditText(comment.text); setEditing(false); }}>Cancel</button>
@@ -60,7 +63,11 @@ function CommentRow({ comment, isReply, linked, user, onLogin, onReply, onEdit, 
         <span>{new Date(comment.createdAt).toLocaleString()}</span>
         {comment.editedAt && <span>(edited)</span>}
       </div>
-      <div className="comment-text">{comment.text}</div>
+      <div className="comment-text">
+        {commentParts(comment.text).map((part, i) => (part.type === 'code'
+          ? <pre key={i} className="comment-code" tabIndex={0}><code>{part.code}</code></pre>
+          : <span key={i} className="comment-words">{part.text}</span>))}
+      </div>
       <div className="comment-actions">
         <button
           className={'comment-vote-btn' + (comment.votedByMe ? ' on' : '')}
@@ -84,8 +91,10 @@ function CommentRow({ comment, isReply, linked, user, onLogin, onReply, onEdit, 
 }
 
 // `focusId` is the comment a link names (lib/comments.js): once the discussion is in, it is scrolled to, marked and given focus.
+// `draft` is something to put in the box to write in ({ text }; a new object each time, so the same words can be handed in again): the box is
+// filled, scrolled to and focused, and nothing is posted until the reader says so.
 export default function CommentsSection({
-  path, user, onLogin, focusId = null,
+  path, user, onLogin, focusId = null, draft = null,
   heading = 'Discussion',
   emptyText = 'No questions on this module yet. If something here didn’t land, ask — it’s the fastest way to find out whether the module or your understanding needs work.',
   composerPlaceholder = 'Ask a question about this module…',
@@ -95,6 +104,13 @@ export default function CommentsSection({
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
+  const composer = useRef(null);
+  useEffect(() => {
+    if (!draft) return;
+    setText(draft.text);
+    const box = composer.current && composer.current.querySelector('textarea');
+    if (box) { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); box.focus({ preventScroll: true }); }
+  }, [draft]);
   const [replyTo, setReplyTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [posting, setPosting] = useState(false);
@@ -279,9 +295,9 @@ export default function CommentsSection({
 
       {user
         ? (
-          <div className="comment-form">
+          <div className="comment-form" ref={composer}>
             <MentionTextarea
-              value={text} onChange={setText} participants={participants}
+              value={text} onChange={setText} participants={participants} className={codeIn(text)}
               placeholder={composerPlaceholder}
             />
             <div className="comment-form-actions">

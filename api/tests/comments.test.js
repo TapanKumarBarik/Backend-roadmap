@@ -7,6 +7,7 @@ import app from '../app.js';
 import { invalidateAdminCache } from '../lib/admin.js';
 import { DELETED } from '../lib/deleted.js';
 import { OWNER_EMAIL, createEnv, signedInAs } from './helpers.js';
+import practice from '../generated/practice-content.json' with { type: 'json' };
 
 const MODULE = 'backend/04-databases/01-indexes/README.md';
 const ADA = 'user-ada@example.com';
@@ -133,8 +134,9 @@ test('the list of questions is the comments on modules, newest first, and not wh
   comment('q2', { by: GRACE, name: 'Grace Hopper' });
   comment('f1', { path: 'feed:post-1' });
   comment('b1', { path: 'blog:article-1' });
+  comment('p1', { path: 'code:two-sum' });
   const { json } = await call(null, 'GET', '/comments/questions');
-  assert.deepEqual(json.map((q) => q.id), ['q2', 'q1']);
+  assert.deepEqual(json.map((q) => q.id), ['q2', 'q1'], 'what is said under a coding problem is not a question about a module either');
 });
 
 test('a question that was deleted while it had replies is no longer listed as a question', async () => {
@@ -188,4 +190,35 @@ test('what happened before the reader last looked is not new, and the activity i
   assert.equal((await call(ada, 'GET', '/comments/activity?since=2026-10-03T00:00:00Z')).json.count, 0);
   assert.equal((await call(grace, 'GET', '/comments/activity')).json.count, 0, 'Grace wrote the reply; nothing happened to her');
   assert.equal((await call(null, 'GET', '/comments/activity')).status, 401);
+});
+
+/* ------------------------------------------------------------------------------------------------ a coding problem's discussion */
+
+const [PROBLEM] = Object.keys(practice.code);
+const PROBLEM_PATH = `code:${PROBLEM}`;
+
+test('a coding problem has a discussion of its own: it is read by anyone, written by the signed in, and kept apart from the modules', async () => {
+  assert.deepEqual((await call(null, 'GET', `/comments/${PROBLEM_PATH}`)).json, []);
+  assert.equal((await call(null, 'POST', `/comments/${PROBLEM_PATH}`, { text: 'hello' })).status, 401);
+
+  const code = 'My solution:\n```python\ndef add(a, b):\n    return a + b\n```';
+  const posted = await call(ada, 'POST', `/comments/${PROBLEM_PATH}`, { text: code });
+  assert.equal(posted.status, 201);
+  assert.equal(posted.json.text, code, 'the code is kept as it was written, line breaks and all');
+  assert.deepEqual((await call(null, 'GET', `/comments/${PROBLEM_PATH}`)).json.map((c) => c.text), [code]);
+  assert.deepEqual(await listed(), [], 'the discussion of a module is not touched');
+  assert.equal((await call(ada, 'POST', `/comments/${PROBLEM_PATH}`, { text: 'x'.repeat(2001) })).status, 400, 'a comment has the same limit here as anywhere');
+});
+
+test('a reply under a coding problem leads back to the problem, by its title; one under a problem that has been taken out is counted, not linked', async () => {
+  comment('mine', { path: PROBLEM_PATH, at: '2026-09-01T00:00:00Z' });
+  comment('r1', { by: GRACE, name: 'Grace Hopper', path: PROBLEM_PATH, parent: 'mine', at: '2026-10-02T00:00:00Z' });
+  comment('mine2', { path: 'code:no-such-problem', at: '2026-09-02T00:00:00Z' });
+  comment('r2', { by: GRACE, name: 'Grace Hopper', path: 'code:no-such-problem', parent: 'mine2', at: '2026-10-03T00:00:00Z' });
+
+  const { json } = await call(ada, 'GET', '/comments/activity?since=2026-09-15T00:00:00Z');
+  assert.equal(json.count, 2);
+  assert.deepEqual(json.items, [
+    { id: 'r1', path: PROBLEM_PATH, kind: 'reply', by: 'Grace Hopper', at: '2026-10-02T00:00:00Z', title: practice.code[PROBLEM].title, slug: PROBLEM }
+  ]);
 });

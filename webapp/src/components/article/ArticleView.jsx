@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
@@ -23,7 +23,8 @@ import PathStrip from './PathStrip.jsx';
 import LectureVideos from './LectureVideos.jsx';
 import SignpostSummary from './SignpostSummary.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
-import CommentsSection from './CommentsSection.jsx';
+// The discussion is below the lesson, so it loads after it: the first page does not carry it.
+const CommentsSection = lazy(() => import('./CommentsSection.jsx'));
 import RelatedPractice from './RelatedPractice.jsx';
 import FinishCheck from './FinishCheck.jsx';
 import ReadingOptions from './ReadingOptions.jsx';
@@ -407,7 +408,9 @@ export default function ArticleView({
         {/* Notes normally live in the right rail; below 1180px that rail is
             hidden, so they fall back into the article rather than vanishing. */}
         {showNotesInArticle && <NotesPanel path={path} user={user} onLogin={onLogin} />}
-        <CommentsSection path={path} user={user} onLogin={onLogin} focusId={commentIdFromAnchor(headingTarget)} />
+        <Suspense fallback={null}>
+          <CommentsSection path={path} user={user} onLogin={onLogin} focusId={commentIdFromAnchor(headingTarget)} />
+        </Suspense>
         </>
       )}
 

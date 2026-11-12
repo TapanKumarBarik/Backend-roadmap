@@ -1043,7 +1043,14 @@ body.right-rail-collapsed #toc { display: none; }
 .comment.reply { margin-left: 28px; border-left: 2px solid var(--border-subtle); padding-left: 14px; }
 .comment-meta { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-subtle); margin-bottom: 4px; }
 .comment-meta strong { color: var(--fg); font-weight: 620; }
-.comment-text { font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.comment-text { font-size: 14.5px; line-height: 1.6; }
+.comment-words { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-code {
+  margin: 8px 0; padding: 10px 12px; overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-sunken); font: 13px/1.55 var(--mono); white-space: pre; tab-size: 4;
+}
+.comment-code code { font: inherit; background: none; padding: 0; }
+.comment-form textarea.has-code, .comment textarea.has-code { min-height: 260px; font: 13px/1.55 var(--mono); tab-size: 4; }
 .comment-reply-btn { font-size: 12px; color: var(--fg-subtle); background: none; border: 0; padding: 4px 0; margin-top: 2px; }
 .comment-reply-btn:hover { color: var(--fg); text-decoration: underline; }
 .comment-form { margin-top: 16px; }

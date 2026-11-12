@@ -25,10 +25,10 @@ const SLUG = 'two-sum';
 const PROBLEM = practiceContent.code[SLUG];
 const READY = { timeout: 90000 }; // Python is downloaded and started the first time
 
-/** The page on `url`, with the real Content-Security-Policy applied (Python must start under it), signed out. */
-async function open(url, options = {}) {
+/** The page on `url`, with the real Content-Security-Policy applied (Python must start under it), signed out unless `email` says who is signed in. */
+async function open(url, { email = null, ...options } = {}) {
   const opened = await openPage(browser, url, { withCsp: !process.env.E2E_NO_CSP, ...options }); // E2E_NO_CSP=1 for a development server, whose own scripts the policy would block
-  const env = await answerApiInProcess(opened.context, { email: null });
+  const env = await answerApiInProcess(opened.context, { email });
   return { ...opened, env };
 }
 
@@ -373,4 +373,47 @@ test('a Python example in a lesson can be run on the spot and edited, and one th
   assert.equal(await withPackage.locator('.cb-run').count(), 0, 'an example that imports fastapi has no Run button');
   assert.equal(await withPackage.locator('.cb-copy').count(), 1, 'but it can be copied');
   await other.context.close();
+});
+
+test('a problem has a discussion that stays shut until it is asked for, because it can give the answer away', async () => {
+  const { context, page, goto } = await open(`/practice/code/${SLUG}/`, { email: 'reader@example.com' });
+  await goto();
+  await page.getByRole('heading', { level: 2, name: PROBLEM.title }).waitFor();
+  await page.locator('.cp-discuss__closed').waitFor();
+  assert.match(await page.locator('.cp-discuss__closed').innerText(), /reading this before you have tried the problem can give the answer away/);
+  assert.equal(await page.locator('.comments').count(), 0, 'no discussion is loaded or shown yet');
+  assert.equal(await page.getByRole('button', { name: 'Share my solution' }).count(), 0, 'there is nothing to share before it is solved');
+
+  await page.getByRole('button', { name: 'Open the discussion' }).click();
+  await page.locator('.comments').waitFor();
+  await page.getByText('No one has posted here yet').waitFor();
+  assert.equal(await page.locator('.cp-discuss__closed').count(), 0);
+  await context.close();
+});
+
+test('a solved problem shares its solution into the discussion as code, which is shown as code, kept, and read by others', async () => {
+  const { context, page, env, goto } = await open(`/practice/code/${SLUG}/`, { email: 'reader@example.com' });
+  await seed(page, { [`practice/code/${SLUG}`]: 'done' });
+  await goto();
+  await page.locator('.cp-solved').waitFor();
+  assert.equal(await page.locator('.cp-discuss__closed').count(), 0, 'a solved problem opens its discussion');
+  await page.locator('.comments').waitFor();
+
+  assert.equal(await page.getByRole('button', { name: 'Share my solution' }).isDisabled(), true, 'the starting code is not a solution: nothing to share until the editor holds the reader’s own');
+  await page.locator('.ce-input').fill(PROBLEM.solution);
+  await page.getByRole('button', { name: 'Share my solution' }).click();
+  const shared = `My solution:\n\`\`\`python\n${PROBLEM.solution.replace(/\n+$/, '')}\n\`\`\``;
+  await until(async () => (await page.locator('.comments textarea').inputValue()) === shared, 'the code is in the box, ready to be read over and posted');
+  assert.deepEqual(env.DB.raw.prepare('SELECT path FROM comments').all(), [], 'nothing is posted until the reader posts it');
+
+  await page.locator('.comments').getByRole('button', { name: 'Post', exact: true }).click();
+  await page.locator('.comment-code').waitFor();
+  assert.equal(await page.locator('.comment-code').innerText(), PROBLEM.solution.replace(/\n+$/, ''), 'the code is shown as code, not as words');
+  assert.equal(await page.locator('.comment .comment-words').first().innerText(), 'My solution:');
+  assert.deepEqual(env.DB.raw.prepare('SELECT path, text FROM comments').all().map((r) => ({ ...r })), [{ path: `code:${SLUG}`, text: shared }]);
+
+  // it is kept: after a reload the discussion shows it again
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.locator('.comment-code').waitFor();
+  await context.close();
 });

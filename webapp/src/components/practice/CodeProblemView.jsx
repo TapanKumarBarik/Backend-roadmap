@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { useCodeDraft } from '../../hooks/useCodeDraft.js';
@@ -8,7 +8,9 @@ import { codeKey } from '../../lib/practice/progressKeys.js';
 import { groupByTopic, nextProblem } from '../../lib/practice/codeProgress.js';
 import { isCase, testParts } from '../../lib/practice/validate.js';
 import { DIFFICULTY } from '../../config/practice.js';
-import { CODE, CODE_TOPICS, RUNNER } from '../../config/code.js';
+import { CODE, CODE_TOPICS, DISCUSS, RUNNER } from '../../config/code.js';
+import { COMMENT_MAX_CHARS, problemCommentPath } from '../../lib/blog/limits.js';
+import { sharedCode } from '../../lib/commentText.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
 import { ArrowRightIcon, CrossIcon, LightbulbIcon, PlayIcon, TickIcon, WarningIcon } from '../common/icons.jsx';
@@ -16,6 +18,9 @@ import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ContentMarkdown from './ContentMarkdown.jsx';
 import CodeEditor from './CodeEditor.jsx';
+
+// The discussion is shut until it is asked for (or the problem is solved), so it is fetched only then.
+const CommentsSection = lazy(() => import('../article/CommentsSection.jsx'));
 
 // One coding problem, solved in the page: the statement and its hints on one side, an editor on the other, and below it the results of running the
 // learner's Python against the problem's tests (lib/practice/pyRunner.js, in a worker). A problem solved is saved as a progress mark like a module is
@@ -113,6 +118,9 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
   const [hintsShown, setHintsShown] = useState(0);
   const [asking, setAsking] = useState(''); // '' | 'reset' | 'solution'
   const [solution, setSolution] = useState(null);
+  const [discussing, setDiscussing] = useState(false); // the discussion is open without being asked for once the problem is solved
+  const [draft, setDraft] = useState(null);
+  const [sharePart, setSharePart] = useState(''); // '' | 'long': why the code was not put in the box
 
   const key = codeKey(slug);
   const solved = statusMap[key] === 'done';
@@ -137,6 +145,8 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
     setHintsShown(0);
     setAsking('');
     setSolution(null);
+    setDiscussing(false);
+    setDraft(null);
     setPhase('idle');
   }, [slug]);
 
@@ -166,6 +176,14 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
     setAsking('');
     try { setSolution(await fetchCodeSolution(slug)); } catch (err) { setSolution({ error: true }); }
   }, [slug]);
+
+  const share = useCallback(() => {
+    if (!user) { onLogin(); return; }
+    const text = sharedCode(DISCUSS.shareIntro, code);
+    if (text.length > COMMENT_MAX_CHARS) { setSharePart('long'); return; }
+    setSharePart('');
+    setDraft({ text });
+  }, [user, onLogin, code]);
 
   const groups = useMemo(() => groupByTopic(catalog ? catalog.code : [], statusMap, CODE_TOPICS, levels), [catalog, statusMap]);
   const next = useMemo(() => (catalog ? nextProblem(groups, statusMap, slug) : null), [catalog, groups, statusMap, slug]);
@@ -269,6 +287,32 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
               <Results phase={phase} current={current} outcome={outcome} boot={boot} onRetry={start} />
             </div>
           </div>
+
+          <section className="cp-discuss" aria-label={DISCUSS.heading}>
+            {solved || discussing ? (
+              <>
+                {solved && (
+                  <div className="cp-share">
+                    <Button size="sm" onClick={share} disabled={!changed}>{DISCUSS.share}</Button>
+                    <p>{sharePart === 'long' ? DISCUSS.tooLong(COMMENT_MAX_CHARS) : changed ? DISCUSS.shareNote : DISCUSS.shareEmpty}</p>
+                  </div>
+                )}
+                <Suspense fallback={<Loading />}>
+                  <CommentsSection
+                    path={problemCommentPath(slug)} user={user} onLogin={onLogin} draft={draft}
+                    heading={DISCUSS.heading} emptyText={DISCUSS.empty} composerPlaceholder={DISCUSS.placeholder}
+                    submitLabel={DISCUSS.submit} signInLabel={DISCUSS.signIn}
+                  />
+                </Suspense>
+              </>
+            ) : (
+              <div className="cp-discuss__closed">
+                <h3 className="home-h">{DISCUSS.heading}</h3>
+                <p>{DISCUSS.spoiler}</p>
+                <Button size="sm" onClick={() => setDiscussing(true)}>{DISCUSS.open}</Button>
+              </div>
+            )}
+          </section>
         </>
       )}
     </div>

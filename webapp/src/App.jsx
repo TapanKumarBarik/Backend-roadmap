@@ -455,9 +455,10 @@ export default function App() {
   const openActivity = useCallback((item) => {
     const target = activityTarget(item);
     if (target.type === 'article') openPost(target.slug);
+    else if (target.type === 'problem') openPractice(`code/${target.slug}`);
     else if (target.type === 'post') openFeedPost(target.id);
     else openFile(target.path, target.anchor);
-  }, [openPost, openFeedPost, openFile]);
+  }, [openPost, openFeedPost, openFile, openPractice]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it

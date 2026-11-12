@@ -10,13 +10,15 @@ import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
-import { BLOG_PREFIX, CHALLENGE_PREFIX, FEED_PREFIX, ON_A_MODULE } from '../lib/commentPaths.js';
+import { BLOG_PREFIX, CHALLENGE_PREFIX, FEED_PREFIX, ON_A_MODULE, PROBLEM_PREFIX } from '../lib/commentPaths.js';
+import { COMMENT_MAX_CHARS } from '../../webapp/src/lib/blog/limits.js';
+import practice from '../generated/practice-content.json' with { type: 'json' };
 import { VISIBLE } from '../lib/blogData.js';
 import { DELETED } from '../lib/deleted.js';
 
 const comments = createRouter();
 
-const MAX_LENGTH = 2000;
+const MAX_LENGTH = COMMENT_MAX_CHARS;
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
 const LIST_LIMIT = 200;
@@ -159,7 +161,7 @@ comments.get('/comments/activity', async (c) => {
 
 /**
  * What the app needs to link to each item of activity: on a module, its path is enough; on a feed post, the start of the post;
- * on an article, its title and address. An item on a post that is gone, or an article nobody may read, is left out.
+ * on an article or a coding problem, its title and address. An item on a post, article or problem that is gone is left out.
  */
 async function withTitles(env, items) {
   const idsOn = (prefix) => [...new Set(items.filter((i) => i.path.startsWith(prefix)).map((i) => i.path.slice(prefix.length)))];
@@ -179,6 +181,11 @@ async function withTitles(env, items) {
       return text == null ? [] : [{ ...item, title: String(text).replace(/\s+/g, ' ').trim().slice(0, SNIPPET_CHARS) }];
     }
     if (item.path.startsWith(CHALLENGE_PREFIX)) return []; // a comment on a Design Lab challenge: the page is gone, the comment stays in the table
+    if (item.path.startsWith(PROBLEM_PREFIX)) {
+      const slug = item.path.slice(PROBLEM_PREFIX.length);
+      const problem = /** @type {Record<string, any>} */ (practice.code || {})[slug];
+      return problem ? [{ ...item, title: problem.title, slug }] : []; // a problem that was taken out of the set: the comment stays in the table
+    }
     if (item.path.startsWith(BLOG_PREFIX)) {
       const found = post.get(item.path.slice(BLOG_PREFIX.length));
       return found ? [{ ...item, title: found.title, slug: found.slug }] : [];
