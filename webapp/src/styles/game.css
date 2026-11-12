@@ -213,6 +213,8 @@
 #root .gm-day-dot { display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--border); border-radius: 50%; color: transparent; }
 #root .gm-day-dot svg { width: 12px; height: 12px; }
 #root .gm-day.is-active .gm-day-dot { border-color: var(--reward-strong); background: var(--reward); color: var(--on-reward); }
+#root .gm-day.is-frozen .gm-day-dot { border-color: var(--signal); background: var(--signal-bg); color: var(--signal); }
+#root .gm-day-dot .gm-glyph, #root .gm-day-dot svg { width: 14px; height: 14px; }
 #root .gm-day.is-today .gm-day-dot { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--signal); }
 #root .gm-day.is-future .gm-day-dot { border-style: dashed; opacity: .6; }
 #root .gm-goal { display: flex; align-items: center; gap: var(--space-3); }

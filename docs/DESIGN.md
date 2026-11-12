@@ -72,7 +72,7 @@ setup and no table of its own. Violet is where you are and what is next, **amber
 | The words on its screens | `webapp/src/config/game.js` |
 | The logic, pure and tested | `webapp/src/lib/game/` (stats and XP, levels, streak and the week, badges, the icon rules, the route, the reward for a mark) |
 | The screens | `webapp/src/components/game/`: the quest, the route, the player card, the path picker, the send-off, the reward toast. Their own chunks, so the first page does not carry them |
-| The icons | `components/game/glyphs.jsx`: 48 line icons in the site's own style (24 units, round caps), shown on `/#__design`. A title gets its icon from the first rule of `game.config.json` -> `glyphs` that its words match |
+| The icons | `components/game/glyphs.jsx`: 49 line icons in the site's own style (24 units, round caps), shown on `/#__design`. A title gets its icon from the first rule of `game.config.json` -> `glyphs` that its words match |
 
 How a reward happens: every mark goes through `setStatus` in `App.jsx`, which asks `lib/game/celebrate.js` what the mark is worth (the game before it
 and after it) and shows a toast, and confetti for a level, a badge, a track or a path. A streak is days in a row with any mark made; a signed-in

@@ -59,14 +59,15 @@ export default function PlayerCard({ game, target, onTarget }) {
           {week.map((day) => {
             const label = weekdayLabels(day.key);
             return (
-              <li key={day.key} className={cx('gm-day', day.active && 'is-active', day.today && 'is-today', day.future && 'is-future')}>
+              <li key={day.key} className={cx('gm-day', day.active && 'is-active', day.frozen && 'is-frozen', day.today && 'is-today', day.future && 'is-future')}>
                 <span className="gm-day-l" aria-hidden="true">{label.narrow}</span>
-                <span className="gm-day-dot" aria-hidden="true">{day.active && <TickIcon />}</span>
-                <span className="sr-only">{COPY.day(label.long, day.active, day.today)}</span>
+                <span className="gm-day-dot" aria-hidden="true">{day.active && <TickIcon />}{day.frozen && <Glyph name="snow" />}</span>
+                <span className="sr-only">{COPY.day(label.long, day.active, day.today, day.frozen)}</span>
               </li>
             );
           })}
         </ol>
+        {streak > 0 && <p className="gm-note">{COPY.freeze(game.freezesLeft)}</p>}
       </div>
 
       <div className="gm-block">

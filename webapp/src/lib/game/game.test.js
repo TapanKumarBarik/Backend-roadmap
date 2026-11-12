@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GAME } from '../../config/game.js';
 import { buildIndex, libraryStats, xpOf, levelOf } from './stats.js';
-import { addDays, weekdayOf, activeDays, withStreakWindow, currentStreak, longestStreak, weekOf, doneOn } from './activity.js';
+import { addDays, weekdayOf, activeDays, withStreakWindow, currentStreak, longestStreak, weekOf, doneOn, frozenDays } from './activity.js';
 import { badgeStates, sortedBadges } from './badges.js';
 import { compileGlyphRules, glyphFor } from './glyphs.js';
 import { computeGame } from './game.js';
@@ -209,4 +209,46 @@ test('a mark earns a reward: XP, a new level, new badges, and whole tracks; un-m
   const up = rewardBetween({ ...big, xp: GAME.levels[1].xp - 1, level: levelOf(GAME.levels[1].xp - 1, GAME.levels) }, boost);
   assert.equal(up.levelUp.n, 2);
   assert.equal(isBigReward(up), true);
+});
+
+// 2026-11-09 is a Monday.
+const FREEZE = { perWeek: 1, weekStartsOn: 1 };
+const run = (...keys) => new Set(keys);
+
+test('a streak freeze covers one missed day, so the streak goes on', () => {
+  const days = run('2026-11-09', '2026-11-11'); // Monday, Wednesday: Tuesday was missed
+  const frozen = frozenDays(days, '2026-11-11', FREEZE);
+  assert.deepEqual([...frozen], ['2026-11-10']);
+  assert.equal(currentStreak(new Set([...days, ...frozen]), '2026-11-11'), 3, 'Monday, the frozen Tuesday and Wednesday');
+  assert.equal(currentStreak(days, '2026-11-11'), 1, 'without it the streak would be one day');
+});
+
+test('only one day a week is covered, the earliest first, and the streak ends at a second gap', () => {
+  const days = run('2026-11-09', '2026-11-12'); // Monday, Thursday: Tuesday and Wednesday missed
+  const frozen = frozenDays(days, '2026-11-12', FREEZE);
+  assert.deepEqual([...frozen], ['2026-11-10'], 'Tuesday is covered, Wednesday is not');
+  assert.equal(currentStreak(new Set([...days, ...frozen]), '2026-11-12'), 1, 'so the run is broken before Thursday');
+});
+
+test('every week has a freeze of its own, and nothing is covered before the first day or after the last', () => {
+  const days = run('2026-11-02', '2026-11-04', '2026-11-09', '2026-11-11');
+  assert.deepEqual([...frozenDays(days, '2026-11-11', FREEZE)].sort(), ['2026-11-03', '2026-11-10'], 'one in each week');
+  assert.deepEqual([...frozenDays(run('2026-11-11'), '2026-11-11', FREEZE)], [], 'one day: nothing to cover');
+  assert.deepEqual([...frozenDays(run(), '2026-11-11', FREEZE)], []);
+  assert.deepEqual([...frozenDays(days, '2026-11-11', { perWeek: 0, weekStartsOn: 1 })], [], 'a rule with no freezes covers nothing');
+});
+
+test('the game counts the freeze in the streak, the week and how many are left', () => {
+  const NOW = new Date(2026, 10, 12, 12).getTime(); // Thursday 12 November
+  const at = (y, m, d) => new Date(y, m, d, 10).toISOString();
+  const index = buildIndex(tree, GAME.capstonePattern);
+  const status = { 'backend/01-http/00-basics/README.md': 'done', 'backend/01-http/01-headers/README.md': 'done', 'backend/02-api/00-validation/README.md': 'done' };
+  const times = { 'backend/01-http/00-basics/README.md': at(2026, 10, 9), 'backend/01-http/01-headers/README.md': at(2026, 10, 11), 'backend/02-api/00-validation/README.md': at(2026, 10, 12) };
+  const game = computeGame({ index, statusMap: status, timeMap: times, paths: [], now: NOW }, GAME);
+  assert.equal(game.streak, 4, 'Monday, Tuesday (frozen), Wednesday, Thursday');
+  assert.equal(game.freezesLeft, 0, 'this week\'s freeze is used');
+  assert.deepEqual(game.week.map((d) => [d.active, d.frozen]).slice(0, 4), [[true, false], [false, true], [true, false], [true, false]]);
+  const noFreeze = computeGame({ index, statusMap: status, timeMap: times, paths: [], now: NOW }, { ...GAME, streak: { freezesPerWeek: 0 } });
+  assert.equal(noFreeze.streak, 2);
+  assert.equal(noFreeze.freezesLeft, 0);
 });

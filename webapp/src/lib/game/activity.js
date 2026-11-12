@@ -63,13 +63,41 @@ export function longestStreak(days) {
   return best;
 }
 
-/** The seven days of the week `today` is in, from `weekStartsOn` (0 Sunday, 1 Monday): { key, active, today, future }. */
-export function weekOf(days, today, weekStartsOn) {
-  const back = (weekdayOf(today) - weekStartsOn + 7) % 7;
-  const start = addDays(today, -back);
+/** The day a week starts on, for the week `key` is in. */
+export function weekStart(key, weekStartsOn) {
+  return addDays(key, -((weekdayOf(key) - weekStartsOn + 7) % 7));
+}
+
+/**
+ * The days a streak freeze covers. A freeze covers a day that was missed (a day before today, whose day before it was a day of the streak) so that one
+ * missed day does not end the streak; each calendar week has `perWeek` of them, the earliest missed days first. Pure and derived from the days alone, so
+ * nothing needs saving: the same days always give the same freezes.
+ */
+export function frozenDays(days, today, { perWeek, weekStartsOn }) {
+  const frozen = new Set();
+  if (!perWeek || days.size === 0) return frozen;
+  const used = new Map();
+  let day = addDays([...days].sort()[0], 1);
+  while (day < today) {
+    const before = addDays(day, -1);
+    if (!days.has(day) && (days.has(before) || frozen.has(before))) {
+      const week = weekStart(day, weekStartsOn);
+      if ((used.get(week) || 0) < perWeek) {
+        frozen.add(day);
+        used.set(week, (used.get(week) || 0) + 1);
+      }
+    }
+    day = addDays(day, 1);
+  }
+  return frozen;
+}
+
+/** The seven days of the week `today` is in, from `weekStartsOn` (0 Sunday, 1 Monday): { key, active, frozen, today, future }. */
+export function weekOf(days, today, weekStartsOn, frozen = new Set()) {
+  const start = weekStart(today, weekStartsOn);
   return Array.from({ length: 7 }, (_, i) => {
     const key = addDays(start, i);
-    return { key, active: days.has(key), today: key === today, future: key > today };
+    return { key, active: days.has(key), frozen: frozen.has(key), today: key === today, future: key > today };
   });
 }
 

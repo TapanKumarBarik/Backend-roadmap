@@ -20,6 +20,7 @@
     ]
   },
   "weekStartsOn": 1,
+  "streak": { "freezesPerWeek": 1 },
   "levels": [
     {
       "xp": 0,
