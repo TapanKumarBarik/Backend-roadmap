@@ -21,6 +21,17 @@ export function handleCopyClick(event, onFailed) {
   return true;
 }
 
+/**
+ * The buttons of a Python example that can be run (Run, Edit, Reset, and Clear on what it printed). The code that does it is a chunk of its own, loaded the
+ * first time one is pressed, so a lesson is not slowed by it. `onFailed` is told when that could not be loaded.
+ */
+export function handleRunClick(event, onFailed) {
+  const button = event.target.closest('.cb-run, .cb-edit, .cb-reset, .cb-out-x');
+  if (!button) return false;
+  import('../practice/snippetRun.js').then((module) => module.handleSnippetButton(button)).catch(() => onFailed());
+  return true;
+}
+
 /** A video card: pressing play swaps the thumbnail for the player; a click meant for a new tab is left alone. */
 export function handleVideoClick(event) {
   const link = event.target.closest('.video-link');

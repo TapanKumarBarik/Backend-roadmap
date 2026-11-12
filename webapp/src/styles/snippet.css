@@ -1,0 +1,11 @@
+/* What a Python example in a lesson printed when it was run (lib/practice/snippetRun.js). Loaded with that code, the first time an example is run. */
+.codeblock .cb-out { margin-top: -1px; border: 1px solid var(--border-subtle); border-top: 1px dashed var(--border); border-radius: 0 0 var(--r-md) var(--r-md); background: var(--bg-raised); padding: var(--space-2) var(--space-4) var(--space-3); }
+.cb-out-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: var(--text-xs); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .05em; }
+.cb-out-x { font-size: 11.5px; padding: 2px 8px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted); cursor: pointer; text-transform: none; letter-spacing: 0; }
+.cb-out-x:hover { background: var(--hover); color: var(--fg); }
+#content .cb-out-pre { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); background: var(--bg-sunken); border: 0; border-radius: var(--r-sm); font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+#content .cb-out-note { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--fg-muted); }
+.cb-out.is-error .cb-out-note { color: var(--danger); }
+.codeblock:has(> .cb-out) pre { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.codeblock pre > code[contenteditable] { outline: none; }
+.codeblock:has(code[contenteditable]) pre { border-color: var(--signal); box-shadow: var(--focus-ring); }

@@ -1,6 +1,6 @@
 """Runs one coding problem's tests the way the browser does, with ordinary Python (scripts/check/check-code-problems.mjs uses it).
 
-Reads {"code": "...", "tests": [{"name": null | "...", "code": "..."}]} from standard input and prints what the harness returns, as JSON, with
+Reads {"code": "...", "tests": [{"name": null | "...", "code": "..."}]} (or {"snippet": "..."}) from standard input and prints what the harness returns, as JSON, with
 the seconds it took. The harness is webapp/public/runner/harness.py, the very file the browser loads into Pyodide, so a problem that passes
 here passes there.
 """
@@ -20,6 +20,9 @@ spec.loader.exec_module(harness)
 
 job = json.load(sys.stdin)
 started = time.perf_counter()
-result = harness.run_all(job["code"], [t["code"] for t in job["tests"]], [t["name"] for t in job["tests"]])
+if "snippet" in job:  # a piece of code from a lesson, run on its own
+    result = harness.run_snippet(job["snippet"])
+else:
+    result = harness.run_all(job["code"], [t["code"] for t in job["tests"]], [t["name"] for t in job["tests"]])
 result["seconds"] = round(time.perf_counter() - started, 3)
 json.dump(result, sys.stdout)

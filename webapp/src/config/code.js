@@ -93,6 +93,30 @@ export const RUNNER = {
 };
 export const EDITOR = { indent: '    ', language: 'python' };
 
+// A Python example in a lesson can be run on the spot (lib/practice/snippetRun.js). Which examples (the languages, the modules they may import) is
+// site.config.json -> runner, which the first page needs to draw the Run button; what happens when one runs is here.
+export const RUN = {
+  timeoutMs: 10000, // an example gets a little longer than a test
+  output: 'Output',
+  clear: 'Clear',
+  run: 'Run',
+  running: 'Running…',
+  edit: 'Edit',
+  editDone: 'Done',
+  reset: 'Reset',
+  outputLabel: 'What the example printed',
+  starting: 'Starting Python…',
+  startingNote: 'The first run downloads Python (about 5 MB), once.',
+  noOutput: 'It ran and printed nothing.',
+  line: (n) => `line ${n}`,
+  missing: (name) => `This example uses ${name}, which the browser runner does not have: it runs standard Python only.`,
+  input: 'This example waits for input, which the page cannot give it: edit the example to use a value.',
+  timeout: (seconds) => `The example ran for more than ${seconds} seconds and was stopped.`,
+  stack: 'Python ran out of stack space.',
+  broken: 'The Python runner could not start. Check your connection and try again.',
+  unsupported: 'This browser cannot run Python here: it needs WebAssembly and web workers.'
+};
+
 // One coding problem: the statement, the editor, the tests and what they say.
 export const CODE = {
   back: '← All practice',

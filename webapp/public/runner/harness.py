@@ -139,6 +139,21 @@ class _Printed(io.TextIOBase):
         return "".join(self.parts) + ("\n… (cut short)" if self.cut else "")
 
 
+def run_snippet(code):
+    """Runs a piece of code from a lesson on its own and says what it printed: { "stdout", "error", "line" }; `error` is None when it ran to the end."""
+    namespace = {"__name__": "__main__"}
+    printed = _Printed()
+    error, line = None, None
+    with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
+        try:
+            exec(compile(code, USER_FILE, "exec"), namespace)
+        except SyntaxError as problem:
+            error, line = "SyntaxError: %s" % problem.msg, problem.lineno
+        except BaseException as problem:  # whatever the example does, it must not stop the runner
+            error, line = "%s: %s" % (type(problem).__name__, problem), _line_in_user_code(problem)
+    return {"stdout": printed.text(), "error": error, "line": line}
+
+
 def run_all(user_code, codes, names, progress=None):
     namespace = {"__name__": "__main__", "_Failed": _Failed}
     printed = _Printed()

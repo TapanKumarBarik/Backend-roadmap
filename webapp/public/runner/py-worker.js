@@ -6,6 +6,7 @@ import { loadPyodide } from './pyodide-314.0.7/pyodide.mjs';
 
 const PYODIDE_DIR = new URL('./pyodide-314.0.7/', import.meta.url).href;
 let runAll = null;
+let runSnippet = null;
 let toPy = null;
 let dead = false; // Pyodide hit a fatal error (the stack ran out): it cannot run anything more, and the page starts a fresh worker
 
@@ -19,6 +20,7 @@ const ready = (async () => {
   ]);
   pyodide.runPython(harness);
   runAll = pyodide.globals.get('run_all');
+  runSnippet = pyodide.globals.get('run_snippet');
   toPy = (value) => pyodide.toPy(value);
   self.postMessage({ type: 'ready' });
 })().catch((error) => {
@@ -27,10 +29,19 @@ const ready = (async () => {
 });
 
 self.onmessage = async ({ data }) => {
-  if (data.type !== 'run') return;
+  if (data.type !== 'run' && data.type !== 'snippet') return;
   if (dead) { self.postMessage({ type: 'failed', id: data.id, fatal: true, message: 'Python stopped after a fatal error' }); return; }
   try {
     await ready;
+    if (data.type === 'snippet') {
+      const out = runSnippet(data.code);
+      const result = out.toJs({ dict_converter: Object.fromEntries });
+      out.destroy();
+      result.error = result.error ?? null;
+      result.line = result.line ?? null;
+      self.postMessage({ type: 'result', id: data.id, result });
+      return;
+    }
     const codes = toPy(data.codes);
     const names = toPy(data.names);
     // before each test the harness says which one it is on, so a run that never comes back can say where it was

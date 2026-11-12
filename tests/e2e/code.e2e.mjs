@@ -7,7 +7,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { BASE, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 import practiceContent from '../../api/generated/practice-content.json' with { type: 'json' };
+import { CONTENT_ROOT } from '../../scripts/lib/config.mjs';
+import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
+import { importedModules, isRunnable } from '../../webapp/src/lib/practice/runnable.js';
 import game from '../../game.config.json' with { type: 'json' };
 import site from '../../site.config.json' with { type: 'json' };
 
@@ -22,7 +27,7 @@ const READY = { timeout: 90000 }; // Python is downloaded and started the first 
 
 /** The page on `url`, with the real Content-Security-Policy applied (Python must start under it), signed out. */
 async function open(url, options = {}) {
-  const opened = await openPage(browser, url, { withCsp: true, ...options });
+  const opened = await openPage(browser, url, { withCsp: !process.env.E2E_NO_CSP, ...options }); // E2E_NO_CSP=1 for a development server, whose own scripts the policy would block
   const env = await answerApiInProcess(opened.context, { email: null });
   return { ...opened, env };
 }
@@ -320,4 +325,52 @@ test('the pages a search engine or a reader without JavaScript gets: a problem h
   assert.ok(!sitemap.includes('/practice/drill/'), 'the drill is not');
   assert.match((await get('/practice/')).html, new RegExp(`href="/practice/code/${SLUG}/"`), 'and the list of practice links to it');
   await requests.close();
+});
+
+/** The first written lesson with a Python example that `matches` (given its code), found in the content: { file, code }. */
+function aLessonWith(matches) {
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name === 'README.md' ? [path.join(dir, e.name)] : []));
+  for (const curriculum of fs.readdirSync(CONTENT_ROOT, { withFileTypes: true }).filter((e) => e.isDirectory() && ['backend', 'learn', 'genai', 'lld', 'system-design'].includes(e.name))) {
+    for (const file of walk(path.join(CONTENT_ROOT, curriculum.name))) {
+      const text = fs.readFileSync(file, 'utf8');
+      if (text.slice(0, 600).includes('has not been written yet')) continue;
+      for (const [, code] of text.matchAll(/```(?:python|py)\n([\s\S]*?)```/g)) if (matches(code)) return { file: path.relative(CONTENT_ROOT, file).split(path.sep).join('/'), code };
+    }
+  }
+  throw new Error('no lesson has such an example');
+}
+
+test('a Python example in a lesson can be run on the spot and edited, and one that needs a package has no Run button', async () => {
+  const runnable = aLessonWith((code) => isRunnable('python', code) && /\bprint\(/.test(code) && code.split('\n').length <= 12 && !/sleep|input\(/.test(code));
+  const needs = aLessonWith((code) => importedModules(code).has('fastapi'));
+  const { context, page, problems, goto } = await open(moduleUrl(runnable.file));
+  await goto();
+  const block = page.locator('.codeblock', { has: page.locator('.cb-run') }).filter({ hasText: runnable.code.trim().split('\n')[0].trim() }).first();
+  await block.waitFor();
+  await block.locator('.cb-run').click();
+  await block.locator('.cb-out .cb-out-pre').waitFor({ timeout: 90000 });
+  assert.notEqual((await block.locator('.cb-out-pre').innerText()).trim(), '', 'what the example printed is under it');
+  assert.equal(await block.locator('.cb-out').getAttribute('role'), 'region');
+
+  await block.locator('.cb-edit').click();
+  await block.locator('pre > code[contenteditable]').waitFor(); // the button's code is loaded the first time it is pressed, so the page answers a moment after the click
+  assert.equal(await block.locator('pre > code').evaluate((el) => el.isContentEditable), true, 'the example can be edited');
+  await block.locator('pre > code').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nprint("my own line")');
+  await block.locator('.cb-run').click();
+  await page.waitForFunction((el) => /my own line/.test(el.querySelector('.cb-out-pre')?.textContent || ''), await block.elementHandle(), { timeout: 30000 });
+  await block.locator('.cb-reset').click();
+  await block.locator('.cb-out').waitFor({ state: 'detached' }); // Reset clears what it printed
+  assert.doesNotMatch(await block.locator('pre > code').innerText(), /my own line/, 'and puts the example back as it was written');
+  assert.deepEqual(real(problems), []);
+  await context.close();
+
+  const other = await open(moduleUrl(needs.file));
+  await other.goto();
+  const withPackage = other.page.locator('.codeblock', { hasText: 'fastapi' }).first();
+  await withPackage.waitFor();
+  assert.equal(await withPackage.locator('.cb-run').count(), 0, 'an example that imports fastapi has no Run button');
+  assert.equal(await withPackage.locator('.cb-copy').count(), 1, 'but it can be copied');
+  await other.context.close();
 });

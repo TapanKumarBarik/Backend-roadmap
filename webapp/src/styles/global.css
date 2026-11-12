@@ -475,11 +475,14 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
   .codeblock pre { padding-top: 38px; }
 }
 .cb-lang { font-size: 10.5px; color: var(--fg-subtle); font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; }
-.cb-copy {
+.cb-copy, .cb-run, .cb-edit, .cb-reset {
   font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-sm); border: 1px solid var(--border);
   background: var(--bg); color: var(--fg-muted);
 }
-.cb-copy:hover { background: var(--hover); color: var(--fg); }
+.cb-copy:hover, .cb-run:hover, .cb-edit:hover, .cb-reset:hover { background: var(--hover); color: var(--fg); }
+.cb-run { color: var(--signal); border-color: var(--signal-line); font-weight: 600; }
+.cb-run:disabled { opacity: .6; cursor: progress; }
+.cb-edit[aria-pressed="true"] { color: var(--signal); border-color: var(--signal); }
 .cb-copy.ok { color: var(--done); border-color: var(--done); }
 
 /* Grayscale syntax highlighting: tokens separate by weight, value and style

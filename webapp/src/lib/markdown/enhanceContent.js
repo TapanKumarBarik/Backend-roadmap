@@ -1,5 +1,9 @@
 import { slugify } from './markdown.js';
 import { escapeHtml } from './escapeHtml.js';
+import { isRunnable } from '../practice/runnable.js';
+
+// The words on the buttons of a code block (the Run ones only on an example that can be run: lib/practice/runnable.js).
+const BUTTONS = { copy: 'Copy', run: 'Run', edit: 'Edit', reset: 'Reset' };
 
 // Colouring code is the one part of this pass that needs a large library, and it can arrive after the text without
 // anyone noticing, so it is loaded on first use, as its own chunk (see highlighter.js), and applied when ready.
@@ -24,7 +28,7 @@ function renderMathLater(root) {
 // onClick on ArticleView's container, since the injected HTML persists
 // across renders on the same container node just like the vanilla app kept
 // one #content element and swapped its innerHTML.
-export function enhanceContent(root) {
+export function enhanceContent(root, { runnable = false } = {}) {
   // marked() emits bare <img> tags with none of this — the browser would
   // otherwise fetch every image in a module up front, decode each
   // synchronously on the main thread, and block on whichever's slowest.
@@ -71,7 +75,11 @@ export function enhanceContent(root) {
 
     const bar = document.createElement('div');
     bar.className = 'cb-bar';
-    bar.innerHTML = `<span class="cb-lang">${escapeHtml(lang)}</span><button class="cb-copy" type="button">Copy</button>`;
+    // Only the site's own lessons run examples (`runnable`): an article by a reader is somebody else's code, and pressing Run would run it in the page's origin.
+    const runs = runnable && isRunnable(lang, code.textContent)
+      ? `<button class="cb-run" type="button">${BUTTONS.run}</button><button class="cb-edit" type="button" aria-pressed="false">${BUTTONS.edit}</button><button class="cb-reset" type="button" hidden>${BUTTONS.reset}</button>`
+      : '';
+    bar.innerHTML = `<span class="cb-lang">${escapeHtml(lang)}</span>${runs}<button class="cb-copy" type="button">${BUTTONS.copy}</button>`;
     wrap.appendChild(bar);
   });
 

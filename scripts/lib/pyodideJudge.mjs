@@ -38,6 +38,13 @@ export async function createPyodideJudge() {
 
   return {
     version: path.basename(dir),
+    /** Runs a piece of code from a lesson on its own (harness.py run_snippet): { stdout, error, line }. */
+    async snippet(code) {
+      const out = pyodide.globals.get('run_snippet')(code);
+      const result = out.toJs({ dict_converter: Object.fromEntries });
+      out.destroy();
+      return { ...result, error: result.error ?? null, line: result.line ?? null };
+    },
     async run(code, tests) {
       const parts = tests.map(testParts);
       const started = performance.now();

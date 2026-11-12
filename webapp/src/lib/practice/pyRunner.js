@@ -4,7 +4,7 @@
 //
 // A run that takes longer than RUNNER.timeoutMs is stopped by ending the worker, which is the only way to stop Python that never returns; a fresh
 // worker is started at once for the next run.
-import { RUNNER } from '../../config/code.js';
+import { RUN, RUNNER } from '../../config/code.js';
 
 /** Why a run did not produce results: 'unsupported' (no WebAssembly or workers), 'broken' (the runner would not load), 'timeout', 'stack' (Python ran out of stack), or 'failed' (the harness crashed). */
 export class RunnerError extends Error {
@@ -73,7 +73,31 @@ export function acquire() {
  * @param {{ code: string, tests: { name: string | null, code: string }[], onProgress?: (p: { index: number, name: string }) => void, timeoutMs?: number }} job
  * @returns {Promise<{ loaded: string | null, line: number | null, stdout: string, results: { name: string, ok: boolean, message: string }[], ms: number }>}
  */
-export async function runTests({ code, tests, onProgress, timeoutMs = RUNNER.timeoutMs }) {
+export function runTests({ code, tests, onProgress, timeoutMs = RUNNER.timeoutMs }) {
+  return call({ type: 'run', code, codes: tests.map((t) => t.code), names: tests.map((t) => t.name) }, { onProgress, timeoutMs });
+}
+
+/**
+ * Runs a piece of code from a lesson on its own: { stdout, error, line } (public/runner/harness.py run_snippet; `error` is null when it ran to the end).
+ * The worker is kept for the run and, as for a coding screen, ended a minute after the last one. Rejects with a RunnerError.
+ * @param {{ code: string, timeoutMs?: number }} job
+ * @returns {Promise<{ stdout: string, error: string | null, line: number | null }>}
+ */
+export async function runSnippet({ code, timeoutMs = RUN.timeoutMs }) {
+  const release = acquire();
+  try {
+    return await call({ type: 'snippet', code }, { timeoutMs });
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Sends one job to the worker and resolves its answer; ends the worker if it takes longer than `timeoutMs`.
+ * @param {Record<string, any>} message
+ * @param {{ onProgress?: (p: { index: number, name: string }) => void, timeoutMs: number }} options
+ */
+async function call(message, { onProgress, timeoutMs }) {
   await warm();
   const running = worker;
   if (!running) throw new RunnerError('broken');
@@ -96,6 +120,6 @@ export async function runTests({ code, tests, onProgress, timeoutMs = RUNNER.tim
       reject(new RunnerError(data.fatal ? 'stack' : 'failed', data.message));
     }
     running.addEventListener('message', onMessage);
-    running.postMessage({ type: 'run', id, code, codes: tests.map((t) => t.code), names: tests.map((t) => t.name) });
+    running.postMessage({ ...message, id });
   });
 }

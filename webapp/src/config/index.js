@@ -16,6 +16,8 @@ export const STORAGE = site.storage;
 // How practice is saved as progress, beside the modules (lib/practice/progressKeys.js). In the site config, which the first page carries anyway, and not in
 // the game's, which only the screens that draw the game load.
 export const PROGRESS_KEYS = site.progressKeys;
+// Which lesson examples get a Run button (lib/practice/runnable.js).
+export const LESSON_RUN = site.runner;
 export const YOUTUBE = site.youtube;
 // The writing studio's numbers (how long typing pauses before a save, and so on); its words are in config/studio.js.
 export const STUDIO = site.studio;

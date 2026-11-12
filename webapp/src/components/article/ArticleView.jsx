@@ -7,7 +7,7 @@ import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { topicOf } from '../../lib/curriculum/pageTitle.js';
 import { isPlaceholder, reportUrl } from '../../lib/curriculum/contribute.js';
 import { inlineTitleHtml, readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
-import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
+import { handleCopyClick, handleRunClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
@@ -76,7 +76,7 @@ export default function ArticleView({
     // No body to read (a planned module shows only its "write this" panel): the previous page's outline must go.
     if (!root) { onTocChange([]); return; }
 
-    enhanceContent(root);
+    enhanceContent(root, { runnable: true });
     const stopWatchingCode = watchCodeOverflow(root);
     rewriteLinks(root, path, fileSet, dirIndex);
     applyTabPreference(root);
@@ -185,6 +185,7 @@ export default function ArticleView({
       return;
     }
     if (handleCopyClick(e, () => onToast('Copy failed — select manually'))) return;
+    if (handleRunClick(e, () => onToast('Could not start the example. Check your connection and try again.'))) return;
     if (handleVideoClick(e)) return;
     const link = e.target.closest('[data-internal-link]');
     if (link) {

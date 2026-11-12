@@ -18,6 +18,13 @@ function run(code, tests) {
   return JSON.parse(out.stdout);
 }
 
+/** Runs a piece of code from a lesson with ordinary Python (harness.py run_snippet). */
+function snippet(code) {
+  const out = spawnSync(PYTHON, ['-I', '-B', JUDGE], { input: JSON.stringify({ snippet: code }), encoding: 'utf8' });
+  const { seconds: _seconds, ...answer } = JSON.parse(out.stdout); // how long it took is not what these tests are about
+  return answer;
+}
+
 const ADD = 'def add(a, b):\n    return a + b\n';
 
 test('a failing comparison says what came back and what was expected, and a passing one is named by its assert', { skip: !havePython }, () => {
@@ -103,4 +110,32 @@ test('Pyodide runs out of stack when a very long chain of linked objects is free
   assert.ok(crashed.crashed, 'a chain of 60,000 nodes kills the interpreter');
   const after = await judge.run(ADD, ['assert add(1, 2) == 3']);
   assert.deepEqual(after.results.map((x) => x.ok), [true], 'and the next run is on a fresh one');
+});
+
+test('a lesson example is run on its own: what it prints comes back, and a failure says what and where', { skip: !havePython }, () => {
+  assert.deepEqual(snippet('print("hello")\nprint(1 + 2)\n'), { stdout: 'hello\n3\n', error: null, line: null });
+  assert.deepEqual(snippet('x = 1\n'), { stdout: '', error: null, line: null }, 'an example that prints nothing is fine');
+  const failed = snippet('print("before")\nvalue = 1 / 0\nprint("after")\n');
+  assert.deepEqual([failed.stdout, failed.error, failed.line], ['before\n', 'ZeroDivisionError: division by zero', 2]);
+  const syntax = snippet('def broken(:\n    pass\n');
+  assert.match(syntax.error, /^SyntaxError/);
+  assert.equal(syntax.line, 1);
+  assert.equal(snippet('import not_a_module_anywhere\n').error, "ModuleNotFoundError: No module named 'not_a_module_anywhere'");
+});
+
+test('an example sees itself as the main program, and runs in a namespace of its own each time', { skip: !havePython }, () => {
+  assert.equal(snippet('if __name__ == "__main__":\n    print("main")\n').stdout, 'main\n');
+  snippet('LEFT = 1\n');
+  assert.match(snippet('print(LEFT)\n').error, /NameError/);
+  const noisy = snippet('for _ in range(50000):\n    print("x" * 80)\n');
+  assert.ok(noisy.stdout.length < 4100 && /\(cut short\)$/.test(noisy.stdout), 'what it prints is kept short');
+});
+
+test('Pyodide runs a lesson example the same way', { skip: !havePython }, async () => {
+  const judge = await createPyodideJudge();
+  for (const code of ['print("hello")\nprint(sum(range(5)))\n', 'print("before")\nvalue = 1 / 0\n', 'def broken(:\n    pass\n', 'import not_a_module_anywhere\n']) {
+    const here = snippet(code);
+    const there = await judge.snippet(code);
+    assert.deepEqual({ ...there, error: there.error && there.error.split(':')[0] }, { ...here, error: here.error && here.error.split(':')[0] }, code);
+  }
 });
