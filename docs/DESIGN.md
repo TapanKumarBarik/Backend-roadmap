@@ -68,7 +68,7 @@ setup and no table of its own. Violet is where you are and what is next, **amber
 
 | What | Where |
 |---|---|
-| The rules: XP for a module, a capstone, a track, a path, a coding problem, a drill; the levels; the badges; which icon draws which path | [`game.config.json`](../game.config.json) (its own file: `site.config.json` is in every visitor's first download, the game is not) |
+| The rules: XP for a module, a capstone, a track, a path, a coding problem, a drill, a quiz passed, a mock interview, a study plan; the levels; the badges; which icon draws which path | [`game.config.json`](../game.config.json) (its own file: `site.config.json` is in every visitor's first download, the game is not) |
 | The words on its screens | `webapp/src/config/game.js` |
 | The logic, pure and tested | `webapp/src/lib/game/` (stats and XP, levels, streak and the week, badges, the icon rules, the route, the reward for a mark) |
 | The screens | `webapp/src/components/game/`: the quest, the route, the player card, the path picker, the send-off, the reward toast. Their own chunks, so the first page does not carry them |

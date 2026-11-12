@@ -72,10 +72,9 @@ export async function openPage(browser, url, { motion = 'no-preference', seenLan
 /**
  * Answers every /api request of a context with the real API app and a fresh in-memory database, as a reader who is
  * signed in as `email` (or signed out when `email` is null). Returns the bindings, so a test can look at the rows the
- * page caused (`env.DB.raw.prepare(...).all()`).
+ * page caused (`env.DB.raw.prepare(...).all()`). Another context can be given the same `env`, as another person using the same site.
  */
-export async function answerApiInProcess(context, { email = 'reader@example.com' } = {}) {
-  const env = createEnv();
+export async function answerApiInProcess(context, { email = 'reader@example.com', env = createEnv() } = {}) {
   const cookie = email ? await signedInAs(email) : null;
   await context.route('**/api/**', async (route) => {
     const request = route.request();

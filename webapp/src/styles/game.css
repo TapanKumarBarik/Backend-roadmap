@@ -371,3 +371,29 @@
 #root .gm-today-row.is-done { border-color: var(--reward-line); background: var(--reward-bg); }
 #root .gm-today-row.is-done .gm-today-icon { background: var(--reward); color: var(--on-reward); }
 #root .gm-today-row.is-done .gm-today-go { color: var(--reward-ink); }
+
+/* ---------- sharing: the picture, the dialog and the public profile ---------- */
+#root .gm-share-btn { margin-top: var(--space-2); padding: 0; background: none; border: 0; font: inherit; font-size: var(--text-sm); color: var(--signal); cursor: pointer; text-align: left; }
+#root .gm-share-btn:hover { text-decoration: underline; }
+:is(#root, #overlays) .gm-share-canvas { display: block; width: 100%; height: auto; aspect-ratio: 1200 / 630; border-radius: var(--r-md); border: 1px solid var(--border); background: #17152a; }
+:is(#root, #overlays) .gm-share-options { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); margin: var(--space-3) 0; align-items: flex-end; }
+:is(#root, #overlays) .gm-share-check { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+:is(#root, #overlays) .gm-share-field { display: grid; gap: var(--space-1); font-size: var(--text-sm); flex: 1; min-width: 14ch; }
+:is(#root, #overlays) .gm-share-field input { font: inherit; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); color: var(--fg); }
+:is(#root, #overlays) .gm-share-actions { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+:is(#root, #overlays) .gm-share-profile { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
+:is(#root, #overlays) .gm-share-profile h3 { margin: 0 0 var(--space-2); font-size: var(--text-md); }
+:is(#root, #overlays) .gm-share-profile p { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+
+#root .gm-profile__head { display: flex; align-items: center; gap: var(--space-4); margin: var(--space-4) 0; }
+#root .gm-profile__head h2 { margin: 0; }
+#root .gm-profile__level { margin: 0; color: var(--fg-muted); }
+#root .gm-profile__stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-5); }
+#root .gm-profile__stats > div { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); }
+#root .gm-profile__stats dt { font-size: var(--text-xs); color: var(--fg-subtle); text-transform: uppercase; letter-spacing: 0.04em; }
+#root .gm-profile__stats dd { margin: 2px 0 0; font-size: var(--text-xl, 1.5rem); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+#root .gm-profile__badges { list-style: none; margin: 0 0 var(--space-5); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-2); }
+#root .gm-profile__badges li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--reward-line); border-radius: var(--r-md); background: var(--reward-bg); }
+#root .gm-profile__badges small { display: block; color: var(--fg-muted); }
+#root .gm-profile__badge-icon { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--reward); color: var(--on-reward); }
+#root .gm-profile__badge-icon svg { width: 16px; height: 16px; }

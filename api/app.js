@@ -18,6 +18,7 @@ import blogs from './routes/blogs.js';
 import assistant from './routes/assistant.js';
 import practice from './routes/practice.js';
 import popular from './routes/popular.js';
+import profile from './routes/profile.js';
 
 const app = createRouter();
 
@@ -34,6 +35,7 @@ app.route('/api', blogs);
 app.route('/api', assistant);
 app.route('/api', practice);
 app.route('/api', popular);
+app.route('/api', profile);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 app.onError((err, c) => {

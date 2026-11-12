@@ -25,6 +25,8 @@ export const PATH_ROUTE = '__path';
 export const VIDEOS_ROUTE = '__videos';
 export const PRACTICE_ROUTE = '__practice';
 export const ME_ROUTE = '__me';
+/** A public profile: /#__profile@<handle>. A screen in the hash, not a page with a path, so no server has to draw it and no search engine indexes it. */
+export const PROFILE_ROUTE = '__profile';
 
 /** The first segment of each page's address, and the route (the app's name for the screen) it opens. */
 export const PAGES = [

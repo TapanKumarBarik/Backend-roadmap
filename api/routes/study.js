@@ -261,6 +261,7 @@ study.delete('/account', async (c) => {
     ['DELETE FROM notes WHERE user_id = ?1', uid],
     ['DELETE FROM bookmarks WHERE user_id = ?1', uid],
     ['DELETE FROM streaks WHERE user_id = ?1', uid],
+    ['DELETE FROM public_profiles WHERE user_id = ?1', uid],
     ['DELETE FROM rate_limits WHERE user_id = ?1', uid],
     ['DELETE FROM reactions WHERE user_id = ?1', uid],
     ['DELETE FROM comment_votes WHERE voter_id = ?1', uid],

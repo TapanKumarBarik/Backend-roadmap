@@ -138,6 +138,10 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     }
   }
 
+  // A public profile is read from its table (migration 0008): a handle nobody has answers 404, and a forgotten migration answers 500.
+  const profile = await get('/api/profiles/smoke-check-nobody');
+  if (profile) expect(profile.status === 404, `/api/profiles/<handle> answered ${profile.status} (was the database migration applied? npm run db:migrate:remote)`);
+
   // Coding problems run Python in the reader's browser, from files of this site (webapp/public/runner/): a deploy that lost them, or served the
   // WebAssembly with the wrong type, would leave every problem unable to run.
   const worker = await get('/runner/py-worker.js');
@@ -149,6 +153,19 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     if (folder) {
       const wasm = await head(`/runner/${folder[1]}/pyodide.asm.wasm`);
       if (wasm) expect(wasm.status === 200 && /application\/wasm/.test(wasm.headers.get('content-type') || ''), `/runner/${folder[1]}/pyodide.asm.wasm answered ${wasm.status} (${wasm.headers.get('content-type')}): Python cannot start without it`);
+    }
+  }
+
+  // SQL problems run SQLite in the browser the same way (sql-worker.js and the folder of sql.js beside it).
+  const sqlWorker = await get('/runner/sql-worker.js');
+  if (sqlWorker) {
+    const source = sqlWorker.status === 200 ? await sqlWorker.text() : '';
+    expect(sqlWorker.status === 200 && /javascript/.test(sqlWorker.headers.get('content-type') || ''), `/runner/sql-worker.js answered ${sqlWorker.status} (${sqlWorker.headers.get('content-type')})`);
+    const folder = /(sqljs-[\w.]+)\//.exec(source);
+    if (sqlWorker.status === 200 && !folder) problems.push('/runner/sql-worker.js does not name a sql.js folder');
+    if (folder) {
+      const wasm = await head(`/runner/${folder[1]}/sql-wasm.wasm`);
+      if (wasm) expect(wasm.status === 200 && /application\/wasm/.test(wasm.headers.get('content-type') || ''), `/runner/${folder[1]}/sql-wasm.wasm answered ${wasm.status} (${wasm.headers.get('content-type')}): SQL cannot start without it`);
     }
   }
 

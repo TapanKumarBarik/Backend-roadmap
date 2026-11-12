@@ -33,7 +33,7 @@ import { areaOf, areaList, effectiveArea } from './lib/curriculum/areas.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { fetchPracticeCatalog } from './lib/practiceApi.js';
 import { useLoader } from './hooks/useLoader.js';
-import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, ME_ROUTE, pageUrl } from './lib/appPages.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, ME_ROUTE, PROFILE_ROUTE, pageUrl } from './lib/appPages.js';
 import { routeUrl } from './lib/curriculum/moduleUrl.js';
 import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
@@ -101,6 +101,8 @@ const DailyIncidentModal = lazy(() => import('./components/incident/DailyInciden
 // feature only a signed-in user who opens Workspace ever touches — same
 // reasoning as AdminDashboard above, just for a much heavier dependency.
 const WorkspaceView = lazy(() => import('./components/workspace/WorkspaceView.jsx'));
+// A public profile (/#__profile@<handle>) is opened from a link someone shared, so the first page does not carry it.
+const ProfileView = lazy(() => import('./components/game/ProfileView.jsx'));
 
 const ADMIN_ROUTE = '__admin';
 // Bookmarks and notes merged into one "Saved" destination with two tabs.
@@ -203,13 +205,14 @@ export default function App() {
   const isDesignRoute = path === DESIGN_ROUTE;
   const isPracticeRoute = path === PRACTICE_ROUTE;
   const isMeRoute = path === ME_ROUTE;
+  const isProfileRoute = path === PROFILE_ROUTE && !!heading;
   const isPathRoute = path === PATH_ROUTE;
   // The community's articles have addresses of their own (/blog/<slug>, lib/appPages.js) and set their own page title.
   const isBlogRoute = path === BLOG_ROUTE;
   const isAuthorRoute = path === AUTHOR_ROUTE;
   const isWriteRoute = path === WRITE_ROUTE;
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isMeRoute || isPathRoute || isPageRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isMeRoute || isProfileRoute || isPathRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
   // The paths and the videos have addresses of their own (/paths/<id>/, /videos/), each served with its own <title>; keep it right.
   const listingTitle = isPathRoute ? (heading ? paths.find((p) => p.id === heading)?.title : LISTING_COPY.pathsTitle) : isVideosRoute ? LISTING_COPY.videosTitle : null;
@@ -663,6 +666,7 @@ export default function App() {
                   />
                 )}
                 {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} onOpenPath={openPathPage} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} statusMap={statusMap} onMark={setStatus} />}
+                {isProfileRoute && <Suspense fallback={null}><ProfileView handle={heading} onBack={handleGoHome} onGoHome={handleGoHome} /></Suspense>}
                 {isMeRoute && (
                   <MyLearningView
                     user={user}

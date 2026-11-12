@@ -33,6 +33,7 @@ const PUBLIC = [
   'POST /api/practice/questions/check', // ...and check what was chosen; nothing is kept
   'GET /api/practice/level-check',
   'GET /api/practice/mock',
+  'GET /api/profiles/:handle', // a public profile is public: its owner chose to publish it
   'GET /api/practice/daily-incident',
   'POST /api/practice/daily-incident/attempt', // signed out, the answer is shown and nothing is saved, as with a quiz
   'GET /api/announcements',

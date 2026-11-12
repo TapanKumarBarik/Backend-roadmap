@@ -16,6 +16,8 @@ tables beside the old ones.
 | `0004_peer_reviews.sql` | `peer_reviews`: feedback from other learners on a shared solution | the Design Lab (removed 2026-11; the rows are kept and are deleted with an account) |
 | `0005_community_workflow.sql` | `post_classification` (kind and category), `post_versions` (history), `post_moderation` (a moderator's reason) | studio, articles list, moderation |
 | `0006_workspace_hub.sql` | `workspace_meta` (what kind a workspace page is, and that kind's data), `revision_items` (the lessons on a revision list) | the private workspace: folders, study plans, revision lists, saved diagrams |
+| `0007_daily_incidents.sql` | `daily_incidents`: the daily production-outage challenge, and the streak shields | the daily incident |
+| `0008_public_profiles.sql` | `public_profiles`: a reader's opt-in public page (handle, name, a snapshot of their game) | *Share my progress* on the Learn page; deleted with the account |
 
 **Apply them before the code that needs them is deployed:** `npm run db:migrate:remote`. The deploy workflow's smoke test reads
 `/api/announcements` and `/api/practice/catalog`, so a forgotten 0003 fails the deploy instead of failing for visitors. Locally,

@@ -52,6 +52,7 @@ export const GAME_COPY = {
     video: 'Has a video lecture'
   },
   player: {
+    share: 'Share my progress',
     level: 'Level',
     xp: 'XP',
     toNext: (xp, name) => `${xp} XP to ${name}`,

@@ -23,7 +23,7 @@ function weekdayLabels(key) {
 // What the reader has earned and how they are doing today, always beside the route: their level and the XP to the next, the streak with the
 // week at a glance, today's goal, and the badges. Everything is worked out from the progress they already have (lib/game), so nothing here
 // needs setting up; the one choice is how many things make a day count.
-export default function PlayerCard({ game, target, onTarget }) {
+export default function PlayerCard({ game, target, onTarget, onShare }) {
   const { level, streak, week, doneToday, studiedToday } = game;
   // Beside the route there is room for every badge; above it, on a narrow screen, they would push the route off the screen, so they fold away.
   const narrow = useMediaQuery('(max-width: 980px)');
@@ -48,6 +48,7 @@ export default function PlayerCard({ game, target, onTarget }) {
         <i style={{ width: `${Math.round(level.ratio * 100)}%` }} />
       </div>
       <p className="gm-note">{level.next ? COPY.toNext(level.toNext, level.next.name) : COPY.topLevel}</p>
+      {onShare && <button type="button" className="gm-share-btn" onClick={onShare}>{COPY.share}</button>}
 
       <div className="gm-block">
         <div className="gm-streak">

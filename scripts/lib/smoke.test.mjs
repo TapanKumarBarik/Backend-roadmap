@@ -27,7 +27,10 @@ async function serve(broken = new Set()) {
     '/api/announcements': () => (broken.has('notices') ? ['no such table: announcements', { 'content-type': 'text/plain' }, 500] : ['[]', { 'content-type': 'application/json' }]),
     '/api/practice/catalog': () => (broken.has('practice') ? ['not found', { 'content-type': 'text/plain' }, 404] : [JSON.stringify({ quizzes: [], code: broken.has('noProblems') ? [] : [{ slug: 'two-sum' }] }), { 'content-type': 'application/json' }]),
     '/runner/py-worker.js': () => (broken.has('runner') ? ['not found', { 'content-type': 'text/plain' }, 404] : ["import { loadPyodide } from './pyodide-314.0.7/pyodide.mjs';", { 'content-type': 'text/javascript' }]),
-    '/runner/pyodide-314.0.7/pyodide.asm.wasm': () => ['\0asm', { 'content-type': broken.has('wasmType') ? 'text/plain' : 'application/wasm' }]
+    '/runner/pyodide-314.0.7/pyodide.asm.wasm': () => ['\0asm', { 'content-type': broken.has('wasmType') ? 'text/plain' : 'application/wasm' }],
+    '/api/profiles/smoke-check-nobody': () => (broken.has('profiles') ? ['no such table: public_profiles', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ error: 'not found' }), { 'content-type': 'application/json' }, 404]),
+    '/runner/sql-worker.js': () => (broken.has('sqlRunner') ? ['not found', { 'content-type': 'text/plain' }, 404] : ["importScripts('./sqljs-1.15.2/sql-wasm.js', './sql-core.js');", { 'content-type': 'text/javascript' }]),
+    '/runner/sqljs-1.15.2/sql-wasm.wasm': () => ['\0asm', { 'content-type': broken.has('sqlWasmType') ? 'text/plain' : 'application/wasm' }]
   };
   const server = http.createServer((req, res) => {
     const route = routes[req.url];
@@ -61,7 +64,10 @@ test('each way a deploy can go wrong is reported by name', async () => {
     ['noProblems', /lists no coding problems/],
     ['wasmPolicy', /does not allow WebAssembly/],
     ['runner', /\/runner\/py-worker\.js answered 404/],
-    ['wasmType', /pyodide\.asm\.wasm answered 200 \(text\/plain\)/]
+    ['wasmType', /pyodide\.asm\.wasm answered 200 \(text\/plain\)/],
+    ['profiles', /\/api\/profiles\/<handle> answered 500 \(was the database migration applied\?/],
+    ['sqlRunner', /\/runner\/sql-worker\.js answered 404/],
+    ['sqlWasmType', /sql-wasm\.wasm answered 200 \(text\/plain\)/]
   ];
   for (const [what, expected] of cases) {
     const site = await serve(new Set([what]));

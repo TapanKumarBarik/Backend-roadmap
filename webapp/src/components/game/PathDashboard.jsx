@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import '../../styles/game.css';
 import QuestHero from './QuestHero.jsx';
 import PlayerCard from './PlayerCard.jsx';
@@ -19,6 +19,8 @@ import { STORAGE } from '../../config/index.js';
 import { GAME } from '../../config/game.js';
 
 const RULES = compileGlyphRules(GAME.glyphs.rules);
+// The picture and the public profile are only fetched when the reader opens them.
+const ShareDialog = lazy(() => import('./ShareDialog.jsx'));
 
 // How many things make a day count: a choice of the reader's, kept in this browser.
 function useDailyGoal() {
@@ -46,6 +48,7 @@ export default function PathDashboard({
     [index, statusMap, timeMap, paths, streak]
   );
   const [target, setTarget] = useDailyGoal();
+  const [sharing, setSharing] = useState(false);
 
   const steps = useMemo(() => (path ? stepProgress(path, statusMap) : []), [path, statusMap]);
   const journey = useMemo(() => buildJourney({
@@ -92,7 +95,8 @@ export default function PathDashboard({
         {mode === 'finished' && <QuestComplete path={path} nextPath={nextPath} onPick={onPickPath} onChoose={() => onChoosing(true)} onToast={onToast} />}
         {practice && <PracticeToday catalog={catalog} statusMap={statusMap} onOpen={practice.onOpenPractice} />}
       </div>
-      <PlayerCard game={game} target={target} onTarget={setTarget} />
+      <PlayerCard game={game} target={target} onTarget={setTarget} onShare={() => setSharing(true)} />
+      {sharing && <Suspense fallback={null}><ShareDialog open={sharing} onClose={() => setSharing(false)} game={game} onToast={onToast} /></Suspense>}
       {mode === 'library'
         ? <NextUp items={library.queue} onOpen={onOpenFile} />
         : (

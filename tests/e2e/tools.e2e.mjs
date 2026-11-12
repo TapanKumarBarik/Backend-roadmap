@@ -19,9 +19,9 @@ const MARKS = site.progressKeys;
 const READY = { timeout: 90000 };
 const real = (problems) => problems.filter((p) => !/Failed to load resource/.test(p));
 
-async function open(url, options = {}) {
+async function open(url, { email = null, sharing, ...options } = {}) {
   const opened = await openPage(browser, url, { withCsp: !process.env.E2E_NO_CSP, ...options });
-  const env = await answerApiInProcess(opened.context, { email: null });
+  const env = await answerApiInProcess(opened.context, { email, ...(sharing ? { env: sharing } : {}) }); // `sharing`: the database of another reader of the same site
   return { ...opened, env };
 }
 
@@ -265,5 +265,60 @@ test('the Practice page shows what is due for review, the level check and the mo
     await page.goto(BASE + url, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { level: 2 }).first().waitFor();
   }
+  await context.close();
+});
+
+test('a reader shares their progress as a picture, and may publish a public profile that anyone can open and that they can take down', async () => {
+  const { context, page, env, goto } = await open('/', { email: 'reader@example.com' });
+  const modules = plan.days.flatMap((d) => d.items).filter((i) => i.kind === 'lesson').slice(0, 3).map((i) => i.ref);
+  await seed(page, { ...Object.fromEntries(modules.map((m) => [m, 'done'])), [`${MARKS.code}two-sum`]: 'done' });
+  await goto();
+  await page.getByRole('button', { name: 'Share my progress' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor();
+  const canvas = dialog.locator('canvas');
+  assert.equal(await canvas.evaluate((c) => c.width), 1200, 'the picture is the size link previews use');
+  assert.ok(await canvas.evaluate((c) => c.toDataURL('image/png').length) > 20000, 'something is drawn on it');
+  await until(async () => (await dialog.getByLabel('Name on the card').inputValue()) !== '', 'the name of the signed-in reader is offered for the card');
+  const withName = await canvas.evaluate((c) => c.toDataURL('image/png'));
+  await dialog.getByLabel('Put my name on it').uncheck();
+  assert.notEqual(await canvas.evaluate((c) => c.toDataURL('image/png')), withName, 'the name is on the picture only when asked for');
+  const download = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download the picture' }).click();
+  assert.equal((await download).suggestedFilename(), 'backend-roadmap-progress.png');
+
+  // a public profile: not before it is asked for, then at an address, with only what the card has
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM public_profiles').get().n, 0, 'nothing is public yet');
+  await dialog.getByLabel('Handle').fill('Not A Handle');
+  await dialog.getByRole('button', { name: 'Publish my profile' }).click();
+  await dialog.getByText(/A handle is 3 to 30/).waitFor();
+  await dialog.getByLabel('Handle').fill('reader-one');
+  await dialog.getByLabel('Name shown').fill('Reader One');
+  await dialog.getByRole('button', { name: 'Publish my profile' }).click();
+  await dialog.getByText('Your profile is public:').waitFor();
+  const row = env.DB.raw.prepare('SELECT handle, display_name, snapshot FROM public_profiles').get();
+  assert.deepEqual([row.handle, row.display_name], ['reader-one', 'Reader One']);
+  const snapshot = JSON.parse(row.snapshot);
+  assert.equal(snapshot.problems, 1);
+  assert.equal(snapshot.modules, modules.length);
+  const link = await dialog.locator('.gm-share-profile a').getAttribute('href');
+  assert.equal(link, '/#__profile%40reader-one'.replace('%40', '@'));
+
+  // anyone, signed out, opens it
+  const visitor = await open('/', { sharing: env });
+  await visitor.page.goto(`${BASE}${link}`, { waitUntil: 'networkidle' });
+  await visitor.page.getByRole('heading', { level: 2, name: 'Reader One' }).waitFor();
+  assert.match(await visitor.page.locator('.gm-profile__stats').innerText(), /problems solved\s*1/i);
+  assert.match(await visitor.page.locator('.gm-profile').innerText(), /reported by their owner/);
+  await visitor.context.close();
+
+  // and takes it down
+  await dialog.getByRole('button', { name: 'Take it down' }).click();
+  await dialog.getByRole('button', { name: 'Publish my profile' }).waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM public_profiles').get().n, 0);
+  const gone = await open('/', { sharing: env });
+  await gone.page.goto(`${BASE}${link}`, { waitUntil: 'networkidle' });
+  await gone.page.getByText(/There is no profile at that address/).waitFor();
+  await gone.context.close();
   await context.close();
 });

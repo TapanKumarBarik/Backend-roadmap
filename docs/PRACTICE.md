@@ -1,8 +1,9 @@
 # Practice Center: how the content works
 
-The Practice Center (`/practice/`) has **coding problems you solve in the page** (Python, run in the browser against tests), quizzes, coding interview
-questions, concept interview questions and exercises, and every day a **drill** and a **problem of the day**. All of it is **content in git**, reviewed
-like a lesson, and an item is tied to the lesson that teaches it where there is one.
+The Practice Center (`/practice/`) has **coding problems you solve in the page** (Python, run in the browser against tests; and SQL, run on SQLite in the
+browser), **study plans**, quizzes, coding interview questions, concept interview questions and exercises, every day a **drill** and a **problem of the day**, and
+three ways to get ready: a **level check**, **mock interviews** and a **review queue** of what was missed. All of it is **content in git**, reviewed like a lesson,
+and an item is tied to the lesson that teaches it where there is one.
 
 > The Design Lab (low-level and high-level design challenges, `/design-lab/`) was removed in 2026-11 and replaced by the coding questions. Its addresses
 > redirect (`webapp/public/_redirects`); what people had submitted stays in the database, unread.
@@ -11,7 +12,9 @@ like a lesson, and an item is tied to the lesson that teaches it where there is 
 
 | Kind | Where | Address |
 |---|---|---|
-| Coding problem (runs in the page) | `content/practice/code/<slug>.json` | `/practice/code/<slug>/` |
+| Coding problem (runs in the page; Python, or SQL when it says `"language": "sql"`) | `content/practice/code/<slug>.json` | `/practice/code/<slug>/` |
+| The data SQL problems run on | `content/practice/sql-data/<dataset>.sql` (made by `scripts/dev/make-sql-data.py`) | not a page |
+| Study plan | `content/practice/plans/<slug>.json` | `/practice/plan/<slug>/` |
 | Quiz | `content/practice/quizzes/<slug>.json` | `/practice/quiz/<slug>/` |
 | Exercise | `content/practice/exercises/<slug>.json` | `/practice/exercise/<slug>/` |
 | Interview set (concepts, or coding questions) | `content/practice/interview/<slug>.json` | `/practice/interview/<slug>/` |
@@ -106,3 +109,68 @@ Quizzes: optional timed mode (a minute per question; scored when it runs out), a
 history), and "Where to practise" on My Learning (from the latest try of each quiz, by topic). Their tries are kept when they are signed in.
 
 The other files an admin can edit in the browser (the learning paths, the videos and the search titles) work the same way: see [`ADMIN_CONTENT.md`](ADMIN_CONTENT.md).
+
+## SQL problems
+
+A coding problem with `"language": "sql"` is judged by running the learner's **query** on SQLite (sql.js, SQLite compiled to WebAssembly, vendored in
+`webapp/public/runner/sqljs-<version>/` and cached for good) in a worker (`sql-worker.js`; `lib/practice/sqlRunner.js` shares the worker client with the Python runner,
+`lib/practice/workerClient.js`). It has no tests: it names a `dataset` (`content/practice/sql-data/<dataset>.sql`, `CREATE TABLE` and `INSERT` statements; five small
+datasets: `shop`, `company`, `events`, `llm_calls`, `ml_runs`), `variants` (lists of statements that change the data: a NULL where there was none, a tie, a group with
+nothing in it), and `expected`: the table the model solution gives on the data as it is and on each variant. The query runs on a **fresh in-memory copy** each time (so
+`DROP TABLE` changes nothing next time), once on the data and once on each variant, and each result is compared with the expected one (`lib/practice/sqlCompare.js`: the
+same column names in the same order, the same rows, in any order unless `orderMatters`, numbers to 6 places, NULL is not 0 or an empty string). At least one variant is
+required, so a list of the rows is not an answer. The tables beside the statement are read from the data by the engine. A result is cut after `SQL_RUNNER.maxRows` rows and a
+query is stopped after `SQL_RUNNER.timeoutMs` (`config/code.js`). Progress, XP, the discussion and the hub are the Python problems' (the mark is `practice/code/<slug>`).
+
+**Writing and checking.** `python scripts/dev/sql-problem-builder.py problems.py` builds the JSON from a file of `S(...)` calls (raw strings), then runs
+`node scripts/check/check-sql-problems.mjs --write <slugs>`, which runs the model solution with the same engine and the same `sql-core.js` the worker runs (Node loads
+`webapp/public/runner/sql-core.js`, so the checks run the very code the browser runs), writes `expected` into the file, and fails when the starting query is already the
+answer, a variant changes nothing, an empty answer would let anything pass, or `orderMatters` is set with no `ORDER BY`. `npm run check:sql` (a CI step) fails when
+`expected` is not what the solution gives now: after changing a dataset (`python scripts/dev/make-sql-data.py`) or a solution, run `--write` for the problems it touches.
+The builders refuse a slug that would overwrite a problem of the other language.
+
+## Machine learning and GenAI problems
+
+Two topics of pure-Python problems (no numpy: they run in Pyodide next to the others): *Machine learning from scratch* (softmax, metrics, validation, linear and
+logistic models, k-means, k-nearest neighbours, trees, ranking, drift, a forward pass) and *LLM and GenAI building blocks* (cosine search, sampling, attention, positional
+encoding, BPE, chunking, BM25, rank fusion, packing a context, safe prompt templates, extracting JSON, KV cache memory, pass@k, the agent loop). The GenAI ones name the
+lesson that teaches them in `module`; the ML lessons are still placeholders, so those problems name none.
+
+## Study plans
+
+A plan is `content/practice/plans/<slug>.json`: `title`, `topic`, `difficulty`, `description`, `audience`, and `days`, each `{ title, items }` where an item is `{ kind, ref }`:
+a `lesson` (its file under `content/`), a `code` problem or a `quiz` (its slug) or a `mock` interview (the id of a track). `npm run practice:build` fails when something a
+plan names is not there. What is done is read from the reader's own progress marks (`lib/practice/plans.js`): nothing is entered by hand and a plan has no clock to keep up
+with; following a plan keeps `{ id, start }` on the device (`site.config.json` -> `storage.plan`), and the page says which day the schedule is on and how many days behind
+the reader is (it costs nothing). A finished plan is the mark `practice/plan/<id>` (XP, a badge), saved wherever the plan is looked at (`hooks/useActivePlan.js`). Six plans
+are in git: backend interview in 30 days, a 14-day crash course, algorithms in Python, GenAI engineer, SQL for developers, machine learning from scratch.
+
+## The level check, mock interviews and the review
+
+All three read `game.config.json` (`levelCheck`, `mock`) and `site.config.json` (`review`), and draw questions from the quizzes by topic with a seed (`lib/practice/picks.js`).
+The API serves the questions by key without answers (`GET /api/practice/questions`, `GET /api/practice/level-check`, `GET /api/practice/mock?track=&seed=`) and checks what
+was chosen (`POST /api/practice/questions/check`), so an answer never reaches the page before it has been given.
+
+- **Level check** (`/practice/level/`): a few questions in each area (backend, DevOps, Python and algorithms, GenAI), the same for everyone, no feedback until the end,
+  then each area's band (`bandsFromPercent`) and the path and plan to start with for the weakest. The result is kept on the device.
+- **Mock interview** (`/practice/mock/` or `/practice/mock/<track>/`): a track's questions and coding problems, against a clock, with no hints, solution or discussion
+  (`CodeProblemView` has a `mock` mode). The interview in progress is kept on the device so a reload does not lose it. The scorecard weighs a problem as two questions and says
+  how each topic went; a finished mock is the mark `practice/mock/<track>/<time>` (XP, a badge) and the last ten are listed.
+- **Review** (`/practice/review/`): the Leitner system (`lib/practice/review.js`): a question missed in a drill, quiz, level check or mock, and a coding problem solved, come back
+  after 1, 3, 7, 14 and 30 days (`site.config.json` -> `review.intervalsDays`), a right answer moves an item a box on and a wrong one back to the first. It is kept on the device.
+
+A quiz **passed** (`game.config.json` -> `quiz.passPercent`) is the mark `practice/quiz/<slug>` (XP, a badge); a try below it is "tried".
+
+## The discussion under a problem
+
+Each coding problem has a discussion, the comments system under the path `code:<slug>` (`lib/blog/limits.js`). It stays shut until it is asked for, because people share solutions
+there, and opens by itself once the problem is solved, with a button that puts the reader's own code in the comment box as a fenced block to read over and post. Code in
+any comment is shown as code (`lib/commentText.js`).
+
+## Sharing, and public profiles
+
+On the Learn page, *Share my progress* draws a picture of the reader's level, XP, streak, problems solved and badges **in their browser** (`lib/shareCard.js`, 1200 x 630;
+nothing is uploaded) to download, copy as text or hand to the share sheet. A signed-in reader can also publish a **public profile**: a handle, a name and the same numbers and
+badges, at `/#__profile@<handle>`, which anyone with the link can open. It is opt-in, it says the numbers were reported by their owner (the game is computed in the browser from
+their own progress), it holds only the numbers and badge ids the game has (`api/routes/profile.js` cuts the snapshot), and it is gone when the reader takes it down or deletes their
+account. It needs migration `0008_public_profiles.sql` (`npm run db:migrate:remote`).

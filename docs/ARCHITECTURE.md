@@ -21,7 +21,7 @@ content/        what the author writes
                   seo.json     titles and descriptions that override the generated ones
 webapp/         the React app (Vite).   src/components/<screen>  src/hooks  src/lib/<topic>  src/config (words)  src/styles
                 public/ holds what is served as it is: _headers, _redirects, the PDF notes under notes/, icons, privacy and terms,
-                and runner/ (Pyodide, the worker and the harness that run a learner's Python in the page)
+                and runner/ (Pyodide and sql.js, the workers and the harness that run a learner's Python and SQL in the page)
 api/            the server: Hono routes (routes/), data helpers (lib/), the D1 migrations, the generated practice file, tests/
 functions/      the files Cloudflare Pages looks for; they hand /api/* and the community's pages to api/
 scripts/        build/ (makes dist/)  check/ (the gates)  maintain/ (sync and one-off jobs)  dev/ (screenshots, Lighthouse, Linux CI)  lib/ (shared, tested)
@@ -108,7 +108,9 @@ are pure functions in `webapp/src/lib/practice/validate.js`, shared by the build
 **Coding problems run in the reader's browser.** `webapp/public/runner/` serves Pyodide (CPython compiled to WebAssembly, in a folder named for its version so the
 browser keeps it for good, and the service worker keeps it for offline), a module worker (`py-worker.js`) and `harness.py`, the one file that decides whether a test
 passed. `lib/practice/pyRunner.js` owns the worker (one, shared; started when a coding screen opens; ended if a run passes `RUNNER.timeoutMs`), so nothing a learner
-writes can freeze the page, and none of it leaves their machine. The Content-Security-Policy gains `'wasm-unsafe-eval'` for it, and nothing else. `npm run check:code`
+writes can freeze the page, and none of it leaves their machine. The Content-Security-Policy gains `'wasm-unsafe-eval'` for it, and nothing else.
+**SQL problems** run the same way on sql.js (SQLite as WebAssembly, `runner/sqljs-<version>/`, `sql-worker.js`, `sql-core.js`); the two runners share `lib/practice/workerClient.js`,
+and `lib/practice/engines.js` says which runs a problem. `scripts/lib/sqlEngine.mjs` runs `sql-core.js` under Node, so `npm run check:sql` checks a problem with the code the browser runs. `npm run check:code`
 runs every problem with `harness.py` in ordinary Python and in Pyodide (`scripts/lib/pyodideJudge.mjs`), so a problem that cannot be solved as written, or that only
 works on a desktop Python, fails CI. A problem solved is a progress mark (`practice/code/<slug>`), the same as a module, so it earns XP and keeps the streak.
 
@@ -135,7 +137,7 @@ notices, the audit log, practice content, paths, videos, SEO) are for admins onl
 and validates every file with the same code the build uses; [ADMIN_CONTENT.md](ADMIN_CONTENT.md).
 
 The database is Cloudflare D1 (SQLite). Its schema is `api/migrations/` (`0001` accounts, `0002` blogs, `0003` practice (and the removed Design Lab),
-`0004` peer reviews (unused now), `0005` community workflow, `0006` workspace hub): numbered, additive files applied once each; see
+`0004` peer reviews (unused now), `0005` community workflow, `0006` workspace hub, `0007` daily incidents, `0008` public profiles): numbered, additive files applied once each; see
 [api/README.md](../api/README.md). Nothing a reader writes is needed to *read* the site: if the API is down, lessons still open and a
 notice says what could not load.
 
@@ -208,6 +210,10 @@ To add a page, add an entry there. Look at it after a UI change; use git, not ol
 | add or fix a quiz, exercise or interview set (concepts or coding) | a file in `content/practice/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
 | add or fix a coding problem to solve in the page | a file in `content/practice/code/`, then `npm run practice:build` and `npm run check:code` ([PRACTICE.md](PRACTICE.md#coding-problems-solved-in-the-page)) |
 | change how much XP a problem or a drill earns, or how long the drill is | `game.config.json` (`xp`, `drill`, `dailyProblem`) |
+| add or fix a SQL problem | `scripts/dev/sql-problem-builder.py`, then `npm run practice:build` and `npm run check:sql`; a dataset is `scripts/dev/make-sql-data.py` ([PRACTICE.md](PRACTICE.md#sql-problems)) |
+| add or fix a study plan | a file in `content/practice/plans/`, then `npm run practice:build` (it checks every lesson, problem, quiz and mock it names) |
+| change the level check, the mock interview tracks or the review's spacing | `game.config.json` (`levelCheck`, `mock`) and `site.config.json` (`review`) |
+| upgrade sql.js | add the new version's folder to `webapp/public/runner/`, point `sql-worker.js` and the cache rules in `_headers` and `sw.js` at it, delete the old one |
 | upgrade Pyodide | add the new version's folder to `webapp/public/runner/`, point `py-worker.js` and the cache rule in `webapp/public/_headers` and `sw.js` at it, delete the old folder (`runner/README.txt`) |
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
