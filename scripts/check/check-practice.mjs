@@ -1,4 +1,4 @@
-// Fails when a quiz, exercise, interview set or design challenge is malformed (a question whose answer is not one of its options,
+// Fails when a quiz, exercise or interview set is malformed (a question whose answer is not one of its options,
 // a lesson that does not exist), or when api/generated/practice-content.json is not what `npm run practice:build` would write.
 import fs from 'node:fs';
 import path from 'node:path';

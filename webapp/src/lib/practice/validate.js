@@ -1,9 +1,10 @@
-// What a quiz, an exercise, an interview set or a design challenge must look like. Pure (no files): the build reads them from git
+// What a quiz, an exercise or an interview set must look like. Pure (no files): the build reads them from git
 // (scripts/lib/practice.mjs) and the admin editor checks one before it commits it (api/routes/content.js).
 
 export const DIFFICULTIES = ['beginner', 'intermediate', 'advanced'];
 export const QUESTION_TYPES = ['single', 'multiple', 'truefalse'];
-export const CHALLENGE_KINDS = ['lld', 'hld'];
+// An interview set is about concepts (the default) or is a set of coding questions; the Practice screen keeps them on separate tabs.
+export const INTERVIEW_SECTIONS = ['concepts', 'coding'];
 
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
 const isTexts = (value) => Array.isArray(value) && value.length > 0 && value.every(isText);
@@ -47,16 +48,8 @@ export function interviewProblems(slug, item) {
   const problems = [];
   for (const field of ['title', 'topic']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
   if (!DIFFICULTIES.includes(item.difficulty)) problems.push(`${at}: difficulty must be one of ${DIFFICULTIES.join(', ')}`);
+  if (item.section !== undefined && !INTERVIEW_SECTIONS.includes(item.section)) problems.push(`${at}: section must be one of ${INTERVIEW_SECTIONS.join(', ')}`);
   if (!Array.isArray(item.questions) || item.questions.length === 0 || !item.questions.every((q) => isText(q.q) && isText(q.a))) problems.push(`${at}: questions must be a list of { q, a }`);
-  return problems;
-}
-
-export function challengeProblems(slug, kind, item) {
-  const at = `challenge ${kind}/${slug}`;
-  const problems = [];
-  if (item.kind !== kind) problems.push(`${at}: kind is "${item.kind}" but the file is in ${kind}`);
-  for (const field of ['title', 'summary', 'problem', 'reference']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
-  for (const field of ['functional', 'nonFunctional', 'constraints', 'deliverables', 'hints']) if (!isTexts(item[field])) problems.push(`${at}: ${field} must be a list of texts`);
   return problems;
 }
 
@@ -65,13 +58,12 @@ export function challengeProblems(slug, kind, item) {
 export const FOLDERS = {
   quizzes: 'practice/quizzes',
   exercises: 'practice/exercises',
-  interview: 'practice/interview',
-  challenges: 'design-lab'
+  interview: 'practice/interview'
 };
 
-const PATH = /^(practice\/(quizzes|exercises|interview)|design-lab\/(lld|hld))\/([a-z0-9][a-z0-9-]*)\.json$/;
+const PATH = /^practice\/(quizzes|exercises|interview)\/([a-z0-9][a-z0-9-]*)\.json$/;
 
-/** True for the path of a practice file, relative to content/: "practice/quizzes/http-caching.json", "design-lab/lld/atm.json". */
+/** True for the path of a practice file, relative to content/: "practice/quizzes/http-caching.json", "practice/interview/caching.json". */
 export const isPracticePath = (relative) => PATH.test(String(relative || ''));
 
 /** What is wrong with one practice file, given its path (relative to content/) and its parsed content; an empty list is a good file. */
@@ -79,9 +71,8 @@ export function practiceFileProblems(relative, item) {
   const m = PATH.exec(String(relative || ''));
   if (!m) return [`${relative}: not a practice file`];
   if (!item || typeof item !== 'object' || Array.isArray(item)) return [`${relative}: must be a JSON object`];
-  const slug = m[4];
-  if (m[2] === 'quizzes') return quizProblems(slug, item);
-  if (m[2] === 'exercises') return exerciseProblems(slug, item);
-  if (m[2] === 'interview') return interviewProblems(slug, item);
-  return challengeProblems(slug, m[3], item);
+  const slug = m[2];
+  if (m[1] === 'quizzes') return quizProblems(slug, item);
+  if (m[1] === 'exercises') return exerciseProblems(slug, item);
+  return interviewProblems(slug, item);
 }

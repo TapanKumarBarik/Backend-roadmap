@@ -29,7 +29,7 @@ function Section({ title, empty, children, items }) {
 // a section with nothing in it says so and says where to start.
 export default function MyLearningView({
   user, onLogin, counts, statusMap, timeMap, activePath, bookmarks, nodeByFile, flatFiles, activity,
-  onOpenFile, onOpenPath, onOpenPractice, onOpenLab, onOpenActivity, onOpenSaved, onOpenPaths
+  onOpenFile, onOpenPath, onOpenPractice, onOpenActivity, onOpenSaved, onOpenPaths
 }) {
   const { data: notes } = useLoader(fetchAllNotes, [user?.userId], { enabled: !!user });
   const { data: attempts } = useLoader(fetchQuizAttempts, [user?.userId], { enabled: !!user });
@@ -49,12 +49,12 @@ export default function MyLearningView({
   if (continueFile) next.push({ key: 'continue', label: `Continue: ${titleOf(nodeByFile, continueFile)}`, go: () => onOpenFile(continueFile), href: routeUrl(continueFile) });
   if (catalog) {
     for (const q of catalog.quizzes) if (q.module && statusMap[q.module] === 'done' && !triedQuizzes.has(q.slug)) next.push({ key: `q-${q.slug}`, label: `Test yourself: ${q.title}`, go: () => onOpenPractice(`quiz/${q.slug}`) });
-    for (const c of catalog.challenges) if (c.module && statusMap[c.module] === 'done' && !(submissions || []).some((s) => s.kind === c.kind && s.challenge === c.slug)) next.push({ key: `c-${c.key}`, label: `Design it: ${c.title}`, go: () => onOpenLab(c.key) });
+    for (const e of catalog.exercises) if (e.module && statusMap[e.module] === 'done' && !(submissions || []).some((s) => s.challenge === e.slug)) next.push({ key: `e-${e.slug}`, label: `Try the exercise: ${e.title}`, go: () => onOpenPractice(`exercise/${e.slug}`) });
     if (next.length < 3) for (const q of catalog.quizzes) if (!triedQuizzes.has(q.slug) && next.length < 3) next.push({ key: `q-${q.slug}`, label: `Try the quiz: ${q.title}`, go: () => onOpenPractice(`quiz/${q.slug}`) });
   }
 
   const best = attempts && attempts.length ? Math.round((attempts.reduce((sum, a) => sum + a.score / a.max, 0) / attempts.length) * 100) : null;
-  const titleOfChallenge = (s) => (s.kind === 'exercise' ? catalog?.exercises.find((e) => e.slug === s.challenge)?.title : catalog?.challenges.find((c) => c.slug === s.challenge && c.kind === s.kind)?.title) || s.challenge;
+  const titleOfExercise = (s) => catalog?.exercises.find((e) => e.slug === s.challenge)?.title || s.challenge;
 
   return (
     <div id="empty" className="pr-screen me">
@@ -144,11 +144,11 @@ export default function MyLearningView({
             })()}
           </Section>
 
-          <Section title="Design and exercise submissions" items={submissions ? submissions.length : 0} empty="No submissions yet. The Design Lab and the exercises have places to work.">
+          <Section title="Exercise submissions" items={submissions ? submissions.length : 0} empty="No submissions yet. The exercises have a place to work.">
             <ul className="me-list">
               {(submissions || []).slice(0, SHOWN).map((s) => (
                 <li key={s.id}>
-                  <button type="button" className="link" onClick={() => (s.kind === 'exercise' ? onOpenPractice(`exercise/${s.challenge}`) : onOpenLab(`${s.kind}/${s.challenge}`))}>{titleOfChallenge(s)}</button>
+                  <button type="button" className="link" onClick={() => onOpenPractice(`exercise/${s.challenge}`)}>{titleOfExercise(s)}</button>
                   <small>{s.status}{s.reviews.length ? ' · reviewed' : ''}</small>
                 </li>
               ))}

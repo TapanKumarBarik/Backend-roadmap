@@ -12,8 +12,8 @@ tables beside the old ones.
 | Migration | Adds | Used by |
 |---|---|---|
 | `0002_blogs.sql` | author profiles, posts, tags, likes, bookmarks, reports | community articles, the studio |
-| `0003_practice_and_design_lab.sql` | quiz attempts and answers, submissions and admin reviews, announcements, the audit log | Practice Center, Design Lab, admin notices and audit log |
-| `0004_peer_reviews.sql` | `peer_reviews`: feedback from other learners on a shared solution | Design Lab |
+| `0003_practice_and_design_lab.sql` | quiz attempts and answers, submissions and admin reviews, announcements, the audit log | Practice Center, admin notices and audit log (and the Design Lab, removed 2026-11) |
+| `0004_peer_reviews.sql` | `peer_reviews`: feedback from other learners on a shared solution | the Design Lab (removed 2026-11; the rows are kept and are deleted with an account) |
 | `0005_community_workflow.sql` | `post_classification` (kind and category), `post_versions` (history), `post_moderation` (a moderator's reason) | studio, articles list, moderation |
 | `0006_workspace_hub.sql` | `workspace_meta` (what kind a workspace page is, and that kind's data), `revision_items` (the lessons on a revision list) | the private workspace: folders, study plans, revision lists, saved diagrams |
 
@@ -51,7 +51,7 @@ received, their posts' classification, versions and moderation notes (`api/lib/p
 
 ## Where content lives
 
-- **Lessons, quizzes, exercises, interview sets and design challenges are files in git** (`content/`). What people *did* with them is in the database.
+- **Lessons, quizzes, exercises and interview sets are files in git** (`content/`). What people *did* with them is in the database.
 - `api/generated/practice-content.json` is what the API serves the practice content from (a Pages Function cannot read the repository). It is
   built by `npm run practice:build`. `npm run check` fails locally when the committed copy is stale. CI builds it first (`.github/actions/verify`), so
   the admin editor can commit a quiz without regenerating anything and the deploy still carries it.

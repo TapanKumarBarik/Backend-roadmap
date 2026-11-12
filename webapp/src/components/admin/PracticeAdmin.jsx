@@ -7,13 +7,12 @@ import { Button } from '../ui/Button.jsx';
 import { Tabs } from '../ui/Tabs.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
-import MermaidPreview from '../practice/MermaidPreview.jsx';
 import PracticeContentEditor from './PracticeContentEditor.jsx';
 
 const FILTERS = [{ id: 'submitted', label: 'Waiting for review' }, { id: 'reviewed', label: 'Reviewed' }];
 
-// The Practice Center and the Design Lab from the admin's side: how the quizzes are doing (real tries and averages), and the submissions
-// waiting for a review. The quizzes, exercises and challenges themselves are content in git (content/practice, content/design-lab), so
+// The Practice Center from the admin's side: how the quizzes are doing (real tries and averages), and the submissions
+// waiting for a review. The quizzes, exercises and interview sets themselves are content in git (content/practice), so
 // they are edited there and reviewed like a lesson.
 export default function PracticeAdmin({ onToast = () => {} }) {
   const [status, setStatus] = useState('submitted');
@@ -39,7 +38,7 @@ export default function PracticeAdmin({ onToast = () => {} }) {
       {statsError && <LoadError error={statsError} what={LOAD_WHAT.admin} onRetry={reloadStats} />}
       {stats && (
         <>
-          <p className="pr-note">{stats.content.quizzes} quizzes, {stats.content.exercises} exercises, {stats.content.interview} interview sets and {stats.content.challenges} design challenges in git. Submissions: {Object.entries(stats.submissions).map(([k, n]) => `${n} ${k}`).join(', ') || 'none yet'}.</p>
+          <p className="pr-note">{stats.content.quizzes} quizzes, {stats.content.exercises} exercises, and {stats.content.interview} interview sets (concepts and coding) in git. Submissions: {Object.entries(stats.submissions).map(([k, n]) => `${n} ${k}`).join(', ') || 'none yet'}.</p>
           <div className="dtable-wrap"><table className="dtable">
             <thead><tr><th scope="col">Quiz</th><th scope="col">Questions</th><th scope="col">Tries</th><th scope="col">People</th><th scope="col">Average</th></tr></thead>
             <tbody>
@@ -59,8 +58,6 @@ export default function PracticeAdmin({ onToast = () => {} }) {
           <div className="admin-row-main">
             <div className="comment-meta"><strong>{w.title}</strong><span>{w.kind}</span><span>by {w.author ? `${w.author.name} (@${w.author.handle})` : 'a learner without an author name'}</span><span>{new Date(w.at).toLocaleDateString()}</span>{w.shared && <span>shared</span>}{w.reviews > 0 && <span>{w.reviews} review(s)</span>}</div>
             <p className="pr-pre">{w.text}</p>
-            {w.diagram && <MermaidPreview source={w.diagram} label="Submitted diagram" />}
-            {w.diagramUrl && <img className="pr-upload__img" src={w.diagramUrl} alt="Submitted diagram" loading="lazy" />}
             {w.code && <pre className="pr-code"><code>{w.code}</code></pre>}
             <label className="pr-field">
               <span className="pr-field__label">Your review</span>

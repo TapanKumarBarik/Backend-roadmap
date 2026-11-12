@@ -6,10 +6,10 @@ import { CONTENT_EDITOR } from '../../config/practice.js';
 import { Button } from '../ui/Button.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 
-// Edits the quizzes, exercises, interview sets and design challenges without a code editor: pick one (or start a new quiz), change it as
+// Edits the quizzes, exercises and interview sets without a code editor: pick one (or start a new quiz), change it as
 // JSON, check it, and save, which commits it to the repository like any other change to the content (so it is in the history, and the
 // site is rebuilt). The server checks a file again before it commits it, so a mistake cannot stop the next deploy.
-const pathOf = (kind, slug) => (kind === 'challenges' ? `design-lab/${slug}.json` : `practice/${kind}/${slug}.json`);
+const pathOf = (kind, slug) => `practice/${kind}/${slug}.json`;
 
 export default function PracticeContentEditor({ onToast }) {
   const { data: catalog } = useLoader(fetchPracticeCatalog);
@@ -25,7 +25,7 @@ export default function PracticeContentEditor({ onToast }) {
     ...catalog.quizzes.map((q) => ({ path: pathOf('quizzes', q.slug), label: `Quiz: ${q.title}` })),
     ...catalog.exercises.map((e) => ({ path: pathOf('exercises', e.slug), label: `Exercise: ${e.title}` })),
     ...catalog.interview.map((i) => ({ path: pathOf('interview', i.slug), label: `Interview: ${i.title}` })),
-    ...catalog.challenges.map((c) => ({ path: pathOf('challenges', c.key), label: `Design: ${c.title}` }))
+    ...catalog.coding.map((i) => ({ path: pathOf('interview', i.slug), label: `Coding: ${i.title}` }))
   ] : [];
 
   async function run(what, work) {

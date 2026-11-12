@@ -18,7 +18,7 @@ Start with [ARCHITECTURE.md](ARCHITECTURE.md): what the repository is made of, h
 |---|---|
 | [IMAGES.md](IMAGES.md) | Adding pictures to a lesson |
 | [VIDEOS.md](VIDEOS.md) | The YouTube videos, how they attach to modules, `npm run videos:sync` |
-| [PRACTICE.md](PRACTICE.md) | Quizzes, exercises, interview sets and design challenges: the files, the rules, how an admin edits them |
+| [PRACTICE.md](PRACTICE.md) | Quizzes, exercises, concept and coding interview sets: the files, the rules, how an admin edits them |
 | [ADMIN_CONTENT.md](ADMIN_CONTENT.md) | What an admin can edit in the browser (paths, videos, SEO) and how it is saved |
 | [STUDIO.md](STUDIO.md) | The community writing studio |
 | [ROADMAP.md](ROADMAP.md) | What is planned |

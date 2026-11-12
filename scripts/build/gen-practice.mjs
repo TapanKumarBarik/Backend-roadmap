@@ -1,5 +1,5 @@
-// Writes api/generated/practice-content.json from content/practice and content/design-lab: `npm run practice:build`.
-// The API serves quizzes, exercises, interview questions and design challenges from this file (a Pages Function cannot read the
+// Writes api/generated/practice-content.json from content/practice: `npm run practice:build`.
+// The API serves quizzes, exercises and interview questions (concepts and coding) from this file (a Pages Function cannot read the
 // repository), and it is committed so the API and its tests need no build. `npm run check` fails when it is out of date.
 import fs from 'node:fs';
 import path from 'node:path';

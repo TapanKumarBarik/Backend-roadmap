@@ -79,8 +79,8 @@ const goodQuiz = () => ({
 
 test('practice files map into the content folder, and nothing else that looks like one does', () => {
   assert.equal(repoPathFor('practice/quizzes/http-caching.json'), 'content/practice/quizzes/http-caching.json');
-  assert.equal(repoPathFor('design-lab/lld/atm.json'), 'content/design-lab/lld/atm.json');
-  for (const path of ['practice/quizzes/../../api/app.js', 'practice/quizzes/a.js', 'practice/other/a.json', 'design-lab/xyz/a.json', 'practice/quizzes/A B.json', 'content/practice/quizzes/a.json', 'practice/quizzes/.json']) {
+  assert.equal(repoPathFor('practice/interview/caching.json'), 'content/practice/interview/caching.json');
+  for (const path of ['practice/quizzes/../../api/app.js', 'practice/quizzes/a.js', 'practice/other/a.json', 'design-lab/lld/atm.json', 'practice/quizzes/A B.json', 'content/practice/quizzes/a.json', 'practice/quizzes/.json']) {
     assert.equal(repoPathFor(path), null, path);
   }
 });

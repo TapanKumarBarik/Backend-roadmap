@@ -4,7 +4,7 @@
 // replaces all of it when it starts (scripts/build/prerender.mjs writes them, like a module's page).
 import { LISTING_COPY, formatDuration } from '../../webapp/src/config/paths.js';
 import { DIFFICULTY } from '../../webapp/src/config/practice.js';
-import { pageUrl, LAB_ROUTE, PATH_ROUTE, PRACTICE_ROUTE, VIDEOS_ROUTE } from '../../webapp/src/lib/appPages.js';
+import { pageUrl, PATH_ROUTE, PRACTICE_ROUTE, VIDEOS_ROUTE } from '../../webapp/src/lib/appPages.js';
 import { formatClock, formatTotal, totals } from '../../webapp/src/lib/curriculum/videos.js';
 import { escapeHtml } from '../../webapp/src/lib/markdown/escapeHtml.js';
 import { watchUrl } from '../../webapp/src/lib/markdown/video.js';
@@ -27,7 +27,7 @@ const crumbList = (site, crumbs) => ({
  * @param {string} input.site        the site's address, "https://example.com"
  * @param {string} input.siteName
  * @param {{ '@type': string }} input.author
- * @param {{ quizzes: object, exercises: object, interview: object, challenges: object } | null} [input.practice]   api/generated/practice-content.json
+ * @param {{ quizzes: object, exercises: object, interview: object } | null} [input.practice]   api/generated/practice-content.json
  * @returns {Array<{ url: string, title: string, fullTitle: string, description: string, body: string, ld: object }>}
  */
 export function listingPages({ paths, videos, playlists, titles, urlOf, site, siteName, author, practice = null }) {
@@ -132,9 +132,9 @@ const entries = (group) => Object.entries(group || {});
 const plain = (markdown) => String(markdown).replace(/[`*_>#]/g, '').replace(/\s+/g, ' ').trim();
 const firstSentence = (text) => { const t = plain(text); const end = t.search(/[.!?](\s|$)/); return end > 0 ? t.slice(0, end + 1) : t; };
 
-// The Practice Center and the Design Lab. What is public is what a reader sees before they start: a quiz's questions and options
-// (never its answers or explanations), an exercise's brief, an interview set's questions with their model answers (they are
-// there to be read), and a challenge's problem and requirements (never the reference solution, which opens after a submission).
+// The Practice Center. What is public is what a reader sees before they start: a quiz's questions and options (never its answers
+// or explanations), an exercise's brief, and an interview set's questions with their model answers (they are there to be read: a
+// set of coding questions is a FAQ with worked solutions).
 function practicePages({ practice, titles, urlOf, site, siteName, full, home }) {
   const out = [];
   const lessonLink = (module) => (module && urlOf(module) && titles[module] ? `<p>${esc(LISTING_COPY.readTheLesson)}: ${link(urlOf(module), titles[module].title)}</p>` : '');
@@ -156,10 +156,13 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
   const quizzes = entries(practice.quizzes);
   const exercises = entries(practice.exercises);
   const interview = entries(practice.interview);
+  const isCoding = ([, s]) => s.section === 'coding';
+  const concepts = interview.filter((e) => !isCoding(e));
+  const coding = interview.filter(isCoding);
   const indexUrl = pageUrl(PRACTICE_ROUTE);
   const practiceCrumb = { title: LISTING_COPY.practiceTitle, url: indexUrl };
   const itemLink = (kind, slug, title, extra = '') => `<li>${link(pageUrl(PRACTICE_ROUTE, `${kind}/${slug}`), title)}${extra}</li>`;
-  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, interview.length);
+  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, concepts.length, coding.length);
   out.push({
     url: indexUrl,
     title: LISTING_COPY.practiceTitle,
@@ -168,7 +171,8 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(LISTING_COPY.practiceTitle)}</h1><p>${esc(LISTING_COPY.practiceLead)}</p></header>`
       + `<section><h2>${esc(LISTING_COPY.quizzes)}</h2><ul>${quizzes.map(([slug, q]) => itemLink('quiz', slug, q.title, ` <small>${level(q)} · ${q.questions.length} questions</small>`)).join('')}</ul></section>`
       + `<section><h2>${esc(LISTING_COPY.exercises)}</h2><ul>${exercises.map(([slug, e]) => itemLink('exercise', slug, e.title, ` <small>${level(e)}</small>`)).join('')}</ul></section>`
-      + `<section><h2>${esc(LISTING_COPY.interviewSets)}</h2><ul>${interview.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`,
+      + `<section><h2>${esc(LISTING_COPY.codingSets)}</h2><ul>${coding.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`
+      + `<section><h2>${esc(LISTING_COPY.interviewSets)}</h2><ul>${concepts.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`,
     ld: {
       '@context': 'https://schema.org',
       '@graph': [
@@ -207,8 +211,9 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     });
   }
   for (const [slug, s] of interview) {
-    const description = LISTING_COPY.interviewDescription(s);
-    itemPage('interview', slug, s, {
+    const description = s.section === 'coding' ? LISTING_COPY.codingDescription(s) : LISTING_COPY.interviewDescription(s);
+    // A set of coding questions is named for what a searcher types: the pattern, then what it is.
+    itemPage('interview', slug, s.section === 'coding' ? { ...s, title: LISTING_COPY.codingTitle(s.title) } : s, {
       description,
       body: `<section><h2>${esc(LISTING_COPY.questionsHeading)}</h2>${s.questions.map((x) => `<h3>${esc(x.q)}</h3><div>${renderMarkdownDoc(x.a)}</div>`).join('')}</section>`,
       ld: (url) => ({
@@ -221,52 +226,6 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     });
   }
 
-  // The Design Lab.
-  const challenges = entries(practice.challenges);
-  const labUrl = pageUrl(LAB_ROUTE);
-  const labCrumb = { title: LISTING_COPY.labTitle, url: labUrl };
-  const lld = challenges.filter(([, c]) => c.kind === 'lld');
-  const hld = challenges.filter(([, c]) => c.kind === 'hld');
-  const labList = (heading, items) => (items.length ? `<section><h2>${esc(heading)}</h2><ul>${items.map(([key, c]) => `<li>${link(pageUrl(LAB_ROUTE, key), c.title)}: ${esc(c.summary)}</li>`).join('')}</ul></section>` : '');
-  if (challenges.length) {
-    const labDescription = LISTING_COPY.labDescription(lld.length, hld.length);
-    out.push({
-      url: labUrl,
-      title: LISTING_COPY.labTitle,
-      fullTitle: full(LISTING_COPY.labTitle),
-      description: labDescription,
-      body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(LISTING_COPY.labTitle)}</h1><p>${esc(LISTING_COPY.labLead)}</p></header>${labList(LISTING_COPY.lldHeading, lld)}${labList(LISTING_COPY.hldHeading, hld)}`,
-      ld: {
-        '@context': 'https://schema.org',
-        '@graph': [
-          { '@type': 'CollectionPage', name: LISTING_COPY.labTitle, url: site + labUrl, description: labDescription, inLanguage: 'en', isPartOf: { '@type': 'WebSite', name: siteName, url: site + '/' } },
-          crumbList(site, [home, labCrumb])
-        ]
-      }
-    });
-  }
-  for (const [key, c] of challenges) {
-    const url = pageUrl(LAB_ROUTE, key);
-    const kindName = c.kind === 'lld' ? LISTING_COPY.lldHeading : LISTING_COPY.hldHeading;
-    const description = `${firstSentence(c.problem)} A ${kindName.toLowerCase()} challenge with requirements, constraints and a reference solution.`;
-    const sections = [[LISTING_COPY.functional, c.functional], [LISTING_COPY.nonFunctional, c.nonFunctional], [LISTING_COPY.constraints, c.constraints], [LISTING_COPY.deliverablesHeading, c.deliverables]]
-      .filter(([, items]) => items && items.length)
-      .map(([heading, items]) => `<section><h2>${esc(heading)}</h2>${list(items)}</section>`).join('');
-    out.push({
-      url,
-      title: c.title,
-      fullTitle: full(c.title),
-      description,
-      body: `<nav aria-label="Breadcrumb">${link('/', siteName)} › ${link(labUrl, LISTING_COPY.labTitle)}</nav><header><h1>${esc(c.title)}</h1><p><small>${esc(kindName)}</small></p></header><div>${renderMarkdownDoc(c.problem)}</div>${sections}${lessonLink(c.module)}<p>${link(labUrl, LISTING_COPY.allChallenges)}</p>`,
-      ld: {
-        '@context': 'https://schema.org',
-        '@graph': [
-          resource(c.title, url, description, { topic: kindName, difficulty: undefined }, 'Exercise'),
-          crumbList(site, [home, labCrumb, { title: c.title, url }])
-        ]
-      }
-    });
-  }
   return out;
 }
 

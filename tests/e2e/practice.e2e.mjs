@@ -1,5 +1,5 @@
-// The Practice Center, the Design Lab, My Learning, the learning-path pages and the admins' notices, in a real browser. The API behind the
-// page is the real one, answering inside the test process (support.mjs), with the real quizzes and challenges from content/.
+// The Practice Center, My Learning, the learning-path pages and the admins' notices, in a real browser. The API behind the
+// page is the real one, answering inside the test process (support.mjs), with the real quizzes and sets from content/.
 //
 // Same setup as site.e2e.mjs: a built site being served (`npm run build && npm run preview`) and a browser.
 
@@ -37,17 +37,20 @@ async function open(url, { email = 'reader@example.com', ...options } = {}) {
   return { ...opened, env };
 }
 
-test('the rail has Practice, Design Lab and My Learning, and Practice lists the quizzes, exercises and interview sets', async () => {
+test('the top bar has Practice and My Learning, and Practice lists the quizzes, coding sets, interview sets and exercises', async () => {
   const { context, page, problems, goto } = await open('/#__practice');
   await goto();
   await page.getByRole('heading', { level: 2, name: 'Practice' }).waitFor();
   const places = await page.locator('#mainNav a').allTextContents();
-  for (const name of ['Practice', 'Design Lab', 'My Learning']) assert.ok(places.includes(name), `the top bar has ${name}`);
+  for (const name of ['Practice', 'My Learning']) assert.ok(places.includes(name), `the top bar has ${name}`);
+  assert.ok(!places.includes('Design Lab'), 'the Design Lab is gone');
   assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
 
   const tablist = page.getByRole('tablist', { name: /practice/i });
-  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Quizzes', 'Exercises', 'Interview prep']);
+  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
   assert.ok(await page.getByRole('link', { name: /HTTP caching/i }).count() > 0, 'the quizzes are listed');
+  await tablist.getByRole('tab', { name: /^Coding questions/ }).click();
+  assert.ok(await page.locator('.pr-card').count() > 0, 'and the coding sets');
   await tablist.getByRole('tab', { name: 'Exercises' }).click();
   assert.ok(await page.locator('.pr-card').count() > 0, 'and so are the exercises');
   await tablist.getByRole('tab', { name: 'Interview prep' }).click();
@@ -95,35 +98,61 @@ test('signed out, a quiz still works but says the try is not kept', async () => 
   await context.close();
 });
 
-test('a design challenge keeps its reference solution back until your own is submitted', async () => {
-  const { context, page, env, problems, goto } = await open('/#__lab@lld/parking-lot');
+test('an exercise is worked in a place that saves a draft as you type, and is handed in when you submit it', async () => {
+  const { context, page, env, problems, goto } = await open('/#__practice@exercise/idempotent-payment-endpoint');
   await goto();
-  await page.getByRole('heading', { level: 2, name: /parking/i }).waitFor();
-  assert.equal(await mainLink(page, 'Design Lab').getAttribute('aria-current'), 'page');
-  await page.getByText('The reference solution opens once you have submitted your own').waitFor();
+  await page.getByRole('heading', { level: 2, name: /idempotent/i }).waitFor();
+  assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
+  assert.equal(await page.getByLabel('Share my solution so others can read it').count(), 0, 'nothing is shared: there is no gallery of other solutions');
+  assert.equal(await page.getByLabel('Diagram (Mermaid)').count(), 0, 'an exercise asks for words and code, not a diagram');
 
-  const answer = 'A ParkingLot owns Levels; each Level owns Spots; a Strategy picks the spot for a vehicle.';
+  const answer = 'The client sends an Idempotency-Key; the server stores the first response under it and replays it for a retry.';
   await page.getByLabel('Your answer').fill(answer);
-  const draft = await until(() => env.DB.raw.prepare("SELECT status, text FROM submissions WHERE kind = 'lld' AND challenge_id = 'parking-lot'").get(), 'typed work is saved after a pause');
+  const draft = await until(() => env.DB.raw.prepare("SELECT status, text FROM submissions WHERE kind = 'exercise' AND challenge_id = 'idempotent-payment-endpoint'").get(), 'typed work is saved after a pause');
   assert.equal(draft.status, 'draft', 'typed work is kept as a draft');
   assert.equal(draft.text, answer);
 
   await page.getByRole('button', { name: 'Submit', exact: true }).click();
-  await page.locator('.pr-reference .pr-note').waitFor({ state: 'detached' });
-  assert.ok((await page.locator('.pr-reference').innerText()).length > 200, 'the reference solution is shown once you have submitted');
-  assert.equal(env.DB.raw.prepare("SELECT status FROM submissions WHERE kind = 'lld'").get().status, 'submitted');
-
-  await page.getByLabel('Share my solution so others can read it').check();
-  await until(() => env.DB.raw.prepare("SELECT shared FROM submissions WHERE kind = 'lld'").get().shared === 1, 'sharing is saved');
+  await page.getByText('Submitted. You can still edit it, and an admin may review it.').waitFor();
+  assert.equal(env.DB.raw.prepare("SELECT status FROM submissions WHERE kind = 'exercise'").get().status, 'submitted');
   assert.deepEqual(real(problems), []);
   await context.close();
 });
 
-test('signed out, the design workspace asks for a sign-in instead of showing an editor that cannot save', async () => {
-  const { context, page, goto } = await open('/#__lab@hld/url-shortener', { email: null });
+test('signed out, the exercise workspace asks for a sign-in instead of showing an editor that cannot save', async () => {
+  const { context, page, goto } = await open('/#__practice@exercise/idempotent-payment-endpoint', { email: null });
   await goto();
   await page.getByText('Sign in to keep your work and submit it.').waitFor();
   assert.equal(await page.getByLabel('Your answer').count(), 0);
+  await context.close();
+});
+
+test('coding questions have their own tab: a set shows its questions, and a worked solution (with code) stays hidden until asked for', async () => {
+  const { context, page, problems, goto } = await open('/#__practice', { email: null });
+  await goto();
+  const tablist = page.getByRole('tablist', { name: /practice/i });
+  await tablist.getByRole('tab', { name: /^Coding questions/ }).click();
+  const cards = page.locator('.pr-card');
+  assert.ok(await cards.count() >= 5, 'there are several coding sets');
+  assert.equal(await page.getByRole('link', { name: 'Arrays and hashing' }).count(), 1);
+  assert.equal(await page.getByRole('link', { name: /^Caching$/ }).count(), 0, 'a concepts set is on the other tab');
+
+  await page.getByRole('link', { name: 'Arrays and hashing' }).click();
+  await page.getByRole('heading', { level: 2, name: 'Arrays and hashing: coding interview questions' }).waitFor();
+  assert.equal(new URL(page.url()).pathname, '/practice/interview/coding-arrays-and-hashing/');
+  const first = page.locator('.pr-qa > li').first();
+  await first.getByRole('heading', { level: 3 }).waitFor();
+  assert.equal(await first.locator('pre').count(), 0, 'the solution is not shown until it is asked for');
+  await first.getByRole('button', { name: 'Show the solution' }).click();
+  await first.locator('pre code').first().waitFor();
+  assert.match(await first.locator('pre code').first().innerText(), /def two_sum/);
+  assert.match(await first.innerText(), /Complexity/);
+
+  await page.getByRole('button', { name: '← All practice' }).click();
+  await tablist.getByRole('tab', { name: /^Interview prep/ }).click();
+  assert.equal(await page.getByRole('link', { name: /^Caching$/ }).count(), 1, 'the concepts sets are on their own tab');
+  assert.equal(await page.getByRole('link', { name: 'Arrays and hashing' }).count(), 0);
+  assert.deepEqual(real(problems), []);
   await context.close();
 });
 
@@ -194,14 +223,14 @@ test('a notice from the admins shows above the page, and stays dismissed', async
 test('the admin sees practice figures and submissions waiting for review, and a review leaves the queue', async () => {
   const { context, page, env, problems, goto } = await open('/#__admin', { email: OWNER_EMAIL });
   const at = new Date().toISOString();
-  env.DB.raw.prepare("INSERT INTO submissions (id, user_id, kind, challenge_id, text, status, created_at, updated_at, submitted_at) VALUES ('s1', 'learner-1', 'lld', 'parking-lot', 'My parking lot design', 'submitted', ?, ?, ?)").run(at, at, at);
+  env.DB.raw.prepare("INSERT INTO submissions (id, user_id, kind, challenge_id, text, status, created_at, updated_at, submitted_at) VALUES ('s1', 'learner-1', 'exercise', 'idempotent-payment-endpoint', 'My idempotency design', 'submitted', ?, ?, ?)").run(at, at, at);
   await goto();
   await page.waitForSelector('.admin-dashboard');
   const labels = (await page.locator('.admin-dashboard .page-tabs button').allTextContents()).map((l) => l.trim().replace(/\d+$/, ''));
   for (const name of ['Practice', 'Notices', 'Audit log']) assert.ok(labels.includes(name), `the dashboard has ${name}`);
 
   await page.locator('.admin-dashboard .page-tabs button', { hasText: /^Practice/ }).click();
-  await page.getByText('My parking lot design').waitFor();
+  await page.getByText('My idempotency design').waitFor();
   const send = page.getByRole('button', { name: 'Send review' });
   assert.equal(await send.isDisabled(), true, 'an empty review cannot be sent');
   await page.getByLabel('Your review').fill('Good start: say who owns the pricing rules.');
@@ -253,13 +282,15 @@ test('the paths and the videos are real pages: a crawler gets their content with
   assert.match(quiz.html, /<h1>HTTP caching<\/h1>/);
   assert.match(quiz.html, /<ol><li><p>/, 'the questions are on the page');
   assert.doesNotMatch(quiz.html, /"explanation"|Right answer/, 'the answers are not');
-  const challenge = await get('/design-lab/lld/parking-lot/');
-  assert.equal(challenge.status, 200);
-  assert.match(challenge.html, /Functional requirements/);
+  const coding = await get('/practice/interview/coding-arrays-and-hashing/');
+  assert.equal(coding.status, 200);
+  assert.match(coding.html, /<h1>Arrays and hashing: coding interview questions<\/h1>/);
+  assert.match(coding.html, /def two_sum/, 'the worked solutions are on the page: it is a FAQ');
+  assert.match(coding.html, /"@type":"FAQPage"/);
   assert.match((await get('/practice/')).html, /href="\/practice\/quiz\/http-caching\/"/);
 
   const sitemap = (await get('/sitemap.xml')).html;
-  for (const url of ['/paths/', '/paths/backend-foundations/', '/videos/', '/practice/', '/practice/quiz/http-caching/', '/design-lab/', '/design-lab/lld/parking-lot/']) assert.ok(sitemap.includes(`${url}</loc>`), `${url} is in the sitemap`);
+  for (const url of ['/paths/', '/paths/backend-foundations/', '/videos/', '/practice/', '/practice/quiz/http-caching/', '/practice/interview/coding-arrays-and-hashing/']) assert.ok(sitemap.includes(`${url}</loc>`), `${url} is in the sitemap`);
 
   const { context, page } = await open('/#__videos', { email: null });
   await page.goto(`${BASE}/#__videos`);
@@ -285,16 +316,16 @@ test('a lesson shows the practice that goes with it, and the dashboard and the p
   const strip = home.page.locator('.practice-strip');
   await strip.waitFor();
   assert.ok(await strip.locator('.pr-card').count() > 0, 'the dashboard offers quizzes');
-  await strip.getByRole('link', { name: /^Design Lab/ }).click();
-  await home.page.getByRole('heading', { level: 2, name: 'Design Lab' }).waitFor();
-  assert.equal(new URL(home.page.url()).pathname, '/design-lab/');
+  await strip.getByRole('link', { name: 'Arrays and hashing' }).click();
+  await home.page.getByRole('heading', { level: 2, name: /Arrays and hashing/ }).waitFor();
+  assert.equal(new URL(home.page.url()).pathname, '/practice/interview/coding-arrays-and-hashing/');
 
   await home.page.keyboard.press('Control+k');
-  await home.page.getByPlaceholder(/Search modules/).fill('> parking');
-  await home.page.getByText('Design challenge — ', { exact: false }).first().waitFor();
+  await home.page.getByPlaceholder(/Search modules/).fill('> two pointers');
+  await home.page.getByText('Coding questions — Two pointers and sliding window').first().waitFor();
   await home.page.keyboard.press('Enter');
-  await home.page.getByRole('heading', { level: 2, name: /parking/i }).waitFor();
-  assert.equal(new URL(home.page.url()).pathname, '/design-lab/lld/parking-lot/');
+  await home.page.getByRole('heading', { level: 2, name: /Two pointers and sliding window/ }).waitFor();
+  assert.equal(new URL(home.page.url()).pathname, '/practice/interview/coding-two-pointers-and-sliding-window/');
   await home.context.close();
 });
 
@@ -394,11 +425,6 @@ test('the module tree is one Tab stop and works from the keyboard: arrows move, 
 
 // ---------------------------------------------------------------------------------------------------- the 2.0 additions
 
-const insertShared = (env, { id = 'shared-1', userId = 'user-someone@example.com', text = 'My design: a key generator service hands out ids, and a cache sits in front of the store.' } = {}) => {
-  const at = new Date().toISOString();
-  env.DB.raw.prepare("INSERT INTO submissions (id, user_id, kind, challenge_id, text, status, shared, created_at, updated_at, submitted_at) VALUES (?, ?, 'hld', 'url-shortener', ?, 'submitted', 1, ?, ?, ?)").run(id, userId, text, at, at, at);
-};
-
 test('a timed quiz shows its clock, and the questions that were missed can be tried again without adding to the history', async () => {
   const { context, page, env, goto } = await open('/practice/quiz/http-caching/');
   await goto();
@@ -489,33 +515,6 @@ test('the home page leads with the new promise, sends you to the learning paths,
   assert.equal(await busy.page.locator('#lp-popular ~ .lp-fresh .lp-fresh-item').count(), 3);
   await busy.page.getByRole('link', { name: HERO.startLabel }).waitFor();
   await busy.context.close();
-});
-
-test('feedback on a shared design: others can give it, you read it with your own work, and you are not offered it on your own', async () => {
-  const { context, page, env, goto } = await open('/design-lab/hld/url-shortener/');
-  insertShared(env);
-  await goto();
-  const solution = page.locator('.pr-shared__item').first();
-  await solution.waitFor();
-  await solution.getByRole('heading', { name: 'Feedback' }).waitFor();
-  await solution.getByText('No feedback yet.').waitFor();
-  const send = solution.getByRole('button', { name: 'Send feedback' });
-  assert.equal(await send.isDisabled(), true, 'a few words are not feedback');
-  await solution.getByLabel('Your feedback').fill('Good start. Who owns the key generator, and what happens when it is down?');
-  await send.click();
-  await solution.getByText(/Good start\. Who owns the key generator/).waitFor();
-  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM peer_reviews').get().n, 1);
-  await solution.getByRole('button', { name: 'Remove' }).click();
-  await solution.getByText('No feedback yet.').waitFor();
-  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM peer_reviews').get().n, 0, 'the writer takes it back');
-  await context.close();
-
-  const own = await open('/design-lab/hld/url-shortener/');
-  insertShared(own.env, { userId: 'user-reader@example.com' });
-  await own.goto();
-  await own.page.locator('.pr-shared__item').first().waitFor();
-  assert.equal(await own.page.locator('.pr-shared__item').getByLabel('Your feedback').count(), 0, 'no form on your own solution');
-  await own.context.close();
 });
 
 test('the admin edits a quiz in the browser: it is checked, a problem is named, and a good one is committed to the repository', async () => {

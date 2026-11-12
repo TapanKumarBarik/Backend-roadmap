@@ -1,0 +1,40 @@
+{
+  "title": "Arrays and hashing",
+  "topic": "arrays-and-hashing",
+  "difficulty": "beginner",
+  "section": "coding",
+  "questions": [
+    {
+      "q": "Two Sum: given a list of integers and a target, return the indices of the two numbers that add up to the target. How do you do better than checking every pair?",
+      "a": "**Approach.** Checking every pair is O(n²). Instead, remember each number you have already seen in a hash map (value → index). For each number `x`, the partner you need is `target - x`: one dictionary lookup tells you whether it appeared earlier.\n\n```python\ndef two_sum(nums, target):\n    seen = {}                          # value -> index\n    for i, x in enumerate(nums):\n        if target - x in seen:\n            return [seen[target - x], i]\n        seen[x] = i\n    return []\n```\n\nAdding to `seen` after the check means an element is never paired with itself, and duplicates (`[3, 3]`, target 6) still work.\n\n**Complexity.** O(n) time, O(n) space. If the list is already sorted and you must use O(1) space, use two pointers instead."
+    },
+    {
+      "q": "Contains Duplicate: does a list contain any value twice?",
+      "a": "**Approach.** A set remembers what you have seen and answers \"seen before?\" in O(1). Stopping at the first repeat avoids building the whole set when a duplicate comes early.\n\n```python\ndef contains_duplicate(nums):\n    seen = set()\n    for x in nums:\n        if x in seen:\n            return True\n        seen.add(x)\n    return False\n```\n\nThe one-liner `len(set(nums)) != len(nums)` is the same idea without the early exit.\n\n**Complexity.** O(n) time, O(n) space. If memory matters more than time, sort first (O(n log n), O(1) extra space if you sort in place) and compare neighbours. Say that trade-off out loud: interviewers like to hear it."
+    },
+    {
+      "q": "Valid Anagram: are two strings made of exactly the same characters, in any order?",
+      "a": "**Approach.** Two strings are anagrams when every character occurs the same number of times in both. Count with `collections.Counter` and compare. Checking the lengths first rejects most non-anagrams immediately.\n\n```python\nfrom collections import Counter\n\ndef is_anagram(a, b):\n    return len(a) == len(b) and Counter(a) == Counter(b)\n```\n\n**Follow-up: what if the input is Unicode?** Nothing changes: `Counter` works on any hashable item. If you were told the input is only lowercase `a-z`, a fixed array of 26 counters would be faster and use constant space.\n\n**Complexity.** O(n) time, O(k) space where k is the number of distinct characters. Sorting both strings and comparing is also correct, at O(n log n)."
+    },
+    {
+      "q": "Group Anagrams: group a list of words so that words that are anagrams of each other end up together.",
+      "a": "**Approach.** Anagrams share a canonical form: the word with its letters sorted. Use that as a dictionary key and append each word to its group.\n\n```python\nfrom collections import defaultdict\n\ndef group_anagrams(words):\n    groups = defaultdict(list)\n    for word in words:\n        groups[\"\".join(sorted(word))].append(word)\n    return list(groups.values())\n```\n\n**Complexity.** O(n · k log k) time for n words of length up to k. To get O(n · k), use a tuple of 26 letter counts as the key instead of the sorted string.\n\n**Common mistake.** Using a list as a dictionary key (lists are not hashable). Use a string or a tuple."
+    },
+    {
+      "q": "Top K Frequent Elements: return the k most frequent values of a list. Can you do better than sorting everything?",
+      "a": "**Approach.** Count with `Counter`, then pick the k largest counts. Sorting all distinct values is O(d log d); a heap that keeps only the best k is O(d log k), which is better when k is small.\n\n```python\nimport heapq\nfrom collections import Counter\n\ndef top_k_frequent(nums, k):\n    counts = Counter(nums)\n    return [value for value, _ in heapq.nlargest(k, counts.items(), key=lambda item: item[1])]\n```\n\n**Linear-time version (bucket sort).** A value can occur at most n times, so put each value into `buckets[count]` and read the buckets from the highest count down until you have k values. That is O(n) time and O(n) space.\n\n**Complexity.** O(n + d log k) with the heap, where d is the number of distinct values."
+    },
+    {
+      "q": "Product of Array Except Self: for each position, return the product of all the other numbers, without using division.",
+      "a": "**Approach.** The answer for position `i` is (product of everything to its left) × (product of everything to its right). Two passes build that without division, and so also work when the list contains zeros.\n\n```python\ndef product_except_self(nums):\n    n = len(nums)\n    out = [1] * n\n    left = 1\n    for i in range(n):              # out[i] = product of nums[0..i-1]\n        out[i] = left\n        left *= nums[i]\n    right = 1\n    for i in range(n - 1, -1, -1):  # multiply in the product of nums[i+1..]\n        out[i] *= right\n        right *= nums[i]\n    return out\n```\n\n**Complexity.** O(n) time and O(1) extra space (the output list does not count). The division trick fails on zeros, which is the usual follow-up question."
+    },
+    {
+      "q": "Longest Consecutive Sequence: find the length of the longest run of consecutive integers in an unsorted list, in O(n).",
+      "a": "**Approach.** Sorting would be O(n log n). Put the numbers in a set, and only start counting from a number that begins a run, meaning `x - 1` is not in the set. Each run is then walked exactly once.\n\n```python\ndef longest_consecutive(nums):\n    values = set(nums)\n    best = 0\n    for x in values:\n        if x - 1 not in values:           # x is the start of a run\n            length = 1\n            while x + length in values:\n                length += 1\n            best = max(best, length)\n    return best\n```\n\n**Why it is O(n).** The inner `while` loop only runs for run starts, and across all starts it visits every number at most once."
+    },
+    {
+      "q": "Subarray Sum Equals K: count the contiguous subarrays whose sum is exactly k (the numbers can be negative).",
+      "a": "**Approach.** Keep a running prefix sum. A subarray ending here sums to `k` exactly when some earlier prefix equals `prefix - k`. So count how often each prefix sum has occurred, and add the count of `prefix - k` at every step. Sliding windows do not work here, because negative numbers break the \"grow or shrink\" logic.\n\n```python\nfrom collections import defaultdict\n\ndef subarray_sum(nums, k):\n    seen = defaultdict(int)\n    seen[0] = 1                  # the empty prefix\n    total = count = 0\n    for x in nums:\n        total += x\n        count += seen[total - k]\n        seen[total] += 1\n    return count\n```\n\n**Complexity.** O(n) time, O(n) space. The `seen[0] = 1` line is the detail people forget: it counts subarrays that start at index 0."
+    }
+  ]
+}

@@ -21,6 +21,9 @@ export function useKeyboardShortcuts({
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        // The writing studio takes Ctrl+K on selected text to make a link, and says so by preventing the default: the palette must not
+        // open over it (it would take the focus away from the link box).
+        if (e.defaultPrevented) return;
         e.preventDefault();
         onOpenPalette();
         return;

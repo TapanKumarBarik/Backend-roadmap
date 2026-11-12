@@ -33,7 +33,7 @@ import { areaOf, areaList, effectiveArea } from './lib/curriculum/areas.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { fetchPracticeCatalog } from './lib/practiceApi.js';
 import { useLoader } from './hooks/useLoader.js';
-import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE, pageUrl } from './lib/appPages.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, ME_ROUTE, pageUrl } from './lib/appPages.js';
 import { routeUrl } from './lib/curriculum/moduleUrl.js';
 import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
@@ -73,7 +73,6 @@ const smallScreens = {
   author: () => import('./components/blog/AuthorView.jsx'),
   videos: () => import('./components/videos/VideosView.jsx'),
   practice: () => import('./components/practice/PracticeView.jsx'),
-  lab: () => import('./components/lab/LabView.jsx'),
   me: () => import('./components/me/MyLearningView.jsx'),
   path: () => import('./components/paths/PathView.jsx'),
   message: () => import('./components/account/MessageOwnerModal.jsx')
@@ -93,7 +92,6 @@ const AuthorView = lazy(smallScreens.author);
 const StudioView = lazy(() => import('./components/studio/StudioView.jsx'));
 const VideosView = lazy(smallScreens.videos);
 const PracticeView = lazy(smallScreens.practice);
-const LabView = lazy(smallScreens.lab);
 const MyLearningView = lazy(smallScreens.me);
 const PathView = lazy(smallScreens.path);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
@@ -173,7 +171,7 @@ export default function App() {
   const [choosingPath, setChoosingPath] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
-  // The quizzes and design challenges are searchable from the palette; the list is fetched when it is first opened.
+  // The quizzes, exercises and interview questions are searchable from the palette; the list is fetched when it is first opened.
   const { data: practiceCatalog } = useLoader(fetchPracticeCatalog, [], { enabled: paletteOpen });
   const [navOpen, setNavOpen] = useState(false);
   const [tocHeadings, setTocHeadings] = useState([]);
@@ -192,7 +190,6 @@ export default function App() {
   const isVideosRoute = path === VIDEOS_ROUTE;
   const isDesignRoute = path === DESIGN_ROUTE;
   const isPracticeRoute = path === PRACTICE_ROUTE;
-  const isLabRoute = path === LAB_ROUTE;
   const isMeRoute = path === ME_ROUTE;
   const isPathRoute = path === PATH_ROUTE;
   // The community's articles have addresses of their own (/blog/<slug>, lib/appPages.js) and set their own page title.
@@ -200,7 +197,7 @@ export default function App() {
   const isAuthorRoute = path === AUTHOR_ROUTE;
   const isWriteRoute = path === WRITE_ROUTE;
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isLabRoute || isMeRoute || isPathRoute || isPageRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isMeRoute || isPathRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
   // The paths and the videos have addresses of their own (/paths/<id>/, /videos/), each served with its own <title>; keep it right.
   const listingTitle = isPathRoute ? (heading ? paths.find((p) => p.id === heading)?.title : LISTING_COPY.pathsTitle) : isVideosRoute ? LISTING_COPY.videosTitle : null;
@@ -232,8 +229,8 @@ export default function App() {
     const title = currentFile && pageTitles[currentFile];
     if (title) document.title = title.full;
     else if (listingTitle) document.title = LISTING_COPY.title(listingTitle, SITE.name);
-    else if (!path || (isSpecialRoute && !isPageRoute && !isPracticeRoute && !isLabRoute)) document.title = SITE.title;
-  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute, isPracticeRoute, isLabRoute, listingTitle]);
+    else if (!path || (isSpecialRoute && !isPageRoute && !isPracticeRoute)) document.title = SITE.title;
+  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute, isPracticeRoute, listingTitle]);
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
@@ -425,7 +422,6 @@ export default function App() {
   const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
   const openVideos = useCallback(() => navigate(VIDEOS_ROUTE), [navigate]);
   const openPractice = useCallback((item) => navigate(PRACTICE_ROUTE, typeof item === 'string' ? item : null), [navigate]);
-  const openLab = useCallback((item) => navigate(LAB_ROUTE, typeof item === 'string' ? item : null), [navigate]);
   const openMe = useCallback(() => navigate(ME_ROUTE), [navigate]);
   const openPathPage = useCallback((id) => navigate(PATH_ROUTE, id), [navigate]);
   const openPathsPage = useCallback(() => navigate(PATH_ROUTE), [navigate]);
@@ -438,7 +434,7 @@ export default function App() {
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
   // Where the practice links on the landing page, the dashboard and a lesson go.
-  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenLab: openLab, onOpenPaths: openPathsPage }), [openPractice, openLab, openPathsPage]);
+  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenPaths: openPathsPage }), [openPractice, openPathsPage]);
 
   // Where the community's links on the landing page and the dashboard go.
   const community = useMemo(() => ({ onOpenPost: openPost, onOpenAuthor: openAuthor, onOpenBlogs: openBlogs, onOpenWrite: openWrite }), [openPost, openAuthor, openBlogs, openWrite]);
@@ -448,9 +444,8 @@ export default function App() {
     const target = activityTarget(item);
     if (target.type === 'article') openPost(target.slug);
     else if (target.type === 'post') openFeedPost(target.id);
-    else if (target.type === 'challenge') openLab(target.key);
     else openFile(target.path, target.anchor);
-  }, [openPost, openFeedPost, openLab, openFile]);
+  }, [openPost, openFeedPost, openFile]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -474,7 +469,6 @@ export default function App() {
       { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
       { label: 'Explore paths and tags', keywords: 'tags browse subject paths roadmap', run: () => navigate(EXPLORE_ROUTE) },
       { label: 'Practice — quizzes, exercises, interview prep', keywords: 'quiz test exercise interview questions practise', run: () => navigate(PRACTICE_ROUTE) },
-      { label: 'Design Lab — low-level and high-level design', keywords: 'lld hld system design architecture challenge', run: () => navigate(LAB_ROUTE) },
       { label: 'My Learning', keywords: 'progress dashboard attempts submissions activity', run: () => navigate(ME_ROUTE) },
       ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
       { label: 'Blogs', keywords: 'articles posts community writing read', run: () => navigate(BLOG_ROUTE) },
@@ -484,7 +478,7 @@ export default function App() {
         ...practiceCatalog.quizzes.map((q) => ({ label: `Quiz — ${q.title}`, keywords: `practice test ${q.topic}`, run: () => openPractice(`quiz/${q.slug}`) })),
         ...practiceCatalog.exercises.map((e) => ({ label: `Exercise — ${e.title}`, keywords: `practice ${e.topic}`, run: () => openPractice(`exercise/${e.slug}`) })),
         ...practiceCatalog.interview.map((s) => ({ label: `Interview questions — ${s.title}`, keywords: `practice ${s.topic}`, run: () => openPractice(`interview/${s.slug}`) })),
-        ...practiceCatalog.challenges.map((c) => ({ label: `Design challenge — ${c.title}`, keywords: `lab ${c.kind} system design`, run: () => openLab(c.key) }))
+        ...practiceCatalog.coding.map((s) => ({ label: `Coding questions — ${s.title}`, keywords: `practice coding interview leetcode algorithms ${s.topic}`, run: () => openPractice(`interview/${s.slug}`) }))
       ] : [])
     ];
     if (currentFile) {
@@ -508,17 +502,17 @@ export default function App() {
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
     return list;
-  }, [learnFiles, activePath, statusMap, currentFile, user, videoData, practiceCatalog, openPractice, openLab, openFile, goHome, navigate,
+  }, [learnFiles, activePath, statusMap, currentFile, user, videoData, practiceCatalog, openPractice, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   // Where you are, for the rail and the top bar: the place a screen belongs to, null for the curriculum.
   const activeDest = isSavedRoute ? SAVED_ROUTE : isPathRoute ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null);
-  // The six main places (config/nav.js): links in the top bar on a wide screen, and the rail leaves them out there.
+  // The five main places (config/nav.js): links in the top bar on a wide screen, and the rail leaves them out there.
   const communityDot = communityActivity.questions.badgeVisible || communityActivity.posts.badgeVisible;
   const mainNav = useMemo(() => {
-    const places = { learn: [null, '/', handleGoHome], explore: [EXPLORE_ROUTE, routeUrl(EXPLORE_ROUTE), openExplore], practice: [PRACTICE_ROUTE, pageUrl(PRACTICE_ROUTE), () => openPractice(null)], 'design-lab': [LAB_ROUTE, pageUrl(LAB_ROUTE), () => openLab(null)], community: [COMMUNITY_HOME, routeUrl(COMMUNITY_HOME), openCommunity], 'my-learning': [ME_ROUTE, routeUrl(ME_ROUTE), openMe] };
+    const places = { learn: [null, '/', handleGoHome], explore: [EXPLORE_ROUTE, routeUrl(EXPLORE_ROUTE), openExplore], practice: [PRACTICE_ROUTE, pageUrl(PRACTICE_ROUTE), () => openPractice(null)], community: [COMMUNITY_HOME, routeUrl(COMMUNITY_HOME), openCommunity], 'my-learning': [ME_ROUTE, routeUrl(ME_ROUTE), openMe] };
     return MAIN_NAV.items.map((item) => ({ key: places[item.id][0], label: item.label, href: places[item.id][1], go: places[item.id][2], badge: item.id === 'community' && communityDot }));
-  }, [handleGoHome, openExplore, openPractice, openLab, openCommunity, openMe, communityDot]);
+  }, [handleGoHome, openExplore, openPractice, openCommunity, openMe, communityDot]);
   const mainKeys = useMemo(() => new Set(mainNav.map((item) => item.key)), [mainNav]);
 
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
@@ -570,7 +564,6 @@ export default function App() {
           onOpenWorkspace={openWorkspace}
           onOpenVideos={openVideos}
           onOpenPractice={openPractice}
-          onOpenLab={openLab}
           onOpenMe={openMe}
           hasVideos={!!videoData}
           onOpenAdmin={openAdmin}
@@ -620,7 +613,7 @@ export default function App() {
         {isSpecialRoute
           ? (
             <div id="mainCol">
-              <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : (isPracticeRoute || isLabRoute) ? path : `${path}@${heading || ''}`}>
+              <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : isPracticeRoute ? path : `${path}@${heading || ''}`}>
                 <ScreenBoundary>
                 <Suspense fallback={<ScreenLoading />}>
                 {authLoading || indexLoading ? <ScreenLoading /> : (<>
@@ -652,12 +645,10 @@ export default function App() {
                     onOpenFile={openFile}
                     onStart={startPath}
                     onOpenQuiz={(slug) => openPractice(`quiz/${slug}`)}
-                    onOpenChallenge={openLab}
                     onOpenPath={openPathPage}
                   />
                 )}
                 {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} />}
-                {isLabRoute && <LabView item={heading} onOpenItem={openLab} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} />}
                 {isMeRoute && (
                   <MyLearningView
                     user={user}
@@ -673,7 +664,6 @@ export default function App() {
                     onOpenFile={openFile}
                     onOpenPath={openPathPage}
                     onOpenPractice={openPractice}
-                    onOpenLab={openLab}
                     onOpenActivity={openActivity}
                     onOpenSaved={openSaved}
                     onOpenPaths={choosePath}

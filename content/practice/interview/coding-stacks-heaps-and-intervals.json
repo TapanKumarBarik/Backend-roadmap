@@ -1,0 +1,40 @@
+{
+  "title": "Stacks, heaps and intervals",
+  "topic": "stacks-heaps-and-intervals",
+  "difficulty": "intermediate",
+  "section": "coding",
+  "questions": [
+    {
+      "q": "Valid Parentheses: is a string of (), [] and {} correctly opened and closed?",
+      "a": "**Approach.** A stack. Push every opening bracket. On a closing bracket, the top of the stack must be its matching opener: pop it, otherwise the string is invalid. At the end the stack must be empty.\n\n```python\ndef is_valid(s):\n    pairs = {\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}\n    stack = []\n    for ch in s:\n        if ch in pairs:\n            if not stack or stack.pop() != pairs[ch]:\n                return False\n        else:\n            stack.append(ch)\n    return not stack\n```\n\n**Complexity.** O(n) time, O(n) space. Edge cases to name: an empty string (valid), a lone closer (`\"]\"`), and leftover openers (`\"((\"`)."
+    },
+    {
+      "q": "Min Stack: design a stack that supports push, pop, top and getting the minimum, all in O(1).",
+      "a": "**Approach.** Store, with every element, the minimum of the stack **at that point**. Popping an element then restores the previous minimum for free.\n\n```python\nclass MinStack:\n    def __init__(self):\n        self._items = []                 # (value, minimum of everything up to and including it)\n\n    def push(self, value):\n        smallest = value if not self._items else min(value, self._items[-1][1])\n        self._items.append((value, smallest))\n\n    def pop(self):\n        return self._items.pop()[0]\n\n    def top(self):\n        return self._items[-1][0]\n\n    def get_min(self):\n        return self._items[-1][1]\n```\n\n**Complexity.** Every operation is O(1); space is O(n). A second stack that only holds new minimums saves space when minimums are rare, at the cost of a little care with duplicates."
+    },
+    {
+      "q": "Daily Temperatures: for each day, how many days until a warmer temperature (0 if never)?",
+      "a": "**Approach.** A **monotonic stack** of indices whose temperatures are still waiting for a warmer day, kept in decreasing order. When today is warmer than the day on top of the stack, that day has found its answer: pop it and record the distance. Then push today.\n\n```python\ndef daily_temperatures(temps):\n    answer = [0] * len(temps)\n    waiting = []                            # indices with no warmer day yet\n    for i, t in enumerate(temps):\n        while waiting and temps[waiting[-1]] < t:\n            j = waiting.pop()\n            answer[j] = i - j\n        waiting.append(i)\n    return answer\n```\n\n**Complexity.** O(n) time: every index is pushed once and popped at most once. O(n) space. The same pattern solves \"next greater element\" and \"largest rectangle in a histogram\"."
+    },
+    {
+      "q": "Kth Largest Element: find the kth largest number in an unsorted list. How does the answer change if numbers keep arriving?",
+      "a": "**Approach.** Keep a **min-heap of size k** holding the k largest numbers seen so far. Its smallest element (the root) is the kth largest. For each new number, push it, and if the heap grew past k, pop the smallest.\n\n```python\nimport heapq\n\ndef kth_largest(nums, k):\n    heap = []\n    for x in nums:\n        heapq.heappush(heap, x)\n        if len(heap) > k:\n            heapq.heappop(heap)\n    return heap[0]\n```\n\n**Complexity.** O(n log k) time, O(k) space. Sorting is O(n log n). **Quickselect** finds the answer in O(n) on average (O(n²) worst case) by partitioning like quicksort and recursing into one side only.\n\n**Streaming follow-up.** The heap version already handles it: keep the heap between arrivals, and the answer is always `heap[0]`. Python's `heapq` is a min-heap only, which is why we keep the *largest* k in a *min*-heap."
+    },
+    {
+      "q": "Merge K Sorted Lists (arrays): merge k sorted lists into one sorted list. What is the cost?",
+      "a": "**Approach.** Put the first element of every list in a min-heap, as `(value, list index, position)`. Repeatedly pop the smallest, append it to the output, and push the next element of the same list.\n\n```python\nimport heapq\n\ndef merge_k_sorted(lists):\n    heap = [(lst[0], i, 0) for i, lst in enumerate(lists) if lst]\n    heapq.heapify(heap)\n    out = []\n    while heap:\n        value, i, pos = heapq.heappop(heap)\n        out.append(value)\n        if pos + 1 < len(lists[i]):\n            heapq.heappush(heap, (lists[i][pos + 1], i, pos + 1))\n    return out\n```\n\nThe list index in the tuple breaks ties, so Python never has to compare anything other than numbers.\n\n**Complexity.** O(N log k) for N elements in total, O(k) extra space for the heap. This is the same idea behind merging sorted log streams or the merge step of an external sort. `heapq.merge(*lists)` does it lazily in the standard library."
+    },
+    {
+      "q": "Merge Intervals: given a list of [start, end] intervals, merge all that overlap.",
+      "a": "**Approach.** Sort by start. Walk through them keeping the last merged interval: if the next one starts at or before its end, extend the end; otherwise start a new one.\n\n```python\ndef merge_intervals(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```\n\n`max(...)` handles an interval completely inside the previous one (`[1, 10]` then `[2, 3]`).\n\n**Complexity.** O(n log n) for the sort, O(n) for the pass. Decide, and say, whether touching intervals such as `[1, 2]` and `[2, 3]` merge: here they do (`<=`)."
+    },
+    {
+      "q": "Meeting Rooms II: given meeting time intervals, what is the minimum number of rooms needed?",
+      "a": "**Approach.** Sort meetings by start time. Keep a min-heap of the **end times** of meetings in progress. For each new meeting, if the earliest-ending meeting has finished by the time this one starts, reuse its room (pop it). Then push this meeting's end. The heap's size at the end is the number of rooms ever needed at once.\n\n```python\nimport heapq\n\ndef min_meeting_rooms(intervals):\n    ends = []\n    for start, end in sorted(intervals):\n        if ends and ends[0] <= start:\n            heapq.heappop(ends)          # that room is free again\n        heapq.heappush(ends, end)\n    return len(ends)\n```\n\n**Alternative.** Sort all start times and all end times separately and sweep with two pointers, counting how many meetings are open at once. Same O(n log n), no heap.\n\n**Complexity.** O(n log n) time, O(n) space. The same technique answers \"what is the peak number of concurrent connections / jobs in this log?\"."
+    },
+    {
+      "q": "Implement a queue using two stacks.",
+      "a": "**Approach.** Push onto an **in** stack. To pop or peek, take from an **out** stack; when it is empty, pour the whole in-stack into it (which reverses the order, so the oldest element ends on top).\n\n```python\nclass QueueWithTwoStacks:\n    def __init__(self):\n        self._in, self._out = [], []\n\n    def push(self, x):\n        self._in.append(x)\n\n    def _fill(self):\n        if not self._out:\n            while self._in:\n                self._out.append(self._in.pop())\n\n    def pop(self):\n        self._fill()\n        return self._out.pop()\n\n    def peek(self):\n        self._fill()\n        return self._out[-1]\n\n    def empty(self):\n        return not self._in and not self._out\n```\n\n**Complexity.** Each element is moved at most once from one stack to the other, so every operation is **amortised O(1)**, even though a single pop can take O(n). In Python, `collections.deque` is the real answer for a queue; say so after you answer the question asked."
+    }
+  ]
+}

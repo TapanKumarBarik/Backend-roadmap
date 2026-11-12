@@ -10,17 +10,17 @@ const build = (extra = {}) => listingPages({
   paths: [], videos: [], playlists: [], titles: {}, urlOf: () => null, site: 'https://example.com', siteName: 'Example', author, practice, ...extra
 });
 
-test('every quiz, exercise, interview set and design challenge has a page, and so do the two lists', () => {
+test('every quiz, exercise and interview set has a page, and so does the list', () => {
   const urls = build().map((p) => p.url);
-  assert.ok(urls.includes('/practice/') && urls.includes('/design-lab/'));
+  assert.ok(urls.includes('/practice/'));
+  assert.ok(!urls.some((u) => u.startsWith('/design-lab/')), 'the Design Lab is gone');
   for (const slug of Object.keys(practice.quizzes)) assert.ok(urls.includes(`/practice/quiz/${slug}/`), slug);
   for (const slug of Object.keys(practice.exercises)) assert.ok(urls.includes(`/practice/exercise/${slug}/`), slug);
   for (const slug of Object.keys(practice.interview)) assert.ok(urls.includes(`/practice/interview/${slug}/`), slug);
-  for (const key of Object.keys(practice.challenges)) assert.ok(urls.includes(`/design-lab/${key}/`), key);
   assert.equal(new Set(urls).size, urls.length, 'no two pages share an address');
 });
 
-test('a public quiz page carries its questions but never an answer or an explanation, and a challenge never its reference solution', () => {
+test('a public quiz page carries its questions but never an answer or an explanation', () => {
   const pages = new Map(build().map((p) => [p.url, p]));
   for (const [slug, quiz] of Object.entries(practice.quizzes)) {
     const page = pages.get(`/practice/quiz/${slug}/`);
@@ -30,12 +30,14 @@ test('a public quiz page carries its questions but never an answer or an explana
       assert.ok(!everything.includes(q.explanation), `${slug}: the explanation is not on the page`);
     }
   }
-  for (const [key, challenge] of Object.entries(practice.challenges)) {
-    const page = pages.get(`/design-lab/${key}/`);
-    const everything = page.body + JSON.stringify(page.ld);
-    const probe = challenge.reference.split('\n').map((l) => l.trim()).filter((l) => l.length > 40)[0];
-    assert.ok(!everything.includes(probe), `${key}: the reference solution is not on the page`);
-  }
+});
+
+test('a set of coding questions is titled for what people search, and every one of its answers is on the page', () => {
+  const [slug, set] = Object.entries(practice.interview).find(([, s]) => s.section === 'coding');
+  const page = build().find((p) => p.url === `/practice/interview/${slug}/`);
+  assert.equal(page.title, `${set.title}: coding interview questions`);
+  assert.equal(page.ld['@graph'][0].mainEntity.length, set.questions.length);
+  assert.match(page.body, /<pre>/, 'the worked solutions have code');
 });
 
 test('an interview set is a FAQ page: its model answers are there to be read', () => {

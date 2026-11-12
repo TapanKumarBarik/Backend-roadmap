@@ -30,7 +30,7 @@ const ALLOWED_IMAGE_TYPES = {
 
 // The editor works on lessons, so a path is a lesson's path from the content folder ("learn/01-linux/README.md") and
 // becomes content/learn/01-linux/README.md in the repository. The practice content is the other thing it may edit: the quizzes,
-// exercises, interview sets and design challenges ("practice/quizzes/http-caching.json", "design-lab/lld/atm.json"), which are
+// exercises and interview sets ("practice/quizzes/http-caching.json", "practice/interview/caching.json"), which are
 // checked before they are committed (a bad one would stop the next deploy). So are the three site files, and only these three: the
 // learning paths, the videos and the SEO overrides ("paths.json", "videos.json", "seo.json"). Anything else (another folder of the repository, a
 // path that climbs out with "..") is refused: this endpoint commits with the site's GitHub token, and it should not

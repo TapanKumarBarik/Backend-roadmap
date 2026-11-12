@@ -1,5 +1,5 @@
 import { fetchPracticeCatalog } from '../../lib/practiceApi.js';
-import { LAB_ROUTE, PRACTICE_ROUTE, pageUrl, pathUrl } from '../../lib/appPages.js';
+import { PRACTICE_ROUTE, pageUrl, pathUrl } from '../../lib/appPages.js';
 import { pathProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { useLoader } from '../../hooks/useLoader.js';
@@ -11,7 +11,7 @@ import '../../styles/practice.css';
 
 // One learning path: what it is for and who for, what to know first, the skills it covers, the curriculum step by step with a
 // dot for each module you have done, your progress, and the practice that goes with it.
-export default function PathView({ id, paths, statusMap, nodeByFile, activeId, onBack, onOpenFile, onStart, onOpenQuiz, onOpenChallenge, onOpenPath }) {
+export default function PathView({ id, paths, statusMap, nodeByFile, activeId, onBack, onOpenFile, onStart, onOpenQuiz, onOpenPath }) {
   const path = paths.find((p) => p.id === id);
   const { data: catalog } = useLoader(fetchPracticeCatalog);
   if (!path) {
@@ -27,7 +27,6 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
   const nextFile = pickPathNext(path.files, statusMap);
   const started = progress.done + progress.wip > 0;
   const quizzes = catalog ? catalog.quizzes.filter((q) => q.module && path.fileSet.has(q.module)) : [];
-  const challenges = catalog ? catalog.challenges.filter((c) => c.module && path.fileSet.has(c.module)) : [];
   const nextPath = path.next && paths.find((p) => p.id === path.next);
   const titleOf = (f) => (nodeByFile[f] && (nodeByFile[f].title || nodeByFile[f].name)) || f;
 
@@ -92,12 +91,11 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
         })}
       </ol>
 
-      {(quizzes.length > 0 || challenges.length > 0) && (
+      {quizzes.length > 0 && (
         <>
           <h3>Practise it</h3>
           <ul className="pr-list">
             {quizzes.map((q) => <li key={q.slug}><a href={pageUrl(PRACTICE_ROUTE, `quiz/${q.slug}`)} onClick={(e) => { e.preventDefault(); onOpenQuiz(q.slug); }}>Quiz: {q.title}</a></li>)}
-            {challenges.map((c) => <li key={c.key}><a href={pageUrl(LAB_ROUTE, c.key)} onClick={(e) => { e.preventDefault(); onOpenChallenge(c.key); }}>Design: {c.title}</a></li>)}
           </ul>
         </>
       )}

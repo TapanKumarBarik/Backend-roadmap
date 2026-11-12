@@ -5121,6 +5121,382 @@
     }
    ]
   },
+  "coding-arrays-and-hashing": {
+   "title": "Arrays and hashing",
+   "topic": "arrays-and-hashing",
+   "difficulty": "beginner",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "Two Sum: given a list of integers and a target, return the indices of the two numbers that add up to the target. How do you do better than checking every pair?",
+     "a": "**Approach.** Checking every pair is O(n²). Instead, remember each number you have already seen in a hash map (value → index). For each number `x`, the partner you need is `target - x`: one dictionary lookup tells you whether it appeared earlier.\n\n```python\ndef two_sum(nums, target):\n    seen = {}                          # value -> index\n    for i, x in enumerate(nums):\n        if target - x in seen:\n            return [seen[target - x], i]\n        seen[x] = i\n    return []\n```\n\nAdding to `seen` after the check means an element is never paired with itself, and duplicates (`[3, 3]`, target 6) still work.\n\n**Complexity.** O(n) time, O(n) space. If the list is already sorted and you must use O(1) space, use two pointers instead."
+    },
+    {
+     "q": "Contains Duplicate: does a list contain any value twice?",
+     "a": "**Approach.** A set remembers what you have seen and answers \"seen before?\" in O(1). Stopping at the first repeat avoids building the whole set when a duplicate comes early.\n\n```python\ndef contains_duplicate(nums):\n    seen = set()\n    for x in nums:\n        if x in seen:\n            return True\n        seen.add(x)\n    return False\n```\n\nThe one-liner `len(set(nums)) != len(nums)` is the same idea without the early exit.\n\n**Complexity.** O(n) time, O(n) space. If memory matters more than time, sort first (O(n log n), O(1) extra space if you sort in place) and compare neighbours. Say that trade-off out loud: interviewers like to hear it."
+    },
+    {
+     "q": "Valid Anagram: are two strings made of exactly the same characters, in any order?",
+     "a": "**Approach.** Two strings are anagrams when every character occurs the same number of times in both. Count with `collections.Counter` and compare. Checking the lengths first rejects most non-anagrams immediately.\n\n```python\nfrom collections import Counter\n\ndef is_anagram(a, b):\n    return len(a) == len(b) and Counter(a) == Counter(b)\n```\n\n**Follow-up: what if the input is Unicode?** Nothing changes: `Counter` works on any hashable item. If you were told the input is only lowercase `a-z`, a fixed array of 26 counters would be faster and use constant space.\n\n**Complexity.** O(n) time, O(k) space where k is the number of distinct characters. Sorting both strings and comparing is also correct, at O(n log n)."
+    },
+    {
+     "q": "Group Anagrams: group a list of words so that words that are anagrams of each other end up together.",
+     "a": "**Approach.** Anagrams share a canonical form: the word with its letters sorted. Use that as a dictionary key and append each word to its group.\n\n```python\nfrom collections import defaultdict\n\ndef group_anagrams(words):\n    groups = defaultdict(list)\n    for word in words:\n        groups[\"\".join(sorted(word))].append(word)\n    return list(groups.values())\n```\n\n**Complexity.** O(n · k log k) time for n words of length up to k. To get O(n · k), use a tuple of 26 letter counts as the key instead of the sorted string.\n\n**Common mistake.** Using a list as a dictionary key (lists are not hashable). Use a string or a tuple."
+    },
+    {
+     "q": "Top K Frequent Elements: return the k most frequent values of a list. Can you do better than sorting everything?",
+     "a": "**Approach.** Count with `Counter`, then pick the k largest counts. Sorting all distinct values is O(d log d); a heap that keeps only the best k is O(d log k), which is better when k is small.\n\n```python\nimport heapq\nfrom collections import Counter\n\ndef top_k_frequent(nums, k):\n    counts = Counter(nums)\n    return [value for value, _ in heapq.nlargest(k, counts.items(), key=lambda item: item[1])]\n```\n\n**Linear-time version (bucket sort).** A value can occur at most n times, so put each value into `buckets[count]` and read the buckets from the highest count down until you have k values. That is O(n) time and O(n) space.\n\n**Complexity.** O(n + d log k) with the heap, where d is the number of distinct values."
+    },
+    {
+     "q": "Product of Array Except Self: for each position, return the product of all the other numbers, without using division.",
+     "a": "**Approach.** The answer for position `i` is (product of everything to its left) × (product of everything to its right). Two passes build that without division, and so also work when the list contains zeros.\n\n```python\ndef product_except_self(nums):\n    n = len(nums)\n    out = [1] * n\n    left = 1\n    for i in range(n):              # out[i] = product of nums[0..i-1]\n        out[i] = left\n        left *= nums[i]\n    right = 1\n    for i in range(n - 1, -1, -1):  # multiply in the product of nums[i+1..]\n        out[i] *= right\n        right *= nums[i]\n    return out\n```\n\n**Complexity.** O(n) time and O(1) extra space (the output list does not count). The division trick fails on zeros, which is the usual follow-up question."
+    },
+    {
+     "q": "Longest Consecutive Sequence: find the length of the longest run of consecutive integers in an unsorted list, in O(n).",
+     "a": "**Approach.** Sorting would be O(n log n). Put the numbers in a set, and only start counting from a number that begins a run, meaning `x - 1` is not in the set. Each run is then walked exactly once.\n\n```python\ndef longest_consecutive(nums):\n    values = set(nums)\n    best = 0\n    for x in values:\n        if x - 1 not in values:           # x is the start of a run\n            length = 1\n            while x + length in values:\n                length += 1\n            best = max(best, length)\n    return best\n```\n\n**Why it is O(n).** The inner `while` loop only runs for run starts, and across all starts it visits every number at most once."
+    },
+    {
+     "q": "Subarray Sum Equals K: count the contiguous subarrays whose sum is exactly k (the numbers can be negative).",
+     "a": "**Approach.** Keep a running prefix sum. A subarray ending here sums to `k` exactly when some earlier prefix equals `prefix - k`. So count how often each prefix sum has occurred, and add the count of `prefix - k` at every step. Sliding windows do not work here, because negative numbers break the \"grow or shrink\" logic.\n\n```python\nfrom collections import defaultdict\n\ndef subarray_sum(nums, k):\n    seen = defaultdict(int)\n    seen[0] = 1                  # the empty prefix\n    total = count = 0\n    for x in nums:\n        total += x\n        count += seen[total - k]\n        seen[total] += 1\n    return count\n```\n\n**Complexity.** O(n) time, O(n) space. The `seen[0] = 1` line is the detail people forget: it counts subarrays that start at index 0."
+    }
+   ]
+  },
+  "coding-backend-problems": {
+   "title": "Backend coding problems",
+   "topic": "backend-coding",
+   "difficulty": "advanced",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "Design and implement an LRU cache with O(1) get and put.",
+     "a": "**Approach.** You need O(1) lookup (a hash map) and O(1) \"move this to most recent\" and \"evict the least recent\" (a doubly linked list). Python's `OrderedDict` is exactly that pair, so say so, then write it:\n\n```python\nfrom collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self._items = OrderedDict()          # oldest first, newest last\n\n    def get(self, key):\n        if key not in self._items:\n            return None\n        self._items.move_to_end(key)         # it was just used\n        return self._items[key]\n\n    def put(self, key, value):\n        if key in self._items:\n            self._items.move_to_end(key)\n        self._items[key] = value\n        if len(self._items) > self.capacity:\n            self._items.popitem(last=False)  # evict the least recently used\n```\n\n**If you are asked to build it from scratch,** keep a `dict` from key to a node of your own doubly linked list; moving a node to the front and removing the tail are pointer updates. **Follow-ups worth preparing:** thread safety (a lock around each method, or a sharded cache to cut contention), a TTL per entry, and LFU (least *frequently* used) eviction.\n\n**Complexity.** O(1) per operation, O(capacity) space."
+    },
+    {
+     "q": "Implement a rate limiter (token bucket). How would it work across several servers?",
+     "a": "**Approach.** A bucket holds up to `capacity` tokens and refills at `rate` tokens per second. A request spends a token; with none left it is rejected. It allows bursts up to the capacity but enforces the long-run rate. Compute the refill **lazily**, when a request arrives, so no timer is needed. Take the clock as a parameter so the class can be tested without sleeping.\n\n```python\nimport time\n\nclass TokenBucket:\n    def __init__(self, rate, capacity, clock=time.monotonic):\n        self.rate = rate                    # tokens added per second\n        self.capacity = capacity\n        self.tokens = capacity\n        self.clock = clock\n        self.updated = clock()\n\n    def allow(self, cost=1):\n        now = self.clock()\n        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.rate)\n        self.updated = now\n        if self.tokens >= cost:\n            self.tokens -= cost\n            return True\n        return False\n```\n\n**Other algorithms.** A *fixed window* counter is simplest but lets double the limit through at a window boundary. A *sliding window log* is exact but stores a timestamp per request. A *sliding window counter* approximates it cheaply. A *leaky bucket* smooths output to a constant rate.\n\n**Across servers.** The counters must be shared: keep them in Redis and do the read-refill-decrement as **one atomic step** (a Lua script, or `INCR` with an expiry for the fixed window), otherwise two servers both see \"one token left\". Decide what happens when Redis is down: fail open (allow) or fail closed (reject).\n\n**Complexity.** O(1) time and space per client."
+    },
+    {
+     "q": "Implement the ID encoding for a URL shortener: turn a number into a short string, and back.",
+     "a": "**Approach.** Give every new URL an incrementing integer ID (from a database sequence or a distributed ID generator) and write it in **base 62** (digits, lower case and upper case letters). Seven characters cover 62⁷ ≈ 3.5 trillion URLs. Decoding reverses it.\n\n```python\nALPHABET = \"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\"\n\ndef encode_base62(n):\n    if n == 0:\n        return ALPHABET[0]\n    digits = []\n    while n:\n        n, remainder = divmod(n, 62)\n        digits.append(ALPHABET[remainder])\n    return \"\".join(reversed(digits))\n\ndef decode_base62(text):\n    n = 0\n    for ch in text:\n        n = n * 62 + ALPHABET.index(ch)\n    return n\n```\n\n**Design points an interviewer will ask about.**\n\n- **Sequential IDs are guessable** and reveal how many URLs exist. If that matters, shuffle the alphabet, or encode a random or hashed value and handle collisions by retrying.\n- **Hashing the URL** (for example the first 7 characters of a hash) gives the same short code for the same URL, but collisions must be detected with a uniqueness check.\n- **Many writers:** hand each server a block of IDs, or use a time-ordered ID (Snowflake style), so they never collide and never need to coordinate per request.\n\n**Complexity.** O(length of the code) for both directions."
+    },
+    {
+     "q": "Write a retry helper with exponential backoff and jitter. Why is the jitter there?",
+     "a": "**Approach.** After each failure, wait longer: roughly `base × 2^attempt`, capped. Add **jitter**, a random element, so many clients that failed together do not all retry at the same instant (a *thundering herd* that hammers a server just as it is recovering). \"Full jitter\" picks a random delay between 0 and the capped backoff. Retry only errors that can succeed later, and give up after a fixed number of attempts, re-raising the last error.\n\n```python\nimport random\nimport time\n\ndef retry(fn, attempts=5, base=0.1, cap=5.0, sleep=time.sleep, retry_on=(Exception,)):\n    for attempt in range(attempts):\n        try:\n            return fn()\n        except retry_on:\n            if attempt == attempts - 1:\n                raise                                   # out of attempts: let the caller see it\n            delay = random.uniform(0, min(cap, base * 2 ** attempt))\n            sleep(delay)\n```\n\n**What to say about correctness.** Only retry operations that are **idempotent**, or that carry an idempotency key (retrying a payment without one can charge twice). Retry on timeouts, connection errors and 429/503 responses; do not retry a 400 or a 404. Respect a `Retry-After` header when there is one, and put an overall deadline on the whole operation, not only on each attempt.\n\n**Complexity.** The helper adds O(1) work; the cost is the waiting. `sleep` is a parameter so tests do not have to wait."
+    },
+    {
+     "q": "Merge several sorted log streams into one ordered stream, without loading them into memory.",
+     "a": "**Approach.** The same k-way merge as \"merge k sorted lists\", written with **generators** so it is lazy: only one item per stream is held at a time, so it works on files far bigger than memory. Keep a min-heap of each stream's next item. Include the stream's index in the heap entry, so ties are broken by something comparable.\n\n```python\nimport heapq\n\ndef merge_logs(*streams):\n    \"\"\"Each stream yields (timestamp, line) in timestamp order; this yields everything in order.\"\"\"\n    heap = []\n    for i, stream in enumerate(streams):\n        it = iter(stream)\n        first = next(it, None)\n        if first is not None:\n            heap.append((first[0], i, first, it))\n    heapq.heapify(heap)\n    while heap:\n        _, i, item, it = heapq.heappop(heap)\n        yield item\n        following = next(it, None)\n        if following is not None:\n            heapq.heappush(heap, (following[0], i, following, it))\n```\n\nIn real code, `heapq.merge(*streams, key=lambda entry: entry[0])` does exactly this.\n\n**Complexity.** O(N log k) time for N items in k streams, O(k) memory. It assumes each stream is already sorted: if one is not, no streaming merge can fix that, and you would need an external sort."
+    },
+    {
+     "q": "Make an operation idempotent with an idempotency key: replay the first response when a client retries.",
+     "a": "**Approach.** The client sends a unique key with the request (usually a header). The first time the server sees a key, it does the work and stores the response under that key. Any request with the same key within a time window gets the **stored response back** instead of doing the work again. That makes \"retry on timeout\" safe for payments, order creation and anything with side effects.\n\n```python\nimport time\n\nclass IdempotencyStore:\n    def __init__(self, ttl, clock=time.monotonic):\n        self.ttl = ttl\n        self.clock = clock\n        self._results = {}                          # key -> (expires_at, response)\n\n    def run(self, key, action):\n        now = self.clock()\n        hit = self._results.get(key)\n        if hit and hit[0] > now:\n            return hit[1]                           # a retry: replay the first response\n        response = action()\n        self._results[key] = (now + self.ttl, response)\n        return response\n```\n\n**What this sketch leaves out, and what to say.**\n\n- **Concurrency.** Two simultaneous requests with the same key can both miss and both run. In a real system, *claim* the key atomically first (`INSERT ... ON CONFLICT DO NOTHING`, or Redis `SET key value NX EX ttl`), store an \"in progress\" marker, and make a second request wait or return 409.\n- **Same key, different body.** Store a hash of the request and reject a reuse with a different payload.\n- **Failures.** Store the result of a *completed* attempt; decide whether a failed attempt may be retried under the same key.\n- **Storage.** The key and response live in the same database transaction as the side effect where possible, so you never record a response for work that was rolled back.\n\n**Complexity.** O(1) per request."
+    },
+    {
+     "q": "Implement consistent hashing with virtual nodes. Why is it better than `hash(key) % n`?",
+     "a": "**The problem with modulo.** With `hash(key) % n`, changing the number of servers from `n` to `n + 1` changes the answer for almost **every** key: nearly the whole cache is invalidated at once.\n\n**Approach.** Place servers on a ring of hash values. A key belongs to the first server clockwise from the key's own hash. Adding or removing a server then only moves the keys between it and its neighbour: about `1 / n` of them. **Virtual nodes** (each server placed at many points) even out the load, which would otherwise be lumpy.\n\n```python\nimport bisect\nimport hashlib\n\nclass HashRing:\n    def __init__(self, nodes=(), replicas=100):\n        self.replicas = replicas\n        self._ring = []                      # sorted positions on the ring\n        self._owner = {}                     # position -> node\n        for node in nodes:\n            self.add(node)\n\n    @staticmethod\n    def _hash(text):\n        return int(hashlib.md5(text.encode()).hexdigest(), 16)\n\n    def add(self, node):\n        for i in range(self.replicas):\n            position = self._hash(f\"{node}#{i}\")\n            bisect.insort(self._ring, position)\n            self._owner[position] = node\n\n    def remove(self, node):\n        for i in range(self.replicas):\n            position = self._hash(f\"{node}#{i}\")\n            self._ring.remove(position)\n            del self._owner[position]\n\n    def node_for(self, key):\n        if not self._ring:\n            return None\n        index = bisect.bisect(self._ring, self._hash(key)) % len(self._ring)\n        return self._owner[self._ring[index]]\n```\n\n**Complexity.** Lookup is O(log(n · replicas)) with a binary search; adding or removing a node is O(replicas · n) here because of the sorted list (use a balanced tree to improve that). It is used by distributed caches, sharded databases and load balancers."
+    },
+    {
+     "q": "Implement a thread-safe bounded queue (producer-consumer) with blocking put and get.",
+     "a": "**Approach.** One lock protects the queue. Producers must **wait while it is full**, consumers **wait while it is empty**: use two condition variables on the same lock. Always re-check the condition in a `while` loop, never an `if`, because a thread can wake up and find that another thread got there first.\n\n```python\nimport threading\nfrom collections import deque\n\nclass BoundedQueue:\n    def __init__(self, capacity):\n        self._items = deque()\n        self._capacity = capacity\n        self._lock = threading.Lock()\n        self._not_full = threading.Condition(self._lock)\n        self._not_empty = threading.Condition(self._lock)\n\n    def put(self, item):\n        with self._not_full:\n            while len(self._items) >= self._capacity:\n                self._not_full.wait()\n            self._items.append(item)\n            self._not_empty.notify()\n\n    def get(self):\n        with self._not_empty:\n            while not self._items:\n                self._not_empty.wait()\n            item = self._items.popleft()\n            self._not_full.notify()\n            return item\n```\n\n**Say this too.** In real Python code you would use `queue.Queue(maxsize)`, which is exactly this, plus timeouts and `task_done`. The bounded size is what gives **back-pressure**: a slow consumer slows the producers down, instead of the queue growing until the process runs out of memory. The classic bugs are forgetting the `while` re-check, notifying the wrong condition, and holding the lock while doing slow work.\n\n**Complexity.** O(1) per operation. A blocked thread uses no CPU while it waits."
+    },
+    {
+     "q": "Report the busiest client IPs from a very large access log, using little memory.",
+     "a": "**Approach.** Stream the file line by line (an open file is an iterator, so only one line is in memory at a time) and keep a counter per IP. Take the top N at the end with `most_common`, which uses a heap internally instead of sorting every key.\n\n```python\nfrom collections import Counter\n\ndef top_ips(lines, n=3):\n    counts = Counter()\n    for line in lines:\n        ip = line.split(\" \", 1)[0]\n        counts[ip] += 1\n    return counts.most_common(n)\n\n# with open(\"access.log\") as f:\n#     print(top_ips(f, 10))\n```\n\n**What to discuss.**\n\n- **Memory is proportional to the number of distinct IPs**, not the number of lines. That is fine for millions of IPs. If the number of distinct keys is too big for memory, either **partition** the work (hash each line to one of many files, count each file separately, then merge the top results) or use an approximate structure such as a count-min sketch for the heavy hitters.\n- **Malformed lines.** Decide whether to skip, count, or fail on them; a log reader that crashes on one bad line is a production incident.\n- **Parsing.** `split(\" \", 1)` only finds the first field; for real formats use a regular expression or a parser, and compile the pattern once, outside the loop.\n\n**Complexity.** O(L) time for L lines, O(D) memory for D distinct IPs."
+    }
+   ]
+  },
+  "coding-binary-search-and-sorting": {
+   "title": "Binary search and sorting",
+   "topic": "binary-search-and-sorting",
+   "difficulty": "intermediate",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "Binary search: write it correctly, and say what usually goes wrong.",
+     "a": "**Approach.** Keep a range `[lo, hi]` that must contain the target if it exists. Look at the middle: if it is too small, discard the left half, if too big, the right half.\n\n```python\ndef binary_search(nums, target):\n    lo, hi = 0, len(nums) - 1\n    while lo <= hi:\n        mid = lo + (hi - lo) // 2\n        if nums[mid] == target:\n            return mid\n        if nums[mid] < target:\n            lo = mid + 1\n        else:\n            hi = mid - 1\n    return -1\n```\n\n**What goes wrong.** Off-by-one errors and infinite loops. Pick one convention and stay with it: here the range is **inclusive** (`lo <= hi`), and both updates move past `mid`. `lo + (hi - lo) // 2` avoids integer overflow in languages with fixed-size integers (Python does not need it, but it shows you know).\n\n**Complexity.** O(log n) time, O(1) space. In real code, `bisect.bisect_left` does the work and tells you where a missing value *would* go."
+    },
+    {
+     "q": "Search in Rotated Sorted Array: a sorted array was rotated at an unknown point. Find a target in O(log n).",
+     "a": "**Approach.** Binary search still works, because at every step **one half is sorted**. Find which half it is (compare `nums[lo]` with `nums[mid]`), check whether the target lies inside that sorted half, and keep the half that can contain it.\n\n```python\ndef search_rotated(nums, target):\n    lo, hi = 0, len(nums) - 1\n    while lo <= hi:\n        mid = (lo + hi) // 2\n        if nums[mid] == target:\n            return mid\n        if nums[lo] <= nums[mid]:                  # left half is sorted\n            if nums[lo] <= target < nums[mid]:\n                hi = mid - 1\n            else:\n                lo = mid + 1\n        else:                                      # right half is sorted\n            if nums[mid] < target <= nums[hi]:\n                lo = mid + 1\n            else:\n                hi = mid - 1\n    return -1\n```\n\n**Complexity.** O(log n) time, O(1) space. With duplicates allowed, `nums[lo] == nums[mid]` no longer tells you which half is sorted and the worst case degrades to O(n): that is the usual follow-up."
+    },
+    {
+     "q": "Find First and Last Position of a target in a sorted array with duplicates, in O(log n).",
+     "a": "**Approach.** The first position is where the target would be inserted on the **left** (`bisect_left`), the last is just before where it would be inserted on the **right** (`bisect_right`). Both are binary searches; check that the target is really there.\n\n```python\nfrom bisect import bisect_left, bisect_right\n\ndef search_range(nums, target):\n    left = bisect_left(nums, target)\n    if left == len(nums) or nums[left] != target:\n        return [-1, -1]\n    return [left, bisect_right(nums, target) - 1]\n```\n\nIf you are asked to write the search yourself, write one function that finds the **first index with `nums[i] >= x`**, then use it twice: for `target` and for `target + 1`.\n\n**Complexity.** O(log n) time, O(1) space. A linear scan after finding one match is O(n) in the worst case (all values equal), which is the trap in the question."
+    },
+    {
+     "q": "Find Minimum in a Rotated Sorted Array.",
+     "a": "**Approach.** Compare the middle with the **right end**. If `nums[mid] > nums[hi]`, the rotation point (the minimum) is to the right of `mid`. Otherwise the minimum is at `mid` or to its left. Shrink until one element is left.\n\n```python\ndef find_min(nums):\n    lo, hi = 0, len(nums) - 1\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if nums[mid] > nums[hi]:\n            lo = mid + 1\n        else:\n            hi = mid\n    return nums[lo]\n```\n\nNote `hi = mid` (not `mid - 1`): `mid` itself could be the minimum, so it must stay in the range. The loop condition is `lo < hi` for the same reason.\n\n**Complexity.** O(log n) time, O(1) space. The pattern, \"binary search on a property that is false then true\", is the one to remember."
+    },
+    {
+     "q": "Binary search on the answer: ships must deliver packages in order within D days. What is the smallest ship capacity that works?",
+     "a": "**Approach.** You cannot search the packages, but you can search the **answer**. The capacity lies between the heaviest single package (anything lower can never carry it) and the sum of all packages (one day). For a given capacity, a greedy pass counts the days needed. More capacity never needs more days, so the condition \"this capacity works\" is false, false, ..., true, true: binary search for the first true.\n\n```python\ndef ship_within_days(weights, days):\n    def days_needed(capacity):\n        used, load = 1, 0\n        for w in weights:\n            if load + w > capacity:\n                used, load = used + 1, 0\n            load += w\n        return used\n\n    lo, hi = max(weights), sum(weights)\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if days_needed(mid) <= days:\n            hi = mid              # works: try smaller\n        else:\n            lo = mid + 1\n    return lo\n```\n\n**Complexity.** O(n log S) where S is the sum of the weights. The same template solves \"Koko eating bananas\", \"split array largest sum\", and \"minimum time to finish all jobs\"."
+    },
+    {
+     "q": "Sort Colors: sort an array that contains only 0, 1 and 2, in one pass and without a library sort.",
+     "a": "**Approach (the Dutch national flag).** Keep three regions: zeros before `lo`, twos after `hi`, and an unknown middle that `i` walks through. A 0 is swapped to the front, a 2 is swapped to the back, a 1 stays.\n\n```python\ndef sort_colors(nums):\n    lo, i, hi = 0, 0, len(nums) - 1\n    while i <= hi:\n        if nums[i] == 0:\n            nums[lo], nums[i] = nums[i], nums[lo]\n            lo += 1\n            i += 1\n        elif nums[i] == 2:\n            nums[i], nums[hi] = nums[hi], nums[i]\n            hi -= 1               # do not advance i: the swapped-in value is unchecked\n        else:\n            i += 1\n```\n\n**Complexity.** O(n) time in one pass, O(1) space. Counting how many of each there are, then overwriting, also works in O(n) but takes two passes."
+    },
+    {
+     "q": "Which sorting algorithm would you use, and why? Compare merge sort, quicksort and heap sort.",
+     "a": "In practice you call the language's sort. Python's `sorted()` is **Timsort**: a stable hybrid of merge sort and insertion sort that is O(n log n) worst case and close to O(n) on data that is already partly ordered. The interview question is whether you know the trade-offs:\n\n| Algorithm | Time (worst) | Time (typical) | Extra space | Stable | Notes |\n| :--- | :--- | :--- | :--- | :--- | :--- |\n| Merge sort | O(n log n) | O(n log n) | O(n) | yes | Predictable; good for linked lists and external (on-disk) sorting |\n| Quicksort | O(n²) | O(n log n) | O(log n) | no | Fastest in practice for arrays; a bad pivot gives the worst case, so pick a random or median-of-three pivot |\n| Heap sort | O(n log n) | O(n log n) | O(1) | no | Guaranteed bound and no extra memory, but poor cache behaviour |\n| Insertion sort | O(n²) | O(n²) | O(1) | yes | Excellent on tiny or nearly sorted inputs |\n| Counting / radix | O(n + k) | O(n + k) | O(k) | yes | Only for integers (or fixed-size keys) in a limited range |\n\n**Why \"stable\" matters.** A stable sort keeps equal items in their original order, which is what lets you sort by one field and then by another (`sort by name`, then `sort by team`).\n\n**The theoretical limit.** Any sort that works by comparing items needs Ω(n log n) comparisons in the worst case; only non-comparison sorts (counting, radix) beat it, by using extra knowledge about the keys."
+    }
+   ]
+  },
+  "coding-dynamic-programming": {
+   "title": "Dynamic programming",
+   "topic": "dynamic-programming",
+   "difficulty": "advanced",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "How do you recognise a dynamic programming problem, and how do you approach one?",
+     "a": "**Recognise it.** The question asks for a **count, a minimum/maximum, or \"is it possible\"**, a brute force would try many choices, and the same sub-problems would be solved again and again. Two properties must hold: **optimal substructure** (the best answer is built from best answers to smaller problems) and **overlapping sub-problems**.\n\n**A procedure that works under interview pressure.**\n\n1. **State.** What is the smallest set of numbers that describes a sub-problem? (an index `i`; two indices `i, j`; an index and a remaining capacity.) Say it in a sentence: \"`dp[i]` is the fewest coins to make amount `i`.\"\n2. **Transition.** How does a state depend on smaller states? This is the recurrence.\n3. **Base cases.** The states you can answer directly.\n4. **Order and answer.** Top-down (recursion plus a cache) or bottom-up (fill a table in an order where dependencies come first). Which cell is the answer?\n5. **Optimise space** if the recurrence only looks back a fixed distance (keep two variables instead of an array).\n\n**Start with the brute-force recursion**, then add memoisation (`functools.cache`). That alone is often a correct and acceptable answer, and it makes the table version easy to derive.\n\n```python\nfrom functools import cache\n\n@cache\ndef fib(n):\n    return n if n < 2 else fib(n - 1) + fib(n - 2)\n```"
+    },
+    {
+     "q": "Climbing Stairs: you can climb 1 or 2 steps at a time. In how many distinct ways can you climb n steps?",
+     "a": "**State and transition.** `ways[n]` is the number of ways to reach step `n`. The last move was either a 1-step from `n - 1` or a 2-step from `n - 2`, so `ways[n] = ways[n - 1] + ways[n - 2]`. This is the Fibonacci sequence.\n\n```python\ndef climb_stairs(n):\n    prev, curr = 1, 1                  # ways to reach step 0 and step 1\n    for _ in range(n - 1):\n        prev, curr = curr, prev + curr\n    return curr\n```\n\n**Complexity.** O(n) time, O(1) space (only the last two values are ever needed). A naive recursion without a cache is O(2ⁿ): that is the point of the exercise. Variants (1, 2 or 3 steps; some steps broken) change only the transition."
+    },
+    {
+     "q": "House Robber: you cannot rob two adjacent houses. What is the most money you can rob?",
+     "a": "**State and transition.** At each house you choose: **skip** it (keep the best so far) or **rob** it (its value plus the best from two houses back). `best[i] = max(best[i - 1], best[i - 2] + money[i])`.\n\n```python\ndef rob(money):\n    skip, take = 0, 0                  # best up to the previous house, and up to the one before it\n    for m in money:\n        skip, take = max(skip, take + m), skip\n    return skip\n```\n\n**Complexity.** O(n) time, O(1) space. **Follow-up:** if the houses are in a circle, the first and last are adjacent: run the algorithm twice, once without the first house and once without the last, and take the larger result."
+    },
+    {
+     "q": "Coin Change: given coin values and an amount, what is the fewest coins that make the amount exactly (or -1 if impossible)? Why does greedy fail?",
+     "a": "**Why greedy fails.** With coins `[1, 3, 4]` and amount 6, greedy takes 4 + 1 + 1 (three coins) but the best is 3 + 3 (two). Greedy only works for special coin systems.\n\n**State and transition.** `fewest[a]` is the fewest coins for amount `a`. Try each coin as the *last* one: `fewest[a] = 1 + min(fewest[a - coin])` over coins that fit.\n\n```python\ndef coin_change(coins, amount):\n    INF = float(\"inf\")\n    fewest = [0] + [INF] * amount\n    for a in range(1, amount + 1):\n        for coin in coins:\n            if coin <= a and fewest[a - coin] + 1 < fewest[a]:\n                fewest[a] = fewest[a - coin] + 1\n    return -1 if fewest[amount] == INF else fewest[amount]\n```\n\n**Complexity.** O(amount × number of coins) time, O(amount) space. Counting the *number of ways* instead of the minimum is the same table with `+=` and the loops swapped (coins outside, amounts inside) to avoid counting different orders of the same coins."
+    },
+    {
+     "q": "Longest Increasing Subsequence: what is the length of the longest strictly increasing subsequence (not necessarily contiguous)?",
+     "a": "**Simple DP, O(n²).** `length[i]` is the longest increasing subsequence ending at `i`: one more than the best `length[j]` over earlier `j` with a smaller value.\n\n**Better, O(n log n).** Keep `tails`, where `tails[k]` is the **smallest possible last value** of an increasing subsequence of length `k + 1`. For each number, binary-search the first tail that is not smaller than it and replace that tail (or append if it is larger than all of them). `tails` stays sorted, and its length is the answer.\n\n```python\nfrom bisect import bisect_left\n\ndef length_of_lis(nums):\n    tails = []\n    for x in nums:\n        i = bisect_left(tails, x)       # bisect_left keeps the subsequence strictly increasing\n        if i == len(tails):\n            tails.append(x)\n        else:\n            tails[i] = x\n    return len(tails)\n```\n\n`tails` is **not** itself a valid subsequence; only its length is meaningful. If the interviewer wants the sequence, store predecessors.\n\n**Complexity.** O(n log n) time, O(n) space."
+    },
+    {
+     "q": "Longest Common Subsequence: what is the length of the longest subsequence two strings share?",
+     "a": "**State and transition.** `dp[i][j]` is the answer for the first `i` characters of `a` and the first `j` of `b`. If the characters match, extend the diagonal: `dp[i - 1][j - 1] + 1`. If not, take the better of dropping one character from either string: `max(dp[i - 1][j], dp[i][j - 1])`.\n\n```python\ndef lcs_length(a, b):\n    dp = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]\n    for i in range(1, len(a) + 1):\n        for j in range(1, len(b) + 1):\n            if a[i - 1] == b[j - 1]:\n                dp[i][j] = dp[i - 1][j - 1] + 1\n            else:\n                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])\n    return dp[len(a)][len(b)]\n```\n\n**Complexity.** O(n · m) time and space. A row only depends on the previous row, so space can drop to O(min(n, m)). Walking back through the table from `dp[n][m]` recovers the subsequence itself. This is the idea behind `diff`."
+    },
+    {
+     "q": "0/1 Knapsack: items have a weight and a value; you can take each at most once. What is the best total value that fits in a given capacity?",
+     "a": "**State and transition.** `best[c]` is the best value with capacity `c`. For each item, either leave it or take it: `best[c] = max(best[c], best[c - weight] + value)`. Loop the capacity **downwards** so an item is not used twice within the same pass; that one detail is what separates 0/1 from the unbounded version.\n\n```python\ndef knapsack(weights, values, capacity):\n    best = [0] * (capacity + 1)\n    for w, v in zip(weights, values):\n        for c in range(capacity, w - 1, -1):\n            best[c] = max(best[c], best[c - w] + v)\n    return best[capacity]\n```\n\n**Complexity.** O(items × capacity) time, O(capacity) space. This is **pseudo-polynomial**: polynomial in the *value* of the capacity, not in the number of bits needed to write it, so the problem is still NP-hard in general. The same table solves \"can a subset sum to X?\" and \"can the array be split into two equal halves?\"."
+    },
+    {
+     "q": "Edit Distance: what is the minimum number of insertions, deletions and substitutions to turn one word into another?",
+     "a": "**State and transition.** `dp[i][j]` is the distance between the first `i` characters of `a` and the first `j` of `b`. If the last characters match, no cost: `dp[i - 1][j - 1]`. Otherwise `1 +` the cheapest of **delete** (`dp[i - 1][j]`), **insert** (`dp[i][j - 1]`) or **substitute** (`dp[i - 1][j - 1]`). The first row and column are the cost of building one string from nothing.\n\n```python\ndef edit_distance(a, b):\n    dp = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]\n    for i in range(len(a) + 1):\n        dp[i][0] = i\n    for j in range(len(b) + 1):\n        dp[0][j] = j\n    for i in range(1, len(a) + 1):\n        for j in range(1, len(b) + 1):\n            if a[i - 1] == b[j - 1]:\n                dp[i][j] = dp[i - 1][j - 1]\n            else:\n                dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])\n    return dp[len(a)][len(b)]\n```\n\n**Complexity.** O(n · m) time, O(n · m) space (O(min(n, m)) with two rows). It is the Levenshtein distance behind spell checkers and fuzzy search."
+    },
+    {
+     "q": "Word Break: can a string be split into a sequence of words from a dictionary?",
+     "a": "**State and transition.** `ok[i]` is True if the first `i` characters can be split. It is True when some earlier split point `j` has `ok[j]` True **and** the piece `s[j:i]` is a word. `ok[0]` is True (the empty prefix).\n\n```python\ndef word_break(s, words):\n    dictionary = set(words)\n    ok = [True] + [False] * len(s)\n    for i in range(1, len(s) + 1):\n        for j in range(i):\n            if ok[j] and s[j:i] in dictionary:\n                ok[i] = True\n                break\n    return ok[len(s)]\n```\n\n**Complexity.** O(n²) pairs, each with a substring and a set lookup (so O(n³) in the worst case for long strings; limiting `j` to the longest word's length brings it back down). Using a set for the dictionary matters: a list makes every lookup O(words)."
+    }
+   ]
+  },
+  "coding-graphs-and-backtracking": {
+   "title": "Graphs and backtracking",
+   "topic": "graphs-and-backtracking",
+   "difficulty": "advanced",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "How do you represent a graph, and when do you use BFS versus DFS?",
+     "a": "**Representation.** An **adjacency list** (`dict` of node → list of neighbours) is the default: O(V + E) space and fast iteration over a node's neighbours. An adjacency matrix is O(V²) and only worth it for dense graphs or when you need O(1) \"is there an edge?\". A grid is a graph whose neighbours are the four (or eight) cells around a cell: you rarely build it, you just compute neighbours on the fly.\n\n```python\nfrom collections import defaultdict\n\ngraph = defaultdict(list)\nfor a, b in [(0, 1), (0, 2), (1, 3)]:\n    graph[a].append(b)\n    graph[b].append(a)          # drop this line for a directed graph\n```\n\n**BFS** (queue) explores level by level. Use it for the **shortest path in an unweighted graph** or grid, \"minimum number of steps/moves\", and anything \"nearest\".\n\n**DFS** (stack or recursion) goes as deep as possible first. Use it to explore everything reachable, count connected components, detect cycles, find paths, and for backtracking.\n\n**Always** keep a `visited` set (or mark the grid) so you do not loop forever on cycles. Both traversals are O(V + E)."
+    },
+    {
+     "q": "Number of Islands: count the groups of connected land cells (\"1\") in a grid of land and water.",
+     "a": "**Approach.** Scan the grid. Each time you meet unvisited land, you have found a new island: count it, then flood-fill it (mark every connected land cell as visited) so it is not counted again. An explicit stack avoids hitting Python's recursion limit on large islands.\n\n```python\ndef num_islands(grid):\n    if not grid:\n        return 0\n    rows, cols = len(grid), len(grid[0])\n    seen = set()\n    count = 0\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == \"1\" and (r, c) not in seen:\n                count += 1\n                seen.add((r, c))\n                stack = [(r, c)]\n                while stack:\n                    y, x = stack.pop()\n                    for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):\n                        if 0 <= ny < rows and 0 <= nx < cols and grid[ny][nx] == \"1\" and (ny, nx) not in seen:\n                            seen.add((ny, nx))\n                            stack.append((ny, nx))\n    return count\n```\n\n**Complexity.** O(rows × cols) time and space: every cell is visited a constant number of times. To save memory, overwrite visited cells with `\"0\"` instead of keeping a set, if you may modify the input (ask)."
+    },
+    {
+     "q": "Shortest path in a grid (or any unweighted graph): what is the minimum number of steps from the top-left to the bottom-right, moving only through open cells?",
+     "a": "**Approach.** Breadth-first search. The first time BFS reaches a cell is by the fewest steps, so mark cells visited **when you enqueue them**, not when you dequeue them, or the queue fills with duplicates.\n\n```python\nfrom collections import deque\n\ndef shortest_path(grid):\n    rows, cols = len(grid), len(grid[0])\n    if grid[0][0] or grid[rows - 1][cols - 1]:\n        return -1\n    queue = deque([(0, 0, 1)])                 # row, column, cells on the path so far\n    seen = {(0, 0)}\n    while queue:\n        r, c, length = queue.popleft()\n        if (r, c) == (rows - 1, cols - 1):\n            return length\n        for dr in (-1, 0, 1):\n            for dc in (-1, 0, 1):\n                nr, nc = r + dr, c + dc\n                if 0 <= nr < rows and 0 <= nc < cols and not grid[nr][nc] and (nr, nc) not in seen:\n                    seen.add((nr, nc))\n                    queue.append((nr, nc, length + 1))\n    return -1\n```\n\n(0 is an open cell, 1 is a wall; this version also allows diagonal moves. Drop the diagonals by only trying the four orthogonal neighbours.)\n\n**Complexity.** O(rows × cols) time and space. With **weighted** edges, BFS is wrong: use Dijkstra."
+    },
+    {
+     "q": "Course Schedule: given courses and prerequisite pairs, can all courses be finished, and in what order?",
+     "a": "**Approach.** The courses are a directed graph; they can all be finished exactly when the graph has **no cycle**. **Topological sort (Kahn's algorithm)**: repeatedly take a course with no remaining prerequisites, add it to the order, and remove it from everyone who was waiting on it. If you cannot take all of them, there is a cycle.\n\n```python\nfrom collections import defaultdict, deque\n\ndef course_order(n, prerequisites):\n    after = defaultdict(list)                   # prerequisite -> courses it unlocks\n    waiting = [0] * n                           # how many prerequisites each course still needs\n    for course, needs in prerequisites:\n        after[needs].append(course)\n        waiting[course] += 1\n    ready = deque(c for c in range(n) if waiting[c] == 0)\n    order = []\n    while ready:\n        c = ready.popleft()\n        order.append(c)\n        for nxt in after[c]:\n            waiting[nxt] -= 1\n            if waiting[nxt] == 0:\n                ready.append(nxt)\n    return order if len(order) == n else []     # [] means there is a cycle\n```\n\n**Complexity.** O(V + E) time and space. The same algorithm orders build steps, database migrations, and package installs, and its failure case is the \"circular dependency\" error you have seen."
+    },
+    {
+     "q": "Dijkstra's algorithm: find the cheapest path from a start node to every other node in a graph with non-negative edge weights.",
+     "a": "**Approach.** A priority queue of `(cost so far, node)`. Always expand the cheapest unsettled node; its cost is final because no later path can be cheaper (all weights are non-negative). A stale heap entry, one for a node already reached more cheaply, is simply skipped.\n\n```python\nimport heapq\n\ndef dijkstra(graph, start):\n    \"\"\"graph: {node: [(neighbour, weight), ...]}\"\"\"\n    best = {start: 0}\n    heap = [(0, start)]\n    while heap:\n        cost, node = heapq.heappop(heap)\n        if cost > best.get(node, float(\"inf\")):\n            continue                            # an out-of-date entry\n        for neighbour, weight in graph.get(node, []):\n            new_cost = cost + weight\n            if new_cost < best.get(neighbour, float(\"inf\")):\n                best[neighbour] = new_cost\n                heapq.heappush(heap, (new_cost, neighbour))\n    return best\n```\n\n**Complexity.** O((V + E) log V) with a binary heap. **It fails with negative edges**: use Bellman-Ford (O(V·E)). For an unweighted graph BFS is simpler and faster; with a good estimate of the remaining distance, A* is Dijkstra with a smarter queue order."
+    },
+    {
+     "q": "Union-Find (disjoint set): what is it, and how do you use it to count connected components or find a redundant edge?",
+     "a": "**Idea.** Keep each node's set as a tree with a representative root. `find(x)` returns the root; `union(a, b)` joins two trees. Two optimisations make both operations almost O(1): **path compression** (point nodes straight at the root while searching) and **union by size** (hang the smaller tree under the larger).\n\n```python\nclass UnionFind:\n    def __init__(self, n):\n        self.parent = list(range(n))\n        self.size = [1] * n\n        self.components = n\n\n    def find(self, x):\n        while self.parent[x] != x:\n            self.parent[x] = self.parent[self.parent[x]]     # path halving\n            x = self.parent[x]\n        return x\n\n    def union(self, a, b):\n        ra, rb = self.find(a), self.find(b)\n        if ra == rb:\n            return False                  # already connected: this edge closes a cycle\n        if self.size[ra] < self.size[rb]:\n            ra, rb = rb, ra\n        self.parent[rb] = ra\n        self.size[ra] += self.size[rb]\n        self.components -= 1\n        return True\n```\n\n- **Connected components:** union every edge, then read `components`.\n- **Redundant edge (the one that makes a cycle):** the first edge whose `union` returns `False`.\n\n**Complexity.** O(α(n)) per operation, effectively constant. It is also the engine of Kruskal's minimum spanning tree algorithm."
+    },
+    {
+     "q": "Subsets and Permutations: generate every subset, and every ordering, of a list. What is the backtracking pattern?",
+     "a": "**Pattern.** Build a partial answer one choice at a time. **Choose** an item, **recurse** to build the rest, then **un-choose** it (backtrack) so the next branch starts clean. Record an answer when the partial result is complete.\n\n```python\ndef subsets(nums):\n    result, path = [], []\n\n    def build(start):\n        result.append(path[:])                 # every partial path is a subset\n        for i in range(start, len(nums)):\n            path.append(nums[i])               # choose\n            build(i + 1)                       # explore\n            path.pop()                         # un-choose\n\n    build(0)\n    return result\n\ndef permutations(nums):\n    result, path, used = [], [], [False] * len(nums)\n\n    def build():\n        if len(path) == len(nums):\n            result.append(path[:])\n            return\n        for i in range(len(nums)):\n            if not used[i]:\n                used[i] = True\n                path.append(nums[i])\n                build()\n                path.pop()\n                used[i] = False\n\n    build()\n    return result\n```\n\nCopy the path (`path[:]`) when you record it: otherwise every answer is the same list that keeps changing.\n\n**Complexity.** There are 2ⁿ subsets and n! permutations, so time is O(n · 2ⁿ) and O(n · n!): the output size is the lower bound. For input with duplicates, sort first and skip a value equal to the previous one at the same level."
+    },
+    {
+     "q": "Combination Sum: find every combination of numbers (each may be reused) that adds up to a target. How do you prune the search?",
+     "a": "**Approach.** Backtracking where each step chooses the next number **at or after the current index** (so combinations are not repeated in a different order) and may reuse it. Sort the candidates so you can **stop a branch early**: once a number overshoots the remaining target, every larger one will too.\n\n```python\ndef combination_sum(candidates, target):\n    candidates = sorted(candidates)\n    result, path = [], []\n\n    def build(start, remaining):\n        if remaining == 0:\n            result.append(path[:])\n            return\n        for i in range(start, len(candidates)):\n            if candidates[i] > remaining:\n                break                          # sorted: nothing later fits either\n            path.append(candidates[i])\n            build(i, remaining - candidates[i])    # i, not i + 1: reuse is allowed\n            path.pop()\n\n    build(0, target)\n    return result\n```\n\n**Complexity.** Exponential in the worst case (roughly O(n^(target / min))), which is why the pruning matters. If the question forbids reuse, recurse with `i + 1` and skip equal neighbours to avoid duplicate combinations."
+    }
+   ]
+  },
+  "coding-interview-faq": {
+   "title": "Coding interview FAQ",
+   "topic": "interview-process",
+   "difficulty": "beginner",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "How should I approach any coding interview problem, step by step?",
+     "a": "Interviewers mostly judge **how you think**, and a clear routine keeps you from freezing. Use the same steps every time:\n\n1. **Clarify.** Repeat the problem in your own words. Ask about input size, the range of values, duplicates, empty input, whether the input is sorted, and what to return when there is no answer.\n2. **Work an example by hand,** including a small edge case. This often shows you the pattern.\n3. **State the brute force first,** with its complexity. Even if it is too slow, it proves you understand the problem and gives you something to improve.\n4. **Optimise out loud.** Ask where the brute force repeats work: that is where a hash map, a sorted order, two pointers or a heap helps.\n5. **Agree the plan before you type.** \"I'll use a hash map from value to index, one pass. OK?\" A wrong plan costs one sentence to fix, not ten minutes of code.\n6. **Write clean code,** with meaningful names and small helper functions. It is read, not just run.\n7. **Test by tracing** your example, then the edge cases, line by line.\n8. **State the complexity** (time and space) and mention a trade-off you chose.\n\n**If time runs out,** finishing a correct simple solution beats an unfinished clever one."
+    },
+    {
+     "q": "What should I say out loud while I code?",
+     "a": "Silence reads as being stuck, even when you are thinking well. Narrate at the level of **decisions**, not keystrokes:\n\n- **Intent.** \"I need to find the earlier number that pairs with this one, so I'll keep a dictionary of values I've seen.\"\n- **Trade-offs.** \"Sorting is O(n log n) but needs no extra memory; the hash map is O(n) time and O(n) space. I'll take the map unless memory is tight.\"\n- **Doubts.** \"I'm not sure about the empty list here: I'll handle it first.\" Naming a doubt is a strength, not a weakness.\n- **Checks.** \"Let me trace `[3, 3]` with target 6 to make sure duplicates work.\"\n\n**Do** invite the interviewer in: \"Does that sound reasonable?\" Hints are usually offered to candidates who are talking, and ignored (or never given) when nobody can tell what you are thinking.\n\n**Don't** read your code aloud line by line, or apologise repeatedly. Stay calm, and correct mistakes matter-of-factly: \"That's off by one: the loop should stop at `n - 1`.\""
+    },
+    {
+     "q": "How do I work out the time and space complexity of my solution?",
+     "a": "**Count how many times the dominant work runs** as the input grows.\n\n- A single loop over the input: O(n). Two *nested* loops over the input: O(n²). Two loops *one after the other*: O(n) + O(n) = O(n).\n- Halving the problem each step (binary search): O(log n).\n- A loop that does a binary search or a heap operation each time: O(n log n).\n- Recursion that branches twice per level, to depth n: O(2ⁿ); with memoisation, it is the number of distinct sub-problems times the work per sub-problem.\n- **Hidden costs:** slicing and `in` on a list are O(n); `list.pop(0)` and `insert(0, x)` are O(n); string concatenation in a loop can be O(n²); sorting is O(n log n).\n\n**Space** counts what you allocate beyond the input: a set of everything seen is O(n); a recursion `depth` d is O(d) stack space.\n\n**A rule of thumb for what is fast enough** (roughly 10⁷ to 10⁸ simple operations per second, depending on the language):\n\n| If n is up to | An algorithm of this order is fine |\n| :--- | :--- |\n| about 10 | O(n!) |\n| about 20 | O(2ⁿ) |\n| about 500 | O(n³) |\n| about 5,000 | O(n²) |\n| about 10⁶ | O(n log n) or O(n) |\n| 10⁹ and more | O(log n) or O(1) |\n\nIf the constraints say n is 10⁵ and you have written O(n²), look for a better idea before you code."
+    },
+    {
+     "q": "Which data structure should I reach for?",
+     "a": "Start from **what operation the problem repeats**:\n\n| You need to... | Reach for | Cost |\n| :--- | :--- | :--- |\n| Check \"have I seen this?\" or look up by key | `set` / `dict` | O(1) average |\n| Count things | `collections.Counter` | O(1) per item |\n| Repeatedly get the smallest or largest | Heap (`heapq`, a min-heap) | O(log n) per push/pop |\n| Process last-in first-out, match brackets, undo | Stack (a `list`) | O(1) |\n| Process first-in first-out, breadth-first search | `collections.deque` | O(1) at both ends |\n| Find a value in sorted data, or the first value above X | Binary search (`bisect`) | O(log n) |\n| Answer \"sum of a range\" many times | Prefix sums | O(1) after O(n) setup |\n| Group items that are connected | Union-find, or DFS/BFS | about O(1) per union / O(V + E) |\n| Keep sorted order while inserting | Sorted list with `bisect.insort` (small n), or a balanced tree | O(n) / O(log n) |\n| Match prefixes of many strings | Trie | O(length of the word) |\n\nWhen two structures would work, name both and say why you picked one. A plain `dict` plus a good idea beats an exotic structure used for its own sake."
+    },
+    {
+     "q": "What do I do when I am stuck?",
+     "a": "Everyone gets stuck; what is judged is what you do next.\n\n1. **Say so, calmly,** and say where: \"I have the brute force, and I'm looking for where it repeats work.\"\n2. **Go back to a small example** and do it by hand. Ask what *you* did to get the answer, not what an algorithm would do. Often your hands already know the trick.\n3. **Simplify.** Solve a smaller version (no duplicates, a sorted input, one dimension) and see what changes when you add the difficulty back.\n4. **Try the usual suspects.** Would sorting help? A hash map? Two pointers? A stack? Recursion with a cache? Think about the brute force's *bottleneck*.\n5. **Fall back to the brute force** and make it work. A correct slow solution, with an honest note on how you would speed it up, is far better than nothing.\n6. **Take a hint.** Interviewers want to see how you use one. Restate it, connect it to what you had, and carry on. It is rarely held against a candidate who then makes good use of it."
+    },
+    {
+     "q": "How do I test my solution when I cannot run it?",
+     "a": "**Trace it by hand** on the example from the problem, writing the variables down as they change. Then try the inputs that usually break code:\n\n- **Empty** input, and a **single** element.\n- **Duplicates**, and **all elements equal**.\n- **Already sorted**, and **reverse sorted**.\n- **Negative numbers** and **zero** (a division, a product, a \"greater than zero\" test).\n- **The smallest and largest** allowed value (overflow does not happen in Python, but an off-by-one at the limit does).\n- **No answer exists** (what do you return?) and **more than one answer** (which one?).\n- **The first and last positions** of the loop, where off-by-one errors hide.\n\nFix what you find, out loud: \"My loop skips the last element, so it should be `<=`.\" Finding your own bug in front of an interviewer is a good sign, not a bad one.\n\nIf you *can* run code, write two or three `assert` statements first. In your own projects the same list of inputs becomes the first unit tests."
+    },
+    {
+     "q": "Which language should I use for a coding interview?",
+     "a": "**The one you are fastest and most accurate in,** unless the job is specifically for another language. For most people that is Python: short syntax, a rich standard library, and no boilerplate for the data structures interviews use.\n\nWhatever you choose, know its tools well enough that you do not have to think about them:\n\n- **Python:** `collections` (`Counter`, `defaultdict`, `deque`, `OrderedDict`), `heapq`, `bisect`, `itertools`, `functools.cache`, slicing, tuple unpacking, `sorted(key=...)`.\n- **JavaScript:** `Map` and `Set` (not plain objects for arbitrary keys), array methods, and the fact that the default `sort()` compares values as strings.\n- **Java / C#:** `HashMap`/`Dictionary`, `PriorityQueue`, `Deque`, and how to write a comparator.\n\nAsk whether you may use the standard library for a heap or a sorted structure; most interviewers say yes, and then expect you to explain how it works. Use the language's idioms, but do not show off with obscure ones: readable beats clever."
+    },
+    {
+     "q": "What Python mistakes do people make in coding interviews?",
+     "a": "These come up again and again. Know them cold:\n\n```python\n# 1. A mutable default argument is created once and shared between calls.\ndef add_item(item, items=[]):          # wrong\n    items.append(item)\n    return items\n\ndef add_item_fixed(item, items=None):  # right\n    items = [] if items is None else items\n    items.append(item)\n    return items\n\n# 2. [[0] * 3] * 3 makes three references to the SAME row.\nbad = [[0] * 3] * 3\nbad[0][0] = 1                          # every row changes\ngood = [[0] * 3 for _ in range(3)]\n\n# 3. Copy a list with a slice or list(); `b = a` only adds a second name.\na = [1, 2, 3]\nb = a[:]\n\n# 4. Integer division: // floors toward negative infinity, so -7 // 2 is -4, not -3.\nassert -7 // 2 == -4 and int(-7 / 2) == -3\n```\n\nOthers worth remembering:\n\n- **`list.pop(0)` and `list.insert(0, x)` are O(n).** Use `collections.deque` for a queue.\n- **`heapq` is a min-heap.** For a max-heap, push negated values.\n- **Recursion depth is limited** (about 1000 frames by default). A deep recursion needs an explicit stack or an iterative version.\n- **`sort()` is stable,** which lets you sort by several keys in turn.\n- **`x in some_list` is O(n);** `x in some_set` is O(1).\n- **Mutating a collection while looping over it** skips elements or raises an error: loop over a copy."
+    },
+    {
+     "q": "Why is a hash map lookup O(1), and when is it not?",
+     "a": "**How it works.** A hash map turns the key into a number (its *hash*), and uses that number to pick a slot in an array. Looking up a key means computing its hash and going to that slot: a constant amount of work, however many items are stored.\n\n**Collisions.** Two different keys can land in the same slot. The map has to cope: *chaining* keeps a small list per slot, *open addressing* (what Python's `dict` does) probes for the next free slot. As the table fills up, collisions become likely, so the map **resizes** (usually doubling) once it is more than about two-thirds full, and re-inserts everything. That one insert is O(n), but spread over many inserts the average cost stays O(1): this is *amortised* constant time.\n\n**When it is not O(1).**\n\n- **A bad or adversarial hash function** puts many keys in one slot, and a lookup degrades to O(n). This is a real denial-of-service attack on web servers, which is why Python randomises string hashes.\n- **Hashing the key itself costs time.** Hashing a string of length k is O(k), so looking up long keys is O(k), not O(1).\n- **The occasional resize** (above) makes a single insert slow.\n\n**Practical rules.** Keys must be **hashable**, which means immutable: strings, numbers and tuples of them work, lists and dicts do not. Since Python 3.7, a `dict` keeps insertion order. A set is a hash map with no values. And \"O(1) average, O(n) worst case\" is the honest answer to give."
+    },
+    {
+     "q": "How is a backend coding interview different from a LeetCode-style one?",
+     "a": "Many companies still ask classic algorithm problems, but backend roles often add questions that look like **small pieces of real work**. Expect some of these, and prepare for the way they are judged:\n\n- **Practical problems:** parse a log file and report the top endpoints, implement an LRU cache or a rate limiter, merge sorted streams, design a small class with a clean interface, write a function that retries safely. See the *Backend coding problems* set.\n- **Concurrency:** a thread-safe counter or queue, why a race condition happens, what a lock protects.\n- **Data and APIs:** write the query or the endpoint, then discuss indexes, pagination, idempotency and error handling.\n- **Code quality counts for more:** naming, small functions, handling bad input, and a few tests are part of the answer, not extras.\n\n**What interviewers look for beyond a correct answer:** do you ask clarifying questions, do you think about failure (timeouts, retries, bad input), do you pick sensible names, do you notice scale (\"this is fine for ten thousand rows; what at a hundred million?\"), and can you explain trade-offs in plain words.\n\n**Prepare by** doing a few of these practical problems *and* the standard patterns, and by being able to talk about systems you have built: what broke, and what you changed."
+    },
+    {
+     "q": "How many problems should I practise, and how?",
+     "a": "**Patterns matter more than the count.** Most problems are one of a few dozen patterns (hash map lookup, two pointers, sliding window, binary search, stack, heap, BFS/DFS, backtracking, dynamic programming). Two or three good problems per pattern, understood properly, beat a hundred half-remembered ones.\n\n**A routine that works.**\n\n1. **Time-box** each problem (about 25 to 30 minutes). If you are stuck after that, read the solution, *then close it* and write it again from memory.\n2. **Say your approach aloud** or write it down before coding: that is the skill being tested.\n3. **Re-solve** problems you struggled with after a few days and again after a few weeks. Remembering is built by retrieval, not by reading.\n4. **Keep a short log:** the problem, the pattern, the trick that unlocked it, the mistake you made. Reread it before the interview.\n5. **Practise with a person or a timer** at least a few times: coding while someone watches is a different skill from coding alone.\n6. **Include the unglamorous basics:** edge cases, naming, complexity in one sentence.\n\nAround 40 to 60 well-understood problems across the patterns is a realistic and useful goal for most people. Use this site's sets in order, and treat the questions you could not answer as your study list."
+    }
+   ]
+  },
+  "coding-linked-lists-and-trees": {
+   "title": "Linked lists and trees",
+   "topic": "linked-lists-and-trees",
+   "difficulty": "intermediate",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "Reverse a singly linked list.",
+     "a": "**Approach.** Walk the list once, pointing each node back at the node before it. Keep three names: `prev`, the current node, and the next node (saved before you overwrite `current.next`).\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val, self.next = val, next\n\ndef reverse_list(head):\n    prev = None\n    while head:\n        head.next, prev, head = prev, head, head.next\n    return prev\n```\n\nThe tuple assignment evaluates the right side first, so `head.next` is read before it is overwritten.\n\n**Complexity.** O(n) time, O(1) space. The recursive version is O(n) space on the call stack, which fails on long lists in Python (default recursion limit 1000)."
+    },
+    {
+     "q": "Linked List Cycle: how do you detect a cycle in a linked list, and find where it starts?",
+     "a": "**Approach (Floyd's tortoise and hare).** Move one pointer one step at a time and another two steps. If there is a cycle, the fast one eventually lands on the slow one; if there is not, the fast one reaches the end.\n\nTo find where the cycle **starts**: once they meet, put one pointer back at the head and move both one step at a time. They meet again exactly at the cycle's first node.\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val, self.next = val, next\n\ndef cycle_start(head):\n    slow = fast = head\n    while fast and fast.next:\n        slow, fast = slow.next, fast.next.next\n        if slow is fast:\n            slow = head\n            while slow is not fast:\n                slow, fast = slow.next, fast.next\n            return slow\n    return None\n```\n\n**Why the second phase works.** If the part before the cycle has length `a`, and they meet `b` steps into a cycle of length `c`, the fast pointer travelled twice as far, so `a + b` is a multiple of `c`: walking `a` more steps from the meeting point lands on the cycle start.\n\n**Complexity.** O(n) time, O(1) space. The easy alternative, a set of visited nodes, is O(n) space."
+    },
+    {
+     "q": "Merge Two Sorted Lists: merge two sorted linked lists into one sorted list.",
+     "a": "**Approach.** Use a dummy head node so the first real node needs no special case. Keep a `tail` pointer; at each step attach the smaller of the two current nodes. When one list runs out, attach the rest of the other.\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val, self.next = val, next\n\ndef merge_two_lists(a, b):\n    dummy = tail = ListNode()\n    while a and b:\n        if a.val <= b.val:\n            tail.next, a = a, a.next\n        else:\n            tail.next, b = b, b.next\n        tail = tail.next\n    tail.next = a or b\n    return dummy.next\n```\n\nUsing `<=` keeps the merge **stable**: equal values stay in their original order.\n\n**Complexity.** O(n + m) time, O(1) extra space (the nodes are relinked, not copied). This is the merge step of merge sort on a linked list."
+    },
+    {
+     "q": "Remove the Nth Node From the End of a linked list, in one pass.",
+     "a": "**Approach.** Two pointers with a gap of `n` between them. Move the first pointer `n` steps ahead, then move both until the first reaches the end: the second is now just before the node to remove. A dummy head handles the case where the first node must go.\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val, self.next = val, next\n\ndef remove_nth_from_end(head, n):\n    dummy = ListNode(0, head)\n    lead = trail = dummy\n    for _ in range(n):\n        lead = lead.next\n    while lead.next:\n        lead, trail = lead.next, trail.next\n    trail.next = trail.next.next\n    return dummy.next\n```\n\n**Complexity.** O(n) time in a single pass, O(1) space. Ask whether `n` is guaranteed to be valid; if not, check that `lead` does not run off the list while moving it ahead."
+    },
+    {
+     "q": "Maximum Depth of a Binary Tree, and Invert a Binary Tree: how do you write both, recursively and without recursion?",
+     "a": "**Approach.** A tree is a node plus two smaller trees, so the recursive version states the definition: the depth is `1 + max(depth of left, depth of right)`; inverting swaps the two children, after inverting each of them.\n\n```python\nclass TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef max_depth(root):\n    if root is None:\n        return 0\n    return 1 + max(max_depth(root.left), max_depth(root.right))\n\ndef invert_tree(root):\n    if root:\n        root.left, root.right = invert_tree(root.right), invert_tree(root.left)\n    return root\n```\n\n**Without recursion.** A very deep (degenerate) tree blows Python's recursion limit. Use an explicit stack or queue:\n\n```python\nfrom collections import deque\n\ndef max_depth_iterative(root):\n    depth = 0\n    level = deque([root] if root else [])\n    while level:\n        depth += 1\n        for _ in range(len(level)):\n            node = level.popleft()\n            level.extend(child for child in (node.left, node.right) if child)\n    return depth\n```\n\n**Complexity.** O(n) time. Space is O(h) for recursion, where h is the height (O(log n) balanced, O(n) in the worst case), and O(w) for the queue, where w is the widest level."
+    },
+    {
+     "q": "Validate Binary Search Tree: is a binary tree a valid BST?",
+     "a": "**Approach.** Comparing each node with only its children is wrong: a node deep in the left subtree must still be smaller than the **root**. Pass down the allowed range instead. Going left tightens the upper bound to the parent's value; going right tightens the lower bound.\n\n```python\nclass TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef is_valid_bst(root, low=float(\"-inf\"), high=float(\"inf\")):\n    if root is None:\n        return True\n    if not (low < root.val < high):\n        return False\n    return is_valid_bst(root.left, low, root.val) and is_valid_bst(root.right, root.val, high)\n```\n\n**Alternative.** An in-order traversal of a valid BST is strictly increasing: walk it and check each value is greater than the previous one.\n\n**Complexity.** O(n) time, O(h) space. Ask whether duplicates are allowed; here they are not (strict inequalities)."
+    },
+    {
+     "q": "Binary Tree Level Order Traversal: return the values level by level.",
+     "a": "**Approach.** Breadth-first search with a queue. Process the queue one **level** at a time: the number of nodes in the queue at the start of a pass is exactly the size of that level.\n\n```python\nfrom collections import deque\n\nclass TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef level_order(root):\n    levels = []\n    queue = deque([root] if root else [])\n    while queue:\n        level = []\n        for _ in range(len(queue)):\n            node = queue.popleft()\n            level.append(node.val)\n            if node.left:\n                queue.append(node.left)\n            if node.right:\n                queue.append(node.right)\n        levels.append(level)\n    return levels\n```\n\n**Complexity.** O(n) time, O(w) space for the widest level. Use `deque`, not a list: `list.pop(0)` is O(n). The same loop with a flag that reverses every other level gives the zigzag traversal; collecting the last value of each level gives the right-side view."
+    },
+    {
+     "q": "Lowest Common Ancestor: given a binary tree and two nodes in it, find their lowest common ancestor.",
+     "a": "**Approach.** Recurse. If the current node is one of the two targets, it is the answer for this subtree. Otherwise ask both children. If **both** sides report a hit, the current node is where the paths split: it is the LCA. If only one side does, pass that result up.\n\n```python\nclass TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val, self.left, self.right = val, left, right\n\ndef lowest_common_ancestor(root, p, q):\n    if root is None or root is p or root is q:\n        return root\n    left = lowest_common_ancestor(root.left, p, q)\n    right = lowest_common_ancestor(root.right, p, q)\n    if left and right:\n        return root\n    return left or right\n```\n\n**In a binary search tree** it is simpler and O(h): from the root, go left while both values are smaller than the node, right while both are larger; the first node that splits them is the LCA.\n\n**Complexity.** O(n) time for a general tree, O(h) space for the recursion. This assumes both nodes exist in the tree; say so, and mention how you would check if they might not."
+    }
+   ]
+  },
+  "coding-stacks-heaps-and-intervals": {
+   "title": "Stacks, heaps and intervals",
+   "topic": "stacks-heaps-and-intervals",
+   "difficulty": "intermediate",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "Valid Parentheses: is a string of (), [] and {} correctly opened and closed?",
+     "a": "**Approach.** A stack. Push every opening bracket. On a closing bracket, the top of the stack must be its matching opener: pop it, otherwise the string is invalid. At the end the stack must be empty.\n\n```python\ndef is_valid(s):\n    pairs = {\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}\n    stack = []\n    for ch in s:\n        if ch in pairs:\n            if not stack or stack.pop() != pairs[ch]:\n                return False\n        else:\n            stack.append(ch)\n    return not stack\n```\n\n**Complexity.** O(n) time, O(n) space. Edge cases to name: an empty string (valid), a lone closer (`\"]\"`), and leftover openers (`\"((\"`)."
+    },
+    {
+     "q": "Min Stack: design a stack that supports push, pop, top and getting the minimum, all in O(1).",
+     "a": "**Approach.** Store, with every element, the minimum of the stack **at that point**. Popping an element then restores the previous minimum for free.\n\n```python\nclass MinStack:\n    def __init__(self):\n        self._items = []                 # (value, minimum of everything up to and including it)\n\n    def push(self, value):\n        smallest = value if not self._items else min(value, self._items[-1][1])\n        self._items.append((value, smallest))\n\n    def pop(self):\n        return self._items.pop()[0]\n\n    def top(self):\n        return self._items[-1][0]\n\n    def get_min(self):\n        return self._items[-1][1]\n```\n\n**Complexity.** Every operation is O(1); space is O(n). A second stack that only holds new minimums saves space when minimums are rare, at the cost of a little care with duplicates."
+    },
+    {
+     "q": "Daily Temperatures: for each day, how many days until a warmer temperature (0 if never)?",
+     "a": "**Approach.** A **monotonic stack** of indices whose temperatures are still waiting for a warmer day, kept in decreasing order. When today is warmer than the day on top of the stack, that day has found its answer: pop it and record the distance. Then push today.\n\n```python\ndef daily_temperatures(temps):\n    answer = [0] * len(temps)\n    waiting = []                            # indices with no warmer day yet\n    for i, t in enumerate(temps):\n        while waiting and temps[waiting[-1]] < t:\n            j = waiting.pop()\n            answer[j] = i - j\n        waiting.append(i)\n    return answer\n```\n\n**Complexity.** O(n) time: every index is pushed once and popped at most once. O(n) space. The same pattern solves \"next greater element\" and \"largest rectangle in a histogram\"."
+    },
+    {
+     "q": "Kth Largest Element: find the kth largest number in an unsorted list. How does the answer change if numbers keep arriving?",
+     "a": "**Approach.** Keep a **min-heap of size k** holding the k largest numbers seen so far. Its smallest element (the root) is the kth largest. For each new number, push it, and if the heap grew past k, pop the smallest.\n\n```python\nimport heapq\n\ndef kth_largest(nums, k):\n    heap = []\n    for x in nums:\n        heapq.heappush(heap, x)\n        if len(heap) > k:\n            heapq.heappop(heap)\n    return heap[0]\n```\n\n**Complexity.** O(n log k) time, O(k) space. Sorting is O(n log n). **Quickselect** finds the answer in O(n) on average (O(n²) worst case) by partitioning like quicksort and recursing into one side only.\n\n**Streaming follow-up.** The heap version already handles it: keep the heap between arrivals, and the answer is always `heap[0]`. Python's `heapq` is a min-heap only, which is why we keep the *largest* k in a *min*-heap."
+    },
+    {
+     "q": "Merge K Sorted Lists (arrays): merge k sorted lists into one sorted list. What is the cost?",
+     "a": "**Approach.** Put the first element of every list in a min-heap, as `(value, list index, position)`. Repeatedly pop the smallest, append it to the output, and push the next element of the same list.\n\n```python\nimport heapq\n\ndef merge_k_sorted(lists):\n    heap = [(lst[0], i, 0) for i, lst in enumerate(lists) if lst]\n    heapq.heapify(heap)\n    out = []\n    while heap:\n        value, i, pos = heapq.heappop(heap)\n        out.append(value)\n        if pos + 1 < len(lists[i]):\n            heapq.heappush(heap, (lists[i][pos + 1], i, pos + 1))\n    return out\n```\n\nThe list index in the tuple breaks ties, so Python never has to compare anything other than numbers.\n\n**Complexity.** O(N log k) for N elements in total, O(k) extra space for the heap. This is the same idea behind merging sorted log streams or the merge step of an external sort. `heapq.merge(*lists)` does it lazily in the standard library."
+    },
+    {
+     "q": "Merge Intervals: given a list of [start, end] intervals, merge all that overlap.",
+     "a": "**Approach.** Sort by start. Walk through them keeping the last merged interval: if the next one starts at or before its end, extend the end; otherwise start a new one.\n\n```python\ndef merge_intervals(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```\n\n`max(...)` handles an interval completely inside the previous one (`[1, 10]` then `[2, 3]`).\n\n**Complexity.** O(n log n) for the sort, O(n) for the pass. Decide, and say, whether touching intervals such as `[1, 2]` and `[2, 3]` merge: here they do (`<=`)."
+    },
+    {
+     "q": "Meeting Rooms II: given meeting time intervals, what is the minimum number of rooms needed?",
+     "a": "**Approach.** Sort meetings by start time. Keep a min-heap of the **end times** of meetings in progress. For each new meeting, if the earliest-ending meeting has finished by the time this one starts, reuse its room (pop it). Then push this meeting's end. The heap's size at the end is the number of rooms ever needed at once.\n\n```python\nimport heapq\n\ndef min_meeting_rooms(intervals):\n    ends = []\n    for start, end in sorted(intervals):\n        if ends and ends[0] <= start:\n            heapq.heappop(ends)          # that room is free again\n        heapq.heappush(ends, end)\n    return len(ends)\n```\n\n**Alternative.** Sort all start times and all end times separately and sweep with two pointers, counting how many meetings are open at once. Same O(n log n), no heap.\n\n**Complexity.** O(n log n) time, O(n) space. The same technique answers \"what is the peak number of concurrent connections / jobs in this log?\"."
+    },
+    {
+     "q": "Implement a queue using two stacks.",
+     "a": "**Approach.** Push onto an **in** stack. To pop or peek, take from an **out** stack; when it is empty, pour the whole in-stack into it (which reverses the order, so the oldest element ends on top).\n\n```python\nclass QueueWithTwoStacks:\n    def __init__(self):\n        self._in, self._out = [], []\n\n    def push(self, x):\n        self._in.append(x)\n\n    def _fill(self):\n        if not self._out:\n            while self._in:\n                self._out.append(self._in.pop())\n\n    def pop(self):\n        self._fill()\n        return self._out.pop()\n\n    def peek(self):\n        self._fill()\n        return self._out[-1]\n\n    def empty(self):\n        return not self._in and not self._out\n```\n\n**Complexity.** Each element is moved at most once from one stack to the other, so every operation is **amortised O(1)**, even though a single pop can take O(n). In Python, `collections.deque` is the real answer for a queue; say so after you answer the question asked."
+    }
+   ]
+  },
+  "coding-two-pointers-and-sliding-window": {
+   "title": "Two pointers and sliding window",
+   "topic": "two-pointers-and-sliding-window",
+   "difficulty": "intermediate",
+   "section": "coding",
+   "questions": [
+    {
+     "q": "How do you recognise a two-pointers or sliding-window problem?",
+     "a": "Look for these signals:\n\n- The input is a **sorted array** or a **string**, and the question is about pairs, a contiguous piece, or \"the longest/shortest/at most\".\n- A brute force checks every pair or every substring (O(n²) or O(n³)), and you suspect the answer for a bigger range can be derived from a smaller one.\n- You can say what to do when the current range is **too big** (move the left side in) and when it is **too small or still valid** (move the right side out).\n\n**Two pointers** move towards each other (sorted pairs, palindromes, container problems) or in the same direction at different speeds (removing duplicates, linked-list cycles).\n\n**Sliding window** is two pointers in the same direction that keep a window valid: the right pointer grows the window, the left pointer shrinks it while the window breaks the rule. Every element enters and leaves at most once, so the whole thing is O(n).\n\n**It does not work when** the numbers can be negative and the rule is a sum (shrinking no longer reliably reduces the sum). Use prefix sums and a hash map for that."
+    },
+    {
+     "q": "Valid Palindrome: ignoring case and anything that is not a letter or digit, is a string a palindrome?",
+     "a": "**Approach.** Put one pointer at each end, skip characters that do not count, and compare the rest, moving inwards. No cleaned-up copy of the string is needed, so extra space is O(1).\n\n```python\ndef is_palindrome(s):\n    i, j = 0, len(s) - 1\n    while i < j:\n        while i < j and not s[i].isalnum():\n            i += 1\n        while i < j and not s[j].isalnum():\n            j -= 1\n        if s[i].lower() != s[j].lower():\n            return False\n        i += 1\n        j -= 1\n    return True\n```\n\n**Complexity.** O(n) time, O(1) space. The simpler `t = [c.lower() for c in s if c.isalnum()]; return t == t[::-1]` is fine to mention first, at O(n) space."
+    },
+    {
+     "q": "3Sum: find all unique triplets in a list that add up to zero.",
+     "a": "**Approach.** Sort the list. Fix the first number `a`, then use two pointers on the rest to find pairs that sum to `-a`. Move the left pointer up when the sum is too small, the right pointer down when it is too big. Skip repeated values so each triplet is reported once.\n\n```python\ndef three_sum(nums):\n    nums = sorted(nums)\n    result = []\n    for i, a in enumerate(nums):\n        if i and a == nums[i - 1]:\n            continue                      # same first number as before\n        lo, hi = i + 1, len(nums) - 1\n        while lo < hi:\n            total = a + nums[lo] + nums[hi]\n            if total < 0:\n                lo += 1\n            elif total > 0:\n                hi -= 1\n            else:\n                result.append([a, nums[lo], nums[hi]])\n                lo += 1\n                while lo < hi and nums[lo] == nums[lo - 1]:\n                    lo += 1               # skip duplicate second numbers\n    return result\n```\n\n**Complexity.** O(n²) time (the sort is O(n log n), the double loop dominates), O(1) extra space apart from the output. The duplicate handling is where most wrong answers go wrong: say it out loud."
+    },
+    {
+     "q": "Container With Most Water: given bar heights, pick two bars that, with the x-axis, hold the most water.",
+     "a": "**Approach.** Start with the widest container (first and last bar). The water level is limited by the shorter bar, so moving the **taller** bar inwards can only make things worse (narrower, same limit). Always move the shorter bar: it is the only move that can find a taller limit.\n\n```python\ndef max_area(height):\n    lo, hi, best = 0, len(height) - 1, 0\n    while lo < hi:\n        best = max(best, min(height[lo], height[hi]) * (hi - lo))\n        if height[lo] < height[hi]:\n            lo += 1\n        else:\n            hi -= 1\n    return best\n```\n\n**Complexity.** O(n) time, O(1) space. The explanation of *why* moving the shorter side is safe is the actual interview answer; the code is short."
+    },
+    {
+     "q": "Best Time to Buy and Sell Stock: given daily prices, what is the maximum profit from one buy followed by one sell?",
+     "a": "**Approach.** One pass. Track the lowest price so far; the best profit selling today is `price - lowest`. Keep the maximum of those.\n\n```python\ndef max_profit(prices):\n    lowest, best = float(\"inf\"), 0\n    for p in prices:\n        lowest = min(lowest, p)\n        best = max(best, p - lowest)\n    return best\n```\n\nReturning 0 when prices only fall is correct: you are allowed not to trade.\n\n**Complexity.** O(n) time, O(1) space. **Follow-up:** with unlimited transactions, add every positive day-to-day difference."
+    },
+    {
+     "q": "Longest Substring Without Repeating Characters: how long is the longest substring in which every character is different?",
+     "a": "**Approach.** A sliding window `[start, i]` that never contains a repeat. Remember the last index of each character. When the current character was seen inside the window, jump `start` to just after that earlier occurrence.\n\n```python\ndef length_of_longest_substring(s):\n    last = {}                     # character -> index of its latest occurrence\n    start = best = 0\n    for i, ch in enumerate(s):\n        if ch in last and last[ch] >= start:\n            start = last[ch] + 1\n        last[ch] = i\n        best = max(best, i - start + 1)\n    return best\n```\n\nThe check `last[ch] >= start` matters: an occurrence from before the window began is not a conflict.\n\n**Complexity.** O(n) time, O(k) space for k distinct characters."
+    },
+    {
+     "q": "Minimum Size Subarray Sum: find the shortest contiguous subarray of positive numbers whose sum is at least a target.",
+     "a": "**Approach.** Grow the window on the right, adding numbers. As soon as the sum reaches the target, record the length, then shrink from the left for as long as the sum still reaches the target. This works because every number is **positive**: adding makes the sum bigger, removing makes it smaller.\n\n```python\ndef min_subarray_len(target, nums):\n    best = float(\"inf\")\n    total = left = 0\n    for right, x in enumerate(nums):\n        total += x\n        while total >= target:\n            best = min(best, right - left + 1)\n            total -= nums[left]\n            left += 1\n    return 0 if best == float(\"inf\") else best\n```\n\n**Complexity.** O(n) time (each index enters and leaves the window once), O(1) space. If negatives were allowed, this breaks; use prefix sums with a monotonic deque instead."
+    },
+    {
+     "q": "Trapping Rain Water: given bar heights, how much water is held between the bars after it rains?",
+     "a": "**Approach.** The water above a bar is `min(tallest bar to its left, tallest bar to its right) - its own height`. Computing those two maxima for every bar needs extra arrays. Two pointers avoid them: work from whichever side currently has the **lower** wall, because that side's water level is already decided by its own running maximum.\n\n```python\ndef trap(height):\n    lo, hi = 0, len(height) - 1\n    left_max = right_max = water = 0\n    while lo < hi:\n        if height[lo] < height[hi]:\n            left_max = max(left_max, height[lo])\n            water += left_max - height[lo]\n            lo += 1\n        else:\n            right_max = max(right_max, height[hi])\n            water += right_max - height[hi]\n            hi -= 1\n    return water\n```\n\n**Complexity.** O(n) time, O(1) space. The O(n)-space version with precomputed left and right maxima is a fine first answer if you are short on time: say it, then optimise."
+    }
+   ]
+  },
   "databases-and-indexes": {
    "title": "Databases and indexes",
    "topic": "databases",
@@ -5360,506 +5736,6 @@
      "a": "A local database transaction cannot include an external call, so use a pattern that tolerates failure: record the intent in the database first (with an idempotency key), perform the external call, then record the result, with a reconciliation job to resolve anything left unknown. The outbox pattern and sagas with compensating actions are the usual tools."
     }
    ]
-  }
- },
- "challenges": {
-  "hld/chat-application": {
-   "title": "Chat Application",
-   "kind": "hld",
-   "summary": "One-to-one and group messaging with presence and history.",
-   "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
-   "problem": "Design a chat service like WhatsApp or Slack: one-to-one and group conversations, delivery receipts, online presence, and message history.",
-   "functional": [
-    "Send and receive messages in real time in 1:1 and group chats (up to 500 members)",
-    "Show sent, delivered and read states",
-    "Show who is online",
-    "Keep history and sync it across a user's devices"
-   ],
-   "nonFunctional": [
-    "Messages in a conversation arrive in order and are never lost",
-    "Message delivery under 200 ms for online users",
-    "Handle 50 million daily active users"
-   ],
-   "constraints": [
-    "Mobile clients disconnect and reconnect constantly"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate (requests per second, storage, bandwidth)",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints and payloads) and the data model",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "What protocol keeps a connection open to the client?",
-    "How do you order messages within a conversation across servers?"
-   ],
-   "reference": "```mermaid\nflowchart LR\n  C1[Client A] <-->|WebSocket| G1[Gateway 1]\n  C2[Client B] <-->|WebSocket| G2[Gateway 2]\n  G1 --> CS[Chat service]\n  G2 --> CS\n  CS --> MQ[[Message log per conversation]]\n  MQ --> G2\n  CS --> DB[(Message store, partitioned by conversation)]\n  CS --> R[(Presence + routing: user to gateway)]\n  CS --> PUSH[Push for offline users]\n```\n\n- **Capacity (assumptions).** 50 M daily users x about 40 messages a day is 2 B messages/day, about 23,000/s on average and perhaps 70,000/s at a 3x peak. At about 100 bytes of text and metadata per message that is about 200 GB/day, about 73 TB/year before replication. If 20 M users are connected at the peak and a tuned gateway holds about 100,000 connections, that is about 200 gateways.\n- Clients hold a **WebSocket** to a gateway; a routing table says which gateway a user is on, so the chat service can deliver to the right one.\n- Each conversation is a **partition** with a sequence number, which gives the ordering guarantee; the message is persisted before it is acknowledged.\n- Offline users get a **push** notification and fetch history by sequence number on reconnect, which is also how multi-device sync works.\n- Presence uses heartbeats with a short TTL in a fast store; do not fan out presence to every contact, only to open chats.\n- Large groups use fan-out on read for the message list and fan-out on write only for notifications.\n- Delivery is at-least-once: the client gives each message an id and the server deduplicates on it, so a retry after a dropped connection does not create a second message.\n- Alternatives: long polling or server-sent events instead of WebSocket (simpler through some proxies, more overhead); ordering by a server-assigned sequence per conversation (chosen here) rather than by client or server timestamps, which can disagree across devices; a wide-column store keyed by conversation versus a sharded relational database for history."
-  },
-  "hld/ecommerce-platform": {
-   "title": "E-commerce Platform",
-   "kind": "hld",
-   "summary": "A shop with search, a cart, stock that must not be oversold, safe payments and orders, including a flash sale.",
-   "module": "backend/06-background-processing-and-realtime/12-payment-processing-in-practice/README.md",
-   "problem": "Design the backend of an online store. Shoppers browse and search a catalog, add items to a cart, and check out. Stock is limited and must not be oversold, payment must be charged exactly once even when requests are retried, and orders must be tracked through fulfilment. Once or twice a year a flash sale sends traffic to a few products at 50 to 100 times the normal rate.",
-   "functional": [
-    "Browse a catalog by category and search by text with filters (price, brand) and sorting",
-    "Product detail page with price and availability",
-    "Cart for anonymous and signed-in users that survives a session",
-    "Checkout: address, shipping option, payment; produces an order",
-    "Order history and status (placed, paid, packed, shipped, delivered, cancelled, refunded)",
-    "Sellers or admins manage products, prices and stock"
-   ],
-   "nonFunctional": [
-    "Browsing and search are fast (under 300 ms p99) and highly available; a stale price for a few seconds is acceptable on listing pages",
-    "Never sell more units than exist; never charge a customer twice for one order",
-    "Checkout correctness is more important than checkout availability: reject or queue rather than guess",
-    "Survives a flash sale on a handful of products without taking the rest of the site down"
-   ],
-   "constraints": [
-    "20 million daily active users, 50 million products, 10 page views per user per day",
-    "About 1 million orders per day; flash sale peak 100 times normal order rate on a few products",
-    "A third-party payment provider that can be slow, fail, or return an unknown result",
-    "Product images are served from object storage and a CDN"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate: browse and search requests per second, orders per second (normal and flash sale), and storage",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API for cart, checkout and orders, and the data model for inventory and orders",
-    "How you prevent overselling, including during a flash sale",
-    "How checkout stays exactly-once for payment (idempotency) and what happens when the payment result is unknown",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Work out orders per second. It is smaller than people expect; where is the real hot spot?",
-    "Reading the catalog and writing inventory have opposite needs. Separate them.",
-    "Stock can be reserved at add-to-cart, at checkout start, or at payment. What does each cost?",
-    "A client that retries a checkout request after a timeout is normal, not an error. How does the server recognise it?"
-   ],
-   "reference": "This is one reasonable design. Decisions with reasonable alternatives are named in the trade-offs.\n\n### Capacity estimate\n- Browse: 20 million users x 10 page views = 200 million/day, about 2,300/s average, about 10,000/s at peak (4x). Most are catalog reads, cacheable at the CDN or in a cache.\n- Search: perhaps a third of views, so about 3,000/s at peak, served by a search index.\n- Orders: 1 million/day is about 12/s average; assume 5x at a busy peak, 60/s. A flash sale at 100x is about 1,200 orders/s overall, but concentrated on a few product rows. That concentration, not the total, is the hard part.\n- Order storage: 1 million/day x about 2 KB (header and lines) = 2 GB/day, about 730 GB/year. Easily a sharded relational database.\n- Catalog: 50 million products x about 5 KB = 250 GB of metadata, plus images in object storage. Fits a sharded store with a search index beside it.\n\n### Architecture\n```mermaid\nflowchart LR\n  U[Shopper] --> CDN[CDN: images, static, cacheable pages]\n  CDN --> GW[API gateway]\n  GW --> CAT[Catalog service]\n  GW --> SRCH[Search service]\n  GW --> CART[Cart service]\n  GW --> CO[Checkout service]\n  CAT --> CDB[(Catalog DB)]\n  CAT --> CC[(Cache)]\n  SRCH --> ES[(Search index)]\n  CDB -. change events .-> ES\n  CART --> CR[(Cart store: Redis with DB backup)]\n  CO --> INV[Inventory service]\n  CO --> ORD[Order service]\n  CO --> PAY[Payment service]\n  INV --> IDB[(Inventory DB)]\n  ORD --> ODB[(Orders DB, sharded by user id)]\n  PAY --> PSP[Payment provider]\n  PSP -- webhook --> PAY\n  ORD --> BUS[[Event bus]]\n  BUS --> FUL[Fulfilment]\n  BUS --> NOT[Notifications]\n  BUS --> ES\n```\n\n**Catalog and search (read-heavy).** The catalog database is the source of truth. Changes are published as events and a consumer updates the search index (so search is eventually consistent with the catalog, usually within seconds). Product pages and listings are cached at the CDN and in a cache with short TTLs and invalidation on change. The page shows \"in stock\" from a cached approximation; the exact check happens at checkout.\n\n**Cart.** A cart is a small document per user (or anonymous cart id) with product id, quantity, and the price seen at add time. Redis with a TTL suits anonymous carts; signed-in carts are persisted to the database so a restart does not lose them. The cart never reserves stock and never decides a price; checkout re-reads the current price.\n\n**Checkout.** The checkout service coordinates, in order: validate the cart and prices, create the order in PENDING, reserve stock (the reservation records the order id), charge, confirm the order. It is a short saga with compensations: if the reservation fails, mark the order failed; if payment fails, release the reservation and mark the order failed.\n\n### Inventory and overselling\nKeep available stock in a single row per SKU (and warehouse, if relevant) in a transactional store. Reserve with one conditional statement, so concurrent buyers cannot both take the last unit:\n\n`UPDATE inventory SET available = available - :qty, reserved = reserved + :qty WHERE sku = :sku AND available >= :qty`\n\nIf zero rows were updated, the item is out of stock. A reservation record (order id, sku, qty, expires_at) is created in the same transaction. A job releases reservations that expire unpaid (for example after 10 to 15 minutes). On payment success the reservation becomes a sale (reserved decreases, sold is recorded). That sequence means stock is never negative.\n\n**Flash sale.** A single hot row serialises on the row lock, so throughput on one SKU is bounded (often a few hundred to a couple of thousand updates per second per row on a well-tuned database, but treat that as a number to measure, not a promise). Options, from simplest: (1) keep the conditional update but put a queue or waiting room in front, admitting buyers at a rate the row can take; (2) split the stock for a hot SKU into N buckets (for example 20 rows of 50 units), pick a bucket at random and fall through to the next when it is empty, which spreads the contention at the cost of a more complex \"is it sold out\" check; (3) pre-load the counter into Redis and decrement atomically there, with the database as the durable record and a reconciliation job; this is faster but you must handle Redis loss, so it needs care. Always cap quantity per customer and serve the product page from cache.\n\n### Payment, idempotency and unknown results\n- The client creates a checkout attempt and receives a unique idempotency key (or generates one). Every checkout call carries `Idempotency-Key`. The server stores the key with the request fingerprint and the response in a table with a unique constraint; a repeat of the same key returns the stored result, and the same key with a different body is rejected.\n- The key is passed on to the payment provider as well, so a retried charge cannot charge twice.\n- If the charge call times out, the result is unknown. Do not release the stock and do not retry blindly. Mark the order PAYMENT_UNKNOWN (and keep its reservation out of the expiry job's reach until it is resolved), then resolve it by querying the provider by the idempotency key and by consuming the provider's webhook, whichever arrives first. Webhooks are themselves deduplicated by event id.\n- Order state: PENDING -> PAID -> PACKED -> SHIPPED -> DELIVERED, with CANCELLED and REFUNDED branches, and PENDING -> PAYMENT_UNKNOWN -> PAID or FAILED when the provider does not answer. Transitions are checked in code and written with a version column to stop concurrent updates winning twice.\n\n### API\n- `PUT /v1/cart/items/{sku}` body `{ \"quantity\": 2 }`; `GET /v1/cart`\n- `POST /v1/checkouts` with `Idempotency-Key` header, body address, shipping option, payment token; returns `202` with order id and status when payment is asynchronous, or `201` if it completed in time\n- `GET /v1/orders/{id}` and `GET /v1/orders?cursor=...`\n- `GET /v1/search?q=...&brand=...&sort=price` (cursor or search-after pagination)\n\n### Data model (core tables)\n- `products`(id, title, description, seller_id, price, attrs), `inventory`(sku, available, reserved), `reservations`(id, order_id, sku, qty, expires_at, status).\n- `orders`(id, user_id, status, total, currency, idempotency_key unique per user, version, created_at), `order_lines`(order_id, sku, qty, unit_price) with the price copied at order time.\n- `idempotency_keys`(key, user_id, request_hash, response, created_at), `payments`(id, order_id, provider_ref, status).\n- Shard orders by user id so \"my orders\" is a single shard query; admin and reporting queries go to a replica or a warehouse.\n\n### Scaling and failure handling\n- Stateless services scale horizontally behind the gateway; the browse path scales with caches and replicas, the checkout path scales by separating hot SKUs and sharding orders.\n- Isolate the flash sale: give checkout and inventory their own capacity and rate limits so a surge on a few products cannot starve browsing. Shed load early with a waiting room and a clear \"sold out\" response.\n- Payment provider down: stop accepting new checkouts for that method with a clear message, keep carts, and retry unknown payments. Use a circuit breaker and timeouts on every outbound call.\n- Event bus down: write events to an outbox table in the same transaction as the order and publish from there, so no event is lost and none is published for a rolled-back order.\n- Monitor: checkout success rate, payment unknown count and age, reservation expiry rate, oversell invariant (available below zero must be zero), search index lag, p99 latency per path, and per-SKU lock wait time.\n\n### Trade-offs and alternatives\n- **When to reserve stock.** At add-to-cart: simplest for users but carts hold stock hostage and abandoned carts hurt sales. At checkout start with a timeout (chosen here): a fair balance. At payment time only: no hostage stock but a customer can pay and then be told it is gone, which is the worst experience, unless you accept overselling and compensate (some retailers do, for low-value items).\n- **Strong consistency for inventory, eventual for the catalog.** Money and stock need transactions; descriptions and search do not. Treating them differently is what makes the system both correct and fast.\n- **Saga vs distributed transaction.** Two-phase commit across the inventory, order and payment systems is brittle and the payment provider cannot take part in it. A saga with compensations and idempotent steps is the practical choice.\n- **Single database vs services.** A well-run modular monolith with one database can carry this load and avoids the saga entirely until the organisation or scale forces a split. Splitting early is a cost, not a goal.\n- **Search: database full text vs a dedicated engine.** Database search is enough for a small catalog; at 50 million products with facets and ranking a dedicated engine (Elasticsearch, OpenSearch, Solr) is the usual choice, accepting extra infrastructure and index lag.\n- **Not built here:** recommendations, reviews, promotions and coupons engine, tax and shipping rate calculation, multi-warehouse allocation, fraud scoring, returns, and multi-currency."
-  },
-  "hld/notification-service": {
-   "title": "Notification Service",
-   "kind": "hld",
-   "summary": "Send e-mail, SMS and push messages reliably to millions of users.",
-   "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
-   "problem": "Design a service other teams call to notify users by e-mail, SMS and push. It must respect user preferences and not lose or duplicate messages.",
-   "functional": [
-    "Accept a notification request from internal services",
-    "Deliver through e-mail, SMS and push providers",
-    "Respect user preferences, quiet hours and unsubscribes",
-    "Track delivery status",
-    "Schedule a notification for later"
-   ],
-   "nonFunctional": [
-    "At-least-once delivery, with deduplication so users do not get a message twice",
-    "Absorb spikes (a marketing blast of 10 million) without delaying urgent messages such as one-time passwords",
-    "Provider outages must not lose messages"
-   ],
-   "constraints": [
-    "Third-party providers rate limit and fail",
-    "50 million users"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate (requests per second, storage, bandwidth)",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints and payloads) and the data model",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Separate urgent from bulk traffic with different queues.",
-    "What do you store so a retry does not send twice?"
-   ],
-   "reference": "```mermaid\nflowchart LR\n  S[Calling services] --> API[Notification API]\n  API --> V[Validate + check preferences]\n  V --> Q1[[Urgent queue]]\n  V --> Q2[[Bulk queue]]\n  Q1 --> W1[Channel workers]\n  Q2 --> W2[Channel workers, rate limited]\n  W1 --> P[Providers: e-mail, SMS, push]\n  W2 --> P\n  W1 --> DB[(Status + dedupe store)]\n  W2 --> DB\n  P -. webhooks .-> API\n```\n\n- Each request carries an **idempotency key**; the dedupe store ensures a retried send is not delivered twice.\n- **Two priority lanes** keep a bulk campaign from delaying a login code; bulk workers are rate limited to each provider's quota.\n- Workers retry with exponential backoff and jitter, then dead-letter; a second provider is the fallback.\n- Preferences and unsubscribes are checked before queuing and again at send time.\n- Delivery receipts come back by webhook and update the status store; scheduling uses a delayed queue.\n- Be honest about the guarantee: sending to a third party is at-least-once. If a worker crashes after the provider accepted a message but before the status is recorded, the retry can send it twice, and a fallback provider can duplicate a message the first one actually delivered. Pass the idempotency key to providers that support one, and treat the dedupe store as strong protection, not a proof of exactly-once.\n- Capacity (assumptions): a 10 million blast spread over an hour is about 2,800 sends/s, and a provider quota, not your own servers, is usually what sets the pace. The store keeps one row per notification per channel (50 million users x 3 messages a day = 150 million rows a day, about 30 GB a day at roughly 200 bytes a row), with old rows archived.\n- Alternatives: one queue per channel and priority instead of shared worker pools; a managed provider (or provider-side batching APIs) for bulk e-mail instead of running your own sender."
-  },
-  "hld/rate-limiter": {
-   "title": "Rate Limiter",
-   "kind": "hld",
-   "summary": "Limit how often a client may call an API, across many servers.",
-   "module": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md",
-   "problem": "Design a rate limiting service that protects APIs from abuse: for example, 100 requests per minute per API key.",
-   "functional": [
-    "Limit by user, API key or IP, with different rules per endpoint",
-    "Tell the client when it is limited and when to retry",
-    "Rules can be changed without a deploy"
-   ],
-   "nonFunctional": [
-    "Adds under 5 ms to a request",
-    "Works correctly across many API servers",
-    "If the limiter fails the API keeps working (fail open) or is protected (fail closed): decide and justify"
-   ],
-   "constraints": [
-    "A million requests per second at peak"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate (requests per second, storage, bandwidth)",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints and payloads) and the data model",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Compare fixed window, sliding window and token bucket.",
-    "Where does the shared counter live, and what happens to concurrent updates?"
-   ],
-   "reference": "```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway with limiter middleware]\n  GW -->|check and decrement| R[(Redis: counters / token buckets)]\n  GW -->|allowed| S[Service]\n  GW -->|limited| X[429 + Retry-After]\n  Cfg[(Rules store)] --> GW\n```\n\n- **Algorithms.** Fixed window is the cheapest (one counter) but allows up to twice the limit across a window boundary. A sliding window log is exact but stores every request time. A sliding window counter approximates it with two counters. A **token bucket** per key allows bursts up to the bucket size while holding the average rate; it stores two numbers (tokens, last refill time) and is the one used here. Choose by whether bursts are acceptable and how exact the limit must be.\n- **Capacity (assumptions).** At 1 million checks per second, one Redis node (very roughly 100,000 simple operations per second; measure yours) is far from enough, so plan on tens of shards with replicas, and note that every request pays one network round trip to Redis, which is why the 5 ms budget matters. A local per-server counter that syncs periodically cuts that cost but lets the limit be overshot by a margin; that is the trade-off against exactness.\n- The check-and-update must be **atomic**: a Lua script or a single Redis command per request, so concurrent servers do not both spend the last token. Take the time from Redis (`TIME`) rather than from each API server, so clock skew between servers does not distort the refill.\n- Respond **429** with `Retry-After` and `X-RateLimit-Remaining` headers.\n- Rules are cached at the gateway and refreshed from the rules store, so changes need no deploy.\n- Shard counters by key across Redis nodes; for the limiter failing, **fail open** for general APIs and **fail closed** for sensitive ones such as login."
-  },
-  "hld/social-media-feed": {
-   "title": "Social Media Feed",
-   "kind": "hld",
-   "summary": "Show each user a fast, ranked home feed of posts from the accounts they follow, including accounts with tens of millions of followers.",
-   "module": "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline/README.md",
-   "problem": "Design the home feed of a social network. Users publish posts (text with optional images or video), follow other users, and open a home feed with recent and relevant posts from the accounts they follow. The feed must load quickly and scroll without gaps or duplicates, even when a follower count ranges from ten to fifty million.",
-   "functional": [
-    "Create a post; follow and unfollow users",
-    "Home feed: posts from followed accounts, newest first at minimum, with an optional ranking step",
-    "Cursor-based infinite scroll through the feed with no duplicates when new posts arrive",
-    "Like and comment counts shown on each post",
-    "A user profile page lists that user's own posts"
-   ],
-   "nonFunctional": [
-    "Feed read latency under 200 ms at the 99th percentile",
-    "A new post reaches followers within a few seconds for normal accounts (eventual consistency is acceptable)",
-    "Highly available; a stale feed is better than an error",
-    "Handles the skew: most users have hundreds of followers, a few have tens of millions"
-   ],
-   "constraints": [
-    "100 million daily active users, about 20 million new posts per day",
-    "Each active user opens the feed about 10 times a day",
-    "Average follow count about 200; a long tail of celebrity accounts",
-    "Images and video go through an existing media service and CDN; you only store references"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate: posts per second, feed reads per second, fan-out writes per second, and feed cache size",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints, pagination parameters, payloads) and the data model",
-    "Your fan-out strategy and how you handle celebrity accounts",
-    "How ranking, caching and pagination work",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Work out the number of feed writes per second if every post is pushed to every follower. Then work out what one celebrity post costs.",
-    "Fan-out on write makes reads cheap and writes expensive; fan-out on read is the opposite. A mix may beat either.",
-    "Offset pagination breaks on a feed that changes while it is read. What can you use instead?",
-    "A feed does not need to store posts, only post ids in order."
-   ],
-   "reference": "This is one reasonable design. The numbers are estimates to show the reasoning; adjust them and the conclusions follow.\n\n### Capacity estimate\n- Posts: 20 million per day / 86,400 s is about 230 posts/s on average. Assume peak is 3x, so about 700/s.\n- Feed reads: 100 million users x 10 opens per day = 1 billion/day, about 12,000/s on average and 35,000/s at peak. The read:write ratio is roughly 50:1, so reads must be cheap.\n- Fan-out on write for normal accounts: 230 posts/s x 200 followers is about 46,000 feed-entry writes/s on average, about 140,000/s at peak. That is high but fine for a sharded in-memory store fed by a queue.\n- One celebrity post with 30 million followers would be 30 million writes in one burst. That one number is why pure push fails.\n- Feed cache: store about 500 entries per active user, each a post id (8 bytes) and a score or timestamp (8 bytes), about 16 bytes: 500 x 16 B = 8 KB per user. For 100 million users that is about 800 GB of raw data. Treat that as a floor: a real in-memory sorted set spends several times more per entry on structure overhead, so plan for a Redis (or similar) cluster of tens of nodes with replicas and measure the real bytes per entry.\n- Post storage: 20 million posts/day x about 1 KB of metadata is about 20 GB/day, about 7 TB/year. Media is separate, in object storage behind a CDN.\n\n### Architecture\n```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway]\n  GW --> PS[Post service]\n  GW --> FS[Feed service]\n  GW --> GS[Graph service: follows]\n  PS --> PDB[(Post store, sharded by post id)]\n  PS --> Q[[Fan-out queue]]\n  Q --> FW[Fan-out workers]\n  FW --> GS\n  FW --> FC[(Feed cache: sorted list per user)]\n  FS --> FC\n  FS --> PC[(Post cache)]\n  PC --> PDB\n  FS --> CP[(Celebrity post lists)]\n  FS --> RK[Ranking service]\n  PS --> CP\n```\n\n**Write path.** The client posts to the post service. It stores the post (id from a time-ordered generator such as a Snowflake-style id, so ids sort by time), then publishes a small event to a queue and returns. Fan-out workers read the event, fetch the author's follower list from the graph service, and for each follower push the post id into that follower's feed list in the cache. Workers only push to followers who were active recently; inactive users get their feed rebuilt when they return.\n\n**Celebrity problem (hybrid).** If an author has more than a threshold of followers (say 100,000), the post is not fanned out. It is only written to the author's own post list. When a user opens their feed, the feed service reads the precomputed feed (pushed posts from normal accounts) and merges in recent posts from the few celebrities that user follows (pulled at read time, from a cached list per celebrity). A user follows only a handful of celebrities, so the merge is cheap and the celebrity list is one of the hottest cache keys, which caches well.\n\n**Read path.** The feed service reads the first page of ids from the user's feed list, merges celebrity posts, optionally calls ranking, then hydrates ids into full posts using a post cache (batch get; misses go to the post store), and adds counts and the author's profile data from their own caches. Hydration at read time means edits and deletes show up immediately and the feed list stays tiny.\n\n### API\n- `POST /v1/posts` body `{ \"text\": \"...\", \"mediaIds\": [\"m1\"] }` returns `201` with the post.\n- `GET /v1/feed?limit=20&cursor=<opaque>` returns `{ \"items\": [...], \"nextCursor\": \"...\" }`.\n- `GET /v1/users/{id}/posts?limit=20&cursor=...`\n- `PUT /v1/users/{id}/follow` and `DELETE /v1/users/{id}/follow`.\n\n**Pagination.** Use a cursor, not an offset. The cursor encodes the position, for example the (score, post id) of the last item returned. With offset, a new post pushed to the top shifts everything and the next page repeats an item. A cursor says \"items older than this\", so new posts do not disturb it. If ranking reorders items, snapshot the ranked candidate list for the session (or cache it for a short time keyed by a feed session id) so scrolling stays consistent.\n\n### Data model\n- `posts`: post_id (time-ordered), author_id, text, media refs, created_at. Sharded by post id (or by author id if you favour profile page locality; that creates hot shards for celebrities, so many teams shard by post id and keep a separate author index).\n- `follows`: (follower_id, followee_id, created_at), stored twice, indexed by follower and by followee, in a store sharded by the indexed user, because you need both \"who do I follow\" and \"who follows me\".\n- `feed:{user_id}`: a sorted collection of (post_id, score), capped to about 500 entries by trimming the oldest.\n- `counters`: likes and comments counts, updated asynchronously and cached, since exact real-time counts are not required.\n\n### Ranking\nStart with reverse chronological: it is predictable, cheap and easy to explain. When ranking is added, do it in two stages: candidate generation (the merged feed list, a few hundred ids) and then a scoring step using features such as author affinity, post age, engagement so far, and media type, producing a score by a model or weighted formula. Keep the model behind the ranking service interface with a timeout and fall back to chronological order if it is slow or down.\n\n### Scaling and failure handling\n- The queue absorbs bursts; workers scale horizontally by partitioning on follower shard. Retries must be idempotent: adding the same post id to a sorted set twice changes nothing.\n- Feed cache loss: rebuild a user's feed on demand from the graph and the recent post lists (the pull path), which is the same code used for inactive users, so the fallback is exercised daily.\n- Hot keys: a celebrity's post list and a viral post are read by millions. Replicate those keys, add a short local in-process cache in the feed service, and let CDN or edge caching serve the post media.\n- Fan-out lag: if the queue backs up, feeds get fresher posts later but still load. Monitor queue age, not just depth.\n- Deleted posts, blocked users and unfollows: filter at hydration time (check the follow edge or block list for each author), so no one has to scrub millions of lists. Filtering after the page is cut can leave a short page, so over-fetch a little.\n- Monitor: feed p50/p99 latency, cache hit rate, fan-out queue age, post-to-visible delay, hydration miss rate, ranking timeout rate.\n\n### Trade-offs and alternatives\n- **Push vs pull vs hybrid.** Pure pull is simple and exact but makes each read do a heavy merge across hundreds of accounts. Pure push makes reads fast but multiplies writes and fails on celebrities. The hybrid costs more code and a threshold to tune, in return for both fast reads and bounded writes. The threshold is a tunable, not a law.\n- **Store the feed as ids, not copies of posts.** Storage is tiny and edits are consistent, but each read pays for hydration. Storing full posts in the feed would remove that cost and make every edit a massive rewrite.\n- **Cache only active users.** Saves memory but a returning user's first load is slower. Another option is a longer retention for more users at a higher cost.\n- **Eventual consistency.** A user may not see their own post at once in their own feed unless you insert it into their own list synchronously (cheap and worth doing).\n- **Not built here:** ads insertion, stories, spam and abuse filtering, real-time push of new posts to open feeds (a websocket or \"new posts\" banner), and a full recommendation system for posts from accounts the user does not follow."
-  },
-  "hld/url-shortener": {
-   "title": "URL Shortener",
-   "kind": "hld",
-   "summary": "Turn long links into short ones and redirect fast, at scale.",
-   "module": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
-   "problem": "Design a service that creates short links for long URLs and redirects visitors who open them. Think of bit.ly.",
-   "functional": [
-    "Create a short link for a URL, optionally with a custom alias and an expiry",
-    "Redirect a short link to the long URL",
-    "Basic click counts per link"
-   ],
-   "nonFunctional": [
-    "Redirects must be very fast (p99 under 50 ms) and highly available",
-    "Reads outnumber writes about 100 to 1",
-    "Short codes must not be guessable in order, and never collide"
-   ],
-   "constraints": [
-    "100 million new links a month, 10 billion redirects a month",
-    "Links are kept for 5 years by default"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate (requests per second, storage, bandwidth)",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints and payloads) and the data model",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Estimate first: how many bytes per record, how many redirects per second?",
-    "How do you generate a unique short code without a single bottleneck?"
-   ],
-   "reference": "### Sketch\n```mermaid\nflowchart LR\n  U[Client] --> CDN[CDN / edge cache]\n  CDN --> LB[Load balancer]\n  LB --> API[Stateless API servers]\n  API --> C[(Cache: code to URL)]\n  API --> DB[(Key-value store: code, url, expiry)]\n  API --> Q[[Click events queue]]\n  Q --> A[Analytics workers] --> OLAP[(Counts store)]\n```\n\n### Numbers\nAssumptions, not measurements. 100 M links a month is about 40 writes/s and 10 B redirects a month is about 4,000 redirects/s on average (30 days is about 2.6 M seconds), with peaks of, say, 10x. 100 M x 12 months x 5 years x ~500 B per record (an assumption) is about 3 TB: a key-value store partitioned by code is enough, and at 40 writes/s a single well-run relational database with a unique index on the code would also cope for a long time.\n\n### Decisions\n- **Code generation**: a counter handed out in ranges to each API server (no coordination per request), encoded in base62 and shuffled with a keyed permutation so codes are not sequential. 7 characters give 3.5 trillion codes.\n- **Other ways to make a code**: hash the long URL and keep a prefix (the same URL gets the same code, but you must detect collisions and retry); a random code with a conditional insert that retries on conflict (no counter to run, at the price of occasional retries as the space fills); or a pool of pre-generated codes. The counter-range design is chosen here because it never collides and needs no retry; the others are simpler to operate.\n- **Redirect path**: edge cache, then an in-memory cache, then the store. Use **302** (or 307) if you need every click counted at the server, **301** (or 308) if you accept browsers caching the redirect. A CDN that caches the redirect also hides those clicks from the origin, so either count at the edge or accept undercounting.\n- **Availability**: the store is replicated; redirects work from replicas, creating a link needs the primary.\n- **Analytics** is asynchronous through a queue, so a failing analytics system never slows a redirect.\n- **Abuse**: rate limit creation, scan target URLs, allow takedown."
-  },
-  "hld/video-streaming-platform": {
-   "title": "Video Streaming Platform",
-   "kind": "hld",
-   "summary": "Upload, process and stream video to millions of viewers.",
-   "module": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
-   "problem": "Design a platform where creators upload videos and viewers stream them on any device and connection, like YouTube.",
-   "functional": [
-    "Upload large videos reliably",
-    "Process each video into several resolutions and formats",
-    "Stream with adaptive quality",
-    "Search and recommend videos (at a high level)",
-    "Count views"
-   ],
-   "nonFunctional": [
-    "Playback should start in under 2 seconds",
-    "Storage and bandwidth cost dominate the design",
-    "Uploads must resume after a failure"
-   ],
-   "constraints": [
-    "1 million uploads a day, 100 million hours watched a day"
-   ],
-   "deliverables": [
-    "Requirements and the assumptions you made",
-    "A capacity estimate (requests per second, storage, bandwidth)",
-    "A high-level architecture diagram (Mermaid or an uploaded image)",
-    "The API (endpoints and payloads) and the data model",
-    "How it scales, how it fails, and what you would monitor",
-    "The main trade-offs and what you chose not to build"
-   ],
-   "hints": [
-    "Where does the transcoding work happen, and how does it scale?",
-    "Why must most video bytes never touch your application servers?"
-   ],
-   "reference": "```mermaid\nflowchart LR\n  Cr[Creator] -->|chunked upload| OS[(Object storage: originals)]\n  OS --> Q[[Transcode jobs]]\n  Q --> T[Transcoding workers] --> OS2[(Object storage: HLS/DASH renditions)]\n  T --> M[(Metadata DB)]\n  V[Viewer] --> API[API: metadata, manifest]\n  V -->|segments| CDN[CDN]\n  CDN --> OS2\n  API --> M\n  V -. view events .-> K[[Event stream]] --> Cnt[(View counts)]\n```\n\n- **Chunked, resumable upload** straight to object storage with pre-signed URLs; the API only records metadata.\n- A transcoding **job per rendition** runs on a pool of workers fed by a queue, so a 4K upload fans out in parallel.\n- Streaming uses **adaptive bitrate** (HLS/DASH): short segments and a manifest; the player switches quality with the viewer's bandwidth.\n- A **CDN** serves nearly all bytes; popular videos stay at the edge, the long tail comes from origin.\n- View counts are aggregated from an event stream, not updated per request.\n- **Capacity (assumptions, adjust them).** 100 M hours watched a day is about 4.2 M viewers streaming at any moment on average (100 M x 3,600 s / 86,400 s); at about 3 Mbps each that is roughly 12 Tbps of egress, which is why bandwidth, served mostly by CDN, dominates cost. Storage: 1 M uploads a day at an assumed 300 MB average is about 300 TB/day of originals, and if the renditions together take about as much again, roughly 600 TB/day, about 220 PB a year. Transcoding: at an assumed 20 CPU-minutes per video that is 20 M CPU-minutes a day, about 14,000 cores busy around the clock, which favours a pool that scales with queue depth (or spot capacity).\n- Search is a separate index (inverted index fed from the metadata DB) and recommendations are computed offline; both are out of scope here beyond naming them.\n- Alternatives and trade-offs: transcode every rendition up front (fast start, high storage) versus only the popular ones and the long tail on demand (cheaper storage, slower first play); a newer codec such as AV1 saves bandwidth but costs far more compute and has uneven device support; building your own CDN is worth it only at very large scale."
-  },
-  "lld/atm": {
-   "title": "ATM",
-   "kind": "lld",
-   "summary": "Insert a card, enter a PIN, withdraw cash, and check a balance.",
-   "module": "lld/04-solid-principles/README.md",
-   "problem": "Design the software of an ATM: authenticate a card holder, let them check a balance, withdraw and deposit, and dispense notes from the cash it holds.",
-   "functional": [
-    "Authenticate with card and PIN; lock the card after three wrong PINs",
-    "Show balance, withdraw, deposit",
-    "Dispense the requested amount using the notes available",
-    "Print or show a receipt"
-   ],
-   "nonFunctional": [
-    "Operations must be atomic: never dispense cash without recording the debit",
-    "Adding a new transaction type must not modify existing ones"
-   ],
-   "constraints": [
-    "One machine talks to a bank service through an interface"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for the central class and one method of each"
-   ],
-   "hints": [
-    "The ATM itself is a state machine: idle, card inserted, authenticated, transaction, ejecting.",
-    "Note dispensing is a classic chain-of-responsibility: try the largest note first."
-   ],
-   "reference": "```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> CardInserted: insert card\n  CardInserted --> Authenticated: correct PIN\n  CardInserted --> CardInserted: wrong PIN, fewer than 3\n  CardInserted --> Idle: 3 wrong PINs, card kept\n  Authenticated --> Transaction: choose operation\n  Transaction --> Authenticated: done\n  Authenticated --> Idle: eject card\n```\n\n- `ATM` holds the state and a `CashDispenser` chain (`Dispense500` -> `Dispense100` -> `Dispense20`), each handler dispensing what it can and passing on the rest.\n- `Transaction` is an interface (`Withdraw`, `Deposit`, `BalanceInquiry`): a new operation is a new class (open/closed).\n- The chain is one reasonable choice; a plain loop over denominations or a strategy does the same job. Greedy largest-first is only guaranteed to work when each denomination divides the next larger one (500, 100, 20 does), and with limited stock it can fail where another combination would succeed, so plan the notes first and reject an amount that cannot be made before touching the account.\n- The `BankService` interface hides the real bank; the ATM debits first, dispenses second, and reverses the debit if dispensing fails. Give each withdrawal a transaction id so a retry or a reversal is idempotent, and log it so a crash between the two steps can be reconciled."
-  },
-  "lld/ecommerce-cart": {
-   "title": "E-commerce Cart",
-   "kind": "lld",
-   "summary": "Add items, apply discounts, and turn a cart into an order.",
-   "module": "lld/06-creational-patterns/README.md",
-   "problem": "Design a shopping cart: customers add and remove products, apply coupons, see a total with tax and shipping, and check out into an order.",
-   "functional": [
-    "Add, remove and change the quantity of an item",
-    "Apply at most one coupon, with different rule types (percentage, fixed amount, free shipping)",
-    "Compute subtotal, discount, tax, shipping and total",
-    "Checkout creates an order and reserves stock"
-   ],
-   "nonFunctional": [
-    "New discount rules must be addable without editing the cart",
-    "Prices at checkout must equal prices shown in the cart"
-   ],
-   "constraints": [
-    "One currency; payment is out of scope"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for the central class and one method of each"
-   ],
-   "hints": [
-    "The cart should not know how a discount is calculated: give that to a rule.",
-    "An order is a snapshot: copy the prices at checkout, do not point at live products."
-   ],
-   "reference": "```mermaid\nclassDiagram\n  class Cart { items +add(product, qty) +remove(product) +total() Money +checkout() Order }\n  class CartItem { product quantity }\n  class DiscountRule { <<interface>> +apply(cart) Money }\n  class PercentageOff\n  class FixedAmountOff\n  class FreeShipping\n  class PricingService { +price(cart) PriceBreakdown }\n  class TaxPolicy { <<interface>> +tax(cart) Money }\n  class ShippingPolicy { <<interface>> +shipping(cart) Money }\n  class Order { lines total placedAt }\n  Cart o-- CartItem\n  DiscountRule <|-- PercentageOff\n  DiscountRule <|-- FixedAmountOff\n  DiscountRule <|-- FreeShipping\n  PricingService --> DiscountRule\n  PricingService --> TaxPolicy\n  PricingService --> ShippingPolicy\n  Order *-- OrderLine\n  Cart --> PricingService\n  Cart ..> Order\n```\n\n- `PricingService` composes tax, shipping and the coupon's `DiscountRule` (strategy); the cart only asks for a breakdown.\n- Checkout re-prices the cart, and if the total differs from what the shopper last saw it stops and asks them to confirm, so \"checkout equals what was shown\" holds. It then builds an `Order` from a snapshot of the line prices (`OrderLine`) and reserves stock: in the same transaction if stock lives in the same database, otherwise as a reservation that is released if the order cannot be completed.\n- Quantities and money are value objects that cannot be negative."
-  },
-  "lld/elevator-system": {
-   "title": "Elevator System",
-   "kind": "lld",
-   "summary": "Several lifts serve requests from floors and from inside the cars.",
-   "module": "lld/12-parking-lot-and-elevator/README.md",
-   "problem": "Design the control software of a building with several elevators. People press up or down on a floor, then choose a destination inside the car.",
-   "functional": [
-    "Handle a hall call (floor, direction) and a car call (destination floor)",
-    "Choose which elevator answers a hall call",
-    "Each elevator moves, stops at requested floors and opens its doors",
-    "Support an out-of-service elevator"
-   ],
-   "nonFunctional": [
-    "Requests should be served with low waiting time and without starving a floor",
-    "A scheduling change must not require changing the elevator class"
-   ],
-   "constraints": [
-    "10 elevators, 40 floors",
-    "A single controller process"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for the central class and one method of each"
-   ],
-   "hints": [
-    "An elevator is a small state machine: idle, moving up, moving down, doors open.",
-    "The scheduler that picks an elevator is the part most likely to change: make it replaceable."
-   ],
-   "reference": "### Classes\n`ElevatorController` (receives hall calls), `Elevator` (state, current floor, a sorted set of stops), `Request`, `Direction`, `Door`, `DispatchStrategy`.\n\n```mermaid\nclassDiagram\n  class ElevatorController {\n    +hallCall(floor, direction)\n    +setOutOfService(elevatorId)\n  }\n  class Elevator {\n    state\n    currentFloor\n    upStops\n    downStops\n    +carCall(floor)\n    +addStop(request)\n    +step()\n  }\n  class Request {\n    floor\n    direction\n  }\n  class Direction {\n    <<enumeration>>\n    UP\n    DOWN\n    NONE\n  }\n  class Door {\n    +open()\n    +close()\n  }\n  class DispatchStrategy {\n    <<interface>>\n    +choose(elevators, request) Elevator\n  }\n  ElevatorController o-- Elevator\n  ElevatorController --> DispatchStrategy\n  ElevatorController ..> Request\n  Elevator *-- Door\n  Elevator --> Direction\n  Request --> Direction\n  DispatchStrategy <|.. NearestCarStrategy\n  DispatchStrategy <|.. LeastLoadedStrategy\n```\n\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> OutOfService: fault or maintenance\n  OutOfService --> Idle: back in service\n  Idle --> MovingUp: stop above\n  Idle --> MovingDown: stop below\n  MovingUp --> DoorsOpen: reached a stop\n  MovingDown --> DoorsOpen: reached a stop\n  DoorsOpen --> Idle: no more stops\n  DoorsOpen --> MovingUp: stops above\n  DoorsOpen --> MovingDown: stops below\n```\n\n### Why it works\n- `DispatchStrategy` (nearest car, least loaded, SCAN-style) is a strategy chosen by the controller, so scheduling changes are isolated.\n- Each elevator keeps up-stops and down-stops and serves the current direction first (the \"elevator algorithm\"), which avoids starvation.\n- State is explicit, so out-of-service is a state that dispatch skips; when a car goes out of service its pending hall calls are given back to the controller to dispatch again, and the car is only taken out between stops with the doors closed.\n- Hall calls, car calls and the movement loop run concurrently, so each elevator's stop sets are touched by one thread at a time (a lock, or one event loop per elevator). A nearest-car strategy can starve a far floor on a busy building; SCAN-style service inside each car and an age bonus in dispatch are common remedies.\n- Hall calls go to the controller; car calls go straight to the elevator."
-  },
-  "lld/food-delivery": {
-   "title": "Food Delivery System",
-   "kind": "lld",
-   "summary": "Customers order from restaurants, a delivery partner is assigned, and the order moves through a state machine to delivery.",
-   "module": "lld/17-ride-sharing/README.md",
-   "problem": "Design the object model of a food delivery service. A customer browses a restaurant menu, places an order, and pays. The restaurant accepts and prepares it, a delivery partner is assigned to pick it up, and the customer receives it. The total depends on item prices, a delivery fee and optional discounts.",
-   "functional": [
-    "Restaurants have menus of items with a price and an availability flag",
-    "A customer places an order with one or more items from a single restaurant; the order records the price of each item at the time of ordering",
-    "An order moves through well-defined states (placed, accepted, preparing, ready, picked up, delivered) and can be cancelled or rejected only from states where that makes sense",
-    "When an order is ready (or accepted, if you pre-assign), the system assigns an available delivery partner using a replaceable strategy such as nearest partner",
-    "The order total is computed from item prices, a delivery fee and zero or more discounts (percentage off, flat off, free delivery above an amount)",
-    "Interested parties (customer, restaurant, partner) are told when an order changes state"
-   ],
-   "nonFunctional": [
-    "Adding a new discount type or a new assignment strategy must not change existing classes",
-    "An illegal transition (for example delivered to preparing) is rejected, not silently applied",
-    "Two orders must never be assigned the same delivery partner at the same time, even when assignments run concurrently",
-    "A later change to a menu price must not change the total of an order already placed"
-   ],
-   "constraints": [
-    "In-memory design is enough; persistence, maps and real payment gateways are out of scope",
-    "A partner carries at most one order at a time (batching several orders is an extension)",
-    "Locations can be reduced to a simple (latitude, longitude) pair and a distance function"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The order state machine as a diagram or a transition table, including who triggers each transition",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "How you prevent double assignment of a partner",
-    "Optional: code for the order state machine and one discount rule"
-   ],
-   "hints": [
-    "Treat the price of an item at order time as a copy stored on the order line, not a reference to the live menu item.",
-    "Pricing is a pipeline of rules applied to a running total; each rule is one small class behind one interface.",
-    "The order state machine can be an enum with a table of allowed transitions, or one class per state. Both work; decide which suits the number of states and the behaviour attached to each.",
-    "Assigning a partner is a claim: the check that the partner is free and the change to busy must happen as one atomic step."
-   ],
-   "reference": "This is one reasonable design, not the only valid one. The alternatives are named where they matter.\n\n### Classes\n- `Restaurant` owns a `Menu`, a list of `MenuItem` (id, name, price as `Money`, available).\n- `Customer` and `DeliveryPartner` (id, location, status: AVAILABLE, ASSIGNED, OFFLINE).\n- `Order` is the aggregate: customer, restaurant, a list of `OrderLine` (item name, unit price copied at order time, quantity), a status, an optional partner, and a price breakdown. It enforces its own state transitions.\n- `OrderService` is the facade used by the API: `place`, `accept`, `markReady`, `cancel`, `deliver`.\n- `PricingEngine` applies an ordered list of `PricingRule` objects (strategy). Rules: `DeliveryFeeRule`, `PercentageDiscount`, `FlatDiscount`, `FreeDeliveryAbove`.\n- `PartnerAssigner` (strategy interface) with `NearestPartnerAssigner`; a `PartnerPool` holds the partners and does the atomic claim.\n- `OrderEventListener` (observer) with `NotificationListener`; `OrderService` publishes an event on every transition.\n\n```mermaid\nclassDiagram\n  class OrderService {\n    +place(customer, restaurant, items) Order\n    +accept(orderId)\n    +markReady(orderId)\n    +cancel(orderId)\n    +deliver(orderId)\n  }\n  class Order {\n    id\n    status\n    lines\n    breakdown\n    +transitionTo(newStatus)\n  }\n  class OrderLine {\n    itemName\n    unitPrice\n    quantity\n  }\n  class OrderStatus {\n    <<enumeration>>\n    PLACED\n    ACCEPTED\n    PREPARING\n    READY\n    PICKED_UP\n    DELIVERED\n    CANCELLED\n    REJECTED\n  }\n  class Restaurant {\n    menu\n    +isOpen() bool\n  }\n  class MenuItem {\n    name\n    price\n    available\n  }\n  class Customer\n  class DeliveryPartner {\n    location\n    status\n  }\n  class PricingEngine {\n    +price(lines, rules) PriceBreakdown\n  }\n  class PricingRule {\n    <<interface>>\n    +apply(running) Money\n  }\n  class PartnerAssigner {\n    <<interface>>\n    +assign(order, pool) DeliveryPartner\n  }\n  class PartnerPool {\n    +tryClaim(partnerId) bool\n    +release(partnerId)\n  }\n  class OrderEventListener {\n    <<interface>>\n    +onEvent(order, from, to)\n  }\n  OrderService --> Order\n  OrderService --> PricingEngine\n  OrderService --> PartnerAssigner\n  OrderService --> OrderEventListener\n  Order *-- OrderLine\n  Order --> OrderStatus\n  Order --> Customer\n  Order --> Restaurant\n  Order --> DeliveryPartner\n  Restaurant *-- Menu\n  Menu o-- MenuItem\n  PartnerPool o-- DeliveryPartner\n  PricingEngine o-- PricingRule\n  PricingRule <|.. PercentageDiscount\n  PricingRule <|.. FlatDiscount\n  PricingRule <|.. DeliveryFeeRule\n  PricingRule <|.. FreeDeliveryAbove\n  PartnerAssigner <|.. NearestPartnerAssigner\n  NearestPartnerAssigner --> PartnerPool\n  OrderEventListener <|.. NotificationListener\n```\n\n### Order state machine\nPLACED -> ACCEPTED (restaurant) -> PREPARING (restaurant) -> READY (restaurant) -> PICKED_UP (partner) -> DELIVERED (partner).\nPLACED -> REJECTED (restaurant, or timeout). PLACED, ACCEPTED -> CANCELLED (customer); PREPARING -> CANCELLED only by the restaurant or support, with a cancellation fee. READY -> CANCELLED is a policy choice (a partner may already be on the way): allow it only for support or the restaurant, release the partner, and decide who pays. After PICKED_UP there is no cancellation, only a refund process outside this model. REJECTED, CANCELLED and DELIVERED are terminal.\n\n`Order.transitionTo` looks the move up in a table `Map<OrderStatus, Set<OrderStatus>>` and throws on an illegal one. That keeps every rule in one place and gives the unit test a single table to cover. The table says which moves exist; who may trigger each one (restaurant, partner, customer, support) is a separate check in `OrderService`, because the same target state can be legal for one actor and not another.\n\n### Pricing as a strategy pipeline\n`PricingEngine` starts from the sum of `unitPrice * quantity` and passes the running amount through each rule in a defined order (discounts first, then fees, then tax, for example). Order matters: a 10% discount before the delivery fee is not the same as after it, so the order is part of the contract and is tested. The breakdown (subtotal, discounts, fee, total) is stored on the order so it can be shown and audited without recomputing. Money is an integer number of minor units, never a float.\n\n### Assignment and concurrency\n`NearestPartnerAssigner` ranks available partners by distance and tries to `tryClaim` the best one. `tryClaim` is an atomic compare-and-set from AVAILABLE to ASSIGNED (a lock per partner, a CAS on the status, or a conditional UPDATE in a database). If the claim fails because another order got there first, it tries the next candidate. If nobody is free the order stays READY and is retried by a timer. If the partner declines or times out, the partner is released and the assigner runs again with that partner excluded. A partner must also be released when the order is cancelled or delivered, otherwise they stay ASSIGNED forever; and assignment must not race with cancellation, so the order's own status change (guarded by the same transition check, or a version column) decides which of the two wins.\n\n### Trade-offs and alternatives\n- **State machine: table vs State pattern.** A transition table is the smallest thing that works and is easy to test. One class per state is worthwhile when each state has significant different behaviour (for example, different cancellation fees and side effects). With about eight states and little per-state behaviour, the table is usually enough; the State pattern is the reasonable choice if behaviour grows.\n- **Price snapshot vs live reference.** Copying the price onto the order line costs a little duplication but protects history. The alternative, versioned menu items, is heavier and only pays off if you also need menu history for other reasons.\n- **Discounts: strategy list vs decorator vs chain of responsibility.** A list of rules is simplest. Decorators suit stacking where each wraps the next; a chain suits rules that can stop the pipeline (for example an exclusive coupon). Pick based on whether rules interact.\n- **Assign at accept time or at ready time.** Assigning early cuts waiting but may leave the partner idle at the restaurant; assigning late reduces idle time but may delay pickup. Real systems often assign when the estimated preparation time is close to the travel time.\n- **Push to one partner vs offer to several.** Offering to one partner at a time is simple and avoids conflicts; broadcasting to a few and taking the first accept is faster but needs the atomic claim above.\n- **Events: synchronous observers vs a message queue.** In-process listeners are fine for this exercise; in production notifications go through a queue so a slow SMS provider cannot slow down a state change.\n- **Out of scope but worth naming:** batching several orders per partner, surge pricing, refunds, restaurant opening hours, and persisting the order with optimistic locking (a version column) so two concurrent transitions cannot both succeed."
-  },
-  "lld/library-management": {
-   "title": "Library Management",
-   "kind": "lld",
-   "summary": "Members borrow and return books; copies, reservations and fines.",
-   "module": "lld/13-library-and-vending-machine/README.md",
-   "problem": "Design a library system where members borrow copies of books, return them, reserve titles that are out, and pay fines for late returns.",
-   "functional": [
-    "Search books by title, author or subject",
-    "Borrow and return a copy; a member has a loan limit",
-    "Reserve a title that has no free copy; notify when one returns",
-    "Charge a fine for a late return"
-   ],
-   "nonFunctional": [
-    "Separate a book (the title) from a copy (the physical item)",
-    "Fine rules and notification channels must be replaceable"
-   ],
-   "constraints": [
-    "In-memory design; no UI"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for the central class and one method of each"
-   ],
-   "hints": [
-    "A \"Book\" and a \"BookCopy\" are different things: reservations attach to the title, loans to the copy.",
-    "Notifications are a natural fit for the observer pattern."
-   ],
-   "reference": "```mermaid\nclassDiagram\n  class Book { isbn title authors }\n  class BookCopy { id status }\n  class Member { id name loans }\n  class Loan { copy member dueDate returnedAt }\n  class Reservation { book member }\n  class Library { +borrow(member, copy) Loan +return(loan) Fine +reserve(member, book) }\n  class FinePolicy { <<interface>> +fine(loan, returnDate) Money }\n  class Notifier { <<interface>> +notify(member, message) }\n  Book \"1\" o-- \"*\" BookCopy\n  Member \"1\" o-- \"*\" Loan\n  Loan --> BookCopy\n  Library --> FinePolicy\n  Library --> Notifier\n  Library ..> Reservation\n  Loan --> Member\n  Reservation --> Book\n  Reservation --> Member\n```\n\n- `Library` coordinates; `Loan` holds the dates; a returned copy checks the title's reservation queue and tells the first member through `Notifier` (observer).\n- `FinePolicy` is a strategy (per-day rate, capped fine, free for staff).\n- A member's loan limit is checked in `borrow`, not scattered through callers.\n- Two desks may borrow the same copy at once, so `borrow` must claim the copy atomically (check status and set it to BORROWED as one step). A copy returned for a reservation is held for the first member in the queue for a limited time, then released to the next, so a copy does not sit on the shelf unclaimed and a walk-in does not jump the queue."
-  },
-  "lld/movie-ticket-booking": {
-   "title": "Movie Ticket Booking",
-   "kind": "lld",
-   "summary": "Choose seats for a show, hold them while paying, and never sell the same seat twice.",
-   "module": "lld/16-movie-ticket-booking/README.md",
-   "problem": "Design the object model of a movie ticket booking system. Theatres have screens with fixed seat layouts, and a show is one movie on one screen at one time. A user selects seats, the seats are held for a few minutes while the user pays, and the booking is confirmed only if payment succeeds. Two users must never end up with the same seat for the same show.",
-   "functional": [
-    "Theatres have screens; a screen has a fixed layout of seats with a category (for example standard, premium) and per-show pricing",
-    "A show is a movie on a screen at a start time; list shows and the free seats of a show",
-    "A user selects one or more seats; the system holds all of them or none for a limited time (for example 5 minutes)",
-    "The user pays within the hold; on success the seats become booked and a booking is created; on failure or expiry the seats become free again",
-    "A user can cancel a booking before the show; the seats are released and a refund is requested",
-    "Show the price of a selection from the seat categories of that show"
-   ],
-   "nonFunctional": [
-    "Correctness first: no double booking even when many users click the same seat at the same moment",
-    "Bookings for different shows must not block each other",
-    "A hold that is never paid must free the seats without a person intervening",
-    "A payment gateway call can fail, time out, or succeed after the hold expired; the design must stay consistent in each case"
-   ],
-   "constraints": [
-    "One process is enough for the in-memory model, but state which parts would move to a database or Redis and why",
-    "Up to about 500 seats per show; many shows run at once",
-    "The payment gateway is an interface you call; you do not build it"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The seat state machine (available, held, booked) and the transitions, including expiry",
-    "How all-or-nothing seat selection works and which lock or atomic operation protects it",
-    "What happens when payment succeeds after the hold has expired",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for hold, confirm and expire"
-   ],
-   "hints": [
-    "Availability belongs to a seat for one particular show, not to the physical seat. The same seat is free for the 9 pm show and booked for the 7 pm show.",
-    "The check that all requested seats are free and the change to held must be one atomic step per show.",
-    "A hold is a record with an owner, a set of seats and an expiry time. Expiry can be lazy (checked when read) or active (a timer sweeps), and you will probably want both.",
-    "Think about the order of operations around payment: hold, charge, confirm, and what each failure leaves behind."
-   ],
-   "reference": "This is one reasonable design. Where a decision has a reasonable alternative, it is named below.\n\n### Classes\n- `Theatre` owns `Screen`s; `Screen` owns `Seat`s (row, number, category). These are static layout data.\n- `Movie` and `Show` (movie, screen, start time, price per category). `Show` is the unit of consistency: it owns the seat inventory for that show.\n- `ShowSeats` (inside `Show`) maps seat id to a state: AVAILABLE, HELD (hold id, expiry) or BOOKED (booking id).\n- `SeatHold` (id, user, show, seats, expiresAt, status).\n- `Booking` (id, user, show, seats, amount, status: CONFIRMED, CANCELLED, payment reference).\n- `BookingService` is the facade: `hold`, `confirm`, `cancel`, `expireHolds`.\n- `PaymentGateway` (interface) with an adapter per provider; `PricingStrategy` (interface) so a matinee or a member discount is a new class.\n- `Clock` (interface) injected so expiry can be tested without sleeping.\n\n```mermaid\nclassDiagram\n  class BookingService {\n    +hold(userId, showId, seatIds) SeatHold\n    +confirm(holdId, paymentToken) Booking\n    +cancel(bookingId)\n    +expireHolds()\n  }\n  class Theatre\n  class Screen\n  class Seat {\n    row\n    number\n    category\n  }\n  class Movie\n  class Show {\n    startTime\n    +tryHold(seatIds, holdId, expiresAt, now) bool\n    +book(seatIds, holdId, bookingId) bool\n    +release(holdId)\n    +freeSeats(now) list\n  }\n  class ShowSeats {\n    seatId to state\n  }\n  class SeatState {\n    <<enumeration>>\n    AVAILABLE\n    HELD\n    BOOKED\n  }\n  class SeatHold {\n    id\n    userId\n    seatIds\n    expiresAt\n    status\n  }\n  class Booking {\n    id\n    seatIds\n    amount\n    status\n  }\n  class PaymentGateway {\n    <<interface>>\n    +charge(amount, token, idempotencyKey) PaymentResult\n    +refund(paymentRef)\n  }\n  class PricingStrategy {\n    <<interface>>\n    +price(show, seats) Money\n  }\n  class Clock {\n    <<interface>>\n    +now() Instant\n  }\n  Theatre o-- Screen\n  Screen o-- Seat\n  Show --> Movie\n  Show --> Screen\n  Show *-- ShowSeats\n  ShowSeats --> SeatState\n  ShowSeats --> Seat\n  BookingService --> Show\n  BookingService --> SeatHold\n  BookingService --> Booking\n  BookingService --> PaymentGateway\n  BookingService --> PricingStrategy\n  BookingService --> Clock\n  Booking --> Show\n```\n\n### Seat state machine\nAVAILABLE -> HELD when a user selects the seat (only if every requested seat is AVAILABLE, or HELD with an expiry already in the past).\nHELD -> BOOKED when the owner of the hold confirms with a successful payment before expiry.\nHELD -> AVAILABLE when the owner releases, payment fails, or the hold expires.\nBOOKED -> AVAILABLE only through cancellation.\n\n### All-or-nothing and concurrency\n`Show.tryHold` runs under a lock owned by that show (a mutex in one process, or a database row lock or conditional update in a real system): it checks that every requested seat is free, and only then marks all of them HELD. Checking and marking one seat at a time would let two overlapping requests each take part of the set. One lock per show means a popular show serialises its own bookings but never blocks other shows.\n\nExpiry has two layers: a seat whose hold has expired is treated as available when read (lazy), and a periodic `expireHolds` sweep (or a delayed job, or a Redis key TTL) frees them and keeps the free-seat listing cheap (active).\n\n### Payment ordering and failures\n1. `hold`: seats become HELD for N minutes. Return the hold id and the expiry to the client.\n2. `confirm`: re-check that the hold still exists, belongs to the user and has not expired.\n3. Charge using the hold id as the idempotency key, so a retry cannot charge twice.\n4. On success, call `Show.book`, which moves the seats to BOOKED only if they are still held by this hold, and create the booking. If the hold's expiry has passed but nobody else has taken the seats, `book` can still succeed (a late confirm is better than a refund); if any seat is gone, the whole booking fails and the charge is refunded.\n5. On failure, release the hold.\n\nFailure cases. Payment fails: release the hold. The charge times out with an unknown result: keep the seats held a little longer and ask the gateway for the status using the idempotency key, rather than guessing. Payment succeeds but the hold already expired and another user took the seats: refund automatically and tell the user; to make this rare, add a short grace period or extend the hold when a payment starts. The booking write fails after a successful charge: a retry with the same key is safe, and a reconciliation job compares gateway charges with bookings.\n\n### Trade-offs and alternatives\n- **Lock per show vs per seat.** One lock per show is simple and enough for hundreds of seats. Per-seat locks give more parallelism but need ordered acquisition to avoid deadlock; they rarely matter at this size.\n- **Pessimistic lock vs optimistic version check.** In a database, `SELECT ... FOR UPDATE` on the requested seat rows (taken in a consistent order, for example by seat id, so two requests cannot deadlock), or one conditional `UPDATE ... WHERE state = 'AVAILABLE' OR hold expired` inside a transaction that is rolled back unless the affected row count equals the number of seats requested, are both reasonable. Optimistic retries are cheap when conflicts are rare but wasteful for a hot release of a blockbuster.\n- **Hold in memory vs in Redis vs in the database.** In memory is fine for the exercise; with several servers the hold must be shared, so Redis with a TTL (a multi-seat hold must still be all-or-nothing, for example in one Lua script), or a row with an `expires_at` column, is typical. The database as the source of truth is the safest; Redis is faster but needs care about losing holds on failover.\n- **Seat status on the Seat vs per show.** A boolean on `Seat` links the 7 pm and 9 pm shows incorrectly; keep state per (show, seat).\n- **Lazy vs active expiry.** Lazy alone is correct but leaves stale counts; active alone can lag and allow a short window where a seat looks held. Using both is cheap.\n- **Out of scope but worth naming:** waiting rooms for very hot releases, group bookings that must be adjacent, seat maps with best-available selection, and refunds policy by time before the show."
-  },
-  "lld/parking-lot": {
-   "title": "Parking Lot",
-   "kind": "lld",
-   "summary": "Vehicles enter, get a spot and a ticket, and pay on exit.",
-   "module": "lld/12-parking-lot-and-elevator/README.md",
-   "problem": "Design the object model of a multi-level parking lot. A car, a motorbike and a truck each need a spot of the right size. A driver gets a ticket on entry and pays on exit according to the time parked.",
-   "functional": [
-    "Park and unpark a vehicle; issue a ticket on entry",
-    "Spots come in sizes (motorbike, compact, large) and levels",
-    "Calculate the fee from entry and exit time with a per-hour rate that depends on vehicle type",
-    "Report free spots per level"
-   ],
-   "nonFunctional": [
-    "Adding a new vehicle type or pricing rule must not change existing classes",
-    "Two entry gates must not assign the same spot"
-   ],
-   "constraints": [
-    "One building, 4 levels, up to 1,000 spots",
-    "In-memory design is enough; persistence is out of scope"
-   ],
-   "deliverables": [
-    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
-    "The responsibility of each class in a sentence",
-    "The design patterns you used and where, or why you used none",
-    "Optional: code for the central class and one method of each"
-   ],
-   "hints": [
-    "Separate the thing that finds a spot (an allocation strategy) from the thing that prices a stay (a pricing strategy).",
-    "A ticket is the record that links a vehicle, a spot and an entry time."
-   ],
-   "reference": "### Classes\n`Vehicle` (abstract, with `Car`, `Motorbike`, `Truck`), `ParkingSpot` (size, level, occupied), `Level`, `ParkingLot` (facade), `Ticket`, `SpotAllocator` (strategy), `PricingStrategy` (strategy), `Payment`.\n\n```mermaid\nclassDiagram\n  class ParkingLot { +park(Vehicle) Ticket +exit(Ticket) Payment }\n  class Level { +findSpot(size) ParkingSpot }\n  class ParkingSpot { size occupied +assign() +release() }\n  class Ticket { vehicle spot entryTime }\n  class SpotAllocator { <<interface>> +allocate(levels, vehicle) ParkingSpot }\n  class PricingStrategy { <<interface>> +fee(ticket, exitTime) Money }\n  class Vehicle { <<abstract>> plate size() }\n  Vehicle <|-- Car\n  Vehicle <|-- Motorbike\n  Vehicle <|-- Truck\n  ParkingLot o-- Level\n  Level o-- ParkingSpot\n  ParkingLot --> SpotAllocator\n  ParkingLot --> PricingStrategy\n  ParkingLot ..> Ticket\n  ParkingLot ..> Payment\n  Ticket --> Vehicle\n  Ticket --> ParkingSpot\n```\n\n### Why it works\n- `ParkingLot` is the single entry point (a facade); gates call `park` and `exit`.\n- Allocation and pricing are **strategies**, so a new pricing rule or a \"closest to the exit\" allocator is a new class, not an edit (open/closed).\n- Allocation must be an atomic claim: `assign()` is a compare-and-set (or runs under a lock per level), and the allocator tries the next free spot if it loses the race, so two gates cannot assign the same spot.\n- A vehicle reports its required size; spots do not know about vehicle types."
   }
  }
 }

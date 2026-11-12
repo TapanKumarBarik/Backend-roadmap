@@ -47,14 +47,14 @@ for (const cur of CURRICULA) {
     }
   }
 }
-// The design challenges' reference solutions and the practice items carry diagrams too, inside their JSON files.
+// The practice items carry diagrams too, inside their JSON files.
 const FENCE = /^```mermaid[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gm;
 function jsonFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? jsonFiles(path.join(dir, e.name)) : e.name.endsWith('.json') ? [path.join(dir, e.name)] : []));
 }
 const strings = (value) => (typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : []);
-for (const dir of ['design-lab', 'practice']) {
+for (const dir of ['practice']) {
   for (const file of jsonFiles(path.join(CONTENT_ROOT, dir))) {
     let n = 0;
     for (const text of strings(JSON.parse(fs.readFileSync(file, 'utf8')))) {

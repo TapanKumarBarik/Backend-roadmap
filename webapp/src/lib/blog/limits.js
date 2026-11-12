@@ -55,4 +55,3 @@ export const FEED_PATH_PREFIX = 'feed:';
 export const feedCommentPath = (postId) => FEED_PATH_PREFIX + postId;
 /** A design challenge's discussion, under 'challenge:<kind>/<slug>'. */
 export const CHALLENGE_PATH_PREFIX = 'challenge:';
-export const challengeCommentPath = (key) => CHALLENGE_PATH_PREFIX + key;

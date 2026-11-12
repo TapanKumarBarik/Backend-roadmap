@@ -2,10 +2,17 @@
 # Read docs/URL_MIGRATION_REGISTRY.md before adding one: an old address goes to its own replacement (never the home page), the move is
 # permanent (301), and `npm run check:urls` holds every line to that.
 #
-# The Design Lab was at /lab/ for a day before it moved to /design-lab/ (the address in the product spec).
-/lab /design-lab/ 301
-/lab/ /design-lab/ 301
-/lab/* /design-lab/:splat 301
+# The Design Lab (low-level and high-level design challenges) was removed in 2026-11, and Practice now has coding interview questions
+# instead. Its addresses (and /lab/, its first one) go to the closest thing that is still there: the index to Practice, a low-level design
+# challenge to the low-level design course, a high-level design challenge to the system design course.
+/design-lab /practice/ 301
+/design-lab/ /practice/ 301
+/design-lab/lld/* /lld/ 301
+/design-lab/hld/* /system-design/ 301
+/lab /practice/ 301
+/lab/ /practice/ 301
+/lab/lld/* /lld/ 301
+/lab/hld/* /system-design/ 301
 
 # One home per topic (2026-11-04): a lesson taught twice was merged into its home and the copy redirects there.
 /backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models /system-design/01-core-fundamentals/13-cap-theorem/ 301

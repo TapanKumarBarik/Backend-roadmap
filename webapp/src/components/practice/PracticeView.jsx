@@ -18,10 +18,9 @@ import InterviewView from './InterviewView.jsx';
 import '../../styles/practice.css';
 import '../../styles/recommend.css';
 
-// The Practice Center: quizzes, exercises and interview preparation, filtered by topic and level. An item opens in place
+// The Practice Center: quizzes, coding questions, interview preparation and exercises, filtered by topic and level. An item opens in place
 // (/practice/quiz/<slug>/); the list is the screen with no item.
 const KINDS = { quiz: QuizView, exercise: ExerciseView, interview: InterviewView };
-const TAB_KIND = { quizzes: 'quiz', exercises: 'exercise', interview: 'interview' };
 
 export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const [tab, setTab] = useState('quizzes');
@@ -109,7 +108,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
                       {tab === 'quizzes' && best[c.slug] && best[c.slug].score === best[c.slug].max && <span className="pr-done">{RECOMMEND.perfect}</span>}
                     </div>
                     <h3 className="pr-card__title">
-                      <a href={pageUrl(PRACTICE_ROUTE, `${TAB_KIND[tab]}/${c.slug}`)} onClick={(e) => { e.preventDefault(); onOpenItem(`${TAB_KIND[tab]}/${c.slug}`); }}>{c.title}</a>
+                      <a href={pageUrl(PRACTICE_ROUTE, `${PRACTICE.tabKind[tab]}/${c.slug}`)} onClick={(e) => { e.preventDefault(); onOpenItem(`${PRACTICE.tabKind[tab]}/${c.slug}`); }}>{c.title}</a>
                     </h3>
                     {c.description && <p className="pr-card__text">{c.description}</p>}
                   </Card>

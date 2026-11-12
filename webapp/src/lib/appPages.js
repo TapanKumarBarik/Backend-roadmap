@@ -12,11 +12,8 @@
 //   /paths/<id>/        one learning path                route "__path", heading = the path's id
 //   /videos/            the video lectures               route "__videos"
 //   /practice/          the Practice Center              route "__practice"
-//   /practice/quiz/<slug>/   a quiz (also exercise/, interview/)   heading = "quiz/<slug>"
-//   /design-lab/        the Design Lab                   route "__lab"
-//   /design-lab/lld/<slug>/   a design challenge (also hld/)   heading = "lld/<slug>"
-//                       (/lab/ was its first address, for a short while: it still opens the same screen, and the server
-//                       redirects it to /design-lab/, webapp/public/_redirects)
+//   /practice/quiz/<slug>/   a quiz (also exercise/, interview/: a set of concept or of coding questions)   heading = "quiz/<slug>"
+//                       (The Design Lab, /design-lab/ and /lab/, was removed: the server redirects its addresses, webapp/public/_redirects)
 //
 // The first segment of each is reserved: a curriculum cannot have a folder of that name (a test checks it), so an
 // address is never both a page and a module.
@@ -27,7 +24,6 @@ export const WRITE_ROUTE = '__write';
 export const PATH_ROUTE = '__path';
 export const VIDEOS_ROUTE = '__videos';
 export const PRACTICE_ROUTE = '__practice';
-export const LAB_ROUTE = '__lab';
 export const ME_ROUTE = '__me';
 
 /** The first segment of each page's address, and the route (the app's name for the screen) it opens. */
@@ -39,8 +35,7 @@ export const PAGES = [
   // each address ends in a slash, as a folder does.
   { prefix: 'paths', route: PATH_ROUTE, index: true, built: true },
   { prefix: 'videos', route: VIDEOS_ROUTE, index: true, built: true },
-  { prefix: 'practice', route: PRACTICE_ROUTE, index: true, built: true },
-  { prefix: 'design-lab', aliases: ['lab'], route: LAB_ROUTE, index: true, built: true }
+  { prefix: 'practice', route: PRACTICE_ROUTE, index: true, built: true }
 ];
 
 // An old prefix (an alias) opens the same screen; the address the app writes is always the page's own prefix.

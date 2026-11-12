@@ -35,20 +35,20 @@ test('the files of a content folder are read, checked, and written in a fixed or
   put('practice/quizzes/alpha.json', quiz());
   put('practice/exercises/e.json', { title: 'E', topic: 't', difficulty: 'beginner', brief: 'B', deliverables: ['one'] });
   put('practice/interview/i.json', { title: 'I', topic: 't', difficulty: 'beginner', questions: [{ q: 'Q?', a: 'A.' }] });
-  put('design-lab/lld/c.json', { kind: 'lld', title: 'C', summary: 'S', problem: 'P', reference: 'R', functional: ['f'], nonFunctional: ['n'], constraints: ['c'], deliverables: ['d'], hints: ['h'] });
+  put('practice/interview/c.json', { title: 'C', topic: 't', difficulty: 'beginner', section: 'coding', questions: [{ q: 'Q?', a: 'A.' }] });
 
   const { content, problems } = loadPractice(dir);
   assert.deepEqual(problems, []);
   assert.deepEqual(Object.keys(content.quizzes), ['alpha', 'zeta']);
-  assert.deepEqual(Object.keys(content.challenges), ['lld/c']);
+  assert.deepEqual(Object.keys(content.interview), ['c', 'i']);
   assert.equal(generatedText(content), generatedText(loadPractice(dir).content));
 
   put('practice/quizzes/zeta.json', { ...quiz(), module: 'lessons/missing/README.md' });
-  put('design-lab/hld/wrong.json', { kind: 'lld', title: 'W' });
+  put('practice/interview/wrong.json', { title: 'W', topic: 't', difficulty: 'beginner', section: 'tutorial', questions: [{ q: 'Q?', a: 'A.' }] });
   put('practice/quizzes/broken.json', '{ not json');
   const bad = loadPractice(dir).problems.join('\n');
   assert.match(bad, /module "lessons\/missing\/README.md" is not a lesson/);
-  assert.match(bad, /kind is "lld" but the file is in hld/);
+  assert.match(bad, /section must be one of concepts, coding/);
   assert.match(bad, /broken.json/);
   fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -237,24 +237,24 @@ test('"Reset all progress" and "Keyboard shortcuts" are dialogs, not browser pop
   await context.close();
 });
 
-test('on a wide screen the six main places are links in the top bar, the rail keeps the others, and below that width they are all in the rail', async () => {
+test('on a wide screen the five main places are links in the top bar, the rail keeps the others, and below that width they are all in the rail', async () => {
   const wide = await openPage(browser, '/#__feed', { width: 1440, height: 900 });
   await wide.page.goto(`${BASE}/#__feed`, { waitUntil: 'networkidle' });
   const links = wide.page.locator('#mainNav').getByRole('link');
-  assert.deepEqual(await links.allTextContents(), ['Learn', 'Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']);
+  assert.deepEqual(await links.allTextContents(), ['Learn', 'Explore', 'Practice', 'Community', 'My Learning']);
   assert.equal(await wide.page.locator('#mainNav').getAttribute('aria-label'), 'Main');
   assert.equal(await wide.page.locator('#mainNav a[aria-current="page"]').count(), 1, 'one place says it is where you are');
   const railed = await wide.page.locator('#destRail .dest-label').allTextContents();
-  for (const name of ['Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']) assert.ok(!railed.includes(name), `${name} is not in the rail as well`);
+  for (const name of ['Explore', 'Practice', 'Community', 'My Learning']) assert.ok(!railed.includes(name), `${name} is not in the rail as well`);
   assert.ok(railed.includes('Blogs') && railed.includes('Videos'), 'the rail keeps the other places');
 
   await links.nth(2).focus();
   const outline = await links.nth(2).evaluate((el) => getComputedStyle(el).outlineStyle);
   assert.equal(outline, 'solid', 'keyboard focus draws a ring');
-  await links.nth(3).click();
-  await wide.page.getByRole('heading', { level: 2, name: 'Design Lab' }).waitFor();
-  assert.equal(new URL(wide.page.url()).pathname, '/design-lab/');
-  assert.equal(await wide.page.locator('#mainNav a[aria-current="page"]').textContent(), 'Design Lab');
+  await links.nth(2).click();
+  await wide.page.getByRole('heading', { level: 2, name: 'Practice' }).waitFor();
+  assert.equal(new URL(wide.page.url()).pathname, '/practice/');
+  assert.equal(await wide.page.locator('#mainNav a[aria-current="page"]').textContent(), 'Practice');
   const fits = await wide.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   assert.equal(fits, true, 'the top bar fits');
   await wide.context.close();
@@ -271,6 +271,6 @@ test('on a wide screen the six main places are links in the top bar, the rail ke
   await narrow.page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   assert.equal(await narrow.page.locator('#mainNav').count(), 0, 'no room for it: the places are in the rail');
   const inRail = await narrow.page.locator('#destRail .dest-label').allTextContents();
-  for (const name of ['Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']) assert.ok(inRail.includes(name), `${name} is in the rail`);
+  for (const name of ['Explore', 'Practice', 'Community', 'My Learning']) assert.ok(inRail.includes(name), `${name} is in the rail`);
   await narrow.context.close();
 });

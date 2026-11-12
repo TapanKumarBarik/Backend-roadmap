@@ -196,7 +196,7 @@ export function PenIcon(props) {
   );
 }
 
-// Practice: a checklist (tick and rule, tick and rule). Design Lab: a small block diagram. My Learning: a person over a progress rule.
+// Practice: a checklist (tick and rule, tick and rule). My Learning: a person over a progress rule.
 export function PracticeIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -204,17 +204,6 @@ export function PracticeIcon(props) {
       <path d="m2.5 10.2 1.2 1.2 2-2.2" />
       <line x1="8" y1="4.5" x2="13.5" y2="4.5" />
       <line x1="8" y1="10.5" x2="13.5" y2="10.5" />
-    </svg>
-  );
-}
-
-export function LabIcon(props) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <rect x="5.7" y="1.8" width="4.6" height="3.4" rx="0.8" />
-      <rect x="1.8" y="10.8" width="4.6" height="3.4" rx="0.8" />
-      <rect x="9.6" y="10.8" width="4.6" height="3.4" rx="0.8" />
-      <path d="M8 5.2v2.6M4.1 10.8V7.8h7.8v3" />
     </svg>
   );
 }

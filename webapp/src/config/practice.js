@@ -1,29 +1,30 @@
-// The Practice Center, the Design Lab and My Learning: their addresses and their words. Practice and the Design Lab have addresses of
-// their own (/practice/quiz/<slug>/, /design-lab/lld/<slug>/, lib/appPages.js); My Learning is a private screen and lives in the hash.
+// The Practice Center and My Learning: their addresses and their words. Practice has addresses of its own (/practice/quiz/<slug>/,
+// lib/appPages.js); My Learning is a private screen and lives in the hash.
 
-export { PATH_ROUTE, PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from '../lib/appPages.js';
+export { PATH_ROUTE, PRACTICE_ROUTE, ME_ROUTE } from '../lib/appPages.js';
 
 export { DIFFICULTY } from './difficulty.js';
 
 export const PRACTICE = {
   title: 'Practice',
-  intro: 'Check what you know, work through problems, and rehearse the questions interviews ask. Your quiz attempts are kept when you are signed in.',
+  intro: 'Check what you know, work through problems, and rehearse the questions interviews ask, from backend concepts to coding problems. Your quiz attempts are kept when you are signed in.',
   tabs: [
     { id: 'quizzes', label: 'Quizzes', empty: 'No quiz matches those filters.' },
-    { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' },
-    { id: 'interview', label: 'Interview prep', empty: 'No interview set matches those filters.' }
+    { id: 'coding', label: 'Coding questions', empty: 'No coding set matches those filters.' },
+    { id: 'interview', label: 'Interview prep', empty: 'No interview set matches those filters.' },
+    { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' }
   ],
+  // The kind of item each tab opens, as it is written in the item's address (an interview set is of concepts or of coding questions).
+  tabKind: { quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
   allTopics: 'All topics',
   allLevels: 'All levels'
 };
 
-export const LAB = {
-  title: 'Design Lab',
-  intro: 'Design real systems and write down how. Each challenge has requirements and constraints, a place to work, and a reference solution you can compare with once you have submitted your own.',
-  tabs: [
-    { id: 'lld', label: 'Low-level design', blurb: 'Classes, responsibilities, patterns and extensibility.' },
-    { id: 'hld', label: 'High-level design', blurb: 'Architecture, data, scale, failure and trade-offs.' }
-  ]
+// An interview set: the questions, with an answer kept out of sight until the reader has tried. Coding sets have worked solutions.
+export const INTERVIEW = {
+  concepts: { heading: (title) => `${title}: interview questions`, lead: 'Answer each one out loud first, then compare with the model answer.', show: 'Show a model answer' },
+  coding: { heading: (title) => `${title}: coding interview questions`, lead: 'Try each one on paper or in an editor first, and say your approach out loud. Then compare with the worked solution.', show: 'Show the solution' },
+  questions: (n) => `${n} questions`
 };
 
 // Taking a quiz. A timed try gets this many seconds for each question, and is scored when the time is up.
@@ -68,33 +69,13 @@ export const WEAK = {
   missedHeading: 'Questions you missed'
 };
 
-// Feedback from other learners on a shared design solution.
-export const PEER = {
-  heading: 'Feedback',
-  none: 'No feedback yet.',
-  label: 'Your feedback',
-  help: 'Say what works, what you would change, and why. Be kind and specific: another reasonable design is not a wrong one.',
-  placeholder: 'What works, what you would change, and why…',
-  send: 'Send feedback',
-  minimum: 20,
-  signIn: 'Sign in to give feedback',
-  remove: 'Remove',
-  sent: 'Feedback sent',
-  yours: 'Your feedback on your own work is not needed: others will give it. This is what they said:',
-  fromOthers: 'Feedback from other learners'
-};
-
 export const WORKSPACE = {
   textLabel: 'Your answer',
   textHelp: 'Write it as you would explain it to a colleague. Markdown is fine; it is shown as plain text.',
-  diagramLabel: 'Diagram (Mermaid)',
-  diagramHelp: 'A Mermaid diagram: a class diagram for LLD, a flowchart for an architecture. The preview is drawn below.',
   codeLabel: 'Code (optional)',
   statuses: { saved: 'Saved', unsaved: 'Unsaved changes', saving: 'Saving…', error: 'Could not save' },
   submitted: 'Submitted. You can still edit it, and an admin may review it.',
   reviewed: 'Reviewed',
-  shareLabel: 'Share my solution so others can read it',
-  shareHelp: 'It is shown with your author name. You can take it back at any time.',
   signIn: 'Sign in to keep your work and submit it.'
 };
 
@@ -103,25 +84,23 @@ export const ME = {
   intro: 'Where you are, what you have done, and what to do next. It is built from your own progress, notes, attempts and submissions.'
 };
 
-// On the front door and the dashboard: a few quizzes, and the way in to all of them.
+// On the front door and the dashboard: a few quizzes and coding sets, and the way in to all of them.
 export const STRIP = {
   heading: 'Practise what you learn',
-  lead: 'Quizzes, design exercises and interview questions, each tied to the lesson that teaches it.',
+  lead: 'Quizzes, coding interview questions and exercises, each tied to the lesson that teaches it where there is one.',
   all: 'All practice',
-  lab: 'Design Lab',
   items: 3, // how many quizzes it shows
   quizzes: 'Test yourself',
-  challenges: 'Design challenges',
-  challengesShown: 3,
-  kind: { lld: 'Low-level design', hld: 'High-level design' }
+  coding: 'Coding interview questions',
+  codingShown: 3
 };
 
 export { RELATED } from './related.js';
 
-// The admins' editor for the quizzes, exercises, interview sets and design challenges.
+// The admins' editor for the quizzes, exercises and interview sets.
 export const CONTENT_EDITOR = {
   heading: 'Edit the content',
-  lead: 'Change a quiz, an exercise, an interview set or a design challenge, or start a new quiz. Saving commits it to the repository (so it is in the history) and the site is rebuilt with it. A file with a problem is not saved.',
+  lead: 'Change a quiz, an exercise or an interview set (concepts or coding questions), or start a new quiz. Saving commits it to the repository (so it is in the history) and the site is rebuilt with it. A file with a problem is not saved.',
   pick: 'Open one',
   none: 'Choose…',
   newQuiz: 'A new quiz: its address name',

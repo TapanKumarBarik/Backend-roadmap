@@ -508,13 +508,8 @@
         "path": "/practice/quiz/database-indexes/"
       },
       {
-        "name": "design-lab",
-        "path": "/design-lab/",
-        "height": 1300
-      },
-      {
-        "name": "challenge",
-        "path": "/design-lab/hld/chat-application/",
+        "name": "coding-questions",
+        "path": "/practice/interview/coding-arrays-and-hashing/",
         "height": 1300
       },
       {

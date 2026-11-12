@@ -1,4 +1,4 @@
-/* The Practice Center, the Design Lab, My Learning and learning paths (components/practice, lab, me, paths). One stylesheet, loaded with
+/* The Practice Center, My Learning and learning paths (components/practice, me, paths). One stylesheet, loaded with
    those screens. Colours, type and spacing are the design tokens (tokens.css); the screens sit in #empty, so the few rules that
    need to beat its ID selectors say #root. */
 
@@ -45,7 +45,7 @@
 .pr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-5); }
 .pr-qa { list-style: none; padding: 0; margin: var(--space-4) 0; display: grid; gap: var(--space-5); }
 
-/* The workspace for an exercise or a design challenge */
+/* The workspace for an exercise */
 .pr-workspace { display: grid; gap: var(--space-5); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); }
 .pr-workspace__bar { display: flex; align-items: center; gap: var(--space-3); }
 .pr-status { font-size: var(--text-sm); color: var(--fg-muted); }
@@ -58,23 +58,12 @@
 .pr-mono, .pr-field textarea.pr-mono { font-family: var(--mono); font-size: 13px; }
 .pr-diagram { min-height: 0; overflow-x: auto; }
 .pr-diagram:not(:empty) { padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--r-md); background: var(--bg); }
-.pr-upload { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.pr-file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.pr-file:focus-within { outline: 2px solid var(--signal); outline-offset: 2px; }
-.pr-upload__img { max-width: 100%; max-height: 320px; border: 1px solid var(--border); border-radius: var(--r-md); background: #fff; }
 .pr-check { display: flex; gap: var(--space-3); align-items: flex-start; }
 .pr-check small { display: block; color: var(--fg-muted); }
 .pr-reviews blockquote { margin: var(--space-2) 0; padding: var(--space-3) var(--space-4); border-left: 3px solid var(--signal); background: var(--signal-bg); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
 .pr-reviews blockquote p { margin: 0 0 var(--space-1); }
 .pr-reviews footer { font-size: var(--text-xs); color: var(--fg-subtle); }
 
-/* A challenge */
-.pr-spec h3 { margin-top: var(--space-6); }
-.pr-hints { margin: var(--space-5) 0; }
-.pr-hints summary { cursor: pointer; font-weight: var(--weight-semibold); }
-.pr-reference { margin-top: var(--space-8); }
-.pr-shared { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-3); }
-.pr-shared__item { padding: var(--space-4) var(--space-5); }
 .pr-pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); line-height: var(--leading-normal); }
 .pr-code { overflow-x: auto; padding: var(--space-3); background: var(--bg-sunken); border-radius: var(--r-md); font-size: 13px; }
 
@@ -191,11 +180,6 @@
 .pr-timer.is-low { color: var(--danger); border-color: var(--danger); }
 .me-sub { font-size: var(--text-sm); color: var(--fg-muted); margin: var(--space-4) 0 var(--space-2); font-weight: var(--weight-semibold); }
 
-/* Feedback from other learners on a shared solution */
-.pr-peer { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
-#root .pr-peer h4 { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); margin: 0 0 var(--space-2); }
-.pr-peer__item { margin: 0 0 var(--space-3); padding: 0 0 0 var(--space-3); border-left: 2px solid var(--border); }
-.pr-peer__item footer { font-size: var(--text-xs); color: var(--fg-subtle); }
 
 /* The admins' content editor */
 .pr-content-editor { display: grid; gap: var(--space-3); }

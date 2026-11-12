@@ -1,0 +1,40 @@
+{
+  "title": "Two pointers and sliding window",
+  "topic": "two-pointers-and-sliding-window",
+  "difficulty": "intermediate",
+  "section": "coding",
+  "questions": [
+    {
+      "q": "How do you recognise a two-pointers or sliding-window problem?",
+      "a": "Look for these signals:\n\n- The input is a **sorted array** or a **string**, and the question is about pairs, a contiguous piece, or \"the longest/shortest/at most\".\n- A brute force checks every pair or every substring (O(n²) or O(n³)), and you suspect the answer for a bigger range can be derived from a smaller one.\n- You can say what to do when the current range is **too big** (move the left side in) and when it is **too small or still valid** (move the right side out).\n\n**Two pointers** move towards each other (sorted pairs, palindromes, container problems) or in the same direction at different speeds (removing duplicates, linked-list cycles).\n\n**Sliding window** is two pointers in the same direction that keep a window valid: the right pointer grows the window, the left pointer shrinks it while the window breaks the rule. Every element enters and leaves at most once, so the whole thing is O(n).\n\n**It does not work when** the numbers can be negative and the rule is a sum (shrinking no longer reliably reduces the sum). Use prefix sums and a hash map for that."
+    },
+    {
+      "q": "Valid Palindrome: ignoring case and anything that is not a letter or digit, is a string a palindrome?",
+      "a": "**Approach.** Put one pointer at each end, skip characters that do not count, and compare the rest, moving inwards. No cleaned-up copy of the string is needed, so extra space is O(1).\n\n```python\ndef is_palindrome(s):\n    i, j = 0, len(s) - 1\n    while i < j:\n        while i < j and not s[i].isalnum():\n            i += 1\n        while i < j and not s[j].isalnum():\n            j -= 1\n        if s[i].lower() != s[j].lower():\n            return False\n        i += 1\n        j -= 1\n    return True\n```\n\n**Complexity.** O(n) time, O(1) space. The simpler `t = [c.lower() for c in s if c.isalnum()]; return t == t[::-1]` is fine to mention first, at O(n) space."
+    },
+    {
+      "q": "3Sum: find all unique triplets in a list that add up to zero.",
+      "a": "**Approach.** Sort the list. Fix the first number `a`, then use two pointers on the rest to find pairs that sum to `-a`. Move the left pointer up when the sum is too small, the right pointer down when it is too big. Skip repeated values so each triplet is reported once.\n\n```python\ndef three_sum(nums):\n    nums = sorted(nums)\n    result = []\n    for i, a in enumerate(nums):\n        if i and a == nums[i - 1]:\n            continue                      # same first number as before\n        lo, hi = i + 1, len(nums) - 1\n        while lo < hi:\n            total = a + nums[lo] + nums[hi]\n            if total < 0:\n                lo += 1\n            elif total > 0:\n                hi -= 1\n            else:\n                result.append([a, nums[lo], nums[hi]])\n                lo += 1\n                while lo < hi and nums[lo] == nums[lo - 1]:\n                    lo += 1               # skip duplicate second numbers\n    return result\n```\n\n**Complexity.** O(n²) time (the sort is O(n log n), the double loop dominates), O(1) extra space apart from the output. The duplicate handling is where most wrong answers go wrong: say it out loud."
+    },
+    {
+      "q": "Container With Most Water: given bar heights, pick two bars that, with the x-axis, hold the most water.",
+      "a": "**Approach.** Start with the widest container (first and last bar). The water level is limited by the shorter bar, so moving the **taller** bar inwards can only make things worse (narrower, same limit). Always move the shorter bar: it is the only move that can find a taller limit.\n\n```python\ndef max_area(height):\n    lo, hi, best = 0, len(height) - 1, 0\n    while lo < hi:\n        best = max(best, min(height[lo], height[hi]) * (hi - lo))\n        if height[lo] < height[hi]:\n            lo += 1\n        else:\n            hi -= 1\n    return best\n```\n\n**Complexity.** O(n) time, O(1) space. The explanation of *why* moving the shorter side is safe is the actual interview answer; the code is short."
+    },
+    {
+      "q": "Best Time to Buy and Sell Stock: given daily prices, what is the maximum profit from one buy followed by one sell?",
+      "a": "**Approach.** One pass. Track the lowest price so far; the best profit selling today is `price - lowest`. Keep the maximum of those.\n\n```python\ndef max_profit(prices):\n    lowest, best = float(\"inf\"), 0\n    for p in prices:\n        lowest = min(lowest, p)\n        best = max(best, p - lowest)\n    return best\n```\n\nReturning 0 when prices only fall is correct: you are allowed not to trade.\n\n**Complexity.** O(n) time, O(1) space. **Follow-up:** with unlimited transactions, add every positive day-to-day difference."
+    },
+    {
+      "q": "Longest Substring Without Repeating Characters: how long is the longest substring in which every character is different?",
+      "a": "**Approach.** A sliding window `[start, i]` that never contains a repeat. Remember the last index of each character. When the current character was seen inside the window, jump `start` to just after that earlier occurrence.\n\n```python\ndef length_of_longest_substring(s):\n    last = {}                     # character -> index of its latest occurrence\n    start = best = 0\n    for i, ch in enumerate(s):\n        if ch in last and last[ch] >= start:\n            start = last[ch] + 1\n        last[ch] = i\n        best = max(best, i - start + 1)\n    return best\n```\n\nThe check `last[ch] >= start` matters: an occurrence from before the window began is not a conflict.\n\n**Complexity.** O(n) time, O(k) space for k distinct characters."
+    },
+    {
+      "q": "Minimum Size Subarray Sum: find the shortest contiguous subarray of positive numbers whose sum is at least a target.",
+      "a": "**Approach.** Grow the window on the right, adding numbers. As soon as the sum reaches the target, record the length, then shrink from the left for as long as the sum still reaches the target. This works because every number is **positive**: adding makes the sum bigger, removing makes it smaller.\n\n```python\ndef min_subarray_len(target, nums):\n    best = float(\"inf\")\n    total = left = 0\n    for right, x in enumerate(nums):\n        total += x\n        while total >= target:\n            best = min(best, right - left + 1)\n            total -= nums[left]\n            left += 1\n    return 0 if best == float(\"inf\") else best\n```\n\n**Complexity.** O(n) time (each index enters and leaves the window once), O(1) space. If negatives were allowed, this breaks; use prefix sums with a monotonic deque instead."
+    },
+    {
+      "q": "Trapping Rain Water: given bar heights, how much water is held between the bars after it rains?",
+      "a": "**Approach.** The water above a bar is `min(tallest bar to its left, tallest bar to its right) - its own height`. Computing those two maxima for every bar needs extra arrays. Two pointers avoid them: work from whichever side currently has the **lower** wall, because that side's water level is already decided by its own running maximum.\n\n```python\ndef trap(height):\n    lo, hi = 0, len(height) - 1\n    left_max = right_max = water = 0\n    while lo < hi:\n        if height[lo] < height[hi]:\n            left_max = max(left_max, height[lo])\n            water += left_max - height[lo]\n            lo += 1\n        else:\n            right_max = max(right_max, height[hi])\n            water += right_max - height[hi]\n            hi -= 1\n    return water\n```\n\n**Complexity.** O(n) time, O(1) space. The O(n)-space version with precomputed left and right maxima is a fine first answer if you are short on time: say it, then optimise."
+    }
+  ]
+}

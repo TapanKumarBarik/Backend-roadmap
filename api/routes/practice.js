@@ -1,17 +1,17 @@
-// The Practice Center and the Design Lab (docs/revamp/REVAMP_IMPLEMENTATION_PLAN.md, phases 5 and 6), and the notices and audit log
-// that go with the admin side of them.
+// The Practice Center (docs/revamp/REVAMP_IMPLEMENTATION_PLAN.md, phases 5 and 6), and the notices and audit log that go with the
+// admin side of it.
 //
-// What a quiz, exercise, interview set or challenge IS lives in git and is served from api/generated/practice-content.json. What a
-// person DID with one lives in the database: quiz attempts, and submissions with the reviews they got.
+// What a quiz, exercise or interview set (concepts, or coding questions) IS lives in git and is served from
+// api/generated/practice-content.json. What a person DID with one lives in the database: quiz attempts, and exercise submissions
+// with the reviews they got.
 //   - A quiz is read without its answers; it is scored here, on the server, so the answers never reach the browser before a try.
 //     Anyone can take one; a signed-in person's attempts are kept.
-//   - A submission is private to its author. Once submitted, its author may share it; only then can others read it. A challenge's
-//     reference solution is shown to someone who has submitted their own, and to an admin.
+//   - A submission is private to its author. Once submitted, its author may share it; only then can others read it.
 //   - Admins review submissions, write announcements and read the audit log; each of those is guarded on the server.
 
 import { createRouter } from '../lib/router.js';
 import { all, batch, first, run } from '../lib/d1.js';
-import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
+import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { audit } from '../lib/audit.js';
 import { timeId } from '../lib/util.js';
@@ -22,12 +22,11 @@ import incidentCatalogue from '../generated/incidents.json' with { type: 'json' 
 
 const router = createRouter();
 
-const LIMIT = { text: 20000, diagram: 20000, code: 30000, review: 5000, peer: 3000, title: 120, notice: 600 };
-const PEER = { min: 20, window: 60 * 60 * 1000, max: 20 }; // characters of feedback at least; and how much feedback an hour
+const LIMIT = { text: 20000, diagram: 20000, code: 30000, review: 5000, title: 120, notice: 600 };
 const ATTEMPTS = { window: 60 * 60 * 1000, max: 60 };
 const SAVES = { window: 10 * 60 * 1000, max: 120 };
 const MIN_SUBMISSION = 40; // characters of written answer before something can be submitted
-const KINDS = ['exercise', 'lld', 'hld'];
+const SUBMITTABLE = 'exercise'; // the one kind of practice item people hand work in for (the Design Lab's lld and hld are gone; their rows stay in the table, unread)
 
 const unauthenticated = (c) => c.json({ error: 'unauthenticated' }, 401);
 const notFound = (c) => c.json({ error: 'not found' }, 404);
@@ -37,11 +36,16 @@ const notFound = (c) => c.json({ error: 'not found' }, 404);
 /** What a list shows of an item: everything but the questions' answers and the long text. */
 const card = (slug, item, extra = {}) => ({ slug, title: item.title, topic: item.topic, difficulty: item.difficulty, module: item.module || null, ...extra });
 
+// Interview sets are of two sections: the concepts a backend interview asks about, and coding questions (an optional "section" in the file).
+const interviewCards = (section) => Object.entries(practice.interview)
+  .filter(([, i]) => (/** @type {{ section?: string }} */ (i).section || 'concepts') === section)
+  .map(([slug, i]) => card(slug, i, { questions: i.questions.length }));
+
 router.get('/practice/catalog', (c) => c.json({
   quizzes: Object.entries(practice.quizzes).map(([slug, q]) => card(slug, q, { description: q.description, questions: q.questions.length })),
   exercises: Object.entries(practice.exercises).map(([slug, e]) => card(slug, e, { description: e.brief })),
-  interview: Object.entries(practice.interview).map(([slug, i]) => card(slug, i, { questions: i.questions.length })),
-  challenges: Object.entries(practice.challenges).map(([key, ch]) => ({ key, kind: ch.kind, slug: key.split('/')[1], title: ch.title, summary: ch.summary, module: ch.module || null }))
+  interview: interviewCards('concepts'),
+  coding: interviewCards('coding')
 }));
 
 router.get('/practice/quizzes/:slug', (c) => {
@@ -61,26 +65,6 @@ router.get('/practice/exercises/:slug', (c) => {
 router.get('/practice/interview/:slug', (c) => {
   const item = practice.interview[c.req.param('slug')];
   return item ? c.json({ slug: c.req.param('slug'), ...item }) : notFound(c);
-});
-
-/** The challenge `kind/slug`, or null. The reference solution is left out; the route decides whether to add it. */
-const challengeOf = (kind, slug) => {
-  const key = `${kind}/${slug}`;
-  const item = practice.challenges[key];
-  return item ? { key, item } : null;
-};
-
-router.get('/practice/challenges/:kind/:slug', async (c) => {
-  const found = challengeOf(c.req.param('kind'), c.req.param('slug'));
-  if (!found) return notFound(c);
-  const { reference, ...open } = found.item;
-  const session = await getSession(c);
-  let unlocked = false;
-  if (session) {
-    unlocked = await isAdmin(c.env, session) || !!(await first(c.env,
-      "SELECT 1 AS yes FROM submissions WHERE user_id = ?1 AND kind = ?2 AND challenge_id = ?3 AND status != 'draft'", session.sub, found.item.kind, c.req.param('slug')));
-  }
-  return c.json({ slug: c.req.param('slug'), ...open, ...(unlocked ? { reference } : {}), referenceLocked: !unlocked });
 });
 
 /* ---------------------------------------------------------------------------------------------------------- quizzes */
@@ -161,28 +145,24 @@ router.get('/practice/attempts', async (c) => {
 /** A submission as its author sees it, with the reviews written about it. */
 async function mineShape(env, row) {
   const reviews = await all(env, 'SELECT id, text, created_at FROM submission_reviews WHERE submission_id = ?1 ORDER BY created_at', row.id);
-  const peers = await all(env, 'SELECT id, reviewer_name, text, created_at FROM peer_reviews WHERE submission_id = ?1 ORDER BY created_at', row.id);
   return {
     id: row.id, kind: row.kind, challenge: row.challenge_id, text: row.text, diagram: row.diagram, diagramUrl: row.diagram_url || null, code: row.code,
-    status: row.status, shared: !!row.shared, updatedAt: row.updated_at, submittedAt: row.submitted_at || null,
-    reviews: reviews.map((r) => ({ id: r.id, text: r.text, at: r.created_at })),
-    peerReviews: peers.map((r) => ({ id: r.id, by: r.reviewer_name, text: r.text, at: r.created_at }))
+    status: row.status, updatedAt: row.updated_at, submittedAt: row.submitted_at || null,
+    reviews: reviews.map((r) => ({ id: r.id, text: r.text, at: r.created_at }))
   };
 }
 
-/** Checks the :kind and :slug of a route against the content: { kind, slug } or null. Exercises are kind "exercise". */
+/** Checks the :kind and :slug of a route against the content: { kind, slug } or null. Only exercises take submissions. */
 function target(c) {
   const kind = c.req.param('kind');
   const slug = c.req.param('slug');
-  if (!KINDS.includes(kind)) return null;
-  const exists = kind === 'exercise' ? practice.exercises[slug] : practice.challenges[`${kind}/${slug}`];
-  return exists ? { kind, slug } : null;
+  return kind === SUBMITTABLE && practice.exercises[slug] ? { kind, slug } : null;
 }
 
 router.get('/practice/submissions', async (c) => {
   const session = await getSession(c);
   if (!session) return unauthenticated(c);
-  const rows = await all(c.env, 'SELECT * FROM submissions WHERE user_id = ?1 ORDER BY updated_at DESC LIMIT 100', session.sub);
+  const rows = await all(c.env, 'SELECT * FROM submissions WHERE user_id = ?1 AND kind = ?2 ORDER BY updated_at DESC LIMIT 100', session.sub, SUBMITTABLE);
   return c.json(await Promise.all(rows.map((r) => mineShape(c.env, r))));
 });
 
@@ -211,10 +191,9 @@ router.put('/practice/submissions/:kind/:slug', async (c) => {
 
   const now = new Date().toISOString();
   const existing = await first(c.env, 'SELECT id, status FROM submissions WHERE user_id = ?1 AND kind = ?2 AND challenge_id = ?3', session.sub, at.kind, at.slug);
-  const shared = body.shared === true && existing && existing.status !== 'draft' ? 1 : 0; // only what has been submitted can be shared
   if (existing) {
-    await run(c.env, 'UPDATE submissions SET text = ?1, diagram = ?2, diagram_url = ?3, code = ?4, shared = ?5, updated_at = ?6 WHERE id = ?7',
-      field('text', LIMIT.text), field('diagram', LIMIT.diagram), diagramUrl, field('code', LIMIT.code), shared, now, existing.id);
+    await run(c.env, 'UPDATE submissions SET text = ?1, diagram = ?2, diagram_url = ?3, code = ?4, updated_at = ?5 WHERE id = ?6',
+      field('text', LIMIT.text), field('diagram', LIMIT.diagram), diagramUrl, field('code', LIMIT.code), now, existing.id);
   } else {
     await run(c.env, 'INSERT INTO submissions (id, user_id, kind, challenge_id, text, diagram, diagram_url, code, status, shared, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \'draft\', 0, ?9, ?9)',
       timeId(4), session.sub, at.kind, at.slug, field('text', LIMIT.text), field('diagram', LIMIT.diagram), diagramUrl, field('code', LIMIT.code), now);
@@ -245,57 +224,6 @@ router.delete('/practice/submissions/:kind/:slug', async (c) => {
   return c.body(null, 204);
 });
 
-// What others chose to share for a challenge or an exercise: only submitted, shared work, under the author's public name.
-router.get('/practice/submissions/:kind/:slug/shared', async (c) => {
-  const at = target(c);
-  if (!at) return notFound(c);
-  const session = await getSession(c);
-  const rows = await all(c.env,
-    `SELECT s.id, s.user_id, s.text, s.diagram, s.diagram_url, s.code, s.submitted_at, a.handle AS handle, a.name AS author_name
-       FROM submissions s LEFT JOIN author_profiles a ON a.user_id = s.user_id
-      WHERE s.kind = ?1 AND s.challenge_id = ?2 AND s.shared = 1 AND s.status != 'draft' ORDER BY s.submitted_at DESC LIMIT 50`, at.kind, at.slug);
-  const peers = rows.length
-    ? await all(c.env, `SELECT id, submission_id, reviewer_id, reviewer_name, text, created_at FROM peer_reviews WHERE submission_id IN (${rows.map((_, i) => `?${i + 1}`).join(', ')}) ORDER BY created_at`, ...rows.map((r) => r.id))
-    : [];
-  return c.json(rows.map((r) => ({
-    id: r.id, text: r.text, diagram: r.diagram, diagramUrl: r.diagram_url || null, code: r.code, at: r.submitted_at, author: r.handle ? { handle: r.handle, name: r.author_name } : null,
-    own: !!session && r.user_id === session.sub, // so the page does not offer feedback on your own solution
-    peerReviews: peers.filter((p) => p.submission_id === r.id).map((p) => ({ id: p.id, by: p.reviewer_name, text: p.text, at: p.created_at, mine: !!session && p.reviewer_id === session.sub }))
-  })));
-});
-
-// Feedback on someone else's shared solution. Only on work that is submitted and shared, never on your own, and rate-limited.
-router.post('/practice/submissions/:id/peer-reviews', async (c) => {
-  const session = await getSession(c);
-  if (!session) return unauthenticated(c);
-  const row = await first(c.env, "SELECT id, user_id FROM submissions WHERE id = ?1 AND shared = 1 AND status != 'draft'", c.req.param('id'));
-  if (!row) return notFound(c);
-  if (row.user_id === session.sub) return c.json({ error: 'you cannot review your own solution' }, 403);
-  let body;
-  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
-  const text = typeof body.text === 'string' ? body.text.trim() : '';
-  if (text.length < PEER.min) return c.json({ error: `say a little more: at least ${PEER.min} characters` }, 400);
-  if (text.length > LIMIT.peer) return c.json({ error: `too long: at most ${LIMIT.peer} characters` }, 400);
-  if (!await checkRateLimit(c.env, session.sub, 'peer-review', PEER.window, PEER.max)) return c.json({ error: 'too many reviews: try again later' }, 429);
-  const id = timeId(4);
-  const now = new Date().toISOString();
-  await run(c.env, 'INSERT INTO peer_reviews (id, submission_id, reviewer_id, reviewer_name, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)', id, row.id, session.sub, session.name || 'A learner', text, now);
-  return c.json({ id, by: session.name || 'A learner', text, at: now, mine: true }, 201);
-});
-
-// A review is taken back by whoever wrote it, or removed by an admin (which is written to the audit log).
-router.delete('/practice/peer-reviews/:id', async (c) => {
-  const session = await getSession(c);
-  if (!session) return unauthenticated(c);
-  const row = await first(c.env, 'SELECT id, reviewer_id FROM peer_reviews WHERE id = ?1', c.req.param('id'));
-  if (!row) return notFound(c);
-  const own = row.reviewer_id === session.sub;
-  if (!own && !(await isAdmin(c.env, session))) return c.json({ error: 'forbidden' }, 403);
-  await run(c.env, 'DELETE FROM peer_reviews WHERE id = ?1', row.id);
-  if (!own) await audit(c.env, session, 'peer review removed', row.id);
-  return c.body(null, 204);
-});
-
 /* ---------------------------------------------------------------------------------------------------------- notices */
 
 router.get('/announcements', async (c) => {
@@ -312,11 +240,11 @@ router.get('/manage/submissions', async (c) => {
   const status = ['draft', 'submitted', 'reviewed'].includes(c.req.query('status') || '') ? c.req.query('status') : 'submitted';
   const rows = await all(c.env,
     `SELECT s.*, a.handle AS handle, a.name AS author_name, (SELECT COUNT(*) FROM submission_reviews r WHERE r.submission_id = s.id) AS reviews
-       FROM submissions s LEFT JOIN author_profiles a ON a.user_id = s.user_id WHERE s.status = ?1 ORDER BY s.updated_at DESC LIMIT 100`, status);
+       FROM submissions s LEFT JOIN author_profiles a ON a.user_id = s.user_id WHERE s.status = ?1 AND s.kind = ?2 ORDER BY s.updated_at DESC LIMIT 100`, status, SUBMITTABLE);
   return c.json(rows.map((r) => ({
     id: r.id, kind: r.kind, challenge: r.challenge_id,
-    title: (r.kind === 'exercise' ? practice.exercises[r.challenge_id] : practice.challenges[`${r.kind}/${r.challenge_id}`])?.title || r.challenge_id,
-    text: r.text, diagram: r.diagram, diagramUrl: r.diagram_url || null, code: r.code, status: r.status, shared: !!r.shared, at: r.updated_at,
+    title: practice.exercises[r.challenge_id]?.title || r.challenge_id,
+    text: r.text, diagram: r.diagram, diagramUrl: r.diagram_url || null, code: r.code, status: r.status, at: r.updated_at,
     reviews: r.reviews, author: r.handle ? { handle: r.handle, name: r.author_name } : null
   })));
 });
@@ -350,7 +278,7 @@ router.get('/manage/practice/stats', async (c) => {
   return c.json({
     quizzes: Object.entries(practice.quizzes).map(([slug, q]) => ({ slug, title: q.title, questions: q.questions.length, tries: byQuiz.get(slug)?.tries || 0, people: byQuiz.get(slug)?.people || 0, average: byQuiz.get(slug) ? Math.round(byQuiz.get(slug).average * 100) : null })),
     submissions: Object.fromEntries(subs.map((r) => [r.status, r.n])),
-    content: { quizzes: Object.keys(practice.quizzes).length, exercises: Object.keys(practice.exercises).length, interview: Object.keys(practice.interview).length, challenges: Object.keys(practice.challenges).length }
+    content: { quizzes: Object.keys(practice.quizzes).length, exercises: Object.keys(practice.exercises).length, interview: Object.keys(practice.interview).length }
   });
 });
 

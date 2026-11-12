@@ -7,8 +7,7 @@ import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import SubmissionWorkspace from './SubmissionWorkspace.jsx';
 
-// An exercise: the brief and what to hand in, and the workspace to write the answer (a written answer and optional code; the
-// diagrams of the Design Lab are not asked for here).
+// An exercise: the brief and what to hand in, and the workspace to write the answer (a written answer and optional code).
 export default function ExerciseView({ slug, onBack, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const { data: exercise, error, reload } = useLoader(() => fetchExercise(slug), [slug]);
   usePageTitle(exercise && exercise.title);
@@ -27,7 +26,7 @@ export default function ExerciseView({ slug, onBack, onOpenFile, user, onLogin, 
           <h3>What to hand in</h3>
           <ul className="pr-list">{exercise.deliverables.map((d) => <li key={d}>{d}</li>)}</ul>
           <h3>Your work</h3>
-          <SubmissionWorkspace kind="exercise" slug={slug} diagrams={false} user={user} onLogin={onLogin} onToast={onToast} />
+          <SubmissionWorkspace kind="exercise" slug={slug} user={user} onLogin={onLogin} onToast={onToast} />
         </>
       )}
     </div>

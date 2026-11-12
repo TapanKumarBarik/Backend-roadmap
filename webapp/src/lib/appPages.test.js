@@ -24,9 +24,9 @@ test('anything else is not one of these pages', () => {
   }
 });
 
-test('an old prefix opens the same screen, and the address written is its own', () => {
-  assert.deepEqual(pageFromPathname('/lab/lld/parking-lot/'), { path: '__lab', heading: 'lld/parking-lot' });
-  assert.equal(pageUrl('__lab', 'lld/parking-lot'), '/design-lab/lld/parking-lot/');
+test('the Design Lab is gone: its addresses are not pages (the server redirects them)', () => {
+  for (const pathname of ['/design-lab/', '/design-lab/lld/parking-lot/', '/lab/', '/lab/hld/url-shortener/']) assert.equal(pageFromPathname(pathname), null, pathname);
+  assert.equal(pageUrl('__lab', 'lld/parking-lot'), null);
 });
 
 test('a route is turned back into its address, and the two agree', () => {
@@ -56,7 +56,7 @@ test('no curriculum has a folder named like a page, so an address is never both'
   const taken = new Set(PAGES.flatMap((page) => [page.prefix, ...(page.aliases || [])]));
   for (const curriculum of site.content.curricula) assert.ok(!taken.has(curriculum), `${curriculum} is also a page prefix`);
   // Only the curricula are published as addresses (scripts/build/copy-content.mjs); the other folders of content/ (the practice
-  // items, the design challenges) are data that the build reads, so a folder of one of those named like a page is no clash.
+  // items) are data that the build reads, so a folder of one of those named like a page is no clash.
   const content = fileURLToPath(new URL(`../../../${site.content.dir}/`, import.meta.url));
   for (const entry of fs.readdirSync(content)) {
     if (site.content.curricula.includes(entry)) assert.ok(!taken.has(entry), `${site.content.dir}/${entry} is also a page prefix`);

@@ -1,4 +1,4 @@
-// The Practice Center, the Design Lab and the notices, as the screens use them (api/routes/practice.js). Every failure is an
+// The Practice Center and the notices, as the screens use them (api/routes/practice.js). Every failure is an
 // ApiError (lib/errors.js), so a screen can say what really happened.
 
 import { apiError } from './errors.js';
@@ -13,7 +13,7 @@ const send = (method, url, body) => fetch(url, {
   body: body === undefined ? undefined : JSON.stringify(body)
 });
 
-/** Everything there is to practise: { quizzes, exercises, interview, challenges }, as cards (no answers, no long text). */
+/** Everything there is to practise: { quizzes, exercises, interview, coding }, as cards (no answers, no long text). */
 // The catalog is the same for everyone and changes only with a deploy, and a lesson, the dashboard and the Practice Center all ask for it:
 // it is fetched once per visit, and asked for again only after a failure.
 let catalog = null;
@@ -40,21 +40,12 @@ export const fetchQuizAttempts = async () => answer(await fetch('/api/practice/a
 export const fetchExercise = async (slug) => answer(await fetch(`/api/practice/exercises/${encodeURIComponent(slug)}`), 'failed to load the exercise');
 export const fetchInterviewSet = async (slug) => answer(await fetch(`/api/practice/interview/${encodeURIComponent(slug)}`), 'failed to load the questions');
 
-/** A design challenge, with `reference` only when the reader has submitted their own (else `referenceLocked`). */
-export const fetchChallenge = async (kind, slug) => answer(await fetch(`/api/practice/challenges/${kind}/${encodeURIComponent(slug)}`), 'failed to load the challenge');
-
-/** The reader's work on an exercise (kind "exercise") or a challenge: { submission } or { submission: null }. */
+/** The reader's work on an exercise (kind "exercise"): the submission, or null. */
 export const fetchMySubmission = async (kind, slug) => (await answer(await fetch(`/api/practice/submissions/${kind}/${encodeURIComponent(slug)}`), 'failed to load your work')).submission;
 export const fetchMySubmissions = async () => answer(await fetch('/api/practice/submissions'), 'failed to load your submissions');
 export const saveSubmission = async (kind, slug, fields) => (await answer(await send('PUT', `/api/practice/submissions/${kind}/${encodeURIComponent(slug)}`, fields), 'failed to save')).submission;
 export const submitSubmission = async (kind, slug) => (await answer(await send('POST', `/api/practice/submissions/${kind}/${encodeURIComponent(slug)}/submit`), 'failed to submit')).submission;
 export const deleteSubmission = async (kind, slug) => answer(await send('DELETE', `/api/practice/submissions/${kind}/${encodeURIComponent(slug)}`), 'failed to delete');
-/** What others chose to share: [{ id, text, diagram, diagramUrl, code, at, author }]. */
-/** Feedback on someone else's shared solution (it must be at least a sentence). Resolves with the review. */
-export const addPeerReview = async (submissionId, text) => answer(await send('POST', `/api/practice/submissions/${encodeURIComponent(submissionId)}/peer-reviews`, { text }), 'failed to send the feedback');
-export const deletePeerReview = async (id) => answer(await send('DELETE', `/api/practice/peer-reviews/${encodeURIComponent(id)}`), 'failed to remove the feedback');
-
-export const fetchSharedSubmissions = async (kind, slug) => answer(await fetch(`/api/practice/submissions/${kind}/${encodeURIComponent(slug)}/shared`), 'failed to load shared solutions');
 
 /** The notices that are on now: [{ id, title, body }]. */
 export const fetchAnnouncements = async () => answer(await fetch('/api/announcements'), 'failed to load notices');

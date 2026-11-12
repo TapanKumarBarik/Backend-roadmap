@@ -1,25 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { deleteSubmission, fetchMySubmission, saveSubmission, submitSubmission } from '../../lib/practiceApi.js';
-import { uploadArticleImage } from '../../lib/blogApi.js';
 import { friendlyMessage } from '../../lib/errors.js';
-import { PEER, WORKSPACE } from '../../config/practice.js';
+import { WORKSPACE } from '../../config/practice.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { Button } from '../ui/Button.jsx';
 import { useConfirm } from '../ui/Dialog.jsx';
 import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
-import MermaidPreview from './MermaidPreview.jsx';
 
-// The place a person does the work of an exercise or a design challenge: their written answer, a Mermaid diagram (drawn as they
-// type) or an uploaded picture of one, and optional code. It is saved as they write (a draft nobody else can see), submitted when
-// they are ready, and shared only if they choose. Once an admin has reviewed it, the review is here.
+// The place a person does the work of an exercise: their written answer and optional code. It is saved as they write (a draft nobody
+// else can see) and submitted when they are ready. Once an admin has reviewed it, the review is here.
 //
-//   kind   'exercise', 'lld' or 'hld'      slug   the exercise's or the challenge's
-//   diagrams   false for an exercise: a written answer and code are enough
+//   kind   'exercise'      slug   the exercise's
 const SAVE_PAUSE_MS = 1200;
-const EMPTY = { text: '', diagram: '', diagramUrl: '', code: '', shared: false };
+const EMPTY = { text: '', code: '' };
 
-export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast, diagrams = true, onSubmitted }) {
+export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast, onSubmitted }) {
   const confirm = useConfirm();
   // `loaded` is null until the server has answered; its `submission` is then the reader's work, or null when they have none yet.
   const { data: loaded, setData: setLoaded, error, reload } = useLoader(async () => ({ submission: await fetchMySubmission(kind, slug) }), [kind, slug], { enabled: !!user });
@@ -39,7 +35,7 @@ export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast
     const key = `${kind}/${slug}`;
     if (loadedFor.current === key) return;
     loadedFor.current = key;
-    setFields(saved ? { text: saved.text, diagram: saved.diagram, diagramUrl: saved.diagramUrl || '', code: saved.code, shared: saved.shared } : EMPTY);
+    setFields(saved ? { text: saved.text, code: saved.code } : EMPTY);
     setStatus('saved');
   }, [saved, error, kind, slug]);
 
@@ -81,12 +77,6 @@ export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast
     }
   }
 
-  async function upload(file) {
-    if (!file) return;
-    setBusy('upload');
-    try { edit({ diagramUrl: (await uploadArticleImage(file)).url }); } catch (err) { setProblem(friendlyMessage(err)); } finally { setBusy(''); }
-  }
-
   async function discard() {
     if (!(await confirm({ title: 'Delete your work on this?', body: 'Your draft, and any review of it, will be removed. This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
@@ -119,40 +109,10 @@ export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast
         <textarea rows={10} value={fields.text} maxLength={20000} onChange={(e) => edit({ text: e.target.value })} />
       </label>
 
-      {diagrams && (
-        <>
-          <label className="pr-field">
-            <span className="pr-field__label">{WORKSPACE.diagramLabel}</span>
-            <span className="pr-field__help">{WORKSPACE.diagramHelp}</span>
-            <textarea className="pr-mono" rows={8} spellCheck={false} value={fields.diagram} maxLength={20000} onChange={(e) => edit({ diagram: e.target.value })} />
-          </label>
-          <MermaidPreview source={fields.diagram} />
-          <div className="pr-upload">
-            <label className="ui-btn ui-btn--secondary ui-btn--md pr-file">
-              <span className="ui-btn__label">{busy === 'upload' ? 'Uploading…' : fields.diagramUrl ? 'Change the diagram picture' : 'Upload a diagram picture'}</span>
-              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} />
-            </label>
-            {fields.diagramUrl && (
-              <>
-                <img className="pr-upload__img" src={fields.diagramUrl} alt="Your uploaded diagram" />
-                <Button size="sm" variant="ghost" onClick={() => edit({ diagramUrl: '' })}>Remove picture</Button>
-              </>
-            )}
-          </div>
-        </>
-      )}
-
       <label className="pr-field">
         <span className="pr-field__label">{WORKSPACE.codeLabel}</span>
         <textarea className="pr-mono" rows={8} spellCheck={false} value={fields.code} maxLength={30000} onChange={(e) => edit({ code: e.target.value })} />
       </label>
-
-      {submitted && (
-        <label className="pr-check">
-          <input type="checkbox" checked={fields.shared} onChange={(e) => edit({ shared: e.target.checked })} />
-          <span><strong>{WORKSPACE.shareLabel}</strong><small>{WORKSPACE.shareHelp}</small></span>
-        </label>
-      )}
 
       {problem && <p className="ui-field__error" role="alert">{problem}</p>}
       {submitted && !problem && <p className="pr-note">{WORKSPACE.submitted}</p>}
@@ -161,13 +121,6 @@ export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast
         <section className="pr-reviews" aria-label="Reviews of your work">
           <h3>Review</h3>
           {saved.reviews.map((r) => <blockquote key={r.id}><p>{r.text}</p><footer>{new Date(r.at).toLocaleDateString()}</footer></blockquote>)}
-        </section>
-      )}
-
-      {saved && saved.peerReviews && saved.peerReviews.length > 0 && (
-        <section className="pr-reviews" aria-label={PEER.fromOthers}>
-          <h3>{PEER.fromOthers}</h3>
-          {saved.peerReviews.map((r) => <blockquote key={r.id}><p className="pr-pre">{r.text}</p><footer>{r.by} · {new Date(r.at).toLocaleDateString()}</footer></blockquote>)}
         </section>
       )}
 
