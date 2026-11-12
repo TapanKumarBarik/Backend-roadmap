@@ -2,6 +2,8 @@
 content/learn/CURRICULUM-BUILD-STATUS.md
 NEW-TOPICS-STATUS.md
 content/lld/STATUS.md
+# The owner's money plan stays on this machine, never in the repository.
+docs/MONETIZATION.md
 
 # Dependencies and caches.
 node_modules/
