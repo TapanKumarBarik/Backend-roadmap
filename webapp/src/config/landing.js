@@ -12,7 +12,7 @@ const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
 // pre-render step): the description under the title in a search result, with the real count, and the line that names
 // who is behind the site.
 export const HOME_META = {
-  description: (modules) => `Free, hands-on curriculum for backend engineering, system design, cloud and GenAI: ${modules ? `${fmt(modules.written)} modules` : 'hundreds of modules'} with runnable code, progress tracking and notes.`,
+  description: (modules) => `Free curriculum for backend, system design, ML, neural networks, cloud and GenAI: ${modules ? `${fmt(modules.written)} modules` : 'hundreds of modules'} with code, progress and notes.`,
   credit: (name) => `Created and maintained by ${name}.`
 };
 

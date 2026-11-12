@@ -3,8 +3,8 @@
     "name": "Backend Roadmap",
     "url": "https://backendroadmap.com",
     "license": "All rights reserved",
-    "title": "Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum",
-    "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI, with progress tracking, notes and discussion.",
+    "title": "Backend Roadmap — Backend, System Design, ML, Neural Networks & GenAI",
+    "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, machine learning, neural networks, Linux, low-level design and GenAI.",
     "logo": "/icon-512.png",
     "socialImage": "/og-image.png"
   },
@@ -45,6 +45,8 @@
     "curricula": [
       "backend",
       "system-design",
+      "ml",
+      "neural-networks",
       "genai",
       "learn",
       "lld"
@@ -121,6 +123,73 @@
         "short": "System design",
         "blurb": "Short lectures on requirements, scaling, latency, availability, CAP and consistency. Each has a video on YouTube and the written version beside it.",
         "groups": []
+      },
+      "ml": {
+        "label": "Machine Learning",
+        "short": "Machine Learning",
+        "blurb": "NumPy, Pandas, Polars and EDA, math foundations, supervised and ensemble models, feature stores, unsupervised learning, time series, RecSys, RL and MLOps.",
+        "groups": [
+          {
+            "label": "Data stack, EDA and math",
+            "tracks": [
+              "00-python-data-stack-and-eda",
+              "01-ml-foundations-and-evaluation",
+              "02-math-for-machine-learning"
+            ]
+          },
+          {
+            "label": "Classical supervised",
+            "tracks": [
+              "03-linear-models-and-svm",
+              "04-decision-trees-and-gradient-boosting"
+            ]
+          },
+          {
+            "label": "Data and applied ML",
+            "tracks": [
+              "05-feature-engineering-and-feature-stores",
+              "06-unsupervised-learning-and-anomaly-detection",
+              "07-time-series-forecasting",
+              "08-recommender-systems-and-ranking"
+            ]
+          },
+          {
+            "label": "RL and production MLOps",
+            "tracks": [
+              "09-reinforcement-learning-and-bandits",
+              "10-mlops-serving-drift-and-experimentation"
+            ]
+          }
+        ]
+      },
+      "neural-networks": {
+        "label": "Neural Networks",
+        "short": "Neural Networks",
+        "blurb": "Perceptrons and backpropagation from scratch, PyTorch training and optimization, CNNs, RNNs, autoencoders, VAEs, GANs, diffusion models, GNNs and deployment.",
+        "groups": [
+          {
+            "label": "Core theory and PyTorch",
+            "tracks": [
+              "00-perceptrons-mlps-and-backpropagation",
+              "01-optimization-regularization-and-pytorch"
+            ]
+          },
+          {
+            "label": "Vision and sequences",
+            "tracks": [
+              "02-convolutional-neural-networks-and-vision",
+              "03-recurrent-networks-and-sequence-models"
+            ]
+          },
+          {
+            "label": "Generative, graphs and serving",
+            "tracks": [
+              "04-autoencoders-vaes-gans-and-diffusion",
+              "05-graph-neural-networks-and-vision-transformers",
+              "06-neural-network-performance-and-deployment"
+            ]
+          }
+        ]
       },
       "genai": {
         "label": "GenAI Engineering",

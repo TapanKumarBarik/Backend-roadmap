@@ -3,7 +3,7 @@
 // lesson is tagged with, then run `npm run index` to see the result.
 //
 // Every indexed .md file gets tags from four independent sources, so no file can end up untagged:
-//   1. curriculum - the top-level folder (backend / learn / lld / genai / system-design)
+//   1. curriculum - the top-level folder (backend / learn / lld / genai / ml / neural-networks / system-design)
 //   2. track      - the track folder's name, mapped to a short canonical tag
 //   3. content    - the keyword vocabulary below, scored by weighted frequency
 //   4. format     - structural signals (capstone, quiz, exercises, code fences)
@@ -13,6 +13,8 @@ export const CURRICULUM_TAGS = {
   'backend': 'backend',
   'learn': 'infrastructure',
   'lld': 'low-level-design',
+  'ml': 'machine-learning',
+  'neural-networks': 'neural-networks',
   'genai': 'genai',
   'system-design': 'system-design',
 };
@@ -20,7 +22,27 @@ export const CURRICULUM_TAGS = {
 // 2. track folder name -> canonical tag(s). Keyed by a substring of the track folder name; the matcher stops at
 // the first key that is a substring, so order matters.
 export const TRACK_TAGS = {
-  // genai/ -- listed first because the matcher breaks on the first key that
+  // ml/ -- placed before backend/ & learn/ so substrings like "pipeline" or "testing" never misclassify
+  'python-data-stack-and-eda': ['python', 'numpy', 'pandas', 'eda'],
+  'ml-foundations-and-evaluation': ['machine-learning', 'fundamentals', 'evaluation'],
+  'math-for-machine-learning': ['machine-learning', 'math'],
+  'linear-models-and-svm': ['machine-learning', 'supervised-learning'],
+  'decision-trees-and-gradient-boosting': ['machine-learning', 'gradient-boosting', 'trees'],
+  'feature-engineering-and-feature-stores': ['machine-learning', 'feature-engineering', 'mlops'],
+  'unsupervised-learning-and-anomaly-detection': ['machine-learning', 'unsupervised-learning', 'clustering'],
+  'time-series-forecasting': ['machine-learning', 'time-series', 'forecasting'],
+  'recommender-systems-and-ranking': ['machine-learning', 'recsys', 'ranking'],
+  'reinforcement-learning-and-bandits': ['machine-learning', 'reinforcement-learning'],
+  'mlops-serving-drift-and-experimentation': ['machine-learning', 'mlops', 'model-serving'],
+  // neural-networks/
+  'perceptrons-mlps-and-backpropagation': ['neural-networks', 'deep-learning', 'backpropagation'],
+  'optimization-regularization-and-pytorch': ['neural-networks', 'pytorch', 'deep-learning'],
+  'convolutional-neural-networks-and-vision': ['neural-networks', 'computer-vision', 'cnn'],
+  'recurrent-networks-and-sequence-models': ['neural-networks', 'sequence-models', 'rnn'],
+  'autoencoders-vaes-gans-and-diffusion': ['neural-networks', 'generative-models', 'diffusion'],
+  'graph-neural-networks-and-vision-transformers': ['neural-networks', 'gnn', 'vision-transformers'],
+  'neural-network-performance-and-deployment': ['neural-networks', 'pytorch', 'model-serving'],
+  // genai/ -- listed before learn/ and backend/ because some slugs contain overlapping words
   // is a substring of the track slug, and several genai slugs would
   // otherwise be captured by a broader learn/ or backend/ key
   // ("15-evaluation-observability-and-safety" contains "observability").
@@ -233,6 +255,22 @@ export const VOCABULARY = {
   'ai-safety': /\b(guardrail|prompt injection|jailbreak|content filter|safety filter|alignment|refusal)\b/gi,
   'speech': /\b(speech (recognition|to.text)|whisper|text.to.speech|\btts\b|\bstt\b|\basr\b|spectrogram|diariz)\b/gi,
   'multimodal': /\b(multimodal|vision (model|encoder)|image input|\bocr\b|video understanding)\b/gi,
+  // --- ml / neural networks ---------------------------------------------
+  'numpy': /\b(numpy|ndarray|broadcasting|vectoriz(e|ation)|np\.)\b/gi,
+  'pandas': /\b(pandas|polars|dataframe|groupby|parquet|lazyframe)\b/gi,
+  'eda': /\b(exploratory data analysis|\beda\b|matplotlib|seaborn|missingness|correlation matrix)\b/gi,
+  'machine-learning': /\b(machine learning|supervised learning|unsupervised learning|scikit.learn|sklearn|cross.validation|bias.variance)\b/gi,
+  'gradient-boosting': /\b(gradient boost(ing|ed)|xgboost|lightgbm|catboost|random forest|decision tree)\b/gi,
+  'feature-engineering': /\b(feature engineering|feature store|target encoding|training.serving skew|point.in.time join)\b/gi,
+  'time-series': /\b(time series|arima|sarima|seasonality|autocorrelation|forecasting)\b/gi,
+  'recsys': /\b(recommender|collaborative filtering|matrix factorization|learning.to.rank|two.tower|ndcg)\b/gi,
+  'reinforcement-learning': /\b(reinforcement learning|markov decision|multi.armed bandit|q.learning|policy gradient|\bpp[o0]\b)\b/gi,
+  'mlops': /\b(mlops|mlflow|model registry|data drift|concept drift|shadow deploy)\b/gi,
+  'neural-networks': /\b(neural network|perceptron|backpropagation|activation function|batch.?norm|layer.?norm|autograd)\b/gi,
+  'pytorch': /\b(pytorch|torch\.nn|dataloader|torch\.compile|tensor)\b/gi,
+  'computer-vision': /\b(convolutional|resnet|yolo|semantic segmentation|vision transformer|image classification)\b/gi,
+  'diffusion': /\b(diffusion model|variational autoencoder|\bvae\b|generative adversarial|\bgan\b|\bddpm\b)\b/gi,
+  'gnn': /\b(graph neural network|message passing|graph convolutional|graph attention)\b/gi,
 };
 
 export const MIN_SCORE = 4; // weighted hits needed before a content tag is kept
