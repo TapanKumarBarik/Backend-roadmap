@@ -300,7 +300,9 @@ test('the daily drill is five questions, each answered and explained on the spot
 });
 
 test('the pages a search engine or a reader without JavaScript gets: a problem has its statement and starting code but never its solution, and the drill is not indexed', async () => {
-  const get = async (path) => { const res = await fetch(`${BASE}${path}`); return { status: res.status, html: await res.text() }; };
+  // The browser's own requests, not Node's fetch (which can fail to reach "localhost" where only one of its two addresses is served).
+  const requests = await browser.newContext();
+  const get = async (path) => { const res = await requests.request.get(BASE + path); return { status: res.status(), html: await res.text() }; };
   const page = await get(`/practice/code/${SLUG}/`);
   assert.equal(page.status, 200);
   assert.match(page.html, /<h1>Two Sum: Python practice problem<\/h1>/);
@@ -317,4 +319,5 @@ test('the pages a search engine or a reader without JavaScript gets: a problem h
   assert.ok(sitemap.includes(`/practice/code/${SLUG}/</loc>`), 'a problem is in the sitemap');
   assert.ok(!sitemap.includes('/practice/drill/'), 'the drill is not');
   assert.match((await get('/practice/')).html, new RegExp(`href="/practice/code/${SLUG}/"`), 'and the list of practice links to it');
+  await requests.close();
 });
