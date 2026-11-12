@@ -37,6 +37,12 @@ runs:
       shell: bash
       run: npm run check:code
 
+    # A SQL problem has to give the tables it expects: its model solution is run on the problem's data and on each variant of it, with the engine and
+    # the code the browser uses (scripts/check/check-sql-problems.mjs), and the starting query must not already be the answer.
+    - name: Check the SQL problems
+      shell: bash
+      run: npm run check:sql
+
     - name: Lint
       shell: bash
       run: npm run lint

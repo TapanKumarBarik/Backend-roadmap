@@ -3,12 +3,12 @@ import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { useCodeDraft } from '../../hooks/useCodeDraft.js';
 import { fetchCodeProblem, fetchCodeSolution } from '../../lib/practiceApi.js';
-import { acquire, runTests, warm } from '../../lib/practice/pyRunner.js';
+import { engineOf } from '../../lib/practice/engines.js';
 import { codeKey } from '../../lib/practice/progressKeys.js';
 import { groupByTopic, nextProblem } from '../../lib/practice/codeProgress.js';
-import { isCase, testParts } from '../../lib/practice/validate.js';
+import { isCase } from '../../lib/practice/validate.js';
 import { DIFFICULTY } from '../../config/practice.js';
-import { CODE, CODE_TOPICS, DISCUSS, RUNNER } from '../../config/code.js';
+import { CODE, CODE_TOPICS, DISCUSS, RUNNER, SQL, SQL_CODE, SQL_RUNNER } from '../../config/code.js';
 import { COMMENT_MAX_CHARS, problemCommentPath } from '../../lib/blog/limits.js';
 import { sharedCode } from '../../lib/commentText.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -18,15 +18,18 @@ import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ContentMarkdown from './ContentMarkdown.jsx';
 import CodeEditor from './CodeEditor.jsx';
+import ResultTable from './ResultTable.jsx';
+import SqlSchema from './SqlSchema.jsx';
 
 // The discussion is shut until it is asked for (or the problem is solved), so it is fetched only then.
 const CommentsSection = lazy(() => import('../article/CommentsSection.jsx'));
 
 // One coding problem, solved in the page: the statement and its hints on one side, an editor on the other, and below it the results of running the
-// learner's Python against the problem's tests (lib/practice/pyRunner.js, in a worker). A problem solved is saved as a progress mark like a module is
+// learner's Python against the problem's tests (lib/practice/pyRunner.js, in a worker), or of running their SQL query on the problem's tables
+// (lib/practice/sqlJudge.js; lib/practice/engines.js says which). A problem solved is saved as a progress mark like a module is
 // (lib/practice/progressKeys.js), which is what gives XP, keeps the streak and follows the account.
 const levels = Object.keys(DIFFICULTY);
-const fence = (code) => `\`\`\`python\n${code.replace(/\n$/, '')}\n\`\`\``;
+const fence = (code, language) => `\`\`\`${language}\n${code.replace(/\n$/, '')}\n\`\`\``;
 
 function TestList({ results }) {
   return (
@@ -45,43 +48,44 @@ function TestList({ results }) {
   );
 }
 
-function Results({ phase, current, outcome, boot, onRetry }) {
+/** `words` is what the screen says (CODE, or CODE with SQL_CODE over it for a SQL problem); `timeoutMs` is how long the engine of the problem is given. */
+function Results({ phase, current, outcome, boot, onRetry, words, timeoutMs }) {
   if (phase === 'running') {
     return (
       <div className="cp-results" role="status" aria-live="polite">
-        <p className="cp-wait"><span className="cp-spinner" aria-hidden="true" />{boot === 'booting' ? CODE.starting : CODE.running}</p>
-        {boot === 'booting' ? <p className="cp-note">{CODE.startingNote}</p> : current && <p className="cp-note"><code>{current}</code></p>}
+        <p className="cp-wait"><span className="cp-spinner" aria-hidden="true" />{boot === 'booting' ? words.starting : words.running}</p>
+        {boot === 'booting' ? <p className="cp-note">{words.startingNote}</p> : current && <p className="cp-note"><code>{current}</code></p>}
       </div>
     );
   }
-  if (boot === 'unsupported') return <div className="cp-results"><p className="cp-problem"><WarningIcon aria-hidden="true" /> {CODE.unsupported}</p></div>;
+  if (boot === 'unsupported') return <div className="cp-results"><p className="cp-problem"><WarningIcon aria-hidden="true" /> {words.unsupported}</p></div>;
   if (!outcome && boot === 'broken') {
     return (
       <div className="cp-results">
-        <p className="cp-problem"><WarningIcon aria-hidden="true" /> {CODE.broken}</p>
-        <Button size="sm" onClick={onRetry}>{CODE.retry}</Button>
+        <p className="cp-problem"><WarningIcon aria-hidden="true" /> {words.broken}</p>
+        <Button size="sm" onClick={onRetry}>{words.retry}</Button>
       </div>
     );
   }
-  if (!outcome) return <div className="cp-results" role="status" aria-live="polite"><p className="cp-note">{CODE.idle}</p></div>;
+  if (!outcome) return <div className="cp-results" role="status" aria-live="polite"><p className="cp-note">{words.idle}</p></div>;
 
   if (outcome.error) {
     const { kind, detail } = outcome.error;
-    const text = kind === 'timeout' ? CODE.timeout(RUNNER.timeoutMs / 1000, detail) : kind === 'broken' ? CODE.broken : kind === 'unsupported' ? CODE.unsupported : kind === 'stack' ? CODE.stack : CODE.crashed(detail || outcome.error.message);
+    const text = kind === 'timeout' ? words.timeout(timeoutMs / 1000, detail) : kind === 'broken' ? words.broken : kind === 'unsupported' ? words.unsupported : kind === 'stack' ? words.stack : words.crashed(detail || outcome.error.message);
     return (
       <div className="cp-results" role="status" aria-live="polite">
         <p className="cp-problem"><WarningIcon aria-hidden="true" /> {text}</p>
-        {kind === 'broken' && <Button size="sm" onClick={onRetry}>{CODE.retry}</Button>}
+        {kind === 'broken' && <Button size="sm" onClick={onRetry}>{words.retry}</Button>}
       </div>
     );
   }
 
   const { result } = outcome;
-  const out = result.stdout ? <><h4 className="cp-sub">{CODE.printed}</h4><pre className="cp-out">{result.stdout}</pre></> : null;
+  const out = result.stdout ? <><h4 className="cp-sub">{words.printed}</h4><pre className="cp-out">{result.stdout}</pre></> : null;
   if (result.loaded) {
     return (
       <div className="cp-results" role="status" aria-live="polite">
-        <p className="cp-problem"><CrossIcon aria-hidden="true" /> {CODE.loadError(result.loaded, result.line)}</p>
+        <p className="cp-problem"><CrossIcon aria-hidden="true" /> {words.loadError(result.loaded, result.line)}</p>
         {out}
       </div>
     );
@@ -92,11 +96,12 @@ function Results({ phase, current, outcome, boot, onRetry }) {
   return (
     <div className="cp-results" role="status" aria-live="polite">
       <div className="cp-summary">
-        <strong>{all ? CODE.allPass : CODE.passing(passed, total)}</strong>
+        <strong>{all ? words.allPass : words.passing(passed, total)}</strong>
         <span className="cp-meter" aria-hidden="true"><span style={{ width: `${total ? (passed / total) * 100 : 0}%` }} /></span>
-        {result.ms != null && <span className="cp-took">{CODE.took(result.ms)}</span>}
+        {result.ms != null && <span className="cp-took">{words.took(result.ms)}</span>}
       </div>
-      {!all && <p className="cp-note">{CODE.failedLead}</p>}
+      {!all && <p className="cp-note">{words.failedLead}</p>}
+      {result.table && <ResultTable table={result.table} />}
       <TestList results={result.results} />
       {out}
     </div>
@@ -127,16 +132,21 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
   const latest = useRef({ statusMap, onMark });
   latest.current = { statusMap, onMark };
 
-  // Python starts loading as the screen opens, so it is ready by the time the statement has been read.
+  // What runs the problem (Python or SQL) is known once it has loaded, and starts loading then, so it is ready by the time the statement has been read.
+  const engine = problem ? engineOf(problem) : null;
+  const isSql = !!problem && problem.language === 'sql';
+  const words = isSql ? { ...CODE, ...SQL_CODE } : CODE;
   const start = useCallback(() => {
+    if (!engine) return;
     setBoot('booting');
-    warm().then(() => setBoot('ready'), (err) => setBoot(err && err.kind === 'unsupported' ? 'unsupported' : 'broken'));
-  }, []);
+    engine.warm().then(() => setBoot('ready'), (err) => setBoot(err && err.kind === 'unsupported' ? 'unsupported' : 'broken'));
+  }, [engine]);
   useEffect(() => {
-    const release = acquire();
+    if (!engine) return undefined;
+    const release = engine.acquire();
     start();
     return release;
-  }, [start]);
+  }, [engine, start]);
 
   // Another problem opens in this same screen: nothing of the last one carries over.
   useEffect(() => {
@@ -150,16 +160,14 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
     setPhase('idle');
   }, [slug]);
 
-  const tests = useMemo(() => (problem ? problem.tests.map(testParts) : []), [problem]);
-
   const run = useCallback(async () => {
-    if (phase === 'running' || code == null || !problem) return;
+    if (phase === 'running' || code == null || !problem || !engine) return;
     setPhase('running');
     setCurrent('');
     setRan(true);
     if (!latest.current.statusMap[key]) latest.current.onMark(key, 'wip');
     try {
-      const result = await runTests({ code, tests, onProgress: ({ name }) => setCurrent(name) });
+      const result = await engine.run({ problem, code, onProgress: ({ name }) => setCurrent(name) });
       setOutcome({ result });
       setBoot('ready');
       const passedAll = !result.loaded && result.results.length > 0 && result.results.every((r) => r.ok);
@@ -170,7 +178,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
     } finally {
       setPhase('idle');
     }
-  }, [phase, code, problem, tests, key, start]);
+  }, [phase, code, problem, engine, key, start]);
 
   const showSolution = useCallback(async () => {
     setAsking('');
@@ -179,11 +187,11 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
 
   const share = useCallback(() => {
     if (!user) { onLogin(); return; }
-    const text = sharedCode(DISCUSS.shareIntro, code);
+    const text = sharedCode(DISCUSS.shareIntro, code, isSql ? 'sql' : 'python');
     if (text.length > COMMENT_MAX_CHARS) { setSharePart('long'); return; }
     setSharePart('');
     setDraft({ text });
-  }, [user, onLogin, code]);
+  }, [user, onLogin, code, isSql]);
 
   const groups = useMemo(() => groupByTopic(catalog ? catalog.code : [], statusMap, CODE_TOPICS, levels), [catalog, statusMap]);
   const next = useMemo(() => (catalog ? nextProblem(groups, statusMap, slug) : null), [catalog, groups, statusMap, slug]);
@@ -205,7 +213,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
             <p className="pr-card__meta">
               <span className="pr-badge">{DIFFICULTY[problem.difficulty]}</span>
               <span>{topic}</span>
-              <span>{CODE.tests(problem.tests.filter(isCase).length)}</span>
+              <span>{isSql ? SQL.checks(problem.expected.length) : CODE.tests(problem.tests.filter(isCase).length)}</span>
               {status === 'done' && <span className="cp-state is-done"><TickIcon aria-hidden="true" /> {CODE.solved}</span>}
               {status === 'wip' && <span className="cp-state">{CODE.tried}</span>}
             </p>
@@ -217,6 +225,8 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
                 <ContentMarkdown id="content" className="cp-md" text={problem.statement} />
                 {lesson && <p className="cp-lesson"><a href={`/${problem.module.replace(/README\.md$/, '')}`} onClick={(e) => { e.preventDefault(); onOpenFile(problem.module); }}>{CODE.lesson(lesson.title || lesson.name)}</a></p>}
               </section>
+
+              {isSql && <SqlSchema data={problem.data} />}
 
               <section className="cp-panel" aria-label={CODE.hints}>
                 <h3><LightbulbIcon aria-hidden="true" /> {CODE.hints}</h3>
@@ -239,7 +249,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
                   {solution && solution.error && <LoadError error={new Error('solution')} what={LOAD_WHAT.practice} onRetry={showSolution} />}
                   {solution && !solution.error && (
                     <>
-                      <ContentMarkdown className="cp-md" text={fence(solution.solution)} />
+                      <ContentMarkdown className="cp-md" text={fence(solution.solution, isSql ? 'sql' : 'python')} />
                       <h4 className="cp-sub">{CODE.explanation}</h4>
                       <ContentMarkdown className="cp-md" text={solution.explanation} />
                     </>
@@ -251,7 +261,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
             <div className="cp-work">
               <div className="cp-bar">
                 <Button variant="primary" icon={<PlayIcon />} loading={phase === 'running'} onClick={run} disabled={code == null} aria-keyshortcuts="Control+Enter">
-                  {phase === 'running' ? CODE.running : boot === 'booting' ? CODE.starting : CODE.run}
+                  {phase === 'running' ? words.running : boot === 'booting' ? words.starting : words.run}
                 </Button>
                 <span className="cp-bar__keys">{CODE.shortcut}</span>
                 <span className="cp-bar__space" />
@@ -266,7 +276,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
                 )}
               </div>
 
-              {code == null ? <Loading /> : <CodeEditor value={code} onChange={setCode} onRun={run} errorLine={errorLine} />}
+              {code == null ? <Loading /> : <CodeEditor value={code} onChange={setCode} onRun={run} errorLine={errorLine} language={isSql ? 'sql' : 'python'} label={words.editorLabel} />}
               <p className="ce-help">{CODE.escapeHint}</p>
 
               {solved && (
@@ -284,7 +294,7 @@ export default function CodeProblemView({ slug, onBack, onOpenFile, onOpenItem, 
               )}
 
               <h3 className="cp-results-h">{CODE.results}</h3>
-              <Results phase={phase} current={current} outcome={outcome} boot={boot} onRetry={start} />
+              <Results phase={phase} current={current} outcome={outcome} boot={boot} onRetry={start} words={words} timeoutMs={isSql ? SQL_RUNNER.timeoutMs : RUNNER.timeoutMs} />
             </div>
           </div>
 

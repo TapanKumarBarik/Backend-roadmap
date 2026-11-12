@@ -57,7 +57,7 @@ test('coding problems are listed, served without their solution, and the solutio
   assert.ok(slugs.length >= 3, 'there are coding problems');
   const { json, raw } = await call(null, 'GET', '/practice/catalog');
   assert.deepEqual(json.code.map((c) => c.slug), slugs, 'everything in git is listed');
-  assert.ok(json.code.every((c) => c.title && c.topic && c.difficulty && c.description && c.tests >= 3));
+  assert.ok(json.code.every((c) => c.title && c.topic && c.difficulty && c.description && c.tests >= (c.language === 'sql' ? 2 : 3) && ['python', 'sql'].includes(c.language)));
   assert.doesNotMatch(raw, /"solution"|"statement"|"starter"|"explanation"/, 'the list carries no problem text');
 
   const slug = slugs[0];
@@ -73,6 +73,25 @@ test('coding problems are listed, served without their solution, and the solutio
   assert.ok(solution.json.explanation);
   assert.equal((await call(null, 'GET', '/practice/code/nope')).status, 404);
   assert.equal((await call(null, 'GET', '/practice/code/nope/solution')).status, 404);
+});
+
+test('a SQL problem comes with its data and the tables it expects, never its solution, and says it is SQL', async () => {
+  const [slug] = Object.entries(practiceContent.code).filter(([, p]) => p.language === 'sql').map(([s]) => s);
+  assert.ok(slug, 'there are SQL problems');
+  const { json } = await call(null, 'GET', '/practice/catalog');
+  assert.equal(json.code.find((c) => c.slug === slug).language, 'sql');
+  assert.equal(json.code.find((c) => c.slug === 'two-sum').language, 'python', 'a problem with no language is Python');
+
+  const problem = await call(null, 'GET', `/practice/code/${slug}`);
+  assert.equal(problem.status, 200);
+  assert.equal(problem.json.language, 'sql');
+  assert.match(problem.json.data, /CREATE TABLE/, 'the SQL that creates and fills the tables of its dataset comes with it');
+  assert.equal(problem.json.data, practiceContent.sqlData[practiceContent.code[slug].dataset]);
+  assert.equal(problem.json.expected.length, (practiceContent.code[slug].variants || []).length + 1, 'one expected table for the data as it is and one for each variant');
+  assert.ok(problem.json.statement && problem.json.starter);
+  assert.doesNotMatch(problem.raw, /"solution"|"explanation"/, 'the model solution is not sent with the problem');
+  assert.equal((await call(null, 'GET', `/practice/code/${slug}/solution`)).json.solution, practiceContent.code[slug].solution);
+  assert.equal((await call(null, 'GET', '/practice/code/two-sum')).json.language, 'python');
 });
 
 test('the daily drill is the same for everyone, comes without answers, and each answer is checked on the server', async () => {

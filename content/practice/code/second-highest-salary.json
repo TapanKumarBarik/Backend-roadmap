@@ -1,0 +1,58 @@
+{
+  "title": "The Second Highest Salary",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Find the second highest distinct salary, and return NULL, not nothing, when there is none.",
+  "statement": "Return the **second highest distinct salary** among the employees as a single value named `second_highest`. Two people earning the top salary count as one level: if the top two employees earn the same, the second highest is the next different salary.\n\nIf there is no second level (everyone earns the same, or there are fewer than two employees), the result is still **one row**, with `NULL`.",
+  "starter": "SELECT salary AS second_highest\nFROM employees;\n",
+  "variants": [
+    [
+      "DELETE FROM employees WHERE salary < 250000"
+    ],
+    [
+      "INSERT INTO employees VALUES (19, 'Second Maya', NULL, NULL, 250000, '2025-01-01')",
+      "UPDATE employees SET salary = 195000 WHERE id = 2"
+    ]
+  ],
+  "expected": [
+    {
+      "columns": [
+        "second_highest"
+      ],
+      "rows": [
+        [
+          190000
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "second_highest"
+      ],
+      "rows": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "second_highest"
+      ],
+      "rows": [
+        [
+          195000
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "First get the distinct salaries, highest first. How do you skip the first one?",
+    "`ORDER BY salary DESC LIMIT 1 OFFSET 1` on the distinct salaries.",
+    "When there is no second salary the inner query returns no rows. Put it in a subquery inside `SELECT` so the outer query still returns one row, with `NULL`."
+  ],
+  "solution": "SELECT (\n  SELECT DISTINCT salary\n  FROM employees\n  ORDER BY salary DESC\n  LIMIT 1 OFFSET 1\n) AS second_highest;\n",
+  "explanation": "**The idea.** `DISTINCT` collapses equal salaries into one level, `ORDER BY salary DESC` puts the highest first, and `LIMIT 1 OFFSET 1` skips the first level and takes the next.\n\n**Why it is wrapped in a subquery.** If the inner query finds no second level it returns *no rows*, and a query with no rows would be an empty result. A subquery in the `SELECT` list is a *scalar* subquery: when it returns no rows its value is `NULL`, so the outer `SELECT` always gives exactly one row. That is the answer's shape the problem asks for.\n\n**Alternatives.** `MAX(salary)` of the salaries below the maximum (`WHERE salary < (SELECT MAX(salary) ...)`) also returns `NULL` when there is none; `DENSE_RANK() = 2` works too, and generalises to \"the Nth highest\"."
+}

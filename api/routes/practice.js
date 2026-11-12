@@ -54,7 +54,8 @@ router.get('/practice/catalog', (c) => c.json({
   exercises: Object.entries(practice.exercises).map(([slug, e]) => card(slug, e, { description: e.brief })),
   interview: interviewCards('concepts'),
   coding: interviewCards('coding'),
-  code: Object.entries(codeProblemsOf()).map(([slug, p]) => card(slug, p, { description: p.description, tests: p.tests.length }))
+  // `tests` is how many checks a problem runs: a Python problem's tests, or a SQL problem's runs (the data as it is, and each variant of it)
+  code: Object.entries(codeProblemsOf()).map(([slug, p]) => card(slug, p, { description: p.description, tests: (p.tests || p.expected).length, language: p.language || 'python' }))
 }));
 
 router.get('/practice/quizzes/:slug', (c) => {
@@ -71,12 +72,14 @@ router.get('/practice/exercises/:slug', (c) => {
   return item ? c.json({ slug: c.req.param('slug'), ...item }) : notFound(c);
 });
 
-// A problem: everything the editor needs to start, without the model solution (that comes from /solution, when the reader asks).
+// A problem: everything the editor needs to start, without the model solution (that comes from /solution, when the reader asks). A SQL problem comes
+// with its data (the SQL that creates and fills its tables) and the tables it expects: the learner's query is run, and judged, in their browser.
 router.get('/practice/code/:slug', (c) => {
   const slug = c.req.param('slug');
   const problem = codeProblemsOf()[slug];
   if (!problem) return notFound(c);
-  return c.json({ slug, ...Object.fromEntries(Object.entries(problem).filter(([field]) => !WITHHELD.has(field))) });
+  const data = problem.language === 'sql' ? { data: /** @type {Record<string, string>} */ (practice.sqlData || {})[problem.dataset] } : {};
+  return c.json({ slug, language: problem.language || 'python', ...Object.fromEntries(Object.entries(problem).filter(([field]) => !WITHHELD.has(field))), ...data });
 });
 
 router.get('/practice/code/:slug/solution', (c) => {

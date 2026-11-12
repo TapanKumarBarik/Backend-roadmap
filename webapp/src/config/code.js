@@ -17,6 +17,10 @@ export const CODE_TOPICS = [
   { id: 'apis-and-data', label: 'APIs & data handling', glyph: 'plug' },
   { id: 'distributed-systems', label: 'Distributed systems', glyph: 'network' },
   { id: 'data-processing', label: 'Data processing', glyph: 'pipeline' },
+  { id: 'sql-querying', label: 'SQL: querying', glyph: 'database' },
+  { id: 'sql-joins-aggregates', label: 'SQL: joins & aggregates', glyph: 'cube' },
+  { id: 'sql-subqueries-windows', label: 'SQL: subqueries, CTEs & windows', glyph: 'eye' },
+  { id: 'sql-genai-ml-data', label: 'SQL for GenAI & ML data', glyph: 'flask' },
   { id: 'ml-from-scratch', label: 'Machine learning from scratch', glyph: 'chart' },
   { id: 'llm-and-genai', label: 'LLM & GenAI building blocks', glyph: 'spark' },
   { id: 'debugging', label: 'Bug hunt', glyph: 'bug' }
@@ -93,7 +97,22 @@ export const RUNNER = {
   idleStopMs: 60000, // the worker is ended this long after the last coding screen closes (it holds about 60 MB)
   draftSaveMs: 400 // how long typing pauses before the code is kept for next time
 };
-export const EDITOR = { indent: '    ', language: 'python' };
+// How the editor behaves for each language of problem: the step Tab indents by, the highlighter's language, and what Ctrl+/ puts in front of a line.
+export const EDITORS = {
+  python: { indent: '    ', language: 'python', comment: '#' },
+  sql: { indent: '  ', language: 'sql', comment: '--' }
+};
+
+// Running SQL in the browser (public/runner/sql-worker.js, lib/practice/sqlRunner.js): SQLite, in a worker, on a fresh in-memory copy of the problem's data.
+export const SQL_RUNNER = {
+  worker: '/runner/sql-worker.js',
+  timeoutMs: 5000, // a query that takes longer is stopped, so a runaway one cannot hang the page
+  idleStopMs: 60000, // the worker is ended this long after the last coding screen closes
+  maxRows: 2000, // a result is cut after this many rows (a recursive query that never ends is stopped here)
+  sampleRows: 3, // rows of each table shown beside a problem
+  shownRows: 50, // rows of a result the page draws
+  floatPlaces: 6 // numbers are compared to this many decimal places
+};
 
 // A Python example in a lesson can be run on the spot (lib/practice/snippetRun.js). Which examples (the languages, the modules they may import) is
 // site.config.json -> runner, which the first page needs to draw the Run button; what happens when one runs is here.
@@ -120,6 +139,50 @@ export const RUN = {
 };
 
 // One coding problem: the statement, the editor, the tests and what they say.
+// The words of the SQL problems: the checks, the tables beside the problem, the result table, and what is said when a result is not the expected one.
+export const SQL = {
+  checks: (n) => `${n} checks`,
+  onExample: 'On the example data',
+  onOther: (n) => `On other data (${n})`,
+  otherData: 'It works on the example data but not on this other data. Look for NULLs, ties, repeated values and groups with nothing in them.',
+  tables: 'Tables',
+  tablesLoading: 'Loading the tables…',
+  tablesFailed: 'The tables could not be loaded.',
+  rowCount: (n) => (n === 1 ? '1 row' : `${n} rows`),
+  firstRows: 'First rows',
+  yourResult: 'Your result',
+  shownRows: (shown, total) => `Showing the first ${shown} of ${total} rows.`,
+  noRows: 'Your query returned no rows.',
+  nothing: 'NULL',
+  tablesNote: 'Your query runs on a fresh copy of these tables each time, so nothing you do to them is kept.'
+};
+
+// The words of the coding screen that are different for a SQL problem (everything else is CODE's).
+export const SQL_CODE = {
+  editorLabel: 'Your SQL query',
+  run: 'Run query',
+  starting: 'Loading SQL…',
+  startingNote: 'The first run downloads the SQL engine (about 0.7 MB), once. After that it starts at once, even offline.',
+  idle: 'Run the query to see its result.',
+  passing: (n, total) => `${n} of ${total} checks pass`,
+  allPass: 'All checks pass',
+  failedLead: 'Read the first failure: it says how your table differs from the one that was expected.',
+  timeout: (seconds) => `Your query ran for more than ${seconds} seconds and was stopped. Is a join missing its condition?`,
+  unsupported: 'This browser cannot run SQL here: it needs WebAssembly and web workers. A current Chrome, Edge, Firefox or Safari will work.',
+  broken: 'The SQL engine could not start. Check your connection, then try again.'
+};
+
+// What is said when a query's result is not the expected one (lib/practice/sqlCompare.js).
+export const SQL_MESSAGES = {
+  tooMany: (max) => `Your query returned more than ${max} rows. Is a join missing its condition, or a recursive query missing its stop?`,
+  columnCount: (got, want) => `Your query returns ${got.length} column${got.length === 1 ? '' : 's'} (${got.join(', ')}); it should return ${want.length} (${want.join(', ')}).`,
+  columnNames: (got, want) => `The columns should be named ${want.join(', ')}, in that order. Yours are ${got.join(', ')}.`,
+  rowCount: (got, want) => `Your query returned ${got} row${got === 1 ? '' : 's'}; it should return ${want}.`,
+  rowDiffers: (n, got, want) => `Row ${n} is ${got}, but it should be ${want}.`,
+  extraRow: (row) => `This row should not be in the result: ${row}.`,
+  missingRow: (row) => `This row is missing from the result: ${row}.`
+};
+
 /** The discussion under a problem: questions, and solutions people choose to share. */
 export const DISCUSS = {
   heading: 'Discuss',

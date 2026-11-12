@@ -61,8 +61,8 @@ export const LISTING_COPY = {
   videosDescription: (count, total) => `${count} short animated system design and backend lectures (${total}), in course order. Each belongs to a module with the full written lesson.`,
   allVideos: 'All video lectures',
   practiceTitle: 'Practice',
-  practiceLead: 'Write and run Python against tests in your browser, check what you know with quizzes, work through exercises, and rehearse the questions interviews ask, from backend concepts to coding problems with worked solutions.',
-  practiceDescription: (quizzes, exercises, interview, coding, code) => `${code} Python coding problems you solve and test in the browser, ${quizzes} quizzes, ${exercises} exercises, ${interview} backend interview question sets and ${coding} coding interview question sets with worked solutions.`,
+  practiceLead: 'Write and run Python and SQL in your browser, check what you know with quizzes, work through exercises, and rehearse the questions interviews ask, from backend concepts to coding problems with worked solutions.',
+  practiceDescription: (quizzes, exercises, interview, coding, code) => `${code} Python and SQL coding problems you solve and test in the browser, ${quizzes} quizzes, ${exercises} exercises, ${interview} backend interview question sets and ${coding} coding interview question sets with worked solutions.`,
   codeProblems: 'Code practice',
   quizzes: 'Quizzes',
   exercises: 'Exercises',
@@ -75,8 +75,8 @@ export const LISTING_COPY = {
   drillTitle: "Today's drill",
   drillLead: 'Five quick backend questions drawn from across the quizzes, the same for everyone each day, with the answer after each one.',
   drillDescription: 'Five quick backend questions from across the quizzes, new every day, with the answer and the reason after each one.',
-  codeTitle: (title) => `${title}: Python practice problem`,
-  codeDescription: (problem) => `${problem.description} A ${problem.difficulty} Python problem on ${problem.topic.replace(/-/g, ' ')}: write the function and run it against its tests in your browser.`,
+  codeTitle: (title, language = 'python') => `${title}: ${LISTING_CODE[language].name} practice problem`,
+  codeDescription: (problem) => `${problem.description} A ${problem.difficulty} ${LISTING_CODE[problem.language || 'python'].name} problem on ${problem.topic.replace(/-/g, ' ')}: ${LISTING_CODE[problem.language || 'python'].action} in your browser.`,
   codeStarter: 'Start from this',
   codeRun: 'Open this page with JavaScript on to write your solution and run it against the tests in your browser.',
   questionsHeading: 'Questions',
@@ -84,6 +84,12 @@ export const LISTING_COPY = {
   readTheLesson: 'Read the lesson',
   allPractice: 'All practice',
   title: (name, brand) => `${name} · ${brand}`
+};
+
+/** The language of a coding problem as the pages for crawlers word it: its name, and what the reader does with it. */
+const LISTING_CODE = {
+  python: { name: 'Python', action: 'write the function and run it against its tests' },
+  sql: { name: 'SQL', action: 'write the query and run it on sample tables' }
 };
 
 // The line under the title of a track's or curriculum's own page: its size is worded like a path step's.

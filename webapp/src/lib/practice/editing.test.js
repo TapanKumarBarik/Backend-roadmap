@@ -56,3 +56,13 @@ test('Ctrl+/ comments and uncomments the lines it touches, at the shallowest ind
   assert.equal(off.text, value);
   assert.equal(run(commentEdit('  # a\nb', 0, 7), '  # a\nb').text, '#   # a\n# b', 'mixed lines are all commented, at the shallowest indent');
 });
+
+test('Ctrl+/ puts the comment marker of the language in front: -- for SQL, and takes it off again', () => {
+  const value = 'SELECT name\n  FROM users\n WHERE id = 1';
+  const on = run(commentEdit(value, 0, value.length, '--'), value);
+  assert.equal(on.text, '-- SELECT name\n--   FROM users\n--  WHERE id = 1');
+  const off = run(commentEdit(on.text, 0, on.text.length, '--'), on.text);
+  assert.equal(off.text, value);
+  assert.equal(run(commentEdit('a # b', 0, 5, '--'), 'a # b').text, '-- a # b', "another language's marker is just text");
+  assert.equal(run(commentEdit('x.y', 0, 3, '.'), 'x.y').text, '. x.y', 'a marker that means something in a regular expression is still taken as text');
+});

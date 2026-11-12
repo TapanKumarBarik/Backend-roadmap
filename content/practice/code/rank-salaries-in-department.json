@@ -1,0 +1,249 @@
+{
+  "title": "Rank Salaries Within a Department",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Number the employees of each department by salary, with equal salaries sharing a rank.",
+  "statement": "For every employee who belongs to a department, return `employee`, `department`, `salary` and `rank`: where the salary stands **within the department**, highest first. The highest is `1`; employees with the same salary share a rank, and the next rank is skipped (two people at rank 1 are followed by rank 3).\n\nOrder by `department`, then `rank`, then `employee`.",
+  "starter": "SELECT name AS employee, salary\nFROM employees;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Tie One', 3, 4, 90000, '2025-01-01'), (20, 'Tie Two', 3, 4, 90000, '2025-01-02'), (21, 'No Dept', NULL, 1, 1, '2025-01-03')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "employee",
+        "department",
+        "salary",
+        "rank"
+      ],
+      "rows": [
+        [
+          "Omar Haddad",
+          "Engineering",
+          190000,
+          1
+        ],
+        [
+          "Zara Ali",
+          "Engineering",
+          155000,
+          2
+        ],
+        [
+          "Sofia Rossi",
+          "Engineering",
+          150000,
+          3
+        ],
+        [
+          "Aiko Tanaka",
+          "Engineering",
+          120000,
+          4
+        ],
+        [
+          "Ethan Brooks",
+          "Engineering",
+          120000,
+          4
+        ],
+        [
+          "Noah Kim",
+          "Engineering",
+          105000,
+          6
+        ],
+        [
+          "Priya Nair",
+          "Product",
+          185000,
+          1
+        ],
+        [
+          "Isla Novak",
+          "Product",
+          112000,
+          2
+        ],
+        [
+          "Hugo Martin",
+          "Product",
+          98000,
+          3
+        ],
+        [
+          "Lucas Meyer",
+          "Sales",
+          170000,
+          1
+        ],
+        [
+          "Chloe Dubois",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Mateo Silva",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Ravi Patel",
+          "Sales",
+          85000,
+          4
+        ],
+        [
+          "Elena Popov",
+          "Support",
+          80000,
+          1
+        ],
+        [
+          "Tom Becker",
+          "Support",
+          62000,
+          2
+        ],
+        [
+          "Nina Costa",
+          "Support",
+          60000,
+          3
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "employee",
+        "department",
+        "salary",
+        "rank"
+      ],
+      "rows": [
+        [
+          "Omar Haddad",
+          "Engineering",
+          190000,
+          1
+        ],
+        [
+          "Zara Ali",
+          "Engineering",
+          155000,
+          2
+        ],
+        [
+          "Sofia Rossi",
+          "Engineering",
+          150000,
+          3
+        ],
+        [
+          "Aiko Tanaka",
+          "Engineering",
+          120000,
+          4
+        ],
+        [
+          "Ethan Brooks",
+          "Engineering",
+          120000,
+          4
+        ],
+        [
+          "Noah Kim",
+          "Engineering",
+          105000,
+          6
+        ],
+        [
+          "Priya Nair",
+          "Product",
+          185000,
+          1
+        ],
+        [
+          "Isla Novak",
+          "Product",
+          112000,
+          2
+        ],
+        [
+          "Hugo Martin",
+          "Product",
+          98000,
+          3
+        ],
+        [
+          "Lucas Meyer",
+          "Sales",
+          170000,
+          1
+        ],
+        [
+          "Chloe Dubois",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Mateo Silva",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Tie One",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Tie Two",
+          "Sales",
+          90000,
+          2
+        ],
+        [
+          "Ravi Patel",
+          "Sales",
+          85000,
+          6
+        ],
+        [
+          "Elena Popov",
+          "Support",
+          80000,
+          1
+        ],
+        [
+          "Tom Becker",
+          "Support",
+          62000,
+          2
+        ],
+        [
+          "Nina Costa",
+          "Support",
+          60000,
+          3
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "A function that numbers rows inside groups, without collapsing them.",
+    "`OVER (PARTITION BY dept_id ORDER BY salary DESC)`.",
+    "Two numbering functions give equal values to ties; one of them then skips numbers, the other does not. The statement describes the one that skips."
+  ],
+  "solution": "SELECT e.name AS employee,\n       d.name AS department,\n       e.salary,\n       RANK() OVER (PARTITION BY e.dept_id ORDER BY e.salary DESC) AS rank\nFROM employees AS e\nJOIN departments AS d ON d.id = e.dept_id\nORDER BY d.name, rank, e.name;\n",
+  "explanation": "**The idea.** `RANK() OVER (PARTITION BY dept ORDER BY salary DESC)` numbers each department's rows separately. The three numbering functions differ only on ties: `ROW_NUMBER()` gives every row a distinct number (ties broken arbitrarily), `RANK()` gives ties the same number and **skips** the next ones (1, 1, 3), `DENSE_RANK()` gives ties the same number and **does not skip** (1, 1, 2).\n\n**Why the join comes first.** The inner join to `departments` leaves out the people with no department; the window is then computed over what is left. The department name is only for display, so the partition is on the key.\n\n**Usual mistakes.** Mixing the numbering functions up; forgetting `DESC`; a `PARTITION BY` on the name instead of the key."
+}

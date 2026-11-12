@@ -6,19 +6,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, FOLDERS,
+  DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, FOLDERS, SQL_DATA_FOLDER,
   quizProblems, exerciseProblems, interviewProblems, codeProblems
 } from '../../webapp/src/lib/practice/validate.js';
 
 export { DIFFICULTIES, QUESTION_TYPES, INTERVIEW_SECTIONS, quizProblems, codeProblems };
 
 /**
- * Reads every practice file under `contentDir`. Returns { content, problems }: content is { quizzes, exercises, interview, code },
- * each { slug: definition } with keys in a fixed order (so the generated file is stable), and problems lists
- * everything wrong, including a `module` that names a lesson that is not there.
+ * Reads every practice file under `contentDir`. Returns { content, problems }: content is { quizzes, exercises, interview, code, sqlData },
+ * each { slug: definition } with keys in a fixed order (so the generated file is stable; sqlData is { dataset: the SQL that creates and fills its tables }),
+ * and problems lists everything wrong, including a `module` that names a lesson that is not there and a SQL problem whose dataset is not there.
  */
 export function loadPractice(contentDir) {
-  const content = { quizzes: {}, exercises: {}, interview: {}, code: {} };
+  const content = { quizzes: {}, exercises: {}, interview: {}, code: {}, sqlData: {} };
   const problems = [];
   const files = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : []);
   const read = (file) => {
@@ -37,6 +37,13 @@ export function loadPractice(contentDir) {
       if (!lessonExists(item.module)) problems.push(`${kind} ${slug}: module "${item.module}" is not a lesson`);
       content[kind][slug] = item;
     }
+  }
+  const dataDir = path.join(contentDir, SQL_DATA_FOLDER);
+  for (const file of (fs.existsSync(dataDir) ? fs.readdirSync(dataDir).filter((f) => f.endsWith('.sql')).sort() : [])) {
+    content.sqlData[file.slice(0, -'.sql'.length)] = fs.readFileSync(path.join(dataDir, file), 'utf8').replace(/\r\n/g, '\n');
+  }
+  for (const [slug, problem] of Object.entries(content.code)) {
+    if (problem.language === 'sql' && !(problem.dataset in content.sqlData)) problems.push(`code ${slug}: dataset "${problem.dataset}" is not in ${SQL_DATA_FOLDER}/`);
   }
   for (const kind of Object.keys(content)) content[kind] = Object.fromEntries(Object.entries(content[kind]).sort(([a], [b]) => a.localeCompare(b)));
   return { content, problems };

@@ -1,0 +1,149 @@
+{
+  "title": "Price Bands",
+  "topic": "sql-querying",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Label every product budget, mid or premium with a CASE expression.",
+  "statement": "For every product return its `name` and a `band`:\n\n- `budget` when the price is **under 20**,\n- `mid` from **20 up to 100**, both included,\n- `premium` when it is **over 100**.\n\nOrder by `price`, then `name`.",
+  "starter": "SELECT name\nFROM products;\n",
+  "variants": [
+    [
+      "INSERT INTO products VALUES (107, 'Twenty', 'toys', 20.0), (108, 'Hundred', 'home', 100.0), (109, 'Hundred And A Cent', 'home', 100.01)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "band"
+      ],
+      "rows": [
+        [
+          "Pocket Notebook",
+          "budget"
+        ],
+        [
+          "USB Cable",
+          "budget"
+        ],
+        [
+          "Coffee Mug",
+          "budget"
+        ],
+        [
+          "Wooden Blocks",
+          "budget"
+        ],
+        [
+          "Desk Lamp",
+          "mid"
+        ],
+        [
+          "Puzzle 1000",
+          "mid"
+        ],
+        [
+          "SQL for Developers",
+          "mid"
+        ],
+        [
+          "Backend Handbook",
+          "mid"
+        ],
+        [
+          "Pro Mouse",
+          "mid"
+        ],
+        [
+          "Pro Keyboard",
+          "mid"
+        ],
+        [
+          "Pro Monitor",
+          "premium"
+        ],
+        [
+          "Standing Desk",
+          "premium"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "band"
+      ],
+      "rows": [
+        [
+          "Pocket Notebook",
+          "budget"
+        ],
+        [
+          "USB Cable",
+          "budget"
+        ],
+        [
+          "Coffee Mug",
+          "budget"
+        ],
+        [
+          "Wooden Blocks",
+          "budget"
+        ],
+        [
+          "Twenty",
+          "mid"
+        ],
+        [
+          "Desk Lamp",
+          "mid"
+        ],
+        [
+          "Puzzle 1000",
+          "mid"
+        ],
+        [
+          "SQL for Developers",
+          "mid"
+        ],
+        [
+          "Backend Handbook",
+          "mid"
+        ],
+        [
+          "Pro Mouse",
+          "mid"
+        ],
+        [
+          "Pro Keyboard",
+          "mid"
+        ],
+        [
+          "Hundred",
+          "mid"
+        ],
+        [
+          "Hundred And A Cent",
+          "premium"
+        ],
+        [
+          "Pro Monitor",
+          "premium"
+        ],
+        [
+          "Standing Desk",
+          "premium"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which expression chooses between several values depending on a condition?",
+    "`CASE WHEN price < 20 THEN 'budget' ... END AS band`. The branches are tried from the top.",
+    "Check the edges with the other data: a price of exactly 20, exactly 100, and one cent over 100."
+  ],
+  "solution": "SELECT name,\n       CASE\n         WHEN price < 20 THEN 'budget'\n         WHEN price <= 100 THEN 'mid'\n         ELSE 'premium'\n       END AS band\nFROM products\nORDER BY price, name;\n",
+  "explanation": "**The idea.** `CASE WHEN ... THEN ... ELSE ... END` is SQL's `if / else if / else`, and it is an expression: it can appear in the select list, in `ORDER BY`, even inside an aggregate. The branches are tried **in order** and the first true one wins, so the second `WHEN` only has to say `price <= 100`: a price under 20 never gets that far.\n\n**Usual mistakes.** Boundaries (`<` against `<=`: 20 and 100 are `mid`); forgetting `END`; forgetting `ELSE`, which gives `NULL` for everything that matches no branch; naming the result column: without `AS band` the column is named after the whole expression."
+}

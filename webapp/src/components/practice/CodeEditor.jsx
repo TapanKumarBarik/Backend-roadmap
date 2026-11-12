@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CODE, EDITOR } from '../../config/code.js';
+import { CODE, EDITORS } from '../../config/code.js';
 import { backspaceEdit, commentEdit, enterEdit, tabEdit } from '../../lib/practice/editing.js';
 import { escapeHtml } from '../../lib/markdown/escapeHtml.js';
 import '../../styles/code.css';
@@ -30,9 +30,11 @@ function applyEdit(textarea, edit) {
 }
 
 /**
- * @param {{ value: string, onChange: (text: string) => void, onRun?: () => void, errorLine?: number | null, readOnly?: boolean, label?: string }} props
+ * `language` is the language of the problem ('python' or 'sql', config/code.js EDITORS): its highlighter, its indent and its comment.
+ * @param {{ value: string, onChange: (text: string) => void, onRun?: () => void, errorLine?: number | null, readOnly?: boolean, label?: string, language?: 'python' | 'sql' }} props
  */
-export default function CodeEditor({ value, onChange, onRun, errorLine = null, readOnly = false, label = CODE.editorLabel }) {
+export default function CodeEditor({ value, onChange, onRun, errorLine = null, readOnly = false, label = CODE.editorLabel, language = 'python' }) {
+  const editor = EDITORS[language] || EDITORS.python;
   const [highlighter, setHighlighter] = useState(null);
   const leaving = useRef(false); // Escape was pressed: the next Tab leaves the editor instead of indenting
   useEffect(() => {
@@ -41,7 +43,7 @@ export default function CodeEditor({ value, onChange, onRun, errorLine = null, r
     return () => { alive = false; };
   }, []);
 
-  const markup = useMemo(() => (highlighter ? highlighter.toHtml(value, EDITOR.language) : escapeHtml(value)), [highlighter, value]);
+  const markup = useMemo(() => (highlighter ? highlighter.toHtml(value, editor.language) : escapeHtml(value)), [highlighter, value, editor]);
   const lines = useMemo(() => Array.from({ length: value.split('\n').length }, (_, i) => i + 1), [value]);
 
   function onKeyDown(event) {
@@ -56,10 +58,10 @@ export default function CodeEditor({ value, onChange, onRun, errorLine = null, r
     let edit = null;
     if (key === 'Enter' && mod) { event.preventDefault(); if (onRun) onRun(); return; }
     if (key === 'Escape') { leaving.current = true; return; }
-    if (key === 'Enter' && !shiftKey && !altKey && !mod) edit = enterEdit(text, start, end, EDITOR.indent);
-    else if (key === 'Tab' && !mod && !altKey) { if (wasLeaving) return; edit = tabEdit(text, start, end, shiftKey, EDITOR.indent); }
-    else if (key === 'Backspace' && !mod && !altKey && !shiftKey) edit = backspaceEdit(text, start, end, EDITOR.indent);
-    else if (key === '/' && mod) edit = commentEdit(text, start, end);
+    if (key === 'Enter' && !shiftKey && !altKey && !mod) edit = enterEdit(text, start, end, editor.indent);
+    else if (key === 'Tab' && !mod && !altKey) { if (wasLeaving) return; edit = tabEdit(text, start, end, shiftKey, editor.indent); }
+    else if (key === 'Backspace' && !mod && !altKey && !shiftKey) edit = backspaceEdit(text, start, end, editor.indent);
+    else if (key === '/' && mod) edit = commentEdit(text, start, end, editor.comment);
     if (!edit) return;
     event.preventDefault();
     applyEdit(textarea, edit);

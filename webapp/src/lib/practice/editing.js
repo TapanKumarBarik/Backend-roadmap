@@ -52,17 +52,19 @@ export function backspaceEdit(value, start, end, unit) {
   return { from: start - remove, to: start, insert: '', selection: [start - remove, start - remove] };
 }
 
-/** Ctrl+/ comments out every line the selection touches, or takes the comment off when they all have one. */
-export function commentEdit(value, start, end) {
+/** Ctrl+/ comments out every line the selection touches (with `marker` in front, `#` for Python, `--` for SQL), or takes the comment off when they all have one. */
+export function commentEdit(value, start, end, marker = '#') {
+  const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // the marker as text in a regular expression
+  const mark = new RegExp(`^(\\s*)${escaped} ?`);
   const { from, to } = touchedLines(value, start, end);
   const lines = value.slice(from, to).split('\n');
   const marked = lines.filter((line) => line.trim());
-  const off = marked.length > 0 && marked.every((line) => /^\s*# ?/.test(line));
+  const off = marked.length > 0 && marked.every((line) => mark.test(line));
   const indent = Math.min(...marked.map((line) => /^ */.exec(line)[0].length), Infinity);
   const changed = lines.map((line) => {
     if (!line.trim()) return line;
-    if (off) return line.replace(/^(\s*)# ?/, '$1');
-    return `${line.slice(0, indent)}# ${line.slice(indent)}`;
+    if (off) return line.replace(mark, '$1');
+    return `${line.slice(0, indent)}${marker} ${line.slice(indent)}`;
   });
   const insert = changed.join('\n');
   return { from, to, insert, selection: [from, from + insert.length] };

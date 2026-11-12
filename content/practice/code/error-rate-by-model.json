@@ -1,0 +1,73 @@
+{
+  "title": "Error Rate by Model",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Compute the share of failed calls for each model as a number between 0 and 1.",
+  "statement": "A call **failed** when its `status` is anything other than `ok` (`error` or `timeout`). For each `model` return `calls` (how many calls) and `error_rate`: the share of its calls that failed, as a number from 0 to 1 rounded to 3 decimal places.\n\nHighest error rate first; a tie, by `model`.",
+  "starter": "SELECT model, status\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "INSERT INTO llm_calls VALUES (1001, 1, 'chat', 'large', 100, 0, 100, 'error', 0.0, '2025-04-01 10:00:00'), (1002, 1, 'chat', 'large', 100, 0, 100, 'error', 0.0, '2025-04-01 10:01:00'), (1003, 1, 'chat', 'large', 100, 0, 100, 'timeout', 0.0, '2025-04-01 10:02:00')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "model",
+        "calls",
+        "error_rate"
+      ],
+      "rows": [
+        [
+          "medium",
+          54,
+          0.13
+        ],
+        [
+          "small",
+          40,
+          0.1
+        ],
+        [
+          "large",
+          26,
+          0.038
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "model",
+        "calls",
+        "error_rate"
+      ],
+      "rows": [
+        [
+          "large",
+          29,
+          0.138
+        ],
+        [
+          "medium",
+          54,
+          0.13
+        ],
+        [
+          "small",
+          40,
+          0.1
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "A rate of failures is the average of a column that is 1 for a failure and 0 otherwise.",
+    "`AVG(CASE WHEN status <> 'ok' THEN 1.0 ELSE 0.0 END)`, grouped by model.",
+    "Use `1.0` and `0.0`, not `1` and `0`: integer arithmetic would round every share to 0."
+  ],
+  "solution": "SELECT model,\n       COUNT(*) AS calls,\n       ROUND(AVG(CASE WHEN status <> 'ok' THEN 1.0 ELSE 0.0 END), 3) AS error_rate\nFROM llm_calls\nGROUP BY model\nORDER BY error_rate DESC, model;\n",
+  "explanation": "**The idea.** A rate is an average of 0s and 1s. `CASE WHEN status <> 'ok' THEN 1.0 ELSE 0.0 END` turns each row into 1 (failed) or 0, and `AVG` of that is the share of failures: no separate division, and no division-by-zero when a group is empty.\n\n**Decimal arithmetic.** `1.0` (not `1`) keeps the average decimal. `SUM(failed) / COUNT(*)` with two integers would be an *integer* division in SQLite and give 0 for every rate below 1.\n\n**In practice.** Error rate by model, by feature, by hour and by prompt version is the dashboard that finds a bad deployment. Timeouts and provider errors are usually reported separately, because the fixes differ."
+}

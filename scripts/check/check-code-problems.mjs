@@ -58,7 +58,8 @@ async function check(slug, problem) {
 const { content, problems: loaded } = loadPractice(CONTENT_ROOT);
 const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const slugs = Object.keys(content.code).filter((s) => !wanted.length || wanted.includes(s));
+// SQL problems are not run here (they have no Python tests): scripts/check/check-sql-problems.mjs checks them
+const slugs = Object.keys(content.code).filter((s) => content.code[s].language !== 'sql' && (!wanted.length || wanted.includes(s)));
 // Named problems: report only what concerns them (someone else's half-written file is not their problem).
 const problems = wanted.length ? loaded.filter((p) => wanted.some((w) => p.startsWith(`code ${w}:`) || p.includes(`/code/${w}.json`))) : loaded;
 for (const w of wanted) if (!content.code[w]) problems.push(`code ${w}: there is no such problem`);

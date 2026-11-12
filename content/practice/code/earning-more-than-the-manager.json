@@ -1,0 +1,59 @@
+{
+  "title": "Earning More Than the Manager",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Compare a row with another row of the same table: who earns more than their own manager?",
+  "statement": "Return the employees who earn **more than their own manager**: the columns `employee`, `salary`, `manager` and `manager_salary`. Order by `employee`.",
+  "starter": "SELECT name AS employee, salary\nFROM employees;\n",
+  "variants": [
+    [
+      "UPDATE employees SET salary = 300000 WHERE id = 8",
+      "UPDATE employees SET salary = 80000 WHERE id = 9",
+      "INSERT INTO employees VALUES (19, 'Edge Equal', 1, 5, 150000, '2025-01-02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "employee",
+        "salary",
+        "manager",
+        "manager_salary"
+      ],
+      "rows": [
+        [
+          "Zara Ali",
+          155000,
+          "Sofia Rossi",
+          150000
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "employee",
+        "salary",
+        "manager",
+        "manager_salary"
+      ],
+      "rows": [
+        [
+          "Noah Kim",
+          300000,
+          "Sofia Rossi",
+          150000
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which technique puts two rows of one table side by side?",
+    "Join `employees` to itself on `manager.id = employee.manager_id`.",
+    "Then compare the two salary columns in `WHERE`."
+  ],
+  "solution": "SELECT e.name AS employee, e.salary, m.name AS manager, m.salary AS manager_salary\nFROM employees AS e\nJOIN employees AS m ON m.id = e.manager_id\nWHERE e.salary > m.salary\nORDER BY e.name;\n",
+  "explanation": "**The idea.** A self-join puts an employee and their manager in the same row, so the two salaries can be compared with an ordinary `WHERE`. An inner join is right here: someone with no manager cannot earn more than the manager they do not have.\n\n**The key point.** A condition between two *rows* of a table (this one against that one) needs both rows in the same output row; that is what a join is for. Window functions (`LAG`) do the same for neighbouring rows in an order, and a self-join does it for any relation you can write as a join condition."
+}

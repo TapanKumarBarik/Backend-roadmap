@@ -1,0 +1,54 @@
+{
+  "title": "Products Nobody Bought",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "List the products that appear in no order item.",
+  "statement": "Return the `name` and `category` of every product that has **never been ordered**: no row of `order_items` refers to it. Alphabetical by `name`.",
+  "starter": "SELECT name, category\nFROM products;\n",
+  "variants": [
+    [
+      "INSERT INTO order_items VALUES (1, 11, 1, 399.0)",
+      "INSERT INTO products VALUES (110, 'Ghost Product', 'toys', 5.0), (111, 'Another Ghost', 'books', 7.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "category"
+      ],
+      "rows": [
+        [
+          "Standing Desk",
+          "home"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "category"
+      ],
+      "rows": [
+        [
+          "Another Ghost",
+          "books"
+        ],
+        [
+          "Ghost Product",
+          "toys"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Keep every product, and look for matching rows in `order_items`.",
+    "After a `LEFT JOIN`, a product with no matching item has `NULL` in all the columns of `order_items`.",
+    "Test a column of `order_items` for `IS NULL`, not a column of `products`."
+  ],
+  "solution": "SELECT p.name, p.category\nFROM products AS p\nLEFT JOIN order_items AS i ON i.product_id = p.id\nWHERE i.product_id IS NULL\nORDER BY p.name;\n",
+  "explanation": "**The idea.** The same anti-join as for customers with no orders, written the other way: `LEFT JOIN` keeps every product, and `WHERE i.product_id IS NULL` keeps only the products for which no item was found.\n\n**Two forms, one meaning.** `NOT EXISTS` and `LEFT JOIN ... IS NULL` give the same rows; which one is faster depends on the database and its optimiser, and the right choice is the one you can read. Test the `IS NULL` on a column of the *right* table that can never be `NULL` for a real match (a key or `NOT NULL` column).\n\n**Usual mistakes.** Testing a column of the left table for `NULL`; an inner join (it returns the products that *were* ordered)."
+}

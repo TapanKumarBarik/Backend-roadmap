@@ -1,0 +1,60 @@
+{
+  "title": "Customers Without an Email",
+  "topic": "sql-querying",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Find the customers whose email address is missing, which in SQL means NULL.",
+  "statement": "Return the `name` of every customer who has **no email address**: the `email` column is `NULL` for them.\n\nSort the names alphabetically.",
+  "starter": "SELECT *\nFROM customers;\n",
+  "variants": [
+    [
+      "INSERT INTO customers VALUES (50, 'Aaron Swartz', NULL, 'US', '2025-01-01'), (51, 'Zed Empty', '', 'US', '2025-01-02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          "Edsger Dijkstra"
+        ],
+        [
+          "Linus Torvalds"
+        ],
+        [
+          "Radia Perlman"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          "Aaron Swartz"
+        ],
+        [
+          "Edsger Dijkstra"
+        ],
+        [
+          "Linus Torvalds"
+        ],
+        [
+          "Radia Perlman"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "What does `1 = NULL` give? Is it true, false or something else?",
+    "There is a special test for NULL that does not use `=`.",
+    "Add `ORDER BY name`: the other data has a customer whose name sorts first."
+  ],
+  "solution": "SELECT name\nFROM customers\nWHERE email IS NULL\nORDER BY name;\n",
+  "explanation": "**The idea.** `NULL` means \"no value\" or \"unknown\", and nothing is equal to it, not even another `NULL`: `email = NULL` is never true (it is `NULL`, which a `WHERE` treats as false). The test for a missing value is `IS NULL` (and `IS NOT NULL` for the opposite).\n\n**Usual mistakes.** `= NULL`, which returns no rows; `= ''`, which is a different thing (an empty text is a value); forgetting that `NULL` also matters in `ORDER BY`, `COUNT(column)` and `NOT IN`."
+}

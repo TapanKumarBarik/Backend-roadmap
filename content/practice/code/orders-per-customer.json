@@ -1,0 +1,162 @@
+{
+  "title": "Orders per Customer",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Count each customer's orders, keeping the customers who have none with a count of 0.",
+  "statement": "For **every** customer return their `name` and `orders`, the number of orders they have placed (any status). A customer who has never ordered is in the result with `0`.\n\nCustomers with the most orders first; the same count, by `name`.",
+  "starter": "SELECT name\nFROM customers;\n",
+  "variants": [
+    [
+      "INSERT INTO customers VALUES (52, 'Aaron Zero', NULL, 'US', '2025-01-01'), (53, 'Aaron Zero', NULL, 'DE', '2025-01-02')",
+      "INSERT INTO orders VALUES (205, 53, '2025-05-05', 'cancelled')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "orders"
+      ],
+      "rows": [
+        [
+          "Alan Turing",
+          7
+        ],
+        [
+          "Dennis Ritchie",
+          7
+        ],
+        [
+          "Ken Thompson",
+          6
+        ],
+        [
+          "Grace Hopper",
+          4
+        ],
+        [
+          "Margaret Hamilton",
+          4
+        ],
+        [
+          "Barbara Liskov",
+          3
+        ],
+        [
+          "Linus Torvalds",
+          3
+        ],
+        [
+          "Ada Lovelace",
+          2
+        ],
+        [
+          "Tim Berners-Lee",
+          2
+        ],
+        [
+          "Edsger Dijkstra",
+          1
+        ],
+        [
+          "Radia Perlman",
+          1
+        ],
+        [
+          "Donald Knuth",
+          0
+        ],
+        [
+          "Frances Allen",
+          0
+        ],
+        [
+          "John McCarthy",
+          0
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "orders"
+      ],
+      "rows": [
+        [
+          "Alan Turing",
+          7
+        ],
+        [
+          "Dennis Ritchie",
+          7
+        ],
+        [
+          "Ken Thompson",
+          6
+        ],
+        [
+          "Grace Hopper",
+          4
+        ],
+        [
+          "Margaret Hamilton",
+          4
+        ],
+        [
+          "Barbara Liskov",
+          3
+        ],
+        [
+          "Linus Torvalds",
+          3
+        ],
+        [
+          "Ada Lovelace",
+          2
+        ],
+        [
+          "Tim Berners-Lee",
+          2
+        ],
+        [
+          "Aaron Zero",
+          1
+        ],
+        [
+          "Edsger Dijkstra",
+          1
+        ],
+        [
+          "Radia Perlman",
+          1
+        ],
+        [
+          "Aaron Zero",
+          0
+        ],
+        [
+          "Donald Knuth",
+          0
+        ],
+        [
+          "Frances Allen",
+          0
+        ],
+        [
+          "John McCarthy",
+          0
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which join keeps the rows of one table even when the other has no match?",
+    "`customers LEFT JOIN orders ON orders.customer_id = customers.id`, then group by the customer.",
+    "`COUNT(*)` would count the empty row of a customer with no orders as 1. Count a column of `orders` instead."
+  ],
+  "solution": "SELECT c.name, COUNT(o.id) AS orders\nFROM customers AS c\nLEFT JOIN orders AS o ON o.customer_id = c.id\nGROUP BY c.id, c.name\nORDER BY orders DESC, c.name;\n",
+  "explanation": "**The idea.** An inner `JOIN` drops customers with no matching order. A `LEFT JOIN` keeps every row of the left table and fills the right side with `NULL` when nothing matches. `GROUP BY` then makes one row per customer, and `COUNT(o.id)` counts the orders: it counts only values that are not `NULL`, so a customer with no orders gets 0.\n\n**The classic mistake.** `COUNT(*)` counts rows, and a customer with no orders still has one row (full of NULLs on the order side), so it would say 1. Count a column of the table you are counting (`o.id`).\n\n**Also.** Group by the customer's `id` as well as the name: two customers can share a name."
+}

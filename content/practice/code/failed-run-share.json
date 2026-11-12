@@ -1,0 +1,88 @@
+{
+  "title": "Share of Failed Runs per Model Type",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "ml_runs",
+  "description": "Find out which kinds of model fail most often in training.",
+  "statement": "For each `model` type return `runs` (how many training runs it has) and `failed_pct`: the percentage of those runs whose `status` is `failed`, rounded to 1 decimal place.\n\nThe highest failure percentage first; a tie, by `model`.",
+  "starter": "SELECT model, status\nFROM runs;\n",
+  "variants": [
+    [
+      "INSERT INTO runs VALUES (100, 1, 'logreg', 0.01, 32, NULL, NULL, 10, 'failed'), (101, 1, 'logreg', 0.01, 32, NULL, NULL, 10, 'failed'), (102, 1, 'ranker', 0.01, 32, 0.8, 0.4, 10, 'done')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "model",
+        "runs",
+        "failed_pct"
+      ],
+      "rows": [
+        [
+          "mlp",
+          8,
+          25
+        ],
+        [
+          "xgboost",
+          7,
+          14.3
+        ],
+        [
+          "transformer",
+          8,
+          12.5
+        ],
+        [
+          "logreg",
+          7,
+          0
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "model",
+        "runs",
+        "failed_pct"
+      ],
+      "rows": [
+        [
+          "mlp",
+          8,
+          25
+        ],
+        [
+          "logreg",
+          9,
+          22.2
+        ],
+        [
+          "xgboost",
+          7,
+          14.3
+        ],
+        [
+          "transformer",
+          8,
+          12.5
+        ],
+        [
+          "ranker",
+          1,
+          0
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You need two counts per model: all the runs, and the failed ones.",
+    "`SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)` counts the failed ones inside the same `GROUP BY`.",
+    "Multiply by `100.0`, divide by `COUNT(*)`, and round to one decimal place."
+  ],
+  "solution": "SELECT model,\n       COUNT(*) AS runs,\n       ROUND(100.0 * SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) / COUNT(*), 1) AS failed_pct\nFROM runs\nGROUP BY model\nORDER BY failed_pct DESC, model;\n",
+  "explanation": "**The idea.** A conditional count: `SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)` adds 1 for each failed run in the group, and dividing by `COUNT(*)` (all the runs) gives the share. Multiplying by `100.0` first makes the division decimal.\n\n**The conditional-aggregate pattern** (`SUM(CASE ...)` or `COUNT(*) FILTER (WHERE ...)` in databases that support it) is how you compute several counts of different kinds in one pass over the data: failed, succeeded, slow, in one `GROUP BY`.\n\n**Reading the result.** A high failure rate for one model type usually says something about the *setup* (memory, a learning rate that diverges, a data loader), not about the model family itself."
+}

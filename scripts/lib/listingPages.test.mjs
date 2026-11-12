@@ -35,13 +35,15 @@ test('a coding problem page has the statement and the starting code, and never t
     const page = pages.get(`/practice/code/${slug}/`);
     const everything = page.body + JSON.stringify(page.ld) + page.description;
     assert.ok(page.body.includes(escapeHtml(problem.starter.split('\n')[0])), `${slug}: the starting code is on the page`);
-    assert.equal(page.title, `${problem.title}: Python practice problem`);
+    assert.equal(page.title, `${problem.title}: ${problem.language === 'sql' ? 'SQL' : 'Python'} practice problem`);
     // the most telling line of the solution that the starting code does not already have
     const probe = problem.solution.split('\n').map((l) => l.trim()).filter((l) => l.length > 12 && !problem.starter.includes(l)).sort((a, b) => b.length - a.length)[0];
     assert.ok(!probe || !everything.includes(escapeHtml(probe)), `${slug}: the solution is not on the page ("${probe}")`);
     assert.ok(!everything.includes(problem.explanation), `${slug}: the explanation is not on the page`);
     // the checks themselves (the asserts); a line of set-up such as `q.push(3)` may well be in an example of the statement too
-    assert.ok(problem.tests.filter(isCase).every((t) => !everything.includes(testParts(t).code)), `${slug}: the tests are not on the page`);
+    assert.ok((problem.tests || []).filter(isCase).every((t) => !everything.includes(testParts(t).code)), `${slug}: the tests are not on the page`);
+    // a SQL problem is judged by the tables it expects, which a page for crawlers does not need
+    if (problem.language === 'sql') assert.ok(!everything.includes(JSON.stringify(problem.expected[0].rows[0])), `${slug}: the expected tables are not on the page`);
     assert.equal(page.ld['@graph'][0]['@type'], 'LearningResource');
   }
   const index = pages.get('/practice/');

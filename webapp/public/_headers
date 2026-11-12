@@ -4,7 +4,7 @@
 #    Analytics (auto-injected by the proxied zone; cookie-less, privacy-first)
 #  - i.ytimg.com (video thumbnails) and www.youtube-nocookie.com (the player,
 #    which only loads once a reader presses play) for the videos in modules
-#  - script-src 'wasm-unsafe-eval' for the Python runner of the practice screens (public/runner/): Pyodide is CPython
+#  - script-src 'wasm-unsafe-eval' for the Python and SQL runners of the practice screens (public/runner/): Pyodide is CPython, and sql.js is SQLite,
 #    compiled to WebAssembly, and a browser will not compile WebAssembly under this policy without it. It allows compiling
 #    WebAssembly only, not eval() or new Function(); the runner is served from this site, never from another.
 /*
@@ -18,8 +18,12 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-# Pyodide lives in a folder named for its version (see public/runner/README.txt), so its files never change under one address.
+# Pyodide and sql.js (the SQL engine, SQLite as WebAssembly) live in folders named for their version (see public/runner/README.txt), so their files never
+# change under one address.
 /runner/pyodide-314.0.7/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/runner/sqljs-1.15.2/*
   Cache-Control: public, max-age=31536000, immutable
 
 # The app's shell, kept as a file for the pages the server draws when they are asked for (api/pages/blogPages.js). It is a

@@ -1,0 +1,66 @@
+{
+  "title": "95th Percentile Latency",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Compute a tail latency per model without a percentile function, using a window and the nearest-rank rule.",
+  "statement": "Tail latency matters more than the average. For each `model`, using only calls with status `ok`, return `p95_ms`: the **95th percentile** of `latency_ms` by the *nearest-rank* rule. Sort that model's latencies from the lowest and number them 1, 2, ..., n. The 95th percentile is the value at position `ceil(0.95 * n)`.\n\nReturn `model` and `p95_ms`, ordered by `model`.",
+  "starter": "SELECT model, latency_ms\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "INSERT INTO llm_calls VALUES (1001, 1, 'agent', 'small', 10, 10, 90000, 'ok', 0.0, '2025-04-01 10:00:00'), (1002, 1, 'agent', 'small', 10, 10, 80000, 'ok', 0.0, '2025-04-01 10:01:00')",
+      "UPDATE llm_calls SET status = 'timeout' WHERE model = 'large' AND id % 3 = 0"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "model",
+        "p95_ms"
+      ],
+      "rows": [
+        [
+          "large",
+          5216
+        ],
+        [
+          "medium",
+          3534
+        ],
+        [
+          "small",
+          2514
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "model",
+        "p95_ms"
+      ],
+      "rows": [
+        [
+          "large",
+          5216
+        ],
+        [
+          "medium",
+          3534
+        ],
+        [
+          "small",
+          80000
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "A percentile is the value at one position of the sorted list. Which functions give you positions and a count per group?",
+    "`ROW_NUMBER() OVER (PARTITION BY model ORDER BY latency_ms)` and `COUNT(*) OVER (PARTITION BY model)`, in a CTE that already filtered `status = 'ok'`.",
+    "Keep the row where the position equals `ceil(0.95 * n)`. In integer arithmetic that is `(95 * n + 99) / 100`."
+  ],
+  "solution": "WITH ranked AS (\n  SELECT model, latency_ms,\n         ROW_NUMBER() OVER (PARTITION BY model ORDER BY latency_ms) AS pos,\n         COUNT(*) OVER (PARTITION BY model) AS n\n  FROM llm_calls\n  WHERE status = 'ok'\n)\nSELECT model, latency_ms AS p95_ms\nFROM ranked\nWHERE pos = (95 * n + 99) / 100\nORDER BY model;\n",
+  "explanation": "**The idea.** SQLite has no percentile function, but a percentile is just \"the value at a position\", and window functions give positions. `ROW_NUMBER()` numbers each model's latencies from the lowest, and `COUNT(*) OVER (PARTITION BY model)` puts the model's total `n` on every row. Keep the row whose position is `ceil(0.95 * n)`.\n\n**The integer trick.** `ceil(0.95 * n)` is `(95 * n + 99) / 100` in integer arithmetic (the division rounds down, so adding 99 first rounds the result up). That avoids floating point and works the same in every database.\n\n**Why p95 and not the average.** A few very slow calls hardly move an average, but they are what users notice, and what a timeout setting has to cover. P50, p95 and p99 together describe a latency distribution; many databases offer `percentile_cont`, which interpolates between neighbours, where the nearest-rank rule always returns a value that was actually seen."
+}

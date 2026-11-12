@@ -1,0 +1,81 @@
+{
+  "title": "Everyone Under a Manager",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "company",
+  "description": "List all the direct and indirect reports of one manager with a recursive CTE.",
+  "statement": "Return the `employee` name of everyone who reports to **Omar Haddad** (employee id 2), directly or through other managers, at any depth. Omar himself is not included. Order by `employee`.",
+  "starter": "SELECT name AS employee\nFROM employees;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Deep One', 1, 8, 1000, '2025-01-01'), (20, 'Unrelated', 3, 3, 1000, '2025-01-02'), (21, 'Aaron Direct', 1, 2, 1000, '2025-01-03')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "employee"
+      ],
+      "rows": [
+        [
+          "Aiko Tanaka"
+        ],
+        [
+          "Ethan Brooks"
+        ],
+        [
+          "Felix Wagner"
+        ],
+        [
+          "Noah Kim"
+        ],
+        [
+          "Sofia Rossi"
+        ],
+        [
+          "Zara Ali"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "employee"
+      ],
+      "rows": [
+        [
+          "Aaron Direct"
+        ],
+        [
+          "Aiko Tanaka"
+        ],
+        [
+          "Deep One"
+        ],
+        [
+          "Ethan Brooks"
+        ],
+        [
+          "Felix Wagner"
+        ],
+        [
+          "Noah Kim"
+        ],
+        [
+          "Sofia Rossi"
+        ],
+        [
+          "Zara Ali"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Start from the direct reports, then keep adding the reports of people you have already found.",
+    "`WITH RECURSIVE under_omar(id) AS (SELECT id ... WHERE manager_id = 2 UNION ALL SELECT e.id ... JOIN under_omar ON e.manager_id = under_omar.id)`.",
+    "Join the result back to `employees` to get the names. Omar is the starting point, not a member."
+  ],
+  "solution": "WITH RECURSIVE under_omar(id) AS (\n  SELECT id FROM employees WHERE manager_id = 2\n  UNION ALL\n  SELECT e.id\n  FROM employees AS e\n  JOIN under_omar ON e.manager_id = under_omar.id\n)\nSELECT e.name AS employee\nFROM employees AS e\nJOIN under_omar ON under_omar.id = e.id\nORDER BY e.name;\n",
+  "explanation": "**The idea.** Start with the people whose `manager_id` is Omar's id (the anchor), then repeatedly add the people whose manager is already in the set. When a round adds nobody the recursion stops, and what has been collected is everyone below Omar, however deep.\n\n**Why only the ids.** The recursive part only needs to follow the `manager_id` links, so it carries just `id`; the names come from joining `employees` once at the end.\n\n**Related.** The same query with `WHERE manager_id IS NULL` and a depth column is the org chart; with `parent_id` it is every descendant category; going the other way (from a person up to the top) lists a chain of command."
+}

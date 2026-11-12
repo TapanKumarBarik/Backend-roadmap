@@ -1,0 +1,78 @@
+{
+  "title": "Repeat Customers",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Find the customers with at least two paid orders: filtering groups with HAVING.",
+  "statement": "Return the `name` of every customer with **at least two orders whose status is `paid`**, with `paid_orders` the number of such orders. The customer with the most first; a tie, by `name`.",
+  "starter": "SELECT name\nFROM customers;\n",
+  "variants": [
+    [
+      "UPDATE orders SET status = 'paid' WHERE customer_id = 9",
+      "INSERT INTO orders VALUES (207, 9, '2025-06-02', 'paid'), (208, 1, '2025-06-03', 'cancelled'), (209, 1, '2025-06-04', 'cancelled'), (210, 1, '2025-06-05', 'cancelled')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "paid_orders"
+      ],
+      "rows": [
+        [
+          "Alan Turing",
+          5
+        ],
+        [
+          "Dennis Ritchie",
+          3
+        ],
+        [
+          "Grace Hopper",
+          3
+        ],
+        [
+          "Ken Thompson",
+          3
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "paid_orders"
+      ],
+      "rows": [
+        [
+          "Alan Turing",
+          5
+        ],
+        [
+          "Dennis Ritchie",
+          3
+        ],
+        [
+          "Grace Hopper",
+          3
+        ],
+        [
+          "Ken Thompson",
+          3
+        ],
+        [
+          "Radia Perlman",
+          2
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You count orders per customer, but only the paid ones.",
+    "`WHERE` filters the rows; a condition on the *count* is on a group.",
+    "`HAVING COUNT(*) >= 2` after the `GROUP BY`."
+  ],
+  "solution": "SELECT c.name, COUNT(*) AS paid_orders\nFROM customers AS c\nJOIN orders AS o ON o.customer_id = c.id\nWHERE o.status = 'paid'\nGROUP BY c.id, c.name\nHAVING COUNT(*) >= 2\nORDER BY paid_orders DESC, c.name;\n",
+  "explanation": "**The idea.** First keep the rows you want to count (`WHERE status = 'paid'`), then group by customer, then keep the groups that are big enough (`HAVING COUNT(*) >= 2`). The order of the clauses is the order of the work: `WHERE`, `GROUP BY`, `HAVING`, `SELECT`, `ORDER BY`.\n\n**Usual mistakes.** Putting the count condition in `WHERE` (an aggregate cannot be used there: the groups do not exist yet); counting all orders and filtering `paid` afterwards; forgetting that a customer with only one paid order and several cancelled ones must not appear."
+}

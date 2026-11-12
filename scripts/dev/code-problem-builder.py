@@ -89,7 +89,10 @@ def main():
         exec(compile(open(path, encoding='utf-8').read(), path, 'exec'), ns)
         for slug, problem in ns['PROBLEMS']:
             assert slug and all(c.islower() or c.isdigit() or c == '-' for c in slug), f'bad slug {slug!r}'
-            with open(os.path.join(OUT, slug + '.json'), 'w', encoding='utf-8', newline='\n') as f:
+            target = os.path.join(OUT, slug + '.json')
+            if os.path.exists(target) and json.load(open(target, encoding='utf-8')).get('language') == 'sql':
+                sys.exit(f'{slug} is a SQL problem already: choose another slug (this would overwrite it)')
+            with open(target, 'w', encoding='utf-8', newline='\n') as f:
                 json.dump(problem, f, indent=2, ensure_ascii=False)
                 f.write('\n')
             slugs.append(slug)

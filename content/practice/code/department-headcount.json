@@ -1,0 +1,90 @@
+{
+  "title": "Headcount per Department",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Count the employees of every department, including a department with nobody in it.",
+  "statement": "Return every department with its `headcount`: the number of employees whose `dept_id` is that department. A department with nobody is in the result with `0`. People with no department are not counted anywhere.\n\nBiggest department first; a tie, by department `name` (return the department name as `department`).",
+  "starter": "SELECT name AS department\nFROM departments;\n",
+  "variants": [
+    [
+      "INSERT INTO departments VALUES (6, 'Finance'), (7, 'Data')",
+      "INSERT INTO employees VALUES (19, 'Aaron Adams', 7, 2, 90000, '2025-01-02'), (20, 'Bea Bell', 7, 2, 91000, '2025-01-03'), (21, 'Cy Cole', NULL, 2, 50000, '2025-01-04')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "department",
+        "headcount"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          6
+        ],
+        [
+          "Sales",
+          4
+        ],
+        [
+          "Product",
+          3
+        ],
+        [
+          "Support",
+          3
+        ],
+        [
+          "Legal",
+          0
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "department",
+        "headcount"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          6
+        ],
+        [
+          "Sales",
+          4
+        ],
+        [
+          "Product",
+          3
+        ],
+        [
+          "Support",
+          3
+        ],
+        [
+          "Data",
+          2
+        ],
+        [
+          "Finance",
+          0
+        ],
+        [
+          "Legal",
+          0
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which table has a row for every department, even an empty one?",
+    "Start `FROM departments` and `LEFT JOIN employees`.",
+    "Count a column of `employees`, not `*`, so that \"no employee\" counts 0."
+  ],
+  "solution": "SELECT d.name AS department, COUNT(e.id) AS headcount\nFROM departments AS d\nLEFT JOIN employees AS e ON e.dept_id = d.id\nGROUP BY d.id, d.name\nORDER BY headcount DESC, department;\n",
+  "explanation": "**The idea.** Start from `departments` (so every department is in the result) and `LEFT JOIN` the employees; `COUNT(e.id)` counts the matched employees and gives 0 for an empty department.\n\n**Which table is on the left?** The table you want *all* of. Counting from `employees` and joining departments would never show the empty one, because there is no employee row to start from.\n\n**Usual mistakes.** `COUNT(*)` (an empty department would say 1); an inner join; grouping by `d.name` only (two departments could share a name; grouping by the key is safer)."
+}

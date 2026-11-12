@@ -1,0 +1,93 @@
+{
+  "title": "Top Earner in Each Department",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Find the best paid employee of every department, keeping everyone who ties for the top.",
+  "statement": "For every department that has employees, return the employee or employees with the **highest salary in that department**: the columns `department`, `employee` and `salary`. If several people share the top salary, all of them are returned. People with no department are not part of any department.\n\nOrder by `department`, then `employee`.",
+  "starter": "SELECT name AS employee, salary\nFROM employees;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Tie Top', 4, 15, 80000, '2025-01-01'), (20, 'Aaron First', 3, 4, 170000, '2025-01-02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "department",
+        "employee",
+        "salary"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          "Omar Haddad",
+          190000
+        ],
+        [
+          "Product",
+          "Priya Nair",
+          185000
+        ],
+        [
+          "Sales",
+          "Lucas Meyer",
+          170000
+        ],
+        [
+          "Support",
+          "Elena Popov",
+          80000
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "department",
+        "employee",
+        "salary"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          "Omar Haddad",
+          190000
+        ],
+        [
+          "Product",
+          "Priya Nair",
+          185000
+        ],
+        [
+          "Sales",
+          "Aaron First",
+          170000
+        ],
+        [
+          "Sales",
+          "Lucas Meyer",
+          170000
+        ],
+        [
+          "Support",
+          "Elena Popov",
+          80000
+        ],
+        [
+          "Support",
+          "Tie Top",
+          80000
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You need each row to know where its salary stands among the others of its department. Which kind of function does that without merging rows?",
+    "`RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC)`, computed in a CTE, then keep `pos = 1`.",
+    "Use `RANK`, not `ROW_NUMBER`: two people with the top salary must both be in the result. Join the department name at the end."
+  ],
+  "solution": "WITH ranked AS (\n  SELECT dept_id, name, salary,\n         RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC) AS pos\n  FROM employees\n  WHERE dept_id IS NOT NULL\n)\nSELECT d.name AS department, r.name AS employee, r.salary\nFROM ranked AS r\nJOIN departments AS d ON d.id = r.dept_id\nWHERE r.pos = 1\nORDER BY d.name, r.name;\n",
+  "explanation": "**The idea.** A **window function** computes a value for each row using the other rows of its *window* without collapsing them as `GROUP BY` does. `PARTITION BY dept_id` makes one window per department, `ORDER BY salary DESC` orders each, and `RANK()` numbers the rows: 1 for the highest, **equal salaries sharing the same rank**. Keep the rows with rank 1 and every tied top earner is there.\n\n**Why not `GROUP BY` and `MAX`.** `MAX(salary)` per department gives the number, but not *who* earns it; joining that back to the employees works too, and is the classic pre-window answer. `ROW_NUMBER()` would pick exactly one person per department, hiding a tie.\n\n**Where windows are evaluated.** After `WHERE` and `GROUP BY`, before `ORDER BY`: you cannot filter on a window function in the same `SELECT`'s `WHERE`, which is why the ranking is in a CTE and the filter outside it."
+}

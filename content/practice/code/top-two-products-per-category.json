@@ -1,0 +1,126 @@
+{
+  "title": "Top Two Products in Each Category",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Rank the products of every category by revenue and keep the best two: the top-N-per-group pattern.",
+  "statement": "Revenue is `quantity * unit_price` summed over the items of `paid` and `shipped` orders. For each product category return its **two products with the most revenue**: `category`, `product` (the name), `revenue` (rounded to 2 places). A category with only one product that has sold shows just that one; products that never sold are not listed. If two products have the same revenue, the one whose name comes first ranks higher.\n\nOrder by `category`, then revenue from the highest.",
+  "starter": "SELECT category\nFROM products;\n",
+  "variants": [
+    [
+      "UPDATE orders SET status = 'cancelled' WHERE id IN (1, 2, 4, 5, 8, 9, 11, 12)",
+      "INSERT INTO products VALUES (113, 'Aardvark Toy', 'toys', 18.0)",
+      "INSERT INTO orders VALUES (214, 1, '2025-06-10', 'paid')",
+      "INSERT INTO order_items VALUES (214, 113, 1, 18.0), (214, 6, 1, 18.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "category",
+        "product",
+        "revenue"
+      ],
+      "rows": [
+        [
+          "books",
+          "Backend Handbook",
+          621
+        ],
+        [
+          "books",
+          "Pocket Notebook",
+          45.5
+        ],
+        [
+          "electronics",
+          "Pro Monitor",
+          4671.8
+        ],
+        [
+          "electronics",
+          "Pro Mouse",
+          814.2
+        ],
+        [
+          "home",
+          "Desk Lamp",
+          199.92
+        ],
+        [
+          "home",
+          "Coffee Mug",
+          75
+        ],
+        [
+          "toys",
+          "Puzzle 1000",
+          344.86
+        ],
+        [
+          "toys",
+          "Wooden Blocks",
+          18
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "category",
+        "product",
+        "revenue"
+      ],
+      "rows": [
+        [
+          "books",
+          "Backend Handbook",
+          405
+        ],
+        [
+          "books",
+          "Pocket Notebook",
+          19.5
+        ],
+        [
+          "electronics",
+          "Pro Monitor",
+          4342.8
+        ],
+        [
+          "electronics",
+          "Pro Mouse",
+          755.2
+        ],
+        [
+          "home",
+          "Desk Lamp",
+          149.94
+        ],
+        [
+          "home",
+          "Coffee Mug",
+          50
+        ],
+        [
+          "toys",
+          "Puzzle 1000",
+          244.9
+        ],
+        [
+          "toys",
+          "Wooden Blocks",
+          36
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Two steps: revenue per product, then the position of each product within its category.",
+    "`ROW_NUMBER() OVER (PARTITION BY category ORDER BY revenue DESC, product)`, then keep `pos <= 2`.",
+    "The filter on `pos` must be outside the query that computes it: use a second CTE or a subquery."
+  ],
+  "solution": "WITH sales AS (\n  SELECT p.category, p.name AS product, SUM(i.quantity * i.unit_price) AS revenue\n  FROM order_items AS i\n  JOIN orders AS o ON o.id = i.order_id\n  JOIN products AS p ON p.id = i.product_id\n  WHERE o.status IN ('paid', 'shipped')\n  GROUP BY p.id, p.category, p.name\n),\nranked AS (\n  SELECT category, product, revenue,\n         ROW_NUMBER() OVER (PARTITION BY category ORDER BY revenue DESC, product) AS pos\n  FROM sales\n)\nSELECT category, product, ROUND(revenue, 2) AS revenue\nFROM ranked\nWHERE pos <= 2\nORDER BY category, revenue DESC, product;\n",
+  "explanation": "**The idea.** \"Top N per group\" is the most common window-function question. Aggregate to one row per product, number the products inside each category with `ROW_NUMBER() OVER (PARTITION BY category ORDER BY revenue DESC)`, and keep the rows numbered up to N. `ROW_NUMBER` (not `RANK`) is right when you want *exactly* N rows per group and have a rule for ties (the name, here).\n\n**Why two CTEs.** The first one is a plain `GROUP BY`; the second adds the numbering. The filter on the number can only come after, because a window function cannot be used in `WHERE` of the same query.\n\n**Usual mistakes.** `LIMIT 2` (cuts the whole result, not each group); `RANK` with ties (more than N rows); numbering before aggregating (rows of a product, not products)."
+}

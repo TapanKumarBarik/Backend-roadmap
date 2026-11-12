@@ -1,0 +1,73 @@
+{
+  "title": "Search Products by Name",
+  "topic": "sql-querying",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Find the products with \"pro\" anywhere in their name, in any case, using LIKE.",
+  "statement": "Return the `name` and `category` of every product whose name **contains** the letters `pro`, anywhere in the name and in any mix of capital and small letters (`Pro Keyboard`, `Improved Chair` and `PROTEIN Bar` all match).\n\nSort by `name`.",
+  "starter": "SELECT name, category\nFROM products;\n",
+  "variants": [
+    [
+      "INSERT INTO products VALUES (103, 'Improved Chair', 'home', 80.0), (104, 'PROTEIN Bar', 'home', 3.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "category"
+      ],
+      "rows": [
+        [
+          "Pro Keyboard",
+          "electronics"
+        ],
+        [
+          "Pro Monitor",
+          "electronics"
+        ],
+        [
+          "Pro Mouse",
+          "electronics"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "category"
+      ],
+      "rows": [
+        [
+          "Improved Chair",
+          "home"
+        ],
+        [
+          "PROTEIN Bar",
+          "home"
+        ],
+        [
+          "Pro Keyboard",
+          "electronics"
+        ],
+        [
+          "Pro Monitor",
+          "electronics"
+        ],
+        [
+          "Pro Mouse",
+          "electronics"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which operator compares text to a pattern instead of to a whole value?",
+    "The pattern needs a wildcard on each side of the word.",
+    "The other data has names with `pro` in the middle and in capitals: SQLite's `LIKE` already ignores case."
+  ],
+  "solution": "SELECT name, category\nFROM products\nWHERE name LIKE '%pro%'\nORDER BY name;\n",
+  "explanation": "**The idea.** `LIKE` matches a pattern: `%` stands for any number of characters (including none) and `_` for exactly one. Putting `%` on both sides finds the text anywhere in the value. In SQLite `LIKE` ignores the case of ASCII letters; other databases differ (PostgreSQL has `ILIKE` for that).\n\n**Usual mistakes.** `LIKE 'pro%'` only finds names that start with it; `=` compares the whole value; searching with a leading `%` cannot use an ordinary index, so on a big table it reads every row (full-text search or a trigram index is the fix)."
+}

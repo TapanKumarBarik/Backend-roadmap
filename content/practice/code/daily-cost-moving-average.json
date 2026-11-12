@@ -1,0 +1,228 @@
+{
+  "title": "Daily Cost and Its 7-Day Average",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Smooth the daily spend with a moving average over the last seven days of data.",
+  "statement": "Return one row for each day on which there was at least one call: `day` (`YYYY-MM-DD` from `created_at`), `cost` (that day's total `cost_usd`, rounded to 4 places) and `avg_7d`: the **average of the daily costs of that day and the six days before it in the result** (the previous six rows; fewer at the start), rounded to 4 places. Oldest day first.",
+  "starter": "SELECT created_at AS day\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "INSERT INTO llm_calls VALUES (1001, 1, 'agent', 'large', 9000, 3000, 9000, 'ok', 2.5, '2025-03-05 12:00:00'), (1002, 1, 'agent', 'large', 100, 100, 900, 'ok', 0.01, '2025-04-20 12:00:00')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "day",
+        "cost",
+        "avg_7d"
+      ],
+      "rows": [
+        [
+          "2025-03-01",
+          0.0073,
+          0.0073
+        ],
+        [
+          "2025-03-02",
+          0.0449,
+          0.0261
+        ],
+        [
+          "2025-03-03",
+          0.0182,
+          0.0235
+        ],
+        [
+          "2025-03-04",
+          0.0431,
+          0.0284
+        ],
+        [
+          "2025-03-05",
+          0.0321,
+          0.0291
+        ],
+        [
+          "2025-03-06",
+          0.019,
+          0.0274
+        ],
+        [
+          "2025-03-07",
+          0.0375,
+          0.0289
+        ],
+        [
+          "2025-03-08",
+          0.0511,
+          0.0351
+        ],
+        [
+          "2025-03-09",
+          0.0776,
+          0.0398
+        ],
+        [
+          "2025-03-10",
+          0.027,
+          0.0411
+        ],
+        [
+          "2025-03-11",
+          0.0138,
+          0.0369
+        ],
+        [
+          "2025-03-12",
+          0.0395,
+          0.0379
+        ],
+        [
+          "2025-03-13",
+          0.0104,
+          0.0367
+        ],
+        [
+          "2025-03-14",
+          0.0422,
+          0.0374
+        ],
+        [
+          "2025-03-15",
+          0.0144,
+          0.0321
+        ],
+        [
+          "2025-03-16",
+          0.013,
+          0.0229
+        ],
+        [
+          "2025-03-17",
+          0.0084,
+          0.0202
+        ],
+        [
+          "2025-03-18",
+          0.0056,
+          0.0191
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "day",
+        "cost",
+        "avg_7d"
+      ],
+      "rows": [
+        [
+          "2025-03-01",
+          0.0073,
+          0.0073
+        ],
+        [
+          "2025-03-02",
+          0.0449,
+          0.0261
+        ],
+        [
+          "2025-03-03",
+          0.0182,
+          0.0235
+        ],
+        [
+          "2025-03-04",
+          0.0431,
+          0.0284
+        ],
+        [
+          "2025-03-05",
+          2.5321,
+          0.5291
+        ],
+        [
+          "2025-03-06",
+          0.019,
+          0.4441
+        ],
+        [
+          "2025-03-07",
+          0.0375,
+          0.386
+        ],
+        [
+          "2025-03-08",
+          0.0511,
+          0.3923
+        ],
+        [
+          "2025-03-09",
+          0.0776,
+          0.3969
+        ],
+        [
+          "2025-03-10",
+          0.027,
+          0.3982
+        ],
+        [
+          "2025-03-11",
+          0.0138,
+          0.394
+        ],
+        [
+          "2025-03-12",
+          0.0395,
+          0.0379
+        ],
+        [
+          "2025-03-13",
+          0.0104,
+          0.0367
+        ],
+        [
+          "2025-03-14",
+          0.0422,
+          0.0374
+        ],
+        [
+          "2025-03-15",
+          0.0144,
+          0.0321
+        ],
+        [
+          "2025-03-16",
+          0.013,
+          0.0229
+        ],
+        [
+          "2025-03-17",
+          0.0084,
+          0.0202
+        ],
+        [
+          "2025-03-18",
+          0.0056,
+          0.0191
+        ],
+        [
+          "2025-04-20",
+          0.01,
+          0.0149
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Make one row per day first. The average then slides over those rows.",
+    "`AVG(cost) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)`.",
+    "Round both the daily cost and the average in the final `SELECT`."
+  ],
+  "solution": "WITH daily AS (\n  SELECT date(created_at) AS day, SUM(cost_usd) AS cost\n  FROM llm_calls\n  GROUP BY date(created_at)\n)\nSELECT day,\n       ROUND(cost, 4) AS cost,\n       ROUND(AVG(cost) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 4) AS avg_7d\nFROM daily\nORDER BY day;\n",
+  "explanation": "**The idea.** A **frame** limits a window function to a sliding range of rows around the current one. `ROWS BETWEEN 6 PRECEDING AND CURRENT ROW` is \"this row and the six before it\", so `AVG(cost) OVER (ORDER BY day ROWS BETWEEN ...)` is a 7-day moving average. At the start there are fewer than six rows before, and the average simply uses what exists.\n\n**`ROWS` against `RANGE`.** `ROWS` counts rows, whatever their values; `RANGE` includes all rows whose sort value is within a distance (or equal). On a table with one row per day the two agree, except when days are missing: then `ROWS` reaches back further in time. Here the statement asks for rows.\n\n**Why smooth.** Daily spend jumps around with the day of the week and one big job; a moving average shows the trend and makes a real change (a prompt that got longer) visible."
+}

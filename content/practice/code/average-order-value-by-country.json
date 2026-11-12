@@ -1,0 +1,99 @@
+{
+  "title": "Average Order Value by Country",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Average the total of each order, not of each item: aggregate twice, with a CTE.",
+  "statement": "An order's **total** is the sum of `quantity * unit_price` over its items. Return, for each `country`, the **average order total** of the `paid` orders of its customers as `avg_order_value`, rounded to 2 decimal places. Customers with no country are grouped under `unknown`.\n\nHighest average first; a tie, by `country`.",
+  "starter": "SELECT country\nFROM customers;\n",
+  "variants": [
+    [
+      "UPDATE customers SET country = NULL WHERE id IN (1, 2)",
+      "INSERT INTO orders VALUES (211, 1, '2025-06-06', 'paid')",
+      "INSERT INTO order_items VALUES (211, 3, 1, 329.0), (211, 7, 1, 9.99), (211, 2, 1, 6.5)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "country",
+        "avg_order_value"
+      ],
+      "rows": [
+        [
+          "GB",
+          416.93
+        ],
+        [
+          "IN",
+          383.11
+        ],
+        [
+          "unknown",
+          291.99
+        ],
+        [
+          "DE",
+          282.33
+        ],
+        [
+          "US",
+          224.49
+        ],
+        [
+          "BR",
+          135
+        ],
+        [
+          "JP",
+          62.74
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "country",
+        "avg_order_value"
+      ],
+      "rows": [
+        [
+          "DE",
+          652.73
+        ],
+        [
+          "GB",
+          416.93
+        ],
+        [
+          "IN",
+          383.11
+        ],
+        [
+          "US",
+          329
+        ],
+        [
+          "BR",
+          135
+        ],
+        [
+          "unknown",
+          132.24
+        ],
+        [
+          "JP",
+          62.74
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "What is one row of the final answer built from? Not an item, an order. So first get one row per order.",
+    "A CTE: `WITH totals AS (SELECT order id, customer id, SUM(quantity * unit_price) ... GROUP BY the order)`. Then average `total` per country.",
+    "Join `customers` to the totals, replace a `NULL` country with `unknown` (in both the select and the `GROUP BY`), and round the average."
+  ],
+  "solution": "WITH totals AS (\n  SELECT o.id AS order_id, o.customer_id, SUM(i.quantity * i.unit_price) AS total\n  FROM orders AS o\n  JOIN order_items AS i ON i.order_id = o.id\n  WHERE o.status = 'paid'\n  GROUP BY o.id, o.customer_id\n)\nSELECT COALESCE(c.country, 'unknown') AS country, ROUND(AVG(t.total), 2) AS avg_order_value\nFROM totals AS t\nJOIN customers AS c ON c.id = t.customer_id\nGROUP BY COALESCE(c.country, 'unknown')\nORDER BY avg_order_value DESC, country;\n",
+  "explanation": "**The idea.** Two levels of aggregation: first one row per order (its total), then the average of those totals per country. Averaging `quantity * unit_price` straight over the joined rows would give the average **item**, not the average **order**, because an order with three items would count three times.\n\n**CTEs.** `WITH totals AS (...)` names the first step so the second reads cleanly. A CTE is just a named subquery for one statement; use one whenever a query needs a result of its own result.\n\n**Usual mistakes.** `AVG` over item rows; grouping by `country` while it can be `NULL` without giving `NULL` a name (all the customers without a country form one group, with a `NULL` label, unless you `COALESCE`); filtering the status after averaging."
+}

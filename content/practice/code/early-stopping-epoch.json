@@ -1,0 +1,82 @@
+{
+  "title": "Find the Epoch to Stop At",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "ml_runs",
+  "description": "Use LAG over per-epoch validation loss to find where each run starts to overfit.",
+  "statement": "The table `metrics` has the validation loss of a run after each `epoch`. Training should stop when the loss starts rising: the first epoch whose `val_loss` is **higher than the previous epoch's** (a run's first epoch has no previous one).\n\nReturn `run_id` and `stop_epoch` for every run in which that happens. Runs whose loss never rises are not in the result. Order by `run_id`.",
+  "starter": "SELECT run_id, epoch\nFROM metrics;\n",
+  "variants": [
+    [
+      "INSERT INTO metrics VALUES (3, 9, 0.5), (3, 10, 0.4)",
+      "DELETE FROM metrics WHERE run_id = 1 AND epoch >= 5"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "run_id",
+        "stop_epoch"
+      ],
+      "rows": [
+        [
+          1,
+          5
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          8,
+          6
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "run_id",
+        "stop_epoch"
+      ],
+      "rows": [
+        [
+          2,
+          7
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          8,
+          6
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "For each epoch you need the previous epoch's loss of the same run. Which function looks at the row before?",
+    "`LAG(val_loss) OVER (PARTITION BY run_id ORDER BY epoch)` in a CTE.",
+    "Keep the rows where the loss is higher than `previous`, then take the earliest epoch per run with `MIN` and `GROUP BY`."
+  ],
+  "solution": "WITH changes AS (\n  SELECT run_id, epoch, val_loss,\n         LAG(val_loss) OVER (PARTITION BY run_id ORDER BY epoch) AS previous\n  FROM metrics\n)\nSELECT run_id, MIN(epoch) AS stop_epoch\nFROM changes\nWHERE val_loss > previous\nGROUP BY run_id\nORDER BY run_id;\n",
+  "explanation": "**The idea.** `LAG(val_loss) OVER (PARTITION BY run_id ORDER BY epoch)` brings the previous epoch's loss onto the current row, run by run. A `WHERE val_loss > previous` keeps only the epochs where the loss went up (the first epoch has `previous = NULL`, and a comparison with `NULL` is never true, so it drops out). The first such epoch of each run is the `MIN(epoch)` of what is left.\n\n**Why this is the overfitting signal.** Training loss keeps falling as a model memorises the training data, but the *validation* loss turns upwards once it starts to generalise worse: that turning point is where early stopping would have saved the run (real implementations wait a few epochs, the \"patience\", before stopping, because the curve is noisy).\n\n**Filtering a window.** Because `WHERE` runs before windows are computed, the `LAG` is in a CTE and the comparison outside it."
+}

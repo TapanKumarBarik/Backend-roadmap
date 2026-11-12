@@ -1,0 +1,65 @@
+{
+  "title": "The Three Most Expensive Products",
+  "topic": "sql-querying",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Return the three dearest products, most expensive first, with a fair rule for ties.",
+  "statement": "Return the `name` and `price` of the **three most expensive** products, the dearest first. If two products cost the same, the one whose name comes first alphabetically goes first.",
+  "starter": "SELECT name, price\nFROM products;\n",
+  "variants": [
+    [
+      "INSERT INTO products VALUES (105, 'Another Monitor', 'electronics', 329.0), (106, 'Zeta Monitor', 'electronics', 329.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "price"
+      ],
+      "rows": [
+        [
+          "Standing Desk",
+          399
+        ],
+        [
+          "Pro Monitor",
+          329
+        ],
+        [
+          "Pro Keyboard",
+          89
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "price"
+      ],
+      "rows": [
+        [
+          "Standing Desk",
+          399
+        ],
+        [
+          "Another Monitor",
+          329
+        ],
+        [
+          "Pro Monitor",
+          329
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Sort first, then cut: which two clauses do that?",
+    "`ORDER BY price DESC` puts the dearest first; `LIMIT 3` keeps three rows.",
+    "Add `name` as a second sort key, so that a tie for third place is settled the same way every time."
+  ],
+  "solution": "SELECT name, price\nFROM products\nORDER BY price DESC, name\nLIMIT 3;\n",
+  "explanation": "**The idea.** Sort the way you want the answer to look (`DESC` for the biggest first), then cut it off with `LIMIT`. `LIMIT` is applied after `ORDER BY`, so it takes the first three of the sorted rows.\n\n**Why the tie rule matters.** If two products share the third place, `LIMIT 3` has to choose, and without a second sort key it chooses arbitrarily: the same query could return different rows on another run or another database. A second key in `ORDER BY` makes the answer deterministic. (`RANK()` and `FETCH FIRST ... WITH TIES` are for when you want *all* the tied rows.)\n\n**Usual mistakes.** `LIMIT` without `ORDER BY`; `ORDER BY price` without `DESC` (the three cheapest)."
+}

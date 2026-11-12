@@ -68,6 +68,9 @@ async function until(read, message) {
 }
 
 const runButton = (page) => page.getByRole('button', { name: 'Run tests' });
+const SQL_SLUG = 'cheap-products';
+const SQL_PROBLEM = practiceContent.code[SQL_SLUG];
+const queryButton = (page) => page.getByRole('button', { name: 'Run query' });
 
 test('a coding problem runs the learner\'s Python in the page under the real Content-Security-Policy, says which tests fail and why, and is solved when they all pass', async () => {
   const { context, page, problems, goto } = await open(`/practice/code/${SLUG}/`);
@@ -415,5 +418,71 @@ test('a solved problem shares its solution into the discussion as code, which is
   // it is kept: after a reload the discussion shows it again
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('.comment-code').waitFor();
+  await context.close();
+});
+
+test('a SQL problem shows its tables, runs the learner\'s query on them in the page, says how the result differs, and is solved when every check passes', async () => {
+  const { context, page, problems, goto } = await open(`/practice/code/${SQL_SLUG}/`);
+  await goto();
+  await page.getByRole('heading', { level: 2, name: SQL_PROBLEM.title }).waitFor();
+  assert.match(await page.locator('.cp-header, .cp-head').first().innerText(), /\d+ checks/, 'a SQL problem has checks, not tests');
+  await page.locator('.sq-table-info', { hasText: 'products' }).waitFor(READY);
+  assert.match(await page.locator('.sq-tables').innerText(), /12 rows/, 'the tables are read from the data itself, with their row counts');
+  assert.equal(await page.locator('.ce-input').inputValue(), SQL_PROBLEM.starter, 'the editor starts with the starting query');
+  assert.doesNotMatch(await page.locator('body').innerText(), /WHERE price < 20/, 'the solution is not on the page before it is asked for');
+
+  await queryButton(page).waitFor(READY);
+  await queryButton(page).click();
+  await page.locator('.cp-problem, .cp-test.is-fail').first().waitFor();
+  assert.match(await page.locator('.cp-results').innerText(), /Your query returns 4 columns \(id, name, category, price\); it should return 2 \(name, price\)/, 'the first difference is the columns');
+  assert.ok(await page.locator('.sq-result .sq-table tbody tr').count() >= 12, 'the learner\'s own result is shown as a table');
+
+  // right on the example data, wrong on other data: the second check catches it
+  await page.locator('.ce-input').fill('SELECT name, price FROM products WHERE price <= 20 ORDER BY price, name');
+  await queryButton(page).click();
+  await page.locator('.cp-test.is-fail').first().waitFor();
+  assert.equal(await page.locator('.cp-test.is-pass').count(), 1, 'it passes on the example data');
+  assert.match(await page.locator('.cp-test.is-fail').first().innerText(), /works on the example data but not on this other data/);
+  assert.equal(await page.locator('.cp-solved').count(), 0, 'not solved yet');
+
+  await page.locator('.ce-input').fill(SQL_PROBLEM.solution);
+  await queryButton(page).click();
+  await page.getByText('All checks pass').waitFor();
+  await page.locator('.cp-solved').waitFor();
+  await until(async () => (await savedMarks(page))[`practice/code/${SQL_SLUG}`] === 'done', 'a solved SQL problem is saved as progress, like any other');
+  await page.getByText(`+${game.xp.problem} XP`).first().waitFor();
+  await page.getByRole('button', { name: 'Compare yours with the model solution' }).click();
+  await page.locator('.cp-panel', { hasText: 'Model solution' }).locator('pre').waitFor();
+  assert.deepEqual(real(problems), [], 'nothing was blocked by the policy');
+  await context.close();
+});
+
+test('SQL that is wrong says what the engine says, a query that never stops giving rows is cut off, and one that never ends is stopped', async () => {
+  const { context, page, goto } = await open(`/practice/code/${SQL_SLUG}/`);
+  await goto();
+  await queryButton(page).waitFor(READY);
+  await page.locator('.ce-input').fill('SELECT name FORM products');
+  await queryButton(page).click();
+  await page.locator('.cp-problem').waitFor();
+  assert.match(await page.locator('.cp-problem').innerText(), /syntax error/i, 'a mistake in the SQL is reported as it is');
+
+  await page.locator('.ce-input').fill('DROP TABLE products');
+  await queryButton(page).click();
+  await page.getByText(/did not return a table/).waitFor();
+  await page.locator('.ce-input').fill('SELECT name, price FROM products WHERE price < 20 ORDER BY price, name');
+  await queryButton(page).click();
+  await page.locator('.cp-test.is-fail, .cp-test.is-pass').first().waitFor();
+  assert.ok(await page.locator('.sq-table tbody tr').count() >= 4, 'dropping a table changed nothing for the next run: every run starts from fresh tables');
+
+  await page.locator('.ce-input').fill('WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r) SELECT x AS name, x AS price FROM r');
+  await queryButton(page).click();
+  await page.getByText(/more than 2000 rows/).first().waitFor();
+
+  await page.locator('.ce-input').fill('WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r WHERE x < 300000000) SELECT count(*) AS name, 1 AS price FROM r');
+  await queryButton(page).click();
+  await page.getByText(/ran for more than \d+ seconds and was stopped/).waitFor({ timeout: 30000 });
+  await page.locator('.ce-input').fill(SQL_PROBLEM.solution);
+  await queryButton(page).click();
+  await page.getByText('All checks pass').waitFor(READY);
   await context.close();
 });

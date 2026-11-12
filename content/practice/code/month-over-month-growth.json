@@ -1,0 +1,75 @@
+{
+  "title": "Month-over-Month Revenue Growth",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Compare each month's revenue with the month before it using LAG.",
+  "statement": "Revenue is `quantity * unit_price` summed over the items of `paid` and `shipped` orders.\n\nReturn one row for each **month with revenue**: `month` (as `YYYY-MM`), `revenue` (rounded to 2 places) and `growth_pct`: the change from the previous month **in the result**, as a percentage rounded to 1 decimal place (`(this - previous) / previous * 100`). The first month has no previous one: `NULL`. Oldest first.",
+  "starter": "SELECT ordered_at AS month\nFROM orders;\n",
+  "variants": [
+    [
+      "UPDATE orders SET status = 'cancelled' WHERE ordered_at LIKE '2025-03-%'",
+      "INSERT INTO orders VALUES (213, 1, '2025-07-01', 'paid')",
+      "INSERT INTO order_items VALUES (213, 1, 1, 89.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "month",
+        "revenue",
+        "growth_pct"
+      ],
+      "rows": [
+        [
+          "2025-01",
+          1615.13,
+          null
+        ],
+        [
+          "2025-02",
+          3056.45,
+          89.2
+        ],
+        [
+          "2025-03",
+          2919.65,
+          -4.5
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "month",
+        "revenue",
+        "growth_pct"
+      ],
+      "rows": [
+        [
+          "2025-01",
+          1615.13,
+          null
+        ],
+        [
+          "2025-02",
+          3056.45,
+          89.2
+        ],
+        [
+          "2025-07",
+          89,
+          -97.1
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Get one row per month first. Then you want, on each row, the value from the row before.",
+    "`LAG(revenue) OVER (ORDER BY month)` is the previous month's revenue.",
+    "Multiply by `100.0` (not `100`) so the division is not an integer division, and round the final percentage."
+  ],
+  "solution": "WITH monthly AS (\n  SELECT substr(o.ordered_at, 1, 7) AS month, SUM(i.quantity * i.unit_price) AS revenue\n  FROM orders AS o\n  JOIN order_items AS i ON i.order_id = o.id\n  WHERE o.status IN ('paid', 'shipped')\n  GROUP BY substr(o.ordered_at, 1, 7)\n)\nSELECT month,\n       ROUND(revenue, 2) AS revenue,\n       ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) * 100.0 / LAG(revenue) OVER (ORDER BY month), 1) AS growth_pct\nFROM monthly\nORDER BY month;\n",
+  "explanation": "**The idea.** `LAG(x) OVER (ORDER BY month)` is the value of `x` in the previous row of the window, and `NULL` for the first row, so the first month gets a `NULL` growth with no special case. After grouping to one row per month, \"previous month\" is just \"previous row\".\n\n**Details that matter.** `* 100.0` makes the division decimal (`7 / 2` is `3` in integer arithmetic, `7 / 2.0` is `3.5`); round at the end; compute the growth from the *unrounded* revenues, not from the rounded ones shown. Months are cut from the date text with `substr(date, 1, 7)` (or `strftime('%Y-%m', date)`).\n\n**A note.** A month with no revenue at all would not be a row, so the \"previous\" month would be the one before the gap. For a calendar-exact comparison you would generate every month first and join to it."
+}

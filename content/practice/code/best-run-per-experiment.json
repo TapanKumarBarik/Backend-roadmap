@@ -1,0 +1,82 @@
+{
+  "title": "Best Run of Each Experiment",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "ml_runs",
+  "description": "Pick the training run with the highest validation accuracy in every experiment, ignoring runs that failed.",
+  "statement": "For every experiment return its best finished run: `experiment` (the experiment's name), `run_id`, `model` and `val_accuracy`. The best is the run with the **highest `val_accuracy`**; a run that failed has `NULL` accuracy and is never the best. If two runs have the same accuracy, the one with the lower id.\n\nOrder by `experiment`.",
+  "starter": "SELECT id AS run_id, model, val_accuracy\nFROM runs;\n",
+  "variants": [
+    [
+      "UPDATE runs SET val_accuracy = 0.9 WHERE id IN (4, 7)",
+      "UPDATE runs SET status = 'failed', val_accuracy = NULL WHERE id = 5"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "experiment",
+        "run_id",
+        "model",
+        "val_accuracy"
+      ],
+      "rows": [
+        [
+          "churn-model",
+          25,
+          "transformer",
+          0.8775
+        ],
+        [
+          "demand-forecast",
+          21,
+          "transformer",
+          0.8624
+        ],
+        [
+          "search-ranker",
+          17,
+          "transformer",
+          0.9038
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "experiment",
+        "run_id",
+        "model",
+        "val_accuracy"
+      ],
+      "rows": [
+        [
+          "churn-model",
+          4,
+          "logreg",
+          0.9
+        ],
+        [
+          "demand-forecast",
+          21,
+          "transformer",
+          0.8624
+        ],
+        [
+          "search-ranker",
+          17,
+          "transformer",
+          0.9038
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "One row per experiment, but a whole run (several columns) from each. Which pattern picks one row per group?",
+    "`ROW_NUMBER() OVER (PARTITION BY experiment_id ORDER BY val_accuracy DESC, id)` and keep number 1.",
+    "A failed run has a `NULL` accuracy. Filter those out before numbering, and join `experiments` for the name."
+  ],
+  "solution": "WITH ranked AS (\n  SELECT experiment_id, id, model, val_accuracy,\n         ROW_NUMBER() OVER (PARTITION BY experiment_id ORDER BY val_accuracy DESC, id) AS pos\n  FROM runs\n  WHERE val_accuracy IS NOT NULL\n)\nSELECT e.name AS experiment, r.id AS run_id, r.model, r.val_accuracy\nFROM ranked AS r\nJOIN experiments AS e ON e.id = r.experiment_id\nWHERE r.pos = 1\nORDER BY e.name;\n",
+  "explanation": "**The idea.** The top-one-per-group pattern again: number the runs of each experiment from the best accuracy with `ROW_NUMBER() ... PARTITION BY experiment_id`, keep number 1, then join the experiment's name.\n\n**NULLs and sorting.** In SQLite a `NULL` sorts as the *smallest* value, so in a `DESC` order the failed runs would come last and could still be chosen when every run of an experiment failed. Filtering them out with `WHERE val_accuracy IS NOT NULL` makes the rule explicit (and an experiment with no finished run simply has no row).\n\n**In practice.** \"Which run is best\" is the question an experiment tracker answers; the real versions also compare by a chosen metric, report a baseline, and keep the run's hyperparameters beside it."
+}

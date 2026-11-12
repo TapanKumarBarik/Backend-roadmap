@@ -47,6 +47,9 @@ export function exerciseProblems(slug, item) {
 // in their browser: public/runner/harness.py), and the model solution they can look at once they have tried. A test is a piece of Python that
 // runs after theirs in the same namespace; one with an `assert` in it is a case that passes or fails, one without is set-up for the next.
 export const CODE_RULES = { minCases: 3, maxTests: 60, maxHints: 5 };
+/** The languages a coding problem can be in: Python (the default) runs tests in Pyodide, SQL runs a query on SQLite (docs/PRACTICE.md). */
+export const CODE_LANGUAGES = ['python', 'sql'];
+export const SQL_RULES = { maxVariants: 6, maxRows: 200, maxHints: 5 };
 
 const isTest = (test) => isText(test) || (!!test && typeof test === 'object' && !Array.isArray(test) && isText(test.code) && (test.name === undefined || isText(test.name)));
 
@@ -72,8 +75,29 @@ export function isCase(test) {
 /** A test as { name, code }: a test is written as its code alone, or as { name, code } when the line of its first assert is not a good name. */
 export const testParts = (test) => (typeof test === 'string' ? { name: null, code: test } : { name: test.name || null, code: test.code });
 
+const isTable = (t) => !!t && typeof t === 'object' && isTexts(t.columns) && t.columns.length > 0 && Array.isArray(t.rows) && t.rows.length <= SQL_RULES.maxRows
+  && t.rows.every((row) => Array.isArray(row) && row.length === t.columns.length && row.every((v) => v === null || ['string', 'number'].includes(typeof v)));
+
+/** A SQL problem: what is wrong with it. It is judged by running the learner's query on `dataset` (content/practice/sql-data/<dataset>.sql) as it is and on each of `variants` (statements that change the data), against `expected`. */
+function sqlProblems(slug, item) {
+  const at = `code ${slug}`;
+  const problems = [];
+  for (const field of ['title', 'topic', 'description', 'statement', 'starter', 'solution', 'explanation', 'dataset']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
+  if (!DIFFICULTIES.includes(item.difficulty)) problems.push(`${at}: difficulty must be one of ${DIFFICULTIES.join(', ')}`);
+  // at least one variant: a query that only has to give the right table on one set of data could be a list of the rows
+  const variants = item.variants === undefined ? [] : item.variants;
+  if (!Array.isArray(variants) || variants.length < 1 || variants.length > SQL_RULES.maxVariants || !variants.every((v) => isTexts(v) && v.length > 0)) problems.push(`${at}: variants must be a list of 1 to ${SQL_RULES.maxVariants} lists of SQL statements that change the data`);
+  if (item.orderMatters !== undefined && typeof item.orderMatters !== 'boolean') problems.push(`${at}: orderMatters must be true or false`);
+  const runs = (Array.isArray(variants) ? variants.length : 0) + 1;
+  if (!Array.isArray(item.expected) || item.expected.length !== runs || !item.expected.every(isTable)) problems.push(`${at}: expected must be one table ({ columns, rows }, at most ${SQL_RULES.maxRows} rows) for the data and for each variant: ${runs} in all (run \`npm run check:sql\` to write it)`);
+  if (item.hints !== undefined && !(Array.isArray(item.hints) && item.hints.length <= SQL_RULES.maxHints && item.hints.every(isText))) problems.push(`${at}: hints must be a list of at most ${SQL_RULES.maxHints} texts`);
+  return problems;
+}
+
 export function codeProblems(slug, item) {
   const at = `code ${slug}`;
+  if (item.language !== undefined && !CODE_LANGUAGES.includes(item.language)) return [`${at}: language must be one of ${CODE_LANGUAGES.join(', ')}`];
+  if (item.language === 'sql') return sqlProblems(slug, item);
   const problems = [];
   for (const field of ['title', 'topic', 'description', 'statement', 'starter', 'solution', 'explanation']) if (!isText(item[field])) problems.push(`${at}: ${field} is missing`);
   if (!DIFFICULTIES.includes(item.difficulty)) problems.push(`${at}: difficulty must be one of ${DIFFICULTIES.join(', ')}`);
@@ -102,6 +126,9 @@ export const FOLDERS = {
   interview: 'practice/interview',
   code: 'practice/code'
 };
+
+/** Where the data the SQL problems run on lives, under content/: one file of SQL (CREATE TABLE and INSERT statements) for each dataset. */
+export const SQL_DATA_FOLDER = 'practice/sql-data';
 
 const PATH = /^practice\/(quizzes|exercises|interview|code)\/([a-z0-9][a-z0-9-]*)\.json$/;
 

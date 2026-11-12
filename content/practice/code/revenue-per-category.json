@@ -1,0 +1,80 @@
+{
+  "title": "Revenue per Category",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Add up quantity times price per product category, for the orders that count as sales.",
+  "statement": "Revenue is `quantity * unit_price` summed over the items of the orders whose status is `paid` or `shipped` (cancelled and refunded orders do not count).\n\nReturn one row per product `category` with its `revenue`, rounded to 2 decimal places, highest revenue first (a tie: by `category`). Categories with no sales are not in the result.",
+  "starter": "SELECT category\nFROM products;\n",
+  "variants": [
+    [
+      "UPDATE orders SET status = 'cancelled' WHERE id <= 12",
+      "INSERT INTO products VALUES (112, 'Rare Toy', 'collectibles', 50.0)",
+      "INSERT INTO orders VALUES (206, 1, '2025-06-01', 'paid')",
+      "INSERT INTO order_items VALUES (206, 112, 3, 50.0)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "category",
+        "revenue"
+      ],
+      "rows": [
+        [
+          "electronics",
+          6247.95
+        ],
+        [
+          "books",
+          705.5
+        ],
+        [
+          "toys",
+          362.86
+        ],
+        [
+          "home",
+          274.92
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "category",
+        "revenue"
+      ],
+      "rows": [
+        [
+          "electronics",
+          5194.96
+        ],
+        [
+          "books",
+          424.5
+        ],
+        [
+          "toys",
+          262.9
+        ],
+        [
+          "home",
+          199.94
+        ],
+        [
+          "collectibles",
+          150
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "The amount is in `order_items`, the status in `orders`, the category in `products`. How do you connect them?",
+    "Join the three tables, `WHERE o.status IN ('paid', 'shipped')`, `GROUP BY p.category`, `SUM(i.quantity * i.unit_price)`.",
+    "`ROUND(..., 2)` goes around the sum. Sort by the revenue, biggest first."
+  ],
+  "solution": "SELECT p.category, ROUND(SUM(i.quantity * i.unit_price), 2) AS revenue\nFROM order_items AS i\nJOIN orders AS o ON o.id = i.order_id\nJOIN products AS p ON p.id = i.product_id\nWHERE o.status IN ('paid', 'shipped')\nGROUP BY p.category\nORDER BY revenue DESC, p.category;\n",
+  "explanation": "**The idea.** The money is in `order_items`; the status is in `orders` and the category in `products`, so join all three. Filter the orders with `WHERE` (before grouping), then `GROUP BY category` and sum the line totals.\n\n**`WHERE` against `HAVING`.** `WHERE` removes rows *before* they are grouped; `HAVING` filters the *groups* after (for example \"categories with more than 100 in revenue\"). A condition on a single row's column, such as the status, belongs in `WHERE`.\n\n**Usual mistakes.** Summing `unit_price` without the quantity; filtering the status after grouping; rounding each line instead of the total; joining through the wrong key."
+}

@@ -1,0 +1,193 @@
+{
+  "title": "Employees and Their Managers",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Join a table to itself to show who reports to whom, keeping the head of the company.",
+  "statement": "Return every employee with the name of their manager: the columns `employee` and `manager`. The head of the company has no manager: show `NULL`.\n\nOrder by `employee`.",
+  "starter": "SELECT name AS employee\nFROM employees;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Aaron Adams', 1, 18, 50000, '2025-01-02'), (20, 'Zoe Zhang', NULL, NULL, 40000, '2025-01-03')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "employee",
+        "manager"
+      ],
+      "rows": [
+        [
+          "Aiko Tanaka",
+          "Sofia Rossi"
+        ],
+        [
+          "Chloe Dubois",
+          "Lucas Meyer"
+        ],
+        [
+          "Elena Popov",
+          "Priya Nair"
+        ],
+        [
+          "Ethan Brooks",
+          "Sofia Rossi"
+        ],
+        [
+          "Felix Wagner",
+          "Omar Haddad"
+        ],
+        [
+          "Hugo Martin",
+          "Priya Nair"
+        ],
+        [
+          "Isla Novak",
+          "Priya Nair"
+        ],
+        [
+          "Lucas Meyer",
+          "Maya Chen"
+        ],
+        [
+          "Mateo Silva",
+          "Lucas Meyer"
+        ],
+        [
+          "Maya Chen",
+          null
+        ],
+        [
+          "Nina Costa",
+          "Elena Popov"
+        ],
+        [
+          "Noah Kim",
+          "Sofia Rossi"
+        ],
+        [
+          "Omar Haddad",
+          "Maya Chen"
+        ],
+        [
+          "Priya Nair",
+          "Maya Chen"
+        ],
+        [
+          "Ravi Patel",
+          "Lucas Meyer"
+        ],
+        [
+          "Sofia Rossi",
+          "Omar Haddad"
+        ],
+        [
+          "Tom Becker",
+          "Elena Popov"
+        ],
+        [
+          "Zara Ali",
+          "Sofia Rossi"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "employee",
+        "manager"
+      ],
+      "rows": [
+        [
+          "Aaron Adams",
+          "Felix Wagner"
+        ],
+        [
+          "Aiko Tanaka",
+          "Sofia Rossi"
+        ],
+        [
+          "Chloe Dubois",
+          "Lucas Meyer"
+        ],
+        [
+          "Elena Popov",
+          "Priya Nair"
+        ],
+        [
+          "Ethan Brooks",
+          "Sofia Rossi"
+        ],
+        [
+          "Felix Wagner",
+          "Omar Haddad"
+        ],
+        [
+          "Hugo Martin",
+          "Priya Nair"
+        ],
+        [
+          "Isla Novak",
+          "Priya Nair"
+        ],
+        [
+          "Lucas Meyer",
+          "Maya Chen"
+        ],
+        [
+          "Mateo Silva",
+          "Lucas Meyer"
+        ],
+        [
+          "Maya Chen",
+          null
+        ],
+        [
+          "Nina Costa",
+          "Elena Popov"
+        ],
+        [
+          "Noah Kim",
+          "Sofia Rossi"
+        ],
+        [
+          "Omar Haddad",
+          "Maya Chen"
+        ],
+        [
+          "Priya Nair",
+          "Maya Chen"
+        ],
+        [
+          "Ravi Patel",
+          "Lucas Meyer"
+        ],
+        [
+          "Sofia Rossi",
+          "Omar Haddad"
+        ],
+        [
+          "Tom Becker",
+          "Elena Popov"
+        ],
+        [
+          "Zara Ali",
+          "Sofia Rossi"
+        ],
+        [
+          "Zoe Zhang",
+          null
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "The manager is also in `employees`. How can one table appear twice in `FROM`?",
+    "Give the two copies different aliases and join them on the manager's id.",
+    "Use a `LEFT JOIN` so that an employee with no manager is kept."
+  ],
+  "solution": "SELECT e.name AS employee, m.name AS manager\nFROM employees AS e\nLEFT JOIN employees AS m ON m.id = e.manager_id\nORDER BY e.name;\n",
+  "explanation": "**The idea.** The manager is another row of the same table, found through `manager_id`. Join the table to **itself**, under two different aliases (`e` for the employee, `m` for the manager), and match `m.id = e.manager_id`. The join must be a `LEFT JOIN`, or the head of the company, whose `manager_id` is `NULL`, would disappear.\n\n**Why aliases are needed.** Without `AS e` and `AS m` the two copies of `employees` would have the same name and every column reference would be ambiguous.\n\n**Follow-up.** Chains of managers (who is the boss of my boss) need a *recursive* CTE: see the org chart problems."
+}

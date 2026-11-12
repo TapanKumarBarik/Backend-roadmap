@@ -1,0 +1,145 @@
+{
+  "title": "Orders in March",
+  "topic": "sql-querying",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Pick out the orders placed between two dates, both ends included.",
+  "statement": "Return the `id` and `ordered_at` of every order placed in **March 2025**: from `2025-03-01` to `2025-03-31`, both days included. (Dates are text in the form `YYYY-MM-DD`, which sorts in date order.)\n\nOldest first, and orders on the same day by `id`.",
+  "starter": "SELECT id, ordered_at\nFROM orders;\n",
+  "variants": [
+    [
+      "INSERT INTO orders VALUES (201, 1, '2025-03-31', 'paid'), (202, 1, '2025-04-01', 'paid'), (203, 1, '2025-03-01', 'paid'), (204, 1, '2025-02-28', 'paid')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "id",
+        "ordered_at"
+      ],
+      "rows": [
+        [
+          29,
+          "2025-03-05"
+        ],
+        [
+          30,
+          "2025-03-07"
+        ],
+        [
+          31,
+          "2025-03-10"
+        ],
+        [
+          32,
+          "2025-03-11"
+        ],
+        [
+          33,
+          "2025-03-14"
+        ],
+        [
+          34,
+          "2025-03-14"
+        ],
+        [
+          35,
+          "2025-03-17"
+        ],
+        [
+          36,
+          "2025-03-18"
+        ],
+        [
+          37,
+          "2025-03-21"
+        ],
+        [
+          38,
+          "2025-03-25"
+        ],
+        [
+          39,
+          "2025-03-27"
+        ],
+        [
+          40,
+          "2025-03-27"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "id",
+        "ordered_at"
+      ],
+      "rows": [
+        [
+          203,
+          "2025-03-01"
+        ],
+        [
+          29,
+          "2025-03-05"
+        ],
+        [
+          30,
+          "2025-03-07"
+        ],
+        [
+          31,
+          "2025-03-10"
+        ],
+        [
+          32,
+          "2025-03-11"
+        ],
+        [
+          33,
+          "2025-03-14"
+        ],
+        [
+          34,
+          "2025-03-14"
+        ],
+        [
+          35,
+          "2025-03-17"
+        ],
+        [
+          36,
+          "2025-03-18"
+        ],
+        [
+          37,
+          "2025-03-21"
+        ],
+        [
+          38,
+          "2025-03-25"
+        ],
+        [
+          39,
+          "2025-03-27"
+        ],
+        [
+          40,
+          "2025-03-27"
+        ],
+        [
+          201,
+          "2025-03-31"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which condition keeps values between two limits?",
+    "Write the two dates as text in quotes: `'2025-03-01'` and `'2025-03-31'`.",
+    "The other data has orders on `2025-02-28`, `2025-03-01`, `2025-03-31` and `2025-04-01`. Which of them belong?"
+  ],
+  "solution": "SELECT id, ordered_at\nFROM orders\nWHERE ordered_at BETWEEN '2025-03-01' AND '2025-03-31'\nORDER BY ordered_at, id;\n",
+  "explanation": "**The idea.** `BETWEEN a AND b` is `>= a AND <= b`: both ends are included. Dates written as `YYYY-MM-DD` compare correctly as text, because the year comes first, then the month, then the day.\n\n**Watch the ends.** `BETWEEN '2025-03-01' AND '2025-03-31'` works for dates without a time. If the column held timestamps (`2025-03-31 18:30:00`) the last day would be cut off, because `'2025-03-31 18:30:00'` is greater than `'2025-03-31'`. For timestamps the safe form is a half-open range: `>= '2025-03-01' AND < '2025-04-01'`.\n\n**Usual mistakes.** `<` on the last day; an off-by-one on the month end; sorting by `id` only."
+}

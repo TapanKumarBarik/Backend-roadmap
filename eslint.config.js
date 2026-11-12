@@ -14,7 +14,7 @@ export default [
   {
     // Built output, installed packages, local state, and the curricula (Markdown, plus a few code samples that are
     // teaching material, not part of this project). Pyodide, which the practice screens run Python with, is vendored as it was released.
-    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/', 'webapp/public/runner/pyodide-*/']
+    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/', 'webapp/public/runner/pyodide-*/', 'webapp/public/runner/sqljs-*/']
   },
 
   js.configs.recommended,
@@ -98,5 +98,18 @@ export default [
     // The Python runner of the practice screens is a module worker: its own scope, with `self`, `fetch` and `URL` but no DOM.
     files: ['webapp/public/runner/py-worker.js'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: globals.worker }
+  },
+
+  {
+    // The SQL runner is a classic worker (it loads sql.js and sql-core.js with importScripts): the worker's scope, and `initSqlJs` (from sql.js)
+    // and `sqlHandle` (from sql-core.js) as globals.
+    files: ['webapp/public/runner/sql-worker.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'script', globals: { ...globals.worker, initSqlJs: 'readonly', sqlHandle: 'readonly' } }
+  },
+  {
+    // sql-core.js is a plain script that defines the functions the worker above, and the checks of the problems under Node, call.
+    files: ['webapp/public/runner/sql-core.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'script', globals: { performance: 'readonly' } },
+    rules: { 'no-unused-vars': ['error', { varsIgnorePattern: '^sqlHandle$' }] }
   }
 ];

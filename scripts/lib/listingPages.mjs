@@ -211,7 +211,7 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
 
   for (const [slug, p] of code) {
     const description = LISTING_COPY.codeDescription(p);
-    itemPage('code', slug, { ...p, title: LISTING_COPY.codeTitle(p.title) }, {
+    itemPage('code', slug, { ...p, title: LISTING_COPY.codeTitle(p.title, p.language) }, {
       description,
       body: `<div>${renderMarkdownDoc(p.statement)}</div><section><h2>${esc(LISTING_COPY.codeStarter)}</h2><pre><code>${esc(p.starter)}</code></pre></section><p>${esc(LISTING_COPY.codeRun)}</p>`,
       ld: (url) => resource(p.title, url, description, p, 'Coding exercise')

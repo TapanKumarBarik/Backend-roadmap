@@ -1,0 +1,84 @@
+{
+  "title": "Thumbs-Down Rate by Feature",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Measure user feedback per feature, handling features that nobody has rated.",
+  "statement": "The table `feedback` holds a `rating` for some calls: `1` for a thumbs up, `-1` for a thumbs down. For **every** feature that appears in `llm_calls`, return `feature`, `rated` (how many of its calls have feedback) and `thumbs_down_pct`: the percentage of those rated calls that got `-1`, rounded to 1 decimal place. A feature with no rated calls has `0` rated and `NULL` as the percentage (not an error, and not 0).\n\nOrder by `feature`.",
+  "starter": "SELECT feature\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "DELETE FROM feedback WHERE call_id IN (SELECT id FROM llm_calls WHERE feature = 'agent')",
+      "INSERT INTO feedback VALUES (1, -1, 'bad'), (2, -1, 'bad'), (3, -1, 'bad')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "feature",
+        "rated",
+        "thumbs_down_pct"
+      ],
+      "rows": [
+        [
+          "agent",
+          4,
+          50
+        ],
+        [
+          "chat",
+          15,
+          20
+        ],
+        [
+          "search",
+          7,
+          14.3
+        ],
+        [
+          "summarize",
+          4,
+          50
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "feature",
+        "rated",
+        "thumbs_down_pct"
+      ],
+      "rows": [
+        [
+          "agent",
+          0,
+          null
+        ],
+        [
+          "chat",
+          18,
+          33.3
+        ],
+        [
+          "search",
+          7,
+          14.3
+        ],
+        [
+          "summarize",
+          4,
+          50
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Every feature has to appear, even if none of its calls has feedback. Which join keeps them?",
+    "`LEFT JOIN feedback`; `COUNT(f.call_id)` counts the rated calls and `SUM(CASE WHEN f.rating = -1 THEN 1 ELSE 0 END)` the thumbs-down.",
+    "Divide by `NULLIF(COUNT(f.call_id), 0)` so that a feature with no ratings gives `NULL`. Multiply by `100.0`."
+  ],
+  "solution": "SELECT c.feature,\n       COUNT(f.call_id) AS rated,\n       ROUND(100.0 * SUM(CASE WHEN f.rating = -1 THEN 1 ELSE 0 END) / NULLIF(COUNT(f.call_id), 0), 1) AS thumbs_down_pct\nFROM llm_calls AS c\nLEFT JOIN feedback AS f ON f.call_id = c.id\nGROUP BY c.feature\nORDER BY c.feature;\n",
+  "explanation": "**The idea.** `LEFT JOIN` keeps every call (and so every feature), with `NULL` feedback columns for the calls nobody rated. `COUNT(f.call_id)` counts only the rated ones; the `CASE` counts the thumbs-down among them.\n\n**Dividing safely.** For a feature with no ratings the denominator is 0. `NULLIF(x, 0)` returns `NULL` when `x` is 0, and anything divided by `NULL` is `NULL`: the result is \"no data\" rather than a crash (or a misleading 0%, which would say \"everyone is happy\").\n\n**Why the percentage needs care.** Feedback is voluntary, so the rate describes the people who chose to rate: a small `rated` count means the percentage is not worth much, which is why the count is in the result beside it."
+}

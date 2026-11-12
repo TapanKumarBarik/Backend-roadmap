@@ -1,0 +1,73 @@
+{
+  "title": "Signup Funnel",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "events",
+  "description": "Count how many users reached each step of the funnel, listing a step even when nobody did.",
+  "statement": "The funnel has four steps, in this order: `signup`, `view_pricing`, `start_trial`, `purchase` (the `name` of an event). Return exactly **four rows**, one per step in that order, with `step` and `users`: how many **distinct users** have at least one event with that name. A step nobody reached is still listed, with `0`.",
+  "starter": "SELECT name AS step\nFROM events;\n",
+  "variants": [
+    [
+      "DELETE FROM events WHERE name = 'purchase'"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "step",
+        "users"
+      ],
+      "rows": [
+        [
+          "signup",
+          12
+        ],
+        [
+          "view_pricing",
+          11
+        ],
+        [
+          "start_trial",
+          6
+        ],
+        [
+          "purchase",
+          4
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "step",
+        "users"
+      ],
+      "rows": [
+        [
+          "signup",
+          12
+        ],
+        [
+          "view_pricing",
+          11
+        ],
+        [
+          "start_trial",
+          6
+        ],
+        [
+          "purchase",
+          0
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "The step names must come from somewhere that does not depend on the events, so that a step with no events still has a row.",
+    "Build a small table in a CTE with `VALUES ('signup', 1), ...` and `LEFT JOIN events` to it on the name.",
+    "`COUNT(DISTINCT e.user_id)` counts each user once and gives 0 where there is no match. Order by the position."
+  ],
+  "solution": "WITH steps(step, position) AS (\n  VALUES ('signup', 1), ('view_pricing', 2), ('start_trial', 3), ('purchase', 4)\n)\nSELECT s.step, COUNT(DISTINCT e.user_id) AS users\nFROM steps AS s\nLEFT JOIN events AS e ON e.name = s.step\nGROUP BY s.step, s.position\nORDER BY s.position;\n",
+  "explanation": "**The idea.** The list of steps is not in the data as rows you can group, so the query **makes a table of them** with a `VALUES` list in a CTE, and `LEFT JOIN`s the events to it. Grouping by the step then gives a row for every step, even one with no events (the `COUNT` of nothing is 0), and the `position` column fixes the order of the funnel.\n\n**Why not just `GROUP BY name`.** That only returns the names that occur: a step nobody reached would be missing, and so would the information that conversion dropped to zero there.\n\n**Real funnels** also require that the steps happen *in order* for the same user (and often within a time window). This one counts each step on its own, which is the usual first view; the next step is conversion between consecutive steps."
+}

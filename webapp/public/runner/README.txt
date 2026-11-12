@@ -12,4 +12,12 @@ named pyodide.mjs, pyodide.asm.mjs, pyodide.asm.wasm, python_stdlib.zip and pyod
 The folder name carries the version so that the browser can keep the files for good (webapp/public/_headers). To upgrade, add the new
 version's folder, point py-worker.js at it, and delete the old one.
 
+sql-worker.js  the web worker of the SQL problems: loads SQLite (sql.js) and sql-core.js, and runs a learner's query on a fresh in-memory copy of a problem's data
+sql-core.js    what a SQL job is (the same file is run by scripts/lib/sqlEngine.mjs, with Node, to check the problems)
+sqljs-1.15.2/  sql.js 1.15.2, unmodified: SQLite 3.54 compiled to WebAssembly (sql-wasm.js and sql-wasm.wasm)
+
+sql.js is made by its contributors and is licensed under the MIT license (LICENSE in its folder); SQLite is in the public domain.
+Source and licence: https://github.com/sql-js/sql.js . Obtained with `npm pack sql.js@1.15.2`; the files here are dist/sql-wasm.js and dist/sql-wasm.wasm
+from that package. To upgrade, add the new version's folder, point sql-worker.js at it, and delete the old one.
+
 Nothing a learner writes leaves their browser: the code runs in a worker on their own machine.

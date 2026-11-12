@@ -1,0 +1,81 @@
+{
+  "title": "Heaviest Users by Tokens",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Find the five users who used the most tokens in total, prompts and completions together.",
+  "statement": "A call uses `prompt_tokens + completion_tokens` tokens. Return the **five users** with the most tokens in total: `user_id` and `tokens`. The heaviest first; a tie, by the lower `user_id`.",
+  "starter": "SELECT user_id, prompt_tokens\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "INSERT INTO llm_calls VALUES (1001, 99, 'chat', 'large', 90000, 5000, 5000, 'ok', 0.7, '2025-04-01 10:00:00'), (1002, 98, 'chat', 'large', 50000, 5000, 5000, 'ok', 0.4, '2025-04-01 10:01:00'), (1003, 97, 'chat', 'large', 50000, 5000, 5000, 'ok', 0.4, '2025-04-01 10:02:00')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "user_id",
+        "tokens"
+      ],
+      "rows": [
+        [
+          2,
+          43684
+        ],
+        [
+          3,
+          36417
+        ],
+        [
+          6,
+          31635
+        ],
+        [
+          8,
+          21772
+        ],
+        [
+          4,
+          21469
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "user_id",
+        "tokens"
+      ],
+      "rows": [
+        [
+          99,
+          95000
+        ],
+        [
+          97,
+          55000
+        ],
+        [
+          98,
+          55000
+        ],
+        [
+          2,
+          43684
+        ],
+        [
+          3,
+          36417
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "The total per user is a sum over their calls. Per call, the tokens are the two columns added together.",
+    "`SUM(prompt_tokens + completion_tokens)` grouped by `user_id`.",
+    "Sort by the total, highest first, then by `user_id`; `LIMIT 5`."
+  ],
+  "solution": "SELECT user_id, SUM(prompt_tokens + completion_tokens) AS tokens\nFROM llm_calls\nGROUP BY user_id\nORDER BY tokens DESC, user_id\nLIMIT 5;\n",
+  "explanation": "**The idea.** Sum the tokens of every call per user, sort the totals from the highest, and keep five. Adding the two columns *inside* the `SUM` counts both kinds of token for each call.\n\n**Why it matters.** Tokens are the unit of cost and of rate limits in LLM systems: a few heavy users usually account for most of the spend, and finding them is the first step to a quota, a cheaper default model, or a conversation.\n\n**Usual mistakes.** Forgetting `LIMIT` after the sort; `LIMIT` before the grouping is impossible, but `ORDER BY` on the *column* `prompt_tokens` instead of the total is not; leaving the tie-break out, so the fifth place can change between runs."
+}

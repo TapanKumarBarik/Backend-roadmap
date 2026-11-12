@@ -1,0 +1,129 @@
+{
+  "title": "Customer Labels",
+  "topic": "sql-querying",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Build one text column from two, and say \"unknown\" where a value is missing, with COALESCE.",
+  "statement": "Return one column, `label`, for every customer: the name followed by the country in brackets, such as `Ada Lovelace (US)`. When the country is not known (`NULL`) write `unknown` in its place: `Tim Berners-Lee (unknown)`.\n\nOrder by the customer's `id`.",
+  "starter": "SELECT name AS label\nFROM customers;\n",
+  "variants": [
+    [
+      "INSERT INTO customers VALUES (51, 'Zed Zero', NULL, NULL, '2025-01-01'), (52, 'Amy Ames', NULL, 'GB', '2025-01-02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "label"
+      ],
+      "rows": [
+        [
+          "Ada Lovelace (US)"
+        ],
+        [
+          "Alan Turing (DE)"
+        ],
+        [
+          "Grace Hopper (IN)"
+        ],
+        [
+          "Linus Torvalds (BR)"
+        ],
+        [
+          "Margaret Hamilton (JP)"
+        ],
+        [
+          "Dennis Ritchie (GB)"
+        ],
+        [
+          "Barbara Liskov (US)"
+        ],
+        [
+          "Ken Thompson (DE)"
+        ],
+        [
+          "Radia Perlman (IN)"
+        ],
+        [
+          "Tim Berners-Lee (unknown)"
+        ],
+        [
+          "Donald Knuth (US)"
+        ],
+        [
+          "Edsger Dijkstra (JP)"
+        ],
+        [
+          "Frances Allen (unknown)"
+        ],
+        [
+          "John McCarthy (GB)"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "label"
+      ],
+      "rows": [
+        [
+          "Ada Lovelace (US)"
+        ],
+        [
+          "Alan Turing (DE)"
+        ],
+        [
+          "Grace Hopper (IN)"
+        ],
+        [
+          "Linus Torvalds (BR)"
+        ],
+        [
+          "Margaret Hamilton (JP)"
+        ],
+        [
+          "Dennis Ritchie (GB)"
+        ],
+        [
+          "Barbara Liskov (US)"
+        ],
+        [
+          "Ken Thompson (DE)"
+        ],
+        [
+          "Radia Perlman (IN)"
+        ],
+        [
+          "Tim Berners-Lee (unknown)"
+        ],
+        [
+          "Donald Knuth (US)"
+        ],
+        [
+          "Edsger Dijkstra (JP)"
+        ],
+        [
+          "Frances Allen (unknown)"
+        ],
+        [
+          "John McCarthy (GB)"
+        ],
+        [
+          "Zed Zero (unknown)"
+        ],
+        [
+          "Amy Ames (GB)"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Joining text with `||` gives `NULL` as soon as one part is `NULL`.",
+    "`COALESCE(country, 'unknown')` is the country, or `'unknown'` when there is none.",
+    "The pieces are: the name, a space and an opening bracket, the country or `unknown`, and a closing bracket."
+  ],
+  "solution": "SELECT name || ' (' || COALESCE(country, 'unknown') || ')' AS label\nFROM customers\nORDER BY id;\n",
+  "explanation": "**The idea.** `||` joins text. `COALESCE(a, b, ...)` returns the first argument that is not `NULL`, which is the standard way to give a missing value a default.\n\n**Why this needs care.** Almost every operation on `NULL` gives `NULL`: `'Tim' || NULL` is `NULL`, so without `COALESCE` the whole label of a customer with no country would be missing. `COALESCE` is also how you make a sum treat a missing number as 0 (`COALESCE(SUM(x), 0)`).\n\n**Usual mistakes.** Concatenating a nullable column directly; using `IFNULL` or `NVL` (database-specific) instead of the standard `COALESCE`; `+` for text (that adds numbers in SQLite)."
+}

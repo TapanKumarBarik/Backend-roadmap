@@ -1,0 +1,58 @@
+{
+  "title": "Customers Who Never Ordered",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Find the rows with no match in another table: an anti-join.",
+  "statement": "Return the `name` of every customer who has **never placed an order** (of any status), in alphabetical order.",
+  "starter": "SELECT name\nFROM customers;\n",
+  "variants": [
+    [
+      "INSERT INTO customers VALUES (52, 'Aaron Zero', NULL, 'US', '2025-01-01')",
+      "INSERT INTO orders VALUES (205, 11, '2025-05-05', 'cancelled')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          "Donald Knuth"
+        ],
+        [
+          "Frances Allen"
+        ],
+        [
+          "John McCarthy"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name"
+      ],
+      "rows": [
+        [
+          "Aaron Zero"
+        ],
+        [
+          "Frances Allen"
+        ],
+        [
+          "John McCarthy"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You want the customers for whom a search in `orders` finds nothing.",
+    "Either `LEFT JOIN orders` and keep the rows where the order side is `NULL`, or `NOT EXISTS (SELECT 1 FROM orders WHERE ...)`.",
+    "The other data gives one of these customers a cancelled order. A cancelled order is still an order."
+  ],
+  "solution": "SELECT c.name\nFROM customers AS c\nWHERE NOT EXISTS (SELECT 1 FROM orders AS o WHERE o.customer_id = c.id)\nORDER BY c.name;\n",
+  "explanation": "**The idea.** \"Rows with no match\" is called an **anti-join**. Two correct forms: `NOT EXISTS (SELECT 1 FROM orders WHERE customer_id = c.id)`, or a `LEFT JOIN ... WHERE o.id IS NULL`. Both say: look for a matching order, and keep the customer when there is none.\n\n**Why not `NOT IN`.** `id NOT IN (SELECT customer_id FROM orders)` looks the same, but if the subquery returns even one `NULL`, `NOT IN` returns *no rows at all* (a comparison with `NULL` is never true). `NOT EXISTS` has no such trap, which is why it is the safer habit.\n\n**Usual mistakes.** `JOIN` instead of an anti-join; `<>` against a joined table (that finds customers who have *some other* order); `NOT IN` on a nullable column."
+}

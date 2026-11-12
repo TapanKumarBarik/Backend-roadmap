@@ -1,0 +1,193 @@
+{
+  "title": "Levels of the Org Chart",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Walk the management chain from the head of the company down with a recursive CTE.",
+  "statement": "The head of the company (no manager) is at **level 1**; the people who report to them are at level 2; their reports are at level 3, and so on.\n\nReturn `employee` and `level` for every employee reachable from the head of the company, ordered by `level`, then `employee`. (The company has exactly one employee with no manager.)",
+  "starter": "SELECT name AS employee\nFROM employees;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Deep One', 1, 18, 1000, '2025-01-01'), (20, 'Deeper Two', 1, 19, 1000, '2025-01-02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "employee",
+        "level"
+      ],
+      "rows": [
+        [
+          "Maya Chen",
+          1
+        ],
+        [
+          "Lucas Meyer",
+          2
+        ],
+        [
+          "Omar Haddad",
+          2
+        ],
+        [
+          "Priya Nair",
+          2
+        ],
+        [
+          "Chloe Dubois",
+          3
+        ],
+        [
+          "Elena Popov",
+          3
+        ],
+        [
+          "Felix Wagner",
+          3
+        ],
+        [
+          "Hugo Martin",
+          3
+        ],
+        [
+          "Isla Novak",
+          3
+        ],
+        [
+          "Mateo Silva",
+          3
+        ],
+        [
+          "Ravi Patel",
+          3
+        ],
+        [
+          "Sofia Rossi",
+          3
+        ],
+        [
+          "Aiko Tanaka",
+          4
+        ],
+        [
+          "Ethan Brooks",
+          4
+        ],
+        [
+          "Nina Costa",
+          4
+        ],
+        [
+          "Noah Kim",
+          4
+        ],
+        [
+          "Tom Becker",
+          4
+        ],
+        [
+          "Zara Ali",
+          4
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "employee",
+        "level"
+      ],
+      "rows": [
+        [
+          "Maya Chen",
+          1
+        ],
+        [
+          "Lucas Meyer",
+          2
+        ],
+        [
+          "Omar Haddad",
+          2
+        ],
+        [
+          "Priya Nair",
+          2
+        ],
+        [
+          "Chloe Dubois",
+          3
+        ],
+        [
+          "Elena Popov",
+          3
+        ],
+        [
+          "Felix Wagner",
+          3
+        ],
+        [
+          "Hugo Martin",
+          3
+        ],
+        [
+          "Isla Novak",
+          3
+        ],
+        [
+          "Mateo Silva",
+          3
+        ],
+        [
+          "Ravi Patel",
+          3
+        ],
+        [
+          "Sofia Rossi",
+          3
+        ],
+        [
+          "Aiko Tanaka",
+          4
+        ],
+        [
+          "Deep One",
+          4
+        ],
+        [
+          "Ethan Brooks",
+          4
+        ],
+        [
+          "Nina Costa",
+          4
+        ],
+        [
+          "Noah Kim",
+          4
+        ],
+        [
+          "Tom Becker",
+          4
+        ],
+        [
+          "Zara Ali",
+          4
+        ],
+        [
+          "Deeper Two",
+          5
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "This needs a query that refers to its own result. What is the starting row?",
+    "`WITH RECURSIVE chart(id, name, level) AS (anchor UNION ALL step)`. The anchor is the employee with no manager, at level 1.",
+    "The step joins `employees` to `chart` on `manager_id = chart.id` and adds 1 to the level."
+  ],
+  "solution": "WITH RECURSIVE chart(id, name, level) AS (\n  SELECT id, name, 1\n  FROM employees\n  WHERE manager_id IS NULL\n  UNION ALL\n  SELECT e.id, e.name, chart.level + 1\n  FROM employees AS e\n  JOIN chart ON e.manager_id = chart.id\n)\nSELECT name AS employee, level\nFROM chart\nORDER BY level, name;\n",
+  "explanation": "**The idea.** A **recursive CTE** has two parts joined by `UNION ALL`: the *anchor* (here, the head of the company at level 1) and the *recursive step*, which refers to the CTE itself and finds the next row set from the previous one (the people whose manager is someone found in the last round). The database repeats the step, feeding each round's new rows into the next, until a round finds nothing.\n\n**Where it is needed.** Any hierarchy of unknown depth: reporting lines, category trees, threaded comments, bills of materials. A fixed number of self-joins only reaches a fixed depth; the recursive CTE goes as deep as the data.\n\n**Watch for cycles.** If the data loops (A manages B, B manages A) the recursion never ends; real databases limit the depth, and you can carry a path or a depth counter and stop at a maximum."
+}

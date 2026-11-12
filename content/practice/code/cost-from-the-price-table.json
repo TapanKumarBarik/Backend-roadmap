@@ -1,0 +1,80 @@
+{
+  "title": "Recompute Cost from the Price Table",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Join calls to the model price table and recompute what the successful calls cost.",
+  "statement": "Prices change, so the table `models` keeps what each model costs per 1,000 tokens (`input_per_1k` for prompt tokens, `output_per_1k` for completion tokens).\n\nFor each model, using only calls with status `ok`, return `calls` and `cost`: the total of `(prompt_tokens * input_per_1k + completion_tokens * output_per_1k) / 1000` over its calls, rounded to 4 decimal places. Most expensive first; a tie, by `model`.",
+  "starter": "SELECT name\nFROM models;\n",
+  "variants": [
+    [
+      "UPDATE models SET input_per_1k = input_per_1k * 10, output_per_1k = output_per_1k * 10 WHERE name = 'small'",
+      "INSERT INTO models VALUES ('tiny', 0.0001, 0.0002)",
+      "INSERT INTO llm_calls VALUES (1001, 1, 'chat', 'tiny', 1000, 1000, 100, 'ok', 0.0, '2025-04-01 10:00:00')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "model",
+        "calls",
+        "cost"
+      ],
+      "rows": [
+        [
+          "large",
+          25,
+          0.3362
+        ],
+        [
+          "medium",
+          47,
+          0.1461
+        ],
+        [
+          "small",
+          36,
+          0.0229
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "model",
+        "calls",
+        "cost"
+      ],
+      "rows": [
+        [
+          "large",
+          25,
+          0.3362
+        ],
+        [
+          "small",
+          36,
+          0.2292
+        ],
+        [
+          "medium",
+          47,
+          0.1461
+        ],
+        [
+          "tiny",
+          1,
+          0.0003
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "The prices are in `models`. How do you bring the price of a call's model onto the call?",
+    "`JOIN models ON models.name = llm_calls.model`; the cost of a call is its prompt tokens times the input price, plus its completion tokens times the output price, over 1000.",
+    "Sum that expression per model, only for `ok` calls, and round at the end."
+  ],
+  "solution": "SELECT c.model, COUNT(*) AS calls,\n       ROUND(SUM((c.prompt_tokens * m.input_per_1k + c.completion_tokens * m.output_per_1k) / 1000.0), 4) AS cost\nFROM llm_calls AS c\nJOIN models AS m ON m.name = c.model\nWHERE c.status = 'ok'\nGROUP BY c.model\nORDER BY cost DESC, c.model;\n",
+  "explanation": "**The idea.** The price lives in a different table from the usage, so join them on the model's name and compute the cost of each call in the `SUM`. Keeping the prices in a table (and not copying them into every call) means a price change is one `UPDATE`, and old calls can be re-costed.\n\n**Why recompute at all.** The stored `cost_usd` was calculated when the call happened. Recomputing from the current price table answers \"what would this traffic cost on today's prices\" and finds calls whose stored cost does not match.\n\n**Usual mistakes.** An integer division (`/ 1000` on integers truncates: divide by `1000.0`); joining on the wrong column; forgetting to drop failed calls (they have no completion tokens and, here, no cost)."
+}

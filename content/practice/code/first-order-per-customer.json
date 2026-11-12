@@ -1,0 +1,158 @@
+{
+  "title": "Each Customer's First Order",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "Pick the earliest order of every customer, with a clear rule for orders on the same day.",
+  "statement": "For every customer who has placed an order, return their **first order**: `customer` (the name), `order_id` and `ordered_at`. The first is the one with the earliest date; if two orders share that date, the one with the lower `id`.\n\nOrder by `customer`.",
+  "starter": "SELECT id AS order_id, ordered_at\nFROM orders;\n",
+  "variants": [
+    [
+      "INSERT INTO orders VALUES (215, 1, '2024-12-01', 'paid'), (216, 5, '2025-01-13', 'paid'), (217, 11, '2025-02-02', 'paid'), (218, 11, '2025-02-02', 'paid')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "customer",
+        "order_id",
+        "ordered_at"
+      ],
+      "rows": [
+        [
+          "Ada Lovelace",
+          32,
+          "2025-03-11"
+        ],
+        [
+          "Alan Turing",
+          5,
+          "2025-01-15"
+        ],
+        [
+          "Barbara Liskov",
+          7,
+          "2025-01-18"
+        ],
+        [
+          "Dennis Ritchie",
+          17,
+          "2025-02-13"
+        ],
+        [
+          "Edsger Dijkstra",
+          1,
+          "2025-01-04"
+        ],
+        [
+          "Grace Hopper",
+          8,
+          "2025-01-18"
+        ],
+        [
+          "Ken Thompson",
+          3,
+          "2025-01-10"
+        ],
+        [
+          "Linus Torvalds",
+          11,
+          "2025-01-22"
+        ],
+        [
+          "Margaret Hamilton",
+          4,
+          "2025-01-13"
+        ],
+        [
+          "Radia Perlman",
+          13,
+          "2025-01-30"
+        ],
+        [
+          "Tim Berners-Lee",
+          2,
+          "2025-01-09"
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "customer",
+        "order_id",
+        "ordered_at"
+      ],
+      "rows": [
+        [
+          "Ada Lovelace",
+          215,
+          "2024-12-01"
+        ],
+        [
+          "Alan Turing",
+          5,
+          "2025-01-15"
+        ],
+        [
+          "Barbara Liskov",
+          7,
+          "2025-01-18"
+        ],
+        [
+          "Dennis Ritchie",
+          17,
+          "2025-02-13"
+        ],
+        [
+          "Donald Knuth",
+          217,
+          "2025-02-02"
+        ],
+        [
+          "Edsger Dijkstra",
+          1,
+          "2025-01-04"
+        ],
+        [
+          "Grace Hopper",
+          8,
+          "2025-01-18"
+        ],
+        [
+          "Ken Thompson",
+          3,
+          "2025-01-10"
+        ],
+        [
+          "Linus Torvalds",
+          11,
+          "2025-01-22"
+        ],
+        [
+          "Margaret Hamilton",
+          4,
+          "2025-01-13"
+        ],
+        [
+          "Radia Perlman",
+          13,
+          "2025-01-30"
+        ],
+        [
+          "Tim Berners-Lee",
+          2,
+          "2025-01-09"
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You want a whole row (an order) per customer, not just a date. A window function numbers rows inside each customer.",
+    "`ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY ordered_at, id)`, then keep number 1.",
+    "Put the numbering in a CTE; the name of the customer comes from a join afterwards."
+  ],
+  "solution": "WITH numbered AS (\n  SELECT customer_id, id, ordered_at,\n         ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY ordered_at, id) AS pos\n  FROM orders\n)\nSELECT c.name AS customer, n.id AS order_id, n.ordered_at\nFROM numbered AS n\nJOIN customers AS c ON c.id = n.customer_id\nWHERE n.pos = 1\nORDER BY c.name;\n",
+  "explanation": "**The idea.** Number each customer's orders by date (and by `id` to break a tie) with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY ordered_at, id)`; the first order is the row numbered 1. Customers with no orders have no rows to number, so they are not in the result.\n\n**The tempting wrong answer.** `SELECT customer_id, MIN(ordered_at) ... GROUP BY customer_id` gives the first *date* but not the order it belongs to (`id` would be an arbitrary one in the group), and when two orders share the date it cannot say which is first. The window function keeps whole rows.\n\n**Related.** \"Latest row per group\" is the same with `DESC`: the pattern behind \"current address\", \"latest status\" and \"most recent event per user\"."
+}

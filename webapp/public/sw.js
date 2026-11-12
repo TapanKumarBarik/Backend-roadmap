@@ -15,9 +15,10 @@
  *                   cache that outlives the session.
  *   /assets/*       cache-first, permanently. Vite content-hashes these
  *                   filenames, so a given URL's bytes never change.
- *   /runner/pyodide-*  cache-first, permanently, for the same reason: the Python
- *                   runner of the practice screens (~13MB) sits in a folder named
- *                   for its version, so once a reader has run code it works offline.
+ *   /runner/pyodide-*, /runner/sqljs-*  cache-first, permanently, for the same
+ *                   reason: the Python runner of the practice screens (~13MB) and
+ *                   the SQL engine (~0.7MB) sit in folders named for their
+ *                   version, so once a reader has run code it works offline.
  *   navigations     network-first. Ensures a deploy is picked up as soon as
  *                   you're online. Each page is cached under its own URL
  *                   (modules have their own pre-rendered pages); offline, an
@@ -138,7 +139,7 @@ self.addEventListener('fetch', (event) => {
   // respondWith, so the request goes to the network untouched.
   if (url.pathname.startsWith('/api/')) return;
 
-  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/runner/pyodide-')) {
+  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/runner/pyodide-') || url.pathname.startsWith('/runner/sqljs-')) {
     event.respondWith(cacheFirst(request, ASSETS));
     return;
   }

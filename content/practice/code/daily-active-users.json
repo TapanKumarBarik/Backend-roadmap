@@ -1,0 +1,193 @@
+{
+  "title": "Daily Active Users",
+  "topic": "sql-subqueries-windows",
+  "difficulty": "intermediate",
+  "language": "sql",
+  "dataset": "events",
+  "description": "Count the distinct users who did something on each day.",
+  "statement": "A user is **active** on a day if they have at least one event that day. Return one row per day on which anyone was active: `day` (`YYYY-MM-DD`, from the `at` timestamp) and `users` (the number of **distinct** active users). Oldest day first.",
+  "starter": "SELECT at AS day\nFROM events;\n",
+  "variants": [
+    [
+      "INSERT INTO events VALUES (1001, 1, 'login', '2025-02-03 23:59:59'), (1002, 1, 'export', '2025-02-04 00:00:00'), (1003, 1, 'export', '2025-02-04 00:00:01'), (1004, 12, 'login', '2025-02-04 00:00:02')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "day",
+        "users"
+      ],
+      "rows": [
+        [
+          "2025-02-03",
+          2
+        ],
+        [
+          "2025-02-04",
+          3
+        ],
+        [
+          "2025-02-05",
+          2
+        ],
+        [
+          "2025-02-06",
+          3
+        ],
+        [
+          "2025-02-07",
+          6
+        ],
+        [
+          "2025-02-08",
+          4
+        ],
+        [
+          "2025-02-09",
+          2
+        ],
+        [
+          "2025-02-10",
+          7
+        ],
+        [
+          "2025-02-11",
+          4
+        ],
+        [
+          "2025-02-12",
+          6
+        ],
+        [
+          "2025-02-13",
+          2
+        ],
+        [
+          "2025-02-15",
+          6
+        ],
+        [
+          "2025-02-16",
+          8
+        ],
+        [
+          "2025-02-18",
+          2
+        ],
+        [
+          "2025-02-19",
+          1
+        ],
+        [
+          "2025-02-20",
+          2
+        ],
+        [
+          "2025-02-21",
+          2
+        ],
+        [
+          "2025-02-22",
+          1
+        ],
+        [
+          "2025-02-24",
+          1
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "day",
+        "users"
+      ],
+      "rows": [
+        [
+          "2025-02-03",
+          2
+        ],
+        [
+          "2025-02-04",
+          4
+        ],
+        [
+          "2025-02-05",
+          2
+        ],
+        [
+          "2025-02-06",
+          3
+        ],
+        [
+          "2025-02-07",
+          6
+        ],
+        [
+          "2025-02-08",
+          4
+        ],
+        [
+          "2025-02-09",
+          2
+        ],
+        [
+          "2025-02-10",
+          7
+        ],
+        [
+          "2025-02-11",
+          4
+        ],
+        [
+          "2025-02-12",
+          6
+        ],
+        [
+          "2025-02-13",
+          2
+        ],
+        [
+          "2025-02-15",
+          6
+        ],
+        [
+          "2025-02-16",
+          8
+        ],
+        [
+          "2025-02-18",
+          2
+        ],
+        [
+          "2025-02-19",
+          1
+        ],
+        [
+          "2025-02-20",
+          2
+        ],
+        [
+          "2025-02-21",
+          2
+        ],
+        [
+          "2025-02-22",
+          1
+        ],
+        [
+          "2025-02-24",
+          1
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You want one row per day, but the column holds a day *and* a time.",
+    "`date(at)` gives the day. Group by it.",
+    "Count each user once per day: `COUNT(DISTINCT user_id)`."
+  ],
+  "solution": "SELECT date(at) AS day, COUNT(DISTINCT user_id) AS users\nFROM events\nGROUP BY date(at)\nORDER BY day;\n",
+  "explanation": "**The idea.** `date(at)` cuts the timestamp down to its day, `GROUP BY` that, and `COUNT(DISTINCT user_id)` counts each user once however many events they had.\n\n**`COUNT(*)` against `COUNT(DISTINCT ...)`.** `COUNT(*)` would count events, so one user clicking twenty times would look like twenty users. Daily active users (DAU), weekly active users and monthly active users are all this query with a different `GROUP BY`.\n\n**Usual mistakes.** Grouping by the full timestamp (every event is its own group); counting events; time zones: the timestamps here are in one zone, and in real data the day depends on which one you cut in."
+}

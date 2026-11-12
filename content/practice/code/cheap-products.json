@@ -1,0 +1,81 @@
+{
+  "title": "Cheap Products",
+  "topic": "sql-querying",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "shop",
+  "description": "List the products that cost less than 20, cheapest first.",
+  "statement": "Return the products that cost **less than 20** (a product that costs exactly 20 is not cheap), with the columns `name` and `price`.\n\nOrder them from the cheapest to the dearest; products with the same price go in alphabetical order of their name.\n\n```text\nname            | price\nPocket Notebook | 6.5\n...\n```",
+  "starter": "-- Write one query. It runs on the tables shown on the left.\nSELECT *\nFROM products;\n",
+  "variants": [
+    [
+      "INSERT INTO products VALUES (101, 'Exactly Twenty', 'toys', 20.0), (102, 'Another Cheap One', 'books', 6.5), (103, 'Almost Twenty', 'home', 19.99)"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "name",
+        "price"
+      ],
+      "rows": [
+        [
+          "Pocket Notebook",
+          6.5
+        ],
+        [
+          "USB Cable",
+          9.99
+        ],
+        [
+          "Coffee Mug",
+          12.5
+        ],
+        [
+          "Wooden Blocks",
+          18
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "name",
+        "price"
+      ],
+      "rows": [
+        [
+          "Another Cheap One",
+          6.5
+        ],
+        [
+          "Pocket Notebook",
+          6.5
+        ],
+        [
+          "USB Cable",
+          9.99
+        ],
+        [
+          "Coffee Mug",
+          12.5
+        ],
+        [
+          "Wooden Blocks",
+          18
+        ],
+        [
+          "Almost Twenty",
+          19.99
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "Which clause keeps only some of the rows? Which one chooses the columns?",
+    "`WHERE price < 20`, then `ORDER BY` with two columns separated by a comma.",
+    "The other data has a product at exactly 20 and two products at the same price: check both."
+  ],
+  "solution": "SELECT name, price\nFROM products\nWHERE price < 20\nORDER BY price, name;\n",
+  "explanation": "**The idea.** `WHERE` keeps the rows that satisfy a condition, `SELECT` names the columns to return, and `ORDER BY` sorts: first by `price`, and rows with equal prices by `name` (the second sort key only matters when the first ones are equal).\n\n**Usual mistakes.** `<=` instead of `<` includes the product at exactly 20; `SELECT *` returns columns that were not asked for; with no `ORDER BY` the order of the rows is not defined, even if it looks right today."
+}

@@ -1,0 +1,88 @@
+{
+  "title": "What Each AI Feature Costs",
+  "topic": "sql-genai-ml-data",
+  "difficulty": "beginner",
+  "language": "sql",
+  "dataset": "llm_calls",
+  "description": "Add up the calls and the spend of every feature of an app that uses language models.",
+  "statement": "Return one row for each `feature`: `feature`, `calls` (how many calls it made, whatever their status) and `cost` (the total of `cost_usd`, rounded to 4 decimal places).\n\nThe most expensive feature first; a tie, by `feature`.",
+  "starter": "SELECT feature, cost_usd\nFROM llm_calls;\n",
+  "variants": [
+    [
+      "INSERT INTO llm_calls VALUES (1001, 1, 'agent', 'large', 5000, 2000, 6000, 'ok', 0.5, '2025-04-01 10:00:00'), (1002, 1, 'embed', 'small', 100, 0, 90, 'ok', 0.00002, '2025-04-01 10:01:00')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "feature",
+        "calls",
+        "cost"
+      ],
+      "rows": [
+        [
+          "chat",
+          63,
+          0.2483
+        ],
+        [
+          "agent",
+          15,
+          0.1124
+        ],
+        [
+          "search",
+          24,
+          0.0983
+        ],
+        [
+          "summarize",
+          18,
+          0.0462
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "feature",
+        "calls",
+        "cost"
+      ],
+      "rows": [
+        [
+          "agent",
+          16,
+          0.6124
+        ],
+        [
+          "chat",
+          63,
+          0.2483
+        ],
+        [
+          "search",
+          24,
+          0.0983
+        ],
+        [
+          "summarize",
+          18,
+          0.0462
+        ],
+        [
+          "embed",
+          1,
+          0
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You want one row per feature. Which clause makes groups?",
+    "`GROUP BY feature`, with `COUNT(*)` and `SUM(cost_usd)` in the select list.",
+    "Round the sum, not each cost, and sort by the rounded cost with the feature name as the tie-break."
+  ],
+  "solution": "SELECT feature, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS cost\nFROM llm_calls\nGROUP BY feature\nORDER BY cost DESC, feature;\n",
+  "explanation": "**The idea.** `GROUP BY feature` makes one row per feature and the aggregates (`COUNT(*)`, `SUM`) are computed over each group. This is the first question anyone asks of LLM telemetry: *where is the money going?*\n\n**Worth knowing.** Failed calls are in the table with a cost of 0, so they add to `calls` but not to `cost`; if you wanted cost per *successful* call you would divide by `COUNT(*) FILTER (WHERE status = 'ok')` (or a `SUM(CASE ...)`).\n\n**Usual mistakes.** Selecting a column that is neither grouped nor aggregated (SQLite lets you, other databases refuse, and the value it shows is arbitrary); rounding each row instead of the total."
+}

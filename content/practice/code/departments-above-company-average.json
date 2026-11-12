@@ -1,0 +1,57 @@
+{
+  "title": "Departments Paying Above the Average",
+  "topic": "sql-joins-aggregates",
+  "difficulty": "advanced",
+  "language": "sql",
+  "dataset": "company",
+  "description": "Compare each department's average salary with the average of the whole company, using a subquery in HAVING.",
+  "statement": "Return each department whose **average salary is higher than the average salary of all employees** in the company (including the people who belong to no department). Columns: `department` and `avg_salary`, the department's average rounded to a whole number.\n\nHighest first.",
+  "starter": "SELECT name AS department\nFROM departments;\n",
+  "variants": [
+    [
+      "INSERT INTO employees VALUES (19, 'Rich Roe', 4, 15, 400000, '2025-01-02'), (20, 'Low Lee', 1, 5, 20000, '2025-01-03')"
+    ]
+  ],
+  "orderMatters": true,
+  "expected": [
+    {
+      "columns": [
+        "department",
+        "avg_salary"
+      ],
+      "rows": [
+        [
+          "Engineering",
+          140000
+        ],
+        [
+          "Product",
+          131667
+        ]
+      ]
+    },
+    {
+      "columns": [
+        "department",
+        "avg_salary"
+      ],
+      "rows": [
+        [
+          "Support",
+          150500
+        ],
+        [
+          "Product",
+          131667
+        ]
+      ]
+    }
+  ],
+  "hints": [
+    "You need two averages in one query. One is per department; what makes the other one different?",
+    "`GROUP BY` the department, `HAVING AVG(salary) > (SELECT AVG(salary) FROM employees)`.",
+    "The subquery must look at all employees, including those with no department."
+  ],
+  "solution": "SELECT d.name AS department, ROUND(AVG(e.salary)) AS avg_salary\nFROM departments AS d\nJOIN employees AS e ON e.dept_id = d.id\nGROUP BY d.id, d.name\nHAVING AVG(e.salary) > (SELECT AVG(salary) FROM employees)\nORDER BY avg_salary DESC, department;\n",
+  "explanation": "**The idea.** Two different averages: one per group (the `AVG` in `HAVING`), one for the whole table (a scalar subquery `(SELECT AVG(salary) FROM employees)`, which runs once and returns a single number). `HAVING` compares them, keeping the groups above the company figure.\n\n**Why the subquery looks at `employees` and not at the joined rows.** The company average must include employees with no department; the joined rows (inner join with departments) would leave them out and change the number.\n\n**Usual mistakes.** Comparing to the average of the department averages (a different number when departments differ in size); writing the subquery condition in `WHERE`; rounding before comparing."
+}
