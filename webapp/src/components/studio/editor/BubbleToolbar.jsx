@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEditorState } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { safeHref } from '../../../lib/blog/sanitizeDoc.js';
@@ -32,6 +32,9 @@ function shouldShow({ editor, state }) {
   return !editor.isActive('codeBlock');
 }
 
+// How long after the link box opens a selection report from the editor is taken as the same selection arriving late (see below).
+const LATE_REPORT_MS = 250;
+
 export default function BubbleToolbar({ editor, linkRequest }) {
   const on = useEditorState({
     editor,
@@ -46,16 +49,19 @@ export default function BubbleToolbar({ editor, linkRequest }) {
   const [address, setAddress] = useState('');
   const [problem, setProblem] = useState('');
 
+  const openedAt = useRef(0);
   function openLink() {
+    openedAt.current = Date.now();
     setAddress(on.href);
     setProblem('');
     setLinking(true);
   }
   // Ctrl+K in the text asks for the link box.
   useEffect(() => { if (linkRequest) openLink(); }, [linkRequest]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Moving the selection somewhere else ends it.
+  // Moving the selection somewhere else ends it. The editor can report a selection made an instant before Ctrl+K only after the box has
+  // opened (it learns of the browser's selection one tick late), and that is not the reader moving away: a report that soon is ignored.
   useEffect(() => {
-    const end = () => setLinking(false);
+    const end = () => { if (Date.now() - openedAt.current > LATE_REPORT_MS) setLinking(false); };
     editor.on('selectionUpdate', end);
     return () => { editor.off('selectionUpdate', end); };
   }, [editor]);

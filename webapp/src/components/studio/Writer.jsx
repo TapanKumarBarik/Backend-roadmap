@@ -156,7 +156,11 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
     editorProps: {
       attributes: { class: 'studio-prose', 'aria-label': 'Article text', 'aria-multiline': 'true', spellcheck: 'true' },
       handleKeyDown: (view, event) => {
-        if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k' && !view.state.selection.empty) {
+        // The editor learns of a new selection one tick after the browser has made it, so a quick Ctrl+K can find its own state still empty:
+        // the browser's selection counts too, or the key would fall through to the site's search palette instead of making the link.
+        const picked = view.root.getSelection && view.root.getSelection();
+        const hasSelection = !view.state.selection.empty || !!(picked && !picked.isCollapsed && view.dom.contains(picked.anchorNode));
+        if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k' && hasSelection) {
           event.preventDefault();
           setLinkRequest((n) => n + 1);
           return true;
