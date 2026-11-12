@@ -3,7 +3,7 @@
 
 export const TOOLS = {
   heading: 'Tools for getting ready',
-  review: { title: 'Review', due: (n) => (n === 1 ? '1 item is due' : `${n} items are due`), none: 'Nothing is due. Problems you solve and questions you miss come back here.', start: 'Start the review', soon: (n) => `${n} waiting for their day` },
+  review: { title: 'Review', due: (n) => (n === 1 ? '1 item is due' : `${n} items are due`), none: 'Nothing is due. What you miss comes back here.', start: 'Start the review', soon: (n) => `${n} waiting for their day` },
   level: { title: 'Find your level', lead: 'A five-minute test that says where to start.', start: 'Take the test', done: (when) => `Taken ${when}`, again: 'Take it again' },
   mock: { title: 'Mock interview', lead: 'Timed, no hints, with a scorecard at the end.', start: 'Start one', best: (percent) => `Best so far: ${percent}%` },
   planDays: (n) => `${n} days`,

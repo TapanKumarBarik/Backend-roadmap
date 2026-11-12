@@ -21,7 +21,7 @@
 
 /* ---------- a study plan ---------- */
 .pl-head h2 { margin-bottom: var(--space-2); }
-#root .pl-audience { font-size: var(--text-sm); color: var(--fg-muted); max-width: 70ch; margin: 0 0 var(--space-3); }
+#root .pl-audience { font-size: var(--text-sm); color: var(--fg-muted); margin: 0 0 var(--space-3); }
 .pl-status { display: grid; gap: var(--space-3); margin: var(--space-4) 0 var(--space-6); padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); }
 /* the screens have id="empty", whose paragraph rule is an ID selector: these are written to beat it */
 #root .pl-status p { margin: 0; font-size: var(--text-sm); color: var(--fg); }

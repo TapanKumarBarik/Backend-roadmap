@@ -544,6 +544,25 @@
         "path": "/practice/drill/"
       },
       {
+        "name": "practice-hub",
+        "path": "/practice/",
+        "height": 1500
+      },
+      {
+        "name": "sql-problem",
+        "path": "/practice/code/orders-per-customer/",
+        "height": 1000
+      },
+      {
+        "name": "study-plan",
+        "path": "/practice/plan/backend-interview-30/",
+        "height": 1300
+      },
+      {
+        "name": "mock-interview",
+        "path": "/practice/mock/"
+      },
+      {
         "name": "quiz",
         "path": "/practice/quiz/database-indexes/"
       },
