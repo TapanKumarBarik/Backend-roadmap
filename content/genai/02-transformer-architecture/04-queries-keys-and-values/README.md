@@ -6,7 +6,7 @@
 
 > [!TIP]
 > **The Golden Rule of Queries, Keys, and Values**  
-> $Q, K,$ and $V$ are not arbitrary abstractions; they are **three distinct learned projections designed to break the Cauchy-Schwarz self-attention bias**. If you set $Q = K = X$ (or tie $W_Q = W_K$), every token's self-similarity score ($\mathbf{x}_i \cdot \mathbf{x}_i$) is mathematically guaranteed to dominate all other cross-token scores, collapsing attention onto the diagonal. Separate projections decouple the search space ($Q$), the matching space ($K$), and the payload representation ($V$).
+> $Q, K,$ and $V$ are three learned projections of the same input, each with its own job: $Q$ is what a token is looking for, $K$ is what it offers to be found by, and $V$ is what it hands over once it is found. If you used $X$ itself as both $Q$ and $K$, the score matrix $XX^T$ would be **symmetric** (token $i$ would score token $j$ exactly as token $j$ scores token $i$), and each token's score against itself, $\|\mathbf{x}_i\|^2$, would tend to be the largest in its row. Separate $W_Q$ and $W_K$ remove both limits, and $W_V$ lets what is retrieved differ from what is matched.
 
 ---
 
@@ -28,7 +28,7 @@ sequenceDiagram
     participant Aggregate as Value Aggregation (Weights * V)
 
     Input->>Fused: Single Batched GEMM: X @ W_QKV
-    Note over Fused: Executes 1 large GPU Tensor Core kernel<br/>(3x higher hardware MFU than 3 small GEMMs)
+    Note over Fused: Executes 1 large GPU Tensor Core kernel<br/>(one larger GEMM instead of three: fewer kernel launches, and X is read once)
     Fused->>Slicer: Emits raw tensor [N x 3d_model]
     Slicer->>Attention: Slices Q [N x d_k] and K [N x d_k]
     Attention->>Attention: Computes pairwise matching scores S = Q @ K^T / sqrt(d_k)
@@ -39,42 +39,43 @@ sequenceDiagram
 
 ---
 
-## 2. Mathematical Proof: The Cauchy-Schwarz Self-Attention Trap
+## 2. Why Not Use $X$ Directly? The Math of $Q = K = X$
 
-Why can't a model simply use its input embeddings directly: $Q = K = X$?
+Why can't a model simply use its input embeddings directly, $Q = K = X$? Look at the score matrix that would produce, $S = X X^T$:
 
-By the **Cauchy-Schwarz Inequality**, for any two real vectors $\mathbf{a}$ and $\mathbf{b}$ in Euclidean space:
+- It is **symmetric**: $S_{i, j} = \mathbf{x}_i \cdot \mathbf{x}_j = \mathbf{x}_j \cdot \mathbf{x}_i = S_{j, i}$. Token $i$ can never score token $j$ higher than token $j$ scores token $i$, so a relation like "a verb looks at its subject, but the subject does not look back at the verb" cannot be expressed.
+- Its diagonal is a squared length: $S_{i, i} = \mathbf{x}_i \cdot \mathbf{x}_i = \|\mathbf{x}_i\|^2$.
+
+The **Cauchy-Schwarz inequality** says that for any two real vectors $\mathbf{a}$ and $\mathbf{b}$:
 
 $$|\mathbf{a} \cdot \mathbf{b}| \le \|\mathbf{a}\| \|\mathbf{b}\|$$
 
-Equality holds **if and only if** $\mathbf{a}$ and $\mathbf{b}$ are linearly dependent (parallel vectors pointing in the exact same direction):
+with equality exactly when $\mathbf{a}$ and $\mathbf{b}$ are linearly dependent (they lie on the same line). Apply it to one row of $S$: $S_{i, j} \le \|\mathbf{x}_i\| \|\mathbf{x}_j\|$. That is at most $S_{i, i} = \|\mathbf{x}_i\|^2$ **only when** $\|\mathbf{x}_j\| \le \|\mathbf{x}_i\|$. So:
 
-$$\mathbf{a} \cdot \mathbf{a} = \|\mathbf{a}\|^2$$
+- If all the vectors have the same length (for example, after normalizing them to length 1), then $S_{i, i} \ge S_{i, j}$ for every $j$: each token scores highest against itself.
+- If they do not, there is **no such guarantee**. For $\mathbf{x}_i = (1, 0)$ and $\mathbf{x}_j = (5, 0)$, the self-score is $1$ and the score against the longer vector is $5$.
 
-Now consider the unprojected attention score matrix $S = X X^T$:
-- The diagonal element $S_{i, i} = \mathbf{x}_i \cdot \mathbf{x}_i = \|\mathbf{x}_i\|^2$.
-- Any off-diagonal element $S_{i, j} = \mathbf{x}_i \cdot \mathbf{x}_j \le \|\mathbf{x}_i\| \|\mathbf{x}_j\|$.
+In practice the vectors in a layer have similar lengths, so a token's score against itself **tends** to win its row. The Reformer paper, which ties queries and keys on purpose, makes the same observation: a vector's dot product with itself will almost always be larger than its dot product with a vector at another position, so it forbids a token from attending to itself unless the token has no other target (see Section 4 and Further reading). The effect is real and manageable. It is not an inevitable collapse.
 
-If all token embeddings have normalized lengths ($\|\mathbf{x}_i\| \approx 1$), then:
-
-$$S_{i, i} = 1.0 \ge S_{i, j} \quad \forall j$$
+With separate projections the scores are $S = (X W_Q)(X W_K)^T = X \, (W_Q W_K^T) \, X^T$. The matrix $W_Q W_K^T$ is generally **not symmetric**, so $S$ is not symmetric either, and $S_{i, i} = \mathbf{x}_i (W_Q W_K^T) \mathbf{x}_i^T$ is no longer a squared length. A token can score another token higher than itself, and token $i$ can attend to token $j$ without token $j$ attending back. (Tying $W_Q = W_K = W$ gives $S = (XW)(XW)^T$: symmetric again, with the same diagonal story in the projected space.)
 
 ```mermaid
 flowchart TD
-    subgraph Cauchy_Trap["Without Projections: Q = K = X (Cauchy-Schwarz Trap)"]
-        D1["Diagonal Score: x_i · x_i = ||x_i||^2 (Strict Maximum)"]
-        D2["Off-Diagonal: x_i · x_j <= ||x_i|| * ||x_j||"]
-        D1 --> D3["Softmax concentrates 80-99% mass on self-token!"]
-        D2 --> D3
-        D3 --> D4["Result: Model behaves as an identity repeater (Fails all syntax/pronoun links)"]
+    subgraph Tied["Q = K = X (or W_Q = W_K)"]
+        D1["Scores are symmetric: S[i][j] = S[j][i]"]
+        D2["Diagonal: x_i · x_i = ||x_i||^2"]
+        D3["Off-diagonal: x_i · x_j <= ||x_i|| * ||x_j||"]
+        D1 --> D5["Token i cannot look at token j more than j looks at i"]
+        D2 --> D4["Self-score tends to win its row,<br/>and always does when all vectors have the same length"]
+        D3 --> D4
     end
 
-    subgraph Projections_Active["With Distinct Projections: Q = X W_Q, K = X W_K"]
-        P1["Q_i = x_i W_Q  (Search Intent)"]
-        P2["K_j = x_j W_K  (Matching Feature)"]
-        P1 & P2 --> P3["Q_i and K_i inhabit different vector subspaces!"]
-        P3 --> P4["Q_i · K_j can easily exceed Q_i · K_i"]
-        P4 --> P5["Model freely routes attention to distant dependent tokens!"]
+    subgraph Separate["Separate projections: Q = X W_Q, K = X W_K"]
+        P1["Q_i = x_i W_Q  (what token i looks for)"]
+        P2["K_j = x_j W_K  (what token j offers)"]
+        P1 & P2 --> P3["Scores need not be symmetric,<br/>and the diagonal is not a squared length"]
+        P3 --> P4["Q_i · K_j can exceed Q_i · K_i"]
+        P4 --> P5["A verb can attend to its subject<br/>without the subject attending back"]
     end
 ```
 
@@ -84,74 +85,40 @@ flowchart TD
 
 | Vector Projection | Mathematical Definition | Analogy in Database / Search | Geometric Dimensionality | Decoupling Responsibility | Consequence if Tied to Another Matrix |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Query ($Q$)** | $X W_Q$ | SQL `WHERE` clause or Search Query | $\mathbb{R}^{N \times d_k}$ | Defines what features the current token is actively seeking | If $W_Q = W_K$, Cauchy-Schwarz forces diagonal attention collapse |
+| **Query ($Q$)** | $X W_Q$ | SQL `WHERE` clause or Search Query | $\mathbb{R}^{N \times d_k}$ | Defines what features the current token is actively seeking | If $W_Q = W_K$, the scores become symmetric and a token's self-score is a squared length, which tends to win its row |
 | **Key ($K$)** | $X W_K$ | Indexed Table Column / Document Header | $\mathbb{R}^{N \times d_k}$ | Defines what features this token advertises to potential queries | If $W_K = W_V$, matching criteria and retrieved content are conflated |
 | **Value ($V$)** | $X W_V$ | Retrieved Row Content / Payload | $\mathbb{R}^{N \times d_v}$ | Encodes the actual semantic payload to pass to the next layer | If $W_V = I$, output is constrained to linear combinations of inputs |
 
 ---
 
-## 4. Production War Stories: Incident Post-Mortem
+## 4. In Practice: Tying Q and K on Purpose (the Reformer)
 
-### The Catastrophic Attention Self-Loop in T-QKV Shared Weight Experiment
+Sharing one projection for queries and keys does not break a model. At least one well-known architecture does it deliberately. The **Reformer** (Kitaev, Kaiser and Levskaya, 2020) uses *shared-QK* attention: queries and keys come from the same projection, with each key scaled to unit length. It needs the two to share a space so that one hash function can place each query and the keys it should attend to in the same bucket.
 
-- **Severity:** P2 (Model Performance & Quality Collapse)
-- **Time to Detect:** 2 days (caught during downstream coreference benchmark evaluation)
-- **Impact:** Experimental 7B parameter distillation model exhibited a 42% drop in Winogrande pronoun resolution and repetitive sentence generation.
+Two findings from the paper are worth knowing:
 
-#### What Happened
-An AI optimization team was tasked with pruning a 7B parameter model to fit onto edge devices with strict VRAM budgets. An engineer observed that the self-attention layer had three projection matrices ($W_Q, W_K, W_V$), each consuming $4096 \times 4096$ parameters ($16.7\text{M parameters}$ per layer).
+1. **The self-score problem is real, and it is handled with a mask.** Because a vector's dot product with itself will almost always be larger than its dot product with a vector at another position, the Reformer forbids a token from attending to itself, except when the token has no other valid target (the first token of a sequence, for example). This is in Section 2 of the paper.
+2. **Tying did not cost accuracy in its experiments.** On enwik8 and imagenet64, a shared query-key space did not perform worse than separate projections (Section 5, Figure 3).
 
-To save 33% of the attention projection weights, the engineer tied $W_Q = W_K$, arguing:
-> *"Keys and queries both exist solely to compute a similarity dot-product score. Sharing weights will enforce symmetry and regularize the search space."*
+So the honest summary is narrower than "never share $W_Q$ and $W_K$". Tying removes the asymmetry and gives a token's self-score an advantage that has to be dealt with; in return it saves parameters and makes the hashing trick possible. Most widely used models, GPT-2 and Llama among them, keep separate query and key projections.
 
-The model was trained for 100,000 steps on 50 billion tokens. While the training loss initially dropped, downstream evaluation on multi-sentence reasoning and pronoun resolution benchmarks collapsed. 
+### How to Check Your Own Model
 
-Inspecting the attention maps revealed the catastrophe:
+If you train or modify attention, measure it instead of assuming. For each layer, compute the average share of attention that each token puts on itself:
 
-```python
-# INSPECTION OF ATTENTION WEIGHT MATRIX:
-# Token 4: "it" -> Attention scores:
-# ['The': 0.01, 'animal': 0.02, 'didn't': 0.01, 'cross': 0.01, 'the': 0.01, 'street': 0.02, 'because': 0.01, 'it': 0.91]
-```
+$$\text{Diagonal Ratio} = \frac{1}{N} \sum_{i=1}^N \text{Attention}_{i, i}$$
 
-Because $W_Q = W_K$, for every token $i$, $Q_i = K_i = \mathbf{x}_i W$. By Cauchy-Schwarz, $\mathbf{q}_i \cdot \mathbf{k}_i = \|\mathbf{x}_i W\|^2$. Even after extensive training, the diagonal score remained mathematically dominant. The pronoun `"it"` directed 91% of its attention mass onto itself, completely failing to attend to the antecedent noun `"animal"`.
-
-#### The Failure Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Research as ML Optimization Team
-    participant Config as Model Architecture Config
-    participant Training as 8x H100 Training Cluster
-    participant Eval as Multi-Sentence Benchmark Suite
-
-    Research->>Config: Sets tie_query_key_projections = true (W_Q == W_K)
-    Config->>Training: Compiles layer with shared Q-K projection
-    loop 100,000 Training Steps
-        Training->>Training: Forward step: Q_i · K_i = ||x_i W||^2
-        Note over Training: Cauchy-Schwarz bias creates massive gradient barrier.<br/>Diagonal weights hover near 90%!
-    end
-    Training->>Eval: Evaluates checkpoint on Winogrande / GLUE
-    Note over Eval: Pronoun coreference accuracy drops from 84.2% to 41.8%!<br/>Model cannot look at other tokens!
-    Eval-->>Research: REJECT: Severe Reasoning Deficit
-```
-
-#### The Fix & Architectural Hardening
-1. **Never Share $W_Q$ and $W_K$:** Restored separate learned projections for Query and Key matrices.
-2. **Attention Entropy CI Assertions:** Added test assertions that compute the diagonal attention ratio:
-   $$\text{Diagonal Ratio} = \frac{1}{N} \sum_{i=1}^N \text{Attention}_{i, i}$$
-   If the average diagonal attention exceeds $0.45$ across middle layers, the checkpoint fails architectural validation.
+and compare it with a baseline model that uses separate projections, trained the same way. Look closely at layers where it is far higher. There is no universal threshold: a high ratio is not automatically a bug, because some heads of healthy models do put most of their attention on the current token.
 
 ---
 
 ## 5. Multi-Language Production Implementations
 
-### Go: Production Fused QKV Projection & Cauchy-Schwarz Bias Verifier
+### Go: Production Fused QKV Projection & Self-Score Audit
 
 ```go
 // Package qkv implements fused QKV projection GEMM, tensor slicing,
-// and automated Cauchy-Schwarz diagonal collapse auditing.
+// and an audit of whether each token's score is highest against itself.
 package main
 
 import (
@@ -256,7 +223,7 @@ func main() {
 		}
 	}
 
-	// Case 1: Unprojected Attention (Q = K = X) -> Cauchy-Schwarz Trap
+	// Case 1: Unprojected Attention (Q = K = X): the score matrix is symmetric
 	unprojectedScores := NewMatrix(N, N)
 	for i := 0; i < N; i++ {
 		for j := 0; j < N; j++ {
@@ -269,10 +236,10 @@ func main() {
 	}
 
 	bias1, count1 := AuditDiagonalBias(unprojectedScores)
-	fmt.Println("=== CAUCHY-SCHWARZ BIAS VERIFICATION ===")
+	fmt.Println("=== SELF-SCORE AUDIT ===")
 	fmt.Printf("Case 1: No Projections (Q = K = X)\n")
-	fmt.Printf("  Diagonal Maxima Count: %d / %d\n", count1, N)
-	fmt.Printf("  Is Strictly Diagonal Dominant? %v (Trapped by Cauchy-Schwarz!)\n\n", bias1)
+	fmt.Printf("  Rows whose maximum is on the diagonal: %d / %d\n", count1, N)
+	fmt.Printf("  Is the diagonal the maximum of every row? %v (the scores are symmetric, and the diagonal is a squared length)\n\n", bias1)
 
 	// Case 2: Separate Fused Projections
 	projector := NewFusedQKVProjector(D)
@@ -291,8 +258,8 @@ func main() {
 
 	bias2, count2 := AuditDiagonalBias(projectedScores)
 	fmt.Printf("Case 2: Separate Learned Projections (Q = X@Wq, K = X@Wk)\n")
-	fmt.Printf("  Diagonal Maxima Count: %d / %d\n", count2, N)
-	fmt.Printf("  Is Strictly Diagonal Dominant? %v (Decoupled! Model free to route context.)\n", bias2)
+	fmt.Printf("  Rows whose maximum is on the diagonal: %d / %d\n", count2, N)
+	fmt.Printf("  Is the diagonal the maximum of every row? %v (not guaranteed either way: the scores are no longer symmetric)\n", bias2)
 }
 ```
 
@@ -378,43 +345,56 @@ console.log(`V Tensor Elements: ${V.length}`);
 
 ---
 
-### Python: PyTorch Fused QKV vs. Unfused Benchmark & Cauchy-Schwarz Proof
+### Python: PyTorch Tied vs. Separate Q/K Scores & Fused QKV Benchmark
 
 ```python
 """
 qkv_projections.py
-Demonstrates fused QKV projection layers, proves the Cauchy-Schwarz self-bias trap,
-and benchmarks GPU latency between 3 separate Linear layers vs 1 Fused Linear layer.
+Shows what tying queries and keys does to the score matrix (it becomes symmetric, and its
+diagonal is a squared length), and benchmarks GPU latency between 3 separate Linear layers
+and 1 fused Linear layer.
 """
 
 import time
 import torch
 import torch.nn as nn
 
-def verify_cauchy_schwarz_trap():
-    print("=== 1. Cauchy-Schwarz Self-Attention Trap Proof ===")
+def verify_tied_qk_scores():
+    print("=== 1. What Q = K = X does to the score matrix ===")
     torch.manual_seed(1)
     seq_len = 5
     d_model = 8
     X = torch.randn(seq_len, d_model)
 
-    # A. No Projections: Q = K = X
-    scores_noproj = torch.matmul(X, X.T)
-    diag_max_noproj = [torch.argmax(scores_noproj[i]).item() == i for i in range(seq_len)]
-    print(f"Unprojected Scores Matrix (X @ X^T):\n{scores_noproj.round(decimals=2)}")
-    print(f"Did every token score highest against ITSELF? {all(diag_max_noproj)}")
-    assert all(diag_max_noproj), "Cauchy-Schwarz mathematically guarantees diagonal dominance!"
+    # A. No projections: Q = K = X
+    scores_tied = X @ X.T
+    print(f"Scores (X @ X^T):\n{scores_tied.round(decimals=2)}")
+    # These two hold for any X, whatever the seed:
+    assert torch.allclose(scores_tied, scores_tied.T), "X @ X^T is symmetric"
+    assert torch.allclose(scores_tied.diagonal(), X.pow(2).sum(dim=1)), "the diagonal is the squared length"
+    print("Symmetric: True   Diagonal equals squared lengths: True")
 
-    # B. Separate Projections: Q = X @ W_q, K = X @ W_k
+    # Cauchy-Schwarz bounds each score by a product of two lengths, so the self-score
+    # is only guaranteed to win when no other vector is longer. Scale every row to length 1:
+    unit = X / X.norm(dim=1, keepdim=True)
+    unit_scores = unit @ unit.T
+    assert bool((unit_scores.diagonal().unsqueeze(1) >= unit_scores - 1e-6).all()), "equal lengths: the diagonal wins every row"
+    print("All rows scaled to length 1: the diagonal is the maximum of every row: True")
+
+    # ...and when lengths differ, a longer vector beats the self-score:
+    longer = torch.tensor([[1.0, 0.0], [5.0, 0.0]])
+    s = longer @ longer.T
+    print(f"Vectors (1, 0) and (5, 0):\n{s}")
+    assert s[0, 1] > s[0, 0], "token 0 scores higher against the longer vector than against itself"
+
+    # B. Separate projections: Q = X @ W_q, K = X @ W_k
     W_q = torch.randn(d_model, d_model)
     W_k = torch.randn(d_model, d_model)
     Q, K = X @ W_q, X @ W_k
-    scores_proj = torch.matmul(Q, K.T)
-    diag_max_proj = [torch.argmax(scores_proj[i]).item() == i for i in range(seq_len)]
-    print(f"\nProjected Scores Matrix (Q @ K^T):\n{scores_proj.round(decimals=2)}")
-    print(f"Did every token score highest against ITSELF? {all(diag_max_proj)}")
-    assert not all(diag_max_proj), "Separate projections must break diagonal collapse!"
-    print("Cauchy-Schwarz trap successfully neutralized.\n")
+    scores_sep = Q @ K.T
+    print(f"\nSeparate projections (Q @ K^T):\n{scores_sep.round(decimals=2)}")
+    assert not torch.allclose(scores_sep, scores_sep.T), "separate projections give an asymmetric score matrix"
+    print("Symmetric: False (token i can score token j differently from how j scores i)\n")
 
 def benchmark_fused_vs_unfused():
     print("=== 2. Hardware Benchmark: 3 Unfused Linears vs. 1 Fused Linear ===")
@@ -455,10 +435,10 @@ def benchmark_fused_vs_unfused():
 
     print(f"Unfused (3x GEMMs) Latency: {t_unfused:.2f} ms")
     print(f"Fused   (1x GEMM)  Latency: {t_fused:.2f} ms")
-    print(f"Throughput Improvement:     {t_unfused / t_fused:.2f}x faster with Fused QKV!")
+    print(f"Ratio (unfused / fused):    {t_unfused / t_fused:.2f}x")
 
 if __name__ == "__main__":
-    verify_cauchy_schwarz_trap()
+    verify_tied_qk_scores()
     benchmark_fused_vs_unfused()
 ```
 
@@ -466,22 +446,31 @@ if __name__ == "__main__":
 
 ## 6. Practical Hands-On Verification Workflows
 
-### Verification 1: Inspecting Cauchy-Schwarz Diagonal Collapse in CLI
+### Verification 1: Tied Queries and Keys Give a Symmetric Score Matrix
 
 ```bash
 python -c "
 import numpy as np
-np.random.seed(42)
-X = np.random.randn(5, 4)
-scores = X @ X.T
-print('Diagonal is Max for All Rows:', all(np.argmax(scores[i]) == i for i in range(5)))
+X = np.array([[1.0, 0.0], [5.0, 0.0], [0.0, 2.0]])
+S = X @ X.T
+print(S)
+print('Symmetric:', np.allclose(S, S.T))
+print('Diagonal equals squared lengths:', np.allclose(np.diag(S), (X ** 2).sum(axis=1)))
+print('Token 0 scores highest against itself:', np.argmax(S[0]) == 0)
 "
 ```
 
 *Expected Terminal Output:*
 ```text
-Diagonal is Max for All Rows: True
+[[ 1.  5.  0.]
+ [ 5. 25.  0.]
+ [ 0.  0.  4.]]
+Symmetric: True
+Diagonal equals squared lengths: True
+Token 0 scores highest against itself: False
 ```
+
+Token 0 is the vector $(1, 0)$. Token 1, the longer vector $(5, 0)$ on the same line, beats its self-score. This is why Cauchy-Schwarz alone does not guarantee that the diagonal wins.
 
 ### Verification 2: Checking Fused Layer Parameter Shapes
 
@@ -553,8 +542,21 @@ This reduces the parameter count of the attention projections and slashes KV-cac
 
 Queries, Keys, and Values form the cornerstone of transformer attention mechanisms. Remember:
 - $Q$ defines the search intent; $K$ defines the matching signature; $V$ carries the payload.
-- Separate $W_Q$ and $W_K$ projections are mathematically mandatory to break Cauchy-Schwarz diagonal collapse.
+- Separate $W_Q$ and $W_K$ projections let attention scores be asymmetric and stop a token's self-score from being a squared length. Tying them is possible (the Reformer does it, and masks the diagonal), but then both effects have to be managed.
 - Fusing $W_Q, W_K, W_V$ into a single $W_{QKV}$ matrix maximizes GPU Tensor Core throughput.
 - Modern architectures (GQA) reduce $K$ and $V$ dimensions to compress memory while keeping full $Q$ expressivity.
+
+---
+
+## Further reading & sources
+
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) - Vaswani et al., 2017: defines scaled dot-product attention with learned $W_Q$, $W_K$ and $W_V$.
+- [Reformer: The Efficient Transformer](https://arxiv.org/abs/2001.04451) - Kitaev, Kaiser and Levskaya, 2020: shared-QK attention, why it masks a token's attention to itself (Section 2), and the finding that sharing did not cost accuracy (Section 5, Figure 3).
+- [Fast Transformer Decoding: One Write-Head is All You Need](https://arxiv.org/abs/1911.02150) - Shazeer, 2019: multi-query attention, the first step toward the shared K and V heads in Scenario 3.
+- [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245) - Ainslie et al., 2023: grouped-query attention, the design Scenario 3 describes.
+
+---
+
+## Next
 
 Continue to [Module 05: Self-Attention Step by Step, By Hand](../05-self-attention-step-by-step-by-hand/README.md) to calculate a complete numeric forward pass of self-attention using pencil-and-paper arithmetic.
