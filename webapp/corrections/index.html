@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corrections · %SITE_NAME%</title>
+<meta name="description" content="What was wrong on a Backend Roadmap lesson and what was changed, newest first: the public log of fixes.">
+<link rel="canonical" href="%SITE_URL%/corrections/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/corrections/">
+<meta property="og:title" content="Corrections">
+<meta property="og:description" content="What was wrong on a lesson and what was changed, newest first.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Corrections","url":"%SITE_URL%/corrections/","isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/about/">About</a>
+    <a href="/tools/">Network Lab</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Corrections</h1>
+  <p class="tool-lead">When a lesson, a quiz or a tool is found to be wrong, it is fixed and the fix is written down here: what was wrong, and what changed. Newest first.</p>
+
+    %BLOCK_CORRECTIONS%
+
+  <section class="tool-card" aria-labelledby="report-h">
+    <h2 id="report-h">Found something wrong?</h2>
+    <p>Write to <a href="mailto:%DEVELOPER_EMAIL%">%DEVELOPER_EMAIL%</a> with the page and what you think is wrong. <a href="/about/">How the lessons are made</a> explains why mistakes happen and what is checked.</p>
+    <a class="tool-btn tool-btn--primary" href="mailto:%DEVELOPER_EMAIL%">Report a mistake</a>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/plain.js"></script>
+</body>
+</html>

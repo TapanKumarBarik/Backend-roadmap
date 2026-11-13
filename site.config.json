@@ -585,9 +585,31 @@
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
+      },
+      {
+        "name": "page-about",
+        "path": "/about/",
+        "height": 1300
+      },
+      {
+        "name": "page-corrections",
+        "path": "/corrections/",
+        "height": 1300
       }
     ]
   },
+  "pages": [
+    {
+      "id": "about",
+      "url": "/about/",
+      "entry": "about/index.html"
+    },
+    {
+      "id": "corrections",
+      "url": "/corrections/",
+      "entry": "corrections/index.html"
+    }
+  ],
   "tools": [
     {
       "id": "hub",

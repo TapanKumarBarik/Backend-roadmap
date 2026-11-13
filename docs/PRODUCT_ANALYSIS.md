@@ -418,7 +418,7 @@ Updated as work is done. The first column follows the numbering in "The daily lo
 | Network Lab: subnet calculator, drills and a daily puzzle at `/tools/subnet/` (an idea from the owner; it gives the daily hook and search traffic for "subnet calculator" and "CIDR" with no server cost) | **Built**, 2026-11-10; further tools (TCP handshake ordering, ports, DNS records) and a link from the navigation are not done, the navigation being in the files another session is editing |
 | Rubrics and AI feedback for design challenges | Not started; free first |
 | The paid tier and payment | **Last.** Decided 2026-11-10: free for now, payment at the end |
-| Trust work: the GenAI lesson, the unchecked facts, an author page, a "reviewed" mark, a corrections log | Planned in [TRUST_PLAN.md](TRUST_PLAN.md); the owner edits content, I build the code |
+| Trust work: the GenAI lesson, the unchecked facts, an author page, a "reviewed" mark, a corrections log | The lesson is fixed, the about page and the corrections log are built (2026-11-13, local, not pushed); the bio and photo, the reviewed mark and the unchecked facts remain. Status in [TRUST_PLAN.md](TRUST_PLAN.md) |
 | Repository private | Reviewed in [REPO_PRIVATE_CHECKLIST.md](REPO_PRIVATE_CHECKLIST.md); the owner flips it |
 
 ## A 90-day order of work

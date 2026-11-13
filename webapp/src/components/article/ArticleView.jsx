@@ -14,6 +14,7 @@ import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfC
 import { watchCodeOverflow } from '../../lib/markdown/codeOverflowLazy.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
+import { TRUST } from '../../config/trust.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { commentIdFromAnchor } from '../../lib/comments.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
@@ -440,6 +441,8 @@ export default function ArticleView({
         <p className="edit-on-github">
           Found a mistake, or know a better way to explain this?{' '}
           <a href={reportUrl(path)}>Tell me</a>
+          {' · '}
+          <a href={TRUST.corrections.url}>{TRUST.corrections.lessonLabel}</a>
         </p>
       )}
     </article>

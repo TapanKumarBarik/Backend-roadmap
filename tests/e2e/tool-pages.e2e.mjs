@@ -124,7 +124,7 @@ test('a free round at a level: a wrong answer says the right one, a right one is
 // screen leaves a page in the browser's default serif with grey buttons, and nothing else in the suite looks at that (it happened once: the subnet page's stylesheet was
 // replaced by the Practice screens' rules, and the page went out unstyled). So each page in site.config.json -> tools is measured, under the real policy, for the
 // site's font and ground, a column of its own, a bordered card and a button that is not the browser's.
-for (const tool of config.tools) {
+for (const tool of [...config.tools, ...config.pages]) {
   test(`the ${tool.id} tool page is dressed: the site's font and ground, a column, a bordered card, a button of the site's making`, async () => {
     const { context, page, problems, goto } = await open(tool.url, { withCsp: true });
     await goto();
@@ -163,7 +163,7 @@ const serves = (href) => {
 };
 
 test('every address a tool page links to is one the site serves, so a lesson that moves cannot leave a tool pointing at nothing', () => {
-  for (const tool of config.tools) {
+  for (const tool of [...config.tools, ...config.pages]) {
     const html = fs.readFileSync(path.join(ROOT, 'dist', tool.url, 'index.html'), 'utf8');
     const links = [...html.matchAll(/href="(\/[^"]*)"/g)].map((m) => m[1]);
     assert.ok(links.length > 3, `${tool.url} has links`);
@@ -254,5 +254,48 @@ test('on a long round trip the protocol that asks for fewer of them is the one t
   assert.match(advice, /HTTP\/3 over QUIC would save 600 ms to the first byte compared with HTTPS, TLS 1\.2/, 'two round trips of 300 ms');
   const best = await page.locator('#ll-compare td.is-best').allInnerTexts();
   assert.equal(best.length, 2, 'QUIC and plain HTTP both take two round trips, and are marked as the fastest');
+  await context.close();
+});
+
+// ------------------------------------------------------------------------------------------------ the trust pages
+
+test('the corrections page carries the whole log in its HTML: each fix, its lesson as a link that exists, and its date', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'corrections', 'index.html'), 'utf8');
+  assert.match(html, /<title>Corrections · [^<]+<\/title>/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}/corrections/">`));
+  assert.match(html, /<h1>Corrections<\/h1>/);
+  assert.doesNotMatch(html, /noindex/);
+  assert.doesNotMatch(html, /%BLOCK_|%DEVELOPER_|%SITE_/, 'no placeholder is left in the page');
+  const log = JSON.parse(fs.readFileSync(path.join(ROOT, config.content.dir, 'corrections.json'), 'utf8')).corrections;
+  assert.ok(log.length >= 1);
+  assert.equal((html.match(/<article class="tool-card correction"/g) || []).length, log.length, 'one card for each entry');
+  for (const entry of log) {
+    assert.ok(html.includes(`<a href="/${entry.page}/">`), `it links to ${entry.page}`);
+    assert.ok(serves(`/${entry.page}/`), `${entry.page} is a page the site serves`);
+    assert.ok(html.includes(`datetime="${entry.date}"`), 'it carries the date');
+  }
+  assert.ok(sitemap().includes(`${config.site.url}/corrections/</loc>`), 'it is in the sitemap');
+});
+
+test('the about page names who writes the site from the site config, says how the lessons are made and links the corrections, and carries a Person record', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'about', 'index.html'), 'utf8');
+  assert.match(html, /<title>About · [^<]+<\/title>/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}/about/">`));
+  assert.doesNotMatch(html, /noindex/);
+  assert.doesNotMatch(html, /%BLOCK_|%DEVELOPER_|%SITE_|%YOUTUBE_/, 'no placeholder is left in the page');
+  assert.ok(html.includes(`<strong>${config.developer.name}</strong>`), 'the name is the one in the site config');
+  assert.ok(html.includes(`href="${config.developer.linkedin}"`) && html.includes(`href="${config.developer.github}"`) && html.includes(`href="${config.youtube.channel}"`), 'its links are the config\'s');
+  assert.match(html, /was drafted with the help of AI tools/, 'it says how the lessons are made');
+  assert.ok(html.includes('href="/corrections/"'), 'it points at the corrections');
+  assert.match(html, /"@type":"Person","name":"[^"]+","sameAs":\["https:/, 'a Person record');
+  assert.ok(sitemap().includes(`${config.site.url}/about/</loc>`), 'it is in the sitemap');
+});
+
+test('the footer and the foot of a lesson lead to the about page and the corrections', async () => {
+  const { context, page, goto } = await open('/system-design/01-core-fundamentals/08-latency/', { withCsp: true });
+  await goto();
+  const lessonFoot = page.locator('.edit-on-github');
+  await lessonFoot.waitFor({ timeout: 90000 });
+  assert.equal(await lessonFoot.getByRole('link', { name: 'See the corrections' }).getAttribute('href'), '/corrections/');
   await context.close();
 });

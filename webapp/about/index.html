@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About · %SITE_NAME%</title>
+<meta name="description" content="Who writes Backend Roadmap, how its lessons are made with AI help, what is checked by machine and what is not, and where the corrections are published.">
+<link rel="canonical" href="%SITE_URL%/about/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/about/">
+<meta property="og:title" content="About %SITE_NAME%">
+<meta property="og:description" content="Who writes it, how the lessons are made, what is checked and what is not, and where the corrections are published.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"AboutPage","name":"About %SITE_NAME%","url":"%SITE_URL%/about/","mainEntity":{"@type":"Person","name":"%DEVELOPER_NAME%","sameAs":["%DEVELOPER_LINKEDIN%","%DEVELOPER_GITHUB%","%YOUTUBE_CHANNEL%"]}}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/corrections/">Corrections</a>
+    <a href="/tools/">Network Lab</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>About %SITE_NAME%</h1>
+  <p class="tool-lead">%SITE_DESCRIPTION%</p>
+
+  <section class="tool-card about" aria-labelledby="who-h">
+    <h2 id="who-h">Who writes it</h2>
+    <p>%SITE_NAME% is built and maintained by <strong>%DEVELOPER_NAME%</strong>.</p>
+      %BLOCK_ABOUT_BIO%
+    <ul class="tool-sources">
+      <li><a href="%DEVELOPER_LINKEDIN%" rel="noopener">LinkedIn</a></li>
+      <li><a href="%DEVELOPER_GITHUB%" rel="noopener">GitHub</a></li>
+      <li><a href="%YOUTUBE_CHANNEL%" rel="noopener">The YouTube channel</a>, where the video lectures are published</li>
+    </ul>
+  </section>
+
+  <section class="tool-prose" aria-labelledby="made-h">
+    <h2 id="made-h">How the lessons are made</h2>
+    <p>Much of the text on this site (the lessons, the quizzes, the exercises and their worked solutions) was drafted with the help of AI tools. That is fast, and it makes mistakes: a drafted page can state something false with complete confidence, and a second read does not catch everything. So no page here is guaranteed to be correct, and a page that does not say it was checked has not been checked line by line.</p>
+    <p>Many lessons have a &ldquo;production war story&rdquo; or an &ldquo;incident post-mortem&rdquo;. Unless a story names its source, treat it as a scenario written to teach one failure, and its numbers as illustrative. It is not a report of something that happened.</p>
+
+    <h2 id="checked-h">What is checked by machine</h2>
+    <p>On every change to the site, each coding and SQL problem in the Practice Center has its model solution run against its tests, every published address is checked to still work, and the arithmetic behind each tool in the <a href="/tools/">Network Lab</a> has its own tests. These checks find broken code and broken links. They cannot find a lesson that is wrong in prose, which is why corrections matter.</p>
+
+    <h2 id="mistakes-h">When something is wrong</h2>
+    <p>If you find a mistake, write to <a href="mailto:%DEVELOPER_EMAIL%">%DEVELOPER_EMAIL%</a>. It is fixed, and what was wrong and what changed is written on the <a href="/corrections/">corrections page</a>, so you can see that fixes happen.</p>
+    <p><a class="tool-btn tool-btn--primary" href="/corrections/">See the corrections</a></p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/plain.js"></script>
+</body>
+</html>

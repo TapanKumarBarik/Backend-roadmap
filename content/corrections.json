@@ -1,0 +1,11 @@
+{
+  "corrections": [
+    {
+      "date": "2026-11-13",
+      "page": "genai/02-transformer-architecture/04-queries-keys-and-values",
+      "title": "Queries, Keys, and Values",
+      "wrong": "The lesson said that when queries and keys are the same vectors, a token's score against itself is “mathematically guaranteed” to be the largest in its row, and presented this as a proof from the Cauchy-Schwarz inequality. That is not true. The inequality gives the result only when all the vectors have the same length: a longer vector can score higher against a token than the token scores against itself. The lesson's own command printed False where the lesson said True, and in a random example with 5 tokens and 8 dimensions the diagonal is the largest score in every row only about 80% of the time. The lesson also told an incident as fact: a 7-billion-parameter model whose pronoun-resolution accuracy fell from 84.2% to 41.8% after queries and keys shared a projection. It had no source, and its premise is wrong, because the Reformer paper reports that sharing queries and keys did not cost accuracy. A diagram also claimed “3x higher hardware MFU” for fused projections, which nothing supported.",
+      "changed": "Section 2 now states what is true: with Q = K = X the score matrix is symmetric and its diagonal is a squared length, which tends to be the largest in its row and always is when all the vectors have the same length; with separate projections neither holds. The invented incident is replaced by the Reformer's shared-QK attention and what its authors report (Sections 2 and 5 of the paper). The command and the Python program now check only things that are always true, the Go program no longer labels a result as guaranteed, and all three were run. The “3x” claim is gone, and the lesson has a list of sources."
+    }
+  ]
+}

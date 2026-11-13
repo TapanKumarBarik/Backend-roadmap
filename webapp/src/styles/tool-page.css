@@ -141,3 +141,14 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .ll-scroll { display: none; margin: var(--space-4) 0 0; }
 @media (max-width: 720px) { .ll-scroll { display: block; } }
 @media (max-width: 520px) { .ll-summary { grid-template-columns: 1fr 1fr; } .ll-stat:last-child { grid-column: 1 / -1; } .ll-stat strong { font-size: 24px; } }
+
+/* ---------- the corrections log and the about page ---------- */
+.tool-main .correction h2 { margin: 0; font-family: var(--sans); font-size: 20px; letter-spacing: 0; text-transform: none; }
+.tool-main .correction h2 a { color: var(--fg); text-decoration: none; }
+.tool-main .correction h2 a:hover { color: var(--signal); text-decoration: underline; }
+.correction__text { margin: var(--space-3) 0 0; }
+.correction__text dt { margin-top: var(--space-4); font-family: var(--display); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); }
+.correction__text dd { margin: var(--space-1) 0 0; font-family: var(--serif); font-size: 17px; line-height: 1.65; }
+.about__photo { float: right; margin: 0 0 var(--space-3) var(--space-4); border-radius: var(--r-lg); object-fit: cover; }
+.about__bio { font-family: var(--serif); font-size: 17px; }
+.about .tool-sources { clear: both; }

@@ -4,6 +4,7 @@
 // replaces all of it when it starts (see scripts/build/prerender.mjs).
 import { HERO, HOME_META, INSIDE, LIBRARY, OPEN_SOURCE, PICK, VIDEO } from '../../webapp/src/config/landing.js';
 import { LISTING_COPY } from '../../webapp/src/config/paths.js';
+import { TRUST } from '../../webapp/src/config/trust.js';
 import { PATH_ROUTE, VIDEOS_ROUTE, pageUrl } from '../../webapp/src/lib/appPages.js';
 import { totals } from '../../webapp/src/lib/curriculum/videos.js';
 import { escapeHtml } from '../../webapp/src/lib/markdown/escapeHtml.js';
@@ -51,7 +52,7 @@ export function homePage({ stats, videos, tree, titles, config, urlOf }) {
     section(INSIDE.heading, `<p>${esc(INSIDE.sub)}</p><ul>${inside}</ul>`),
     clips && section(VIDEO.heading, `<p>${esc(VIDEO.sub(count, seconds))}</p><ul>${clips}</ul><p>${link(pageUrl(VIDEOS_ROUTE), LISTING_COPY.allVideos)} · ${link(config.youtube.channel, VIDEO.label)}</p>`),
     section(OPEN_SOURCE.heading, `<p>${esc(OPEN_SOURCE.body(modules))}</p><p>${link(`mailto:${config.developer.email}`, OPEN_SOURCE.primaryLabel)} · ${link(config.youtube.channel, OPEN_SOURCE.secondaryLabel)}</p>`),
-    `<footer><p>${esc(HOME_META.credit(config.developer.name))} ${link(config.developer.linkedin, 'LinkedIn')} · ${link(config.developer.github, 'GitHub')}</p></footer>`
+    `<footer><p>${esc(HOME_META.credit(config.developer.name))} ${link(config.developer.linkedin, 'LinkedIn')} · ${link(config.developer.github, 'GitHub')} · ${link(TRUST.about.url, TRUST.about.label)} · ${link(TRUST.corrections.url, TRUST.corrections.label)}</p></footer>`
   ].filter(Boolean).join('');
 
   return { description: HOME_META.description(modules), body };

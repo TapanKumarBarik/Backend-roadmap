@@ -118,7 +118,7 @@ export const VIDEO = {
 
 export const OPEN_SOURCE = {
   heading: 'Spotted a mistake?',
-  body: (modules) => `Every module is written and checked by hand.${modules && modules.planned > 0 ? ` ${fmt(modules.planned)} more modules are on the way.` : ''} If something is wrong or unclear, tell me and I will fix it.`,
+  body: (modules) => `${modules && modules.planned > 0 ? `${fmt(modules.planned)} more modules are on the way. ` : ''}If something is wrong or unclear, tell me and I will fix it, and write what changed on the corrections page.`,
   primaryLabel: 'Email me',
   secondaryLabel: 'Watch on YouTube'
 };

@@ -106,3 +106,21 @@ Today the lesson page has "Found a mistake ... Tell me", which opens an email. T
    already lists.
 
 Nothing here blocks a push. It blocks charging: do sections 1 to 4 before any paid feature.
+
+## Status, 2026-11-13
+
+Done at the owner's request ("do"); everything is committed locally and waits for a push.
+
+| Part | State |
+|---|---|
+| 1. The wrong GenAI lesson | **Fixed** (commit 555f0d0). It had been rewritten since this plan was written and was worse than described: besides the false "guarantee" it told an invented incident (a 7B model, accuracy 84.2% to 41.8%) whose premise the Reformer paper contradicts, claimed an unmeasured "3x MFU", and its own command printed False where the lesson said True. Replaced with what is true and with the Reformer's shared-QK attention (Sections 2 and 5 of the paper, which I read). The command, the PyTorch function and the Go program were run. The quiz was already right. Please read the diff: it is your lesson |
+| 3. The author page | **Built** at `/about/`: your name and links from the config, how the lessons are made, what is checked by machine, where corrections go. It shows `developer.bio` and `developer.photo` from `site.config.json` when you set them; until then it says only who and how, which is why it still needs you: two or three sentences of what you do and have built, and a photo |
+| 4. A "reviewed" mark | Not built. It means something only after you have reviewed pages |
+| 5. How to describe AI help | **Drafted** on the about page in the plain form recommended in section 5. It is true as written; whether to say it is your decision, and it is the first thing an expert will ask |
+| 6. A public corrections log | **Built** at `/corrections/` from `content/corrections.json`, with the lesson above as its first entry; linked from the footer, the foot of each lesson and the about page |
+| 2. Unchecked facts in the practice content | Not started: they need you with the sources |
+
+Two things found on the way, not fixed because they are bigger than this plan:
+
+- **The home page said "Every module is written and checked by hand."** That is not true of drafted pages, and the about page now says so. I changed the sentence (it now invites a report and points at the corrections page); undo that if you disagree.
+- **771 lessons have a "War Story" or "Post-Mortem" heading, which is nearly every written lesson, and 281 of them give "Time to Detect" or "Detection Time" figures.** The ones I read tell an unnamed company's incident with precise numbers (P99 from 140 ms to 11.4 s, detected after 18 minutes) and no source. They read as reports of real incidents. Most are probably teaching scenarios, and the about page now says so, but a reader meeting one in a lesson does not see that, and the Queries, Keys and Values one was false in substance. The mechanical fix is one line under each heading ("An illustrative scenario, not a report of a real incident"), done by a script and reversible. It edits about 770 lessons, so it needs your word first.

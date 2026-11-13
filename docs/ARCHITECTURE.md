@@ -100,6 +100,13 @@ no cost; a scenario is held in the page's query so a link shows what its sender 
 Practice screens'); `tests/e2e/tool-pages.e2e.mjs` measures every listed page for being dressed, because a shared or rewritten stylesheet once left the subnet page in
 the browser's default serif and nothing noticed, and checks that every address a tool page links to is one the site serves.
 
+**Trust pages**: `/about/` and `/corrections/` are pages of their own too (`webapp/about/`, `webapp/corrections/`, listed in `site.config.json -> pages`, built and put in the
+sitemap the same way as the tools). The corrections page is the public log `content/corrections.json` (a date, the lesson's folder, what was wrong, what changed; newest first)
+written into the page's HTML at build time (`scripts/lib/corrections.mjs`; `npm run check:corrections`, part of `npm run check`, fails on a lesson that does not exist, a bad
+date or an entry out of order). The about page takes its facts from `site.config.json -> developer` (name, links, and optionally `bio` and `photo`, which are shown only when
+set: nothing is invented) through `%DEVELOPER_*%` placeholders; its words on how the lessons are made are in the page's HTML. The footer, the foot of every lesson and the
+crawlers' home page link to both (`webapp/src/config/trust.js`).
+
 **PDF notes** are files in `webapp/public/notes/system-design/` (one per lesson, plus a bundle per phase), served as they are and linked
 from the lesson.
 
@@ -212,6 +219,7 @@ To add a page, add an entry there. Look at it after a UI change; use git, not ol
 | add an image | [IMAGES.md](IMAGES.md) |
 | add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json`; `npm run check` ([VIDEOS.md](VIDEOS.md)) |
 | add a tool page | an HTML entry in `webapp/tools/<name>/`, its script in `webapp/src/tools/`, an entry in `site.config.json -> tools`, its own styles only in `tool-page.css`, a test in `tests/e2e/tool-pages.e2e.mjs` and a line in `tests/e2e/audit.e2e.mjs` |
+| record a correction | an entry at the top of `content/corrections.json` (date, the lesson's folder under `content/`, a title, what was wrong, what changed), then `npm run check` |
 | add a PDF note | a file in `webapp/public/notes/system-design/`, and a link from the lesson |
 | add or fix a quiz, exercise or interview set (concepts or coding) | a file in `content/practice/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
 | add or fix a coding problem to solve in the page | a file in `content/practice/code/`, then `npm run practice:build` and `npm run check:code` ([PRACTICE.md](PRACTICE.md#coding-problems-solved-in-the-page)) |

@@ -308,8 +308,8 @@ for (const listing of listings) {
   if (!listing.noindex) urls.push({ url: listing.url });
 }
 
-// The tools are pages of their own, built by Vite from their HTML (site.config.json -> tools); only the sitemap is written here.
-for (const tool of config.tools || []) urls.push({ url: tool.url });
+// The tools and the trust pages (about, corrections) are pages of their own, built by Vite from their HTML (site.config.json -> tools and pages); only the sitemap is written here.
+for (const entry of [...(config.tools || []), ...(config.pages || [])]) urls.push({ url: entry.url });
 
 const newest = urls.map((u) => u.lastmod).filter(Boolean).sort().at(-1);
 if (newest) urls[0].lastmod = newest;
