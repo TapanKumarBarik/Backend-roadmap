@@ -446,6 +446,8 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 #content :not(pre) > code {
   font-family: var(--mono); font-size: 85%; background: var(--bg-sunken);
   padding: .18em .4em; border-radius: var(--r-sm); border: 1px solid var(--border-subtle);
+  /* When a line ends inside one (at a hyphen or a space), each half is a closed pill, not one with an open end. */
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
 /* Characters you cannot see, written as a program spells them (`\r\n`, `\r\n\r\n`, `\n`, `\t`): lib/markdown/controlCode.js adds the class. One quiet violet token with no box,
    so "(\r\n)" does not read as a bracket, a gap and a grey button. Every other inline code keeps the pill above. */

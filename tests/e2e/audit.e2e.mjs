@@ -73,6 +73,7 @@ const SCREENS = [
   { name: 'the first-visit landing page', url: '/', visit: true },
   { name: 'the dashboard', url: '/' },
   { name: 'a module', url: LESSON },
+  { name: 'a module with tables, diagrams and escape sequences', url: '/backend/01-request-response-fundamentals/01-http-protocol-basics/' },
   { name: 'Explore', url: '/#__explore' },
   { name: 'Videos', url: '/#__videos' },
   { name: 'Community: questions', url: '/#__community' },

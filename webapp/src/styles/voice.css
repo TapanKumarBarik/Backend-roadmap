@@ -67,9 +67,16 @@
   color: var(--fg);
 }
 
-#content p {
-  max-width: 86ch;
-}
+/* One reading measure for the lesson: a paragraph, a list, a quote, a callout, a rule and a heading's underline all end at the same edge, and a callout is no wider
+   than the text in it. It is about 86 characters of the lesson's sans (46.4em), the line the paragraphs already had. It is a registered length so that "em" is
+   worked out once, on #content, and every block gets the same width whatever its own type size (a heading is larger than a paragraph); it follows the reader's
+   text size ("Aa"), as ch did. A block that holds a figure (code, a table, a diagram, a video, a picture) keeps the whole column: a sample or a diagram gains from
+   the room, and a box shrunk around one would make it scroll sideways. */
+@property --measure { syntax: '<length>'; inherits: true; initial-value: 742px; }
+#content { --measure: 46.4em; }
+#content p { max-width: var(--measure); }
+#content > :is(hr, h1, h2, h3, h4, h5, h6) { max-width: var(--measure); }
+#content > :is(ul, ol, blockquote, details, .cblock):not(:has(pre, table, .codeblock, .mermaid-diagram, .video, img)) { max-width: var(--measure); }
 
 #content :is(table, figcaption, .lecture, .video, .codeblock, .cblock, .mermaid-diagram, details > summary, button) {
   font-family: var(--sans);

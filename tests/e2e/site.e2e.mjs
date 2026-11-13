@@ -143,6 +143,35 @@ test('an escape sequence in a sentence is a quiet token, not a grey box, and its
   await context.close();
 });
 
+test('on a wide screen a lesson\'s prose, callouts and rules end at one edge, and code, tables and diagrams keep the whole column', async () => {
+  const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/', { width: 1800, height: 900 });
+  await goto();
+  await page.waitForSelector('#content .cblock-tip');
+  const widths = await page.evaluate(() => {
+    const width = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().width);
+    return {
+      paragraph: width('#content > p'), callout: width('#content > .cblock-tip'), list: width('#content > ul'), quote: width('#content > blockquote'), rule: width('#content > hr'),
+      heading: width('#content > h2'), code: width('#content > .codeblock'), table: width('#content table'), diagram: width('#content .mermaid-diagram'), column: width('#content'),
+      sideways: document.documentElement.scrollWidth - innerWidth
+    };
+  });
+  assert.ok(widths.paragraph < widths.column, 'the column is wider than a line of text, or there is nothing to line up');
+  for (const name of ['callout', 'list', 'quote', 'rule', 'heading']) assert.ok(Math.abs(widths[name] - widths.paragraph) <= 1, `${name} is ${widths[name]}px, the paragraph ${widths.paragraph}px`);
+  for (const name of ['code', 'table', 'diagram']) assert.equal(widths[name], widths.column, `${name} keeps the whole column`);
+  assert.ok(widths.sideways <= 0, 'and nothing makes the page scroll sideways');
+  await context.close();
+});
+
+test('the line that opens a lesson with a time does not call it reading time under a header that gives the reading time', async () => {
+  const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/');
+  await goto();
+  await page.waitForSelector('#content blockquote');
+  assert.match(await page.textContent('#content blockquote'), /Estimated Time to Complete:\s*\d+ minutes/);
+  assert.doesNotMatch(await page.textContent('#content'), /Estimated Reading Time/);
+  assert.match(await page.textContent('#article'), /\d+ min read/, 'the header still says how long it takes to read');
+  await context.close();
+});
+
 test('the heading is on screen before the text arrives, and nothing moves when it does', async () => {
   const { context, page } = await open(LESSON);
   await context.route('**/README.md', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });

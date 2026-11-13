@@ -4,6 +4,7 @@ import { renderVideos } from './video.js';
 import { createStash, restore } from './htmlStash.js';
 import { parseInlineMarkdown, parseMarkdown } from './math.js';
 import { markControlCode } from './controlCode.js';
+import { relabelMeta } from './lessonMeta.js';
 
 // Videos and blocks first, then tabs, then the document. Each generator
 // produces HTML before marked sees the page, and each puts that HTML into a
@@ -13,7 +14,7 @@ import { markControlCode } from './controlCode.js';
 // the document is parsed. See htmlStash.js.
 export function renderMarkdownDoc(rawText) {
   const store = createStash();
-  const prepared = renderTabs(renderBlocks(renderVideos(normalizeNewlines(rawText), store), store), store);
+  const prepared = renderTabs(renderBlocks(renderVideos(relabelMeta(normalizeNewlines(rawText)), store), store), store);
   return markControlCode(restore(parseMarkdown(prepared), store));
 }
 
