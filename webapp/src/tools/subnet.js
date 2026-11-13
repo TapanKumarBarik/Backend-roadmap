@@ -1,7 +1,7 @@
 // The subnet page (webapp/tools/subnet/index.html): a calculator, drills and the puzzle of the day. Plain DOM, no React, so the page is small and
 // quick. The page's text is already in the HTML; this adds the behaviour. Everything is checked here in the browser (lib/netlab): there is no server.
 import '../styles/tokens.css';
-import '../styles/tools.css';
+import '../styles/tool-page.css';
 import { STORAGE, SITE } from '../config/index.js';
 import { NETLAB } from '../config/netlab.js';
 import { readStored, readJson, writeJson } from '../lib/storage.js';

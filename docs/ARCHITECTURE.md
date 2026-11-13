@@ -90,7 +90,8 @@ marks the module; the Videos screen and the home page list them. A video not pub
 
 **Tools** are small pages of their own, not screens of the app: the subnet calculator and drills at `/tools/subnet/`. Each is an HTML entry under
 `webapp/tools/<name>/index.html` with plain-DOM script in `webapp/src/tools/` (no React, so it is small and quick), built as an extra entry of the same
-Vite build and listed in `site.config.json -> tools` (which also puts it in the sitemap). The logic is pure and tested in `webapp/src/lib/netlab/`
+Vite build and listed in `site.config.json -> tools` (which also puts it in the sitemap). Their look is `webapp/src/styles/tool-page.css` (not `tools.css`, which is the Practice screens'); a
+browser test (`tests/e2e/tool-pages.e2e.mjs`) measures every listed page for being dressed, because a shared or rewritten stylesheet once left the subnet page in the browser's default serif and nothing noticed. The logic is pure and tested in `webapp/src/lib/netlab/`
 (`cidr.js` the arithmetic, `questions.js` seeded questions with their working and an answer checker, `session.js` the streak). Everything is checked in the
 browser, so there is no server and no cost. The puzzle of the day is made from the UTC date, so it is the same for everyone.
 
@@ -205,7 +206,7 @@ To add a page, add an entry there. Look at it after a UI change; use git, not ol
 | add a curriculum | a folder in `content/`; its name in `content.curricula` **and** an entry in `content.areas` (same order); a tag in `scripts/lib/tag-vocabulary.mjs`; `npm run check` |
 | add an image | [IMAGES.md](IMAGES.md) |
 | add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json`; `npm run check` ([VIDEOS.md](VIDEOS.md)) |
-| add a tool page | an HTML entry in `webapp/tools/<name>/`, its script in `webapp/src/tools/`, an entry in `site.config.json -> tools`, a test in `tests/e2e/tools.e2e.mjs` and a line in `tests/e2e/audit.e2e.mjs` |
+| add a tool page | an HTML entry in `webapp/tools/<name>/`, its script in `webapp/src/tools/`, an entry in `site.config.json -> tools`, its own styles only in `tool-page.css`, a test in `tests/e2e/tool-pages.e2e.mjs` and a line in `tests/e2e/audit.e2e.mjs` |
 | add a PDF note | a file in `webapp/public/notes/system-design/`, and a link from the lesson |
 | add or fix a quiz, exercise or interview set (concepts or coding) | a file in `content/practice/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
 | add or fix a coding problem to solve in the page | a file in `content/practice/code/`, then `npm run practice:build` and `npm run check:code` ([PRACTICE.md](PRACTICE.md#coding-problems-solved-in-the-page)) |
