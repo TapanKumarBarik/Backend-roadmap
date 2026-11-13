@@ -447,6 +447,11 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
   font-family: var(--mono); font-size: 85%; background: var(--bg-sunken);
   padding: .18em .4em; border-radius: var(--r-sm); border: 1px solid var(--border-subtle);
 }
+/* Characters you cannot see, written as a program spells them (`\r\n`, `\r\n\r\n`, `\n`, `\t`): lib/markdown/controlCode.js adds the class. One quiet violet token with no box,
+   so "(\r\n)" does not read as a bracket, a gap and a grey button. Every other inline code keeps the pill above. */
+#content :not(pre) > code.code-control {
+  background: var(--signal-bg); color: var(--signal); border: 0; padding: .1em .3em;
+}
 .codeblock { position: relative; margin: 0 0 18px; }
 .codeblock pre {
   margin: 0; background: var(--bg-sunken); border: 1px solid var(--border-subtle);

@@ -126,6 +126,23 @@ test('code is highlighted after the text, from its own chunk', async () => {
   await context.close();
 });
 
+test('an escape sequence in a sentence is a quiet token, not a grey box, and its text is what the author wrote', async () => {
+  const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/');
+  await goto();
+  await page.waitForSelector('#content .cblock-tip');
+  const tokens = page.locator('#content :not(pre) > code.code-control');
+  assert.ok(await tokens.count() >= 3, 'the lesson writes CRLF, the empty line and a bare newline as code');
+  for (const text of await tokens.allTextContents()) assert.match(text, /^(?:\\[rnt0])+$/, 'only escape sequences, with the backslashes still there');
+  const look = (el) => { const s = getComputedStyle(el); return { border: s.borderTopWidth, color: s.color, background: s.backgroundColor }; };
+  const token = await tokens.first().evaluate(look);
+  const name = await page.locator('#content :not(pre) > code:not(.code-control)').first().evaluate(look);
+  assert.equal(token.border, '0px', 'no box around it, so "(\\r\\n)" does not read as a bracket, a gap and a button');
+  assert.notEqual(token.background, 'rgba(0, 0, 0, 0)', 'a tint, so it is still seen as code');
+  assert.notEqual(token.color, name.color, 'drawn apart from a name such as Content-Length');
+  assert.equal(name.border, '1px', 'and that name keeps the pill it always had');
+  await context.close();
+});
+
 test('the heading is on screen before the text arrives, and nothing moves when it does', async () => {
   const { context, page } = await open(LESSON);
   await context.route('**/README.md', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });

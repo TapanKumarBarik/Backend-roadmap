@@ -3,6 +3,7 @@ import { renderBlocks } from './contentBlocks.js';
 import { renderVideos } from './video.js';
 import { createStash, restore } from './htmlStash.js';
 import { parseInlineMarkdown, parseMarkdown } from './math.js';
+import { markControlCode } from './controlCode.js';
 
 // Videos and blocks first, then tabs, then the document. Each generator
 // produces HTML before marked sees the page, and each puts that HTML into a
@@ -13,7 +14,7 @@ import { parseInlineMarkdown, parseMarkdown } from './math.js';
 export function renderMarkdownDoc(rawText) {
   const store = createStash();
   const prepared = renderTabs(renderBlocks(renderVideos(normalizeNewlines(rawText), store), store), store);
-  return restore(parseMarkdown(prepared), store);
+  return markControlCode(restore(parseMarkdown(prepared), store));
 }
 
 // Windows line endings (a checkout made there, a file edited there) must not change how a page renders: the callout,
