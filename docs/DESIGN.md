@@ -74,6 +74,10 @@ setup and no table of its own. Violet is where you are and what is next, **amber
 | The screens | `webapp/src/components/game/`: the quest, the route, the player card, the path picker, the send-off, the reward toast. Their own chunks, so the first page does not carry them |
 | The icons | `components/game/glyphs.jsx`: 49 line icons in the site's own style (24 units, round caps), shown on `/#__design`. A title gets its icon from the first rule of `game.config.json` -> `glyphs` that its words match |
 
+The dashboard's columns follow the room the dashboard has, not the width of the window (`.gm-frame` is a size container, `game.css`): the curriculum tree beside it takes a third of a
+laptop screen, so a window wide enough for two columns can still leave the quest card a sliver. Narrow, it is one column: the quest, the player card, the route.
+A screen that sits beside the tree should do the same, with a container query rather than a media query.
+
 How a reward happens: every mark goes through `setStatus` in `App.jsx`, which asks `lib/game/celebrate.js` what the mark is worth (the game before it
 and after it) and shows a toast, and confetti for a level, a badge, a track or a path. A streak is days in a row with any mark made; a signed-in
 reader's is the account's, the same number as in the top bar. Practice is saved as progress marks too (`practice/code/<slug>`,

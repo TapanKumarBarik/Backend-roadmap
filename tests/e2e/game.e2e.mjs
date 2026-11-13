@@ -113,6 +113,31 @@ test('a streak is the days in a row, and the daily goal is the reader\'s own cho
   await context.close();
 });
 
+test('the quest card keeps its room: the player card goes beside it only when the dashboard is wide enough, and nothing sticks out of the card', async () => {
+  // The curriculum tree takes a third of a laptop screen, so a window of 1075px leaves the dashboard about 580px. When the columns followed the window the quest
+  // card got 230px beside the player card, and its buttons were cut off. They follow the dashboard's own width now.
+  const READABLE = 380; // the least the quest card may have: its ring, the title and the one button still fit
+  for (const { width, beside } of [{ width: 1075, beside: false }, { width: 1440, beside: true }]) {
+    const { context, page, problems } = await openWith({ done: 1, width, height: 800 });
+    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await page.locator('.gm-hero').waitFor();
+    const found = await page.evaluate(() => {
+      const hero = document.querySelector('.gm-hero').getBoundingClientRect();
+      const player = document.querySelector('.gm-player').getBoundingClientRect();
+      const out = [...document.querySelectorAll('.gm-hero *')]
+        .filter((el) => { const r = el.getBoundingClientRect(); return r.width && r.height && (r.right > hero.right + 1 || r.left < hero.left - 1); })
+        .map((el) => `${el.tagName.toLowerCase()}.${el.className}`);
+      return { width: hero.width, beside: player.left >= hero.right, below: player.top >= hero.bottom - 1, out };
+    });
+    assert.ok(found.width >= READABLE, `at ${width}px the quest card is ${Math.round(found.width)}px wide`);
+    assert.equal(found.beside, beside, `at ${width}px the player card is ${beside ? 'beside' : 'not beside'} the quest card`);
+    if (!beside) assert.ok(found.below, `at ${width}px the player card is under the quest card`);
+    assert.deepEqual(found.out, [], `at ${width}px something sticks out of the quest card`);
+    assert.deepEqual(real(problems), []);
+    await context.close();
+  }
+});
+
 test('a streak freeze covers one missed day a week, so a longer gap still ends the streak', async () => {
   const { context, page } = await openWith({ done: 4, ago: [0, 1, 2, 6] });
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });

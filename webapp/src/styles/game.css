@@ -5,16 +5,20 @@
 
 /* ---------- the page: the quest and the route, with the player card beside them ---------- */
 #root #empty.gm-screen { max-width: 1160px; }
+/* The columns follow the room the dashboard has, not the width of the window: the curriculum tree beside it takes a third of a laptop screen, and a window
+   wide enough for two columns can leave the quest card a sliver with its buttons cut off. Narrow, it is one column: the quest, the player card, the route. */
+#root .gm-frame { container: gm-dash / inline-size; }
 #root .gm-dash {
   display: grid; align-items: start; gap: var(--space-5) var(--space-8);
-  grid-template-columns: minmax(0, 1fr) 316px; grid-template-rows: auto 1fr; grid-template-areas: "hero side" "route side";
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "hero" "side" "route";
 }
 #root .gm-hero-slot { grid-area: hero; min-width: 0; }
-#root .gm-player { grid-area: side; position: sticky; top: var(--space-4); }
+#root .gm-player { grid-area: side; }
 #root .gm-route-wrap { grid-area: route; min-width: 0; }
-@media (max-width: 980px) {
-  #root .gm-dash { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "hero" "side" "route"; }
-  #root .gm-player { position: static; }
+/* Two columns once the quest card keeps about 390px (what it has in a 1280px window beside the tree) next to the gap and the 316px player card. */
+@container gm-dash (min-width: 740px) {
+  #root .gm-dash { grid-template-columns: minmax(0, 1fr) 316px; grid-template-rows: auto 1fr; grid-template-areas: "hero side" "route side"; }
+  #root .gm-player { position: sticky; top: var(--space-4); }
 }
 
 /* ---------- the quest ---------- */

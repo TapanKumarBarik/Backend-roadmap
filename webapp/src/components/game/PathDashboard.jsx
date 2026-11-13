@@ -67,48 +67,50 @@ export default function PathDashboard({
   const glyph = path ? glyphFor(`${path.title} ${path.topic || ''}`, RULES, GAME.glyphs.default) : GAME.glyphs.default;
 
   return (
-    <div className="gm-dash">
-      <div className="gm-hero-slot">
-        {mode === 'library' && (
-          <LibraryHero
-            name={library.name}
-            counts={library.counts}
-            curriculum={library.curriculum}
-            nextFile={nextFile}
-            nextNode={nextFile ? nodeByFile[nextFile] : null}
-            onOpen={onOpenFile}
-          />
-        )}
-        {mode === 'path' && (
-          <QuestHero
-            path={path}
-            glyph={glyph}
-            progress={progress}
-            xpLeft={xpLeft(journey, GAME.xp)}
-            nextFile={nextFile}
-            nextNode={nextFile ? nodeByFile[nextFile] : null}
-            started={started}
-            onOpen={onOpenFile}
-            onSwitch={() => onChoosing(true)}
-          />
-        )}
-        {mode === 'finished' && <QuestComplete path={path} nextPath={nextPath} onPick={onPickPath} onChoose={() => onChoosing(true)} onToast={onToast} />}
-        {practice && <PracticeToday catalog={catalog} statusMap={statusMap} onOpen={practice.onOpenPractice} />}
+    <div className="gm-frame">
+      <div className="gm-dash">
+        <div className="gm-hero-slot">
+          {mode === 'library' && (
+            <LibraryHero
+              name={library.name}
+              counts={library.counts}
+              curriculum={library.curriculum}
+              nextFile={nextFile}
+              nextNode={nextFile ? nodeByFile[nextFile] : null}
+              onOpen={onOpenFile}
+            />
+          )}
+          {mode === 'path' && (
+            <QuestHero
+              path={path}
+              glyph={glyph}
+              progress={progress}
+              xpLeft={xpLeft(journey, GAME.xp)}
+              nextFile={nextFile}
+              nextNode={nextFile ? nodeByFile[nextFile] : null}
+              started={started}
+              onOpen={onOpenFile}
+              onSwitch={() => onChoosing(true)}
+            />
+          )}
+          {mode === 'finished' && <QuestComplete path={path} nextPath={nextPath} onPick={onPickPath} onChoose={() => onChoosing(true)} onToast={onToast} />}
+          {practice && <PracticeToday catalog={catalog} statusMap={statusMap} onOpen={practice.onOpenPractice} />}
+        </div>
+        <PlayerCard game={game} target={target} onTarget={setTarget} onShare={() => setSharing(true)} />
+        {sharing && <Suspense fallback={null}><ShareDialog open={sharing} onClose={() => setSharing(false)} game={game} onToast={onToast} /></Suspense>}
+        {mode === 'library'
+          ? <NextUp items={library.queue} onOpen={onOpenFile} />
+          : (
+            <Journey
+              path={path}
+              journey={journey}
+              onOpen={onOpenFile}
+              videoByFile={videoData && videoData.byFile}
+              quizByFile={quizByFile}
+              onOpenQuiz={(slug) => practice && practice.onOpenPractice(`quiz/${slug}`)}
+            />
+          )}
       </div>
-      <PlayerCard game={game} target={target} onTarget={setTarget} onShare={() => setSharing(true)} />
-      {sharing && <Suspense fallback={null}><ShareDialog open={sharing} onClose={() => setSharing(false)} game={game} onToast={onToast} /></Suspense>}
-      {mode === 'library'
-        ? <NextUp items={library.queue} onOpen={onOpenFile} />
-        : (
-          <Journey
-            path={path}
-            journey={journey}
-            onOpen={onOpenFile}
-            videoByFile={videoData && videoData.byFile}
-            quizByFile={quizByFile}
-            onOpenQuiz={(slug) => practice && practice.onOpenPractice(`quiz/${slug}`)}
-          />
-        )}
     </div>
   );
 }
