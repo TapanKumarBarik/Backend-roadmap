@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page Load Latency Calculator (DNS, TCP, TLS) · %SITE_NAME%</title>
+<meta name="description" content="Free page load latency calculator: see how DNS, the TCP and TLS handshakes and the HTTP request add up in round trips to the first byte, for TLS 1.2, TLS 1.3 and HTTP/3, with every message drawn.">
+<link rel="canonical" href="%SITE_URL%/tools/page-load-latency/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/page-load-latency/">
+<meta property="og:title" content="Page Load Latency Calculator">
+<meta property="og:description" content="Set the distance, the protocol and the page size, and watch DNS, TCP, TLS and the request add up in round trips, drawn as the messages that cross the network.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Page load latency calculator","url":"%SITE_URL%/tools/page-load-latency/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Page load latency calculator</h1>
+  <p class="tool-lead">Where does the time go between typing an address and the first byte of the page arriving? Set the distance to the server, the protocol and the size of the page, and see the lookup, the handshakes and the request drawn as the messages that cross the network, with the milliseconds each one costs.</p>
+
+  <section aria-labelledby="calc-h" class="tool-card" id="lab">
+    <h2 id="calc-h">Calculator</h2>
+    <noscript><p class="tool-note">This calculator needs JavaScript. The explanation below works without it.</p></noscript>
+    <div class="ll-presets">
+      <span id="ll-presets-label" class="ll-presets__label"></span>
+      <div id="ll-presets" class="tool-row" role="group" aria-labelledby="ll-presets-label"></div>
+    </div>
+
+    <form id="ll-form" class="ll-controls" novalidate>
+      <div class="ll-field">
+        <label for="ll-rtt">Round-trip time to the server <output id="ll-rtt-out" for="ll-rtt"></output></label>
+        <input id="ll-rtt" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="ll-server">Server time to build the response <output id="ll-server-out" for="ll-server"></output></label>
+        <input id="ll-server" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="ll-size">Size of the page <output id="ll-size-out" for="ll-size"></output></label>
+        <input id="ll-size" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="ll-bw">Speed of the connection <output id="ll-bw-out" for="ll-bw"></output></label>
+        <input id="ll-bw" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="ll-stack">Protocol</label>
+        <select id="ll-stack"></select>
+      </div>
+      <div class="ll-field">
+        <label for="ll-conn">Connection</label>
+        <select id="ll-conn"></select>
+      </div>
+      <div class="ll-field">
+        <label for="ll-dns">Name lookup</label>
+        <select id="ll-dns"></select>
+      </div>
+      <details class="ll-more tool-details">
+        <summary id="ll-more-label"></summary>
+        <div class="ll-controls">
+          <div class="ll-field">
+            <label for="ll-dnsrtt">Round-trip time to the resolver <output id="ll-dnsrtt-out" for="ll-dnsrtt"></output></label>
+            <input id="ll-dnsrtt" type="range">
+          </div>
+          <div class="ll-field">
+            <label for="ll-up">Round-trip time from the resolver to a name server <output id="ll-up-out" for="ll-up"></output></label>
+            <input id="ll-up" type="range">
+          </div>
+        </div>
+      </details>
+    </form>
+
+    <div id="ll-result">
+      <div class="ll-summary" aria-live="polite" aria-atomic="true">
+        <div class="ll-stat"><span id="ll-first-label"></span><strong id="ll-first"></strong></div>
+        <div class="ll-stat"><span id="ll-loaded-label"></span><strong id="ll-loaded"></strong></div>
+        <div class="ll-stat"><span id="ll-trips-label"></span><strong id="ll-trips"></strong></div>
+      </div>
+      <div id="ll-bar" class="ll-bar"></div>
+      <ul id="ll-legend" class="ll-legend"></ul>
+      <ul id="ll-advice" class="ll-advice"></ul>
+    </div>
+
+    <p id="ll-scroll" class="tool-note ll-scroll"></p>
+    <div id="ll-diagram" class="ll-diagram"></div>
+
+    <details class="tool-details">
+      <summary id="ll-working-label"></summary>
+      <ol id="ll-steps" class="tool-steps"></ol>
+    </details>
+    <details class="tool-details">
+      <summary id="ll-messages-label"></summary>
+      <ol id="ll-list" class="tool-steps"></ol>
+    </details>
+
+    <h3 id="ll-compare-h" class="ll-subhead"></h3>
+    <div class="ll-table"><table id="ll-compare"></table></div>
+
+    <div class="tool-row ll-share">
+      <button type="button" id="ll-copy" class="tool-btn"></button>
+      <span id="ll-copy-note" class="tool-note" role="status"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="add-h" class="tool-prose">
+    <h2 id="add-h">How the time adds up</h2>
+    <p>Before a page can start arriving, a browser waits for a chain of round trips. A <em>round trip</em> is a message going to the other end and the answer coming back, and its length, the <em>round-trip time</em> or RTT, is set mostly by distance: light in fibre covers about 200 km in a millisecond, so every 100 km between the two ends adds at least 1 ms to the round trip, before any router or queue adds its own and because cables do not run straight. Each step below waits for the one before it.</p>
+    <ol>
+      <li><strong>The lookup.</strong> The browser asks a resolver for the address behind the name. If the browser, the operating system or the resolver already has the answer, that costs nothing or one short round trip. If not, the resolver asks a root server, a top-level-domain server and the domain&rsquo;s own name server in turn (RFC 1034), a round trip each. A resolver usually has the root and top-level servers cached, so the common slow case is one question to the domain&rsquo;s name server.</li>
+      <li><strong>The TCP handshake.</strong> SYN goes out and SYN-ACK comes back. The browser&rsquo;s own acknowledgement travels with its next message, so the connection costs one round trip before the request can be sent.</li>
+      <li><strong>The TLS handshake.</strong> TLS 1.2 needs two more round trips before the browser can send the request; TLS 1.3 (RFC 8446) needs one. When a connection resumes an earlier session, TLS 1.2 needs one, and TLS 1.3 can send the request in the very first flight as 0-RTT early data. A server cannot tell a replayed early request from the original, so 0-RTT is only safe for requests that change nothing.</li>
+      <li><strong>The request.</strong> One more round trip, plus however long the server takes to build the response. Everything up to the first byte of the answer is what the browser&rsquo;s tools call the time to first byte.</li>
+      <li><strong>The rest of the response.</strong> The server cannot send everything at once. TCP starts with a window of ten segments, about 14.6 kB (RFC 6928), and doubles it every round trip while the acknowledgements come back (RFC 5681). QUIC&rsquo;s first flight is about the same size (RFC 9002), so the calculator uses one number for every stack. A 150 kB page therefore needs three more round trips after the first flight, even on a fast link. On a slow link the bytes themselves take longer than that, and the calculator uses whichever is longer.</li>
+    </ol>
+
+    <h2 id="why-h">Why TLS 1.3 and HTTP/3 are faster</h2>
+    <p>They are not faster at moving bytes. They ask for fewer round trips before the request can go. TLS 1.3 halves the encryption handshake from two round trips to one. HTTP/3 (RFC 9114) runs over QUIC (RFC 9000), which sets up the connection and the encryption in a single round trip where TCP and TLS 1.2 take three, and on a resumed connection can send the request with the first packet. The saving is a fixed number of round trips, so it is worth the most where the round trip is longest: two round trips are 20 ms at 10 ms and 600 ms at 300 ms. Try the &ldquo;Phone on 4G, far away&rdquo; start and compare the stacks in the table.</p>
+    <p>The biggest lever is the first slider. A CDN or a server in your visitor&rsquo;s own region shortens the round trip itself, and every round trip in the list above gets cheaper at once.</p>
+
+    <h2 id="small-h">Why a small page is fast</h2>
+    <p>A page that fits in the first flight, about 14.6 kB, arrives with the first byte and waits for nothing. Every doubling of the page size after that costs one more round trip, which is why the first few kilobytes are the expensive ones and why compression, fewer scripts and smaller images pay off more on a long round trip than on a short one.</p>
+
+    <h2 id="left-h">What this leaves out</h2>
+    <p>This is a teaching model, built to show the shape of the cost, not to predict one particular site. It assumes a steady round trip, no lost packets, a single resource, a window that doubles every round trip, and a server that starts sending as soon as it has the request. It leaves out redirects, which add whole new lookups and connections; HTTP/2 and HTTP/3 carrying many resources over one connection; the certificate checks a browser may make; delayed acknowledgements and what a lost packet does to the window; and the time spent parsing and drawing the page. To measure a real page, open the Network panel in your browser&rsquo;s developer tools and read the Timing tab of the first request, or run this:</p>
+    <pre class="tool-code"><code>curl -so /dev/null https://example.com/ -w '
+dns         %{time_namelookup}s
+connect     %{time_connect}s
+tls         %{time_appconnect}s
+first byte  %{time_starttransfer}s
+total       %{time_total}s
+'</code></pre>
+    <p>curl prints each time as the total elapsed since the start, so what one step cost is its time less the one before it.</p>
+  </section>
+
+  <section aria-labelledby="more-h" class="tool-prose">
+    <h2 id="more-h">Learn it properly</h2>
+    <p>The lessons behind each step, with diagrams: <a href="/system-design/02-networking-from-zero/07-what-happens-when-you-type-a-url/">what happens when you type a URL</a>, <a href="/system-design/02-networking-from-zero/15-dns-lookup-step-by-step/">DNS lookup step by step</a>, <a href="/system-design/02-networking-from-zero/09-tcp-three-way-handshake/">the TCP three-way handshake</a>, <a href="/system-design/02-networking-from-zero/10-tcp-flow-and-congestion-control/">TCP flow and congestion control</a>, <a href="/system-design/02-networking-from-zero/21-tls-1-3-handshake/">the TLS 1.3 handshake</a> and <a href="/system-design/02-networking-from-zero/23-http-1-1-vs-http-2-vs-http-3/">HTTP/1.1 against HTTP/2 and HTTP/3</a>. To check yourself afterwards, take the quizzes on <a href="/practice/quiz/tcp-ip-dns-ports-and-nat/">TCP/IP, DNS, ports and NAT</a> and on <a href="/practice/quiz/tls-and-https-basics/">TLS and HTTPS basics</a>. To plan address space instead, try the <a href="/tools/subnet/">subnet calculator</a>.</p>
+    <h2 id="sources-h">Sources</h2>
+    <ul class="tool-sources">
+      <li><a href="https://www.rfc-editor.org/rfc/rfc6928" rel="noopener">RFC 6928, Increasing TCP&rsquo;s Initial Window</a>: the ten-segment first flight.</li>
+      <li><a href="https://www.rfc-editor.org/rfc/rfc5681" rel="noopener">RFC 5681, TCP Congestion Control</a>: slow start and the window doubling every round trip.</li>
+      <li><a href="https://www.rfc-editor.org/rfc/rfc8446" rel="noopener">RFC 8446, TLS 1.3</a>: the one-round-trip handshake and 0-RTT early data.</li>
+      <li><a href="https://www.rfc-editor.org/rfc/rfc9000" rel="noopener">RFC 9000, QUIC</a> and <a href="https://www.rfc-editor.org/rfc/rfc9114" rel="noopener">RFC 9114, HTTP/3</a>: the transport and encryption handshake in one round trip.</li>
+      <li><a href="https://www.rfc-editor.org/rfc/rfc9002" rel="noopener">RFC 9002, QUIC Loss Detection and Congestion Control</a>: its initial window.</li>
+      <li><a href="https://www.rfc-editor.org/rfc/rfc1034" rel="noopener">RFC 1034, Domain Names: Concepts and Facilities</a>: how a resolver finds a name.</li>
+      <li><a href="https://web.dev/articles/ttfb" rel="noopener">Time to First Byte</a> on web.dev: what the browser counts into it.</li>
+    </ul>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/pageload.js"></script>
+</body>
+</html>

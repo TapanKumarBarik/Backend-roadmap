@@ -64,3 +64,17 @@ The repository is private and all rights are reserved (see LICENSE). Outside
 contributions are not accepted; readers report problems by email from the
 module page. Still open: how to moderate the public user-generated surfaces
 (Feed, Books, Suggestions) at more than personal scale.
+
+## Decided (2026-11-13): the niche is networking for developers
+
+The question was how a one-person site becomes the place experts point to. Breadth cannot do it (roadmap.sh has that), and 600 lessons that no person has
+checked cannot earn the trust it needs ([TRUST_PLAN.md](TRUST_PLAN.md)). A narrow area, completely done and checkable, can. Networking for developers is the
+one area where the site already has a finished course (Networking from Zero: 30 lessons, 14 of them with a video scheduled from 26 November), where a tool is
+already live (the subnet calculator), where everything else on the site (system design, backend, cloud, GenAI) stands on it, and where the numbers can be checked against standards
+(RFCs) instead of opinion. Developer-oriented interactive networking tools are thin: the best ones are one-topic pages.
+
+So the Network Lab (`/tools/`) is the product to grow, one tool at a time, each with: a page whose explanation is in the HTML, arithmetic in `lib/netlab/` with
+tests that state what the standards say, every number and word in `config/`, a link that holds the scenario, and a section saying what the model leaves out.
+Shipped: the subnet calculator with drills and a daily puzzle, and the page load latency calculator (DNS, TCP, TLS, QUIC, slow start; a sequence diagram of the
+messages). Next, in the order of what a developer is most often asked: TCP's congestion window (the sawtooth), DNS resolution with caching and TTLs, the TLS 1.3
+handshake byte by byte, HTTP/1.1 against HTTP/2 and HTTP/3 on a page of many resources. Each should link to its lesson and video, and the lesson back to it.

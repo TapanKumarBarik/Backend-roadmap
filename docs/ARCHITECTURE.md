@@ -88,12 +88,17 @@ if one stops answering, loses its canonical address or gains `noindex`; see [URL
 each with its module. The module page shows its video under the title, with chapters that start the player at that point; the sidebar
 marks the module; the Videos screen and the home page list them. A video not public yet is not shown. [VIDEOS.md](VIDEOS.md).
 
-**Tools** are small pages of their own, not screens of the app: the subnet calculator and drills at `/tools/subnet/`. Each is an HTML entry under
-`webapp/tools/<name>/index.html` with plain-DOM script in `webapp/src/tools/` (no React, so it is small and quick), built as an extra entry of the same
-Vite build and listed in `site.config.json -> tools` (which also puts it in the sitemap). Their look is `webapp/src/styles/tool-page.css` (not `tools.css`, which is the Practice screens'); a
-browser test (`tests/e2e/tool-pages.e2e.mjs`) measures every listed page for being dressed, because a shared or rewritten stylesheet once left the subnet page in the browser's default serif and nothing noticed. The logic is pure and tested in `webapp/src/lib/netlab/`
-(`cidr.js` the arithmetic, `questions.js` seeded questions with their working and an answer checker, `session.js` the streak). Everything is checked in the
-browser, so there is no server and no cost. The puzzle of the day is made from the UTC date, so it is the same for everyone.
+**Tools** (the **Network Lab**, `/tools/`) are small pages of their own, not screens of the app: a front page, the subnet calculator and drills
+(`/tools/subnet/`) and the page load latency calculator (`/tools/page-load-latency/`). Each is an HTML entry under `webapp/tools/<name>/index.html` with
+plain-DOM script in `webapp/src/tools/` (no React, so it is small and quick; `shell.js` is what they all start from: the tokens, the stylesheet and the reader's
+theme), built as an extra entry of the same Vite build and listed in `site.config.json -> tools` (which also puts it in the sitemap). Their text for search engines
+is in the HTML, their behaviour in the script, their words and numbers in `webapp/src/config/` (`netlab.js`, `loadlab.js`), and their arithmetic is pure and tested
+in `webapp/src/lib/netlab/`: `cidr.js` the address arithmetic, `questions.js` seeded questions with their working and an answer checker, `session.js` the streak,
+`pageload.js` the page load model (the lookup, the TCP, TLS and QUIC handshakes, the request, and the slow-start rounds a page of a given size needs; every number it
+uses and where it comes from is in `config/loadlab.js`, and the page says what the model leaves out). Everything is checked in the browser, so there is no server and
+no cost; a scenario is held in the page's query so a link shows what its sender saw. Their look is `webapp/src/styles/tool-page.css` (not `tools.css`, which is the
+Practice screens'); `tests/e2e/tool-pages.e2e.mjs` measures every listed page for being dressed, because a shared or rewritten stylesheet once left the subnet page in
+the browser's default serif and nothing noticed, and checks that every address a tool page links to is one the site serves.
 
 **PDF notes** are files in `webapp/public/notes/system-design/` (one per lesson, plus a bundle per phase), served as they are and linked
 from the lesson.

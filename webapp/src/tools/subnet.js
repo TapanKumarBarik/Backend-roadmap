@@ -1,10 +1,9 @@
 // The subnet page (webapp/tools/subnet/index.html): a calculator, drills and the puzzle of the day. Plain DOM, no React, so the page is small and
 // quick. The page's text is already in the HTML; this adds the behaviour. Everything is checked here in the browser (lib/netlab): there is no server.
-import '../styles/tokens.css';
-import '../styles/tool-page.css';
+import './shell.js';
 import { STORAGE, SITE } from '../config/index.js';
 import { NETLAB } from '../config/netlab.js';
-import { readStored, readJson, writeJson } from '../lib/storage.js';
+import { readJson, writeJson } from '../lib/storage.js';
 import { parseCidr, describe, bits, privateRange, split, formatIp } from '../lib/netlab/cidr.js';
 import { LEVELS, round, dailyRound, dailySeed, check, networkSteps } from '../lib/netlab/questions.js';
 import { readState, recordDay, liveStreak, shareText } from '../lib/netlab/session.js';
@@ -16,10 +15,6 @@ const make = (tag, className, text) => {
   if (text !== undefined) node.textContent = text;
   return node;
 };
-
-// The theme the reader chose in the app, if any.
-const savedTheme = readStored(STORAGE.theme);
-if (['auto', 'light', 'dark'].includes(savedTheme)) document.documentElement.dataset.theme = savedTheme;
 
 /* ------------------------------------------------------------------------------------------------ the calculator */
 

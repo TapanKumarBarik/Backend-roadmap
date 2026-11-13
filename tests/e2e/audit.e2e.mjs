@@ -99,7 +99,9 @@ const SCREENS = [
   { name: 'My Learning', url: '/#__me', email: 'ada@example.com', before: (page) => page.getByRole('heading', { level: 2, name: 'My learning' }).waitFor() },
   { name: 'the admin practice section', url: '/#__admin', email: OWNER_EMAIL, before: async (page) => { await page.locator('.admin-dashboard .page-tabs button', { hasText: /^Practice/ }).click(); await page.getByText('Submissions').first().waitFor(); } },
   { name: 'the style guide', url: '/#__design' },
-  { name: 'the subnet tool', url: '/tools/subnet/', before: (page) => page.locator('#calc-out dl').waitFor() }
+  { name: 'the subnet tool', url: '/tools/subnet/', before: (page) => page.locator('#calc-out dl').waitFor() },
+  { name: 'the page load tool', url: '/tools/page-load-latency/', before: (page) => page.locator('#ll-diagram svg').waitFor() },
+  { name: 'the Network Lab', url: '/tools/' }
 ];
 
 for (const screen of SCREENS) {

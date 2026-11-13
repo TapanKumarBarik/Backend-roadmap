@@ -575,14 +575,34 @@
         "name": "tool-subnet",
         "path": "/tools/subnet/",
         "height": 1500
+      },
+      {
+        "name": "tool-page-load",
+        "path": "/tools/page-load-latency/",
+        "height": 2600
+      },
+      {
+        "name": "tool-hub",
+        "path": "/tools/",
+        "height": 900
       }
     ]
   },
   "tools": [
     {
+      "id": "hub",
+      "url": "/tools/",
+      "entry": "tools/index.html"
+    },
+    {
       "id": "subnet",
       "url": "/tools/subnet/",
       "entry": "tools/subnet/index.html"
+    },
+    {
+      "id": "page-load-latency",
+      "url": "/tools/page-load-latency/",
+      "entry": "tools/page-load-latency/index.html"
     }
   ]
 }
