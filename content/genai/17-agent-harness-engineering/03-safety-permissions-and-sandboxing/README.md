@@ -307,6 +307,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // A permission policy for the harness: allow, ask or deny, decided in code. A path jail that resolves '..' and symlinks, an allow-list of shell
 // commands (anything unknown asks), and an egress allow-list. Toy parts: the shell splitter ignores quotes (so it over-splits, which errs on the side
@@ -405,6 +407,8 @@ CALLS.forEach(([tool, args], i) => {
   console.log(`${String(i + 1).padStart(2)} ${label.padEnd(48)} ${kind.padEnd(5)} ${reason}`.trimEnd());
 });
 ```
+
+<!-- slide -->
 
 ```python
 """A permission policy for the harness: allow, ask or deny, decided in code. A path jail that resolves '..' and symlinks, an allow-list of shell
@@ -514,6 +518,8 @@ if __name__ == "__main__":
         label = f"{tool} {next(iter(args.values()))}" if args else tool
         print(f"{number:>2} {label:<48} {verdict:<5} {reason}".rstrip())
 ```
+
+<!-- slide -->
 
 ```csharp
 // A permission policy for the harness: allow, ask or deny, decided in code. A path jail that resolves '..' and symlinks, an allow-list of shell

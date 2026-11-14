@@ -330,6 +330,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // A miniature of three ideas in OpenClaw's documentation, as offline experiments. A toy, not OpenClaw's code: names follow the documentation, the rest is simplified.
 // 1. A typed wire protocol: the first frame must be a JSON connect request, later frames are JSON requests, send and agent need an idempotency key, and the
@@ -448,6 +450,8 @@ for (const query of ["?gatewayUrl=wss://evil.example/ws", "", "?gatewayUrl=ws://
   console.log(`    guarded:    the token goes to ${guardedUrl(query)}`);
 }
 ```
+
+<!-- slide -->
 
 ```python
 """A miniature of three ideas in OpenClaw's documentation, as offline experiments. A toy, not OpenClaw's code: names follow the documentation, the rest is simplified.
@@ -572,6 +576,8 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+<!-- slide -->
 
 ```csharp
 // A miniature of three ideas in OpenClaw's documentation, as offline experiments. A toy, not OpenClaw's code: names follow the documentation, the rest is simplified.

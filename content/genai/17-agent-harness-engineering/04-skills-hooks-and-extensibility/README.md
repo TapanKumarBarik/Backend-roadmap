@@ -384,6 +384,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // The two extension surfaces of a harness in one offline program.
 // Skills: folders of text the harness loads on demand, checked against the Agent Skills naming rules, ordered by precedence, gated by operating system
@@ -519,6 +521,8 @@ for (const [call, onFailure] of [["ls", "allow"], ["git push --force origin main
 }
 console.log(`audit log: ${LOG.length} calls recorded`);
 ```
+
+<!-- slide -->
 
 ```python
 """The two extension surfaces of a harness in one offline program.
@@ -680,6 +684,8 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+<!-- slide -->
 
 ```csharp
 // The two extension surfaces of a harness in one offline program.

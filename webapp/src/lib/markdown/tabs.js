@@ -4,7 +4,7 @@ import { stash } from './htmlStash.js';
 
 const OPEN = /^\s*\{\{tabs\}\}\s*$/;
 const CLOSE = /^\s*\{\{\/tabs\}\}\s*$/;
-const CAROUSEL_OPEN = /^ {0,3}(`{4,}|~{4,})carousel\s*$/;
+export const CAROUSEL_OPEN = /^ {0,3}(`{4,}|~{4,})carousel\s*$/;
 
 const LANG_LABELS = {
   go: 'Go', golang: 'Go',
@@ -49,7 +49,8 @@ function buildGroup(body, gid) {
   return renderTabGroup(items, gid);
 }
 
-function splitCarouselSlides(lines) {
+/** The slides of a carousel's body, split at each slide marker line outside a code fence. */
+export function splitCarouselSlides(lines) {
   const slides = [];
   let cur = [];
   const fence = { char: '', len: 0 };

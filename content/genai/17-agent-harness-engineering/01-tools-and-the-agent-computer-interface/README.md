@@ -274,6 +274,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // Two tools built with the interface rules from SWE-agent and Anthropic's tool guidance: absolute paths only, a bounded view window,
 // a unique match for every edit, a lint gate, and errors that say what to do next. No network, no API key.
@@ -356,6 +358,8 @@ const CALLS: [string, () => Result][] = [
 ];
 for (const [label, call] of CALLS) show(label, call());
 ```
+
+<!-- slide -->
 
 ```python
 """Two tools built with the interface rules from SWE-agent and Anthropic's tool guidance: absolute paths only, a bounded view window,
@@ -453,6 +457,8 @@ if __name__ == "__main__":
     for label, call in CALLS:
         show(label, call())
 ```
+
+<!-- slide -->
 
 ```csharp
 // Two tools built with the interface rules from SWE-agent and Anthropic's tool guidance: absolute paths only, a bounded view window,

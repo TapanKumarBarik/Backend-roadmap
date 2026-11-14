@@ -255,6 +255,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // A minimum viable agent harness: loop, tools, policy, output budget, step limit. No network, no API key.
 type Args = Record<string, string>;
@@ -338,6 +340,8 @@ function report(name: string, model: (n: number) => Action) {
 report("scripted", (n) => SCRIPT[n]);
 report("runaway", () => RUNAWAY);
 ```
+
+<!-- slide -->
 
 ```python
 """A minimum viable agent harness: loop, tools, policy, output budget, step limit. No network, no API key."""
@@ -423,6 +427,8 @@ if __name__ == "__main__":
     report("scripted", lambda n: SCRIPT[n])
     report("runaway", lambda n: RUNAWAY)
 ```
+
+<!-- slide -->
 
 ```csharp
 // A minimum viable agent harness: loop, tools, policy, output budget, step limit. No network, no API key.

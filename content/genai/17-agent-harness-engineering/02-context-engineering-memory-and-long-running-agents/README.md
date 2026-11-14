@@ -260,6 +260,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // A context manager for an agent harness: offload big tool results to files, clear old ones, compact when the window fills,
 // and keep progress notes outside the window. Deterministic and offline. Tokens are estimated at 4 characters each.
@@ -350,6 +352,8 @@ console.log("saved files:", [...window.files].map(([path, text]) => `${path} (${
 console.log("notes:", window.notes.join("; "));
 ```
 
+<!-- slide -->
+
 ```python
 """A context manager for an agent harness: offload big tool results to files, clear old ones, compact when the window fills,
 and keep progress notes outside the window. Deterministic and offline. Tokens are estimated at 4 characters each."""
@@ -421,6 +425,8 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+
+<!-- slide -->
 
 ```csharp
 // A context manager for an agent harness: offload big tool results to files, clear old ones, compact when the window fills,

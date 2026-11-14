@@ -232,6 +232,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ```typescript
 // Capstone starter: the seven parts of your harness, each a TODO. Replace the body of each function, keep the names, and make the harness write a trace in the
 // format the acceptance checks read (see check_trace.py). Running this file as it is prints what is still to do.
@@ -283,6 +285,8 @@ for (const [name, call] of PARTS) {
 }
 console.log(`${remaining} of ${PARTS.length} parts still to do`);
 ```
+
+<!-- slide -->
 
 ```python
 """Capstone starter: the seven parts of your harness, each a TODO. Replace the body of each function, keep the names, and make the harness write a trace in the
@@ -347,6 +351,8 @@ if __name__ == "__main__":
             print(f"todo: {name}")
     print(f"{todo} of {len(PARTS)} parts still to do")
 ```
+
+<!-- slide -->
 
 ```csharp
 // Capstone starter: the seven parts of your harness, each a TODO. Replace the body of each function, keep the names, and make the harness write a trace in the
