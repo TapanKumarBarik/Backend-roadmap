@@ -232,7 +232,8 @@
               "10-ai-agents",
               "11-langchain-and-langgraph",
               "12-agent-orchestration-and-multi-agent-systems",
-              "13-model-context-protocol-mcp"
+              "13-model-context-protocol-mcp",
+              "17-agent-harness-engineering"
             ]
           },
           {
