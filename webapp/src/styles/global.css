@@ -454,6 +454,9 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 #content :not(pre) > code.code-control {
   background: var(--signal-bg); color: var(--signal); border: 0; padding: .1em .3em;
 }
+/* The same sequences where there is no pill: in a plain block, a drawn diagram and the page outline (lib/markdown/controlText.js). Colour only, so a monospace diagram keeps its columns. */
+#content pre .code-control, #toc .code-control { color: var(--signal); }
+#content .mermaid-diagram .code-control { fill: var(--signal); }
 .codeblock { position: relative; margin: 0 0 18px; }
 .codeblock pre {
   margin: 0; background: var(--bg-sunken); border: 1px solid var(--border-subtle);

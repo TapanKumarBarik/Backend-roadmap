@@ -5,6 +5,8 @@
 // the rendered SVG. The mermaid library (~500KB+) is only ever fetched when a
 // module actually contains a mermaid fence, via a lazy dynamic import, so
 // pages with no diagrams pay nothing for this.
+import { tintControlText } from './controlText.js';
+
 let mermaidModulePromise = null;
 function loadMermaidModule() {
   if (!mermaidModulePromise) mermaidModulePromise = import('mermaid').then((m) => m.default);
@@ -98,6 +100,8 @@ function paint(wrap, svg) {
     rect.setAttribute('rx', '7');
     rect.setAttribute('ry', '7');
   });
+  // A label that spells a line ending ("GET /users HTTP/1.1\r\n") draws it as the same token as in a sentence.
+  tintControlText(wrap);
 }
 
 async function redrawAll() {

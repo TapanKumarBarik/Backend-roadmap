@@ -1,6 +1,8 @@
 import { slugify } from './markdown.js';
 import { escapeHtml } from './escapeHtml.js';
 import { isRunnable } from '../practice/runnable.js';
+import { CONTROL_CODE } from '../../config/inlineCode.js';
+import { tintControlText } from './controlText.js';
 
 // The words on the buttons of a code block (the Run ones only on an example that can be run: lib/practice/runnable.js).
 const BUTTONS = { copy: 'Copy', run: 'Run', edit: 'Edit', reset: 'Reset' };
@@ -71,7 +73,9 @@ export function enhanceContent(root, { runnable = false } = {}) {
     const cls = [...code.classList].find((c) => c.startsWith('language-'));
     const lang = cls ? cls.replace('language-', '') : '';
 
-    if (lang) highlightLater(code, lang);
+    // A fence of plain text (an ASCII diagram, a transcript) is not coloured as code, and the colouring would rewrite what is tinted here: its escape sequences are drawn as tokens instead.
+    if (lang && !CONTROL_CODE.plainLanguages.includes(lang)) highlightLater(code, lang);
+    else tintControlText(code);
 
     const bar = document.createElement('div');
     bar.className = 'cb-bar';

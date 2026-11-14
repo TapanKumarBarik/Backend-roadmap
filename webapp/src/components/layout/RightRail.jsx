@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import NotesPanel from '../article/NotesPanel.jsx';
 import { CaretIcon } from '../common/icons.jsx';
+import ControlText from '../common/ControlText.jsx';
 
 // The right rail carries both ways of working with the page you're on:
 // finding your way around it, and writing down what you took from it.
@@ -43,7 +44,7 @@ export default function RightRail({ headings, activeId, path, user, onLogin, sho
             className={(h.level === 'H3' ? 'lv3 ' : '') + (h.id === activeId ? 'on' : '')}
             onClick={(e) => { e.preventDefault(); document.getElementById(h.id)?.scrollIntoView({ block: 'start' }); }}
           >
-            {h.text}
+            <ControlText text={h.text} />
           </a>
         ))}
       </nav>
@@ -88,7 +89,7 @@ export default function RightRail({ headings, activeId, path, user, onLogin, sho
               className={(h.level === 'H3' ? 'lv3 ' : '') + (h.id === activeId ? 'on' : '')}
               onClick={(e) => { e.preventDefault(); document.getElementById(h.id)?.scrollIntoView({ block: 'start' }); }}
             >
-              {h.text}
+              <ControlText text={h.text} />
             </a>
           ))
           : <p className="rail-empty">No headings in this module.</p>

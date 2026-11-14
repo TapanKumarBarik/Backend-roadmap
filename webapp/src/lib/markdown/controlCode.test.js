@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isControlCode, markControlCode } from './controlCode.js';
+import { isControlCode, markControlCode, splitControlText } from './controlCode.js';
 import { renderMarkdownDoc } from './markdown.js';
 import { CONTROL_CODE } from '../../config/inlineCode.js';
 
@@ -43,4 +43,16 @@ test('a lesson shows it in a callout and in a list, and the page text still says
   assert.equal(html.split(`class="${CONTROL_CODE.className}"`).length - 1, 3, 'the callout has two, the list one');
   assert.ok(html.includes(marked(crlf)) && html.includes(marked(headerEnd)), 'the text is the same characters');
   assert.doesNotMatch(html, /<pre[^>]*><code[^>]*class="code-control"/, 'the fenced block is not one');
+});
+
+test('text is cut where an escape sequence stands on its own, and the pieces make the text again', () => {
+  const text = 'Request Line: GET /users HTTP/1.1' + crlf;
+  assert.deepEqual(splitControlText(text), [['Request Line: GET /users HTTP/1.1', false], [crlf, true]]);
+  assert.equal(splitControlText(text).map(([piece]) => piece).join(''), text);
+  assert.deepEqual(splitControlText('(Missing ' + headerEnd + ')'), [['(Missing ', false], [headerEnd, true], [')', false]]);
+  assert.deepEqual(splitControlText(crlf + ' (Mandatory!)'), [[crlf, true], [' (Mandatory!)', false]]);
+});
+
+test('a backslash that starts a word, or is itself escaped, is not an escape sequence', () => {
+  for (const text of [raw`C:\new\table`, raw`\\n`, raw`\nothing`, 'plain text', '']) assert.deepEqual(splitControlText(text), text ? [[text, false]] : [], JSON.stringify(text));
 });

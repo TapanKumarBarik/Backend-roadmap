@@ -143,6 +143,35 @@ test('an escape sequence in a sentence is a quiet token, not a grey box, and its
   await context.close();
 });
 
+test('the same token marks an escape sequence in a plain code block, a diagram label and the page outline, and the text under it is unchanged', async () => {
+  const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/', { width: 1800, height: 900 });
+  await goto();
+  await page.waitForSelector('#content .mermaid-diagram svg');
+  const escapes = /^(?:\\[rnt0])+$/;
+  const fill = (el) => getComputedStyle(el).fill;
+  const color = (el) => getComputedStyle(el).color;
+
+  // The wire-format sketch is a bare fence, so nothing highlights it: without the token its "\r\n" notes are as grey as the box around them.
+  const sketch = page.locator('#content .codeblock pre', { hasText: 'Mandatory!' }).first();
+  const marks = sketch.locator('.code-control');
+  assert.ok(await marks.count() >= 4, 'the sketch marks every line ending it shows');
+  for (const text of await marks.allTextContents()) assert.match(text, escapes, 'only escape sequences, with the backslashes still there');
+  assert.ok((await sketch.textContent()).includes(String.raw`│ \r\n (Mandatory!)`), 'the line reads as the author wrote it');
+  assert.notEqual(await marks.first().evaluate(color), await sketch.locator('code').evaluate(color), 'and the mark is drawn apart from the box');
+
+  // A sequence diagram labels its arrows with the bytes on the wire.
+  const labelled = page.locator('#content .mermaid-diagram .code-control');
+  assert.ok(await labelled.count() >= 4, 'the diagram marks the line endings in its labels');
+  for (const text of await labelled.allTextContents()) assert.match(text, escapes);
+  assert.notEqual(await labelled.first().evaluate(fill), await labelled.first().evaluate((el) => getComputedStyle(el.closest('text') || el.parentElement).fill), 'drawn apart from the rest of the label');
+
+  // The outline lists headings as plain text, so it cuts them up itself.
+  const outline = page.locator('#toc a', { hasText: 'Lab 2' });
+  assert.equal(await outline.locator('.code-control').count(), 1);
+  assert.match(await outline.textContent(), /Socket Hang \(Missing \\r\\n\\r\\n\)$/, 'the heading reads in full');
+  await context.close();
+});
+
 test('on a wide screen a lesson\'s prose, callouts and rules end at one edge, and code, tables and diagrams keep the whole column', async () => {
   const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/', { width: 1800, height: 900 });
   await goto();
