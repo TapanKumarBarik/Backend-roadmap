@@ -11,6 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { ROOT, CONTENT_ROOT, config, CURRICULA } from '../lib/config.mjs';
+import { DIAGRAMS } from '../../webapp/src/config/diagrams.js';
+import { isSideways, topDown } from '../../webapp/src/lib/markdown/diagramFit.js';
 
 const args = process.argv.slice(2);
 const channel = args.includes('--channel') ? args[args.indexOf('--channel') + 1] : config.screenshots.browserChannel;
@@ -76,17 +78,25 @@ const page = await (await browser.newContext()).newPage();
 await page.setContent('<html><body></body></html>');
 await page.addScriptTag({ content: fs.readFileSync(MERMAID_BUNDLE, 'utf8') });
 
-// Same settings the app renders with (webapp/src/lib/markdown/mermaidRender.js): strict security, no auto-start.
-const results = await page.evaluate(async (items) => {
+// Same settings the app renders with (webapp/src/lib/markdown/mermaidRender.js): strict security, no auto-start, sequence messages wrapped
+// (config/diagrams.js). The app may also draw a sideways flowchart top to bottom when it is too wide for its box, so that drawing is checked too.
+const items = diagrams.map((d) => ({ source: d.source, turned: isSideways(d.source) ? topDown(d.source) : null }));
+const results = await page.evaluate(async ({ items, wrap }) => {
   const mermaid = /** @type {any} */ (window).mermaid;
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', sequence: { wrap } });
   const out = [];
   for (let i = 0; i < items.length; i++) {
-    try { await mermaid.render(`check-${i}`, items[i].source); out.push(null); }
-    catch (e) { out.push(String((e && e.message) || e).split('\n').slice(0, 2).join(' ').slice(0, 200)); }
+    try {
+      await mermaid.render(`check-${i}`, items[i].source);
+      if (items[i].turned) {
+        try { await mermaid.render(`check-${i}-down`, items[i].turned); }
+        catch (e) { out.push('drawn top to bottom: ' + String((e && e.message) || e).split('\n').slice(0, 2).join(' ').slice(0, 180)); continue; }
+      }
+      out.push(null);
+    } catch (e) { out.push(String((e && e.message) || e).split('\n').slice(0, 2).join(' ').slice(0, 200)); }
   }
   return out;
-}, diagrams);
+}, { items, wrap: DIAGRAMS.wrapSequenceMessages });
 await browser.close();
 
 const failed = diagrams.map((d, i) => ({ ...d, error: results[i] })).filter((d) => d.error);

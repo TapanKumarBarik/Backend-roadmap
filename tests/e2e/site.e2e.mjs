@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, CONTENT_ROOT, config, isPlaceholderText } from '../../scripts/lib/config.mjs';
 import { parseClock } from '../../webapp/src/lib/curriculum/videos.js';
+import { DIAGRAMS } from '../../webapp/src/config/diagrams.js';
 import { BASE, launchBrowser, openPage, publicVideos, aVideoLesson } from './support.mjs';
 
 const LESSON = '/backend/03-authentication-and-authorization/01-sessions-and-cookies/';
@@ -188,6 +189,78 @@ test('on a wide screen a lesson\'s prose, callouts and rules end at one edge, an
   for (const name of ['callout', 'list', 'quote', 'rule', 'heading']) assert.ok(Math.abs(widths[name] - widths.paragraph) <= 1, `${name} is ${widths[name]}px, the paragraph ${widths.paragraph}px`);
   for (const name of ['code', 'table', 'diagram']) assert.equal(widths[name], widths.column, `${name} keeps the whole column`);
   assert.ok(widths.sideways <= 0, 'and nothing makes the page scroll sideways');
+  await context.close();
+});
+
+// The transformer lesson's diagrams are the ones that showed the fault: a ten-participant sequence diagram shrunk until its smallest text was
+// 3px, two regions written near-black (their messages invisible in the light theme), and nodes filled dark red and dark green under dark ink.
+const DIAGRAM_LESSON = '/genai/02-transformer-architecture/00-the-problem-transformers-solve/';
+
+test('a diagram keeps its text readable, scrolls inside its own frame when it is wide, reads in both themes, and opens full screen', async () => {
+  const { context, page, goto } = await open(DIAGRAM_LESSON, { width: 1280, height: 900 });
+  await goto();
+  await page.waitForSelector('#content .mermaid-diagram svg');
+  await page.waitForFunction(() => !document.querySelector('#content code.language-mermaid') && !document.querySelector('#content .mermaid-diagram[style*="hidden"]'));
+
+  // What a reader sees, measured in the page: the smallest text of each diagram, whether its frame scrolls, and the contrast of the text drawn
+  // over a highlighted region and of every label drawn on a fill its author chose.
+  const inspect = () => page.evaluate(() => {
+    const rgb = (s) => { const m = String(s).match(/[\d.]+/g); return { r: +m[0], g: +m[1], b: +m[2] }; };
+    const lum = ({ r, g, b }) => [r, g, b].map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    return [...document.querySelectorAll('#content .mermaid-diagram')].map((wrap) => {
+      const svg = wrap.querySelector('svg');
+      const scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+      const sizes = [...svg.querySelectorAll('text, foreignObject span, foreignObject p')].filter((t) => t.textContent.trim()).map((t) => parseFloat(getComputedStyle(t).fontSize));
+      const message = svg.querySelector('.messageText');
+      const regions = [...svg.querySelectorAll('rect.rect')].map((rect) => ratio(rgb(rect.getAttribute('fill').startsWith('hsl') ? getComputedStyle(rect).fill : rect.getAttribute('fill')), rgb(getComputedStyle(message).fill)));
+      const labels = [];
+      for (const group of svg.querySelectorAll('g.node')) {
+        const shape = group.querySelector('rect, polygon, path');
+        for (const label of group.querySelectorAll('.nodeLabel')) labels.push(ratio(rgb(getComputedStyle(shape).fill), rgb(getComputedStyle(label).color)));
+      }
+      return { seen: Math.min(...sizes) * scale, wide: wrap.classList.contains('is-wide'), regions, labels };
+    });
+  });
+
+  for (const theme of ['light', 'dark']) {
+    const before = await page.evaluate(() => document.querySelector('#content .mermaid-diagram rect.rect').getAttribute('fill'));
+    await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+    if (theme === 'dark') await page.waitForFunction((was) => document.querySelector('#content .mermaid-diagram rect.rect').getAttribute('fill') !== was, before);
+    await page.waitForTimeout(300);
+    const diagrams = await inspect();
+    assert.equal(diagrams.length, 3, 'the lesson draws its three diagrams');
+    for (const [i, d] of diagrams.entries()) {
+      assert.ok(d.seen >= DIAGRAMS.minTextPx - 0.5, `${theme}: diagram ${i + 1}'s smallest text is ${d.seen.toFixed(1)}px on screen, at least ${DIAGRAMS.minTextPx}px is the rule`);
+      for (const r of d.regions) assert.ok(r >= DIAGRAMS.minContrast, `${theme}: a message over a highlighted region has ${r.toFixed(2)}:1 contrast`);
+      for (const r of d.labels) assert.ok(r >= DIAGRAMS.minContrast, `${theme}: a node label has ${r.toFixed(2)}:1 contrast against its fill`);
+    }
+    assert.equal(diagrams[0].regions.length, 2, 'the first diagram keeps its two highlighted regions');
+    assert.ok(diagrams[0].wide, 'the ten-participant diagram is wider than the column at a readable size, so its frame scrolls');
+    assert.ok(diagrams[1].labels.length >= 10, 'the labels of the second diagram were all measured');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0, 'and the page itself does not scroll sideways');
+  }
+
+  // Full screen: the drawing moves into a dialog, zooms, and comes back to its frame when the dialog closes, with focus where it was.
+  const frame = page.locator('#content .mermaid-diagram').first();
+  const opener = frame.locator('.diagram-tools__open');
+  assert.equal(await opener.getAttribute('aria-label'), DIAGRAMS.labels.openHint);
+  await opener.click();
+  const viewer = page.locator('dialog.diagram-viewer');
+  await viewer.locator('svg[aria-roledescription="sequence"]').waitFor();
+  assert.ok(await viewer.evaluate((d) => d.open), 'the dialog is open');
+  assert.match(await viewer.locator('.diagram-viewer__title').textContent(), /^Diagram: 1\. Visual Mental Models/, 'and named after the heading the diagram sits under');
+  assert.equal(await frame.locator('.diagram-scroll svg').count(), 0, 'the drawing was moved, not copied');
+  const zoom = () => viewer.locator('.diagram-viewer__zoom').textContent();
+  const opened = await zoom();
+  await page.keyboard.press('+');
+  assert.notEqual(await zoom(), opened, 'the + key zooms');
+  await viewer.getByRole('button', { name: DIAGRAMS.labels.fitHint }).click();
+  assert.ok(parseInt(await zoom(), 10) < parseInt(opened, 10), 'Fit shows the whole diagram, smaller than its readable size');
+  await page.keyboard.press('Escape');
+  assert.ok(!(await viewer.evaluate((d) => d.open)), 'Escape closes it');
+  assert.equal(await frame.locator('.diagram-scroll svg').count(), 1, 'the drawing is back in its frame');
+  assert.ok(await opener.evaluate((b) => b === document.activeElement), 'and focus is back on the button that opened it');
   await context.close();
 });
 

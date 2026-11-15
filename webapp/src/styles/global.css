@@ -406,13 +406,56 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 }
 
 /* Rendered ```mermaid diagrams — swapped in for the plain code block by
-   mermaidRender.js once the library resolves. Wide flowcharts scroll inside
-   their own box rather than forcing the page to scroll horizontally. */
+   mermaidRender.js once the library resolves. The frame keeps the whole column; the drawing sits in .diagram-scroll, which scrolls
+   sideways when the drawing cannot shrink further without its text going below the minimum size (config/diagrams.js), and the bar under
+   it opens the drawing full screen (lib/markdown/diagramViewer.js). Nothing here makes the page itself scroll sideways. */
 .mermaid-diagram {
-  margin: 20px 0; padding: 16px; overflow-x: auto; text-align: center;
+  margin: 20px 0; overflow: hidden;
   background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: 10px;
 }
+.mermaid-diagram .diagram-scroll { padding: 16px; overflow-x: auto; text-align: center; overscroll-behavior-x: contain; }
+.mermaid-diagram .diagram-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
+.diagram-tools {
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+  padding: 4px 6px 4px 14px; border-top: 1px solid var(--border-subtle);
+  font-size: 12.5px; line-height: 1.4; color: var(--fg-subtle);
+}
+.diagram-tools__hint { margin-right: auto; }
+.mermaid-diagram:not(.is-wide) .diagram-tools__hint { display: none; }
+#content .diagram-tools__open { gap: 6px; }
+@media print { .diagram-tools { display: none; } .mermaid-diagram .diagram-scroll { overflow: visible; } }
+
+/* The full-screen view (lib/markdown/diagramViewer.js): a native <dialog> in #overlays that fills the screen. */
+dialog.diagram-viewer {
+  width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+  background: var(--bg); color: var(--fg); font-family: var(--sans);
+}
+dialog.diagram-viewer[open] { display: flex; flex-direction: column; }
+dialog.diagram-viewer::backdrop { background: var(--scrim, rgba(0, 0, 0, .5)); }
+.diagram-viewer__bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 12px 8px 18px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-raised);
+}
+.diagram-viewer__title {
+  margin: 0 auto 0 0; min-width: 0; font-size: 15px; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.diagram-viewer__controls { display: flex; align-items: center; gap: 4px; }
+.diagram-viewer__zoom { min-width: 48px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--fg-muted); }
+.diagram-viewer__close { margin-left: 8px; }
+.diagram-viewer__canvas {
+  flex: 1; min-height: 0; overflow: auto; background: var(--bg-sunken); cursor: grab; overscroll-behavior: contain;
+}
+.diagram-viewer__canvas.is-dragging { cursor: grabbing; user-select: none; }
+.diagram-viewer__canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.diagram-viewer__stage { box-sizing: border-box; display: flex; width: max-content; min-width: 100%; min-height: 100%; padding: 24px; }
+.diagram-viewer__stage > svg { margin: auto; flex: none; }
+.diagram-viewer__keys {
+  margin: 0; padding: 6px 18px max(6px, env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border-subtle);
+  font-size: 12px; color: var(--fg-subtle); background: var(--bg-raised);
+}
+@media (max-width: 640px) { .diagram-viewer__keys { display: none; } }
 /* Mermaid's default node is a sharp-cornered rect with a thin, flat outline
    — a touch more stroke weight is the difference between "generated" and
    "designed" without changing a single color. Corner rounding is applied as
