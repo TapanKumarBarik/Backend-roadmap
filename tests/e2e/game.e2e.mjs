@@ -33,12 +33,17 @@ const questFiles = quest.steps.flatMap(modulesOf);
 const firstStep = modulesOf(quest.steps[0]);
 const urlOf = (file) => `/${file.replace(/README\.md$/, '')}`;
 
-/** Opens the app with this progress already saved in the browser: `done` modules finished today, an optional module in progress, and a picked path. */
-async function openWith({ done = 0, files = questFiles, picked = PATH_ID, ago = [], url = '/', ...options } = {}) {
+/**
+ * Opens the app with this progress already saved in the browser: `done` modules finished today, an optional module in progress, and a picked path.
+ * `now` (a time in ms) fixes the page's clock and the days the progress is dated from, for a test whose answer depends on the day of the week.
+ */
+async function openWith({ done = 0, files = questFiles, picked = PATH_ID, ago = [], url = '/', now = null, ...options } = {}) {
   const opened = await open(url, options);
   const { page } = opened;
+  if (now !== null) await opened.context.clock.setFixedTime(now);
+  const base = now ?? Date.now();
   await page.goto(`${BASE}/robots.txt`);
-  const rows = files.slice(0, done).map((file, i) => ({ path: file, status: 'done', updatedAt: new Date(Date.now() - (ago[i] ?? 0) * 86400000 - 60000).toISOString() }));
+  const rows = files.slice(0, done).map((file, i) => ({ path: file, status: 'done', updatedAt: new Date(base - (ago[i] ?? 0) * 86400000 - 60000).toISOString() }));
   await page.evaluate(async ({ rows, picked, pathKey }) => {
     if (picked) localStorage.setItem(pathKey, picked); else localStorage.removeItem(pathKey);
     await new Promise((resolve) => {
@@ -94,8 +99,12 @@ test('a reader on a path sees the quest, the route and the player card, worked o
   await context.close();
 });
 
+// A Saturday, at noon UTC (the same date in every time zone from UTC-11 to UTC+11). The strip shows the current week, from Monday: dated from a
+// Monday, Tuesday or Wednesday the missed day three days back fell in the week before and was not in the strip, so the test failed three days a week.
+const A_SATURDAY = Date.parse('2026-11-14T12:00:00Z');
+
 test('a streak is the days in a row, and the daily goal is the reader\'s own choice and is kept', async () => {
-  const { context, page, problems } = await openWith({ done: 4, ago: [0, 1, 2, 4] });
+  const { context, page, problems } = await openWith({ done: 4, ago: [0, 1, 2, 4], now: A_SATURDAY });
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
   const player = page.locator('.gm-player');
   await player.waitFor();
