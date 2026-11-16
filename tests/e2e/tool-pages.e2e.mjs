@@ -399,7 +399,7 @@ test('a question is reviewed, and mastered; a design problem has steps that cycl
   await page.locator(step(1)).click();
   await page.locator(step(1)).click();
   assert.equal(await page.locator(step(1)).getAttribute('data-v'), '1', 'done, then partly done');
-  assert.match(await page.locator(problem + ' .tr-when').innerText(), /Score 1\.5 \/ 7/);
+  assert.match(await page.locator(problem + ' .tr-when').innerText(), /Score\s+1\.5 \/ 7/);
   await page.locator(step(1)).click();
   assert.equal(await page.locator(step(1)).getAttribute('data-v'), '0', 'and then not done');
   assert.equal(await page.locator(problem).getAttribute('data-k'), 'wip');
@@ -407,6 +407,21 @@ test('a question is reviewed, and mastered; a design problem has steps that cycl
   const keep = await stored(page);
   assert.equal(keep.items['PR-01'].p, '2000000');
   assert.equal(keep.items['Q-GAI-GF-001'].s, 'Mastered');
+
+  // The problem's progress is a bar, the open row says what a step's mark means, and its study items are one click away.
+  const bar = parseFloat(await page.locator(problem + ' .tr-score__bar b').evaluate((b) => b.style.width));
+  assert.ok(Math.abs(bar - 100 / 7) < 0.01, `one step of seven is done: the bar is ${bar}% of the way`);
+  await page.locator(problem + ' .tr-head').click();
+  assert.equal(await page.locator(problem + ' .tr-stepkey li').count(), 3, 'a key for the three marks');
+  assert.ok((await page.locator(problem + ' .tr-links a').count()) >= 2, 'and where to learn it');
+  await page.locator(problem + ' [data-act="range"]').click();
+  assert.equal(await page.evaluate(() => location.hash), '#system-design');
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '9 of 748 items', 'the nine study items of the problem');
+  assert.equal((await page.locator('#tr-range-text').innerText()).trim(), 'Showing SD-U-001 to SD-U-009');
+  assert.deepEqual(await page.locator('#tr-list .tr-row').evaluateAll((rows) => rows.map((r) => r.dataset.id)), Array.from({ length: 9 }, (_, i) => `SD-U-${String(i + 1).padStart(3, '0')}`));
+  await page.click('#tr-range-clear');
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '748 items', 'and Show all brings the rest back');
+  assert.ok(await page.locator('#tr-range').isHidden());
   await context.close();
 });
 

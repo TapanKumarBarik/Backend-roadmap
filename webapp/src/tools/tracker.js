@@ -6,7 +6,7 @@ import './shell.js';
 import { TRACKER as C } from '../config/tracker.js';
 import { STORAGE } from '../config/index.js';
 import { readStored, writeStored } from '../lib/storage.js';
-import { recordOf, compact, kindOf, nextReview, isDue, matches, summarize, scoreOf, stepsOf, toCsv, serialize, backupText, readRecords } from '../lib/tracker/model.js';
+import { recordOf, compact, parseRange, kindOf, nextReview, isDue, matches, summarize, scoreOf, stepsOf, toCsv, serialize, backupText, readRecords } from '../lib/tracker/model.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (text) => String(text == null ? '' : text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -28,7 +28,7 @@ let tab = C.defaultTab;
 const filters = {};
 const limit = {};
 const open = new Set();
-for (const key of C.tabOrder) { filters[key] = { q: '', ph: '', st: '', pri: '', df: '', tr: '', lesson: '', due: false, notes: false }; limit[key] = C.pageSize; }
+for (const key of C.tabOrder) { filters[key] = { q: '', ph: '', st: '', pri: '', df: '', tr: '', lesson: '', due: false, notes: false, range: null }; limit[key] = C.pageSize; }
 
 const stepsCount = () => (sheets && sheets.pr ? sheets.pr.steps.length : 0);
 const stepCountOf = (key) => (key === 'pr' ? stepsCount() : 0);
@@ -78,7 +78,11 @@ const confidenceButtons = (current) => {
 };
 
 const whenHtml = (key, rec) => {
-  if (key === 'pr') return esc(ui.score(scoreOf(rec, stepsCount()), stepsCount()));
+  if (key === 'pr') {
+    const score = scoreOf(rec, stepsCount());
+    const total = stepsCount();
+    return `<span class="tr-score"><span class="tr-score__bar" aria-hidden="true"><b style="width:${total ? (score / total) * 100 : 0}%"></b></span><span class="tr-score__n"><span class="tool-sr">${esc(ui.scoreWord)} </span>${score} / ${total}</span></span>`;
+  }
   if (!rec.d) return `<span aria-label="${esc(ui.undated)}">—</span>`;
   const next = nextReview(rec, C);
   return `${esc(dayFormat(rec.d))}${next ? `<small>${esc(ui.review(dayFormat(next)))}</small>` : ''}`;
@@ -102,7 +106,7 @@ function tagsHtml(key, row) {
 
 function stepButton(name, index, digit) {
   const word = ui.stepWords[digit];
-  return `<button type="button" class="tr-step" data-act="step" data-i="${index}" data-v="${digit}" title="${esc(ui.stepLabel(name, word))}" aria-label="${esc(ui.stepLabel(name, word))}"><i></i>${esc(name)}</button>`;
+  return `<button type="button" class="tr-step" data-act="step" data-i="${index}" data-v="${digit}" title="${esc(ui.stepLabel(name, word))}" aria-label="${esc(ui.stepLabel(name, word))}"><span class="tr-step__mark" aria-hidden="true"></span><span class="tr-step__n" aria-hidden="true">${index + 1}</span>${esc(name)}</button>`;
 }
 
 function panelHtml(key, row) {
@@ -112,7 +116,11 @@ function panelHtml(key, row) {
   html += `<div class="tr-pfield"><label for="d-${esc(row.id)}">${esc(spec.dateLabel)}</label><input id="d-${esc(row.id)}" class="tr-date" data-act="date" type="date" value="${esc(rec.d)}"></div>`;
   html += `<p class="tool-note">${esc(ui.confidenceLegend)}</p></div><div class="tr-dcol">`;
   if (row.pre) html += `<p><strong>${esc(ui.doFirst)}</strong> ${esc(row.pre)}</p>`;
-  if (key === 'pr') html += `<p>${esc(ui.covers(row.ids || '—'))} ${esc(ui.stepsHint)}</p>`;
+  if (key === 'pr') {
+    html += `<p>${esc(ui.covers(row.ids || '—'))}</p>`;
+    if (parseRange(row.ids)) html += `<p><button type="button" class="tool-btn" data-act="range">${esc(ui.showStudyItems)}</button></p>`;
+    html += `<ul class="tr-stepkey" aria-label="${esc(ui.stepsHint)}">${['0', '1', '2'].map((v) => `<li data-v="${v}"><span class="tr-step__mark" aria-hidden="true"></span>${esc(ui.stepWords[v])}</li>`).join('')}</ul><p class="tool-note">${esc(ui.stepsHint)}</p>`;
+  }
   const resources = resourcesOf(row);
   if (resources.length) {
     html += `<p><strong>${esc(ui.resources)}</strong></p><ul class="tr-links">${resources.map((r) => `<li><a href="${esc(r.u)}" target="_blank" rel="noopener noreferrer">${esc(r.n)}<span class="tool-sr"> ${esc(ui.newTab)}</span></a><span class="tr-linkmeta">${esc([r.t, r.a].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`;
@@ -235,6 +243,13 @@ function fillSelect(id, label, all, entries, value, visible) {
   select.hidden = !visible;
 }
 
+/** Show or hide the chip that says the list is held to a range of study items. */
+function syncRange() {
+  const range = filters[tab].range;
+  $('tr-range').hidden = !range;
+  if (range) $('tr-range-text').textContent = ui.rangeShowing(range.from, range.to);
+}
+
 function setupTab() {
   const spec = C.tabs[tab];
   const f = filters[tab];
@@ -262,6 +277,7 @@ function setupTab() {
   cols.innerHTML = tab === 'pr'
     ? `<span>${esc(ui.columns.problem)}</span><span>${esc(ui.columns.confidence)}</span><span>${esc(ui.columns.score)}</span>`
     : `<span></span><span>${esc(tab === 'qa' ? ui.columns.question : ui.columns.item)}</span><span>${esc(ui.status)}</span><span>${esc(ui.columns.confidence)}</span><span>${esc(spec.dateLabel)}</span>`;
+  syncRange();
   renderList();
   paintSummary();
 }
@@ -310,6 +326,11 @@ document.addEventListener('click', (event) => {
     const n = Number(control.dataset.v);
     const rec = recordFor(key, id);
     edit(id, { c: rec.c === n ? 0 : n, d: rec.c === n ? rec.d : today() });
+  } else if (act === 'range') {
+    filters.sd = { q: '', ph: '', st: '', pri: '', df: '', tr: '', lesson: '', due: false, notes: false, range: parseRange(item.ids) };
+    limit.sd = C.pageSize;
+    go('sd');
+    window.scrollTo({ top: document.getElementById('tracker').offsetTop, behavior: 'auto' });
   } else if (act === 'step') {
     const i = Number(control.dataset.i);
     const digits = stepsOf(recordFor(key, id), stepsCount()).split('');
@@ -416,6 +437,8 @@ function wireBackup() {
 /* ------------------------------------------------------------------------------------------------ start */
 
 function setLabels() {
+  $('tr-range-clear').textContent = ui.rangeClear;
+  $('tr-range-clear').addEventListener('click', () => { filters[tab].range = null; limit[tab] = C.pageSize; syncRange(); renderList(); });
   $('tr-search-label').textContent = ui.searchLabel;
   $('tr-q').placeholder = ui.searchPlaceholder;
   $('tr-notes-label').textContent = ui.withNotes;

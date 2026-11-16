@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TRACKER as C } from '../../config/tracker.js';
-import { isDay, addDays, blankRecord, recordOf, compact, stepsOf, scoreOf, kindOf, nextReview, isDue, matches, summarize, toCsv, sanitize, serialize, backupText, readRecords } from './model.js';
+import { isDay, addDays, blankRecord, recordOf, compact, stepsOf, scoreOf, kindOf, nextReview, isDue, matches, summarize, toCsv, sanitize, serialize, backupText, readRecords, parseRange, inRange } from './model.js';
 
 const STEPS = 7;
 const row = (over = {}) => ({ id: 'SD-A-001', i: 'SD-A-001', ph: 0, t: 'System Design Fundamentals', st: 'Foundations', n: 'What System Design Is', p: 'Must Know', df: 'Beginner', ...over });
@@ -98,6 +98,22 @@ test('a filter keeps the rows it should: phase, status, priority, difficulty, tr
   assert.ok(matches('pr', problem, recordOf('pr', { p: '2000000' }, C), { ...NONE, st: 'wip' }, '2026-11-16', C, STEPS));
   assert.ok(!matches('pr', problem, recordOf('pr', { p: '2000000' }, C), { ...NONE, st: 'done' }, '2026-11-16', C, STEPS));
   assert.ok(matches('pr', problem, recordOf('pr', {}, C), { ...NONE, q: 'sd-u-005' }, '2026-11-16', C, STEPS) === false && matches('pr', problem, recordOf('pr', {}, C), { ...NONE, q: 'sd-u-001' }, '2026-11-16', C, STEPS), 'a problem is found by the checklist ids it covers');
+});
+
+test('the study items a design problem covers are a range of ids, and a filter by it keeps those items and no others', () => {
+  assert.deepEqual(parseRange('SD-U-280 to SD-U-288'), { from: 'SD-U-280', to: 'SD-U-288' });
+  assert.deepEqual(parseRange(' SD-U-001 '), { from: 'SD-U-001', to: 'SD-U-001' }, 'a single id is a range of one');
+  assert.equal(parseRange(''), null);
+  assert.equal(parseRange('see the checklist'), null);
+  assert.equal(parseRange('SD-U-280 to'), null);
+  const range = parseRange('SD-U-280 to SD-U-288');
+  assert.ok(inRange('SD-U-280', range) && inRange('SD-U-284', range) && inRange('SD-U-288', range), 'both ends are in');
+  assert.ok(!inRange('SD-U-279', range) && !inRange('SD-U-289', range), 'the next ones are not');
+  assert.ok(!inRange('SD-T-284', range), 'the same numbers in another group are not');
+  assert.ok(!inRange(undefined, range) && !inRange('', range));
+  const keep = (id) => matches('sd', { id, i: id, n: 'x' }, recordOf('sd', {}, C), { ...NONE, range }, '2026-11-16', C);
+  assert.ok(keep('SD-U-283') && !keep('SD-U-290') && !keep('SD-A-283'));
+  assert.ok(matches('sd', { id: 'SD-U-290', i: 'SD-U-290', n: 'x' }, recordOf('sd', {}, C), { ...NONE, range: null }, '2026-11-16', C), 'no range, no restriction');
 });
 
 test('the counts of a sheet: rows by status, rows done, rows due, and each phase', () => {

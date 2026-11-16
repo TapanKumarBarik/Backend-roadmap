@@ -216,12 +216,28 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .tr-when { padding-top: 5px; font-size: var(--text-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .tr-when small { display: block; color: var(--fg-subtle); }
 .tr-mlabel { display: none; }
-.tr-steps { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); }
-.tr-step { display: flex; align-items: center; gap: 7px; padding: 5px 10px 5px 7px; font: inherit; font-size: var(--text-sm); color: var(--fg); background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-sm); cursor: pointer; }
-.tr-step:hover { border-color: var(--signal); }
-.tr-step i { width: 15px; height: 15px; flex: none; border: 1.5px solid var(--border-strong); border-radius: 4px; }
-.tr-step[data-v="1"] i { background: linear-gradient(90deg, var(--wip) 50%, transparent 50%); border-color: var(--wip); }
-.tr-step[data-v="2"] i { background: var(--done); border-color: var(--done); }
+.tr-steps { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: var(--space-2); margin-top: var(--space-3); }
+.tr-step { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 10px 7px 8px; font: inherit; font-size: var(--text-sm); line-height: var(--leading-snug); text-align: left; color: var(--fg-muted); background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; }
+.tr-step:hover { border-color: var(--signal); color: var(--fg); }
+.tr-step[data-v="1"] { color: var(--fg); background: var(--signal-bg); border-color: var(--signal-line); }
+.tr-step[data-v="2"] { color: var(--fg); border-color: var(--done); font-weight: var(--weight-semibold); }
+.tr-step__n { flex: none; font: var(--weight-medium) 11px var(--mono); color: var(--fg-subtle); }
+/* the mark of a step: an empty ring (not done), a half-filled one (partly done), a filled one with a tick (done); the key in an open row draws the same three */
+.tr-step__mark { position: relative; flex: none; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: 50%; }
+.tr-step[data-v="1"] .tr-step__mark, .tr-stepkey [data-v="1"] .tr-step__mark { border-color: var(--wip); background: linear-gradient(90deg, var(--wip) 50%, transparent 50%); }
+.tr-step[data-v="2"] .tr-step__mark, .tr-stepkey [data-v="2"] .tr-step__mark { border-color: var(--done); background: var(--done); }
+.tr-step[data-v="2"] .tr-step__mark::after, .tr-stepkey [data-v="2"] .tr-step__mark::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px; border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.tr-stepkey { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-2); padding: 0; list-style: none; font-size: var(--text-sm); color: var(--fg-muted); }
+.tr-stepkey li { display: flex; align-items: center; gap: 6px; }
+.tr-score { display: flex; align-items: center; gap: var(--space-2); }
+.tr-score__bar { flex: 1; min-width: 40px; height: 6px; overflow: hidden; border-radius: 3px; background: var(--bg-sunken); box-shadow: inset 0 0 0 1px var(--border-subtle); }
+.tr-score__bar b { display: block; height: 100%; background: var(--wip); }
+.tr-row--pr[data-k="done"] .tr-score__bar b { background: var(--done); }
+.tr-score__n { font: var(--weight-medium) var(--text-sm) var(--mono); font-variant-numeric: tabular-nums; color: var(--fg-muted); white-space: nowrap; }
+.tr-row--pr .tr-when { padding-top: 8px; }
+.tr-rangechip { display: inline-flex; align-items: center; gap: var(--space-2); padding: 3px 4px 3px var(--space-3); font-size: var(--text-sm); background: var(--signal-bg); border: 1px solid var(--signal-line); border-radius: var(--r-pill); }
+.tr-rangechip[hidden] { display: none; }
+.tr-rangechip .tool-btn { min-height: 28px; padding: 0 var(--space-3); border-radius: var(--r-pill); }
 .tr-panel { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--space-5); padding: var(--space-3) var(--space-2) var(--space-2) 44px; }
 .tr-row--pr .tr-panel { padding-left: var(--space-2); }
 .tr-panel[hidden] { display: none; }

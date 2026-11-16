@@ -69,14 +69,28 @@ export function isDue(tab, record, today, config, stepCount = 0) {
   return !!next && next <= today && record.s !== spec.blank.s;
 }
 
+const RANGE = /^([A-Z]{2,3}-[A-Z]{1,2}-\d{3})(?: to ([A-Z]{2,3}-[A-Z]{1,2}-\d{3}))?$/;
+
+/** The checklist items a design problem covers, from its text ("SD-U-280 to SD-U-288", or one id): { from, to }, or null when the text is not one of those. */
+export function parseRange(text) {
+  const m = RANGE.exec(String(text || '').trim());
+  return m ? { from: m[1], to: m[2] || m[1] } : null;
+}
+
+/** Whether an item id is one of the ids of a range: the same group (everything before the last three digits) and a number from the first to the last. */
+export function inRange(id, range) {
+  return !!id && id.slice(0, -3) === range.from.slice(0, -3) && id >= range.from && id <= range.to;
+}
+
 /** The text a search looks in: the id, the title, the topic and what the row says about its own prerequisites. */
 export const haystack = (row) => [row.i || row.id, row.n, row.t, row.st, row.ids].filter(Boolean).join(' ').toLowerCase();
 
 /**
- * Whether a row passes the filters: { q, ph, st, pri, df, tr, lesson ('has' | 'none' | ''), due, notes }. `st` is a status for a checklist and a kind (done, wip, none)
- * for a design problem.
+ * Whether a row passes the filters: { q, ph, st, pri, df, tr, lesson ('has' | 'none' | ''), due, notes, range }. `st` is a status for a checklist and a kind (done, wip, none)
+ * for a design problem, and `range` ({ from, to } or null) keeps only the checklist items of those ids.
  */
 export function matches(tab, row, record, filters, today, config, stepCount = 0) {
+  if (filters.range && !inRange(row.i, filters.range)) return false;
   if (filters.ph !== '' && String(row.ph) !== filters.ph) return false;
   if (filters.pri && row.p !== filters.pri) return false;
   if (filters.df && row.df !== filters.df) return false;
