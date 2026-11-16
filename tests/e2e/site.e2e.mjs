@@ -177,6 +177,7 @@ test('on a wide screen a lesson\'s prose, callouts and rules end at one edge, an
   const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/', { width: 1800, height: 900 });
   await goto();
   await page.waitForSelector('#content .cblock-tip');
+  await page.waitForSelector('#content .mermaid-diagram svg'); // the diagram is drawn after the text, by code fetched with mermaid: measure it once it is there
   const widths = await page.evaluate(() => {
     const width = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().width);
     return {

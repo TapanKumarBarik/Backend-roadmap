@@ -352,6 +352,12 @@ async function openSeeded(rowsToSeed) {
 
 const parentOf = (env, id) => rows(env, 'SELECT parent_id, sort_order FROM workspace_pages WHERE id = ?', id)[0];
 const said = (page) => page.locator('.ws-tree [role="status"]');
+// What the status line says once it has caught up. A move is saved before the page hears back from the server, so a test that waited for
+// the row in the database and then read the line once could read the drag's own words ("Dragging “Notes”...") on a busy machine.
+async function heard(page, pattern) {
+  await said(page).filter({ hasText: pattern }).waitFor({ state: 'attached' });
+  assert.match(await said(page).textContent(), pattern);
+}
 
 /** The row's box, and the point `fraction` of the way down it (0 is the top edge, 1 the bottom). */
 async function pointOn(locator, fraction = 0.5) {
@@ -383,7 +389,7 @@ test('dragging a page by its handle onto a folder puts it inside, says so for a 
 
   const saved = await eventually(page, () => parentOf(env, 'p1'), (r) => r && r.parent_id === 'f1');
   assert.equal(saved.parent_id, 'f1');
-  assert.match(await said(page).textContent(), /Moved “Notes” into “Databases”/);
+  await heard(page, /Moved “Notes” into “Databases”/);
   await treeRow(page, 'Notes').waitFor(); // the folder opened, so the page is still in sight
   await page.waitForFunction(() => document.activeElement && document.activeElement.classList.contains('ws-title') && document.activeElement.textContent.includes('Notes'));
   assert.equal(await page.locator('.ws-ghost').count(), 0, 'the floating label is gone');
@@ -404,7 +410,7 @@ test('dragging a page by its title between two others reorders them, and a plain
   const order = rows(env, 'SELECT title FROM workspace_pages ORDER BY sort_order').map((r) => r.title);
   assert.deepEqual(order, ['Alpha', 'Charlie', 'Bravo']);
   assert.deepEqual(await page.locator('.ws-title-text').allTextContents(), ['Alpha', 'Charlie', 'Bravo'], 'the tree shows the same order');
-  assert.match(await said(page).textContent(), /Moved “Charlie” before “Bravo”/);
+  await heard(page, /Moved “Charlie” before “Bravo”/);
   assert.equal(await page.locator('.wsx-panel').count(), 0, 'a drag that started on a title did not open the page');
 
   await treeRow(page, 'Alpha').locator('.ws-title').click();
@@ -429,7 +435,7 @@ test('a drop below the last row or on the top-level strip takes a page out of it
   await eventually(page, () => parentOf(env, 'p1'), (r) => r && r.parent_id === null);
   assert.equal(parentOf(env, 'p1').parent_id, null);
   assert.ok(parentOf(env, 'p1').sort_order > parentOf(env, 'p2').sort_order, 'last at the top level');
-  assert.match(await said(page).textContent(), /Moved “Indexes” to the top level/);
+  await heard(page, /Moved “Indexes” to the top level/);
   assert.deepEqual(problems, []);
   await context.close();
 });
@@ -443,7 +449,7 @@ test('a folder cannot be dropped into itself or what is inside it: the target is
   assert.equal(await page.locator('.ws-row.is-drop-inside').count(), 0, 'it is not offered as a place');
   assert.match(await page.locator('.ws-ghost').textContent(), /cannot go inside itself or anything inside it/);
   await page.mouse.up();
-  assert.match(await said(page).textContent(), /cannot go inside itself or anything inside it/);
+  await heard(page, /cannot go inside itself or anything inside it/);
   await page.waitForTimeout(500);
   assert.equal(parentOf(env, 'o').parent_id, null, 'nothing was saved');
   assert.equal(parentOf(env, 'o').sort_order, 0);
@@ -457,7 +463,7 @@ test('Escape while dragging puts the page back: nothing is saved and it says so'
   await page.locator('.ws-row.is-drop-inside').waitFor();
   await page.keyboard.press('Escape');
   await page.locator('.ws-ghost').waitFor({ state: 'detached' });
-  assert.match(await said(page).textContent(), /Move cancelled\. “Notes” stays where it was/);
+  await heard(page, /Move cancelled\. “Notes” stays where it was/);
   await page.mouse.up();
   await page.waitForTimeout(500);
   assert.equal(parentOf(env, 'p1').parent_id, null);
@@ -478,7 +484,7 @@ test('a folder the pointer rests on opens, so a page can be dropped among what i
   const saved = await eventually(page, () => parentOf(env, 'p2'), (r) => r && r.parent_id === 'f1');
   assert.equal(saved.parent_id, 'f1');
   assert.ok(saved.sort_order > parentOf(env, 'p1').sort_order, 'after Indexes');
-  assert.match(await said(page).textContent(), /Moved “Notes” into “Databases”/);
+  await heard(page, /Moved “Notes” into “Databases”/);
   assert.deepEqual(problems, []);
   await context.close();
 });
