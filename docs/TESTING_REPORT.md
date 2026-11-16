@@ -35,7 +35,7 @@ in CI (`.github/actions/verify`), in this order, and nothing is deployed unless 
   (the style guide, the rail), `community`, `comments`, `blog`, `studio` (the editor, publishing, history, the assistant), `site-admin` (the admin's paths, videos and search-title editors), `practice` (quizzes, the design
   workspace, My Learning, paths, notices, admin review, the content editor, the real pages crawlers get, reading options, the module tree from the keyboard)
   and `audit` (every screen: every control has a name, no id is shared, nothing overflows at any width from 360 to 1920 px).
-- **Diagrams:** `npm run check:diagrams` draws every Mermaid diagram in the lessons and in the design-challenge references (47 at the time of writing).
+- **Diagrams:** `npm run check:diagrams` draws every Mermaid diagram in the lessons and in the design-challenge references (47 at the time of writing; 1,948 on 2026-11-16). It draws a sequence diagram the way the page does (a stick figure whose name wraps becomes a box; a note narrower than its lines is widened) and fails if a figure's name still wraps or any text lies outside its drawing. It is run by hand, not by CI.
 
 ## Where it runs
 

@@ -5,7 +5,7 @@
 // on screen, a label on a fill its author chose takes an ink that reads on it, and every diagram opens full screen with zoom
 // (lib/markdown/diagramViewer.js).
 import { DIAGRAMS } from '../../config/diagrams.js';
-import { readableWidth, isSideways, topDown, viewBoxSize, preferTopDown, regionTint, parseColor, over, inkFor } from './diagramFit.js';
+import { readableWidth, isSideways, topDown, viewBoxSize, preferTopDown, regionTint, parseColor, over, inkFor, wrappedFigures, boxActors, fitNotesToText } from './diagramFit.js';
 import { openDiagram } from './diagramViewer.js';
 
 // What this module uses from the first page's code (lib/markdown/mermaidRender.js passes it in). Passed, not imported: a module both
@@ -154,6 +154,8 @@ const sizeOf = new WeakMap();
 function fit(wrap) {
   const svg = scrollerOf(wrap).querySelector('svg');
   if (!svg) return;
+  // A note narrower than its longest line is widened first, so the size measured below is the size of what is drawn.
+  if (DIAGRAMS.widenNotes && svg.getAttribute('aria-roledescription') === 'sequence') fitNotesToText(svg, DIAGRAMS.notePadding);
   fixLabelContrast(scrollerOf(wrap));
   const box = svg.viewBox && svg.viewBox.baseVal;
   const size = { width: box ? box.width : 0, height: box ? box.height : 0, smallest: smallestFont(svg) };
@@ -228,6 +230,18 @@ function makeFrame() {
 // narrower, then the drawing is fitted. Returns the source of what is shown, for redrawing it in another theme.
 async function settle(mermaid, wrap, source, svg) {
   let shown = source;
+  // A stick figure whose name wrapped has no room for it (mermaid reserves none): its name runs into the note below and the copy at the
+  // bottom is cut off. Those actors are drawn as boxes, which grow to fit their text; a name on one line keeps its figure.
+  if (DIAGRAMS.boxWrappedActors) {
+    const names = wrappedFigures(scrollerOf(wrap));
+    const boxed = boxActors(source, names);
+    if (boxed !== source) {
+      try {
+        const other = await mermaid.render(nextId(), boxed);
+        if (wrap.isConnected) { paint(wrap, other.svg); shown = boxed; }
+      } catch { /* keep the figures */ }
+    }
+  }
   if (DIAGRAMS.flipWideFlowcharts && isSideways(source)) {
     const scroller = scrollerOf(wrap);
     const sideways = viewBoxSize(svg);

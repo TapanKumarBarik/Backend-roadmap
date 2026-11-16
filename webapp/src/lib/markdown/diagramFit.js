@@ -22,6 +22,71 @@ export function topDown(source) {
   return source.replace(FLOWCHART_DIRECTION, '$1TD');
 }
 
+const SEQUENCE = /^\s*(?:%%[^\n]*\n\s*)*sequenceDiagram\b/;
+const ACTOR_LINE = /^(\s*(?:create\s+)?)actor(\s+)(\S+)([^\n]*)$/; // [^\n], not ".": a line of a file with Windows line endings ends in \r, which "." stops at
+
+/**
+ * The names (the ids in the source) of the stick figures at the top of a drawn sequence diagram whose label wrapped onto more than one line.
+ * Mermaid draws a figure's label under the figure but reserves no room for it, so a name that wraps runs into the note or message below it
+ * and the copy at the bottom is cut off by the drawing's edge. A participant box, on the other hand, grows to fit its text. `root` is any
+ * element that holds the drawing.
+ */
+export function wrappedFigures(root) {
+  const names = [];
+  for (const group of root.querySelectorAll('g.actor-man.actor-top')) {
+    if (group.querySelectorAll('text').length > 1) names.push(group.getAttribute('name'));
+  }
+  return names;
+}
+
+/**
+ * Widens each note of a drawn sequence diagram that is narrower than its longest line, and grows the drawing's edges to hold them. A note whose
+ * text holds a line break (`Note over Client: first line<br/>second line`) is not wrapped by mermaid, which takes the author to have done it, and a note over
+ * one actor is only as wide as that actor: 76 lessons have such a note, and its lines ran out of the box and, at the left or right edge, out of the
+ * drawing, where they were cut off. Each note stays centred where it was. Needs the drawing on the page (it measures text), and it is self-contained
+ * (it uses nothing but its argument) so that scripts/check/mermaid.mjs can run this very function. Returns how many notes it widened.
+ */
+export function fitNotesToText(svg, padding) {
+  let widened = 0;
+  let left = Infinity;
+  let right = -Infinity;
+  for (const rect of svg.querySelectorAll('rect.note')) {
+    let longest = 0;
+    for (const line of rect.parentNode.querySelectorAll('text')) longest = Math.max(longest, line.getBBox().width);
+    const x = Number(rect.getAttribute('x'));
+    const width = Number(rect.getAttribute('width'));
+    if (longest + 2 * padding > width) {
+      const wider = longest + 2 * padding;
+      rect.setAttribute('x', String(x + width / 2 - wider / 2));
+      rect.setAttribute('width', String(wider));
+      widened += 1;
+    }
+    left = Math.min(left, Number(rect.getAttribute('x')));
+    right = Math.max(right, Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')));
+  }
+  const box = svg.viewBox.baseVal;
+  const from = Math.min(box.x, left - padding);
+  const to = Math.max(box.x + box.width, right + padding);
+  if (widened > 0 && (from < box.x || to > box.x + box.width)) {
+    svg.setAttribute('viewBox', `${from} ${box.y} ${to - from} ${box.height}`);
+    svg.style.maxWidth = `${to - from}px`; // mermaid's own max-width is the drawing's natural width; the drawing grew
+  }
+  return widened;
+}
+
+/** The same sequence diagram with the actors of these names declared as participants (boxes) instead of stick figures; their labels stay as written. */
+export function boxActors(source, names) {
+  if (!names.length || !SEQUENCE.test(source)) return source;
+  const wanted = new Set(names);
+  return source
+    .split('\n')
+    .map((line) => {
+      const m = ACTOR_LINE.exec(line);
+      return m && wanted.has(m[3]) ? `${m[1]}participant${m[2]}${m[3]}${m[4]}` : line;
+    })
+    .join('\n');
+}
+
 /** The width and height that mermaid wrote into an SVG's viewBox, or null. */
 export function viewBoxSize(svgText) {
   const m = VIEWBOX.exec(svgText);

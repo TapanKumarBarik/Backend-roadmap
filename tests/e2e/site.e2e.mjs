@@ -265,6 +265,58 @@ test('a diagram keeps its text readable, scrolls inside its own frame when it is
   await context.close();
 });
 
+// A stick figure's name is drawn under the figure and mermaid reserves no room for it, so a name that wraps ran into the note below it and the copy of the
+// figure at the bottom was cut off by the drawing's edge. The Google Web Accelerator lesson showed it; 112 figures in 93 lessons have names that long.
+test('a stick figure whose name wraps is drawn as a box, so no name runs into what is below it or is cut off, and a short name keeps its figure', async () => {
+  const measure = (page) => page.evaluate((slack) => [...document.querySelectorAll('#content .mermaid-diagram svg[aria-roledescription="sequence"]')].map((svg) => {
+    const box = svg.viewBox.baseVal;
+    const outside = [...svg.querySelectorAll('text')].filter((t) => t.textContent.trim()).filter((t) => {
+      const b = t.getBBox();
+      return b.y < box.y - slack || b.y + b.height > box.y + box.height + slack || b.x < box.x - slack || b.x + b.width > box.x + box.width + slack;
+    }).map((t) => t.textContent.trim());
+    return {
+      figures: [...svg.querySelectorAll('g.actor-man.actor-top')].map((g) => ({ name: g.getAttribute('name'), lines: g.querySelectorAll('text').length })),
+      boxes: [...svg.querySelectorAll('rect.actor-top')].length,
+      text: svg.textContent,
+      outside
+    };
+  }), DIAGRAMS.labelSlackPx);
+
+  const long = await open('/backend/01-request-response-fundamentals/03-http-methods-and-semantics/', { width: 1280, height: 900 });
+  await long.goto();
+  await long.page.waitForFunction(() => document.querySelector('#content .mermaid-diagram svg[aria-roledescription="sequence"]') && !document.querySelector('#content .mermaid-diagram[style*="hidden"]'));
+  const crawler = (await measure(long.page))[0];
+  assert.deepEqual(crawler.figures, [], 'the crawler, whose name is three lines, is no longer a figure');
+  assert.equal(crawler.boxes, 4, 'it is a box like the other three participants');
+  assert.match(crawler.text.replace(/\s+/g, ''), /GoogleWebAccelerator\/BrowserPrefetcher/, 'with its whole name (the drawing joins wrapped lines without a space)');
+  assert.deepEqual(crawler.outside, [], 'and nothing the diagram says is outside its drawing');
+  await long.context.close();
+
+  const short = await open('/backend/01-request-response-fundamentals/10-routing-fundamentals/', { width: 1280, height: 900 });
+  await short.goto();
+  await short.page.waitForFunction(() => document.querySelector('#content .mermaid-diagram svg[aria-roledescription="sequence"]') && !document.querySelector('#content .mermaid-diagram[style*="hidden"]'));
+  const routing = (await measure(short.page))[0];
+  assert.ok(routing.figures.length >= 1, 'a name that fits on one line keeps its stick figure');
+  for (const figure of routing.figures) assert.equal(figure.lines, 1, `${figure.name} is one line`);
+  assert.deepEqual(routing.outside, [], 'and nothing is outside its drawing');
+  await short.context.close();
+
+  // A note whose text holds a line break is not wrapped by mermaid and was only as wide as its actor, so its lines ran out of the box and, over the
+  // leftmost actor, out of the drawing ("Served INSTANTLY from local disk" lost its first letters). Every note now holds its own lines.
+  const caching = await open('/backend/01-request-response-fundamentals/06-http-caching/', { width: 1280, height: 900 });
+  await caching.goto();
+  await caching.page.waitForFunction(() => document.querySelector('#content .mermaid-diagram svg[aria-roledescription="sequence"]') && !document.querySelector('#content .mermaid-diagram[style*="hidden"]'));
+  const notes = await caching.page.evaluate((slack) => [...document.querySelectorAll('#content .mermaid-diagram svg[aria-roledescription="sequence"]')].flatMap((svg) => [...svg.querySelectorAll('rect.note')].map((rect) => {
+    const x = Number(rect.getAttribute('x')), width = Number(rect.getAttribute('width'));
+    const lines = [...rect.parentNode.querySelectorAll('text')].map((t) => t.getBBox());
+    return { spill: Math.max(0, ...lines.map((b) => Math.max(x - b.x, b.x + b.width - (x + width)))), slack, text: rect.parentNode.textContent.slice(0, 30) };
+  })), DIAGRAMS.labelSlackPx);
+  assert.ok(notes.length >= 8, 'the lesson’s notes were measured');
+  for (const note of notes) assert.ok(note.spill <= note.slack, `the note "${note.text}" holds its lines (they spill ${note.spill.toFixed(1)}px)`);
+  assert.deepEqual((await measure(caching.page)).flatMap((d) => d.outside), [], 'and nothing is outside the drawings, the one that was cut off included');
+  await caching.context.close();
+});
+
 test('the line that opens a lesson with a time does not call it reading time under a header that gives the reading time', async () => {
   const { context, page, goto } = await open('/backend/01-request-response-fundamentals/01-http-protocol-basics/');
   await goto();

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DIAGRAMS } from '../../config/diagrams.js';
 import {
   readableWidth, isSideways, topDown, viewBoxSize, preferTopDown, parseColor, hueAndSaturation, regionTint, stepZoom, fitZoom, openingZoom,
-  over, luminance, contrastRatio, inkFor
+  over, luminance, contrastRatio, inkFor, boxActors
 } from './diagramFit.js';
 
 test('a diagram keeps the width at which its smallest text is the minimum size, and never more than its own width', () => {
@@ -106,4 +106,28 @@ test('the full-screen view opens on the whole diagram when that is readable, and
   // The 3,608px sequence diagram with 12px text: it cannot fit readably, so it opens at its own size.
   assert.equal(openingZoom({ ...common, naturalWidth: 3608, naturalHeight: 760, smallestFontPx: 12 }), 1);
   assert.equal(fitZoom({ naturalWidth: 3608, naturalHeight: 760, viewWidth: 1800, viewHeight: 900 }), 1800 / 3608);
+});
+
+test('an actor whose name wrapped is declared as a box, and nothing else about the diagram changes', () => {
+  const source = [
+    'sequenceDiagram',
+    '    actor Crawler as Google Web Accelerator / Browser Prefetcher',
+    '    actor C as Client',
+    '    participant G as Gateway',
+    '    create actor D as A Person Created Half Way Down',
+    '    Note over Crawler: the crawler actor prefetches',
+    '    Crawler->>G: GET /actor Crawler'
+  ].join('\n');
+  const boxed = boxActors(source, ['Crawler', 'D']).split('\n');
+  assert.equal(boxed[1], '    participant Crawler as Google Web Accelerator / Browser Prefetcher', 'the label stays as written');
+  assert.equal(boxed[2], '    actor C as Client', 'an actor that was not named stays a figure');
+  assert.equal(boxed[3], '    participant G as Gateway');
+  assert.equal(boxed[4], '    create participant D as A Person Created Half Way Down', 'a created actor is boxed too');
+  assert.equal(boxed[5], '    Note over Crawler: the crawler actor prefetches', 'words in a note or a message are not touched');
+  assert.equal(boxed[6], '    Crawler->>G: GET /actor Crawler');
+  assert.equal(boxActors(source, []), source, 'nothing to box returns the same text');
+  assert.equal(boxActors('%% a comment\nsequenceDiagram\n  actor A as Some Long Name Here', ['A']), '%% a comment\nsequenceDiagram\n  participant A as Some Long Name Here', 'a comment before the first line is allowed');
+  assert.equal(boxActors('flowchart LR\n  actor A', ['A']), 'flowchart LR\n  actor A', 'only sequence diagrams are changed');
+  // 734 lines of a lesson with Windows line endings each end in \r, which a "." in the pattern would stop at.
+  assert.equal(boxActors('sequenceDiagram\r\n    actor Q as Job Worker (30s Timeout)\r\n    Q->>Q: go\r\n', ['Q']), 'sequenceDiagram\r\n    participant Q as Job Worker (30s Timeout)\r\n    Q->>Q: go\r\n', 'Windows line endings are kept and do not stop the change');
 });

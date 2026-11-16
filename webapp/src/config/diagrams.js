@@ -11,6 +11,20 @@ export const DIAGRAMS = {
   minTextPx: 12,
   // Sequence diagrams wrap long messages and notes instead of pushing the participants apart (mermaid's sequence.wrap).
   wrapSequenceMessages: true,
+  // A sequence-diagram actor drawn as a stick figure (`actor`) whose name wraps onto more than one line is drawn as a box (`participant`) instead.
+  // Mermaid draws a figure's name under the figure and reserves no room for it: a name of two lines touches the note below it, three or more run
+  // into it, and the copy of the figure at the bottom is cut off by the drawing's edge. A box grows to fit its text. 112 figures in 93 lessons
+  // have a name longer than 24 characters; a name that fits on one line keeps its figure.
+  boxWrappedActors: true,
+  // A sequence-diagram note narrower than its longest line is widened to hold it, keeping its centre, with this much room (px, in the drawing's own
+  // units) on each side. Mermaid does not wrap a note that holds a line break (`<br/>`), so a note over one actor was only 150px wide whatever it said:
+  // 76 lessons have such a note, and its lines ran out of the box and, at an edge, out of the drawing.
+  widenNotes: true,
+  notePadding: 10,
+  // How far a line of text may hang past the edge of its drawing before it counts as cut off (px, the drawing's units). The text box of a stick
+  // figure's name at the bottom hangs 1.5px past the edge while its letters, descenders included, are fully drawn (looked at at 4x). The diagram
+  // check (scripts/check/mermaid.mjs) and the browser test of figures hold diagrams to this.
+  labelSlackPx: 2,
   // A left-to-right flowchart that would not fit its box at minTextPx is drawn top to bottom when that is narrower.
   flipWideFlowcharts: true,
   // The full-screen view: each step multiplies the zoom by `step`, within `min` and `max` (1 is the diagram's own size).
