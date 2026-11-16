@@ -140,6 +140,8 @@ test('for someone who asks for less motion, a screen arrives with none', async (
 test('the rail names every place and groups them; keyboard focus is visible', async () => {
   const { context, page } = await openPage(browser, '/#__feed', { width: 1440, height: 900 });
   await page.goto(`${BASE}/#__feed`, { waitUntil: 'networkidle' });
+  // The Videos place joins the rail when the channel's list has loaded, which can be a moment after the network goes quiet: wait for it, then read the rail.
+  await page.waitForFunction(() => document.querySelectorAll('#destRail .dest-label').length >= 2);
   const labels = await page.locator('#destRail .dest-label').allTextContents();
   assert.ok(labels.length >= 2 && labels.every((l) => l.trim().length > 0), `every rail item has a visible name: ${labels.join(', ')}`);
   assert.ok(await page.locator('#destRail .dest-group').count() >= 2, 'in groups');
