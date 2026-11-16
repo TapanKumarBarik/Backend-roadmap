@@ -424,6 +424,16 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 .diagram-tools__hint { margin-right: auto; }
 .mermaid-diagram:not(.is-wide) .diagram-tools__hint { display: none; }
 #content .diagram-tools__open { gap: 6px; }
+/* Four corners, drawn with gradients in the text colour so the button needs no <svg> of its own (lib/markdown/mermaidDraw.js says why). */
+.diagram-tools__glyph {
+  display: inline-block; width: 13px; height: 13px; flex: none;
+  --corner: linear-gradient(currentColor, currentColor);
+  background:
+    var(--corner) top left / 5px 1.6px no-repeat, var(--corner) top left / 1.6px 5px no-repeat,
+    var(--corner) top right / 5px 1.6px no-repeat, var(--corner) top right / 1.6px 5px no-repeat,
+    var(--corner) bottom left / 5px 1.6px no-repeat, var(--corner) bottom left / 1.6px 5px no-repeat,
+    var(--corner) bottom right / 5px 1.6px no-repeat, var(--corner) bottom right / 1.6px 5px no-repeat;
+}
 @media print { .diagram-tools { display: none; } .mermaid-diagram .diagram-scroll { overflow: visible; } }
 
 /* The full-screen view (lib/markdown/diagramViewer.js): a native <dialog> in #overlays that fills the screen. */

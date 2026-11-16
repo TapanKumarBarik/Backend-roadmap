@@ -33,9 +33,6 @@ function icon(paths, size = 16) {
   return svg;
 }
 
-/** The four-corners icon of the button that opens the view. */
-export const expandIcon = () => icon(['M2 6V2h4', 'M10 2h4v4', 'M14 10v4h-4', 'M6 14H2v-4']);
-
 function button({ label, hint = '', className, content = null }) {
   const b = document.createElement('button');
   b.type = 'button';
@@ -179,7 +176,7 @@ function headingBefore(element) {
  * components/ui/overlays.js.
  */
 export function openDiagram(frame, size, opener, overlays) {
-  const svg = frame.querySelector('svg');
+  const svg = frame.querySelector('.diagram-scroll svg');
   if (!svg || !size || !(size.width > 0)) return;
   const v = viewer || (viewer = build(overlays));
   if (v.dialog.open) return;

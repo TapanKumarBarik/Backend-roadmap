@@ -6,7 +6,7 @@
 // (lib/markdown/diagramViewer.js).
 import { DIAGRAMS } from '../../config/diagrams.js';
 import { readableWidth, isSideways, topDown, viewBoxSize, preferTopDown, regionTint, parseColor, over, inkFor } from './diagramFit.js';
-import { openDiagram, expandIcon } from './diagramViewer.js';
+import { openDiagram } from './diagramViewer.js';
 
 // What this module uses from the first page's code (lib/markdown/mermaidRender.js passes it in). Passed, not imported: a module both
 // bundles import is split out into a chunk of its own, and importing these three split the first page's code into 18 chunks that
@@ -209,10 +209,11 @@ function makeFrame() {
   open.className = 'ui-btn ui-btn--ghost ui-btn--sm diagram-tools__open';
   open.title = DIAGRAMS.labels.openHint;
   open.setAttribute('aria-label', DIAGRAMS.labels.openHint);
+  // The four-corners icon is drawn by CSS (styles/global.css .diagram-tools__glyph), not as an <svg>: the frame then holds one svg, the drawing,
+  // and "the svg in this diagram" stays one element for anything that looks for it (a test, a script, an export).
   const glyph = document.createElement('span');
-  glyph.className = 'ui-btn__icon';
+  glyph.className = 'ui-btn__icon diagram-tools__glyph';
   glyph.setAttribute('aria-hidden', 'true');
-  glyph.append(expandIcon());
   const label = document.createElement('span');
   label.className = 'ui-btn__label';
   label.textContent = DIAGRAMS.labels.open;
