@@ -154,8 +154,10 @@
   padding: 12px 14px;
   font-size: 12.5px;
   line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre;
+  /* The trace is the clue, so every line wraps instead of hiding off the edge: each incident has
+     lines of 120 to 180 characters, wider than the dialog even on a desktop. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #c9d1d9;
 }
 

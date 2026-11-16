@@ -130,6 +130,10 @@
 /* Scrollbars: thin and in the theme's colours, everywhere (Chromium and Firefox read these two properties; where they are set, Chromium
    ignores the older ::-webkit-scrollbar rules). The system's classic ones, with arrow buttons, made a log or a code block look dated. */
 * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+/* Code in the code face, everywhere (the app and the tools pages both load this file). Without it, a <pre> or <code>
+   that no component styles falls back to the browser's own monospace (Consolas, Menlo, DejaVu Sans Mono). kbd keeps
+   its own sans rule in global.css. */
+pre, code, samp { font-family: var(--mono); }
 html[data-theme="auto"] { color-scheme: light; }
 @media (prefers-color-scheme: dark) {
   html[data-theme="auto"] {
