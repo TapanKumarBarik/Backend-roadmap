@@ -462,11 +462,11 @@ test('a backup is a file that can be loaded again, a CSV is a spreadsheet of the
 
   // A bad file changes nothing; the backup brings everything back.
   await page.setInputFiles('#tr-file', { name: 'not-a-backup.json', mimeType: 'application/json', buffer: Buffer.from('{"hello": "world"}') });
-  assert.match(await page.locator('#tr-status').innerText(), /not a Prep Tracker backup/);
+  await page.waitForFunction(() => /not a Prep Tracker backup/.test(document.getElementById('tr-status').textContent)); // the file is read and checked after the change event
   assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Not Started');
   const odd = JSON.stringify({ tracker: 1, items: { ...file.items, 'SD-Z-999': { s: 'Completed' }, 'SD-A-005': { s: 'Finished', c: 9 } } });
   await page.setInputFiles('#tr-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(odd) });
-  assert.match(await page.locator('#tr-status').innerText(), /Loaded 2 items; 2 not recognised were left out\./);
+  await page.waitForFunction(() => /Loaded 2 items; 2 not recognised were left out\./.test(document.getElementById('tr-status').textContent));
   assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Completed');
   assert.equal(await page.locator('.tr-row[data-id="SD-A-003"] select.tr-status').inputValue(), 'In Progress');
   await page.reload({ waitUntil: 'networkidle' });
