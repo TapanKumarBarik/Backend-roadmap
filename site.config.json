@@ -591,7 +591,7 @@
         "height": 900
       },
       {
-        "name": "tool-tracker",
+        "name": "page-tracker",
         "path": "/tracker/",
         "height": 1700
       },
@@ -617,6 +617,11 @@
       "id": "corrections",
       "url": "/corrections/",
       "entry": "corrections/index.html"
+    },
+    {
+      "id": "tracker",
+      "url": "/tracker/",
+      "entry": "tracker/index.html"
     }
   ],
   "tools": [
@@ -634,11 +639,6 @@
       "id": "page-load-latency",
       "url": "/tools/page-load-latency/",
       "entry": "tools/page-load-latency/index.html"
-    },
-    {
-      "id": "tracker",
-      "url": "/tracker/",
-      "entry": "tracker/index.html"
     }
   ]
 }

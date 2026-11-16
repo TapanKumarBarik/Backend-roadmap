@@ -52,6 +52,7 @@ function flush() {
 }
 function changed() {
   dirty = true;
+  setStatus(ui.saving);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flush, C.saveDelayMs);
 }

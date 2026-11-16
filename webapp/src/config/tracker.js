@@ -68,7 +68,7 @@ export const TRACKER = {
     stepLabel: (name, word) => `${name}: ${word}`, stepWords: { 0: 'not done', 1: 'partly done', 2: 'done' },
     loading: 'Loading the study items…', loadFailed: 'The study items could not be loaded. Reload the page to try again.',
     saveFailed: 'This browser would not keep your changes (its storage is full or switched off). Export a backup so nothing is lost.',
-    saved: 'Saved in this browser', savedNever: 'Nothing to save yet',
+    saving: 'Saving…', saved: 'Saved in this browser', savedNever: 'Nothing to save yet',
     tabsLabel: 'Sheets', progressLabel: 'Progress', phasesLabel: 'Phases',
     filterLabels: { phase: 'Phase', status: 'Status', priority: 'Priority', difficulty: 'Difficulty', track: 'Learning track', lesson: 'Lesson on this site' },
     footNote: 'Your ticks and notes are saved in this browser only, on this device. Export a backup to keep them safe or to move them to another browser.'

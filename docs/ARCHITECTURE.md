@@ -100,7 +100,7 @@ no cost; a scenario is held in the page's query so a link shows what its sender 
 Practice screens'); `tests/e2e/tool-pages.e2e.mjs` measures every listed page for being dressed, because a shared or rewritten stylesheet once left the subnet page in
 the browser's default serif and nothing noticed, and checks that every address a tool page links to is one the site serves.
 
-The **Prep Tracker** (`/tracker/`) is one more of these pages, for any visitor: a checklist of system design and GenAI study items, interview questions and design
+The **Prep Tracker** (`/tracker/`) is built like these pages (listed in `site.config.json -> pages`, beside About and Corrections, because it is not a networking tool and the Network Lab front page lists every `tools` entry), for any visitor: a checklist of system design and GenAI study items, interview questions and design
 problems that is ticked, graded 1 to 5 and written on, with a revision date that follows the confidence (1, 3, 7, 14 or 30 days). Its items are
 `content/tracker/items.json` (titles and structure only, from the site owner's workbook; the explanation text is not on the site), which `scripts/build/gen-tracker.mjs`
 (part of `npm run index`) checks, gives a stable id and the lesson page each item has (found through `content/videos.json`), and writes as `dist/tracker.json`; the page
