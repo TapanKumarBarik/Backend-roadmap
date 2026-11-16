@@ -103,6 +103,7 @@ const SCREENS = [
   { name: 'the subnet tool', url: '/tools/subnet/', before: (page) => page.locator('#calc-out dl').waitFor() },
   { name: 'the page load tool', url: '/tools/page-load-latency/', before: (page) => page.locator('#ll-diagram svg').waitFor() },
   { name: 'the Network Lab', url: '/tools/' },
+  { name: 'the prep tracker', url: '/tracker/', before: (page) => page.locator('#tr-list .tr-row').first().waitFor() },
   { name: 'the about page', url: '/about/' },
   { name: 'the corrections page', url: '/corrections/' }
 ];

@@ -257,6 +257,194 @@ test('on a long round trip the protocol that asks for fewer of them is the one t
   await context.close();
 });
 
+// ------------------------------------------------------------------------------------------------ the Prep Tracker
+
+const TRACK = '/tracker/';
+const items = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'tracker.json'), 'utf8'));
+const saved = (page) => page.waitForFunction(() => document.getElementById('tr-status').textContent === 'Saved in this browser');
+const stored = (page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) || 'null'), config.storage.tracker);
+
+test('the tracker is a real address: its title, description and explanation are in the HTML, and the sitemap lists it', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'tracker', 'index.html'), 'utf8');
+  assert.match(html, /<title>Interview Prep Tracker: System Design and GenAI Checklist · [^<]+<\/title>/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}${TRACK}">`));
+  assert.match(html, /<meta name="description" content="[^"]{80,200}">/);
+  assert.match(html, /<h1>Interview prep tracker<\/h1>/);
+  assert.match(html, /1, 3, 7, 14 or 30 days after the day you studied an item/, 'the explanation is on the page before any script runs');
+  assert.match(html, /saved in this browser, on this device, and nowhere else/, 'and it says where progress lives');
+  assert.match(html, /"@type":"WebApplication"/);
+  assert.doesNotMatch(html, /noindex/);
+  assert.ok(sitemap().includes(`${config.site.url}${TRACK}</loc>`), 'it is in the sitemap');
+});
+
+test('the tracker’s items are all there, every id is its own, and every lesson an item links to is a page the site serves', () => {
+  const data = items();
+  assert.deepEqual(['sd', 'gai', 'qa', 'pr'].map((k) => data[k].rows.length), [748, 534, 214, 37]);
+  const ids = ['sd', 'gai', 'qa', 'pr'].flatMap((k) => data[k].rows.map((r) => r.id));
+  assert.equal(new Set(ids).size, ids.length, 'no id is used twice, across the sheets');
+  const linked = ['sd', 'gai', 'qa'].flatMap((k) => data[k].rows.filter((r) => r.u));
+  assert.ok(linked.length >= 300, `${linked.length} items link to a lesson`);
+  for (const row of linked) assert.ok(serves(row.u), `${row.id} links to ${row.u}, which the site does not serve`);
+  assert.equal(data.pr.steps.length, 7);
+  const bytes = fs.statSync(path.join(ROOT, 'dist', 'tracker.json')).size;
+  assert.ok(bytes < 600 * 1024, `the item list is ${Math.round(bytes / 1024)} kB, fetched only when the page is opened`);
+});
+
+test('ticking, grading and writing on an item is saved in the browser and is there after a reload; the filters and the sheets show it', async () => {
+  const { context, page, problems, goto } = await open(TRACK, { withCsp: true });
+  await goto();
+  await page.waitForSelector('#tr-list .tr-row');
+  const row = '.tr-row[data-id="SD-A-001"]';
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '748 items');
+  assert.equal(await page.locator('#tr-list .tr-row').count(), 120, 'a page of rows at a time');
+  assert.equal(await page.locator('.tr-phase').count(), 9);
+  assert.match(await page.locator(row + ' .tr-tag--lesson').getAttribute('href'), /^\/system-design\/.+\/$/, 'an item with a lesson links to it');
+
+  // Tick, grade, write.
+  await page.locator(row + ' .tr-tick').check();
+  assert.equal(await page.locator(row + ' select.tr-status').inputValue(), 'Completed');
+  assert.equal(await page.locator(row).getAttribute('data-k'), 'done');
+  await page.locator(row + ' .tr-conf button[data-v="3"]').click();
+  assert.match(await page.locator(row + ' .tr-when').innerText(), /review/, 'a day and a confidence give the next review');
+  await page.locator('.tr-row[data-id="SD-A-002"] select.tr-status').selectOption('Needs Revision');
+  assert.match(await page.locator('.tr-row[data-id="SD-A-002"] .tr-tags').innerText(), /Revise now/);
+  await page.locator(row + ' .tr-head').click();
+  await page.locator(row + ' textarea.tr-note').fill('Token bucket: refill rate against burst. Redo the Lua version.');
+  await saved(page);
+  const keep = await stored(page);
+  assert.equal(keep.version, 1);
+  assert.deepEqual(Object.keys(keep.items).sort(), ['SD-A-001', 'SD-A-002'], 'only the rows that were touched are kept');
+  assert.equal(keep.items['SD-A-001'].s, 'Completed');
+  assert.equal(keep.items['SD-A-001'].c, 3);
+  assert.match(keep.items['SD-A-001'].d, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(keep.items['SD-A-002'].c, undefined, 'what is blank is not stored');
+
+  // A reload brings it all back.
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('#tr-list .tr-row');
+  assert.equal(await page.locator(row + ' select.tr-status').inputValue(), 'Completed');
+  assert.equal(await page.locator(row + ' .tr-conf button[aria-pressed="true"]').getAttribute('data-v'), '3');
+  assert.equal((await page.locator('#tr-due').innerText()).trim(), '1 to revise');
+  assert.match(await page.locator('#tr-pct-label').innerText(), /1 of 748/);
+  await page.locator(row + ' .tr-head').click();
+  assert.match(await page.locator(row + ' textarea.tr-note').inputValue(), /^Token bucket/);
+
+  // The filters.
+  await page.locator('#tr-due').click();
+  assert.deepEqual(await page.locator('#tr-list .tr-row').evaluateAll((rows) => rows.map((r) => r.dataset.id)), ['SD-A-002'], 'only what is due');
+  await page.locator('#tr-due').click();
+  await page.locator('#tr-notes').check();
+  assert.equal(await page.locator('#tr-list .tr-row').count(), 1);
+  await page.locator('#tr-notes').uncheck();
+  await page.fill('#tr-q', 'lua version');
+  await page.waitForFunction(() => document.getElementById('tr-count').textContent.startsWith('1 of'));
+  assert.equal(await page.locator('#tr-list .tr-row').first().getAttribute('data-id'), 'SD-A-001', 'a search looks in what you wrote');
+  await page.fill('#tr-q', '');
+  await page.locator('.tr-phase[data-p="7"]').click();
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '348 of 748 items', 'Phase 8 has 348 items');
+  await page.locator('.tr-phase[data-p="7"]').click();
+  await page.selectOption('#tr-lesson', 'has');
+  const withLesson = parseInt(await page.locator('#tr-count').innerText(), 10);
+  await page.selectOption('#tr-lesson', 'none');
+  const without = parseInt(await page.locator('#tr-count').innerText(), 10);
+  assert.equal(withLesson + without, 748);
+  await page.selectOption('#tr-lesson', '');
+  await page.locator('#tr-more').click();
+  assert.equal(await page.locator('#tr-list .tr-row').count(), 240);
+
+  // The other sheets, and the address that holds the sheet.
+  await page.getByRole('button', { name: /^GenAI/ }).click();
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '534 items');
+  assert.equal(await page.evaluate(() => location.hash), '#genai');
+  await page.selectOption('#tr-trk', 'A');
+  assert.ok(parseInt(await page.locator('#tr-count').innerText(), 10) < 534, 'a track is part of the list');
+  const other = await context.newPage();
+  await other.goto(`${new URL(page.url()).origin}${TRACK}#questions`, { waitUntil: 'networkidle' });
+  await other.waitForSelector('#tr-list .tr-row');
+  assert.equal((await other.locator('#tr-count').innerText()).trim(), '214 questions', 'a link to #questions opens that sheet');
+  assert.deepEqual(real(problems), [], 'nothing is blocked by the policy or fails');
+  await context.close();
+});
+
+test('a question is reviewed, and mastered; a design problem has steps that cycle through done, partly done and not done, and a score', async () => {
+  const { context, page, goto } = await open(`${TRACK}#questions`, { withCsp: true });
+  await goto();
+  await page.waitForSelector('#tr-list .tr-row');
+  const question = '.tr-row[data-id="Q-GAI-GF-001"]';
+  await page.locator(question + ' .tr-tick').check();
+  assert.equal(await page.locator(question + ' select.tr-status').inputValue(), 'Reviewed');
+  await page.locator(question + ' select.tr-status').selectOption('Mastered');
+  assert.equal(await page.locator(question).getAttribute('data-k'), 'done', 'mastered is done too');
+  await page.getByRole('button', { name: /^Design practice/ }).click();
+  assert.equal((await page.locator('#tr-count').innerText()).trim(), '37 problems');
+  const problem = '.tr-row[data-id="PR-01"]';
+  const step = (i) => `${problem} .tr-step[data-i="${i}"]`;
+  await page.locator(step(0)).click();
+  assert.equal(await page.locator(step(0)).getAttribute('data-v'), '2');
+  await page.locator(step(1)).click();
+  await page.locator(step(1)).click();
+  assert.equal(await page.locator(step(1)).getAttribute('data-v'), '1', 'done, then partly done');
+  assert.match(await page.locator(problem + ' .tr-when').innerText(), /Score 1\.5 \/ 7/);
+  await page.locator(step(1)).click();
+  assert.equal(await page.locator(step(1)).getAttribute('data-v'), '0', 'and then not done');
+  assert.equal(await page.locator(problem).getAttribute('data-k'), 'wip');
+  await saved(page);
+  const keep = await stored(page);
+  assert.equal(keep.items['PR-01'].p, '2000000');
+  assert.equal(keep.items['Q-GAI-GF-001'].s, 'Mastered');
+  await context.close();
+});
+
+test('a backup is a file that can be loaded again, a CSV is a spreadsheet of the sheet, a bad file changes nothing, and starting again asks first', async () => {
+  const { context, page, goto } = await open(TRACK, { withCsp: true });
+  await goto();
+  await page.waitForSelector('#tr-list .tr-row');
+  await page.locator('.tr-row[data-id="SD-A-001"] .tr-tick').check();
+  await page.locator('.tr-row[data-id="SD-A-001"] .tr-conf button[data-v="4"]').click();
+  await page.locator('.tr-row[data-id="SD-A-003"] select.tr-status').selectOption('In Progress');
+  await saved(page);
+
+  const [backup] = await Promise.all([page.waitForEvent('download'), page.click('#tr-export')]);
+  assert.match(backup.suggestedFilename(), /^prep-tracker-\d{4}-\d{2}-\d{2}\.json$/);
+  const text = fs.readFileSync(await backup.path(), 'utf8');
+  const file = JSON.parse(text);
+  assert.equal(file.tracker, 1);
+  assert.deepEqual(Object.keys(file.items).sort(), ['SD-A-001', 'SD-A-003']);
+
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.click('#tr-csv')]);
+  assert.match(csv.suggestedFilename(), /^prep-tracker-system-design-\d{4}-\d{2}-\d{2}\.csv$/);
+  const lines = fs.readFileSync(await csv.path(), 'utf8').split('\r\n');
+  assert.equal(lines[0], '﻿Id,Item,Status,Confidence,Last studied,Next review,Notes');
+  assert.equal(lines.length, 748 + 2, 'a row for every item, and the line ending');
+  assert.match(lines[1], /^SD-A-001,What System Design Is,Completed,4,\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2},$/);
+
+  // Start again: it asks, and "keep" keeps.
+  await page.click('#tr-reset');
+  assert.ok(await page.locator('#tr-confirm').isVisible());
+  await page.click('#tr-confirm-no');
+  assert.ok(!(await page.locator('#tr-confirm').isVisible()));
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Completed');
+  await page.click('#tr-reset');
+  await page.click('#tr-confirm-yes');
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Not Started');
+  assert.match(await page.locator('#tr-pct-label').innerText(), /0 of 748/);
+  assert.deepEqual((await stored(page)).items, {}, 'and the saved copy is empty');
+
+  // A bad file changes nothing; the backup brings everything back.
+  await page.setInputFiles('#tr-file', { name: 'not-a-backup.json', mimeType: 'application/json', buffer: Buffer.from('{"hello": "world"}') });
+  assert.match(await page.locator('#tr-status').innerText(), /not a Prep Tracker backup/);
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Not Started');
+  const odd = JSON.stringify({ tracker: 1, items: { ...file.items, 'SD-Z-999': { s: 'Completed' }, 'SD-A-005': { s: 'Finished', c: 9 } } });
+  await page.setInputFiles('#tr-file', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(odd) });
+  assert.match(await page.locator('#tr-status').innerText(), /Loaded 2 items; 2 not recognised were left out\./);
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Completed');
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-003"] select.tr-status').inputValue(), 'In Progress');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('#tr-list .tr-row');
+  assert.equal(await page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').inputValue(), 'Completed', 'what was loaded is saved');
+  await context.close();
+});
+
 // ------------------------------------------------------------------------------------------------ the trust pages
 
 test('the corrections page carries the whole log in its HTML: each fix, its lesson as a link that exists, and its date', () => {

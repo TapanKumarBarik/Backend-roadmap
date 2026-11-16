@@ -1,5 +1,6 @@
 import { SITE, DEVELOPER, DEVELOPER_EMAIL_LINK, YOUTUBE } from '../../config/index.js';
 import { TRUST } from '../../config/trust.js';
+import { SITE_LINKS } from '../../config/siteLinks.js';
 import BrandMark from './BrandMark.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 
@@ -18,6 +19,10 @@ export default function SiteFooter() {
         <span>Free to read</span>
       </p>
       <p className="sf-row">
+        <a href={SITE_LINKS.tracker.url}>{SITE_LINKS.tracker.label}</a>
+        <span aria-hidden="true">·</span>
+        <a href={SITE_LINKS.tools.url}>{SITE_LINKS.tools.label}</a>
+        <span aria-hidden="true">·</span>
         <a href={TRUST.about.url}>{TRUST.about.label}</a>
         <span aria-hidden="true">·</span>
         <a href={TRUST.corrections.url}>{TRUST.corrections.label}</a>

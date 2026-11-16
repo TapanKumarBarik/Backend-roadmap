@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview Prep Tracker: System Design and GenAI Checklist · %SITE_NAME%</title>
+<meta name="description" content="A free tracker for system design and GenAI interview preparation: tick off study items, grade your confidence, write notes and get a revision reminder. It saves in your browser, with no sign-in.">
+<link rel="canonical" href="%SITE_URL%/tracker/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tracker/">
+<meta property="og:title" content="Interview Prep Tracker">
+<meta property="og:description" content="A checklist for system design and GenAI interviews that you tick off, grade and write notes on, with a reminder of what to revise. It saves in your browser.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Interview Prep Tracker","url":"%SITE_URL%/tracker/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top tr-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main tr-page">
+  <h1>Interview prep tracker</h1>
+  <p class="tool-lead">A study checklist for system design and GenAI interviews that you tick off, grade and write notes on. It remembers your progress in this browser, tells you what to revise and when, and opens the lesson on this site for each topic that has one.</p>
+
+  <section aria-labelledby="tr-h" class="tr-app" id="tracker">
+    <h2 id="tr-h" class="tool-sr">The tracker</h2>
+    <noscript><p class="tool-note">This tracker needs JavaScript. The explanation below works without it.</p></noscript>
+
+    <p id="tr-status" class="tool-note tr-statusline" role="status"></p>
+    <div id="tr-tabs" class="tr-tabs" role="group"></div>
+
+    <div id="tr-summary" class="tr-summary">
+      <div class="tr-big"><strong id="tr-pct"></strong><span id="tr-pct-label"></span></div>
+      <div class="tr-meterbox">
+        <div id="tr-meter" class="tr-meter" aria-hidden="true"></div>
+        <ul id="tr-legend" class="tr-legend"></ul>
+      </div>
+      <button type="button" id="tr-due" class="tool-btn tr-due" aria-pressed="false" disabled></button>
+    </div>
+    <div id="tr-phases" class="tr-phases"></div>
+
+    <div class="tr-bar">
+      <div id="tr-tools" class="tr-tools">
+        <label class="tr-search"><span class="tool-sr" id="tr-search-label"></span><input id="tr-q" type="search" autocomplete="off"></label>
+        <select id="tr-phase" class="tr-filter"></select>
+        <select id="tr-st" class="tr-filter"></select>
+        <select id="tr-pri" class="tr-filter"></select>
+        <select id="tr-df" class="tr-filter"></select>
+        <select id="tr-trk" class="tr-filter"></select>
+        <select id="tr-lesson" class="tr-filter"></select>
+        <label class="tr-check"><input type="checkbox" id="tr-notes"><span id="tr-notes-label"></span></label>
+        <span id="tr-count" class="tr-count" aria-live="polite"></span>
+      </div>
+      <div id="tr-cols" class="tr-cols" aria-hidden="true"></div>
+    </div>
+
+    <ol id="tr-list" class="tr-list"></ol>
+    <button type="button" id="tr-more" class="tool-btn tr-more" hidden></button>
+
+    <div class="tr-backup">
+      <button type="button" id="tr-export" class="tool-btn"></button>
+      <button type="button" id="tr-csv" class="tool-btn"></button>
+      <button type="button" id="tr-import" class="tool-btn"></button>
+      <input type="file" id="tr-file" accept="application/json,.json" hidden>
+      <button type="button" id="tr-reset" class="tool-btn"></button>
+      <span id="tr-confirm" class="tr-confirm" hidden>
+        <span id="tr-confirm-text"></span>
+        <button type="button" id="tr-confirm-yes" class="tool-btn tool-btn--primary"></button>
+        <button type="button" id="tr-confirm-no" class="tool-btn"></button>
+      </span>
+    </div>
+    <p id="tr-foot" class="tool-note"></p>
+  </section>
+
+  <section aria-labelledby="how-h" class="tool-prose">
+    <h2 id="how-h">How it works</h2>
+    <ol>
+      <li><strong>Pick a sheet.</strong> System design covers the general backend and distributed-systems topics, GenAI goes deeper on retrieval, agents, serving and evaluation, the interview questions are the ones to answer aloud, and design practice lists the classic design problems with the steps of a good answer.</li>
+      <li><strong>Tick an item when you could explain it aloud or build it.</strong> Mark it in progress while you study, completed when you are done, and needs revision when you have studied it but could not explain it with confidence.</li>
+      <li><strong>Grade your confidence from 1 to 5.</strong> 1 means you cannot explain it, 3 that you can explain the basics, and 5 that you could teach it and answer the follow-ups.</li>
+      <li><strong>Come back when it is due.</strong> The next review comes 1, 3, 7, 14 or 30 days after the day you studied an item, for confidence 1 to 5. The &ldquo;to revise&rdquo; button shows what is due today.</li>
+      <li><strong>Write notes.</strong> Open a row to write what you understood and what to practise next. A search looks in your notes too.</li>
+    </ol>
+
+    <h2 id="where-h">Where your progress lives</h2>
+    <p>Everything you tick or write is saved in this browser, on this device, and nowhere else: there is no account and nothing is sent to a server. That keeps it private and instant, and it means the progress does not follow you to another browser by itself. Use <strong>Export a backup</strong> to save a file you can keep, load it again with <strong>Import a backup</strong>, or move it to another browser. A sheet can also be exported as a CSV for a spreadsheet. Clearing this site&rsquo;s data in your browser clears the tracker, so export a backup first.</p>
+
+    <h2 id="lessons-h">The lessons behind the items</h2>
+    <p>A topic that has a lesson on this site has an <strong>Open the lesson</strong> link. For the networking items, the <a href="/tools/">Network Lab</a> has interactive tools, and the <a href="/practice/">Practice Center</a> has quizzes, coding problems and mock interviews for checking yourself afterwards.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/tracker.js"></script>
+</body>
+</html>

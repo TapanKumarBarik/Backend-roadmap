@@ -410,7 +410,8 @@
     "review": "docs.review",
     "levelCheck": "docs.levelCheck",
     "mockRun": "docs.mockRun",
-    "mockHistory": "docs.mockHistory"
+    "mockHistory": "docs.mockHistory",
+    "tracker": "docs.tracker"
   },
   "assistant": {
     "maxInputChars": 12000,
@@ -590,6 +591,11 @@
         "height": 900
       },
       {
+        "name": "tool-tracker",
+        "path": "/tracker/",
+        "height": 1700
+      },
+      {
         "name": "page-about",
         "path": "/about/",
         "height": 1300
@@ -628,6 +634,11 @@
       "id": "page-load-latency",
       "url": "/tools/page-load-latency/",
       "entry": "tools/page-load-latency/index.html"
+    },
+    {
+      "id": "tracker",
+      "url": "/tracker/",
+      "entry": "tracker/index.html"
     }
   ]
 }

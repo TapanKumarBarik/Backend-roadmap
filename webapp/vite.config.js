@@ -26,7 +26,7 @@ const MIME_TYPES = {
 // during `vite build` or `vite preview`.
 function serveRepoContent() {
   const contentRoots = siteConfig.content.curricula;
-  const generated = ['docs-index.json', 'search-index.json', 'site-stats.json', 'videos.json'];
+  const generated = ['docs-index.json', 'search-index.json', 'site-stats.json', 'videos.json', 'tracker.json'];
   return {
     name: 'serve-repo-content',
     configureServer(server) {
