@@ -102,8 +102,8 @@ the browser's default serif and nothing noticed, and checks that every address a
 
 The **Prep Tracker** (`/tracker/`) is built like these pages (listed in `site.config.json -> pages`, beside About and Corrections, because it is not a networking tool and the Network Lab front page lists every `tools` entry), for any visitor: a checklist of system design and GenAI study items, interview questions and design
 problems that is ticked, graded 1 to 5 and written on, with a revision date that follows the confidence (1, 3, 7, 14 or 30 days). Its items are
-`content/tracker/items.json` (titles and structure only, from the site owner's workbook; the explanation text is not on the site), which `scripts/build/gen-tracker.mjs`
-(part of `npm run index`) checks, gives a stable id and the lesson page each item has (found through `content/videos.json`), and writes as `dist/tracker.json`; the page
+`content/tracker/items.json` (titles, structure and the links to learn each item from, from the site owner's workbook; the explanation text is not on the site), which `scripts/build/gen-tracker.mjs`
+(part of `npm run index`) checks, gives a stable id and the lesson page each item has (found through `content/videos.json`), carries the learning resources (a list of https links, the distinct sets of them, and a row's set; a question and a design problem take the set of the study item they belong to), and writes as `dist/tracker.json`; the page
 fetches that when it opens. A reader's state is one value in the browser's storage (`site.config.json -> storage.tracker`: only what differs from a blank row), with a
 backup file to export and import and a CSV of a sheet: there is no account and no server, so it needs no migration, and it does not follow a reader to another browser
 by itself. Its logic is pure and tested (`webapp/src/lib/tracker/`: `model.js` the states, the schedule, the filters, the files; `items.js` the build step), its words and

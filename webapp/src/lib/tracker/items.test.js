@@ -83,6 +83,51 @@ test('items.json is checked before it is shipped: a missing title, an id used tw
   assert.match(validateItems(steps, ALLOWED).join('\n'), /no steps listed/);
 });
 
+const withResources = () => ({
+  ...items(),
+  resources: [{ n: 'System Design Primer', u: 'https://github.com/donnemartin/system-design-primer', t: 'Open-source guide' }, { n: 'Hello Interview', u: 'https://www.hellointerview.com/learn/system-design' }],
+  resourceSets: [[0, 1], [1]]
+});
+
+test('a question takes the resources of the study item it asks about, and a design problem those of the first checklist item it covers', () => {
+  const data = withResources();
+  data.sd.rows[0].rs = 0;
+  data.gai.rows[0].rs = 1;
+  data.pr.rows[0].ids = 'SD-A-001 to SD-A-009';
+  data.pr.rows[1].ids = 'SD-Z-001 to SD-Z-009';
+  const out = resolveItems(data, new Map());
+  assert.equal(out.sd.rows[0].rs, 0);
+  assert.equal(out.sd.rows[1].rs, undefined, 'an item with no list has none');
+  assert.equal(out.qa.rows[0].rs, 1, 'the question asks about GAI-GF-001, which uses set 1');
+  assert.equal(out.pr.rows[0].rs, 0, 'the first checklist item it covers is SD-A-001');
+  assert.equal(out.pr.rows[1].rs, undefined, 'a problem that covers no item with a list has none');
+  assert.deepEqual(out.resources, data.resources, 'the links are carried to the page');
+  assert.deepEqual(out.resourceSets, data.resourceSets);
+  assert.equal(resolveItems(items(), new Map()).resources, undefined, 'a file with no resources has none');
+});
+
+test('the learning resources are checked before they are shipped: a link that is not https, a name used twice, a set that points at nothing, a row with no such set', () => {
+  assert.deepEqual(validateItems(withResources(), ALLOWED), []);
+  const http = withResources();
+  http.resources[0].u = 'http://example.com/book';
+  assert.match(validateItems(http, ALLOWED).join('\n'), /the link is not an https address/);
+  const script = withResources();
+  script.resources[1].u = 'javascript:alert(1)';
+  assert.match(validateItems(script, ALLOWED).join('\n'), /the link is not an https address/, 'a link can never be a script');
+  const twice = withResources();
+  twice.resources[1].n = 'System Design Primer';
+  assert.match(validateItems(twice, ALLOWED).join('\n'), /the name is used twice/);
+  const nothing = withResources();
+  nothing.resourceSets[0] = [0, 7];
+  assert.match(validateItems(nothing, ALLOWED).join('\n'), /7 is not a resource/);
+  const empty = withResources();
+  empty.resourceSets[1] = [];
+  assert.match(validateItems(empty, ALLOWED).join('\n'), /resource set 1: empty/);
+  const missing = withResources();
+  missing.sd.rows[0].rs = 5;
+  assert.match(validateItems(missing, ALLOWED).join('\n'), /resource set 5 does not exist/);
+});
+
 test('the real items.json passes its own checks', async () => {
   const { default: fs } = await import('node:fs');
   const items2 = JSON.parse(fs.readFileSync(new URL('../../../../content/tracker/items.json', import.meta.url), 'utf8'));

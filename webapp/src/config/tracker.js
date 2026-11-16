@@ -57,6 +57,7 @@ export const TRACKER = {
     done: (n, total, word) => `${word} · ${n} of ${total}`,
     toRevise: (n) => `${n} to revise`, nothingToRevise: 'Nothing to revise',
     reviseNow: 'Revise now', hasNotes: 'Notes', openLesson: 'Open the lesson', doFirst: 'Do first:',
+    resources: 'Learn more', newTab: '(opens in a new tab)', resourceCount: (n) => (n === 1 ? '1 resource' : `${n} resources`),
     notes: 'Notes', notesHint: 'What you understood, and what to practise next…', answerHint: 'Your answer, in your own words…',
     stepsHint: 'Click a step to mark it done, then partly done, then not done.', covers: (ids) => `Covers checklist items ${ids}.`,
     confidenceLegend: 'Confidence: 1 can’t explain · 2 vague · 3 the basics · 4 with trade-offs and examples · 5 can teach it. The next review comes 1, 3, 7, 14 or 30 days after the date.',

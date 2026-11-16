@@ -230,6 +230,10 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .tr-pfield { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); }
 .tr-date { padding: 5px 8px; font: inherit; font-size: var(--text-sm); color: var(--fg); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--r-sm); }
 .tr-dcol p { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--fg-muted); }
+.tr-links { margin: 0 0 var(--space-2); padding: 0; list-style: none; font-size: var(--text-sm); }
+.tr-links li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); padding: 5px 0; border-top: 1px solid var(--border-subtle); }
+.tr-links a { font-weight: var(--weight-semibold); }
+.tr-linkmeta { color: var(--fg-subtle); font-size: var(--text-xs); }
 .tr-more { display: block; margin: var(--space-5) auto 0; }
 .tr-empty { padding: var(--space-12) var(--space-3); text-align: center; color: var(--fg-muted); }
 .tr-backup { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-8); }

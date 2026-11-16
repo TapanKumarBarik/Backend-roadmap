@@ -286,6 +286,12 @@ test('the tracker’s items are all there, every id is its own, and every lesson
   assert.ok(linked.length >= 300, `${linked.length} items link to a lesson`);
   for (const row of linked) assert.ok(serves(row.u), `${row.id} links to ${row.u}, which the site does not serve`);
   assert.equal(data.pr.steps.length, 7);
+  // The learning resources: every system design item and design problem has some, nearly every GenAI item and question does, and a link is always https.
+  assert.ok(data.resources.length >= 70 && data.resources.every((r) => /^https:\/\/\S+$/.test(r.u) && r.n), 'a catalogue of links, every one https');
+  const withSet = (k) => data[k].rows.filter((r) => Number.isInteger(r.rs) && data.resourceSets[r.rs] && data.resourceSets[r.rs].every((i) => data.resources[i])).length;
+  assert.equal(withSet('sd'), 748, 'every system design item has resources');
+  assert.equal(withSet('pr'), 37, 'and every design problem');
+  assert.ok(withSet('gai') >= 520 && withSet('qa') >= 200, 'nearly every GenAI item and question, all but the agent-evaluation group the workbook has no resources for');
   const bytes = fs.statSync(path.join(ROOT, 'dist', 'tracker.json')).size;
   assert.ok(bytes < 600 * 1024, `the item list is ${Math.round(bytes / 1024)} kB, fetched only when the page is opened`);
 });
@@ -308,7 +314,16 @@ test('ticking, grading and writing on an item is saved in the browser and is the
   assert.match(await page.locator(row + ' .tr-when').innerText(), /review/, 'a day and a confidence give the next review');
   await page.locator('.tr-row[data-id="SD-A-002"] select.tr-status').selectOption('Needs Revision');
   assert.match(await page.locator('.tr-row[data-id="SD-A-002"] .tr-tags').innerText(), /Revise now/);
+  assert.match(await page.locator(row + ' .tr-tags').innerText(), /\d+ resources/, 'a row says it has resources');
   await page.locator(row + ' .tr-head').click();
+  const links = await page.locator(row + ' .tr-links a').evaluateAll((as) => as.map((a) => ({ href: a.href, target: a.target, rel: a.rel, text: a.textContent })));
+  assert.ok(links.length >= 2, 'the open row lists where to learn it');
+  for (const link of links) {
+    assert.match(link.href, /^https:\/\//);
+    assert.equal(link.target, '_blank');
+    assert.match(link.rel, /noopener/);
+    assert.match(link.text, /\(opens in a new tab\)/, 'and says so for a screen reader');
+  }
   await page.locator(row + ' textarea.tr-note').fill('Token bucket: refill rate against burst. Redo the Lua version.');
   await saved(page);
   const keep = await stored(page);

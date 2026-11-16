@@ -32,9 +32,18 @@ export function lessonUrls(registry, urlOf) {
   return new Map([...first].map(([id, { url }]) => [id, url]));
 }
 
-/** items.json made ready for the page: every row has its `id`, and a row whose study item has a lesson has its address in `u`. */
+// The id of a checklist item inside the text of a design problem's "Checklist IDs" ("SD-U-001 to SD-U-009"): the first one.
+const CHECKLIST_ID = /[A-Z]{2,3}-[A-Z]{1,2}-\d{3}/;
+
+/**
+ * items.json made ready for the page: every row has its `id`, a row whose study item has a lesson has its address in `u`, and the list of learning resources is carried
+ * with it (`resources`, `resourceSets`, and a row's `rs`, the set it uses). A question takes the resources of the study item it asks about, and a design problem those of
+ * the first checklist item it covers, so every sheet can say where to learn the topic.
+ */
 export function resolveItems(items, lessons) {
   const out = {};
+  for (const key of ['resources', 'resourceSets']) if (items[key]) out[key] = items[key];
+  const setOf = new Map();
   for (const sheet of SHEETS) {
     const source = items[sheet];
     out[sheet] = {
@@ -42,11 +51,42 @@ export function resolveItems(items, lessons) {
       rows: source.rows.map((row, index) => {
         const id = rowId(sheet, row, index);
         const url = row.i && lessons.has(row.i) ? lessons.get(row.i) : null;
+        if (row.rs !== undefined && row.i && (sheet === 'sd' || sheet === 'gai')) setOf.set(row.i, row.rs);
         return { id, ...row, ...(url ? { u: url } : {}) };
       })
     };
   }
+  for (const row of out.qa.rows) if (setOf.has(row.i)) row.rs = setOf.get(row.i);
+  for (const row of out.pr.rows) {
+    const first = CHECKLIST_ID.exec(row.ids || '');
+    if (first && setOf.has(first[0])) row.rs = setOf.get(first[0]);
+  }
   return out;
+}
+
+/** What is wrong with the learning resources in items.json: a link that is not https, a name used twice, a set or a row that points at nothing. Nothing when there are none. */
+export function validateResources(items) {
+  const problems = [];
+  if (items.resources === undefined && items.resourceSets === undefined) return problems;
+  const resources = Array.isArray(items.resources) ? items.resources : [];
+  const sets = Array.isArray(items.resourceSets) ? items.resourceSets : [];
+  const names = new Set();
+  resources.forEach((resource, index) => {
+    if (!resource || !resource.n || !String(resource.n).trim()) problems.push(`resource ${index}: no name`);
+    else if (names.has(resource.n)) problems.push(`resource "${resource.n}": the name is used twice`);
+    else names.add(resource.n);
+    if (!resource || typeof resource.u !== 'string' || !/^https:\/\/[^\s]+$/.test(resource.u)) problems.push(`resource ${index} (${resource && resource.n}): the link is not an https address`);
+  });
+  sets.forEach((set, index) => {
+    if (!Array.isArray(set) || !set.length) problems.push(`resource set ${index}: empty`);
+    else for (const position of set) if (!Number.isInteger(position) || position < 0 || position >= resources.length) problems.push(`resource set ${index}: ${position} is not a resource`);
+  });
+  for (const sheet of SHEETS) {
+    for (const row of (items[sheet] && items[sheet].rows) || []) {
+      if (row.rs !== undefined && !(Number.isInteger(row.rs) && row.rs >= 0 && row.rs < sets.length)) problems.push(`${sheet} ${row.i || row.n}: resource set ${row.rs} does not exist`);
+    }
+  }
+  return problems;
 }
 
 /**
@@ -73,6 +113,7 @@ export function validateItems(items, allowed) {
     });
   }
   if (items.pr && (!Array.isArray(items.pr.steps) || !items.pr.steps.length)) problems.push('pr: no steps listed');
+  problems.push(...validateResources(items));
   if (items.gai && Array.isArray(items.gai.tracks)) {
     for (const row of items.gai.rows) if (row.tr && !items.gai.tracks.includes(row.tr)) problems.push(`gai ${row.i}: track "${row.tr}" is not listed`);
   }

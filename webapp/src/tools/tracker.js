@@ -95,6 +95,8 @@ function tagsHtml(key, row) {
   if (row.df) html += `<span class="tr-tag">${esc(row.df)}</span>`;
   if (row.tr) html += `<span class="tr-tag">${esc(ui.track(row.tr))}</span>`;
   if (row.u) html += `<a class="tr-tag tr-tag--lesson" href="${esc(row.u)}">${esc(ui.openLesson)}</a>`;
+  const resources = resourcesOf(row);
+  if (resources.length) html += `<span class="tr-tag">${esc(ui.resourceCount(resources.length))}</span>`;
   return `${html}<span class="tr-chips" data-role="chips">${chipsHtml(key, row.id)}</span>`;
 }
 
@@ -111,6 +113,10 @@ function panelHtml(key, row) {
   html += `<p class="tool-note">${esc(ui.confidenceLegend)}</p></div><div class="tr-dcol">`;
   if (row.pre) html += `<p><strong>${esc(ui.doFirst)}</strong> ${esc(row.pre)}</p>`;
   if (key === 'pr') html += `<p>${esc(ui.covers(row.ids || '—'))} ${esc(ui.stepsHint)}</p>`;
+  const resources = resourcesOf(row);
+  if (resources.length) {
+    html += `<p><strong>${esc(ui.resources)}</strong></p><ul class="tr-links">${resources.map((r) => `<li><a href="${esc(r.u)}" target="_blank" rel="noopener noreferrer">${esc(r.n)}<span class="tool-sr"> ${esc(ui.newTab)}</span></a><span class="tr-linkmeta">${esc([r.t, r.a].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`;
+  }
   return `${html}</div>`;
 }
 
@@ -132,6 +138,7 @@ function rowHtml(key, row) {
   return `${html}<div class="tr-panel" id="p-${esc(id)}"${isOpen ? '' : ' hidden'}>${isOpen ? panelHtml(key, row) : ''}</div></li>`;
 }
 
+const resourcesOf = (row) => ((sheets.resourceSets && sheets.resourceSets[row.rs]) || []).map((i) => sheets.resources[i]);
 const rowsOf = (key) => sheets[key].rows;
 const visibleRows = (key) => rowsOf(key).filter((row) => matches(key, row, recordFor(key, row.id), filters[key], today(), C, stepCountOf(key)));
 const list = $('tr-list');
