@@ -16,6 +16,7 @@
 <!-- Every page needs the module index before it can draw anything, and the app only asks for it once its
      script has run. Asking here starts the download alongside the script instead of after it. -->
 <link rel="preload" href="/docs-index.json" as="fetch" crossorigin>
+<link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- Every uploaded image (feed attachments, content images) is served
      straight off this blob storage origin, no CDN in front of it — this
      gets its DNS lookup + TLS handshake started before the first <img>

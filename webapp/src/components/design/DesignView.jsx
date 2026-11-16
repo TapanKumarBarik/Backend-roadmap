@@ -75,7 +75,7 @@ export default function DesignView() {
         <h1>Blueprint</h1>
         <p className="dz-lead">
           Hairlines on dotted drafting paper and one violet ink: it marks where you are, what is in progress, what needs you and
-          what is yours to act on. Headings and labels are in the monospace, the text in the serif. Everything below is drawn from the tokens in <code>tokens.css</code> and the components in{' '}
+          what is yours to act on. The interface and the text are in Inter, code in JetBrains Mono, and small labels in spaced capitals. Everything below is drawn from the tokens in <code>tokens.css</code> and the components in{' '}
           <code>components/ui</code>; change the theme from the top bar and it follows.
         </p>
       </header>
@@ -97,7 +97,7 @@ export default function DesignView() {
         ))}
       </Section>
 
-      <Section id="type" title="Type" note="System sans for the interface, a system serif for long-form reading, monospace for code. No web font is loaded.">
+      <Section id="type" title="Type" note="Inter for the interface and the text, JetBrains Mono for code, both served from the site. The serif is kept for articles people write.">
         <div className="dz-type">
           {TYPE.map((name) => (
             <div key={name} className="dz-type-row">
@@ -105,7 +105,7 @@ export default function DesignView() {
               <span style={{ fontSize: `var(${name})` }}>The route is the lesson</span>
             </div>
           ))}
-          <div className="dz-type-row"><code>--serif</code><span className="dz-serif">Long-form reading sits in a serif that every system already has.</span></div>
+          <div className="dz-type-row"><code>--serif</code><span className="dz-serif">Articles people write sit in a serif that every system already has.</span></div>
           <div className="dz-type-row"><code>--mono</code><span className="dz-mono">GET /api/blogs?tag=postgres</span></div>
         </div>
       </Section>

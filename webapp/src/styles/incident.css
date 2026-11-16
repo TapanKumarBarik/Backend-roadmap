@@ -81,13 +81,12 @@
   font-size: var(--text-sm);
   background: var(--bg-sunken);
   padding: 4px 10px;
-  border-radius: var(--r-full);
+  border-radius: var(--r-pill);
   border: 1px solid var(--border);
 }
 
-.inc-streak-flame {
-  font-size: 15px;
-}
+.inc-streak-flame { width: 15px; height: 15px; flex: none; color: var(--reward-strong); }
+.inc-pill__icon, .inc-shield-icon { width: 1em; height: 1em; flex: none; vertical-align: -0.125em; }
 
 .inc-shield-pill {
   font-size: 11px;
@@ -95,7 +94,7 @@
   color: var(--signal);
   background: var(--signal-bg);
   padding: 1px 6px;
-  border-radius: var(--r-full);
+  border-radius: var(--r-pill);
   border: 1px solid var(--signal-line);
 }
 

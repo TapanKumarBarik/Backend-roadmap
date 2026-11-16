@@ -1,6 +1,6 @@
 # Design system
 
-The look of the site is one system, called **Blueprint**: hairlines on dotted drafting paper and **one violet ink**, which marks where you are, what is in progress, what needs you and what is yours to act on (a link, a page's own title, the selected row, a primary button). Headings and labels are set in the monospace and in capitals (`--display`), the text of a lesson in the serif; `styles/voice.css` is that layer over the tokens, and deleting it (and its import in `main.jsx`) takes the voice off without touching the colours. It is drawn from design tokens and a small set of shared components, and `/#__design` shows all of them, from the real code, in whichever theme you are using.
+The look of the site is one system, called **Blueprint**: hairlines on dotted drafting paper and **one violet ink**, which marks where you are, what is in progress, what needs you and what is yours to act on (a link, a page's own title, the selected row, a primary button). The type is two faces served from the site itself (`webapp/public/fonts`, with their licences): **Inter** for the interface, the headings and the text of a lesson, and **JetBrains Mono** for code. Small section labels are Inter in spaced capitals (`--display`); the serif is kept for articles people write. `styles/voice.css` is the reading layer over the tokens (headings, measure, lesson text). It is drawn from design tokens and a small set of shared components, and `/#__design` shows all of them, from the real code, in whichever theme you are using.
 
 This page is for whoever changes the interface. The plan it belongs to is [MODERNIZATION.md](MODERNIZATION.md).
 
@@ -16,7 +16,7 @@ Every colour, size, space, radius, shadow, layer and timing is a CSS custom prop
 | State | `--signal`, `--signal-bg`, `--signal-line`, `--on-signal`, `--done`, `--danger` | `--on-signal` is the text colour on a solid signal fill |
 | Links | `--link`, `--link-visited` | violet, like the rest of the ink; visited links are a plum |
 | Reward | `--reward` (fills), `--reward-strong` (a flame, an outline: 3:1 on every surface), `--reward-ink` (the only one for text), `--reward-bg`, `--reward-line`, `--on-reward` (text on a solid `--reward`) | the amber of the logo's dot, **only ever for what the reader has earned**: XP, a streak, a badge, a capstone. Never for "look here" (that is the violet) |
-| Type | `--sans`, `--serif`, `--mono`; `--text-2xs` to `--text-4xl`; `--leading-*`; `--weight-*` | the serif is for long-form reading and is a system stack: no web font is loaded |
+| Type | `--sans` (Inter), `--mono` (JetBrains Mono), `--display` (labels: the sans in spaced capitals), `--serif` (community articles); `--text-2xs` to `--text-4xl`; `--leading-*`; `--weight-*` | variable `woff2` files, one per subset, `font-display: swap`; the latin Inter file is preloaded. Set tabular figures only on numbers that line up: on running text Inter's tabular set widens the hyphen |
 | Space | `--space-1` to `--space-16` | a 4px grid |
 | Shape | `--r-sm`, `--r-md`, `--r-lg`, `--r-pill`; `--shadow-sm`, `--shadow-md`, `--shadow-lg` | control, card and dialog are three different radii, on purpose |
 | Layers | `--z-rail` < `--z-topbar` < `--z-drawer` < `--z-menu` < `--z-dialog` < `--z-toast` < `--z-palette` | a new overlay takes a place in this list, not a number |

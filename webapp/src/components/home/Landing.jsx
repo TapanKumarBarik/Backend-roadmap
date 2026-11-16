@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { ArrowRightIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
+import { ArrowRightIcon, SearchIcon, YoutubeIcon, FlameIcon, TrophyIcon } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
 import VideoCard from '../videos/VideoCard.jsx';
@@ -70,7 +70,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
             {heroPath
               ? <a className="lp-btn" {...startLink(heroPath)}>{HERO.startLabel}</a>
               : <a className="lp-btn" {...link(startFile)}>{HERO.startLabel}</a>}
-            <button type="button" className="lp-btn" onClick={onDismiss}>{HERO.browseLabel}</button>
+            <button type="button" className="lp-btn lp-btn-quiet" onClick={onDismiss}>{HERO.browseLabel}</button>
           </div>
           <button type="button" className="lp-search" onClick={onOpenPalette}>
             <SearchIcon />
@@ -103,7 +103,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
           </div>
           <div className="lp-incident-main">
             <div className="lp-incident-content">
-              <h3>🔥 Daily Incident Challenge: Real-World Triage &amp; Post-Mortems</h3>
+              <h3><FlameIcon className="lp-incident-flame" aria-hidden="true" /> Daily Incident Challenge: Real-World Triage &amp; Post-Mortems</h3>
               <p>Step into an active on-call rotation. Triage telemetry logs, diagnose cascading failures, determine the root cause, and maintain your architectural streak.</p>
             </div>
             <div className="lp-incident-action">
@@ -134,7 +134,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
                 <p>{p.goal}</p>
                 {p.milestone && (
                   <div className="lp-milestone-box">
-                    <span className="lp-milestone-label">🏆 Capstone Milestone:</span>
+                    <span className="lp-milestone-label"><TrophyIcon className="milestone-trophy" aria-hidden="true" /> Capstone Milestone:</span>
                     <strong className="lp-milestone-title">{p.milestone.title}</strong>
                     <p className="lp-milestone-desc">{p.milestone.description}</p>
                   </div>

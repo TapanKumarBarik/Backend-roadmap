@@ -5,7 +5,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  MailIcon, ClockIcon, YoutubeIcon
+  MailIcon, ClockIcon, YoutubeIcon, FlameIcon
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -63,7 +63,7 @@ export default function TopBar({
       {wide && mainNav && <MainNav items={mainNav} activeDest={activeDest} />}
       <button id="searchTrigger" onClick={() => onOpenPalette()} aria-label="Search modules and tags">
         <SearchIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
-        <span>Search modules &amp; tags…</span>
+        <span>Search…</span>
         <kbd>Ctrl K</kbd>
       </button>
       <div className="spacer" />
@@ -84,7 +84,7 @@ export default function TopBar({
         <span className="lbl">{pathProgress ? 'of path' : 'done'}</span>
         {streak && streak.currentStreak > 1 && (
           <span className="streak" title={`${streak.currentStreak}-day streak · longest ${streak.longestStreak}`}>
-            · 🔥 {streak.currentStreak}
+            · <FlameIcon className="streak-flame" aria-hidden="true" /> {streak.currentStreak}
           </span>
         )}
       </button>
@@ -98,7 +98,7 @@ export default function TopBar({
           title="Daily Incident: Live triage challenge · Earn streak & shields"
           aria-label="Daily Architectural Incident Challenge"
         >
-          <span className="inc-btn-flame" aria-hidden="true">🔥</span>
+          <FlameIcon className="inc-btn-flame" aria-hidden="true" />
           <span className="inc-btn-label">Daily Incident</span>
           {streak && streak.currentStreak > 0 && (
             <span className="inc-btn-streak">{streak.currentStreak}d</span>
@@ -127,7 +127,7 @@ export default function TopBar({
           <MenuHeader>
             <strong>{user.name || user.email}</strong>
             {user.name && <span>{user.email}</span>}
-            {streak && streak.currentStreak > 1 && <span>🔥 {streak.currentStreak}-day streak</span>}
+            {streak && streak.currentStreak > 1 && <span className="menu-streak"><FlameIcon className="streak-flame" aria-hidden="true" /> {streak.currentStreak}-day streak</span>}
           </MenuHeader>
           {activity && activity.items.length > 0 && (
             <>

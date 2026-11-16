@@ -52,9 +52,8 @@
   color: var(--fg-muted);
 }
 
-#content, #toc, .row .name {
-  font-variant-numeric: tabular-nums;
-}
+/* Tabular figures are set where numbers line up (counts, timers, the cells of a table of figures), not on whole blocks of text: in the
+   interface face they also widen the hyphen, so every "Multi-Language" in a lesson, the outline and the sidebar read as "Multi - Language". */
 
 /* Modern, high-legibility sans-serif for curriculum reading */
 #content :is(p, li, blockquote) {

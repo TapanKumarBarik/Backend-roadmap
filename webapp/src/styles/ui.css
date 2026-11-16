@@ -116,7 +116,7 @@
 
 /* ---------- dialog ---------- */
 :is(#root, #overlays) .ui-dialog-host { position: fixed; inset: 0; z-index: var(--z-dialog); display: grid; place-items: center; padding: var(--space-4); }
-:is(#root, #overlays) .ui-scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; transition: opacity var(--dur-base) var(--ease-out); }
+:is(#root, #overlays) .ui-scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; transition: opacity var(--dur-base) var(--ease-out); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 :is(#root, #overlays) .ui-dialog-host[data-state="open"] .ui-scrim { opacity: 1; }
 :is(#root, #overlays) .ui-dialog {
   position: relative; display: flex; flex-direction: column; gap: var(--space-3); width: 100%; max-width: 520px;

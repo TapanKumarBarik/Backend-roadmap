@@ -18,13 +18,17 @@
 
 .lp-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 12px 20px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg-raised);
-  color: var(--fg); font: inherit; font-size: 15px; font-weight: 600; line-height: 1.2; cursor: pointer; box-shadow: var(--shadow-sm);
+  padding: 12px 18px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg-raised);
+  color: var(--fg); font: inherit; font-size: 14.5px; font-weight: 600; line-height: 1.2; cursor: pointer; box-shadow: var(--shadow-sm);
 }
 .lp-btn:hover { border-color: var(--fg-subtle); }
 .lp-btn svg { width: 14px; height: 14px; flex: none; }
 .lp-btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .lp-btn-primary:hover { border-color: var(--accent); opacity: .9; }
+/* The third, quietest way in: no box, so the hero has one primary action, one secondary and a text-weight third. */
+.lp-btn-quiet { padding-inline: 12px; border-color: transparent; background: transparent; box-shadow: none; color: var(--fg-muted); }
+.lp-btn-quiet:hover { border-color: transparent; background: var(--hover); color: var(--fg); }
+.lp-incident-flame { width: .95em; height: .95em; vertical-align: -0.1em; color: var(--reward-strong); }
 .lp-btn:focus-visible, .lp-search:focus-visible, .lp-link:focus-visible, .lp-fresh-item:focus-visible, .lp-route a:focus-visible {
   outline: 2px solid var(--link); outline-offset: 2px;
 }
@@ -168,7 +172,7 @@
 .lp-card--flagship:hover { border-color: var(--fg-subtle); box-shadow: var(--shadow-md); }
 .lp-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .lp-topic { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--signal); }
-.lp-flagship-pill { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: var(--r-full); background: var(--signal-bg); color: var(--signal); border: 1px solid var(--signal-line); }
+.lp-flagship-pill { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: var(--r-pill); background: var(--signal-bg); color: var(--signal); border: 1px solid var(--signal-line); }
 .lp-card h3 { margin: 0 0 8px; font-size: 19px; line-height: 1.25; letter-spacing: -.012em; }
 .lp-card p { margin: 0 0 14px; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
 

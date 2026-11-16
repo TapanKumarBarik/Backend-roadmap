@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Dialog } from '../ui/Dialog.jsx';
 import { Button } from '../ui/Button.jsx';
 import ContentMarkdown from '../practice/ContentMarkdown.jsx';
+import { FlameIcon, ShieldIcon, WarningIcon } from '../common/icons.jsx';
 import { fetchDailyIncident, submitDailyIncidentAttempt } from '../../lib/practiceApi.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import '../../styles/incident.css';
@@ -91,17 +92,17 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
             <div className="inc-header-bar">
               <div className="inc-header-meta">
                 <span className={`inc-pill inc-pill--${(incident.severity || 'P1').toLowerCase()}`}>
-                  🚨 {incident.severity} ALERT
+                  <WarningIcon className="inc-pill__icon" aria-hidden="true" /> {incident.severity} ALERT
                 </span>
                 <span className="inc-svc-name">{incident.serviceName}</span>
               </div>
               {streak && (
                 <div className="inc-streak-badge">
-                  <span className="inc-streak-flame" role="img" aria-label="streak flame">🔥</span>
+                  <FlameIcon className="inc-streak-flame" role="img" aria-label="Streak" />
                   <strong>{streak.current} {streak.current === 1 ? 'Day' : 'Days'}</strong>
                   {streak.shields > 0 && (
                     <span className="inc-shield-pill" title="Streak Shield protects against 1 missed day">
-                      🛡 {streak.shields}
+                      <ShieldIcon className="inc-shield-icon" aria-hidden="true" /> {streak.shields}
                     </span>
                   )}
                 </div>
@@ -171,7 +172,7 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
             {/* Shield Notification */}
             {result?.streak?.shieldUsed && (
               <div className="inc-shield-alert">
-                🛡 <strong>Streak Shield Activated!</strong> You missed yesterday, but your shield absorbed the break and protected your {result.streak.current}-day streak!
+                <ShieldIcon className="inc-shield-icon" aria-hidden="true" /> <strong>Streak Shield Activated!</strong> You missed yesterday, but your shield absorbed the break and protected your {result.streak.current}-day streak!
               </div>
             )}
 

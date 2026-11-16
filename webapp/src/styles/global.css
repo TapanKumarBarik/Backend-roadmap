@@ -119,9 +119,10 @@ kbd {
   border-color: #ef4444;
   color: var(--fg);
 }
-.topbar-incident-btn .inc-btn-flame {
-  font-size: 13px;
-}
+.topbar-incident-btn .inc-btn-flame { width: 14px; height: 14px; flex: none; color: var(--reward-strong); }
+/* The flame and the trophy that replaced emoji in a line of text: the height of the text, on its baseline, in the amber of what was earned. */
+.streak-flame, .milestone-trophy { width: 1em; height: 1em; flex: none; vertical-align: -0.125em; color: var(--reward-strong); }
+.menu-streak { display: inline-flex; align-items: center; gap: 4px; }
 .topbar-incident-btn .inc-btn-streak {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
@@ -338,14 +339,15 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 
 /* tags */
 #tagRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 14px; }
+/* A lesson's tags: soft pills in the interface face. They were bordered monospace boxes, one more voice and one more frame on a page full of them. */
 .tag {
-  font-size: 11.5px; font-family: var(--mono); line-height: 1;
-  padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--r-sm);
-  background: var(--bg); color: var(--fg-muted); white-space: nowrap;
+  font-size: 12px; font-family: var(--sans); font-weight: 500; line-height: 1;
+  padding: 5px 10px; border: 1px solid transparent; border-radius: var(--r-pill);
+  background: var(--bg-sunken); color: var(--fg-muted); white-space: nowrap;
 }
-.tag:hover { border-color: var(--fg); color: var(--fg); background: var(--hover); }
+.tag:hover { color: var(--signal); background: var(--signal-bg); }
 .tag .hash { color: var(--fg-subtle); }
-.tag-more { color: var(--fg-subtle); border-style: dashed; }
+.tag-more { color: var(--fg-subtle); background: transparent; border: 1px dashed var(--border); }
 .pal-tags { display: flex; gap: 4px; flex-shrink: 0; max-width: 42%; overflow: hidden; }
 .pal-tags .tag { font-size: 10.5px; padding: 2px 6px; pointer-events: none; }
 #tagCloud { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -2892,5 +2894,5 @@ li[data-checked="true"] > div {
 .mainnav-link .activity-dot { position: static; margin-left: 2px; }
 .brand span { white-space: nowrap; }
 /* With the links in the bar the search box keeps a usable width, and the progress pill gives up its word before the search box gives up its room. */
-#mainNav ~ #searchTrigger { min-width: 112px; }
+#mainNav ~ #searchTrigger { min-width: 160px; }
 @media (max-width: 1340px) { #mainNav ~ #globalStat .lbl { display: none; } }

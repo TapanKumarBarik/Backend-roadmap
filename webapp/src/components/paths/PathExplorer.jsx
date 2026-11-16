@@ -6,7 +6,7 @@ import { DIFFICULTY } from '../../config/practice.js';
 import { ChoiceChip } from '../ui/Chip.jsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
-import { SearchIcon, ArrowRightIcon } from '../common/icons.jsx';
+import { SearchIcon, ArrowRightIcon, TrophyIcon } from '../common/icons.jsx';
 import '../../styles/explore.css';
 
 // Learning paths, searchable and filterable by domain and difficulty.
@@ -104,7 +104,7 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
                 {p.milestone && (
                   <div className="explore-milestone-box">
                     <div className="explore-milestone-header">
-                      <span>🏆 Capstone Milestone:</span>
+                      <span><TrophyIcon className="milestone-trophy" aria-hidden="true" /> Capstone Milestone:</span>
                     </div>
                     <strong className="explore-milestone-title">{p.milestone.title}</strong>
                     {p.milestone.description && (

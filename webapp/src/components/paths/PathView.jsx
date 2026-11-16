@@ -7,6 +7,7 @@ import { formatDuration } from '../../config/paths.js';
 import { DIFFICULTY } from '../../config/practice.js';
 import { Button } from '../ui/Button.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
+import { TrophyIcon } from '../common/icons.jsx';
 import '../../styles/practice.css';
 
 // One learning path: what it is for and who for, what to know first, the skills it covers, the curriculum step by step with a
@@ -53,7 +54,7 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
 
       {path.milestone && (
         <section className="path-milestone-banner" aria-label="Capstone milestone project">
-          <div className="path-milestone-badge">🏆 Track Capstone Milestone</div>
+          <div className="path-milestone-badge"><TrophyIcon className="milestone-trophy" aria-hidden="true" /> Track Capstone Milestone</div>
           <h3 className="path-milestone-title">{path.milestone.title}</h3>
           <p className="path-milestone-desc">{path.milestone.description}</p>
           {path.milestone.deliverables?.length > 0 && (
