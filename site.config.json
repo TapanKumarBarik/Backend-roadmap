@@ -242,7 +242,8 @@
               "14-inference-and-serving-vllm",
               "15-evaluation-observability-and-safety",
               "18-evaluation-harnesses-and-benchmarks",
-              "16-speech-and-multimodal-models"
+              "16-speech-and-multimodal-models",
+              "19-vision-language-models-in-practice"
             ]
           }
         ]
