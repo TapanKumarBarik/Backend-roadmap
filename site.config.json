@@ -34,7 +34,10 @@
     "email": "tapankumarbarik7@gmail.com",
     "linkedin": "https://www.linkedin.com/in/tapan-barik-7b896a171/",
     "github": "https://github.com/TapanKumarBarik",
-    "photo": "/about-photo.jpg"
+    "photo": "/about-photo.jpg",
+    "photoWidth": 1470,
+    "photoHeight": 828,
+    "photoAlt": "Tapan Kumar Barik, in a blue shirt, standing on a path in a park under tall trees on a sunny day"
   },
   "repo": {
     "owner": "TapanKumarBarik",
