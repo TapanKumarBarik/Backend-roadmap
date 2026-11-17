@@ -63,6 +63,28 @@ test('the calculator shows the block, in binary, with the working, and says what
   await context.close();
 });
 
+// The results are a row of label and value that shares its width. A value that was allowed to break anywhere was squeezed to a single character, and the page showed
+// "192.168.1.12" with an "8" on the line below: every stylesheet rule was there, and the page still looked broken. So the values are measured, at the widths of a
+// desktop, a tablet and a phone: an address stays on one line, and the page does not scroll sideways.
+test('no address in the results is broken across lines, on a wide screen or a phone, and the page does not scroll sideways', async () => {
+  for (const width of [1280, 1000, 700, 390]) {
+    const { context, page, goto } = await open(SUBNET, { withCsp: true, width, height: 800 });
+    await goto();
+    await page.locator('#calc-out dd').first().waitFor();
+    const look = await page.evaluate(() => ({
+      split: [...document.querySelectorAll('#calc-out dd')].filter((dd) => {
+        const range = document.createRange();
+        range.selectNodeContents(dd);
+        return /^\d+\.\d+\.\d+\.\d+$/.test(dd.textContent) && new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size > 1;
+      }).map((dd) => dd.textContent),
+      sideways: document.documentElement.scrollWidth > window.innerWidth
+    }));
+    assert.deepEqual(look.split, [], `at ${width}px wide an address is split over two lines`);
+    assert.equal(look.sideways, false, `at ${width}px wide the page scrolls sideways`);
+    await context.close();
+  }
+});
+
 test('the puzzle of the day: ten questions, each with its working, a score, a streak that is kept, and a result to share', async () => {
   const { context, page, goto } = await open(SUBNET, { withCsp: true });
   await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
