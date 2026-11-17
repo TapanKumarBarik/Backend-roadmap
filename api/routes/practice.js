@@ -18,6 +18,8 @@ import game from '../../game.config.json' with { type: 'json' };
 import { pickDrill, questionKey } from '../../webapp/src/lib/practice/drill.js';
 import { pickProblems, pickQuestions } from '../../webapp/src/lib/practice/picks.js';
 import { dayFromName, dayName, dayNumber } from '../../webapp/src/lib/practice/days.js';
+import { suitsCards } from '../../webapp/src/lib/practice/cards.js';
+import { CARDS } from '../../webapp/src/config/practice.js';
 import { timeId } from '../lib/util.js';
 import { safeImageSrc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
@@ -48,7 +50,7 @@ const card = (slug, item, extra = {}) => ({ slug, title: item.title, topic: item
 // Interview sets are of two sections: the concepts a backend interview asks about, and coding questions (an optional "section" in the file).
 const interviewCards = (section) => Object.entries(practice.interview)
   .filter(([, i]) => (/** @type {{ section?: string }} */ (i).section || 'concepts') === section)
-  .map(([slug, i]) => card(slug, i, { questions: i.questions.length }));
+  .map(([slug, i]) => card(slug, i, { questions: i.questions.length, cards: suitsCards(i.questions, CARDS.maxAnswerChars) })); // `cards`: its answers are short enough to study as flash cards
 
 // The study plans: a card for each (how many days and things to do), and the whole plan when one is opened. It is the same for everyone.
 const plansOf = () => /** @type {Record<string, any>} */ (practice.plans || {});

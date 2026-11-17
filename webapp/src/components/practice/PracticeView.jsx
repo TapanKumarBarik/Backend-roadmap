@@ -7,7 +7,7 @@ import { codeKey, drillKey } from '../../lib/practice/progressKeys.js';
 import { continueProblem, dailyProblem, drillsDone, filterGroups, groupByTopic, tally } from '../../lib/practice/codeProgress.js';
 import { dayName, dayNumber } from '../../lib/practice/days.js';
 import { useLoader } from '../../hooks/useLoader.js';
-import { DIFFICULTY, PRACTICE, RECOMMEND } from '../../config/practice.js';
+import { CARDS, DIFFICULTY, PRACTICE, RECOMMEND } from '../../config/practice.js';
 import { CODE_TOPICS, HUB } from '../../config/code.js';
 import { GAME } from '../../config/game.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -202,6 +202,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
                       <span className="pr-badge">{DIFFICULTY[c.difficulty]}</span>
                       <span>{c.topic}</span>
                       {c.questions != null && <span>{c.questions} questions</span>}
+                      {c.cards && <span className="pr-tag">{CARDS.tag}</span>}
                       {c.days != null && <span>{TOOLS.planDays(c.days)}</span>}
                       {tab === 'quizzes' && best[c.slug] && <span className="pr-best">Best {best[c.slug].score}/{best[c.slug].max}</span>}
                       {tab === 'quizzes' && best[c.slug] && best[c.slug].score === best[c.slug].max && <span className="pr-done">{RECOMMEND.perfect}</span>}

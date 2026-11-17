@@ -29,6 +29,33 @@ export const INTERVIEW = {
   questions: (n) => `${n} questions`
 };
 
+// An interview set as flash cards (lib/practice/cards.js, components/practice/CardDeck.jsx): the question on the front, the model answer on the back. Only a set
+// whose answers are short enough to sit on a card is offered them; a set of coding questions, with worked solutions and code, is read as a list.
+export const CARDS = {
+  maxAnswerChars: 700,
+  modeLabel: 'How to study this set',
+  modes: [{ id: 'list', label: 'List' }, { id: 'cards', label: 'Flash cards' }],
+  lead: 'Read the question and say your answer out loud, then flip the card. A card you mark "Not yet" comes back before the deck is done.',
+  tag: 'Flash cards', // on a set in the list that can be studied as cards
+  deckLabel: 'Flash cards',
+  front: 'Question',
+  back: 'Answer',
+  flip: 'Show the answer',
+  hint: 'You can also click the card.',
+  again: 'Not yet',
+  gotIt: 'Got it',
+  keys: 'Keys: Space shows the answer, then the left arrow is Not yet and the right arrow is Got it.',
+  left: (n) => `${n} left`,
+  gotCount: (done, total) => `${done} of ${total} got`,
+  progressLabel: 'Cards got',
+  restart: 'Shuffle and start again',
+  finished: 'You have got every card',
+  finishedClean: (n) => (n === 1 ? 'That card did not need a second go.' : `All ${n} cards, and none needed a second go.`),
+  finishedMissed: (n) => (n === 1 ? 'One card needed another go:' : `${n} cards needed another go:`),
+  retryMissed: (n) => (n === 1 ? 'Practise the one I missed' : `Practise the ${n} I missed`),
+  all: 'Go through all of them again'
+};
+
 // Taking a quiz. A timed try gets this many seconds for each question, and is scored when the time is up.
 export const QUIZ = {
   secondsPerQuestion: 60,

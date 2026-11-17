@@ -158,6 +158,99 @@ test('coding questions have their own tab: a set shows its questions, and a work
   await context.close();
 });
 
+test('an interview set with short answers can be studied as flash cards: a click turns the card, "Not yet" brings it back, and the deck ends when every card is got', async () => {
+  const set = practiceContent.interview.caching;
+  const { context, page, problems, goto } = await open('/#__practice@interview/caching', { email: null });
+  await goto();
+  await page.locator('.pr-qa').first().waitFor();
+  const modes = page.getByRole('group', { name: 'How to study this set' });
+  assert.equal(await modes.getByRole('button', { name: 'List' }).getAttribute('aria-pressed'), 'true', 'the list is how a set opens');
+  assert.equal(await page.locator('.cd').count(), 0);
+
+  await modes.getByRole('button', { name: 'Flash cards' }).click();
+  await page.locator('.cd-card').waitFor();
+  assert.equal(await page.locator('.pr-qa').count(), 0, 'the list is replaced by the deck');
+  assert.equal(await page.locator('.pr-progress__text').innerText(), `${set.questions.length} left · 0 of ${set.questions.length} got`);
+  assert.equal(await page.locator('.cd-face--back').getAttribute('aria-hidden'), 'true', 'the answer is hidden from a screen reader until the card is turned');
+  assert.equal(await page.locator('.cd-face--back').getAttribute('inert'), '', 'and cannot be reached with the keyboard');
+
+  // A click on the card turns it: the answer is the model answer to that question, and the reader is taken to it.
+  const front = await page.locator('.cd-face--front .cd-text').innerText();
+  const card = set.questions.find((q) => q.q === front);
+  assert.ok(card, 'the card shows one of the questions of the set');
+  await page.locator('.cd-card').click();
+  await page.locator('.cd-card.is-flipped').waitFor();
+  assert.equal((await page.locator('.cd-face--back .cd-answer').innerText()).trim(), card.a);
+  assert.equal(await page.evaluate(() => document.activeElement.className), 'cd-answer', 'focus is on the answer so it is read out');
+  assert.equal(await page.locator('.cd-face--front').getAttribute('aria-hidden'), 'true', 'the question side is now the hidden one');
+
+  // "Not yet" (the left arrow) sends it to the back: nothing is got, and it is not the next card (the set has more than one).
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction((was) => document.querySelector('.cd-face--front .cd-text')?.textContent !== was, front);
+  assert.equal(await page.locator('.pr-progress__text').innerText(), `${set.questions.length} left · 0 of ${set.questions.length} got`);
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Show the answer', 'focus is on the button for the next card');
+
+  // The rest are got from the keyboard alone: Enter turns the card, the right arrow marks it. The missed one comes back before the end.
+  const seen = [];
+  for (let i = 0; i < set.questions.length + 2 && !(await page.locator('.cd-done').count()); i++) {
+    seen.push(await page.locator('.cd-face--front .cd-text').innerText());
+    await page.keyboard.press('Enter');
+    await page.locator('.cd-card.is-flipped').waitFor();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.querySelector('.cd-done') || !document.querySelector('.cd-card.is-flipped'));
+  }
+  assert.ok(seen.includes(front), 'the card that was not got came back');
+  assert.equal(seen.length, set.questions.length, 'each of the others was got once, and the missed card came again');
+  await page.locator('.cd-done').waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.className), 'cd-done', 'focus is on the result');
+  assert.equal(await page.locator('.cd-done h3').innerText(), 'You have got every card');
+  assert.match(await page.locator('.cd-done').innerText(), /One card needed another go/);
+  assert.deepEqual(await page.locator('.cd-done li').allInnerTexts(), [front], 'it names the card that needed another go');
+
+  // Practise the missed one: a deck of one, got at once, with nothing missed this time.
+  await page.getByRole('button', { name: 'Practise the one I missed' }).click();
+  await page.locator('.cd-card').waitFor();
+  assert.equal(await page.locator('.pr-progress__text').innerText(), '1 left · 0 of 1 got');
+  assert.equal(await page.locator('.cd-face--front .cd-text').innerText(), front);
+  await page.getByRole('button', { name: 'Show the answer' }).click();
+  await page.getByRole('button', { name: 'Got it' }).click();
+  await page.locator('.cd-done').waitFor();
+  assert.match(await page.locator('.cd-done').innerText(), /did not need a second go/);
+
+  // All of them again starts a whole deck, and the list is one click away.
+  await page.getByRole('button', { name: 'Go through all of them again' }).click();
+  await page.locator('.cd-card').waitFor();
+  assert.equal(await page.locator('.pr-progress__text').innerText(), `${set.questions.length} left · 0 of ${set.questions.length} got`);
+  await modes.getByRole('button', { name: 'List' }).click();
+  await page.locator('.pr-qa').waitFor();
+  assert.equal(await page.locator('.cd').count(), 0);
+  assert.deepEqual(real(problems), []);
+  await context.close();
+});
+
+test('flash cards are offered only for a set whose answers fit on a card: a set of coding questions, with worked solutions and code, stays a list', async () => {
+  const { context, page, problems, goto } = await open('/#__practice@interview/coding-arrays-and-hashing', { email: null });
+  await goto();
+  await page.locator('.pr-qa > li').first().waitFor();
+  assert.equal(await page.getByRole('group', { name: 'How to study this set' }).count(), 0, 'no switch');
+  assert.equal(await page.getByRole('button', { name: 'Flash cards' }).count(), 0);
+  assert.deepEqual(real(problems), []);
+  await context.close();
+});
+
+test('a deck turns its card with a motion only when the reader has not asked for less', async () => {
+  for (const [motion, expectTransition] of [['no-preference', true], ['reduce', false]]) {
+    const { context, page, goto } = await open('/#__practice@interview/caching', { email: null, motion });
+    await goto();
+    await page.getByRole('button', { name: 'Flash cards' }).click();
+    await page.locator('.cd-card').waitFor();
+    const duration = await page.locator('.cd-face--front').evaluate((el) => getComputedStyle(el).transitionDuration);
+    // (the site's own rule for reduced motion makes any transition last a millionth of a second, which is as good as none)
+    assert.equal(parseFloat(duration) > 0.1, expectTransition, `with motion "${motion}" the card transition is "${duration}"`);
+    await context.close();
+  }
+});
+
 test('My Learning shows what was done: a quiz try appears there, and a reader with nothing yet is pointed at where to start', async () => {
   const fresh = await open('/#__me');
   await fresh.goto();

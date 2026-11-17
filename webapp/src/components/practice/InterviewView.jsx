@@ -1,22 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchInterviewSet } from '../../lib/practiceApi.js';
+import { cardsOf, suitsCards } from '../../lib/practice/cards.js';
 import { useLoader } from '../../hooks/useLoader.js';
-import { DIFFICULTY, INTERVIEW } from '../../config/practice.js';
+import { CARDS, DIFFICULTY, INTERVIEW } from '../../config/practice.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
+import { ChoiceChip } from '../ui/Chip.jsx';
+import CardDeck from './CardDeck.jsx';
 import ContentMarkdown from './ContentMarkdown.jsx';
 import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 
+const [LIST, DECK] = CARDS.modes.map((mode) => mode.id);
+
 // Interview preparation: the questions interviews ask, with a model answer kept out of sight until you have tried to answer in your
-// own head or aloud. A set of coding questions has worked solutions, with code. Nothing here is graded or stored; it is rehearsal.
+// own head or aloud. A set of coding questions has worked solutions, with code. A set whose answers are short can also be studied as
+// flash cards (CardDeck). Nothing here is graded or stored; it is rehearsal.
 export default function InterviewView({ slug, onBack, onOpenFile, nodeByFile }) {
   const { data: set, error, reload } = useLoader(() => fetchInterviewSet(slug), [slug]);
   usePageTitle(set && set.title);
   const [shown, setShown] = useState({});
+  const [mode, setMode] = useState(LIST);
+  useEffect(() => { setMode(LIST); setShown({}); }, [slug]);
   const lesson = set && set.module && nodeByFile ? nodeByFile[set.module] : null;
   const words = INTERVIEW[set && set.section === 'coding' ? 'coding' : 'concepts'];
+  const cards = useMemo(() => (set && suitsCards(set.questions, CARDS.maxAnswerChars) ? cardsOf(set.questions) : null), [set]);
+  const asCards = cards && mode === DECK;
   return (
     <div id="empty" className="pr-screen">
       <button type="button" className="back-link" onClick={onBack}>← All practice</button>
@@ -27,17 +37,24 @@ export default function InterviewView({ slug, onBack, onOpenFile, nodeByFile }) 
           <h2>{words.heading(set.title)}</h2>
           <p className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[set.difficulty]}</span><span>{set.topic}</span><span>{INTERVIEW.questions(set.questions.length)}</span></p>
           {lesson && <p><a href={`/${set.module.replace(/README\.md$/, '')}`} onClick={(e) => { e.preventDefault(); onOpenFile(set.module); }}>Study the lesson: {lesson.title || lesson.name}</a></p>}
-          <p className="home-sub">{words.lead}</p>
-          <ol className="pr-qa">
-            {set.questions.map((q, i) => (
-              <li key={q.q}>
-                <h3>{q.q}</h3>
-                {shown[i]
-                  ? <div className="pr-explain"><ContentMarkdown text={q.a} /></div>
-                  : <Button size="sm" onClick={() => setShown((s) => ({ ...s, [i]: true }))}>{words.show}</Button>}
-              </li>
-            ))}
-          </ol>
+          <p className="home-sub">{asCards ? CARDS.lead : words.lead}</p>
+          {cards && (
+            <div className="pr-modes" role="group" aria-label={CARDS.modeLabel}>
+              {CARDS.modes.map((m) => <ChoiceChip key={m.id} selected={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</ChoiceChip>)}
+            </div>
+          )}
+          {asCards ? <CardDeck key={slug} cards={cards} /> : (
+            <ol className="pr-qa">
+              {set.questions.map((q, i) => (
+                <li key={q.q}>
+                  <h3>{q.q}</h3>
+                  {shown[i]
+                    ? <div className="pr-explain"><ContentMarkdown text={q.a} /></div>
+                    : <Button size="sm" onClick={() => setShown((s) => ({ ...s, [i]: true }))}>{words.show}</Button>}
+                </li>
+              ))}
+            </ol>
+          )}
         </>
       )}
     </div>

@@ -8,6 +8,7 @@ import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
 import { OWNER_EMAIL, createEnv, signedInAs } from './helpers.js';
 import practiceContent from '../generated/practice-content.json' with { type: 'json' };
 import game from '../../game.config.json' with { type: 'json' };
+import { CARDS } from '../../webapp/src/config/practice.js';
 
 let env;
 let ada;
@@ -51,6 +52,14 @@ test('the catalog lists everything, and nothing in it or in a quiz gives an answ
   assert.doesNotMatch(quiz.raw, /"answer"|"explanation"/, 'the answers are not sent with the questions');
   assert.equal(quiz.json.questions.find((q) => q.id === 'q3').choose, 'any');
   assert.equal((await call(null, 'GET', '/practice/quizzes/nope')).status, 404);
+});
+
+test('the catalog says which interview sets have answers short enough to study as flash cards, and no coding set does', async () => {
+  const { json } = await call(null, 'GET', '/practice/catalog');
+  const longest = (slug) => Math.max(...practiceContent.interview[slug].questions.map((q) => q.a.length));
+  for (const set of [...json.interview, ...json.coding]) assert.equal(set.cards, longest(set.slug) <= CARDS.maxAnswerChars, `${set.slug}: cards follows the length of its longest answer (${longest(set.slug)} characters)`);
+  assert.ok(json.interview.filter((set) => set.cards).length >= 5, 'most of the concept sets can be studied as cards');
+  assert.ok(json.coding.every((set) => !set.cards), 'a coding set has long worked solutions, so it stays a list');
 });
 
 test('coding problems are listed, served without their solution, and the solution comes from a route of its own', async () => {

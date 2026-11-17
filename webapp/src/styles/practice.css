@@ -185,3 +185,40 @@
 .pr-content-editor { display: grid; gap: var(--space-3); }
 .pr-content-editor__new { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
 .pr-problems { margin: 0; padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6); border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+
+/* Flash cards on an interview set (components/practice/CardDeck.jsx). The two faces share one grid cell, so the card is as tall as the longer of them; it turns
+   over on the Y axis (an instant swap when the reader asks for less motion). */
+.pr-tag { color: var(--signal); font-weight: var(--weight-semibold); }
+.pr-modes { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-4) 0 var(--space-2); }
+.cd { max-width: 680px; margin: var(--space-4) 0 var(--space-6); }
+.cd-progress { margin-top: 0; }
+.cd-card { display: grid; perspective: 1400px; margin: var(--space-4) 0; cursor: pointer; }
+.cd-face { grid-area: 1 / 1; box-sizing: border-box; min-height: 240px; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-md); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.cd-face--back { background: var(--signal-bg); border-color: var(--signal-line); transform: rotateY(180deg); }
+.cd-card.is-flipped .cd-face--front { transform: rotateY(-180deg); }
+.cd-card.is-flipped .cd-face--back { transform: rotateY(0deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .cd-face { transition: transform var(--dur-slow) var(--ease-out); }
+  .cd-card { animation: cd-in var(--dur-base) var(--ease-out); }
+}
+@keyframes cd-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+#root .cd-label { margin: 0; line-height: var(--leading-snug); font-size: var(--text-2xs); font-weight: var(--weight-semibold); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle); }
+#root .cd-text { margin: auto 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); line-height: var(--leading-snug); color: var(--fg); }
+#root .cd-hint { margin: 0; font-size: var(--text-xs); line-height: var(--leading-snug); color: var(--fg-subtle); }
+.cd-answer { margin: auto 0; font-size: var(--text-base); line-height: var(--leading-normal); color: var(--fg); }
+#root .cd-answer .post-body { font-family: inherit; font-size: inherit; line-height: inherit; }
+#root .cd-answer p { margin: 0 0 var(--space-3); color: var(--fg); line-height: var(--leading-normal); }
+.cd-answer:focus { outline: none; }
+.cd-answer:focus-visible { outline: 2px solid var(--signal); outline-offset: 6px; border-radius: var(--r-sm); }
+#root .cd-answer .post-body > :first-child { margin-top: 0; }
+#root .cd-answer .post-body > :last-child { margin-bottom: 0; }
+.cd-actions { margin-top: 0; }
+.cd-restart { margin-left: auto; }
+#root .cd-keys { margin: var(--space-3) 0 0; }
+@media (hover: none) { .cd-keys { display: none; } }
+.cd-done { margin: var(--space-4) 0; padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); }
+.cd-done:focus { outline: none; }
+#root .cd-done h3 { margin: 0 0 var(--space-2); }
+#root .cd-done p { margin: 0 0 var(--space-2); line-height: var(--leading-normal); color: var(--fg-muted); }
+.cd-done ul { margin: 0 0 var(--space-2); padding-left: 1.2em; display: grid; gap: var(--space-1); line-height: var(--leading-snug); }
+@media (max-width: 600px) { .cd-face { min-height: 200px; padding: var(--space-5); } #root .cd-text { font-size: var(--text-lg); } }
