@@ -31,7 +31,7 @@ and an item is tied to the lesson that teaches it where there is one.
   both are at `/practice/interview/<slug>/`, and both are public FAQ pages (with `FAQPage` data) because the answers are there to be read.
   **Flash cards:** a set whose every answer is at most `CARDS.maxAnswerChars` characters (`webapp/src/config/practice.js`, 700) can also be studied as flash cards, a
   *List | Flash cards* switch on its page and a *Flash cards* tag in the list (the catalog says so with `cards: true`). Nothing is written for it: the question is the front and
-  the answer the back. A card marked *Not yet* comes back before the deck is done; nothing is kept between visits (`lib/practice/cards.js`, `components/practice/CardDeck.jsx`).
+  the answer the back. A card marked *Not yet* comes back before the deck is done; nothing is kept between visits (`lib/practice/cards.js` and `deck.js`, `components/practice/CardDeck.jsx`).
   Coding sets, with worked solutions and code, stay a list.
 
 ## What is public, and what is not

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchInterviewSet } from '../../lib/practiceApi.js';
 import { cardsOf, suitsCards } from '../../lib/practice/cards.js';
@@ -7,10 +7,12 @@ import { CARDS, DIFFICULTY, INTERVIEW } from '../../config/practice.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
 import { ChoiceChip } from '../ui/Chip.jsx';
-import CardDeck from './CardDeck.jsx';
 import ContentMarkdown from './ContentMarkdown.jsx';
 import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
+
+// The deck is its own chunk: it is wanted only by a reader who switches to Flash cards, and the Practice screen's first download stays small.
+const CardDeck = lazy(() => import('./CardDeck.jsx'));
 
 const [LIST, DECK] = CARDS.modes.map((mode) => mode.id);
 
@@ -43,7 +45,7 @@ export default function InterviewView({ slug, onBack, onOpenFile, nodeByFile }) 
               {CARDS.modes.map((m) => <ChoiceChip key={m.id} selected={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</ChoiceChip>)}
             </div>
           )}
-          {asCards ? <CardDeck key={slug} cards={cards} /> : (
+          {asCards ? <Suspense fallback={<Loading />}><CardDeck key={slug} cards={cards} /></Suspense> : (
             <ol className="pr-qa">
               {set.questions.map((q, i) => (
                 <li key={q.q}>

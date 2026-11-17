@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { CARDS } from '../../config/practice.js';
-import { isFinished, mark, missedCards, progressOf, startDeck, topCard } from '../../lib/practice/cards.js';
+import { DECK } from '../../config/cards.js';
+import { isFinished, mark, missedCards, progressOf, startDeck, topCard } from '../../lib/practice/deck.js';
 import { Button } from '../ui/Button.jsx';
 import ContentMarkdown from './ContentMarkdown.jsx';
 
 const freshSeed = () => Math.floor(Math.random() * 2 ** 32);
 
-// Flash cards for a set of interview questions (lib/practice/cards.js): the question on a card, and a click on the card (or Space) turns it over to the model
+// Flash cards for a set of interview questions (lib/practice/deck.js): the question on a card, and a click on the card (or Space) turns it over to the model
 // answer. The reader says which they got: a card marked "Not yet" goes to the back and comes again, so the deck ends when every card has been got. Nothing is
 // kept, it is rehearsal. The answer is read out when the card turns (focus moves to it); the arrow keys mark it, so a deck can be run without the mouse.
 // `cards` is [{ key, front, back }] (lib/practice/cards.js cardsOf); the back is markdown.
@@ -45,26 +45,26 @@ export default function CardDeck({ cards }) {
   };
 
   return (
-    <section className="cd" aria-label={CARDS.deckLabel} onKeyDown={onKeyDown}>
+    <section className="cd" aria-label={DECK.label} onKeyDown={onKeyDown}>
       <div className="pr-progress cd-progress">
-        <p className="pr-progress__text">{finished ? CARDS.gotCount(stats.done, stats.total) : `${CARDS.left(stats.left)} · ${CARDS.gotCount(stats.done, stats.total)}`}</p>
-        <div className="pr-progress__bar" role="progressbar" aria-label={CARDS.progressLabel} aria-valuemin={0} aria-valuemax={stats.total} aria-valuenow={stats.done}>
+        <p className="pr-progress__text">{finished ? DECK.gotCount(stats.done, stats.total) : `${DECK.left(stats.left)} · ${DECK.gotCount(stats.done, stats.total)}`}</p>
+        <div className="pr-progress__bar" role="progressbar" aria-label={DECK.progressLabel} aria-valuemin={0} aria-valuemax={stats.total} aria-valuenow={stats.done}>
           <span style={{ width: `${stats.total ? (stats.done / stats.total) * 100 : 0}%` }} />
         </div>
       </div>
 
       {finished ? (
         <div className="cd-done" tabIndex={-1} ref={done}>
-          <h3>{CARDS.finished}</h3>
-          {missed.length === 0 ? <p>{CARDS.finishedClean(stats.total)}</p> : (
+          <h3>{DECK.finished}</h3>
+          {missed.length === 0 ? <p>{DECK.finishedClean(stats.total)}</p> : (
             <>
-              <p>{CARDS.finishedMissed(missed.length)}</p>
+              <p>{DECK.finishedMissed(missed.length)}</p>
               <ul>{missed.map((c) => <li key={c.key}>{c.front}</li>)}</ul>
             </>
           )}
           <div className="pr-actions">
-            {missed.length > 0 && <Button variant="primary" onClick={() => begin(startDeck(missed, freshSeed()))}>{CARDS.retryMissed(missed.length)}</Button>}
-            <Button variant={missed.length > 0 ? 'secondary' : 'primary'} onClick={() => begin(startDeck(cards, freshSeed()))}>{CARDS.all}</Button>
+            {missed.length > 0 && <Button variant="primary" onClick={() => begin(startDeck(missed, freshSeed()))}>{DECK.retryMissed(missed.length)}</Button>}
+            <Button variant={missed.length > 0 ? 'secondary' : 'primary'} onClick={() => begin(startDeck(cards, freshSeed()))}>{DECK.all}</Button>
           </div>
         </div>
       ) : (
@@ -73,13 +73,13 @@ export default function CardDeck({ cards }) {
           {/* A new card is a new element (the key), so the one before is not seen turning back with the next answer on it. */}
           <div key={`${card.key}-${turn}`} className={flipped ? 'cd-card is-flipped' : 'cd-card'} onClick={() => setFlipped(true)}>
             <div className="cd-face cd-face--front" aria-hidden={flipped || undefined} inert={flipped ? '' : undefined}>
-              <p className="cd-label">{CARDS.front}</p>
+              <p className="cd-label">{DECK.front}</p>
               <p className="cd-text">{card.front}</p>
-              <p className="cd-hint">{CARDS.hint}</p>
+              <p className="cd-hint">{DECK.hint}</p>
             </div>
             <div className="cd-face cd-face--back" aria-hidden={!flipped || undefined} inert={flipped ? undefined : ''}>
-              <p className="cd-label">{CARDS.back}</p>
-              <div className="cd-answer" tabIndex={-1} ref={answer} aria-label={CARDS.back} role="group">
+              <p className="cd-label">{DECK.back}</p>
+              <div className="cd-answer" tabIndex={-1} ref={answer} aria-label={DECK.back} role="group">
                 <ContentMarkdown text={card.back} />
               </div>
             </div>
@@ -87,15 +87,15 @@ export default function CardDeck({ cards }) {
           <div className="pr-actions cd-actions">
             {flipped ? (
               <>
-                <Button onClick={() => grade(false)}>{CARDS.again}</Button>
-                <Button variant="primary" onClick={() => grade(true)}>{CARDS.gotIt}</Button>
+                <Button onClick={() => grade(false)}>{DECK.again}</Button>
+                <Button variant="primary" onClick={() => grade(true)}>{DECK.gotIt}</Button>
               </>
             ) : (
-              <Button variant="primary" ref={flipButton} onClick={() => setFlipped(true)}>{CARDS.flip}</Button>
+              <Button variant="primary" ref={flipButton} onClick={() => setFlipped(true)}>{DECK.flip}</Button>
             )}
-            <Button variant="ghost" size="sm" className="cd-restart" onClick={() => begin(startDeck(cards, freshSeed()))}>{CARDS.restart}</Button>
+            <Button variant="ghost" size="sm" className="cd-restart" onClick={() => begin(startDeck(cards, freshSeed()))}>{DECK.restart}</Button>
           </div>
-          <p className="pr-note cd-keys">{CARDS.keys}</p>
+          <p className="pr-note cd-keys">{DECK.keys}</p>
         </>
       )}
     </section>
