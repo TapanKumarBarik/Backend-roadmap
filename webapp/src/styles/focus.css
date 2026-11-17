@@ -1,0 +1,5 @@
+/* The bar on a lesson in focus mode (components/article/FocusBar.jsx). What focus mode hides is in global.css, so it is hidden from the first paint. */
+.focus-bar { position: fixed; top: 10px; right: 14px; z-index: 40; max-width: calc(100vw - 28px); display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-3); padding: 6px 8px 6px 14px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--bg-raised); box-shadow: var(--shadow-sm); font-size: var(--text-sm); }
+.focus-bar__left { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.focus-bar__clock { font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--signal); }
+@media (max-width: 600px) { .focus-bar { top: 6px; right: 8px; border-radius: var(--r-lg); padding: 6px 8px; } }

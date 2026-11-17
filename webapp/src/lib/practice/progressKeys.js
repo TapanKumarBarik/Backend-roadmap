@@ -11,8 +11,10 @@ export const quizKey = (slug) => `${PROGRESS_KEYS.quiz}${slug}`;
 /** A mock interview of a track that was finished at `at` (an ISO time): every finished mock is a mark of its own, so each one counts. */
 export const mockKey = (track, at) => `${PROGRESS_KEYS.mock}${track}/${at}`;
 export const planKey = (id) => `${PROGRESS_KEYS.plan}${id}`;
+/** A focus session that was finished at `at` (an ISO time): every finished session is a mark of its own, so each one counts towards the day's goal. */
+export const focusKey = (at) => `${PROGRESS_KEYS.focus}${at}`;
 export const isCodeKey = (path) => path.startsWith(PROGRESS_KEYS.code);
 export const isDrillKey = (path) => path.startsWith(PROGRESS_KEYS.drill);
-const PREFIXES = ['code', 'drill', 'quiz', 'mock', 'plan'].map((name) => PROGRESS_KEYS[name]);
+const PREFIXES = ['code', 'drill', 'quiz', 'mock', 'plan', 'focus'].map((name) => PROGRESS_KEYS[name]);
 /** True for a mark that is practice, not a module: what a count of modules must leave out. */
 export const isPracticeKey = (path) => PREFIXES.some((prefix) => path.startsWith(prefix));

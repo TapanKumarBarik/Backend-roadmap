@@ -2896,3 +2896,7 @@ li[data-checked="true"] > div {
 /* With the links in the bar the search box keeps a usable width, and the progress pill gives up its word before the search box gives up its room. */
 #mainNav ~ #searchTrigger { min-width: 160px; }
 @media (max-width: 1340px) { #mainNav ~ #globalStat .lbl { display: none; } }
+
+/* Focus mode (hooks/useFocusMode.js): on a lesson, only the lesson. The bar that stays (components/article/FocusBar.jsx) has styles/focus.css. */
+html[data-focus="1"] :is(#topbar, #destRail, #sidebar, #resizer, #toc, #treePeek, #tocPeek, #scrim, .notice-bar) { display: none; }
+html[data-focus="1"] #main { padding-bottom: 0; }

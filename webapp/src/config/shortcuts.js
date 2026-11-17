@@ -7,6 +7,7 @@ export const SHORTCUTS = [
   [['W'], 'Mark this module in progress'],
   [['T'], 'Cycle the theme (match system, light, dark)'],
   [['B'], 'Show or hide the module tree'],
+  [['F'], 'Focus mode: only the lesson, with the time left to read'],
   [['Esc'], 'Close search, a menu or a dialog']
 ];
 

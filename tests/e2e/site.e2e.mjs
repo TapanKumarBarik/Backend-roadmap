@@ -638,3 +638,89 @@ test('opening a lesson of another area moves the switcher there, so the lesson n
   assert.equal(await page.locator('#tree a.name[aria-current="page"]').count(), 1, 'the open lesson is in the tree');
   await context.close();
 });
+
+test('focus mode: the F key or the button leaves only the lesson and says how long is left, it holds from page to page and after a reload, and only on a lesson', async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  const shown = (selector) => page.locator(selector).first().isVisible();
+  const chrome = ['#topbar', '#destRail', '#sidebar', '#toc'];
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.focus || ''), '', 'it is not on until it is asked for');
+  assert.equal(await page.getByRole('button', { name: 'Focus mode' }).getAttribute('aria-pressed'), 'false');
+  for (const selector of chrome) assert.ok(await shown(selector), `${selector} is there`);
+
+  await page.getByRole('button', { name: 'Focus mode' }).click();
+  await page.locator('.focus-bar').waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.focus), '1');
+  for (const selector of chrome) assert.ok(!(await shown(selector)), `${selector} is hidden in focus mode`);
+  assert.ok(await shown('#content p'), 'the lesson is still there');
+  assert.equal(await page.locator('#metaRow').getByRole('button', { name: 'Leave focus mode' }).getAttribute('aria-pressed'), 'true', 'the button in the lesson header says it is on');
+  assert.match(await page.locator('.focus-bar__left').innerText(), /^(About \d+ min left|Under a minute left)$/);
+  const before = Number((await page.locator('.focus-bar__left').innerText()).match(/\d+/)?.[0] ?? 1);
+
+  // The time left goes down as the lesson is read, and says so at the end.
+  await page.evaluate(() => { const m = document.querySelector('#main'); m.scrollTop = (m.scrollHeight - m.clientHeight) * 0.6; });
+  await page.waitForFunction((was) => { const t = document.querySelector('.focus-bar__left').textContent; const n = Number((t.match(/\d+/) || [1])[0]); return n < was || /Under a minute/.test(t); }, before);
+  await page.evaluate(() => { const m = document.querySelector('#main'); m.scrollTop = m.scrollHeight; });
+  await page.waitForFunction(() => document.querySelector('.focus-bar__left').textContent === 'You have reached the end');
+
+  // It is kept: a reload is still in focus mode. F leaves it, and F is a key only when the reader is not typing.
+  await page.reload();
+  await page.waitForSelector('#content p');
+  await page.locator('.focus-bar').waitFor();
+  await page.keyboard.press('f');
+  await page.waitForFunction(() => !document.documentElement.dataset.focus);
+  for (const selector of chrome) assert.ok(await shown(selector), `${selector} is back`);
+  assert.equal(await page.locator('.focus-bar').count(), 0);
+  await page.keyboard.press('f');
+  await page.locator('.focus-bar').waitFor();
+  await page.getByRole('button', { name: 'Leave focus mode' }).first().click();
+  await page.waitForFunction(() => !document.documentElement.dataset.focus);
+  await page.keyboard.press('f');
+  await page.locator('.focus-bar').waitFor();
+
+  // Another lesson keeps it; a screen that is not a lesson never has it, so there is always a way around the site.
+  await page.goto(`${BASE}${NEXT_LESSON}`);
+  await page.waitForSelector('#content p');
+  await page.locator('.focus-bar').waitFor();
+  await page.goto(`${BASE}/practice/`);
+  await page.waitForSelector('.pr-screen');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.focus || ''), '', 'Practice keeps its navigation');
+  assert.ok(await shown('#topbar'));
+  await context.close();
+});
+
+test('a focus session counts down on the clock, survives a reload, can be stopped without counting, and when it ends it is a mark that counts for the day', async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  await page.keyboard.press('f');
+  await page.locator('.focus-bar').waitFor();
+
+  await page.getByRole('button', { name: 'Start a 25-minute session' }).click();
+  const timer = page.getByRole('timer', { name: 'Focus session' });
+  await timer.waitFor();
+  assert.match(await timer.innerText(), /^2[45]:\d\d$/);
+  await page.reload();
+  await page.waitForSelector('#content p');
+  await page.getByRole('timer', { name: 'Focus session' }).waitFor();
+  await page.getByRole('button', { name: 'Stop the session' }).click();
+  await page.getByText('Session stopped. It was not counted.').waitFor();
+  assert.equal(await page.getByRole('timer').count(), 0);
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), config.storage.focusSession), '', 'nothing is left running');
+
+  // A session that has two seconds to go (its start is what is kept) ends on its own.
+  await page.evaluate(({ key, at }) => localStorage.setItem(key, String(at)), { key: config.storage.focusSession, at: Date.now() - 25 * 60000 + 2000 });
+  await page.reload();
+  await page.waitForSelector('#content p');
+  await page.getByText('25-minute focus session done. It counts towards today\'s goal.').waitFor({ timeout: 10000 });
+  assert.equal(await page.getByRole('timer').count(), 0, 'the clock is gone');
+  const marks = await page.evaluate(() => new Promise((resolve) => {
+    const open = indexedDB.open('docs-progress', 1);
+    open.onsuccess = () => { const all = open.result.transaction('status', 'readonly').objectStore('status').getAll(); all.onsuccess = () => resolve(all.result); };
+  }));
+  const sessions = marks.filter((row) => row.path.startsWith(config.progressKeys.focus));
+  assert.equal(sessions.length, 1, 'one session, one mark');
+  assert.equal(sessions[0].status, 'done');
+  await context.close();
+});
