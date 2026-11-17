@@ -114,6 +114,15 @@
   "URL Shortener": [
    "backend/14-system-design-interview-practice/02-designing-a-url-shortener"
   ],
+  "Web Crawler": [
+   "backend/14-system-design-interview-practice/09-designing-a-web-crawler"
+  ],
+  "Typeahead / Autocomplete": [
+   "backend/14-system-design-interview-practice/10-designing-typeahead-and-autocomplete"
+  ],
+  "Leaderboard": [
+   "backend/14-system-design-interview-practice/11-designing-a-leaderboard"
+  ],
   "Rate Limiter": [
    "backend/14-system-design-interview-practice/03-designing-a-rate-limiter",
    "lld/18-lru-lfu-cache-and-rate-limiter",

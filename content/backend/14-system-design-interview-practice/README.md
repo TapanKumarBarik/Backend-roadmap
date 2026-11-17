@@ -55,6 +55,11 @@ patterns you already know applies, why, and what it costs.
 | 06 | [Designing a chat and notification system](06-designing-a-chat-and-notification-system/README.md) | Design real-time delivery: websockets and the connection layer, presence/routing, ordering, at-least-once delivery, store-and-forward, and multi-channel notifications — plus the second cumulative review | 75-100 min |
 | 07 | [Designing a video streaming or large-scale search system](07-designing-a-video-streaming-or-large-scale-search-system/README.md) | Design two large-scale specializations: video (object storage, CDNs, transcoding, adaptive bitrate) and search (inverted index, relevance ranking, distributed scatter-gather query) | 75-100 min |
 | 08 | [Capstone project](08-capstone-project/README.md) | Run a full mock interview on a payments/ledger system — a correctness-and-consistency-critical problem that synthesizes estimation, data modeling, idempotency, atomicity, and observability from across all 14 tracks | 4-6 hrs |
+| 09 | [Designing a web crawler](09-designing-a-web-crawler/README.md) | Design a polite, deduplicating crawler: the URL frontier with one queue per host, robots.txt (RFC 9309), URL-seen and content-seen tests, Bloom filter sizing, spider traps, and capacity worked from two real crawls | 3-4 hrs |
+| 10 | [Designing typeahead and autocomplete](10-designing-typeahead-and-autocomplete/README.md) | Design search-as-you-type: a trie with the best completions precomputed at every node, an offline snapshot plus an online delta, a blocklist that works at read time, edge caching of short prefixes, and a latency budget from the 100 ms limit | 3-4 hrs |
+| 11 | [Designing a leaderboard](11-designing-a-leaderboard/README.md) | Design a ranked board: why a rank is hard for a table, the Redis sorted set (skip list and hash table), tie-breaking and the 53-bit score budget, time windows as key names, sharding by hash or by score band, and estimated ranks below the top | 3-4 hrs |
+
+Modules 09 and later are further problems added after the capstone, so that the capstone keeps its address. Each one runs the same seven-step framework, so you can take them before or after the capstone.
 
 Start here → [00-capacity-estimation-and-back-of-envelope-math/README.md](00-capacity-estimation-and-back-of-envelope-math/README.md)
 
