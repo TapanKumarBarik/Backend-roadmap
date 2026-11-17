@@ -25,15 +25,15 @@ export const TRACKER = {
   confidence: {
     1: "can't explain it", 2: 'vague', 3: 'can explain the basics', 4: 'can explain it with trade-offs and examples', 5: 'can teach it and answer follow-ups'
   },
-  // The four sheets. `blank` is a row nobody has touched; `done` is what a tick means and `revise` which status calls an item back.
+  // The four sheets. `idPrefix` is what an item's id starts with (lib/tracker/due.js finds a row's sheet from it). `blank` is a row nobody has touched; `done` is what a tick means and `revise` which status calls an item back.
   tabs: {
-    sd: { hash: 'system-design', label: 'System design', noun: 'items', statuses: CHECKLIST_STATUSES, done: 'Completed', revise: 'Needs Revision', dateLabel: 'Last studied', blank: { s: 'Not Started', c: 0, n: '', d: '' } },
-    gai: { hash: 'genai', label: 'GenAI', noun: 'items', statuses: CHECKLIST_STATUSES, done: 'Completed', revise: 'Needs Revision', dateLabel: 'Last studied', blank: { s: 'Not Started', c: 0, n: '', d: '' } },
+    sd: { idPrefix: 'SD-', hash: 'system-design', label: 'System design', noun: 'items', statuses: CHECKLIST_STATUSES, done: 'Completed', revise: 'Needs Revision', dateLabel: 'Last studied', blank: { s: 'Not Started', c: 0, n: '', d: '' } },
+    gai: { idPrefix: 'GAI-', hash: 'genai', label: 'GenAI', noun: 'items', statuses: CHECKLIST_STATUSES, done: 'Completed', revise: 'Needs Revision', dateLabel: 'Last studied', blank: { s: 'Not Started', c: 0, n: '', d: '' } },
     qa: {
-      hash: 'questions', label: 'Interview questions', noun: 'questions', dateLabel: 'Last attempted', blank: { s: 'Not Reviewed', c: 0, n: '', d: '' },
+      idPrefix: 'Q-', hash: 'questions', label: 'Interview questions', noun: 'questions', dateLabel: 'Last attempted', blank: { s: 'Not Reviewed', c: 0, n: '', d: '' },
       statuses: [['Not Reviewed', 'none'], ['Needs Practice', 'revise'], ['Reviewed', 'done'], ['Mastered', 'done']], done: 'Reviewed', revise: 'Needs Practice'
     },
-    pr: { hash: 'practice', label: 'Design practice', noun: 'problems', dateLabel: 'Last attempted', blank: { p: '', c: 0, n: '', d: '' } }
+    pr: { idPrefix: 'PR-', hash: 'practice', label: 'Design practice', noun: 'problems', dateLabel: 'Last attempted', blank: { p: '', c: 0, n: '', d: '' } }
   },
   tabOrder: ['sd', 'gai', 'qa', 'pr'],
   // Where the lessons of this site that cover an item come from (content/tracker/lessons.json, written partly by scripts/tracker/match-lessons.mjs, which reads this).

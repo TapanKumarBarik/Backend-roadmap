@@ -448,6 +448,65 @@ test('the end of a lesson offers its quiz and its interview questions as flash c
   await context.close();
 });
 
+test('Today lists what to do now from what is due and where the reader left off, with a number on the button, and each row does its one thing', async () => {
+  const lesson = practiceContent.interview.caching.module;
+  const first = await open('/', { email: null });
+  await first.context.addInitScript(({ review, tracker, last }) => {
+    localStorage.setItem('docs.review', JSON.stringify(review));
+    localStorage.setItem('docs.tracker', JSON.stringify(tracker));
+    localStorage.setItem('docs.lastFile', last);
+  }, {
+    review: { 'q:http-caching/q1': { box: 0, due: '2020-01-01' }, 'q:http-caching/q2': { box: 1, due: '2999-01-01' } },
+    tracker: { version: 1, items: { 'SD-A-001': { s: 'Needs Revision' }, 'GAI-GF-001': { s: 'Needs Revision' }, 'SD-A-002': { s: 'Completed', c: 5, d: '2026-11-17' } } },
+    last: lesson
+  });
+  await first.goto();
+  const button = first.page.getByRole('button', { name: 'Today: 1 to review' });
+  await button.waitFor();
+  assert.equal(await button.locator('.activity-dot').innerText(), '1', 'what is due for review is on the button');
+  await button.click();
+  const dialog = first.page.getByRole('dialog', { name: 'Today' });
+  await dialog.waitFor();
+  const titles = await dialog.locator('.today-row__title').allInnerTexts();
+  assert.equal(titles.length, 4);
+  assert.deepEqual(titles.slice(0, 2), ['1 question to review', '2 tracker rows to revise'], 'what is due comes first, and only the rows that are due are counted');
+  assert.match(titles[2], /^Pick up: .+/);
+  assert.equal(titles[3], "Today's drill");
+  assert.match(await dialog.locator('.today-row__detail').nth(2).innerText(), /^Not finished( · \d+ min)?$/);
+  assert.equal(await dialog.locator('.today-row.is-first').count(), 1, 'the first one is the one to do');
+
+  // The tracker row is a link to the tracker; the review row goes to the review.
+  assert.equal(await dialog.getByRole('link', { name: 'Open the tracker' }).getAttribute('href'), '/tracker/');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await first.page.getByRole('heading', { level: 2, name: /review/i }).waitFor();
+  assert.equal(new URL(first.page.url()).pathname, '/practice/review/');
+  assert.equal(await first.page.getByRole('dialog').count(), 0, 'the dialog closes when a row is used');
+
+  // From the palette too, and the lesson row opens the lesson.
+  await first.page.keyboard.press('Control+k');
+  await first.page.getByPlaceholder(/Search modules/).fill('> today');
+  await first.page.getByText('Today: what to do now').first().waitFor();
+  await first.page.keyboard.press('Enter');
+  const again = first.page.getByRole('dialog', { name: 'Today' });
+  await again.waitFor();
+  await again.getByRole('button', { name: 'Continue' }).click();
+  await first.page.locator('#content').waitFor();
+  assert.equal(new URL(first.page.url()).pathname, moduleUrl(lesson));
+  await first.context.close();
+
+  // With nothing due there is no number, and the dialog still says what to do.
+  const quiet = await open('/', { email: null });
+  await quiet.goto();
+  const none = quiet.page.getByRole('button', { name: 'Today: what to do now' });
+  await none.waitFor();
+  assert.equal(await none.locator('.activity-dot').count(), 0);
+  await none.click();
+  const only = quiet.page.getByRole('dialog', { name: 'Today' });
+  await only.waitFor();
+  assert.deepEqual(await only.locator('.today-row__title').allInnerTexts(), ["Today's drill"], 'just the drill');
+  await quiet.context.close();
+});
+
 test('reading options change the text size and width of a lesson, and are kept', async () => {
   const lesson = practiceContent.quizzes['http-caching'].module;
   const { context, page, goto } = await open(moduleUrl(lesson), { email: null });

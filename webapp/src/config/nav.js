@@ -14,3 +14,9 @@ export const MAIN_NAV = {
     { id: 'my-learning', label: 'My Learning' }
   ]
 };
+
+// The "Today" button in the top bar (components/layout/TopBar.jsx); what it opens says what it says in config/today.js, which is only downloaded when it is opened.
+export const TODAY_BUTTON = {
+  label: 'Today',
+  aria: (due) => (due > 0 ? `Today: ${due} to review` : 'Today: what to do now')
+};

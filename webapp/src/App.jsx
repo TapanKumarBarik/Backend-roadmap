@@ -10,6 +10,7 @@ import { useActivePath } from './hooks/useActivePath.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useRightRailCollapse } from './hooks/useRightRailCollapse.js';
+import { useReview } from './hooks/useReview.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMediaQuery } from './hooks/useMediaQuery.js';
 import { useToast } from './components/ui/Toast.jsx';
@@ -97,6 +98,8 @@ const PathView = lazy(smallScreens.path);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
 const DailyIncidentModal = lazy(() => import('./components/incident/DailyIncidentModal.jsx'));
+// What to do now, from what is due and where the reader left off: read when it is opened (components/layout/TodayDialog.jsx).
+const TodayDialog = lazy(() => import('./components/layout/TodayDialog.jsx'));
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
 // reasoning as AdminDashboard above, just for a much heavier dependency.
@@ -192,6 +195,8 @@ export default function App() {
   const [activeHeadingId, setActiveHeadingId] = useState(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [incidentOpen, setIncidentOpen] = useState(false);
+  const [todayOpen, setTodayOpen] = useState(false);
+  const review = useReview(); // the count on the Today button
 
   const isAdminRoute = path === ADMIN_ROUTE;
   const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
@@ -519,6 +524,7 @@ export default function App() {
       { label: 'Change theme', keywords: 'dark light appearance', hint: 'T', run: handleCycleTheme },
       { label: 'Expand all in the tree', keywords: 'open sidebar', run: () => expandAll(allDirPaths) },
       { label: 'Collapse all in the tree', keywords: 'close sidebar', run: collapseAll },
+      { label: 'Today: what to do now', keywords: 'today due review next continue drill', run: () => setTodayOpen(true) },
       { label: 'Export progress (.json)', keywords: 'download backup save', run: handleExport },
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
@@ -567,6 +573,8 @@ export default function App() {
         onToast={toast.show}
         streak={streak}
         onOpenIncident={() => setIncidentOpen(true)}
+        onOpenToday={() => setTodayOpen(true)}
+        todayDue={review.counts.due}
         activity={activity}
         onOpenActivity={openActivity}
         nodeByFile={nodeByFile}
@@ -832,6 +840,11 @@ export default function App() {
       {messageOpen && (
         <Suspense fallback={null}>
           <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />
+        </Suspense>
+      )}
+      {todayOpen && (
+        <Suspense fallback={null}>
+          <TodayDialog open={todayOpen} onClose={() => setTodayOpen(false)} statusMap={statusMap} nodeByFile={nodeByFile} lastFile={lastViewedFile} onOpenFile={openFile} onOpenPractice={openPractice} />
         </Suspense>
       )}
       {incidentOpen && (

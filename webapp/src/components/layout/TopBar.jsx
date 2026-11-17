@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import MainNav from './MainNav.jsx';
-import { MAIN_NAV } from '../../config/nav.js';
+import { MAIN_NAV, TODAY_BUTTON } from '../../config/nav.js';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  MailIcon, ClockIcon, YoutubeIcon, FlameIcon
+  MailIcon, ClockIcon, YoutubeIcon, FlameIcon, TodayIcon
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -26,7 +26,7 @@ export default function TopBar({
   onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak, onOpenIncident,
-  activity, onOpenActivity, nodeByFile, mainNav, activeDest
+  activity, onOpenActivity, nodeByFile, mainNav, activeDest, onOpenToday, todayDue = 0
 }) {
   const wide = useMediaQuery(`(min-width: ${MAIN_NAV.minWidth}px)`);
   const importInputRef = useRef(null);
@@ -88,6 +88,14 @@ export default function TopBar({
           </span>
         )}
       </button>
+
+      {onOpenToday && (
+        <button type="button" className="topbar-incident-btn today-btn" onClick={onOpenToday} title={TODAY_BUTTON.aria(todayDue)} aria-label={TODAY_BUTTON.aria(todayDue)}>
+          <TodayIcon aria-hidden="true" />
+          <span className="inc-btn-label">{TODAY_BUTTON.label}</span>
+          {todayDue > 0 && <span className="activity-dot">{todayDue > 9 ? '9+' : todayDue}</span>}
+        </button>
+      )}
 
       {onOpenIncident && (
         <button

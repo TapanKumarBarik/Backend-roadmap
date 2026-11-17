@@ -119,6 +119,9 @@ kbd {
   border-color: #ef4444;
   color: var(--fg);
 }
+.today-btn { position: relative; }
+.today-btn:hover { border-color: var(--signal); }
+.today-btn svg { width: 14px; height: 14px; flex: none; }
 .topbar-incident-btn .inc-btn-flame { width: 14px; height: 14px; flex: none; color: var(--reward-strong); }
 /* The flame and the trophy that replaced emoji in a line of text: the height of the text, on its baseline, in the amber of what was earned. */
 .streak-flame, .milestone-trophy { width: 1em; height: 1em; flex: none; vertical-align: -0.125em; color: var(--reward-strong); }
