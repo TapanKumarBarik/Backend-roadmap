@@ -11,6 +11,7 @@ import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useRightRailCollapse } from './hooks/useRightRailCollapse.js';
 import { useReview } from './hooks/useReview.js';
+import { SITE_LINKS } from './config/siteLinks.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMediaQuery } from './hooks/useMediaQuery.js';
 import { useToast } from './components/ui/Toast.jsx';
@@ -524,6 +525,8 @@ export default function App() {
       { label: 'Change theme', keywords: 'dark light appearance', hint: 'T', run: handleCycleTheme },
       { label: 'Expand all in the tree', keywords: 'open sidebar', run: () => expandAll(allDirPaths) },
       { label: 'Collapse all in the tree', keywords: 'close sidebar', run: collapseAll },
+      { label: `Open the ${SITE_LINKS.tracker.label}`, keywords: 'tracker checklist study items revise progress', run: () => { window.location.href = SITE_LINKS.tracker.url; } },
+      { label: `Open the ${SITE_LINKS.tools.label}`, keywords: 'lab tools calculator subnet cidr latency network', run: () => { window.location.href = SITE_LINKS.tools.url; } },
       { label: 'Today: what to do now', keywords: 'today due review next continue drill', run: () => setTodayOpen(true) },
       { label: 'Export progress (.json)', keywords: 'download backup save', run: handleExport },
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }

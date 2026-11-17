@@ -271,7 +271,8 @@ test('the tracker is a real address: its title, description and explanation are 
   assert.match(html, /<meta name="description" content="[^"]{80,200}">/);
   assert.match(html, /<h1>Interview prep tracker<\/h1>/);
   assert.match(html, /1, 3, 7, 14 or 30 days after the day you studied an item/, 'the explanation is on the page before any script runs');
-  assert.match(html, /saved in this browser, on this device, and nowhere else/, 'and it says where progress lives');
+  assert.match(html, /saved in this browser, on this device\. You do not need an account, and nothing is sent to a server unless you choose to sync/, 'and it says where progress lives');
+  assert.match(html, /Syncing across devices is optional/, 'and that syncing is a choice, which is what a visitor is told before any script runs');
   assert.match(html, /"@type":"WebApplication"/);
   assert.doesNotMatch(html, /noindex/);
   assert.ok(sitemap().includes(`${config.site.url}${TRACK}</loc>`), 'it is in the sitemap');
@@ -463,7 +464,7 @@ test('a step of a design problem lists the lessons of this site for the problem 
   const has = Number((await page.locator('#tr-count').innerText()).match(/^(\d+)/)[1]);
   assert.equal(none + has, 748, 'every item either lists a lesson or does not');
   assert.ok(has >= 650, `${has} of 748 system design items list a lesson of this site`);
-  assert.deepEqual(problems, []);
+  assert.deepEqual(real(problems), []);
   await context.close();
 });
 

@@ -418,3 +418,31 @@ test('daily architectural incident challenge: hides answers before attempt, eval
   assert.equal(completed.json.userAttempt.selectedOption, 2);
   assert.ok(completed.json.incident.postMortem);
 });
+
+test('earlier daily incidents are listed by day with their titles only, and a signed-in reader sees which ones they solved', async () => {
+  const today = await call(null, 'GET', '/practice/daily-incident');
+  const list = await call(null, 'GET', '/practice/daily-incident/archive');
+  assert.equal(list.status, 200);
+  const { days } = list.json;
+  assert.ok(days.length >= 1 && days.length <= game.dailyIncident.archiveDays, 'a week at most, and at least one while the catalogue has more than one incident');
+  const dates = days.map((d) => d.date);
+  assert.deepEqual([...dates].sort().reverse(), dates, 'newest first');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  assert.ok(dates.every((d) => d < todayStr), 'before today');
+  assert.ok(days.every((d) => d.id !== today.json.incident.id), 'today\'s incident is not an earlier one');
+  assert.equal(new Set(days.map((d) => d.id)).size, days.length, 'each incident once');
+  assert.ok(days.every((d) => d.title && d.severity && d.serviceName));
+  for (const day of days) assert.deepEqual(Object.keys(day).sort(), ['completed', 'correct', 'date', 'id', 'serviceName', 'severity', 'title'], 'a list gives nothing of the incident away: no scenario, logs, options or answer');
+  assert.ok(days.every((d) => d.completed === null), 'signed out, nothing is known about the reader');
+
+  const earlier = days[0];
+  const opened = await call(null, 'GET', `/practice/daily-incident?id=${earlier.id}`);
+  assert.equal(opened.json.incident.title, earlier.title, 'an earlier incident opens by its id');
+  assert.equal(opened.json.incident.correctOption, undefined, 'and is as hidden as today\'s until it is answered');
+
+  assert.equal((await call(ada, 'POST', '/practice/daily-incident/attempt', { incidentId: earlier.id, selectedOption: 1 })).status, 200);
+  const mine = (await call(ada, 'GET', '/practice/daily-incident/archive')).json.days;
+  assert.equal(mine.find((d) => d.id === earlier.id).completed, true);
+  assert.equal(typeof mine.find((d) => d.id === earlier.id).correct, 'boolean');
+  assert.ok(mine.filter((d) => d.id !== earlier.id).every((d) => d.completed === false && d.correct === null), 'the others are not solved');
+});

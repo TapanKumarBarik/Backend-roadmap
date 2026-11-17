@@ -477,15 +477,41 @@ function daysBetween(a, b) {
   return Math.round((new Date(b + 'T00:00:00Z').getTime() - new Date(a + 'T00:00:00Z').getTime()) / 86400000);
 }
 
-function getTodayIncident() {
-  const today = todayStr();
-  const dateObj = new Date(today + 'T00:00:00Z');
+/** The incident of a day (YYYY-MM-DD): the catalogue goes round by the day of the year, the same for everyone. */
+function incidentOn(day) {
+  const dateObj = new Date(day + 'T00:00:00Z');
   const startOfYear = new Date(Date.UTC(dateObj.getUTCFullYear(), 0, 0));
   const dayOfYear = Math.floor((dateObj.getTime() - startOfYear.getTime()) / 86400000);
   const incidents = incidentCatalogue?.incidents || [];
-  const index = Math.abs(dayOfYear) % (incidents.length || 1);
-  return { incident: incidents[index] || null, today };
+  return incidents[Math.abs(dayOfYear) % (incidents.length || 1)] || null;
 }
+
+function getTodayIncident() {
+  const today = todayStr();
+  return { incident: incidentOn(today), today };
+}
+
+// The days before today, newest first, with the incident of each: what a reader may go back to (game.config.json -> dailyIncident.archiveDays). Only what a list shows: no scenario,
+// options or answer. A signed-in reader also gets whether they have solved it. A day whose incident is the same as a later day's is listed once, so the list is of different incidents.
+router.get('/practice/daily-incident/archive', async (c) => {
+  const today = todayStr();
+  const seen = new Set([incidentOn(today)?.id]);
+  const days = [];
+  for (let back = 1; back <= game.dailyIncident.archiveDays; back += 1) {
+    const day = new Date(new Date(today + 'T00:00:00Z').getTime() - back * 86400000).toISOString().slice(0, 10);
+    const incident = incidentOn(day);
+    if (!incident || seen.has(incident.id)) continue;
+    seen.add(incident.id);
+    days.push({ date: day, id: incident.id, title: incident.title, severity: incident.severity, serviceName: incident.service_name });
+  }
+  const session = await getSession(c);
+  const done = new Map();
+  if (session && days.length) {
+    const rows = await all(c.env, 'SELECT incident_id, is_correct FROM incident_completions WHERE user_id = ?1', session.sub);
+    for (const row of rows) done.set(row.incident_id, !!row.is_correct);
+  }
+  return c.json({ days: days.map((d) => ({ ...d, completed: session ? done.has(d.id) : null, correct: session && done.has(d.id) ? done.get(d.id) : null })) });
+});
 
 router.get('/practice/daily-incident', async (c) => {
   const reqId = c.req.query('id');

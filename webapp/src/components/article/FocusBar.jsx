@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import '../../styles/focus.css';
-import { FOCUS } from '../../config/focus.js';
+import { FOCUS_BAR as FOCUS } from '../../config/focusBar.js';
 import { STORAGE } from '../../config/index.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { clock, minutesLeft, scrollRatio, sessionLeft } from '../../lib/focus/focus.js';
+import { focusKey } from '../../lib/practice/progressKeys.js';
 import { Button } from '../ui/Button.jsx';
 
 // The little bar that stays on a lesson in focus mode (hooks/useFocusMode.js hides the rest of the page): how long is left to read, an optional timed session, and the
-// way out. A session runs on the clock (its start is kept in this browser, so a reload does not lose it) and when it ends `onSessionDone` is called, once.
+// way out. A session runs on the clock (its start is kept in this browser, so a reload does not lose it) and when it ends it is saved as a progress mark of its own
+// (`onSetStatus`, which makes it count for the day), once, with a word of thanks (`onToast`).
 // `text` is whatever changes when the lesson's text arrives, so the length of the page is measured again.
-export default function FocusBar({ minutes, text, onExit, onSessionDone, onToast }) {
+export default function FocusBar({ minutes, text, onExit, onSetStatus, onToast }) {
+  const onSessionDone = useCallback(() => { onSetStatus(focusKey(new Date().toISOString()), 'done'); onToast(FOCUS.session.done(FOCUS.session.minutes)); }, [onSetStatus, onToast]);
   const [ratio, setRatio] = useState(0);
   const [startedAt, setStartedAt] = useState(() => Number(readStored(STORAGE.focusSession)) || 0);
   const [now, setNow] = useState(() => Date.now());

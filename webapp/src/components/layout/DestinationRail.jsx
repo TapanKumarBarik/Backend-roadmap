@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { MAIN_NAV } from '../../config/nav.js';
-import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, MyLearningIcon } from '../common/icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, MyLearningIcon, TrackerIcon, LabIcon } from '../common/icons.jsx';
+import { SITE_LINKS } from '../../config/siteLinks.js';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import { COMMUNITY_HOME } from '../../config/community.js';
 import { PRACTICE_ROUTE, ME_ROUTE } from '../../lib/appPages.js';
@@ -42,6 +43,9 @@ export default function DestinationRail({
     { key: '__videos', label: 'Videos', Icon: YoutubeIcon, onClick: onOpenVideos, group: 'learn', primary: true, show: !!hasVideos },
     // Practice is a place to do the work, not to read it; it sits in the phone's "More" sheet.
     { key: PRACTICE_ROUTE, label: 'Practice', Icon: PracticeIcon, onClick: onOpenPractice, group: 'learn' },
+    // Two small pages of their own (not screens of the app), so these are links: the Prep Tracker, and the Network Lab with its calculators.
+    { key: '__tracker', label: SITE_LINKS.tracker.label, Icon: TrackerIcon, href: SITE_LINKS.tracker.url, group: 'learn' },
+    { key: '__lab', label: SITE_LINKS.tools.label, Icon: LabIcon, href: SITE_LINKS.tools.url, short: SITE_LINKS.tools.short, group: 'learn' },
     // The community's articles, and the community itself. Community carries the "something's new" dot — someone else's post,
     // or someone else's question, is something that happens without you (same pattern as the account menu's reply badge,
     // see useCommunityActivity). The other destinations are just views onto your own state; there's nothing there to be
@@ -57,8 +61,16 @@ export default function DestinationRail({
   ].filter((item) => item.show !== false && !(topNav && mainKeys && mainKeys.has(item.key)));
 
   const button = (item, { inSheet = false } = {}) => {
-    const { key, label, Icon, onClick, badge } = item;
+    const { key, label, Icon, onClick, badge, href, short } = item;
     const on = activeDest === key;
+    if (href) {
+      return (
+        <a key={label} className="dest-btn" href={href} aria-label={short ? label : undefined} onClick={() => { if (inSheet) setMoreOpen(false); }}>
+          <Icon />
+          <span className="dest-label">{short || label}</span>
+        </a>
+      );
+    }
     return (
       <button
         key={label}

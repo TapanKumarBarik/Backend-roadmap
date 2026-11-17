@@ -362,3 +362,17 @@
   text-underline-offset: 3px;
 }
 
+
+/* Earlier days (components/incident/DailyIncidentModal.jsx): a list to go back to, and a line saying an earlier one is open. */
+.inc-earlier { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-2) var(--space-4); border: 1px solid var(--signal-line); border-radius: var(--r-md); background: var(--signal-bg); font-size: var(--text-sm); }
+.inc-archive { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.inc-archive__title { margin: 0 0 var(--space-1); font-size: var(--text-base); }
+.inc-archive__lead { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+.inc-archive__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.inc-archive__item { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); color: var(--fg); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+.inc-archive__item:hover { background: var(--hover); }
+.inc-archive__item[aria-current="true"] { border-color: var(--signal); }
+.inc-archive__date { flex: none; min-width: 6.5em; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.inc-archive__name { flex: 1; min-width: 12em; font-weight: var(--weight-semibold); }
+.inc-archive__state { flex: none; font-size: var(--text-xs); color: var(--fg-muted); }
+.inc-archive__state.is-solved { color: var(--signal); font-weight: var(--weight-semibold); }

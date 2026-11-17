@@ -163,6 +163,9 @@ export default function TopBar({
       </IconButton>
 
       <Menu trigger={<IconButton id="menuBtn" label="More options"><MenuDotsIcon /></IconButton>}>
+        {/* On a phone the top bar has no room for the Today button, so it is here, where there is. */}
+        {onOpenToday && <MenuItem icon={<TodayIcon />} onSelect={onOpenToday}>{TODAY_BUTTON.label}{todayDue > 0 ? ` (${todayDue})` : ''}</MenuItem>}
+        {onOpenToday && <MenuSeparator />}
         <MenuLabel>Progress</MenuLabel>
         <MenuItem icon={<ExportIcon />} onSelect={onExport}>Export progress (.json)</MenuItem>
         <MenuItem icon={<ImportIcon />} onSelect={() => importInputRef.current?.click()}>Import progress…</MenuItem>

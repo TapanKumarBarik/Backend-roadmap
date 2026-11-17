@@ -3,7 +3,8 @@ import { Dialog } from '../ui/Dialog.jsx';
 import { Button } from '../ui/Button.jsx';
 import ContentMarkdown from '../practice/ContentMarkdown.jsx';
 import { FlameIcon, ShieldIcon, WarningIcon } from '../common/icons.jsx';
-import { fetchDailyIncident, submitDailyIncidentAttempt } from '../../lib/practiceApi.js';
+import { fetchDailyIncident, fetchIncidentArchive, submitDailyIncidentAttempt } from '../../lib/practiceApi.js';
+import { INCIDENT } from '../../config/incident.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import '../../styles/incident.css';
 
@@ -14,12 +15,14 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [archive, setArchive] = useState([]); // the days before today
+  const [viewId, setViewId] = useState(null); // the earlier incident being looked at, null for today's
 
-  const loadIncident = useCallback(async () => {
+  const loadIncident = useCallback(async (id) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchDailyIncident();
+      const res = await fetchDailyIncident(id);
       setData(res);
       if (res.completed && res.userAttempt) {
         setSelectedOption(res.userAttempt.selectedOption);
@@ -41,8 +44,19 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
   useEffect(() => {
     if (open) {
       loadIncident();
+      fetchIncidentArchive().then((res) => setArchive(res.days || []), () => setArchive([]));
     }
   }, [open, loadIncident]);
+
+  // Look at an earlier day's incident, or (null) go back to today's.
+  const pick = (id) => {
+    setViewId(id);
+    setSelectedOption(null);
+    setResult(null);
+    loadIncident(id || undefined);
+  };
+  const dayLabel = (date) => new Date(date + 'T00:00:00Z').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const viewing = viewId ? archive.find((day) => day.id === viewId) : null;
 
   const handleSubmit = async () => {
     if (!selectedOption || !data?.incident) return;
@@ -88,6 +102,12 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
 
         {!loading && incident && (
           <div className="inc-content">
+            {viewing && (
+              <div className="inc-earlier">
+                <span>{INCIDENT.archive.viewing(dayLabel(viewing.date))}</span>
+                <button type="button" className="btn-ghost" onClick={() => pick(null)}>{INCIDENT.archive.backToToday}</button>
+              </div>
+            )}
             {/* Incident Header Badge */}
             <div className="inc-header-bar">
               <div className="inc-header-meta">
@@ -216,6 +236,27 @@ export default function DailyIncidentModal({ open, onClose, onOpenFile }) {
               </div>
             )}
           </div>
+        )}
+
+        {archive.length > 0 && (
+          <section className="inc-archive" aria-labelledby="inc-archive-h">
+            <h4 id="inc-archive-h" className="inc-archive__title">{INCIDENT.archive.heading}</h4>
+            <p className="inc-archive__lead">{INCIDENT.archive.lead}</p>
+            <ul className="inc-archive__list">
+              {archive.map((day) => {
+                const state = day.completed === null ? '' : !day.completed ? INCIDENT.archive.state.notTried : day.correct ? INCIDENT.archive.state.solved : INCIDENT.archive.state.missed;
+                return (
+                  <li key={day.id}>
+                    <button type="button" className="inc-archive__item" aria-current={viewId === day.id ? 'true' : undefined} onClick={() => pick(day.id)}>
+                      <span className="inc-archive__date">{dayLabel(day.date)}</span>
+                      <span className="inc-archive__name">{day.title}</span>
+                      {state && <span className={'inc-archive__state' + (day.completed && day.correct ? ' is-solved' : '')}>{state}</span>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
       </div>
     </Dialog>

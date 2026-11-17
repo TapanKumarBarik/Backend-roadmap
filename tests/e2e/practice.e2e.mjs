@@ -507,6 +507,18 @@ test('Today lists what to do now from what is due and where the reader left off,
   await quiet.context.close();
 });
 
+test('on a phone Today is in the more menu, because the top bar has no room for it, and the page is no wider than the screen', async () => {
+  const { context, page, goto } = await open('/', { email: null, width: 390, height: 844 });
+  await goto();
+  await page.getByRole('button', { name: 'More options' }).waitFor();
+  assert.equal(await page.locator('.today-btn').isVisible(), false, 'not in the top bar');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'nothing makes the page wider than the screen');
+  await page.getByRole('button', { name: 'More options' }).click();
+  await page.getByRole('menuitem', { name: /^Today/ }).click();
+  await page.getByRole('dialog', { name: 'Today' }).waitFor();
+  await context.close();
+});
+
 test('reading options change the text size and width of a lesson, and are kept', async () => {
   const lesson = practiceContent.quizzes['http-caching'].module;
   const { context, page, goto } = await open(moduleUrl(lesson), { email: null });
@@ -764,4 +776,37 @@ test('Practice recommends what to take: the easiest quizzes to a new reader, and
   await page.locator('.pr-rec__why.is-weak', { hasText: new RegExp(`of the ${topic} questions right`) }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: /Sign in and these follow how you do/ }).count(), 0, 'a signed-in reader is not asked');
   await context.close();
+});
+
+test('the Prep Tracker and the Network Lab are in the left rail (and the phone\'s More sheet), and the Daily Incident dialog lists the earlier days and opens one', async () => {
+  const wide = await open('/', { email: null });
+  await wide.goto();
+  const rail = wide.page.locator('#destRail');
+  await rail.waitFor();
+  assert.equal(await rail.getByRole('link', { name: 'Prep tracker' }).getAttribute('href'), '/tracker/');
+  assert.equal(await rail.getByRole('link', { name: 'Network Lab' }).getAttribute('href'), '/tools/');
+
+  await wide.page.getByRole('button', { name: 'Daily Architectural Incident Challenge' }).click();
+  const dialog = wide.page.getByRole('dialog', { name: 'Daily Architectural Incident' });
+  const earlier = dialog.getByRole('region', { name: 'Earlier incidents' });
+  await earlier.waitFor();
+  const items = earlier.locator('.inc-archive__item');
+  assert.ok(await items.count() >= 1, 'the days before are listed');
+  const title = await items.first().locator('.inc-archive__name').innerText();
+  assert.equal(await items.first().locator('.inc-archive__state').count(), 0, 'signed out, nothing is said about whether it was solved');
+  await items.first().click();
+  await dialog.getByRole('heading', { level: 3, name: title }).waitFor();
+  assert.match(await dialog.locator('.inc-earlier').innerText(), /You are looking at the incident of/);
+  assert.equal(await dialog.locator('.inc-option--correct').count(), 0, 'an earlier incident hides its answer until it is answered');
+  await dialog.getByRole('button', { name: "Back to today's incident" }).click();
+  await dialog.locator('.inc-earlier').waitFor({ state: 'detached' });
+  await wide.context.close();
+
+  const phone = await open('/', { email: null, width: 390, height: 844 });
+  await phone.goto();
+  await phone.page.locator('#destRail').getByRole('button', { name: 'More' }).click();
+  const sheet = phone.page.getByRole('dialog', { name: 'More places' });
+  assert.equal(await sheet.getByRole('link', { name: 'Prep tracker' }).getAttribute('href'), '/tracker/');
+  assert.equal(await sheet.getByRole('link', { name: 'Network Lab' }).getAttribute('href'), '/tools/');
+  await phone.context.close();
 });

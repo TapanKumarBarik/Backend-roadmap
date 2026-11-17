@@ -445,7 +445,7 @@
     }
   },
   "budgets": {
-    "initialJsKb": 130,
+    "initialJsKb": 133,
     "initialCssKb": 26,
     "screensKb": {
       "StudioView": 240,

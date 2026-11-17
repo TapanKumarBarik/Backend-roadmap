@@ -122,6 +122,7 @@ kbd {
 .today-btn { position: relative; }
 .today-btn:hover { border-color: var(--signal); }
 .today-btn svg { width: 14px; height: 14px; flex: none; }
+@media (max-width: 640px) { .today-btn { display: none; } } /* no room on a phone: it is in the more menu */
 .topbar-incident-btn .inc-btn-flame { width: 14px; height: 14px; flex: none; color: var(--reward-strong); }
 /* The flame and the trophy that replaced emoji in a line of text: the height of the text, on its baseline, in the amber of what was earned. */
 .streak-flame, .milestone-trophy { width: 1em; height: 1em; flex: none; vertical-align: -0.125em; color: var(--reward-strong); }
@@ -176,6 +177,7 @@ kbd {
   background: transparent; color: var(--fg-muted);
   transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
 }
+a.dest-btn { text-decoration: none; box-sizing: border-box; }
 .dest-btn svg { width: 18px; height: 18px; }
 .dest-btn:hover { background: var(--hover); color: var(--fg); }
 .dest-btn.on { background: var(--signal-bg); border-color: var(--signal-line); color: var(--signal); }

@@ -2,7 +2,7 @@ import { fetchPracticeCatalog } from '../../lib/practiceApi.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { followInApp } from '../../lib/linkClick.js';
 import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
-import { cardsStartMark } from '../../lib/practice/cards.js';
+import { cardsStartMark } from '../../lib/practice/cardsStart.js';
 import { writeStored } from '../../lib/storage.js';
 import { STORAGE } from '../../config/index.js';
 import { RELATED } from '../../config/related.js';

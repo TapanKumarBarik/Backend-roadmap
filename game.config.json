@@ -52,6 +52,7 @@
   "capstonePattern": "capstone",
   "drill": { "questions": 5, "maxPerQuiz": 2 },
   "dailyProblem": { "levels": ["beginner", "intermediate"] },
+  "dailyIncident": { "archiveDays": 7 },
   "dailyGoal": {
     "default": 1,
     "choices": [

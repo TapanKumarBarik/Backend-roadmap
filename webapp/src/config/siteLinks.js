@@ -2,5 +2,5 @@
 // labels in one place, so the footer says what the sitemap lists. The pages themselves are listed in site.config.json -> tools. Plain JS, loadable from Node.
 export const SITE_LINKS = {
   tracker: { url: '/tracker/', label: 'Prep tracker' },
-  tools: { url: '/tools/', label: 'Network Lab' }
+  tools: { url: '/tools/', label: 'Network Lab', short: 'Lab' } // `short` is what fits under an icon in the narrow left rail
 };

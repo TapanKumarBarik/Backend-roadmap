@@ -99,4 +99,6 @@ export const saveContentFile = async ({ path, content, sha, create }) => answer(
 
 /** Daily architectural incident challenge & streak */
 export const fetchDailyIncident = async (id) => answer(await fetch(id ? `/api/practice/daily-incident?id=${encodeURIComponent(id)}` : '/api/practice/daily-incident'), 'failed to load the daily incident');
+/** The incidents of the days before today, newest first: { days: [{ date, id, title, severity, serviceName, completed, correct }] } (`completed` is null when nobody is signed in). */
+export const fetchIncidentArchive = async () => answer(await fetch('/api/practice/daily-incident/archive'), 'failed to load the earlier incidents');
 export const submitDailyIncidentAttempt = async (incidentId, selectedOption) => answer(await send('POST', '/api/practice/daily-incident/attempt', { incidentId, selectedOption }), 'failed to submit your diagnosis');

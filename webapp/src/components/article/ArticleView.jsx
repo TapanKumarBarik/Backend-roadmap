@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
@@ -17,7 +17,6 @@ import { PATH_COPY } from '../../config/paths.js';
 import { FOCUS } from '../../config/focus.js';
 import { RELATED } from '../../config/related.js';
 import { useFocusMode } from '../../hooks/useFocusMode.js';
-import { focusKey } from '../../lib/practice/progressKeys.js';
 import { TRUST } from '../../config/trust.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { commentIdFromAnchor } from '../../lib/comments.js';
@@ -210,8 +209,6 @@ export default function ArticleView({
   const signpost = !!(node && node.children && node.children.length);
   const readTime = rawText && !placeholder && !signpost ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
   const focus = useFocusMode();
-  // A finished focus session is a mark of its own, which is what makes it count towards the day's goal and the streak (lib/practice/progressKeys.js).
-  const sessionDone = useCallback(() => { onSetStatus(focusKey(new Date().toISOString()), 'done'); onToast(FOCUS.session.done(FOCUS.session.minutes)); }, [onSetStatus, onToast]);
   const { title: liftedTitle, body: bodyHtml } = useMemo(() => splitTitle(html), [html]);
   // The module's videos from the channel's registry, except one the module's own text already embeds.
   const lectureVideos = useMemo(
@@ -234,7 +231,7 @@ export default function ArticleView({
 
   return (
     <article id="article">
-      {focus.on && <Suspense fallback={null}><FocusBar minutes={readTime ? readTime.minutes : 0} text={html} onExit={focus.toggle} onSessionDone={sessionDone} onToast={onToast} /></Suspense>}
+      {focus.on && <Suspense fallback={null}><FocusBar minutes={readTime ? readTime.minutes : 0} text={html} onExit={focus.toggle} onSetStatus={onSetStatus} onToast={onToast} /></Suspense>}
       <header id="docHead">
         {/* The folders above this page, by their titles (the folder names are the content repo's business), with the
             page's place among its siblings alongside. The page's own title is the heading right below, so it is not
