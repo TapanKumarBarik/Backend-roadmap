@@ -1,0 +1,40 @@
+{
+  "title": "Web and API security",
+  "topic": "security",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md",
+  "questions": [
+    {
+      "q": "What is SQL injection and how do you prevent it?",
+      "a": "Untrusted input is concatenated into a query so that it changes the query's meaning. Prevent it with parameterised queries or prepared statements, so data is never parsed as SQL, and give the database account only the privileges it needs. Escaping by hand and blocklists are fragile."
+    },
+    {
+      "q": "What is XSS and how is it different from CSRF?",
+      "a": "Cross-site scripting runs an attacker's script in your page, because input was output without encoding; defend with context-aware output encoding and a Content-Security-Policy. CSRF makes a victim's browser send an authenticated request the user did not intend; defend with SameSite cookies and anti-forgery tokens."
+    },
+    {
+      "q": "What is broken access control, and why is it first on the OWASP list?",
+      "a": "The user can do or see something they should not, such as changing an id in a URL to read another person's record (an insecure direct object reference). It is common because it is a missing check in application logic. Enforce authorisation on the server for every object and action, by default deny."
+    },
+    {
+      "q": "How should passwords be stored?",
+      "a": "Never in plain text or with a fast hash. Use a slow, salted, purpose-built password hash (argon2id, bcrypt or scrypt) with a cost you can raise over time, and support multi-factor authentication. The goal is to make each guess expensive if the database leaks."
+    },
+    {
+      "q": "What is SSRF?",
+      "a": "Server-side request forgery makes your server fetch a URL the attacker chooses, such as a cloud metadata address or an internal service. Defend by allowing only known destinations, resolving and checking the IP after DNS resolution, blocking internal ranges, and not returning raw responses to the user."
+    },
+    {
+      "q": "Why are secrets in source code a problem, and what is the alternative?",
+      "a": "Anyone with repository access, including through its history and forks, has them, and removing the line later does not remove it from history. Keep secrets in a secret manager or injected environment, give them short lifetimes where possible, rotate them, and scan commits for leaks."
+    },
+    {
+      "q": "What do rate limiting and lockouts protect against, and what is a pitfall?",
+      "a": "They slow down credential stuffing, scraping and brute force. A pitfall is keying on the wrong identity: behind a proxy the connection address is the proxy's, so use the trusted forwarded client address and the account, and make sure a lockout cannot be used to lock real users out."
+    },
+    {
+      "q": "What are the main security headers, and what does each do?",
+      "a": "Strict-Transport-Security forces HTTPS; Content-Security-Policy restricts where scripts and resources may load from; X-Content-Type-Options: nosniff stops type guessing; frame-ancestors (or X-Frame-Options) blocks clickjacking; Referrer-Policy limits what is leaked in the Referer. They are defence in depth, not a replacement for fixing the bug."
+    }
+  ]
+}

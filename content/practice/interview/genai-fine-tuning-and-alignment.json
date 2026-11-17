@@ -1,0 +1,40 @@
+{
+  "title": "Fine-tuning and alignment",
+  "topic": "genai",
+  "difficulty": "intermediate",
+  "module": "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag/README.md",
+  "questions": [
+    {
+      "q": "How do you decide between prompting, RAG and fine-tuning?",
+      "a": "Try prompting first (clear instructions and examples). Add RAG when the model lacks knowledge, which should be current, large or cited. Fine-tune when you need a consistent behaviour, style or format, a task a smaller model must do cheaply, or when prompts become too long. Fine-tuning teaches how to respond more than it teaches new facts."
+    },
+    {
+      "q": "What is supervised fine-tuning?",
+      "a": "Training a pretrained model further on pairs of input and desired output (instructions and good answers) with the usual next-token loss, usually computed on the answer tokens only. It turns a model that continues text into one that follows instructions in your format."
+    },
+    {
+      "q": "What is LoRA and why is it popular?",
+      "a": "Low-rank adaptation freezes the original weights and trains small pairs of low-rank matrices added to some layers. Only a tiny fraction of parameters change, so training needs far less memory, the adapter is a small file, and several adapters can share one base model."
+    },
+    {
+      "q": "What does QLoRA add?",
+      "a": "It keeps the frozen base model in 4-bit quantized form while training the LoRA adapters in higher precision. That lets a large model be fine-tuned on a single GPU, with quality close to full-precision LoRA in many cases."
+    },
+    {
+      "q": "What is RLHF, and why is it used after supervised fine-tuning?",
+      "a": "Reinforcement learning from human feedback trains a reward model on human rankings of answers, then optimises the language model to score highly on it, while a penalty keeps it close to the original model. It shapes qualities that are hard to demonstrate but easy to compare: helpfulness, tone and refusing harmful requests."
+    },
+    {
+      "q": "How is DPO different from RLHF?",
+      "a": "Direct preference optimisation uses the same preference pairs (a chosen and a rejected answer) but trains the model directly with a simple classification-style loss, with no separate reward model and no reinforcement-learning loop. It is simpler and more stable, and often gives comparable results."
+    },
+    {
+      "q": "What goes wrong with a small, poor fine-tuning dataset?",
+      "a": "The model can memorise examples, overfit to their style, forget general abilities (catastrophic forgetting) or learn mistakes from noisy labels. Quality and variety matter more than size: hundreds of clean, representative examples beat thousands of sloppy ones. Hold out a test set and compare against the base model."
+    },
+    {
+      "q": "What is quantization and what do you give up?",
+      "a": "Storing weights with fewer bits (for example int8 or int4 instead of 16-bit floats) to cut memory and speed up inference. You give up some accuracy; modest quantization usually costs little, while very aggressive levels can hurt reasoning or rare knowledge. Always evaluate on your own task."
+    }
+  ]
+}

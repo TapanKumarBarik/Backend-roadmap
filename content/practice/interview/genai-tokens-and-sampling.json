@@ -1,0 +1,40 @@
+{
+  "title": "Tokens and sampling",
+  "topic": "genai",
+  "difficulty": "beginner",
+  "module": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md",
+  "questions": [
+    {
+      "q": "What is a token?",
+      "a": "A token is the unit a language model reads and writes: a piece of text from a fixed vocabulary, often a whole common word, part of a word or a few bytes. Text is converted to token ids before it reaches the model, and prices and context limits are counted in tokens, not words or characters."
+    },
+    {
+      "q": "Why do models use subword tokens instead of words or characters?",
+      "a": "Words need a huge vocabulary and fail on new words; characters make sequences very long and slow. Subwords (BPE, WordPiece, SentencePiece) keep common words as one token and split rare ones into pieces, so any text can be represented with a vocabulary of tens of thousands of tokens."
+    },
+    {
+      "q": "Why is the same text a different number of tokens in different languages?",
+      "a": "Tokenizers are trained mostly on certain languages, so those are compressed into fewer tokens, while others are split into many small pieces. The same sentence can cost several times more tokens, which means higher cost, less room in the context window and slower generation."
+    },
+    {
+      "q": "What is the context window?",
+      "a": "The maximum number of tokens the model can take in one request, usually counting both the prompt and the generated answer. Anything beyond it is cut or must be summarised, and attention over a long context costs more compute and memory."
+    },
+    {
+      "q": "What does temperature do?",
+      "a": "The model produces a probability for every next token. Temperature rescales the scores before sampling: below 1 sharpens the distribution (more predictable), above 1 flattens it (more varied), and near 0 behaves like always taking the most likely token. Use low values for extraction and code, higher for creative text."
+    },
+    {
+      "q": "Explain top-k and top-p sampling.",
+      "a": "Top-k keeps only the k most likely tokens and samples among them. Top-p (nucleus) keeps the smallest set of tokens whose probabilities add up to p. Top-p adapts to how confident the model is: few tokens when it is sure, more when it is not. Both cut off the unlikely tail that causes odd words."
+    },
+    {
+      "q": "Why can the same prompt give different answers, and can you make it repeatable?",
+      "a": "Sampling picks randomly among likely tokens. Setting temperature to 0 (greedy) or fixing a seed, where the API supports it, makes outputs much more repeatable, but not guaranteed: floating-point differences and changes in the serving system can still alter a token."
+    },
+    {
+      "q": "Why can models struggle with tasks like counting letters in a word?",
+      "a": "The model sees tokens, not letters: a word may be one or two tokens, so its spelling is not directly visible. Tasks about characters, exact lengths or reversing strings are harder for that reason; letting the model spell the word out or use a code tool is more reliable."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "title": "Networking for developers",
+  "topic": "networking",
+  "difficulty": "beginner",
+  "module": "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip/README.md",
+  "questions": [
+    {
+      "q": "What happens between typing a URL and seeing a page?",
+      "a": "The browser resolves the name through DNS to an IP address, opens a TCP connection (and does a TLS handshake for HTTPS), sends an HTTP request, receives the response, then fetches the other resources the page needs. Each step has a cost, which is why caching, keep-alive and CDNs matter."
+    },
+    {
+      "q": "What does DNS do, and what is a TTL?",
+      "a": "DNS maps names to records (A and AAAA for addresses, CNAME for aliases, MX for mail). Answers are cached by resolvers for the record's time to live. A low TTL makes changes (such as a failover) take effect quickly; a high one reduces lookups but delays changes."
+    },
+    {
+      "q": "TCP versus UDP: when would you use each?",
+      "a": "TCP gives a reliable, ordered byte stream with retransmission and congestion control, at the cost of a handshake and some latency: web, databases, APIs. UDP sends independent datagrams with no guarantees: DNS lookups, real-time audio and video, games, and QUIC (which builds reliability on top of it)."
+    },
+    {
+      "q": "What is the TCP three-way handshake?",
+      "a": "The client sends SYN, the server answers SYN-ACK, and the client sends ACK. It agrees initial sequence numbers and confirms both sides can send and receive. The handshake costs one round trip before data flows, which is why connection reuse and TLS 1.3 matter for latency."
+    },
+    {
+      "q": "What is a subnet mask, and what does /24 mean?",
+      "a": "It says which part of an IP address identifies the network and which identifies the host. A /24 means the first 24 bits are the network, leaving 8 bits for hosts: 256 addresses, of which 254 are usable (the network address and the broadcast address are not assigned to hosts)."
+    },
+    {
+      "q": "What does NAT do?",
+      "a": "Network address translation lets many devices with private addresses share one public address. The router rewrites the source address and port of outgoing packets and keeps a table to send replies to the right device. It conserves IPv4 addresses but breaks direct inbound connections, which is why hole punching and relays exist."
+    },
+    {
+      "q": "What is the difference between an L4 and an L7 load balancer?",
+      "a": "An L4 balancer works on connections (IPs and ports) and is fast and simple, but cannot see requests inside them. An L7 balancer understands the protocol (HTTP): it can route by path or header, terminate TLS, and balance each request, which matters for long-lived HTTP/2 or gRPC connections."
+    },
+    {
+      "q": "A service is unreachable. How do you narrow down where the problem is?",
+      "a": "Work up the stack: does the name resolve (dig), is the host reachable (ping, traceroute), is the port open (nc or curl -v), does TLS complete (openssl s_client), and does the application answer correctly? Also check firewalls, security groups and DNS from the failing machine, not only from yours."
+    }
+  ]
+}

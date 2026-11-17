@@ -474,6 +474,42 @@
    "u": "https://developer.hashicorp.com/terraform/docs",
    "t": "Docs",
    "a": "HashiCorp"
+  },
+  {
+   "n": "Inspect: a framework for large language model evaluations",
+   "u": "https://inspect.aisi.org.uk/",
+   "t": "Docs",
+   "a": "UK AI Security Institute"
+  },
+  {
+   "n": "Berkeley Function-Calling Leaderboard",
+   "u": "https://gorilla.cs.berkeley.edu/leaderboard.html",
+   "t": "Reference",
+   "a": "UC Berkeley"
+  },
+  {
+   "n": "AgentBench: Evaluating LLMs as Agents",
+   "u": "https://arxiv.org/abs/2308.03688",
+   "t": "Paper",
+   "a": "Liu et al."
+  },
+  {
+   "n": "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?",
+   "u": "https://arxiv.org/abs/2310.06770",
+   "t": "Paper",
+   "a": "Jimenez et al."
+  },
+  {
+   "n": "tau-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains",
+   "u": "https://arxiv.org/abs/2406.12045",
+   "t": "Paper",
+   "a": "Yao et al."
+  },
+  {
+   "n": "GAIA: a benchmark for General AI Assistants",
+   "u": "https://arxiv.org/abs/2311.12983",
+   "t": "Paper",
+   "a": "Mialon et al."
   }
  ],
  "resourceSets": [
@@ -698,6 +734,41 @@
    41,
    67,
    66
+  ],
+  [
+   81,
+   82,
+   84
+  ],
+  [
+   80,
+   83,
+   79
+  ],
+  [
+   81,
+   84,
+   83
+  ],
+  [
+   83,
+   79,
+   81
+  ],
+  [
+   83,
+   77,
+   79
+  ],
+  [
+   79,
+   83,
+   82
+  ],
+  [
+   81,
+   82,
+   79
   ]
  ],
  "sd": {
@@ -10816,7 +10887,8 @@
     "p": "Must Know",
     "df": "Intermediate",
     "pre": "Agentic Workflows (SD-S-028)",
-    "tr": "B"
+    "tr": "B",
+    "rs": 41
    },
    {
     "i": "GAI-AE-002",
@@ -10827,7 +10899,8 @@
     "p": "High",
     "df": "Intermediate",
     "pre": "Task Success Rate (GAI-AE-001)",
-    "tr": "B"
+    "tr": "B",
+    "rs": 42
    },
    {
     "i": "GAI-AE-003",
@@ -10838,7 +10911,8 @@
     "p": "Medium",
     "df": "Advanced",
     "pre": "Task Success Rate (GAI-AE-001)",
-    "tr": "B"
+    "tr": "B",
+    "rs": 43
    },
    {
     "i": "GAI-AE-004",
@@ -10849,7 +10923,8 @@
     "p": "Must Know",
     "df": "Intermediate",
     "pre": "Task Success Rate (GAI-AE-001)",
-    "tr": "C"
+    "tr": "C",
+    "rs": 44
    },
    {
     "i": "GAI-AE-005",
@@ -10860,7 +10935,8 @@
     "p": "High",
     "df": "Intermediate",
     "pre": "Task Success Rate (GAI-AE-001)",
-    "tr": "C"
+    "tr": "C",
+    "rs": 45
    },
    {
     "i": "GAI-AE-006",
@@ -10871,7 +10947,8 @@
     "p": "High",
     "df": "Advanced",
     "pre": "Task Success Rate (GAI-AE-001)",
-    "tr": "B"
+    "tr": "B",
+    "rs": 46
    },
    {
     "i": "GAI-AE-007",
@@ -10882,7 +10959,8 @@
     "p": "High",
     "df": "Advanced",
     "pre": "Deterministic Replay and Scenario-Based Evaluation (GAI-AE-006)",
-    "tr": "C"
+    "tr": "C",
+    "rs": 47
    },
    {
     "i": "GAI-AP-001",

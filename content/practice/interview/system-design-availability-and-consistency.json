@@ -1,0 +1,40 @@
+{
+  "title": "Availability and consistency",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "module": "system-design/01-core-fundamentals/13-cap-theorem/README.md",
+  "questions": [
+    {
+      "q": "State the CAP theorem correctly.",
+      "a": "When a network partition happens, a distributed data store must choose between consistency (every read sees the latest write) and availability (every request to a working node gets a response). Partitions cannot be ruled out in practice, so the real choice is what to give up during one. It says nothing about the normal case."
+    },
+    {
+      "q": "What does PACELC add to CAP?",
+      "a": "If there is a partition (P) choose availability or consistency (A or C); Else (E), when running normally, choose between latency (L) and consistency (C). It captures that even without failures, replicating synchronously for stronger consistency costs latency."
+    },
+    {
+      "q": "What is the difference between strong and eventual consistency?",
+      "a": "With strong (linearizable) consistency every read returns the latest acknowledged write, as if there were one copy. With eventual consistency replicas converge if writes stop, but a read can return stale data for a while. Eventual consistency is cheaper and more available; it needs designs that tolerate staleness."
+    },
+    {
+      "q": "How do you calculate availability for components in series and in parallel?",
+      "a": "In series the availabilities multiply, so two 99.9% components give about 99.8%. In parallel (redundant, either can serve) the failure probabilities multiply: two 99% components give 1 - 0.01 x 0.01 = 99.99%. Every required dependency lowers the total."
+    },
+    {
+      "q": "What is a single point of failure, and how do you remove it?",
+      "a": "A component whose failure takes down the system. Remove it with redundancy (several instances behind a load balancer, replicated databases across zones), health checks and automatic failover, and by checking that the failover path itself works, since the load balancer or the failover controller can also be a single point."
+    },
+    {
+      "q": "What is a quorum and why does R + W > N matter?",
+      "a": "With N replicas, a write waits for W acknowledgements and a read asks R replicas. If R + W > N, the read set and the write set must overlap in at least one replica that has the latest write, so a read can find it. Lowering R or W trades consistency for speed and availability."
+    },
+    {
+      "q": "Why is it hard to make a write idempotent, and why does it matter?",
+      "a": "Networks lose responses, so a client cannot tell whether a request that timed out was applied, and it will retry. If the retry can repeat the effect (charge a card twice), the system is wrong. Use an idempotency key stored with the result, or design the operation so repeating it has no further effect."
+    },
+    {
+      "q": "When would you choose consistency over availability for a feature?",
+      "a": "When a stale or conflicting answer causes real harm: money balances, inventory that must not be oversold, unique usernames, leader election. Features such as feeds, counters of likes or recommendations can accept staleness. Decide per feature, not once for the whole system."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "title": "RAG fundamentals",
+  "topic": "genai",
+  "difficulty": "intermediate",
+  "module": "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end/README.md",
+  "questions": [
+    {
+      "q": "What problem does retrieval-augmented generation solve?",
+      "a": "A model only knows what was in its training data, up to its cutoff, and it can state wrong things confidently. RAG fetches relevant documents at question time and puts them in the prompt, so the answer can use private, fresh or very specific knowledge and can cite its sources, without retraining the model."
+    },
+    {
+      "q": "Walk through the two phases of a basic RAG system.",
+      "a": "**Ingestion (offline):** load documents, split them into chunks, embed each chunk and store the vectors with their text and metadata in an index. **Query (online):** embed the question, retrieve the nearest chunks, build a prompt from the question and those chunks, and let the model answer from them."
+    },
+    {
+      "q": "How do you choose a chunk size, and what goes wrong at the extremes?",
+      "a": "Chunks too small lose the context that makes them meaningful (a sentence without its heading or the sentence before it). Chunks too large dilute the embedding, waste prompt tokens and bury the relevant sentence. Start around a few hundred tokens with some overlap, split on structure (headings, paragraphs), and tune against a retrieval test set."
+    },
+    {
+      "q": "Why use hybrid search instead of vector search alone?",
+      "a": "Embeddings capture meaning but can miss exact tokens such as product codes, error numbers or names; keyword search (BM25) is the opposite. Running both and merging the rankings (for example with reciprocal rank fusion) is usually better than either alone, especially on technical text."
+    },
+    {
+      "q": "What does a reranker add, and what does it cost?",
+      "a": "The first stage retrieves candidates quickly with a bi-encoder (query and chunk embedded separately). A cross-encoder reranker reads the query and each candidate together and scores relevance much more accurately, but it is slower, so it is applied only to the top 20-100 results before the best few go to the model. It trades latency for precision."
+    },
+    {
+      "q": "A RAG chatbot gives a wrong answer. How do you find out which part failed?",
+      "a": "Look at the retrieved chunks first. If the right passage was not retrieved, the problem is retrieval (chunking, embeddings, query rewriting, filters). If it was retrieved but the answer is wrong or ignores it, the problem is generation (prompt, too much noise in context, model). Measure the two separately: retrieval with recall@k on labelled questions, generation with faithfulness to the context."
+    },
+    {
+      "q": "How do you reduce hallucination in a RAG answer?",
+      "a": "Tell the model to answer only from the provided context and to say when it is not there, keep the context short and relevant, require citations to chunk ids and check them, and add a groundedness check (a second pass or a metric that verifies each claim against the sources). Good retrieval matters most: the model cannot cite what it was not given."
+    },
+    {
+      "q": "When is fine-tuning a better answer than RAG?",
+      "a": "RAG is for knowledge that changes or is large and needs sources. Fine-tuning is for changing behaviour: a consistent style or format, a narrow task, or a smaller cheaper model that has to do one job well. They combine: fine-tune for the format, retrieve for the facts. If the problem is \"it does not know our documents\", start with RAG."
+    }
+  ]
+}

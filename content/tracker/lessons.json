@@ -1478,6 +1478,31 @@
   "GAI-AR-009": [
    "genai/07-prompt-engineering/13-defending-against-injection"
   ],
+  "GAI-AE-001": [
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability",
+   "genai/18-evaluation-harnesses-and-benchmarks/00-anatomy-of-an-eval-harness"
+  ],
+  "GAI-AE-002": [
+   "genai/10-ai-agents/06-tool-execution-and-error-handling",
+   "genai/17-agent-harness-engineering/01-tools-and-the-agent-computer-interface",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-003": [
+   "genai/10-ai-agents/08-planning-task-decomposition",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-004": [
+   "genai/10-ai-agents/16-cost-and-latency-control-in-agents",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-005": [
+   "genai/17-agent-harness-engineering/03-safety-permissions-and-sandboxing",
+   "genai/10-ai-agents/13-human-in-the-loop-patterns"
+  ],
+  "GAI-AE-006": [
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates"
+  ],
   "GAI-AE-007": [
    "genai/15-evaluation-observability-and-safety/00-why-genai-evaluation-is-hard",
    "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates",
@@ -2184,6 +2209,31 @@
   ],
   "SD-T-002": [
    "system-design/01-core-fundamentals/03-functional-requirements"
+  ],
+  "GAI-AE-001": [
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability",
+   "genai/18-evaluation-harnesses-and-benchmarks/00-anatomy-of-an-eval-harness"
+  ],
+  "GAI-AE-002": [
+   "genai/10-ai-agents/06-tool-execution-and-error-handling",
+   "genai/17-agent-harness-engineering/01-tools-and-the-agent-computer-interface",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-003": [
+   "genai/10-ai-agents/08-planning-task-decomposition",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-004": [
+   "genai/10-ai-agents/16-cost-and-latency-control-in-agents",
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability"
+  ],
+  "GAI-AE-005": [
+   "genai/17-agent-harness-engineering/03-safety-permissions-and-sandboxing",
+   "genai/10-ai-agents/13-human-in-the-loop-patterns"
+  ],
+  "GAI-AE-006": [
+   "genai/18-evaluation-harnesses-and-benchmarks/02-evaluating-agents-environments-graders-and-reliability",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates"
   ]
  }
 }

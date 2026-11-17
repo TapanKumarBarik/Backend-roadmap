@@ -1,0 +1,40 @@
+{
+  "title": "Observability and reliability",
+  "topic": "observability",
+  "difficulty": "intermediate",
+  "module": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+  "questions": [
+    {
+      "q": "What are the three pillars of observability?",
+      "a": "Logs (discrete events with context), metrics (numeric measurements aggregated over time, cheap to store and alert on) and traces (the path of one request through many services with timings). Metrics tell you something is wrong, traces tell you where, and logs tell you why."
+    },
+    {
+      "q": "What is the difference between monitoring and observability?",
+      "a": "Monitoring checks for failures you predicted, with dashboards and alerts. Observability is being able to ask new questions about a running system from the data it emits, including problems you did not anticipate, which needs rich, structured and correlated telemetry."
+    },
+    {
+      "q": "What are the RED and USE methods?",
+      "a": "RED is for services: Rate of requests, Errors and Duration. USE is for resources such as CPU, disks and queues: Utilisation, Saturation and Errors. Together they give a quick, consistent way to see whether a service or a resource is the problem."
+    },
+    {
+      "q": "What are SLIs, SLOs and an error budget?",
+      "a": "An SLI is a measured indicator of user experience (the fraction of requests that succeed within 300 ms). An SLO is the target for it (99.9% over 30 days). The error budget is the allowed failure, 0.1%: while there is budget you can ship faster; when it is spent you prioritise reliability."
+    },
+    {
+      "q": "Why log structured data with a request or trace id?",
+      "a": "Structured (JSON) logs can be filtered and aggregated by field, and a shared request or trace id lets you follow one request across services and match its logs to its trace. Plain text lines make that slow and fragile."
+    },
+    {
+      "q": "What makes a good alert?",
+      "a": "It fires on symptoms users feel (error rate, latency, SLO burn rate), is actionable, has an owner and a runbook, and does not fire for things that fix themselves. Alerts that are mostly noise teach people to ignore the channel, which is how real incidents are missed."
+    },
+    {
+      "q": "What is high cardinality, and why is it a problem for metrics?",
+      "a": "Each unique combination of label values creates a separate time series. A label such as a user id or a URL with ids can produce millions of series, which makes metrics systems slow and expensive. Keep metric labels to bounded values and put identifiers in logs and traces."
+    },
+    {
+      "q": "What is a graceful degradation strategy?",
+      "a": "When a dependency fails the service keeps doing the part it can: serve cached or default data, disable an optional feature, or queue work for later, using timeouts, circuit breakers and bulkheads so one failure does not spread. Decide in advance which features are essential."
+    }
+  ]
+}

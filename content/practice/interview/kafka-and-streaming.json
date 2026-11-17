@@ -1,0 +1,40 @@
+{
+  "title": "Kafka and event streaming",
+  "topic": "messaging",
+  "difficulty": "intermediate",
+  "module": "backend/17-kafka-and-streaming/01-consumer-groups-and-rebalancing-in-depth/README.md",
+  "questions": [
+    {
+      "q": "What are a topic, a partition and an offset in Kafka?",
+      "a": "A topic is a named stream of records. It is split into partitions, each an ordered, append-only log; ordering is guaranteed only within a partition. An offset is a record's position in its partition, and consumers track which offset they have read up to."
+    },
+    {
+      "q": "How does a consumer group share work?",
+      "a": "Each partition is assigned to exactly one consumer in the group, so the group reads a topic in parallel. At most as many consumers as there are partitions can be busy. Two different groups each get every record independently."
+    },
+    {
+      "q": "What is a rebalance and why can it hurt?",
+      "a": "When consumers join, leave or are considered dead, partitions are reassigned. During a rebalance consumption pauses (less so with cooperative rebalancing), and a slow or flapping consumer can cause repeated rebalances and a growing lag. Tune session and poll timeouts, process within them, and use static membership for restarts."
+    },
+    {
+      "q": "How do you choose a partition key?",
+      "a": "Records with the same key go to the same partition, which preserves their order. Choose the key whose order matters (an account or order id) and with enough distinct values to spread the load. A hot key makes one partition, and its consumer, the bottleneck."
+    },
+    {
+      "q": "Explain delivery semantics: at-most-once, at-least-once and exactly-once.",
+      "a": "Committing the offset before processing is at-most-once (a crash loses records); after processing is at-least-once (a crash causes duplicates). Kafka transactions give exactly-once within Kafka. For writes to an external system, make the handler idempotent so a replay does no harm."
+    },
+    {
+      "q": "What does acks=all do, and what is min.insync.replicas?",
+      "a": "With acks=all the leader acknowledges a write only after all in-sync replicas have it. min.insync.replicas sets how many must be in sync for a write to be accepted; with replication factor 3 and a minimum of 2 you tolerate one broker loss without losing acknowledged data."
+    },
+    {
+      "q": "What is consumer lag and what do you do when it grows?",
+      "a": "Lag is how far a consumer's committed offset is behind the end of the log. If it grows, find out whether the consumers are slow (a downstream dependency, heavy processing), too few (add consumers up to the partition count), or rebalancing. Alert on lag trend, not a single reading."
+    },
+    {
+      "q": "When does log compaction make sense?",
+      "a": "A compacted topic keeps at least the latest record for each key and eventually removes older ones, so it works as a table of current state: a changelog, configuration or a cache that can be rebuilt by reading the topic. A deletion is written as a record with a null value (a tombstone)."
+    }
+  ]
+}

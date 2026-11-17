@@ -1,0 +1,40 @@
+{
+  "title": "AI agents and tool use",
+  "topic": "genai",
+  "difficulty": "intermediate",
+  "module": "genai/10-ai-agents/02-the-react-loop/README.md",
+  "questions": [
+    {
+      "q": "What makes a system an agent rather than a chatbot or a fixed workflow?",
+      "a": "An agent lets the model decide the next step in a loop: it chooses an action, sees the result, and chooses again until it decides it is done. A workflow follows steps the developer wrote in advance; a chatbot answers one message at a time. More freedom means more capability and more ways to go wrong, so use the simplest structure that works."
+    },
+    {
+      "q": "Describe the ReAct loop.",
+      "a": "The model alternates reasoning and acting: it thinks about what is needed, calls a tool with arguments, receives the observation, and repeats with the observation in its context. The loop ends when the model produces a final answer or a limit is reached. The observations ground the next step in real results instead of guesses."
+    },
+    {
+      "q": "How does tool calling work at the API level?",
+      "a": "You describe each tool with a name, a description and a JSON schema for its arguments. The model may reply with a tool call instead of text; your code validates the arguments, runs the function, and returns the result in a tool message. The model never runs anything itself, so your code decides what is allowed."
+    },
+    {
+      "q": "What should a good tool definition look like?",
+      "a": "A clear name, a description that says when to use it and when not to, a strict schema (types, enums, required fields) and a result that is short and informative, including a useful error message. The description is part of the prompt: vague tools are chosen wrongly, and tools with huge outputs waste the context window."
+    },
+    {
+      "q": "Why does every agent loop need limits?",
+      "a": "A loop can repeat forever or spiral in cost: the model keeps calling the same tool, or retries a failing step. Set a maximum number of steps, a token and time budget, detect repeated identical calls, and make the agent stop with a clear message. Treat the limit as a normal outcome and log it."
+    },
+    {
+      "q": "What are the main risks of giving an agent tools, and how do you reduce them?",
+      "a": "The model can be wrong, or be steered by text it reads (prompt injection in a web page or a document). Reduce the damage: give the least privilege, separate read from write tools, require human approval for irreversible actions, validate all arguments in code, and never put secrets in the prompt."
+    },
+    {
+      "q": "How do you give an agent memory?",
+      "a": "Short-term memory is the conversation and a scratchpad in the context window, which you trim or summarise as it grows. Long-term memory is stored outside the model, often in a vector store or a database, and retrieved when relevant. Decide what is worth remembering; storing everything makes retrieval noisy."
+    },
+    {
+      "q": "How do you debug and evaluate an agent?",
+      "a": "Record a full trace of every step: the prompt, each tool call and its result, and the cost. Replay failing traces, and test with a set of tasks that have checkable outcomes. Measure success rate, steps, cost and latency, and look at where runs fail (wrong tool, bad arguments, no progress), not only at the final answer."
+    }
+  ]
+}

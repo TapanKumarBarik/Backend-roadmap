@@ -9919,6 +9919,166 @@
     }
    ]
   },
+  "genai-agents-and-tool-use": {
+   "title": "AI agents and tool use",
+   "topic": "genai",
+   "difficulty": "intermediate",
+   "module": "genai/10-ai-agents/02-the-react-loop/README.md",
+   "questions": [
+    {
+     "q": "What makes a system an agent rather than a chatbot or a fixed workflow?",
+     "a": "An agent lets the model decide the next step in a loop: it chooses an action, sees the result, and chooses again until it decides it is done. A workflow follows steps the developer wrote in advance; a chatbot answers one message at a time. More freedom means more capability and more ways to go wrong, so use the simplest structure that works."
+    },
+    {
+     "q": "Describe the ReAct loop.",
+     "a": "The model alternates reasoning and acting: it thinks about what is needed, calls a tool with arguments, receives the observation, and repeats with the observation in its context. The loop ends when the model produces a final answer or a limit is reached. The observations ground the next step in real results instead of guesses."
+    },
+    {
+     "q": "How does tool calling work at the API level?",
+     "a": "You describe each tool with a name, a description and a JSON schema for its arguments. The model may reply with a tool call instead of text; your code validates the arguments, runs the function, and returns the result in a tool message. The model never runs anything itself, so your code decides what is allowed."
+    },
+    {
+     "q": "What should a good tool definition look like?",
+     "a": "A clear name, a description that says when to use it and when not to, a strict schema (types, enums, required fields) and a result that is short and informative, including a useful error message. The description is part of the prompt: vague tools are chosen wrongly, and tools with huge outputs waste the context window."
+    },
+    {
+     "q": "Why does every agent loop need limits?",
+     "a": "A loop can repeat forever or spiral in cost: the model keeps calling the same tool, or retries a failing step. Set a maximum number of steps, a token and time budget, detect repeated identical calls, and make the agent stop with a clear message. Treat the limit as a normal outcome and log it."
+    },
+    {
+     "q": "What are the main risks of giving an agent tools, and how do you reduce them?",
+     "a": "The model can be wrong, or be steered by text it reads (prompt injection in a web page or a document). Reduce the damage: give the least privilege, separate read from write tools, require human approval for irreversible actions, validate all arguments in code, and never put secrets in the prompt."
+    },
+    {
+     "q": "How do you give an agent memory?",
+     "a": "Short-term memory is the conversation and a scratchpad in the context window, which you trim or summarise as it grows. Long-term memory is stored outside the model, often in a vector store or a database, and retrieved when relevant. Decide what is worth remembering; storing everything makes retrieval noisy."
+    },
+    {
+     "q": "How do you debug and evaluate an agent?",
+     "a": "Record a full trace of every step: the prompt, each tool call and its result, and the cost. Replay failing traces, and test with a set of tasks that have checkable outcomes. Measure success rate, steps, cost and latency, and look at where runs fail (wrong tool, bad arguments, no progress), not only at the final answer."
+    }
+   ]
+  },
+  "genai-fine-tuning-and-alignment": {
+   "title": "Fine-tuning and alignment",
+   "topic": "genai",
+   "difficulty": "intermediate",
+   "module": "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag/README.md",
+   "questions": [
+    {
+     "q": "How do you decide between prompting, RAG and fine-tuning?",
+     "a": "Try prompting first (clear instructions and examples). Add RAG when the model lacks knowledge, which should be current, large or cited. Fine-tune when you need a consistent behaviour, style or format, a task a smaller model must do cheaply, or when prompts become too long. Fine-tuning teaches how to respond more than it teaches new facts."
+    },
+    {
+     "q": "What is supervised fine-tuning?",
+     "a": "Training a pretrained model further on pairs of input and desired output (instructions and good answers) with the usual next-token loss, usually computed on the answer tokens only. It turns a model that continues text into one that follows instructions in your format."
+    },
+    {
+     "q": "What is LoRA and why is it popular?",
+     "a": "Low-rank adaptation freezes the original weights and trains small pairs of low-rank matrices added to some layers. Only a tiny fraction of parameters change, so training needs far less memory, the adapter is a small file, and several adapters can share one base model."
+    },
+    {
+     "q": "What does QLoRA add?",
+     "a": "It keeps the frozen base model in 4-bit quantized form while training the LoRA adapters in higher precision. That lets a large model be fine-tuned on a single GPU, with quality close to full-precision LoRA in many cases."
+    },
+    {
+     "q": "What is RLHF, and why is it used after supervised fine-tuning?",
+     "a": "Reinforcement learning from human feedback trains a reward model on human rankings of answers, then optimises the language model to score highly on it, while a penalty keeps it close to the original model. It shapes qualities that are hard to demonstrate but easy to compare: helpfulness, tone and refusing harmful requests."
+    },
+    {
+     "q": "How is DPO different from RLHF?",
+     "a": "Direct preference optimisation uses the same preference pairs (a chosen and a rejected answer) but trains the model directly with a simple classification-style loss, with no separate reward model and no reinforcement-learning loop. It is simpler and more stable, and often gives comparable results."
+    },
+    {
+     "q": "What goes wrong with a small, poor fine-tuning dataset?",
+     "a": "The model can memorise examples, overfit to their style, forget general abilities (catastrophic forgetting) or learn mistakes from noisy labels. Quality and variety matter more than size: hundreds of clean, representative examples beat thousands of sloppy ones. Hold out a test set and compare against the base model."
+    },
+    {
+     "q": "What is quantization and what do you give up?",
+     "a": "Storing weights with fewer bits (for example int8 or int4 instead of 16-bit floats) to cut memory and speed up inference. You give up some accuracy; modest quantization usually costs little, while very aggressive levels can hurt reasoning or rare knowledge. Always evaluate on your own task."
+    }
+   ]
+  },
+  "genai-rag-fundamentals": {
+   "title": "RAG fundamentals",
+   "topic": "genai",
+   "difficulty": "intermediate",
+   "module": "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end/README.md",
+   "questions": [
+    {
+     "q": "What problem does retrieval-augmented generation solve?",
+     "a": "A model only knows what was in its training data, up to its cutoff, and it can state wrong things confidently. RAG fetches relevant documents at question time and puts them in the prompt, so the answer can use private, fresh or very specific knowledge and can cite its sources, without retraining the model."
+    },
+    {
+     "q": "Walk through the two phases of a basic RAG system.",
+     "a": "**Ingestion (offline):** load documents, split them into chunks, embed each chunk and store the vectors with their text and metadata in an index. **Query (online):** embed the question, retrieve the nearest chunks, build a prompt from the question and those chunks, and let the model answer from them."
+    },
+    {
+     "q": "How do you choose a chunk size, and what goes wrong at the extremes?",
+     "a": "Chunks too small lose the context that makes them meaningful (a sentence without its heading or the sentence before it). Chunks too large dilute the embedding, waste prompt tokens and bury the relevant sentence. Start around a few hundred tokens with some overlap, split on structure (headings, paragraphs), and tune against a retrieval test set."
+    },
+    {
+     "q": "Why use hybrid search instead of vector search alone?",
+     "a": "Embeddings capture meaning but can miss exact tokens such as product codes, error numbers or names; keyword search (BM25) is the opposite. Running both and merging the rankings (for example with reciprocal rank fusion) is usually better than either alone, especially on technical text."
+    },
+    {
+     "q": "What does a reranker add, and what does it cost?",
+     "a": "The first stage retrieves candidates quickly with a bi-encoder (query and chunk embedded separately). A cross-encoder reranker reads the query and each candidate together and scores relevance much more accurately, but it is slower, so it is applied only to the top 20-100 results before the best few go to the model. It trades latency for precision."
+    },
+    {
+     "q": "A RAG chatbot gives a wrong answer. How do you find out which part failed?",
+     "a": "Look at the retrieved chunks first. If the right passage was not retrieved, the problem is retrieval (chunking, embeddings, query rewriting, filters). If it was retrieved but the answer is wrong or ignores it, the problem is generation (prompt, too much noise in context, model). Measure the two separately: retrieval with recall@k on labelled questions, generation with faithfulness to the context."
+    },
+    {
+     "q": "How do you reduce hallucination in a RAG answer?",
+     "a": "Tell the model to answer only from the provided context and to say when it is not there, keep the context short and relevant, require citations to chunk ids and check them, and add a groundedness check (a second pass or a metric that verifies each claim against the sources). Good retrieval matters most: the model cannot cite what it was not given."
+    },
+    {
+     "q": "When is fine-tuning a better answer than RAG?",
+     "a": "RAG is for knowledge that changes or is large and needs sources. Fine-tuning is for changing behaviour: a consistent style or format, a narrow task, or a smaller cheaper model that has to do one job well. They combine: fine-tune for the format, retrieve for the facts. If the problem is \"it does not know our documents\", start with RAG."
+    }
+   ]
+  },
+  "genai-tokens-and-sampling": {
+   "title": "Tokens and sampling",
+   "topic": "genai",
+   "difficulty": "beginner",
+   "module": "genai/01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md",
+   "questions": [
+    {
+     "q": "What is a token?",
+     "a": "A token is the unit a language model reads and writes: a piece of text from a fixed vocabulary, often a whole common word, part of a word or a few bytes. Text is converted to token ids before it reaches the model, and prices and context limits are counted in tokens, not words or characters."
+    },
+    {
+     "q": "Why do models use subword tokens instead of words or characters?",
+     "a": "Words need a huge vocabulary and fail on new words; characters make sequences very long and slow. Subwords (BPE, WordPiece, SentencePiece) keep common words as one token and split rare ones into pieces, so any text can be represented with a vocabulary of tens of thousands of tokens."
+    },
+    {
+     "q": "Why is the same text a different number of tokens in different languages?",
+     "a": "Tokenizers are trained mostly on certain languages, so those are compressed into fewer tokens, while others are split into many small pieces. The same sentence can cost several times more tokens, which means higher cost, less room in the context window and slower generation."
+    },
+    {
+     "q": "What is the context window?",
+     "a": "The maximum number of tokens the model can take in one request, usually counting both the prompt and the generated answer. Anything beyond it is cut or must be summarised, and attention over a long context costs more compute and memory."
+    },
+    {
+     "q": "What does temperature do?",
+     "a": "The model produces a probability for every next token. Temperature rescales the scores before sampling: below 1 sharpens the distribution (more predictable), above 1 flattens it (more varied), and near 0 behaves like always taking the most likely token. Use low values for extraction and code, higher for creative text."
+    },
+    {
+     "q": "Explain top-k and top-p sampling.",
+     "a": "Top-k keeps only the k most likely tokens and samples among them. Top-p (nucleus) keeps the smallest set of tokens whose probabilities add up to p. Top-p adapts to how confident the model is: few tokens when it is sure, more when it is not. Both cut off the unlikely tail that causes odd words."
+    },
+    {
+     "q": "Why can the same prompt give different answers, and can you make it repeatable?",
+     "a": "Sampling picks randomly among likely tokens. Setting temperature to 0 (greedy) or fixing a seed, where the API supports it, makes outputs much more repeatable, but not guaranteed: floating-point differences and changes in the serving system can still alter a token."
+    },
+    {
+     "q": "Why can models struggle with tasks like counting letters in a word?",
+     "a": "The model sees tokens, not letters: a word may be one or two tokens, so its spelling is not directly visible. Tasks about characters, exact lengths or reversing strings are harder for that reason; letting the model spell the word out or use a code tool is more reliable."
+    }
+   ]
+  },
   "idempotency-and-retries": {
    "title": "Idempotency and retries",
    "topic": "distributed-systems",
@@ -9940,6 +10100,126 @@
     {
      "q": "A retry arrives while the first request is still running. What happens?",
      "a": "The unique key makes the second insert fail or block. Either respond 409 so the client retries shortly, or wait for the first to finish and return its result. Never run the work twice."
+    }
+   ]
+  },
+  "kafka-and-streaming": {
+   "title": "Kafka and event streaming",
+   "topic": "messaging",
+   "difficulty": "intermediate",
+   "module": "backend/17-kafka-and-streaming/01-consumer-groups-and-rebalancing-in-depth/README.md",
+   "questions": [
+    {
+     "q": "What are a topic, a partition and an offset in Kafka?",
+     "a": "A topic is a named stream of records. It is split into partitions, each an ordered, append-only log; ordering is guaranteed only within a partition. An offset is a record's position in its partition, and consumers track which offset they have read up to."
+    },
+    {
+     "q": "How does a consumer group share work?",
+     "a": "Each partition is assigned to exactly one consumer in the group, so the group reads a topic in parallel. At most as many consumers as there are partitions can be busy. Two different groups each get every record independently."
+    },
+    {
+     "q": "What is a rebalance and why can it hurt?",
+     "a": "When consumers join, leave or are considered dead, partitions are reassigned. During a rebalance consumption pauses (less so with cooperative rebalancing), and a slow or flapping consumer can cause repeated rebalances and a growing lag. Tune session and poll timeouts, process within them, and use static membership for restarts."
+    },
+    {
+     "q": "How do you choose a partition key?",
+     "a": "Records with the same key go to the same partition, which preserves their order. Choose the key whose order matters (an account or order id) and with enough distinct values to spread the load. A hot key makes one partition, and its consumer, the bottleneck."
+    },
+    {
+     "q": "Explain delivery semantics: at-most-once, at-least-once and exactly-once.",
+     "a": "Committing the offset before processing is at-most-once (a crash loses records); after processing is at-least-once (a crash causes duplicates). Kafka transactions give exactly-once within Kafka. For writes to an external system, make the handler idempotent so a replay does no harm."
+    },
+    {
+     "q": "What does acks=all do, and what is min.insync.replicas?",
+     "a": "With acks=all the leader acknowledges a write only after all in-sync replicas have it. min.insync.replicas sets how many must be in sync for a write to be accepted; with replication factor 3 and a minimum of 2 you tolerate one broker loss without losing acknowledged data."
+    },
+    {
+     "q": "What is consumer lag and what do you do when it grows?",
+     "a": "Lag is how far a consumer's committed offset is behind the end of the log. If it grows, find out whether the consumers are slow (a downstream dependency, heavy processing), too few (add consumers up to the partition count), or rebalancing. Alert on lag trend, not a single reading."
+    },
+    {
+     "q": "When does log compaction make sense?",
+     "a": "A compacted topic keeps at least the latest record for each key and eventually removes older ones, so it works as a table of current state: a changelog, configuration or a cache that can be rebuilt by reading the topic. A deletion is written as a record with a null value (a tombstone)."
+    }
+   ]
+  },
+  "networking-for-developers": {
+   "title": "Networking for developers",
+   "topic": "networking",
+   "difficulty": "beginner",
+   "module": "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip/README.md",
+   "questions": [
+    {
+     "q": "What happens between typing a URL and seeing a page?",
+     "a": "The browser resolves the name through DNS to an IP address, opens a TCP connection (and does a TLS handshake for HTTPS), sends an HTTP request, receives the response, then fetches the other resources the page needs. Each step has a cost, which is why caching, keep-alive and CDNs matter."
+    },
+    {
+     "q": "What does DNS do, and what is a TTL?",
+     "a": "DNS maps names to records (A and AAAA for addresses, CNAME for aliases, MX for mail). Answers are cached by resolvers for the record's time to live. A low TTL makes changes (such as a failover) take effect quickly; a high one reduces lookups but delays changes."
+    },
+    {
+     "q": "TCP versus UDP: when would you use each?",
+     "a": "TCP gives a reliable, ordered byte stream with retransmission and congestion control, at the cost of a handshake and some latency: web, databases, APIs. UDP sends independent datagrams with no guarantees: DNS lookups, real-time audio and video, games, and QUIC (which builds reliability on top of it)."
+    },
+    {
+     "q": "What is the TCP three-way handshake?",
+     "a": "The client sends SYN, the server answers SYN-ACK, and the client sends ACK. It agrees initial sequence numbers and confirms both sides can send and receive. The handshake costs one round trip before data flows, which is why connection reuse and TLS 1.3 matter for latency."
+    },
+    {
+     "q": "What is a subnet mask, and what does /24 mean?",
+     "a": "It says which part of an IP address identifies the network and which identifies the host. A /24 means the first 24 bits are the network, leaving 8 bits for hosts: 256 addresses, of which 254 are usable (the network address and the broadcast address are not assigned to hosts)."
+    },
+    {
+     "q": "What does NAT do?",
+     "a": "Network address translation lets many devices with private addresses share one public address. The router rewrites the source address and port of outgoing packets and keeps a table to send replies to the right device. It conserves IPv4 addresses but breaks direct inbound connections, which is why hole punching and relays exist."
+    },
+    {
+     "q": "What is the difference between an L4 and an L7 load balancer?",
+     "a": "An L4 balancer works on connections (IPs and ports) and is fast and simple, but cannot see requests inside them. An L7 balancer understands the protocol (HTTP): it can route by path or header, terminate TLS, and balance each request, which matters for long-lived HTTP/2 or gRPC connections."
+    },
+    {
+     "q": "A service is unreachable. How do you narrow down where the problem is?",
+     "a": "Work up the stack: does the name resolve (dig), is the host reachable (ping, traceroute), is the port open (nc or curl -v), does TLS complete (openssl s_client), and does the application answer correctly? Also check firewalls, security groups and DNS from the failing machine, not only from yours."
+    }
+   ]
+  },
+  "observability-and-reliability": {
+   "title": "Observability and reliability",
+   "topic": "observability",
+   "difficulty": "intermediate",
+   "module": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+   "questions": [
+    {
+     "q": "What are the three pillars of observability?",
+     "a": "Logs (discrete events with context), metrics (numeric measurements aggregated over time, cheap to store and alert on) and traces (the path of one request through many services with timings). Metrics tell you something is wrong, traces tell you where, and logs tell you why."
+    },
+    {
+     "q": "What is the difference between monitoring and observability?",
+     "a": "Monitoring checks for failures you predicted, with dashboards and alerts. Observability is being able to ask new questions about a running system from the data it emits, including problems you did not anticipate, which needs rich, structured and correlated telemetry."
+    },
+    {
+     "q": "What are the RED and USE methods?",
+     "a": "RED is for services: Rate of requests, Errors and Duration. USE is for resources such as CPU, disks and queues: Utilisation, Saturation and Errors. Together they give a quick, consistent way to see whether a service or a resource is the problem."
+    },
+    {
+     "q": "What are SLIs, SLOs and an error budget?",
+     "a": "An SLI is a measured indicator of user experience (the fraction of requests that succeed within 300 ms). An SLO is the target for it (99.9% over 30 days). The error budget is the allowed failure, 0.1%: while there is budget you can ship faster; when it is spent you prioritise reliability."
+    },
+    {
+     "q": "Why log structured data with a request or trace id?",
+     "a": "Structured (JSON) logs can be filtered and aggregated by field, and a shared request or trace id lets you follow one request across services and match its logs to its trace. Plain text lines make that slow and fragile."
+    },
+    {
+     "q": "What makes a good alert?",
+     "a": "It fires on symptoms users feel (error rate, latency, SLO burn rate), is actionable, has an owner and a runbook, and does not fire for things that fix themselves. Alerts that are mostly noise teach people to ignore the channel, which is how real incidents are missed."
+    },
+    {
+     "q": "What is high cardinality, and why is it a problem for metrics?",
+     "a": "Each unique combination of label values creates a separate time series. A label such as a user id or a URL with ids can produce millions of series, which makes metrics systems slow and expensive. Keep metric labels to bounded values and put identifiers in logs and traces."
+    },
+    {
+     "q": "What is a graceful degradation strategy?",
+     "a": "When a dependency fails the service keeps doing the part it can: serve cached or default data, disable an optional feature, or queue work for later, using timeouts, circuit breakers and bulkheads so one failure does not spread. Decide in advance which features are essential."
     }
    ]
   },
@@ -9988,6 +10268,86 @@
     {
      "q": "How do you design an API to be cache-friendly?",
      "a": "Use GET for reads, stable URLs, and Cache-Control with sensible max-age values. Add ETag or Last-Modified so clients can revalidate with a conditional request and receive 304 Not Modified, and use Vary for headers that change the response. Keep personalised data out of shared-cache responses or mark it private."
+    }
+   ]
+  },
+  "security-fundamentals": {
+   "title": "Web and API security",
+   "topic": "security",
+   "difficulty": "intermediate",
+   "module": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md",
+   "questions": [
+    {
+     "q": "What is SQL injection and how do you prevent it?",
+     "a": "Untrusted input is concatenated into a query so that it changes the query's meaning. Prevent it with parameterised queries or prepared statements, so data is never parsed as SQL, and give the database account only the privileges it needs. Escaping by hand and blocklists are fragile."
+    },
+    {
+     "q": "What is XSS and how is it different from CSRF?",
+     "a": "Cross-site scripting runs an attacker's script in your page, because input was output without encoding; defend with context-aware output encoding and a Content-Security-Policy. CSRF makes a victim's browser send an authenticated request the user did not intend; defend with SameSite cookies and anti-forgery tokens."
+    },
+    {
+     "q": "What is broken access control, and why is it first on the OWASP list?",
+     "a": "The user can do or see something they should not, such as changing an id in a URL to read another person's record (an insecure direct object reference). It is common because it is a missing check in application logic. Enforce authorisation on the server for every object and action, by default deny."
+    },
+    {
+     "q": "How should passwords be stored?",
+     "a": "Never in plain text or with a fast hash. Use a slow, salted, purpose-built password hash (argon2id, bcrypt or scrypt) with a cost you can raise over time, and support multi-factor authentication. The goal is to make each guess expensive if the database leaks."
+    },
+    {
+     "q": "What is SSRF?",
+     "a": "Server-side request forgery makes your server fetch a URL the attacker chooses, such as a cloud metadata address or an internal service. Defend by allowing only known destinations, resolving and checking the IP after DNS resolution, blocking internal ranges, and not returning raw responses to the user."
+    },
+    {
+     "q": "Why are secrets in source code a problem, and what is the alternative?",
+     "a": "Anyone with repository access, including through its history and forks, has them, and removing the line later does not remove it from history. Keep secrets in a secret manager or injected environment, give them short lifetimes where possible, rotate them, and scan commits for leaks."
+    },
+    {
+     "q": "What do rate limiting and lockouts protect against, and what is a pitfall?",
+     "a": "They slow down credential stuffing, scraping and brute force. A pitfall is keying on the wrong identity: behind a proxy the connection address is the proxy's, so use the trusted forwarded client address and the account, and make sure a lockout cannot be used to lock real users out."
+    },
+    {
+     "q": "What are the main security headers, and what does each do?",
+     "a": "Strict-Transport-Security forces HTTPS; Content-Security-Policy restricts where scripts and resources may load from; X-Content-Type-Options: nosniff stops type guessing; frame-ancestors (or X-Frame-Options) blocks clickjacking; Referrer-Policy limits what is leaked in the Referer. They are defence in depth, not a replacement for fixing the bug."
+    }
+   ]
+  },
+  "system-design-availability-and-consistency": {
+   "title": "Availability and consistency",
+   "topic": "system-design",
+   "difficulty": "intermediate",
+   "module": "system-design/01-core-fundamentals/13-cap-theorem/README.md",
+   "questions": [
+    {
+     "q": "State the CAP theorem correctly.",
+     "a": "When a network partition happens, a distributed data store must choose between consistency (every read sees the latest write) and availability (every request to a working node gets a response). Partitions cannot be ruled out in practice, so the real choice is what to give up during one. It says nothing about the normal case."
+    },
+    {
+     "q": "What does PACELC add to CAP?",
+     "a": "If there is a partition (P) choose availability or consistency (A or C); Else (E), when running normally, choose between latency (L) and consistency (C). It captures that even without failures, replicating synchronously for stronger consistency costs latency."
+    },
+    {
+     "q": "What is the difference between strong and eventual consistency?",
+     "a": "With strong (linearizable) consistency every read returns the latest acknowledged write, as if there were one copy. With eventual consistency replicas converge if writes stop, but a read can return stale data for a while. Eventual consistency is cheaper and more available; it needs designs that tolerate staleness."
+    },
+    {
+     "q": "How do you calculate availability for components in series and in parallel?",
+     "a": "In series the availabilities multiply, so two 99.9% components give about 99.8%. In parallel (redundant, either can serve) the failure probabilities multiply: two 99% components give 1 - 0.01 x 0.01 = 99.99%. Every required dependency lowers the total."
+    },
+    {
+     "q": "What is a single point of failure, and how do you remove it?",
+     "a": "A component whose failure takes down the system. Remove it with redundancy (several instances behind a load balancer, replicated databases across zones), health checks and automatic failover, and by checking that the failover path itself works, since the load balancer or the failover controller can also be a single point."
+    },
+    {
+     "q": "What is a quorum and why does R + W > N matter?",
+     "a": "With N replicas, a write waits for W acknowledgements and a read asks R replicas. If R + W > N, the read set and the write set must overlap in at least one replica that has the latest write, so a read can find it. Lowering R or W trades consistency for speed and availability."
+    },
+    {
+     "q": "Why is it hard to make a write idempotent, and why does it matter?",
+     "a": "Networks lose responses, so a client cannot tell whether a request that timed out was applied, and it will retry. If the retry can repeat the effect (charge a card twice), the system is wrong. Use an idempotency key stored with the result, or design the operation so repeating it has no further effect."
+    },
+    {
+     "q": "When would you choose consistency over availability for a feature?",
+     "a": "When a stale or conflicting answer causes real harm: money balances, inventory that must not be oversold, unique usernames, leader election. Features such as feeds, counters of likes or recommendations can accept staleness. Decide per feature, not once for the whole system."
     }
    ]
   },

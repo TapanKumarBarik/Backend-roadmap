@@ -28,7 +28,7 @@
       ],
       "correct_option": 2,
       "post_mortem_markdown": "### Root Cause Analysis\nThe checkout handler acquired an exclusive row lock (`SELECT ... FOR UPDATE`) inside an open database transaction and then performed an outbound HTTP call to a third-party fraud scoring API.\n\nWhen the fraud vendor experienced a 4-second latency degradation, each checkout thread held its PostgreSQL connection open for over 4 seconds waiting on network I/O. With 125 concurrent requests, the 500-connection pool was completely exhausted within 4 seconds.\n\n### The Resolution\n1. **Never perform network I/O inside a database transaction**: Fetch external fraud scores *before* opening the database transaction.\n2. **Strict Timeouts**: Enforce a 500ms `http.Client` timeout on all 3rd-party integration calls.\n3. **Pool Sizing**: PostgreSQL recommends pool size `(core_count * 2) + effective_spindle_count`, typically between 20-50 connections with a connection pooler like PgBouncer rather than 500 raw connections.",
-      "related_module": "backend/04-databases-and-data-layer/05-connection-pooling-and-pgbouncer/README.md"
+      "related_module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
     },
     {
       "id": "inc-cache-stampede",
@@ -57,7 +57,7 @@
       ],
       "correct_option": 2,
       "post_mortem_markdown": "### Root Cause Analysis\nWhen a high-traffic cache key expires without concurrency control, all simultaneous client requests experience a cache miss at the exact same millisecond. Each request independently issues a query to the database to populate the cache.\n\nUnder 140k req/s, tens of thousands of duplicate SQL queries hit Postgres simultaneously, completely overwhelming the engine.\n\n### The Resolution\n1. **Singleflight / Distributed Mutex**: Use a singleflight pattern (e.g. Go's `golang.org/x/sync/singleflight` or Redlock) so only ONE thread queries the database on a cache miss, while other concurrent requests wait on that single promise.\n2. **Probabilistic Early Expiration (XFetch)**: Recompute cache entries in the background slightly before the TTL expires based on request density.\n3. **Stale-While-Revalidate**: Serve the slightly stale cached value for 10 seconds while a background worker asynchronously refreshes the key.",
-      "related_module": "backend/05-caching-and-performance/02-cache-aside-and-write-through/README.md"
+      "related_module": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md"
     },
     {
       "id": "inc-kafka-rebalance-storm",
@@ -86,7 +86,7 @@
       ],
       "correct_option": 1,
       "post_mortem_markdown": "### Root Cause Analysis\nA malformed payload caused the business logic in the processing loop to hang on an infinite regex back-trace. Because the message never completed, the consumer thread did not call `poll()` before `max.poll.interval.ms` (300,000ms) elapsed.\n\nThe Kafka cluster coordinator assumed the consumer worker had died and kicked it out of the group, triggering a rebalance. Upon rebalance, another consumer was assigned the exact same partition and picked up the exact same poison pill message, causing it to hang and trigger another rebalance.\n\n### The Resolution\n1. **Dead Letter Queue (DLQ)**: Wrap record processing in a resilient try-catch with a strict per-message deadline. If a message fails or times out, write it to a dead-letter topic and commit the offset.\n2. **Tuned Batch Sizes**: Lower `max.poll.records` so a batch never takes more than a fraction of `max.poll.interval.ms`.\n3. **Cooperative Sticky Assignor**: Upgrade consumer partitioning strategy from eager rebalance to cooperative sticky rebalance to prevent whole-cluster freezes.",
-      "related_module": "backend/17-kafka-and-streaming/03-consumer-groups-and-partition-assignment/README.md"
+      "related_module": "backend/17-kafka-and-streaming/01-consumer-groups-and-rebalancing-in-depth/README.md"
     },
     {
       "id": "inc-split-brain-consensus",
@@ -115,7 +115,7 @@
       ],
       "correct_option": 2,
       "post_mortem_markdown": "### Root Cause Analysis\nIn a 5-node Raft consensus cluster, a strict majority quorum requires at least 3 nodes (`5 / 2 + 1 = 3`).\n\nA misconfiguration in Node A's custom implementation allowed it to consider 'all reachable peers' (which was only Node A & B) as sufficient to elect a leader and accept writes. Consequently, both DC-East and DC-West accepted conflicting writes simultaneously.\n\nWhen the network healed, Raft protocol rules dictated that Term 15 (DC-West) superseded Term 14 (DC-East), overwriting all writes processed by Node A.\n\n### The Resolution\n1. **Strict Majority Quorum**: Never allow a node to transition to Leader or commit a log entry without acknowledgments from `floor(N/2) + 1` configured cluster members.\n2. **Leader Leases & Pre-Vote**: Implement Raft pre-vote phases and leader leases to prevent partitioned nodes from causing term disruption.\n3. **Fencing Tokens**: Use incrementing fencing tokens to invalidate any stale writes from an isolated former leader.",
-      "related_module": "backend/10-distributed-systems-patterns/02-consensus-raft-paxos/README.md"
+      "related_module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md"
     },
     {
       "id": "inc-cascading-retry-storm",
@@ -144,7 +144,7 @@
       ],
       "correct_option": 1,
       "post_mortem_markdown": "### Root Cause Analysis\nWhen a downstream service experiences high load or temporary throttling, naive immediate retries multiply the traffic volume exponentially.\n\nEvery failed request generated 3 immediate sequential retry attempts with 0ms delay. When 2,000 original requests failed, they spawned 6,000 new requests within 1.5 seconds, transforming a minor transient glitch into an 18,000 req/s catastrophic failure.\n\n### The Resolution\n1. **Exponential Backoff with Full Jitter**: Multiply wait times exponentially (`base * 2^attempt`) and randomize the interval (`random_between(0, sleep)`) to break synchronized wave patterns.\n2. **Circuit Breakers**: Trip the circuit open when error rates exceed 25%, immediately failing fast without hitting downstream.\n3. **Retry Budgets**: Limit total retries across the client to no more than 10% of total incoming requests.",
-      "related_module": "backend/10-distributed-systems-patterns/04-circuit-breakers-and-retries/README.md"
+      "related_module": "learn/13-service-mesh/07-resilience-patterns/README.md"
     },
     {
       "id": "inc-socket-leak-keepalive",
@@ -173,7 +173,7 @@
       ],
       "correct_option": 2,
       "post_mortem_markdown": "### Root Cause Analysis\nIn Go's `net/http` client, when a response is received, the underlying TCP connection cannot be returned to the idle connection pool until the entire response body is read and closed:\n\n```go\nresp, err := client.Do(req)\nif err != nil { return err }\ndefer resp.Body.Close() // <-- THIS WAS MISSING\n```\n\nWithout `resp.Body.Close()`, the runtime keeps the TCP socket open and retains the internal read goroutine. Over a 3-hour period, 248,000 goroutines and 65,535 file descriptors leaked, exhausting the OS process limit (`EMFILE`).\n\n### The Resolution\n1. **Always Defer Close**: Always call `defer resp.Body.Close()` immediately after checking `err == nil`.\n2. **Drain Unread Bytes**: If discarding the body, call `io.Copy(io.Discard, resp.Body)` before closing so the TCP connection can be reused.\n3. **Process Ulimits & Alerts**: Monitor active file descriptors and set alerts when descriptor utilization exceeds 75% of `ulimit -n`.",
-      "related_module": "backend/01-request-response-fundamentals/03-http-connections-and-keep-alive/README.md"
+      "related_module": "backend/01-request-response-fundamentals/01-http-protocol-basics/README.md"
     },
     {
       "id": "inc-jwt-revocation-blackhole",
@@ -202,8 +202,732 @@
       ],
       "correct_option": 2,
       "post_mortem_markdown": "### Root Cause Analysis\nThe API gateway relied exclusively on stateless JWT signature validation. Because JWTs are self-contained and cryptographically signed, the gateway validated the RS256 signature locally without querying a central database.\n\nThe token had been minted with a 7-day expiration (`exp`). Consequently, deleting the user's session row in the database had zero effect on the validity of the signed JWT in the attacker's possession.\n\n### The Resolution\n1. **Short-Lived Access Tokens + Refresh Tokens**: Issue access tokens with a strict 15-minute lifespan; use refresh tokens (validated against Redis/DB) for renewal.\n2. **Distributed Revocation Deny-List**: Maintain an in-memory Redis blocklist storing compromised `jti` (JWT ID) claims with a TTL matching the token's remaining lifetime.\n3. **Token Versioning / Password Changed Timestamp**: Include a `token_version` or `valid_after` epoch in the user's cached profile. If the user's password was changed after the token's issue date (`iat`), immediately reject the token.",
-      "related_module": "backend/03-authentication-and-authorization/02-jwt-and-token-based-auth/README.md"
+      "related_module": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+    },
+    {
+      "id": "inc-failover-pooled-connections",
+      "title": "02:41 AM — Failover Done, But Writes Keep Failing for 18 Minutes",
+      "severity": "P1",
+      "service_name": "ledger-api-prod",
+      "scenario_markdown": "The managed Postgres primary failed over to its standby at 02:23. The cloud console shows the new primary healthy and the DNS name `ledger-db.internal` repointed within 30 seconds (TTL 30). Yet `POST /v1/entries` still returns HTTP 500 for 70% of requests, while reads work. Restarting one API pod immediately fixes that pod.",
+      "logs_snippet": "2026-11-14T02:41:07Z [ERROR] ledger.entries - insert failed\n  org.postgresql.util.PSQLException: ERROR: cannot execute INSERT in a read-only transaction\n2026-11-14T02:41:07Z [INFO ] pool.Hikari - ledger-db: total=40 active=3 idle=37 waiting=0\n2026-11-14T02:41:08Z [INFO ] db.host - jdbc:postgresql://ledger-db.internal:5432/ledger resolves to 10.4.2.19 (now a replica)\ndig +short ledger-db.internal  ->  10.4.7.33   # the new primary",
+      "options": [
+        {
+          "id": 1,
+          "text": "The DNS TTL is too high, so the API pods have not yet learned the new primary address and keep resolving the old one until the record expires in their resolver cache."
+        },
+        {
+          "id": 2,
+          "text": "The standby was promoted before it finished replaying the WAL, so it rejects writes."
+        },
+        {
+          "id": 3,
+          "text": "The pool is still holding established connections to the old primary, which is now a read-only replica: DNS only affects connections opened after the change."
+        },
+        {
+          "id": 4,
+          "text": "A firewall rule blocks the new primary from the API subnet, so writes time out."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nDNS is consulted only when a new TCP connection is opened. The API pool had 40 long-lived connections, all to the old primary. After the failover that server was demoted to a replica, so every write on those connections failed with a read-only error while reads kept working. New connections would have gone to the right host, but the pool kept reusing the old ones (`idle=37`), so the service stayed broken until the connections were recycled.\n\n### The Resolution\n1. Roll the API pods (or evict the pool) so every connection is re-opened and resolved afresh.\n2. Set a connection `maxLifetime` shorter than the failover window (for example 5 minutes), so a pool heals itself.\n3. Use a driver option that insists on a writable server (`targetServerType=primary` in the PostgreSQL JDBC driver, `target_session_attrs=read-write` in libpq), so a connection to a replica is rejected and retried elsewhere.\n\n### Prevention\n- Rehearse the failover in staging with the real pool settings and watch for read-only errors.\n- Alert on `cannot execute ... in a read-only transaction`: it means the app is talking to a replica.",
+      "related_module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md"
+    },
+    {
+      "id": "inc-expired-mtls-certificate",
+      "title": "09:00 AM — Every Internal Call Fails With \"certificate has expired\"",
+      "severity": "P1",
+      "service_name": "orders-grpc-mesh",
+      "scenario_markdown": "At exactly 09:00 UTC every service-to-service gRPC call in the cluster starts failing. No deploy happened, CPU and memory are normal, and the pods are all `Running`. Customer checkout returns HTTP 503. The security team notes that internal certificates are issued automatically by cert-manager with a 90-day lifetime.",
+      "logs_snippet": "2026-11-15T09:00:02Z [ERROR] orders.client - rpc error: code = Unavailable desc = connection error: desc = \"transport: authentication handshake failed: x509: certificate has expired or is not yet valid: current time 2026-11-15T09:00:02Z is after 2026-11-15T08:59:59Z\"\n2026-11-15T09:00:02Z [ERROR] payments.server - tls: failed to verify client certificate: x509: certificate has expired\nkubectl get certificate -n orders  ->  orders-mtls   False   Issuing   (cert-manager: failed to renew, 31 days ago)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The leaf certificate expired because the automated renewal had been failing for a month and nothing alerted on certificate expiry."
+        },
+        {
+          "id": 2,
+          "text": "A Kubernetes node has a clock that is ahead of the others, so every certificate issued inside the cluster looks expired to the pods that are scheduled on that node."
+        },
+        {
+          "id": 3,
+          "text": "The gRPC library was upgraded and now rejects certificates signed with SHA-256."
+        },
+        {
+          "id": 4,
+          "text": "The certificate authority revoked the whole chain after a security advisory."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe workload certificates were issued with a 90-day lifetime and cert-manager was supposed to renew them 30 days before expiry. The renewal had been failing since the issuer's credentials rotated, with a `False / Issuing` condition on the Certificate resource. Nobody was paged, because the only alerts were on pod health, so the failure stayed invisible until the old certificates reached their `notAfter` time and every mutual-TLS handshake failed at once.\n\n### The Resolution\n1. Fix the issuer credentials, then force a re-issue of the affected certificates and restart the workloads that cache them.\n2. Temporarily extend trust only if the change is reviewed; never disable verification to \"get green\".\n\n### Prevention\n- Alert on the **time left** of every certificate (for example `certmanager_certificate_expiration_timestamp_seconds` below 14 days) and on a Certificate that is not `Ready`.\n- Keep lifetimes short on purpose and rehearse renewal, so failure shows up early and in a test.",
+      "related_module": "backend/16-grpc-deep-dive/01-security-tls-mtls-and-auth/README.md"
+    },
+    {
+      "id": "inc-redis-noeviction-oom",
+      "title": "16:20 PM — Logins Fail While Redis Says Memory Is Full",
+      "severity": "P1",
+      "service_name": "session-store-redis",
+      "scenario_markdown": "Users cannot log in, but people already signed in are fine. The login endpoint returns HTTP 500 after 40 ms. Redis is at 100% of `maxmemory` (8 GB) and reads are fast, but the dashboard shows a flat line of rejected writes. A recent feature started storing a per-user preferences blob in Redis without an expiry.",
+      "logs_snippet": "2026-11-16T16:20:11Z [ERROR] auth.login - session store write failed\n  redis.exceptions.ResponseError: OOM command not allowed when used memory > 'maxmemory'.\nredis-cli INFO memory  ->  used_memory_human:8.00G  maxmemory_human:8.00G  maxmemory_policy:noeviction\nredis-cli DBSIZE  ->  41,880,102   # keys without a TTL: 38,204,771",
+      "options": [
+        {
+          "id": 1,
+          "text": "Redis has a memory leak in its allocator and needs a restart."
+        },
+        {
+          "id": 2,
+          "text": "The connection pool to Redis is too small, so new commands queue up behind the busy connections and are then rejected once the client timeout is reached."
+        },
+        {
+          "id": 3,
+          "text": "The key space has grown past the network bandwidth of the node, so writes are dropped."
+        },
+        {
+          "id": 4,
+          "text": "The eviction policy is `noeviction` and most keys have no TTL, so once memory is full Redis refuses every write instead of removing old data."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nWith `maxmemory-policy noeviction` Redis never removes data: once the limit is reached it answers every command that would use more memory with an `OOM` error, while reads keep working. The new preferences feature wrote 38 million keys with no TTL, so memory filled steadily and, at the limit, the session `SET` that a login needs started to fail. A cache or a session store that mixes \"must keep\" and \"may drop\" data under one policy has no safe way to fail.\n\n### The Resolution\n1. Put a TTL on the preference keys and delete the abandoned ones (scan, do not `KEYS *`).\n2. Choose a policy on purpose: `volatile-lru` or `allkeys-lru` for a cache, and keep truly durable data out of it.\n\n### Prevention\n- Alert on memory at 80% and on the eviction and rejected-write counters.\n- Review every new key pattern for a TTL and an estimated size before it ships.",
+      "related_module": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md"
+    },
+    {
+      "id": "inc-idle-in-transaction-bloat",
+      "title": "11:05 AM — Disk at 94% and Autovacuum Cannot Clean Up",
+      "severity": "P2",
+      "service_name": "analytics-postgres",
+      "scenario_markdown": "The Postgres volume grew from 55% to 94% in three days although the number of live rows barely changed. Autovacuum is running on the big `events` table constantly, yet the table keeps growing. A BI tool connects through a pooler. The DBA notes that dead tuples are \"not yet removable\".",
+      "logs_snippet": "2026-11-17T11:05:44Z [LOG] automatic vacuum of table \"analytics.public.events\": tuples: 0 removed, 211,904,552 remain, 188,170,331 are dead but not yet removable\n  removable cutoff: 8841120931, which was 62 hours old when the operation ended\nselect pid, state, xact_start, now()-xact_start as age, left(query,40) from pg_stat_activity where state like 'idle in trans%';\n  41887 | idle in transaction | 2026-11-14 21:02:11 | 2 days 14:03:33 | BEGIN; SELECT * FROM events WH",
+      "options": [
+        {
+          "id": 1,
+          "text": "Autovacuum is disabled on the events table, so dead rows are never removed."
+        },
+        {
+          "id": 2,
+          "text": "A session has been \"idle in transaction\" for days, which holds back the oldest visible transaction, so vacuum may not remove any row deleted since then."
+        },
+        {
+          "id": 3,
+          "text": "The table needs a much larger `shared_buffers` setting before a vacuum pass can finish, because a pass that does not fit in memory is restarted and never completes."
+        },
+        {
+          "id": 4,
+          "text": "The write-ahead log is not being archived, so old row versions must be kept."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nUnder MVCC a row that was updated or deleted can only be removed once no transaction could still need to see the old version. A BI session opened `BEGIN`, ran a query, and was left waiting with the transaction open for more than 62 hours. Its snapshot set the \"removable cutoff\", so vacuum, though it ran, could free nothing newer than that point. Dead tuples piled up (188 million), bloating the table and the disk.\n\n### The Resolution\n1. Terminate the session (`pg_terminate_backend(41887)`), then let autovacuum catch up; reclaim space with a `VACUUM` and, if needed, a table rewrite at a quiet time.\n2. Set `idle_in_transaction_session_timeout` (for example 5 minutes) for application and BI roles.\n\n### Prevention\n- Alert on the age of the oldest transaction (`now() - xact_start`) and on dead tuple ratio.\n- Make clients commit or roll back promptly, and avoid pooling modes that keep a transaction open between statements.",
+      "related_module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md"
+    },
+    {
+      "id": "inc-index-build-blocks-writes",
+      "title": "14:02 PM — A Routine Migration Freezes All Writes for 11 Minutes",
+      "severity": "P1",
+      "service_name": "payments-ledger-db",
+      "scenario_markdown": "A deploy ran the migration `CREATE INDEX idx_payments_created_at ON payments (created_at)` on a table of 400 million rows. Within seconds, every `INSERT` and `UPDATE` on `payments` hangs, the API times out, and the connection pool fills. Reads still work. The migration was approved because it \"only adds an index\".",
+      "logs_snippet": "2026-11-18T14:02:09Z [WARN] ledger.write - statement timeout after 5000ms: INSERT INTO payments ...\nselect pid, mode, granted, left(query,50) from pg_locks l join pg_stat_activity a using (pid) where relation = 'payments'::regclass;\n  30211 | ShareLock        | t | CREATE INDEX idx_payments_created_at ON payments (created_at)\n  30344 | RowExclusiveLock | f | INSERT INTO payments (id, amount, created_at) VALUES ($1\n  ... 482 more waiting",
+      "options": [
+        {
+          "id": 1,
+          "text": "A plain `CREATE INDEX` takes a lock that blocks inserts, updates and deletes for the whole build; `CREATE INDEX CONCURRENTLY` avoids that."
+        },
+        {
+          "id": 2,
+          "text": "The new index is too large to fit in memory, so the database stops accepting new connections until the whole index has been built and written out to disk."
+        },
+        {
+          "id": 3,
+          "text": "The migration tool wraps the statement in a transaction that is read-only until it commits."
+        },
+        {
+          "id": 4,
+          "text": "The index is built on the replica first and the primary waits for it to finish."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nA normal `CREATE INDEX` holds a `SHARE` lock on the table while it scans and sorts every row. That lock conflicts with the `ROW EXCLUSIVE` lock every write needs, so writes queue behind it for the duration of the build, 11 minutes on this table. The queue then consumed the application pool, turning a locking problem into a full outage.\n\n### The Resolution\n1. Wait for (or cancel) the build, then re-run it as `CREATE INDEX CONCURRENTLY`, which allows writes (it needs two table scans, cannot run inside a transaction block, and leaves an invalid index if it fails, which must be dropped and retried).\n2. Set `lock_timeout` for migrations so a blocked DDL gives up instead of queueing everyone.\n\n### Prevention\n- Review migrations for the lock they take, and test them against production-sized data.\n- Run risky DDL with a lock timeout and in a quiet window.",
+      "related_module": "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines/README.md"
+    },
+    {
+      "id": "inc-orm-n-plus-one",
+      "title": "10:30 AM — The Orders Page Went From 120 ms to 4 Seconds After an Upgrade",
+      "severity": "P2",
+      "service_name": "orders-api",
+      "scenario_markdown": "After an ORM version bump, `GET /v1/orders?limit=50` has a p99 of 4.1 s (it was 120 ms) and the database sees 40 times more queries per second, though traffic is unchanged. CPU on the database is high; no single query is slow. The code did not change, and the list handler still reads each order's `customer.name`.",
+      "logs_snippet": "2026-11-19T10:30:05Z [INFO] orders.list - 51 queries in 3,870 ms\nSELECT * FROM orders ORDER BY created_at DESC LIMIT 50\nSELECT * FROM customers WHERE id = 8812\nSELECT * FROM customers WHERE id = 90114\nSELECT * FROM customers WHERE id = 8812   -- ... 47 more, one per order",
+      "options": [
+        {
+          "id": 1,
+          "text": "The `customers` table is missing an index on `id`, so every lookup by id has to scan the whole table, which is why the database CPU is so high under this load."
+        },
+        {
+          "id": 2,
+          "text": "Connection pool contention is making every query wait for a connection."
+        },
+        {
+          "id": 3,
+          "text": "The upgrade changed the default for loading the relation from joined to lazy, so the loop issues one query per order: the N+1 problem."
+        },
+        {
+          "id": 4,
+          "text": "The database is returning too many columns because the ORM selects `*`."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe handler loads 50 orders with one query and then touches `order.customer` inside a loop. In the old version the relation was fetched with the orders in one join; in the new one it is loaded lazily, so the first access to each order's customer runs another query: 1 + 50 queries per request. Each is fast (the `id` lookup is indexed), which is why no slow-query log entry points at the cause; the cost is the count and the round trips.\n\n### The Resolution\n1. Load the relation explicitly with the list (a join or a batched `IN` query: `select_related`, `joinedload`, `include`, depending on the ORM).\n2. Add a query-count assertion to the endpoint's test, so a regression fails in CI.\n\n### Prevention\n- Log or trace the number of queries per request and alert on a jump.\n- Read the release notes of an ORM for changed defaults, and load relations deliberately instead of relying on the default.",
+      "related_module": "backend/04-databases-and-data-layer/05-orms-and-migrations/README.md"
+    },
+    {
+      "id": "inc-webhook-double-charge",
+      "title": "13:12 PM — 312 Customers Charged Twice After a Slow Handler",
+      "severity": "P1",
+      "service_name": "billing-webhooks",
+      "scenario_markdown": "The payment provider's dashboard shows webhook deliveries for `payment_succeeded` marked \"retried\". Our database shows 312 customers with two invoices and two fulfilment emails for the same payment. The handler normally takes 300 ms, but a vendor outage made it take 12 s for one hour. The provider times out a delivery after 10 s.",
+      "logs_snippet": "2026-11-20T13:12:01Z [INFO] webhook - event evt_1Q9aXb received (attempt 1)\n2026-11-20T13:12:11Z [WARN] provider timeout - no 2xx within 10s, will retry in 60s\n2026-11-20T13:12:13Z [INFO] webhook - invoice 55120 created for payment pi_3Pq\n2026-11-20T13:13:04Z [INFO] webhook - event evt_1Q9aXb received (attempt 2)\n2026-11-20T13:13:06Z [INFO] webhook - invoice 55121 created for payment pi_3Pq",
+      "options": [
+        {
+          "id": 1,
+          "text": "The provider has a bug and sends each event twice whenever the receiving endpoint is slow, so the duplicates would stop once the provider fixed its own retry logic."
+        },
+        {
+          "id": 2,
+          "text": "The handler has no timeout, so it should be given a shorter one."
+        },
+        {
+          "id": 3,
+          "text": "The database has no unique constraint on invoices, so duplicate rows are allowed."
+        },
+        {
+          "id": 4,
+          "text": "Webhooks are delivered at least once, and the handler is not idempotent: a retry of the same event runs the side effects again."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nWebhook delivery is at least once by design: when a response does not arrive in time, the sender cannot know whether the first attempt worked, so it sends again. The handler did its work (create an invoice, send an email) directly in the request, took longer than the provider's timeout, and then ran the same work again on the retry. Nothing recorded that event `evt_1Q9aXb` had already been handled.\n\n### The Resolution\n1. Record the provider's event id with a **unique constraint** and process an event only if the insert succeeds (insert first, then act), or use an idempotency key on the side effects.\n2. Acknowledge fast: validate the signature, store the event, return 2xx, and do the slow work in a background job.\n3. Refund and apologise to the 312 customers, and reconcile invoices against payments.\n\n### Prevention\n- Treat every webhook and every queue message as possibly repeated.\n- Alert on handler latency approaching the sender's timeout.",
+      "related_module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md"
+    },
+    {
+      "id": "inc-clock-skew-jwt",
+      "title": "08:15 AM — One in Six Requests Gets \"Token Used Before Issued\"",
+      "severity": "P2",
+      "service_name": "auth-gateway",
+      "scenario_markdown": "Users report random sign-outs: about one request in six returns HTTP 401 and a retry succeeds. The identity provider is healthy. There are six gateway pods, and the failures come from exactly one of them. That node was rebooted yesterday after a kernel patch.",
+      "logs_snippet": "2026-11-21T08:15:03Z [WARN] gw-5 jwt - rejected: token iat is in the future (iat=1763712901 now=1763712806, skew=95s)\n2026-11-21T08:15:03Z [INFO] gw-2 jwt - ok (iat=1763712901 now=1763712902)\nchronyc tracking (node of gw-5): System time: 95.4 seconds fast of NTP time\nsystemctl status chronyd  ->  inactive (dead) since reboot",
+      "options": [
+        {
+          "id": 1,
+          "text": "The identity provider signs some tokens with a clock that is ahead, so the tokens are invalid."
+        },
+        {
+          "id": 2,
+          "text": "The signing keys were rotated during the night and one gateway pod still holds the old public key, so it rejects every token that was signed with the new key."
+        },
+        {
+          "id": 3,
+          "text": "The gateway node clock drifted 95 seconds ahead after time sync stopped, so it sees valid tokens as issued in the future."
+        },
+        {
+          "id": 4,
+          "text": "A load balancer is stripping the `Authorization` header on one path."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nJWT validation compares the token's `iat`, `nbf` and `exp` claims with the verifier's own clock. The time service on one node did not start after the reboot, so its clock ran 95 seconds fast and tokens issued moments ago looked as if they were issued in the future. Requests routed to that pod failed, the others passed, hence the random look. A retry went to a healthy pod and worked.\n\n### The Resolution\n1. Restart the time sync service and confirm the offset; cordon the node until it is fixed.\n2. Allow a small, explicit clock-skew leeway when validating (commonly 30-60 s), never a large one.\n\n### Prevention\n- Monitor clock offset on every node and alert when it exceeds a second or two.\n- Make sure the time service is enabled at boot, and include a clock check in node readiness.",
+      "related_module": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md"
+    },
+    {
+      "id": "inc-rate-limit-proxy-ip",
+      "title": "19:40 PM — Everyone Is Rate Limited, Including Our Own Mobile App",
+      "severity": "P2",
+      "service_name": "public-api",
+      "scenario_markdown": "An hour after a new CDN and load balancer went in front of the API, support receives reports of HTTP 429 \"Too many requests\" from ordinary users, even on their first request of the day. The limiter allows 100 requests per minute per client IP. Overall traffic is normal.",
+      "logs_snippet": "2026-11-22T19:40:12Z [WARN] ratelimit - 429 for client 10.0.3.21 (count=100, limit=100)\n2026-11-22T19:40:12Z [WARN] ratelimit - 429 for client 10.0.3.21 (count=101, limit=100)\ntop client addresses seen by the app, last minute:  10.0.3.21  9,412   10.0.3.22  8,977   10.0.3.23  9,106\nrequest headers:  X-Forwarded-For: 203.0.113.58, 10.0.3.21   (ignored by the limiter)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The limiter keys on the connection's address, which is now one of three proxy addresses, so all users share three buckets; it should use the client address from a trusted forwarded header."
+        },
+        {
+          "id": 2,
+          "text": "The limit of 100 requests per minute is far too low for a mobile app that refreshes several screens at once, so it should be raised tenfold, and then normal users would never be throttled by the limiter again."
+        },
+        {
+          "id": 3,
+          "text": "The limiter's Redis is shared with another service that is consuming the counters."
+        },
+        {
+          "id": 4,
+          "text": "The CDN is replaying cached 429 responses to every user."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe limiter used the socket's remote address as the client identity. Behind a proxy that address is always the proxy's, so every user collapsed into three buckets and shared a budget of 300 requests per minute. The real client address was available in `X-Forwarded-For`, but it was not used.\n\n### The Resolution\n1. Derive the client address from the forwarded header, but only trust the hops that **your own** proxies added: take the entry just before the trusted proxies, not the first one a client can write. Configure the framework's \"trusted proxies\" setting.\n2. For logged-in traffic, key on the user or API key and fall back to the address.\n\n### Prevention\n- Test rate limiting through the real proxy chain, not directly.\n- Never trust the leftmost `X-Forwarded-For` value blindly: it is attacker-controlled and lets a client dodge the limit.",
+      "related_module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md"
+    },
+    {
+      "id": "inc-sigterm-502-deploy",
+      "title": "15:55 PM — Every Rolling Deploy Causes a Burst of 502s",
+      "severity": "P2",
+      "service_name": "checkout-web",
+      "scenario_markdown": "Each rolling deployment produces a short burst of HTTP 502 from the load balancer, about 6-8 seconds per replaced pod, and a few customers lose their cart submission. Pods are healthy before and after. The service handles requests that take up to 3 seconds. The Kubernetes default termination grace period is unchanged.",
+      "logs_snippet": "2026-11-23T15:55:20.002Z kubelet: Killing container \"web\" (pod web-6d9f-x2k, SIGTERM sent)\n2026-11-23T15:55:20.004Z [INFO] web - received SIGTERM, exiting\n2026-11-23T15:55:20.120Z lb: upstream web-6d9f-x2k:8080 connection reset by peer (in flight: 14)\n2026-11-23T15:55:26.300Z lb: removed 10.2.4.9:8080 from target group (deregistration delay elapsed)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The termination grace period is too long, so old pods keep receiving traffic from the load balancer for minutes after the new pods are already up and serving."
+        },
+        {
+          "id": 2,
+          "text": "The readiness probe is too strict and marks new pods unready."
+        },
+        {
+          "id": 3,
+          "text": "The deployment surge is set too high and the cluster runs out of capacity."
+        },
+        {
+          "id": 4,
+          "text": "The pod receives SIGTERM while it is still in the load balancer's target list, and the app exits at once instead of finishing its in-flight requests."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nWhen a pod is deleted, two things start at the same time: the container gets `SIGTERM`, and the pod is removed from the service endpoints and from the load balancer. The second takes several seconds to propagate. The application exited the instant it received `SIGTERM`, so for those seconds the balancer kept sending requests to a process that no longer existed, and 14 in-flight requests were cut off.\n\n### The Resolution\n1. On `SIGTERM`, stop accepting new connections, finish in-flight requests, then exit (graceful shutdown), with a deadline below the grace period.\n2. Add a `preStop` hook that sleeps a few seconds, so the endpoint removal has propagated before the shutdown starts.\n\n### Prevention\n- Test deploys under load and watch for 5xx.\n- Make the grace period longer than the longest request plus the sleep.",
+      "related_module": "backend/08-observability-and-operational-readiness/09-graceful-shutdown/README.md"
+    },
+    {
+      "id": "inc-liveness-probe-database",
+      "title": "04:30 AM — A 40-Second Database Blip Became a 20-Minute Outage",
+      "severity": "P1",
+      "service_name": "user-service",
+      "scenario_markdown": "The primary database was unreachable for about 40 seconds during a maintenance event, which the service should have survived with retries. Instead every user-service pod restarted repeatedly for 20 minutes, `CrashLoopBackOff`, even after the database was back. The liveness probe endpoint `/health` runs a `SELECT 1`.",
+      "logs_snippet": "2026-11-24T04:30:15Z kubelet: Liveness probe failed: HTTP probe failed with statuscode: 500\n2026-11-24T04:30:35Z kubelet: Container user-service failed liveness probe, will be restarted\n2026-11-24T04:31:10Z [INFO] pool - opening 60 connections (startup)\n2026-11-24T04:31:12Z [ERROR] db - FATAL: sorry, too many clients already\nkubectl get pods  ->  user-service-*  0/1  CrashLoopBackOff  (x 12 pods, 9 restarts)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The database maintenance event corrupted the connection pool metadata."
+        },
+        {
+          "id": 2,
+          "text": "The liveness probe depends on the database, so a database problem made Kubernetes kill healthy processes, and their simultaneous restarts opened new connections all at once, overloading the database again."
+        },
+        {
+          "id": 3,
+          "text": "The pods ran out of memory while the database was unreachable."
+        },
+        {
+          "id": 4,
+          "text": "The Kubernetes control plane lost contact with the nodes during the same window."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nA liveness probe answers \"is this process stuck so that only a restart will fix it?\" Tying it to a dependency turned a database outage into an application outage: the processes were fine, but they failed the probe and were killed. All twelve pods then restarted together and each opened 60 connections, which exceeded the database's connection limit (`too many clients already`), so the database stayed overloaded after it had recovered: a restart storm.\n\n### The Resolution\n1. Make liveness check only the process itself (event loop responds). Put dependency checks in **readiness**, which removes the pod from traffic without restarting it.\n2. Open pool connections lazily and with jitter, and cap them per pod (and use a pooler in front of the database).\n\n### Prevention\n- Keep dependency checks out of liveness, and use a startup probe for slow starts.\n- Test dependency failure in staging and watch whether pods restart.",
+      "related_module": "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals/README.md"
+    },
+    {
+      "id": "inc-jvm-oomkilled-container",
+      "title": "12:10 PM — Report Workers Are Killed Every 40 Minutes With Exit Code 137",
+      "severity": "P2",
+      "service_name": "report-worker",
+      "scenario_markdown": "The report workers restart roughly every 40 minutes (`OOMKilled`, exit code 137), always under load, yet the Java heap graphs show a comfortable 55% usage. The container limit is 4 GiB and the JVM runs with `-Xmx4g`. Nothing in the application logs mentions an `OutOfMemoryError`.",
+      "logs_snippet": "kubectl describe pod report-worker-7c5f4  ->  Last State: Terminated  Reason: OOMKilled  Exit Code: 137\njava process:  java -Xmx4g -jar report-worker.jar   (container memory limit: 4Gi)\njcmd 1 VM.native_memory summary:  Heap 4096MB (reserved) | Class 188MB | Thread 410MB (820 threads) | Code 120MB | Direct buffers 640MB\ncontainer working set: 4.02 GiB at kill time",
+      "options": [
+        {
+          "id": 1,
+          "text": "A memory leak in the application keeps growing the Java heap."
+        },
+        {
+          "id": 2,
+          "text": "The Linux kernel kills processes when swap is full, and swap is misconfigured."
+        },
+        {
+          "id": 3,
+          "text": "The heap is allowed to take the whole container limit, but a JVM also uses memory outside the heap (threads, class metadata, direct buffers), so total memory passes 4 GiB and the kernel kills it."
+        },
+        {
+          "id": 4,
+          "text": "The node itself is out of memory and the kernel killed this pod first."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nA container limit applies to the whole process, not to the heap. Setting `-Xmx` equal to the limit left no room for thread stacks (820 threads), class metadata, JIT code and direct buffers, which here added up to roughly 1.4 GiB. The heap alone sat at 55%, but heap plus the rest crossed 4 GiB under load and the kernel's OOM killer ended the process with exit code 137, with no Java exception, because the JVM never got the chance to throw one.\n\n### The Resolution\n1. Size the heap as a fraction of the container limit (`-XX:MaxRAMPercentage=60` to 75) instead of a fixed `-Xmx`, leaving headroom for non-heap memory.\n2. Bound the number of threads and the direct-buffer size, and raise the limit if the workload really needs it.\n\n### Prevention\n- Graph container working set, not only heap, and alert before the limit.\n- Load-test with the real limits set.",
+      "related_module": "backend/13-devops-for-backend-engineers/00-containerizing-a-backend-app/README.md"
+    },
+    {
+      "id": "inc-debug-logging-disk-full",
+      "title": "22:48 PM — Search Indexer Dies When the Node Disk Fills Up",
+      "severity": "P2",
+      "service_name": "search-indexer",
+      "scenario_markdown": "The search indexer pods are being evicted one by one with `The node was low on resource: ephemeral-storage` and the log pipeline bill alarm has fired. The disk on each node fills at roughly 60 GB per hour. The previous deploy included a config change to investigate a rare bug.",
+      "logs_snippet": "2026-11-25T22:48:01Z kubelet: Evicted pod search-indexer-5b8d (DiskPressure: ephemeral-storage 94%)\ndu -sh /var/log/containers/search-indexer*  ->  51G\nsample log line (repeated ~40,000/s):  DEBUG indexer.doc - tokenizing field=body len=18342 payload={\"id\": \"a91...\", \"body\": \"Lorem ipsum ... (18 KB)\"}\nconfigmap indexer-config:  LOG_LEVEL=debug   # \"temporary, remove after investigation\"",
+      "options": [
+        {
+          "id": 1,
+          "text": "The log level was left at `debug` in production after an investigation, so the service writes tens of thousands of large lines per second."
+        },
+        {
+          "id": 2,
+          "text": "The log rotation job is broken and has not run since the last upgrade, so old log files are never compressed or deleted and simply pile up on the node disk."
+        },
+        {
+          "id": 3,
+          "text": "The indexer has a memory leak that spills to disk as a swap file."
+        },
+        {
+          "id": 4,
+          "text": "The container image is too large and takes the node's disk space."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nA temporary `LOG_LEVEL=debug` setting was deployed to production and never reverted. At debug level the indexer printed each document's payload, about 40,000 lines per second, which wrote 60 GB per hour to the node's log directory. The disk reached the pressure threshold, the kubelet began evicting pods, and the log pipeline ingested the same volume, hence the billing alarm.\n\n### The Resolution\n1. Set the level back to `info`, then clean the logs and let the evicted pods reschedule.\n2. Make the level changeable at runtime with an automatic expiry, instead of through a redeploy.\n\n### Prevention\n- Never log whole payloads at any level; log identifiers and sizes.\n- Alert on log volume per service and on node disk usage, and set limits on log size and rotation.",
+      "related_module": "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices/README.md"
+    },
+    {
+      "id": "inc-poison-message-blocked-queue",
+      "title": "07:25 AM — Email Queue Has 400,000 Messages and Nothing Is Moving",
+      "severity": "P2",
+      "service_name": "email-worker",
+      "scenario_markdown": "The transactional email queue depth rose from near zero to 400,000 overnight while the worker shows healthy CPU and no errors summary. Throughput is zero. The single worker has `prefetch=1` and acknowledges a message only after it has been sent. Logs show the same message id being picked up over and over.",
+      "logs_snippet": "2026-11-26T07:25:01Z [INFO] worker - got message 9f2c (delivery_tag=1, redelivered=true)\n2026-11-26T07:25:01Z [ERROR] worker - JSON decode error at char 214: invalid control character; nack(requeue=true)\n2026-11-26T07:25:01Z [INFO] worker - got message 9f2c (delivery_tag=2, redelivered=true)\nqueue stats:  ready=399,812  unacked=1  consumers=1  deliver_get_rate=2,300/s  ack_rate=0/s",
+      "options": [
+        {
+          "id": 1,
+          "text": "The queue broker has run out of disk and stopped delivering."
+        },
+        {
+          "id": 2,
+          "text": "The worker is not scaling, and adding more CPU would clear the backlog."
+        },
+        {
+          "id": 3,
+          "text": "The consumers are connected to the wrong virtual host."
+        },
+        {
+          "id": 4,
+          "text": "One malformed message fails to decode, is returned to the front of the queue each time, and blocks everything behind it (a poison message); the queue needs a retry limit and a dead-letter queue."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nA single message with an invalid control character could never be parsed. The worker rejected it with `requeue=true`, and the broker put it back at the head of the queue, so the one consumer (prefetch 1) fetched the same message again, thousands of times per second, and never reached the 399,812 messages behind it. High delivery rate with a zero ack rate is the signature.\n\n### The Resolution\n1. Move the poison message out by hand, then let the backlog drain.\n2. Configure a **dead-letter queue** and a maximum delivery count: after N failed attempts, route the message to the DLQ instead of requeueing it.\n3. Distinguish errors that can be retried (a downstream outage) from errors that cannot (bad data), and do not requeue the latter.\n\n### Prevention\n- Alert on queue depth growth and on the ratio of redeliveries.\n- Validate messages at the producer, and run several consumers.",
+      "related_module": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md"
+    },
+    {
+      "id": "inc-es-deep-pagination",
+      "title": "13:35 PM — A Crawler Pages Through Search Results and Takes the Cluster Down",
+      "severity": "P2",
+      "service_name": "product-search",
+      "scenario_markdown": "Search latency rose from 80 ms to 14 s and two data nodes left the cluster. The traffic comes from a single client walking `GET /search?page=N` up to page 9,000. Last quarter someone raised `index.max_result_window` from 10,000 to 1,000,000 so that \"users can go to any page\".",
+      "logs_snippet": "2026-11-27T13:35:41Z [WARN] es - [parent] Data too large, data for [<reduce_aggs>] would be [3.7gb], which is larger than the limit of [3.6gb]\norg.elasticsearch.common.breaker.CircuitBreakingException: [parent] Data too large\nGET /products/_search {\"from\": 899900, \"size\": 100, \"sort\": [{\"price\": \"asc\"}]}   took: 13,904ms\nnode data-2  heap 98%  old GC 12.1s",
+      "options": [
+        {
+          "id": 1,
+          "text": "The cluster has too few shards, so each shard is too large to search."
+        },
+        {
+          "id": 2,
+          "text": "Each shard must produce its top `from + size` hits and the coordinating node must merge and sort all of them, so very deep offsets cost memory and time on every shard; the result window should stay small and deep paging should use `search_after`."
+        },
+        {
+          "id": 3,
+          "text": "The sort field `price` is not indexed, so every query scans the whole index."
+        },
+        {
+          "id": 4,
+          "text": "The crawler is sending queries in a format that Elasticsearch cannot cache."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nWith `from` and `size`, every shard has to return its best `from + size` documents (here about 900,000) and the coordinating node merges them all to pick the 100 it needs. Memory and CPU grow with the offset, and they multiply by the number of shards. The default `max_result_window` of 10,000 exists to prevent this; raising it to a million removed the guard. A crawler then asked for deep pages and pushed the nodes into heap pressure and long GC pauses.\n\n### The Resolution\n1. Restore the 10,000 limit and cap the page number in the API.\n2. For real deep traversal use `search_after` with a point in time (and a tiebreaker sort field), or the scroll/PIT APIs for exports.\n\n### Prevention\n- Rate limit and cap pagination depth at the API layer, and treat unbounded offsets as a denial-of-service risk.\n- Alert on search latency and on the circuit breaker trip count.",
+      "related_module": "backend/07-search-with-elasticsearch/05-pagination-and-performance-optimization/README.md"
+    },
+    {
+      "id": "inc-saga-missing-compensation",
+      "title": "17:05 PM — Customers Charged for Orders That Were Never Created",
+      "severity": "P1",
+      "service_name": "order-saga",
+      "scenario_markdown": "Finance reports 312 payments captured today with no matching shipped order. The order flow is: create the order, charge the card, reserve stock, confirm. A flash sale emptied the inventory, so the stock reservation step began to fail. Those orders ended as `FAILED`, and the customers saw an error page, but the card charges are still there.",
+      "logs_snippet": "2026-11-28T17:05:09Z [INFO] saga ord-7731 - step payment.charge OK (pi_3Pq)\n2026-11-28T17:05:10Z [ERROR] saga ord-7731 - step inventory.reserve FAILED: insufficient stock sku=SKU-1842\n2026-11-28T17:05:10Z [INFO] saga ord-7731 - state -> FAILED\n(no log line for payment.refund)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The payment provider is delaying refunds by several days."
+        },
+        {
+          "id": 2,
+          "text": "The saga has no compensating action for the charge step: when a later step fails, nothing undoes the earlier steps, so the money stays captured."
+        },
+        {
+          "id": 3,
+          "text": "Stock should have been reserved before the order was created and the payment was taken, and the order of the steps is the only thing that needs to change in this flow."
+        },
+        {
+          "id": 4,
+          "text": "The orders table is missing a foreign key to the payments table."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nA saga replaces a distributed transaction with a sequence of local transactions, and each step that has side effects needs a **compensating** step that undoes it if a later one fails. This flow had `charge` but no `refund`. When `inventory.reserve` failed, the saga simply marked the order `FAILED` and stopped, leaving the customer's money taken for an order that would never ship.\n\n### The Resolution\n1. Refund the 312 payments now (script, idempotent) and tell the customers.\n2. Add the compensation (`refund`) and make the saga run the compensations in reverse order of the completed steps, each idempotent and retryable.\n3. Consider reserving stock before charging, so the failure most likely to happen costs nothing to undo.\n\n### Prevention\n- For every saga step, write down its compensation or why none is needed.\n- Reconcile payments with orders on a schedule and alert on any difference.",
+      "related_module": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md"
+    },
+    {
+      "id": "inc-lock-expired-no-fencing",
+      "title": "03:50 AM — Settlement Job Ran Twice, Paying 1,100 Merchants Double",
+      "severity": "P1",
+      "service_name": "settlement-job",
+      "scenario_markdown": "The nightly settlement job takes a Redis lock with a 30 second TTL so that only one worker runs a batch. This morning 1,100 merchants received two payouts. The logs show worker A pausing for 45 seconds (a long garbage collection pause) in the middle of the batch, and worker B starting the same batch meanwhile.",
+      "logs_snippet": "03:50:02 worker-A acquired lock settle:2026-11-29 ttl=30s\n03:50:09 worker-A GC pause 45,210 ms (stop-the-world)\n03:50:32 redis: key settle:2026-11-29 expired\n03:50:34 worker-B acquired lock settle:2026-11-29 ttl=30s\n03:50:47 worker-A resumed, continuing batch (still believes it holds the lock)\n03:51:15 payouts written: worker-A 1,100  worker-B 1,100",
+      "options": [
+        {
+          "id": 1,
+          "text": "Redis lost the lock key because the node restarted during the batch."
+        },
+        {
+          "id": 2,
+          "text": "The TTL is too short; setting it to 10 minutes would make the lock safe."
+        },
+        {
+          "id": 3,
+          "text": "A lock with a lease can expire while its holder is paused, and the holder cannot tell; the shared resource must check a monotonically increasing fencing token and reject writes from the older one."
+        },
+        {
+          "id": 4,
+          "text": "The two workers have different clocks, so their TTLs disagree."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nA lock with a TTL is a **lease**: if the holder stalls longer than the TTL, the lock expires and another process takes it. Worker A could not notice its lock was gone: after the pause it continued as if it still held it. Both workers wrote payouts. A longer TTL only makes the window rarer, never impossible (a stop-the-world pause, a slow network, a VM pause).\n\n### The Resolution\n1. Add a **fencing token**: each lock acquisition returns an increasing number, the worker sends it with every write, and the database (or storage) rejects a write whose token is lower than one it has already seen.\n2. Make the payout itself idempotent (a unique payout id per merchant and day), so that even a duplicate run does no harm.\n3. Recover the 1,100 duplicate payouts.\n\n### Prevention\n- Use locks for efficiency and idempotency for correctness; never rely on a lease alone for safety.\n- Alert on payout totals that differ from the expected batch.",
+      "related_module": "backend/10-distributed-systems-patterns/02-distributed-locking/README.md"
+    },
+    {
+      "id": "inc-noisy-neighbor-export",
+      "title": "11:20 AM — One Customer's Export Slows Every Other Tenant",
+      "severity": "P2",
+      "service_name": "saas-api",
+      "scenario_markdown": "Tenants across the platform report slow pages, and p95 latency has doubled for all of them, starting at 11:02. The infrastructure dashboard shows nothing wrong in aggregate: CPU is 60%. Looking by tenant, a single customer, `acme`, started a bulk export of 80 million rows through the shared job workers.",
+      "logs_snippet": "2026-11-29T11:02:14Z [INFO] jobs - tenant=acme export job 7743 started (rows ~80,000,000)\nworker pool:  size=32  busy=32  queue_wait_p95: acme=0.1s  all-other-tenants=38s\ndb active queries by tenant:  acme=29  others=14 (waiting on pool)\nper-tenant concurrency limit:  not configured",
+      "options": [
+        {
+          "id": 1,
+          "text": "The database needs more read replicas, and adding one will fix latency for everyone."
+        },
+        {
+          "id": 2,
+          "text": "A single tenant can use the whole shared worker pool because there is no per-tenant limit or fair queueing, so other tenants wait behind it: the noisy neighbour problem."
+        },
+        {
+          "id": 3,
+          "text": "The export job has a memory leak that slows the shared servers."
+        },
+        {
+          "id": 4,
+          "text": "The other tenants are running unusually heavy queries at the same time."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nIn a multi-tenant system resources are shared, and one tenant's heavy job can consume all of them. The export took all 32 workers and 29 database connections, so every other tenant's jobs and queries queued behind it. Averaged over all tenants the load looked fine; per tenant it did not.\n\n### The Resolution\n1. Cap the workers and database connections that one tenant can hold, and queue the rest (a per-tenant concurrency limit or weighted fair queueing).\n2. Run bulk work in a separate, bounded pool or lower priority class, and rate limit exports.\n\n### Prevention\n- Tag metrics and logs with the tenant, so a noisy tenant is visible.\n- Offer a plan-based quota and move very large tenants to dedicated capacity.",
+      "related_module": "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer/README.md"
+    },
+    {
+      "id": "inc-cdn-cached-private-response",
+      "title": "10:05 AM — Customers See Each Other's Account Pages After Enabling the CDN",
+      "severity": "P1",
+      "service_name": "account-web",
+      "scenario_markdown": "An hour after the team enabled caching on the CDN for `/api/*` to cut latency, three customers report seeing another person's name and address on their profile page. Rolling back the CDN rule stops it. The endpoint `/api/me` returns the signed-in user's profile and identifies the user by a session cookie.",
+      "logs_snippet": "curl -sI https://app.example.com/api/me -H \"Cookie: session=A...\"  ->  HTTP/2 200   age: 0   x-cache: MISS\ncurl -sI https://app.example.com/api/me -H \"Cookie: session=B...\"  ->  HTTP/2 200   age: 41   x-cache: HIT\nresponse headers from origin:  Cache-Control: public, max-age=60    (no Vary, no private)\nCDN cache key: scheme + host + path   (cookies and Authorization are not part of the key)",
+      "options": [
+        {
+          "id": 1,
+          "text": "The origin database returned stale rows because the replica lagged."
+        },
+        {
+          "id": 2,
+          "text": "The browsers of the affected customers share one cookie jar."
+        },
+        {
+          "id": 3,
+          "text": "The session cookie was copied between users by a bug in the login code."
+        },
+        {
+          "id": 4,
+          "text": "The origin marked a per-user response as publicly cacheable and the cache key ignores the cookie, so the CDN stored the first user's response and served it to the next."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nA shared cache stores one response per cache key and hands it to anyone asking for that key. Here the key was just the URL, and the origin sent `Cache-Control: public, max-age=60` for `/api/me`, so the response generated for customer A was stored and then served to customer B for the next minute. Nothing about the response said it depended on who asked.\n\n### The Resolution\n1. Purge the cache, disable caching for authenticated paths, and notify the affected customers (this is a personal-data exposure and may need to be reported).\n2. Send `Cache-Control: private` (or `no-store`) on every per-user response, and make the CDN rule respect origin headers instead of overriding them.\n3. If a response must be cached per user, vary the key explicitly (`Vary: Cookie` is usually too broad to be useful: prefer not to cache it).\n\n### Prevention\n- Cache only what is public by default: allow-list paths, do not block-list them.\n- Add a test that two different users never receive the same cached body.",
+      "related_module": "backend/01-request-response-fundamentals/12-cdn-and-edge-caching/README.md"
+    },
+    {
+      "id": "inc-grpc-load-pinning",
+      "title": "15:15 PM — Scaling to 12 Pods Did Not Help: One Pod Is at 95% CPU",
+      "severity": "P2",
+      "service_name": "recommendations-grpc",
+      "scenario_markdown": "Latency on the recommendations service is high, so the team scaled it from 4 to 12 pods. Nothing improved: one pod is at 95% CPU, the other eleven are almost idle, and new pods receive no traffic. Clients call the service over gRPC through a normal ClusterIP Service.",
+      "logs_snippet": "kubectl top pods -l app=recs  ->  recs-0  1890m   recs-1  41m   recs-2  38m   recs-3  44m   ...  recs-11  3m\nss -tn dst 10.96.14.7:9090 (client pod)  ->  ESTAB 1 connection   (HTTP/2, open for 6d 4h)\nservice type: ClusterIP (kube-proxy, connection-level balancing)\nclient channel: single long-lived connection, round_robin not configured",
+      "options": [
+        {
+          "id": 1,
+          "text": "The new pods are failing their readiness probe, so they receive no traffic."
+        },
+        {
+          "id": 2,
+          "text": "The Kubernetes Service balances connections, not requests, and a gRPC client multiplexes all its calls over one long-lived HTTP/2 connection, so all the load lands on the pod that connection happened to reach."
+        },
+        {
+          "id": 3,
+          "text": "The horizontal pod autoscaler is scaling in the wrong direction."
+        },
+        {
+          "id": 4,
+          "text": "The pods have different CPU limits, so some of them throttle first."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nkube-proxy spreads **new TCP connections** across the pods; it does not look inside them. gRPC uses HTTP/2, which carries many concurrent requests on one connection, and clients keep that connection open for days. So each client picked a pod once and sent everything to it. Adding pods created no new connections to balance, so they stayed idle.\n\n### The Resolution\n1. Balance at the request level: a client-side load balancer (`round_robin` over a headless Service's addresses), or an L7 proxy or mesh that understands HTTP/2.\n2. Set a maximum connection age on the server so connections are recycled and re-balanced (and tune keepalive).\n\n### Prevention\n- Look at load per pod, not only the total, before and after scaling.\n- Treat \"gRPC behind a plain Service\" as a known pitfall in the service checklist.",
+      "related_module": "backend/16-grpc-deep-dive/02-production-serving-health-lb-and-keepalive/README.md"
+    },
+    {
+      "id": "inc-dst-cron-double-run",
+      "title": "01:35 AM — Every Customer Was Invoiced Twice on the Night the Clocks Went Back",
+      "severity": "P3",
+      "service_name": "invoice-scheduler",
+      "scenario_markdown": "On the night daylight saving time ended, the invoice email job ran twice, and customers received a duplicate invoice. The job is scheduled with the cron expression `30 1 * * *` and the scheduler host's time zone is `Europe/Berlin`. In spring the same job skipped a day for one customer segment.",
+      "logs_snippet": "2026-10-25T01:30:00+02:00 [INFO] scheduler - run invoice-emails (cron 30 1 * * * tz=Europe/Berlin)\n2026-10-25T02:00:00+02:00 -> 2026-10-25T02:00:00+01:00   # the clock repeats the hour 02:00-03:00\n2026-10-25T01:30:00+01:00 [INFO] scheduler - run invoice-emails (cron 30 1 * * * tz=Europe/Berlin)\ninvoices sent: 48,120 + 48,120",
+      "options": [
+        {
+          "id": 1,
+          "text": "The scheduler fires every job twice a year as a known bug and needs patching."
+        },
+        {
+          "id": 2,
+          "text": "The cron expression is wrong: it should be `0 1 * * *`."
+        },
+        {
+          "id": 3,
+          "text": "Two scheduler replicas ran, and neither had a leader lock."
+        },
+        {
+          "id": 4,
+          "text": "A schedule in local time can match the same wall-clock time twice (or never) when the clock changes; the job should be scheduled in UTC and be idempotent for the day it covers."
+        }
+      ],
+      "correct_option": 4,
+      "post_mortem_markdown": "### Root Cause Analysis\nIn `Europe/Berlin` the night the clocks go back the hour from 01:00 to 02:00 happens twice, so `01:30` occurred twice and the scheduler ran the job at both. In spring the hour is skipped and a job set inside it may not run at all. The job also had no memory of having already sent the invoices for that day.\n\n### The Resolution\n1. Schedule jobs in UTC (or use a scheduler that handles transitions explicitly), and keep the user-facing local time as data, not as the trigger.\n2. Make the job idempotent: record \"invoices for 2026-10-25 sent\" with a unique key and skip a repeat.\n3. Apologise for the duplicates, and have the support team ready for the question.\n\n### Prevention\n- Test schedules around the two transitions with a fake clock.\n- Run only one scheduler instance (or elect a leader) and give every job a run id.",
+      "related_module": "backend/06-background-processing-and-realtime/03-scheduling-recurring-jobs/README.md"
+    },
+    {
+      "id": "inc-duplicate-events-exactly-once",
+      "title": "09:50 AM — Loyalty Points Credited Twice After a Consumer Restart",
+      "severity": "P2",
+      "service_name": "loyalty-consumer",
+      "scenario_markdown": "After a rolling restart of the loyalty consumer, about 9,000 customers have double points for their last purchase. The consumer reads `order-completed` events from Kafka, adds points in its own database, and commits the offset after processing each batch. The team believed Kafka \"gives exactly-once\".",
+      "logs_snippet": "2026-11-30T09:50:01Z [INFO] consumer - batch offsets 118200-118399 processed, db commit ok\n2026-11-30T09:50:02Z [WARN] consumer - SIGTERM received before offset commit (batch 118200-118399)\n2026-11-30T09:50:19Z [INFO] consumer - started, resuming at committed offset 118200\n2026-11-30T09:50:20Z [INFO] consumer - batch offsets 118200-118399 processed, db commit ok   # same events",
+      "options": [
+        {
+          "id": 1,
+          "text": "Kafka lost the committed offset during the rebalance and replayed the topic from the beginning."
+        },
+        {
+          "id": 2,
+          "text": "The producer sent each order event twice and should de-duplicate on its side."
+        },
+        {
+          "id": 3,
+          "text": "The consumer writes to its database and commits the offset as two separate steps, so a crash between them replays events; the handler has to be idempotent or the two writes made atomic."
+        },
+        {
+          "id": 4,
+          "text": "The topic has too few partitions, so the consumer re-reads the same partition."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe consumer first updated its own database and then committed the Kafka offset. The restart arrived between the two. On start it resumed from the last committed offset, which was before the batch it had already applied, so it applied the batch again: delivery was at-least-once, as it is for any consumer that commits after processing. Kafka's exactly-once guarantees cover reading and writing **within Kafka** (transactions); they do not make a write to an external database happen once.\n\n### The Resolution\n1. Make the handler idempotent: store the event id (or topic, partition and offset) in the same database transaction as the points, with a unique constraint, and ignore an event already applied.\n2. Alternatively commit the offset inside the same database transaction (keep offsets in the database) so the two cannot diverge.\n3. Correct the 9,000 balances from the event log.\n\n### Prevention\n- Assume at-least-once for every consumer, and test by killing the process between steps.\n- Reconcile derived totals with the source of truth.",
+      "related_module": "backend/17-kafka-and-streaming/02-delivery-semantics-and-exactly-once/README.md"
+    },
+    {
+      "id": "inc-secret-key-in-git",
+      "title": "16:42 PM — A Cloud Bill Alert Leads to an Access Key in a Public Repository",
+      "severity": "P1",
+      "service_name": "platform-security",
+      "scenario_markdown": "Cloud billing alerts show $18,000 of compute spend in 6 hours in regions the company never uses, in a project that normally costs $300 a day. Cryptocurrency-mining instances are running. The audit log shows the calls were made with the access key of the CI deploy user, from an unknown IP address.",
+      "logs_snippet": "audit: RunInstances x 240  user=ci-deploy  region=ap-southeast-3  sourceIp=198.51.100.77  userAgent=aws-cli/2.15  (first seen: 2026-12-01 10:36Z)\ngit log -S \"AKIA\" --all  ->  commit 3f2a91c \"add deploy script\" (6 weeks ago): scripts/deploy.sh: export AWS_ACCESS_KEY_ID=AKIA...\nrepo visibility changed to public 2 days ago (open-source launch)\nsecret scanning alert: opened 2 days ago, unread",
+      "options": [
+        {
+          "id": 1,
+          "text": "The key was committed to the repository history, and the repository was made public; removing it from the latest commit does not remove it from history, and it must be revoked and rotated."
+        },
+        {
+          "id": 2,
+          "text": "The cloud provider has a vulnerability that exposes access keys."
+        },
+        {
+          "id": 3,
+          "text": "The CI server was compromised by a phishing email sent to the finance team."
+        },
+        {
+          "id": 4,
+          "text": "The autoscaler misread a spike in traffic and created too many instances."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nA deploy script containing a long-lived access key had been committed six weeks earlier, when the repository was private. Making it public exposed the whole history, and automated scanners collect leaked keys within minutes. The scanning alert had been raised but nobody read it. The key belonged to a user with broad permissions, so the attacker could launch instances in any region.\n\n### The Resolution\n1. **Revoke the key immediately** (assume it is compromised), terminate the unknown resources, and review the audit log for everything it touched (data access, new users, new keys).\n2. Replace long-lived keys with short-lived credentials from the CI provider's identity federation (OIDC), and give each role only what it needs.\n3. Rewriting history is a cleanup, not a fix: the key must be rotated regardless.\n\n### Prevention\n- Scan commits for secrets before push and on the server, and route alerts to someone who is on call.\n- Put budget alarms and region restrictions in place, and review a repository's history before changing its visibility.",
+      "related_module": "backend/09-security-deep-dive/05-secrets-management/README.md"
+    },
+    {
+      "id": "inc-graphql-nested-query-abuse",
+      "title": "12:25 PM — One GraphQL Request Takes the API Down",
+      "severity": "P2",
+      "service_name": "graph-gateway",
+      "scenario_markdown": "Database CPU is at 100% and the API times out for everyone. The cause is traced to a single request that is only 300 bytes long. Traffic is otherwise normal. The API is a public GraphQL endpoint with a schema in which `User` has `friends` and every friend is a `User`.",
+      "logs_snippet": "2026-12-02T12:25:03Z [WARN] graphql - query took 41,200ms, 2,914,880 resolver calls, 640,112 db queries\nquery { user(id:\"1\") { friends { friends { friends { friends { friends { friends { id name } } } } } } } }\nconfig: depthLimit=none  complexityLimit=none  timeout=none  persistedQueries=off\ndb: 640k queries from one request, pool saturated",
+      "options": [
+        {
+          "id": 1,
+          "text": "The query has no limit on depth or cost, so a small request can fan out into millions of resolver calls; the server must bound depth, complexity and execution time."
+        },
+        {
+          "id": 2,
+          "text": "The database is under-provisioned and needs a larger instance class."
+        },
+        {
+          "id": 3,
+          "text": "GraphQL cannot be cached, so every request is expensive by design."
+        },
+        {
+          "id": 4,
+          "text": "The client library is retrying the failed query in a tight loop."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nIn GraphQL the client chooses the shape of the query, and a recursive relation (`friends` of `friends`) lets it ask for a result whose size grows exponentially with depth. Each level multiplied the number of resolver calls and database queries (no batching), so one 300-byte request became 640,000 queries and starved every other user. The server had no depth limit, no cost limit and no timeout.\n\n### The Resolution\n1. Add a maximum query **depth**, a **complexity/cost** limit that counts list sizes, and an execution **timeout**.\n2. Batch lookups with a dataloader to collapse the N+1 queries, and cap list arguments (`first: 100`).\n3. For a public API, use persisted queries (allow only known documents) and rate limit by cost.\n\n### Prevention\n- Treat the query itself as untrusted input and test with a hostile query.\n- Log operation name, depth and cost, and alert on outliers.",
+      "related_module": "backend/11-advanced-api-paradigms/07-graphql-security-caching-and-observability/README.md"
+    },
+    {
+      "id": "inc-alert-fatigue-missed-outage",
+      "title": "06:10 AM — The Outage Was in the Alerts for Two Hours and Nobody Noticed",
+      "severity": "P2",
+      "service_name": "platform-oncall",
+      "scenario_markdown": "Customers reported checkout failures at 04:05, and the on-call engineer only learned of it from a support ticket at 06:10. Afterwards the team found that the error-rate alert had fired at 04:07. The on-call channel receives about 140 alerts a day, most of them CPU warnings that fix themselves, and that alert had been muted by habit.",
+      "logs_snippet": "alert history last 7 days:  912 pages  |  actionable: 31 (3%)  |  auto-resolved within 5 min: 804\n04:07:12 FIRING  checkout-error-rate > 5% for 2m   (acked: nobody)   channel: #alerts-all (muted by 11 people)\n04:07:40 FIRING  node-cpu > 80% (x 38 nodes)   -> auto-resolved 04:09\n06:10:02 support ticket #88231 \"payment fails\"",
+      "options": [
+        {
+          "id": 1,
+          "text": "The monitoring system was down between 04:00 and 06:00 and did not send alerts."
+        },
+        {
+          "id": 2,
+          "text": "The checkout error-rate threshold of 5% is too sensitive and should be raised to 20%."
+        },
+        {
+          "id": 3,
+          "text": "Most alerts do not need a human and are noisy symptoms, so people learned to ignore the channel, and the one that mattered was lost among them; alerts should be few, tied to user impact (for example SLO burn rate) and actionable."
+        },
+        {
+          "id": 4,
+          "text": "The on-call engineer slept through the page, and a louder ringtone would have prevented the outage."
+        }
+      ],
+      "correct_option": 3,
+      "post_mortem_markdown": "### Root Cause Analysis\nThe alert that mattered fired on time but arrived in a stream where 97% of pages were not actionable. People mute noisy channels to stay sane, which is a rational response to alert fatigue, and it means the signal is lost with the noise. The failure was in the alerting design, not in a person.\n\n### The Resolution\n1. Page only on symptoms that users feel (error rate, latency, availability against an SLO, ideally with multi-window **burn-rate** alerts), and route everything else to a ticket or a dashboard.\n2. Delete or fix every alert that was not actionable last month; each page should have an owner and a runbook.\n3. Escalate automatically if a page is not acknowledged in a few minutes.\n\n### Prevention\n- Review the page-to-action ratio monthly; aim for most pages to need a human.\n- Test the path from alert to person, including the escalation.",
+      "related_module": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md"
     }
   ]
 }
-
