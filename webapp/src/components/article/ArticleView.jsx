@@ -15,6 +15,7 @@ import { watchCodeOverflow } from '../../lib/markdown/codeOverflowLazy.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
 import { FOCUS } from '../../config/focus.js';
+import { RELATED } from '../../config/related.js';
 import { useFocusMode } from '../../hooks/useFocusMode.js';
 import { focusKey } from '../../lib/practice/progressKeys.js';
 import { TRUST } from '../../config/trust.js';
@@ -379,7 +380,7 @@ export default function ArticleView({
               ? <div className="finish-sub">The last module of {pathPlace.title}</div>
               : nextFile && (
                 <div className="finish-sub">
-                  Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
+                  Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}{nodeByFile[nextFile]?.min > 0 && RELATED.nextMeta(nodeByFile[nextFile].min)}
                 </div>
               )}
           </div>

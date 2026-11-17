@@ -7,3 +7,15 @@ export const cardsOf = (questions) => questions.map((question, i) => ({ key: Str
 /** Whether a set reads well as cards: it has questions, and every answer is short enough to sit on the back of one (a worked solution with code is not). */
 export const suitsCards = (questions, maxAnswerChars) => questions.length > 0 && questions.every((question) => typeof question.a === 'string' && question.a.length <= maxAnswerChars);
 
+
+/** The mark a lesson leaves so that a set opens as cards: the set's name and the moment, as "slug|ms" (the moment is what lets it lapse without anything clearing it). */
+export const cardsStartMark = (slug, now) => `${slug}|${now}`;
+
+/** Whether `mark` (what is stored) asks for the set `slug` to open as cards at `now`: it names that set and is less than `windowMs` old. */
+export function cardsStartWanted(mark, slug, now, windowMs) {
+  if (typeof mark !== 'string') return false;
+  const at = mark.lastIndexOf('|');
+  if (at < 1 || mark.slice(0, at) !== slug) return false;
+  const when = Number(mark.slice(at + 1));
+  return Number.isFinite(when) && now - when >= 0 && now - when < windowMs;
+}

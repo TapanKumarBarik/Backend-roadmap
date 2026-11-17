@@ -34,6 +34,7 @@ export const INTERVIEW = {
 // says is in config/cards.js, which only the deck imports, so the Practice screen does not download it until someone turns a card.
 export const CARDS = {
   maxAnswerChars: 700,
+  startWindowMs: 30000, // a lesson's Flash cards button opens the set as cards if it is opened within this long of the click
   modeLabel: 'How to study this set',
   modes: [{ id: 'list', label: 'List' }, { id: 'cards', label: 'Flash cards' }],
   lead: 'Read the question and say your answer out loud, then flip the card. A card you mark "Not yet" comes back before the deck is done.',

@@ -10,6 +10,7 @@ import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage, publicV
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
 import practiceContent from '../../api/generated/practice-content.json' with { type: 'json' };
 import { HERO } from '../../webapp/src/config/landing.js';
+import { config } from '../../scripts/lib/config.mjs';
 
 let browser;
 before(async () => { browser = await launchBrowser(); });
@@ -422,6 +423,29 @@ test('a lesson shows the practice that goes with it, and the dashboard and the p
   await home.page.getByRole('heading', { level: 2, name: /Two pointers and sliding window/ }).waitFor();
   assert.equal(new URL(home.page.url()).pathname, '/practice/interview/coding-two-pointers-and-sliding-window/');
   await home.context.close();
+});
+
+test('the end of a lesson offers its quiz and its interview questions as flash cards, names the next lesson with its time, and the set opens as cards only just after that click', async () => {
+  const lesson = practiceContent.interview.caching.module;
+  const { context, page, goto } = await open(moduleUrl(lesson), { email: null });
+  await goto();
+  const finish = page.locator('.finish-acts');
+  await finish.waitFor();
+  assert.match(await page.locator('.finish-sub').innerText(), /^Next: .+ · \d+ min$/, 'the next lesson, with how long it takes');
+  const link = finish.getByRole('link', { name: /^Flash cards · 4 questions$/ });
+  await link.waitFor();
+  await link.click();
+  await page.locator('.cd-card').waitFor();
+  assert.equal(new URL(page.url()).pathname, '/practice/interview/caching/');
+  assert.equal(await page.getByRole('group', { name: 'How to study this set' }).getByRole('button', { name: 'Flash cards' }).getAttribute('aria-pressed'), 'true', 'it opens as cards');
+
+  // A visit later on, from Practice or a link, is the list as ever: the mark the lesson left has lapsed.
+  const stale = await page.evaluate((key) => { localStorage.setItem(key, 'caching|' + (Date.now() - 120000)); return localStorage.getItem(key); }, config.storage.cardsStart);
+  assert.match(stale, /^caching\|\d+$/);
+  await page.goto(BASE + '/practice/interview/caching/');
+  await page.locator('.pr-qa').waitFor();
+  assert.equal(await page.locator('.cd').count(), 0, 'a mark that is old is not followed');
+  await context.close();
 });
 
 test('reading options change the text size and width of a lesson, and are kept', async () => {

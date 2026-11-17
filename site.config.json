@@ -415,7 +415,8 @@
     "tracker": "docs.tracker",
     "trackerSync": "docs.trackerSync",
     "focusMode": "docs.focusMode",
-    "focusSession": "docs.focusSession"
+    "focusSession": "docs.focusSession",
+    "cardsStart": "docs.cardsStart"
   },
   "assistant": {
     "maxInputChars": 12000,

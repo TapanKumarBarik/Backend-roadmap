@@ -20,7 +20,6 @@ import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import QuizView from './QuizView.jsx';
 import ExerciseView from './ExerciseView.jsx';
-import InterviewView from './InterviewView.jsx';
 import TodayStrip from './TodayStrip.jsx';
 import CodeMap from './CodeMap.jsx';
 import PracticeTools from './PracticeTools.jsx';
@@ -33,6 +32,8 @@ import '../../styles/tools.css';
 // The Practice Center. At the top, today's drill and the problem of the day; below, the coding problems as a map of topics, and the quizzes, coding
 // questions, interview preparation and exercises, filtered by topic and level. An item opens in place (/practice/quiz/<slug>/); the list is the screen
 // with no item. The editor and the Python runner are loaded only when a coding problem opens, and the drill's screen only when it does.
+// An interview set (and its flash cards) is read after the list, so it is not part of the list's download.
+const InterviewView = lazy(() => import('./InterviewView.jsx'));
 const CodeProblemView = lazy(() => import('./CodeProblemView.jsx'));
 const DrillView = lazy(() => import('./DrillView.jsx'));
 const PlanView = lazy(() => import('./PlanView.jsx'));

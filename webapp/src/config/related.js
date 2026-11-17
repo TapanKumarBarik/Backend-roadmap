@@ -5,5 +5,7 @@ export const RELATED = {
   quiz: (title) => `Quiz: ${title}`,
   exercise: (title) => `Exercise: ${title}`,
   interview: (title) => `Interview questions: ${title}`,
+  cards: (n) => `Flash cards · ${n} questions`,
+  nextMeta: (minutes) => ` · ${minutes} min`,
   code: (title) => `Code it: ${title}`
 };

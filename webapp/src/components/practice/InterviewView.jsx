@@ -1,9 +1,11 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchInterviewSet } from '../../lib/practiceApi.js';
-import { cardsOf, suitsCards } from '../../lib/practice/cards.js';
 import { useLoader } from '../../hooks/useLoader.js';
+import { cardsOf, suitsCards, cardsStartWanted } from '../../lib/practice/cards.js';
 import { CARDS, DIFFICULTY, INTERVIEW } from '../../config/practice.js';
+import { STORAGE } from '../../config/index.js';
+import { readStored } from '../../lib/storage.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
 import { ChoiceChip } from '../ui/Chip.jsx';
@@ -24,7 +26,11 @@ export default function InterviewView({ slug, onBack, onOpenFile, nodeByFile }) 
   usePageTitle(set && set.title);
   const [shown, setShown] = useState({});
   const [mode, setMode] = useState(LIST);
-  useEffect(() => { setMode(LIST); setShown({}); }, [slug]);
+  // A lesson's "Flash cards" button leaves the name of the set and the time here (components/article/FinishCheck.jsx), so the set opens as cards, for a moment only.
+  useEffect(() => {
+    setMode(cardsStartWanted(readStored(STORAGE.cardsStart), slug, Date.now(), CARDS.startWindowMs) ? DECK : LIST);
+    setShown({});
+  }, [slug]);
   const lesson = set && set.module && nodeByFile ? nodeByFile[set.module] : null;
   const words = INTERVIEW[set && set.section === 'coding' ? 'coding' : 'concepts'];
   const cards = useMemo(() => (set && suitsCards(set.questions, CARDS.maxAnswerChars) ? cardsOf(set.questions) : null), [set]);
