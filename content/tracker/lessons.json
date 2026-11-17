@@ -1,0 +1,2189 @@
+{
+ "_about": "The lessons of this site that the Prep Tracker (/tracker/) lists under a study item. \"items\" is found by scripts/tracker/match-lessons.mjs from the words of each item and each written lesson (run `npm run tracker:lessons`); \"drop\" and \"add\" are what a person decided after reading those matches and are kept when it runs again; \"steps\" are the lessons for a step of a design problem (the same for every problem), and \"problems\" the lessons for one design problem. Every path must be a written lesson: scripts/build/gen-tracker.mjs stops the build when one is not.",
+ "steps": {
+  "sd": {
+   "Requirements": [
+    "system-design/01-core-fundamentals/03-functional-requirements",
+    "system-design/01-core-fundamentals/04-non-functional-requirements"
+   ],
+   "Capacity Estimation": [
+    "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math"
+   ],
+   "API Design": [
+    "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices",
+    "backend/11-advanced-api-paradigms/10-api-design-tradeoffs-in-practice"
+   ],
+   "Data Model": [
+    "backend/04-databases-and-data-layer/03-schema-design-and-indexing",
+    "backend/04-databases-and-data-layer/00-relational-vs-non-relational"
+   ],
+   "High-Level Architecture": [
+    "backend/14-system-design-interview-practice/01-the-system-design-interview-framework",
+    "system-design/01-core-fundamentals/02-client-server-and-multi-tier-architecture"
+   ],
+   "Scaling": [
+    "system-design/01-core-fundamentals/12-scalability",
+    "system-design/01-core-fundamentals/07-horizontal-scaling",
+    "backend/04-databases-and-data-layer/08-replication-and-sharding"
+   ],
+   "Reliability": [
+    "system-design/01-core-fundamentals/11-reliability-availability-and-durability",
+    "system-design/01-core-fundamentals/16-fault-tolerance"
+   ],
+   "Security": [
+    "backend/09-security-deep-dive/00-owasp-top-10-overview",
+    "backend/03-authentication-and-authorization/06-authorization-models"
+   ],
+   "Trade-offs": [
+    "system-design/01-core-fundamentals/05-trade-offs-and-how-to-justify-a-design"
+   ]
+  },
+  "gai": {
+   "Requirements and Constraints": [
+    "system-design/01-core-fundamentals/03-functional-requirements",
+    "system-design/01-core-fundamentals/04-non-functional-requirements"
+   ],
+   "Capacity Estimation": [
+    "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math",
+    "genai/01-tokens-and-language-modeling/12-token-cost-economics"
+   ],
+   "API Design": [
+    "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices",
+    "genai/06-openai-and-the-model-landscape/01-chat-completions-deep-dive"
+   ],
+   "Data Model": [
+    "backend/04-databases-and-data-layer/03-schema-design-and-indexing",
+    "genai/08-embeddings-and-vector-databases/08-chunk-overlap-and-metadata"
+   ],
+   "Component Architecture": [
+    "genai/00-genai-foundations/11-the-modern-genai-stack",
+    "backend/14-system-design-interview-practice/01-the-system-design-interview-framework"
+   ],
+   "Data Flow": [
+    "backend/01-request-response-fundamentals/00-system-overview-and-request-flow",
+    "genai/00-genai-foundations/11-the-modern-genai-stack"
+   ],
+   "Model Selection": [
+    "genai/06-openai-and-the-model-landscape/04-model-families-and-generations",
+    "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing",
+    "genai/03-landmark-models-bert-gpt-and-moe/15-how-to-read-a-model-card"
+   ],
+   "Prompt and Context Management": [
+    "genai/07-prompt-engineering/14-prompt-versioning-and-management",
+    "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction",
+    "genai/01-tokens-and-language-modeling/11-context-windows-explained"
+   ],
+   "Retrieval or Tool Integration": [
+    "genai/09-retrieval-augmented-generation/05-the-retrieval-step",
+    "genai/10-ai-agents/06-tool-execution-and-error-handling"
+   ],
+   "Security and Tenant Isolation": [
+    "genai/07-prompt-engineering/13-defending-against-injection",
+    "backend/15-multi-tenancy-and-saas-architecture/00-tenancy-models-and-decision-framework"
+   ],
+   "Failure Handling": [
+    "genai/10-ai-agents/15-agent-failure-modes-and-debugging",
+    "backend/08-observability-and-operational-readiness/00-error-handling-strategies"
+   ],
+   "Observability": [
+    "genai/15-evaluation-observability-and-safety/13-tracing-agent-execution",
+    "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting",
+    "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability"
+   ],
+   "Evaluation Strategy": [
+    "genai/15-evaluation-observability-and-safety/00-why-genai-evaluation-is-hard",
+    "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset",
+    "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts"
+   ],
+   "Cost Optimization": [
+    "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization",
+    "genai/01-tokens-and-language-modeling/12-token-cost-economics",
+    "genai/10-ai-agents/16-cost-and-latency-control-in-agents"
+   ],
+   "Scaling Strategy": [
+    "genai/14-inference-and-serving-vllm/14-autoscaling-and-multi-replica-serving",
+    "system-design/01-core-fundamentals/12-scalability"
+   ],
+   "Trade-offs and Alternative Designs": [
+    "system-design/01-core-fundamentals/05-trade-offs-and-how-to-justify-a-design",
+    "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag"
+   ]
+  }
+ },
+ "problems": {
+  "URL Shortener": [
+   "backend/14-system-design-interview-practice/02-designing-a-url-shortener"
+  ],
+  "Rate Limiter": [
+   "backend/14-system-design-interview-practice/03-designing-a-rate-limiter",
+   "lld/18-lru-lfu-cache-and-rate-limiter",
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention"
+  ],
+  "Pastebin": [
+   "backend/14-system-design-interview-practice/02-designing-a-url-shortener",
+   "backend/06-background-processing-and-realtime/14-object-storage-and-large-files"
+  ],
+  "File Storage and Sharing Service": [
+   "backend/06-background-processing-and-realtime/14-object-storage-and-large-files"
+  ],
+  "Notification Service": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/11-mobile-push-notifications"
+  ],
+  "Chat Application": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "WhatsApp-like Messaging System": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "News Feed": [
+   "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline"
+  ],
+  "Social Media Platform": [
+   "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline"
+  ],
+  "Video Streaming Platform": [
+   "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system"
+  ],
+  "YouTube-like Service": [
+   "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system",
+   "backend/06-background-processing-and-realtime/15-capstone-project"
+  ],
+  "Ride-Hailing Platform": [
+   "lld/17-ride-sharing"
+  ],
+  "Food Delivery Platform": [
+   "lld/17-ride-sharing",
+   "backend/17-kafka-and-streaming/07-project-build-an-event-driven-system"
+  ],
+  "Ticket Booking System": [
+   "lld/16-movie-ticket-booking"
+  ],
+  "E-Commerce Platform": [
+   "backend/04-databases-and-data-layer/11-capstone-project",
+   "backend/10-distributed-systems-patterns/09-capstone-project"
+  ],
+  "Payment Processing System": [
+   "backend/06-background-processing-and-realtime/12-payment-processing-in-practice",
+   "backend/14-system-design-interview-practice/08-capstone-project",
+   "backend/10-distributed-systems-patterns/01-idempotency-in-practice"
+  ],
+  "Banking Transaction System": [
+   "backend/14-system-design-interview-practice/08-capstone-project",
+   "backend/04-databases-and-data-layer/01-acid-and-cap-theorem",
+   "backend/10-distributed-systems-patterns/04-the-saga-pattern"
+  ],
+  "Distributed Task Scheduler": [
+   "backend/06-background-processing-and-realtime/03-scheduling-recurring-jobs",
+   "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration"
+  ],
+  "Job Queue": [
+   "backend/06-background-processing-and-realtime/00-task-queues-fundamentals",
+   "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues"
+  ],
+  "Search Engine": [
+   "backend/07-search-with-elasticsearch",
+   "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system"
+  ],
+  "Hotel Booking System": [
+   "lld/22-capstone-project",
+   "lld/16-movie-ticket-booking"
+  ],
+  "Inventory Management System": [
+   "backend/04-databases-and-data-layer/11-capstone-project",
+   "lld/23-supply-chain-platform"
+  ],
+  "Logging and Monitoring Platform": [
+   "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices",
+   "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability",
+   "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki"
+  ],
+  "Metrics Collection System": [
+   "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics",
+   "learn/12-observability-deep-dive"
+  ],
+  "Distributed Cache": [
+   "backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store",
+   "backend/05-caching-and-performance/03-multi-level-caching"
+  ],
+  "API Gateway": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff",
+   "learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits"
+  ],
+  "Feature Flag Service": [
+   "backend/13-devops-for-backend-engineers/05-service-configuration-and-environments"
+  ],
+  "Cloud File Storage (Dropbox/Google Drive)": [
+   "backend/06-background-processing-and-realtime/14-object-storage-and-large-files"
+  ],
+  "Real-Time Collaborative Editor": [
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "Location Tracking System": [
+   "lld/17-ride-sharing",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "Recommendation System": [
+   "ml/08-recommender-systems-and-ranking"
+  ],
+  "RAG-Based Knowledge Assistant": [
+   "genai/09-retrieval-augmented-generation/00-why-rag-exists",
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end"
+  ],
+  "Enterprise AI Agent Platform": [
+   "genai/10-ai-agents",
+   "genai/17-agent-harness-engineering",
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "Multi-Tenant SaaS Application": [
+   "backend/15-multi-tenancy-and-saas-architecture",
+   "backend/15-multi-tenancy-and-saas-architecture/00-tenancy-models-and-decision-framework",
+   "backend/04-databases-and-data-layer/10-multi-tenancy-patterns"
+  ],
+  "Enterprise RAG Knowledge Assistant": [
+   "genai/09-retrieval-augmented-generation/00-why-rag-exists",
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end"
+  ],
+  "Permission-Aware Enterprise Search": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries",
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step",
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "Multi-Tenant GenAI SaaS Platform": [
+   "backend/15-multi-tenancy-and-saas-architecture",
+   "backend/15-multi-tenancy-and-saas-architecture/00-tenancy-models-and-decision-framework",
+   "backend/04-databases-and-data-layer/10-multi-tenancy-patterns"
+  ],
+  "Multi-Agent Enterprise Automation Platform": [
+   "genai/12-agent-orchestration-and-multi-agent-systems",
+   "genai/12-agent-orchestration-and-multi-agent-systems/02-the-orchestrator-worker-pattern",
+   "genai/12-agent-orchestration-and-multi-agent-systems/03-the-supervisor-pattern"
+  ],
+  "AI Customer Support Chatbot": [
+   "genai/10-ai-agents/01-agents-vs-chatbots-vs-workflows",
+   "genai/10-ai-agents/13-human-in-the-loop-patterns"
+  ],
+  "Document Intelligence and Extraction Pipeline": [
+   "genai/09-retrieval-augmented-generation/03-document-loaders-and-parsing",
+   "genai/09-retrieval-augmented-generation/04-pdfs-tables-and-complex-documents",
+   "genai/16-speech-and-multimodal-models/13-vision-use-cases-ocr-documents-ui"
+  ],
+  "LLM Gateway and Model Router": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing",
+   "genai/06-openai-and-the-model-landscape/18-capstone-project",
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "Centralized Prompt Management Platform": [
+   "genai/07-prompt-engineering/14-prompt-versioning-and-management",
+   "genai/07-prompt-engineering/15-prompt-evaluation-and-iteration",
+   "genai/07-prompt-engineering/07-prompt-templates-and-variables"
+  ],
+  "AI Evaluation and Regression Testing Platform": [
+   "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates",
+   "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset"
+  ],
+  "LLM Observability Platform": [
+   "genai/15-evaluation-observability-and-safety/13-tracing-agent-execution",
+   "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting",
+   "genai/11-langchain-and-langgraph/17-langsmith-for-tracing-and-debugging"
+  ],
+  "Large-Scale Embedding Generation Pipeline": [
+   "genai/08-embeddings-and-vector-databases/05-generating-embeddings-at-scale",
+   "genai/06-openai-and-the-model-landscape/08-the-embeddings-api"
+  ],
+  "Real-Time AI Inference API": [
+   "genai/14-inference-and-serving-vllm/00-the-serving-problem",
+   "genai/14-inference-and-serving-vllm/06-continuous-batching",
+   "genai/06-openai-and-the-model-landscape/03-streaming-responses"
+  ],
+  "Self-Hosted LLM Inference Service": [
+   "genai/14-inference-and-serving-vllm",
+   "genai/14-inference-and-serving-vllm/08-vllm-getting-started",
+   "genai/14-inference-and-serving-vllm/14-autoscaling-and-multi-replica-serving"
+  ],
+  "AI-Powered Code Assistant": [
+   "genai/17-agent-harness-engineering",
+   "genai/17-agent-harness-engineering/01-tools-and-the-agent-computer-interface",
+   "genai/17-agent-harness-engineering/03-safety-permissions-and-sandboxing"
+  ],
+  "AI Governance and Policy Enforcement Platform": [
+   "learn/17-governance-at-scale",
+   "genai/15-evaluation-observability-and-safety/10-guardrails-input-filtering",
+   "genai/15-evaluation-observability-and-safety/12-pii-and-data-leakage"
+  ],
+  "Multimodal Document Understanding System": [
+   "genai/16-speech-and-multimodal-models/13-vision-use-cases-ocr-documents-ui",
+   "genai/16-speech-and-multimodal-models",
+   "genai/19-vision-language-models-in-practice"
+  ],
+  "Agent Memory Service": [
+   "genai/10-ai-agents/11-memory-long-term-and-vector-backed",
+   "genai/17-agent-harness-engineering/02-context-engineering-memory-and-long-running-agents",
+   "genai/10-ai-agents/10-memory-short-term-and-scratchpad"
+  ],
+  "Shared Tool Execution Platform": [
+   "genai/10-ai-agents/06-tool-execution-and-error-handling",
+   "genai/17-agent-harness-engineering/03-safety-permissions-and-sandboxing",
+   "genai/13-model-context-protocol-mcp"
+  ],
+  "AI Workflow Orchestration Platform": [
+   "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration",
+   "genai/12-agent-orchestration-and-multi-agent-systems/14-choosing-an-orchestration-approach",
+   "genai/11-langchain-and-langgraph/15-checkpointing-and-persistence"
+  ],
+  "Cost-Aware Model Selection Service": [
+   "genai/01-tokens-and-language-modeling/12-token-cost-economics",
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing",
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization"
+  ]
+ },
+ "items": {
+  "SD-A-001": [
+   "system-design/01-core-fundamentals/01-what-is-system-design"
+  ],
+  "SD-A-002": [
+   "system-design/01-core-fundamentals/02-client-server-and-multi-tier-architecture",
+   "system-design/02-networking-from-zero/01-what-is-a-network"
+  ],
+  "SD-A-003": [
+   "system-design/01-core-fundamentals/03-functional-requirements",
+   "system-design/01-core-fundamentals/04-non-functional-requirements"
+  ],
+  "SD-A-004": [
+   "system-design/01-core-fundamentals/04-non-functional-requirements",
+   "system-design/01-core-fundamentals/03-functional-requirements"
+  ],
+  "SD-A-005": [
+   "system-design/01-core-fundamentals/05-trade-offs-and-how-to-justify-a-design"
+  ],
+  "SD-A-006": [
+   "system-design/01-core-fundamentals/06-vertical-scaling"
+  ],
+  "SD-A-007": [
+   "system-design/01-core-fundamentals/07-horizontal-scaling",
+   "backend/04-databases-and-data-layer/08-replication-and-sharding",
+   "system-design/01-core-fundamentals/06-vertical-scaling"
+  ],
+  "SD-A-008": [
+   "system-design/01-core-fundamentals/08-latency"
+  ],
+  "SD-A-009": [
+   "system-design/01-core-fundamentals/09-throughput-and-littles-law"
+  ],
+  "SD-A-010": [
+   "system-design/01-core-fundamentals/10-availability",
+   "system-design/01-core-fundamentals/11-reliability-availability-and-durability"
+  ],
+  "SD-A-011": [
+   "system-design/01-core-fundamentals/11-reliability-availability-and-durability",
+   "system-design/01-core-fundamentals/10-availability"
+  ],
+  "SD-A-012": [
+   "system-design/01-core-fundamentals/12-scalability"
+  ],
+  "SD-A-013": [
+   "system-design/01-core-fundamentals/13-cap-theorem",
+   "backend/04-databases-and-data-layer/01-acid-and-cap-theorem"
+  ],
+  "SD-A-014": [
+   "system-design/01-core-fundamentals/14-pacelc-theorem"
+  ],
+  "SD-A-015": [
+   "system-design/01-core-fundamentals/15-consistency-models",
+   "system-design/01-core-fundamentals/13-cap-theorem"
+  ],
+  "SD-A-016": [
+   "system-design/01-core-fundamentals/16-fault-tolerance"
+  ],
+  "SD-A-017": [
+   "system-design/01-core-fundamentals/17-single-point-of-failure"
+  ],
+  "SD-A-019": [
+   "system-design/01-core-fundamentals/19-stateless-vs-stateful"
+  ],
+  "SD-B-001": [
+   "system-design/02-networking-from-zero/06-osi-model",
+   "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip"
+  ],
+  "SD-B-002": [
+   "learn/04-networking-fundamentals",
+   "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip",
+   "system-design/02-networking-from-zero/05-protocols-and-layers"
+  ],
+  "SD-B-003": [
+   "system-design/02-networking-from-zero/08-tcp-sequence-numbers-and-acks",
+   "system-design/02-networking-from-zero/09-tcp-three-way-handshake",
+   "system-design/02-networking-from-zero/10-tcp-flow-and-congestion-control"
+  ],
+  "SD-B-004": [
+   "system-design/02-networking-from-zero/09-tcp-three-way-handshake",
+   "system-design/02-networking-from-zero/11-tcp-closing-time-wait-and-ports"
+  ],
+  "SD-B-005": [
+   "system-design/02-networking-from-zero/12-udp-vs-tcp",
+   "learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets"
+  ],
+  "SD-B-006": [
+   "system-design/02-networking-from-zero/13-subnets-and-cidr",
+   "learn/04-networking-fundamentals/01-ip-addressing-and-subnetting",
+   "system-design/02-networking-from-zero/03-ip-addresses"
+  ],
+  "SD-B-007": [
+   "system-design/02-networking-from-zero/04-ports-and-sockets",
+   "system-design/02-networking-from-zero/11-tcp-closing-time-wait-and-ports",
+   "learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets"
+  ],
+  "SD-B-008": [
+   "system-design/02-networking-from-zero/07-what-happens-when-you-type-a-url",
+   "learn/04-networking-fundamentals/02-dns-fundamentals"
+  ],
+  "SD-B-009": [
+   "system-design/02-networking-from-zero/17-dns-traffic-management"
+  ],
+  "SD-B-010": [
+   "backend/01-request-response-fundamentals",
+   "backend/01-request-response-fundamentals/01-http-protocol-basics",
+   "learn/04-networking-fundamentals"
+  ],
+  "SD-B-011": [
+   "backend/01-request-response-fundamentals/09-tls-ssl-and-https",
+   "system-design/02-networking-from-zero/21-tls-1-3-handshake",
+   "system-design/02-networking-from-zero/07-what-happens-when-you-type-a-url"
+  ],
+  "SD-B-012": [
+   "system-design/02-networking-from-zero/22-certificates-and-pki"
+  ],
+  "SD-B-013": [
+   "system-design/02-networking-from-zero/23-http-1-1-vs-http-2-vs-http-3",
+   "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3",
+   "backend/01-request-response-fundamentals/01-http-protocol-basics"
+  ],
+  "SD-B-014": [
+   "system-design/02-networking-from-zero/24-websockets",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "SD-B-015": [
+   "system-design/02-networking-from-zero/25-sse-vs-long-polling-vs-websockets",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events",
+   "backend/11-advanced-api-paradigms/08-webhooks-vs-polling-vs-websockets-tradeoffs"
+  ],
+  "SD-B-016": [
+   "system-design/02-networking-from-zero/26-http-streaming-and-backpressure",
+   "system-design/02-networking-from-zero/18-http-requests-responses-and-methods"
+  ],
+  "SD-B-017": [
+   "system-design/02-networking-from-zero/27-forward-and-reverse-proxies"
+  ],
+  "SD-B-019": [
+   "system-design/02-networking-from-zero/29-connection-pooling-and-keep-alive"
+  ],
+  "SD-B-020": [
+   "system-design/02-networking-from-zero/30-timeouts-and-502s"
+  ],
+  "SD-C-001": [
+   "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices"
+  ],
+  "SD-C-002": [
+   "backend/11-advanced-api-paradigms/03-graphql-fundamentals",
+   "backend/11-advanced-api-paradigms/00-beyond-rest-when-and-why",
+   "backend/11-advanced-api-paradigms/07-graphql-security-caching-and-observability"
+  ],
+  "SD-C-003": [
+   "backend/11-advanced-api-paradigms/01-grpc-fundamentals"
+  ],
+  "SD-C-004": [
+   "backend/11-advanced-api-paradigms/03-graphql-fundamentals",
+   "backend/11-advanced-api-paradigms/00-beyond-rest-when-and-why",
+   "backend/11-advanced-api-paradigms"
+  ],
+  "SD-C-005": [
+   "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices"
+  ],
+  "SD-C-006": [
+   "learn/19-api-management/02-api-versioning-and-revisions",
+   "backend/01-request-response-fundamentals/11-api-versioning-and-serialization"
+  ],
+  "SD-C-007": [
+   "backend/07-search-with-elasticsearch/05-pagination-and-performance-optimization",
+   "backend/11-advanced-api-paradigms/04-graphql-advanced-patterns",
+   "backend/02-api-layer-and-request-handling/07-crud-deep-dive"
+  ],
+  "SD-C-009": [
+   "backend/10-distributed-systems-patterns/01-idempotency-in-practice",
+   "backend/01-request-response-fundamentals/03-http-methods-and-semantics",
+   "backend/06-background-processing-and-realtime/12-payment-processing-in-practice"
+  ],
+  "SD-C-010": [
+   "backend/02-api-layer-and-request-handling/00-validation-fundamentals"
+  ],
+  "SD-C-011": [
+   "backend/01-request-response-fundamentals/05-http-responses-and-status-codes"
+  ],
+  "SD-C-012": [
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention",
+   "backend/14-system-design-interview-practice/03-designing-a-rate-limiter"
+  ],
+  "SD-C-013": [
+   "backend/14-system-design-interview-practice/03-designing-a-rate-limiter"
+  ],
+  "SD-C-014": [
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention",
+   "learn/19-api-management/03-policies-in-depth"
+  ],
+  "SD-C-016": [
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "SD-C-017": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff",
+   "learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits"
+  ],
+  "SD-C-018": [
+   "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues"
+  ],
+  "SD-C-019": [
+   "system-design/02-networking-from-zero/30-timeouts-and-502s"
+  ],
+  "SD-C-020": [
+   "backend/06-background-processing-and-realtime/06-webhooks-security-and-reliability",
+   "backend/06-background-processing-and-realtime/12-payment-processing-in-practice",
+   "backend/06-background-processing-and-realtime/05-webhooks-fundamentals"
+  ],
+  "SD-C-022": [
+   "backend/02-api-layer-and-request-handling/09-openapi-standards",
+   "backend/12-testing-and-code-quality/05-e2e-and-contract-testing"
+  ],
+  "SD-C-023": [
+   "backend/17-kafka-and-streaming/03-schemas-and-evolution-with-schema-registry"
+  ],
+  "SD-E-002": [
+   "backend/04-databases-and-data-layer/03-schema-design-and-indexing"
+  ],
+  "SD-E-004": [
+   "backend/04-databases-and-data-layer/03-schema-design-and-indexing"
+  ],
+  "SD-E-005": [
+   "backend/04-databases-and-data-layer/03-schema-design-and-indexing"
+  ],
+  "SD-E-007": [
+   "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling"
+  ],
+  "SD-E-009": [
+   "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control"
+  ],
+  "SD-E-010": [
+   "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control"
+  ],
+  "SD-E-011": [
+   "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control",
+   "lld/10-concurrency-safe-design"
+  ],
+  "SD-E-015": [
+   "backend/04-databases-and-data-layer/00-relational-vs-non-relational"
+  ],
+  "SD-E-020": [
+   "backend/04-databases-and-data-layer/08-replication-and-sharding"
+  ],
+  "SD-E-022": [
+   "backend/04-databases-and-data-layer/08-replication-and-sharding"
+  ],
+  "SD-E-026": [
+   "backend/04-databases-and-data-layer/08-replication-and-sharding"
+  ],
+  "SD-E-028": [
+   "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines",
+   "learn/14-databases-and-stateful-workloads/07-data-migration-and-connection-resilience"
+  ],
+  "SD-E-029": [
+   "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling",
+   "system-design/02-networking-from-zero/29-connection-pooling-and-keep-alive"
+  ],
+  "SD-E-030": [
+   "backend/04-databases-and-data-layer/09-olap-and-data-warehousing"
+  ],
+  "SD-E-031": [
+   "backend/04-databases-and-data-layer/09-olap-and-data-warehousing"
+  ],
+  "SD-E-033": [
+   "backend/04-databases-and-data-layer/00-relational-vs-non-relational"
+  ],
+  "SD-D-006": [
+   "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math"
+  ],
+  "SD-D-011": [
+   "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math"
+  ],
+  "SD-D-013": [
+   "learn/23-performance-and-load-testing/05-identifying-bottlenecks",
+   "backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them"
+  ],
+  "SD-G-001": [
+   "learn/04-networking-fundamentals/06-load-balancing-concepts"
+  ],
+  "SD-G-002": [
+   "learn/04-networking-fundamentals/06-load-balancing-concepts",
+   "system-design/02-networking-from-zero/06-osi-model"
+  ],
+  "SD-G-003": [
+   "learn/04-networking-fundamentals/06-load-balancing-concepts"
+  ],
+  "SD-G-005": [
+   "backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store"
+  ],
+  "SD-G-007": [
+   "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals",
+   "learn/04-networking-fundamentals/06-load-balancing-concepts"
+  ],
+  "SD-G-008": [
+   "learn/13-service-mesh/02-traffic-management-basics",
+   "learn/02-docker/05-docker-networking"
+  ],
+  "SD-G-009": [
+   "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing"
+  ],
+  "SD-G-013": [
+   "learn/13-service-mesh/03-canary-and-blue-green-traffic-splitting",
+   "learn/06-azure-container-apps/05-revisions-traffic-splitting-and-dapr"
+  ],
+  "SD-G-014": [
+   "genai/14-inference-and-serving-vllm/14-autoscaling-and-multi-replica-serving",
+   "system-design/01-core-fundamentals/07-horizontal-scaling"
+  ],
+  "SD-F-001": [
+   "backend/05-caching-and-performance/00-caching-fundamentals",
+   "backend/05-caching-and-performance/01-caching-strategies",
+   "backend/01-request-response-fundamentals/06-http-caching"
+  ],
+  "SD-F-003": [
+   "backend/05-caching-and-performance/01-caching-strategies"
+  ],
+  "SD-F-004": [
+   "backend/05-caching-and-performance/01-caching-strategies"
+  ],
+  "SD-F-006": [
+   "backend/05-caching-and-performance/02-cache-eviction-and-invalidation"
+  ],
+  "SD-F-008": [
+   "backend/05-caching-and-performance/02-cache-eviction-and-invalidation"
+  ],
+  "SD-F-010": [
+   "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases"
+  ],
+  "SD-F-013": [
+   "backend/05-caching-and-performance/03-multi-level-caching"
+  ],
+  "SD-F-017": [
+   "backend/01-request-response-fundamentals/06-http-caching",
+   "backend/01-request-response-fundamentals/12-cdn-and-edge-caching"
+  ],
+  "SD-F-018": [
+   "backend/05-caching-and-performance/03-multi-level-caching"
+  ],
+  "SD-F-019": [
+   "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases"
+  ],
+  "SD-J-001": [
+   "system-design/01-core-fundamentals/07-horizontal-scaling"
+  ],
+  "SD-J-002": [
+   "backend/08-observability-and-operational-readiness/10-the-12-factor-app",
+   "system-design/01-core-fundamentals/19-stateless-vs-stateful"
+  ],
+  "SD-J-003": [
+   "learn/23-performance-and-load-testing/05-identifying-bottlenecks"
+  ],
+  "SD-J-004": [
+   "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing"
+  ],
+  "SD-J-005": [
+   "backend/05-caching-and-performance/07-concurrency-and-parallelism"
+  ],
+  "SD-J-006": [
+   "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing"
+  ],
+  "SD-J-007": [
+   "backend/01-request-response-fundamentals/08-content-negotiation-and-compression"
+  ],
+  "SD-J-010": [
+   "learn/23-performance-and-load-testing/06-profiling-and-application-performance",
+   "backend/05-caching-and-performance/08-profiling-and-performance-testing"
+  ],
+  "SD-J-012": [
+   "system-design/01-core-fundamentals/09-throughput-and-littles-law"
+  ],
+  "SD-J-013": [
+   "backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them"
+  ],
+  "SD-J-015": [
+   "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing",
+   "system-design/02-networking-from-zero/26-http-streaming-and-backpressure"
+  ],
+  "SD-H-001": [
+   "backend/10-distributed-systems-patterns"
+  ],
+  "SD-H-003": [
+   "system-design/01-core-fundamentals/13-cap-theorem",
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination"
+  ],
+  "SD-H-008": [
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination"
+  ],
+  "SD-H-009": [
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination"
+  ],
+  "SD-H-011": [
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination"
+  ],
+  "SD-H-012": [
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination",
+   "system-design/01-core-fundamentals/13-cap-theorem"
+  ],
+  "SD-H-013": [
+   "backend/10-distributed-systems-patterns/02-distributed-locking",
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination"
+  ],
+  "SD-H-015": [
+   "backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit"
+  ],
+  "SD-H-016": [
+   "backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit"
+  ],
+  "SD-H-017": [
+   "backend/10-distributed-systems-patterns/04-the-saga-pattern",
+   "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration"
+  ],
+  "SD-H-020": [
+   "backend/06-background-processing-and-realtime/12-payment-processing-in-practice"
+  ],
+  "SD-I-001": [
+   "learn/15-messaging-and-event-driven-architecture"
+  ],
+  "SD-I-002": [
+   "learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams"
+  ],
+  "SD-I-004": [
+   "backend/06-background-processing-and-realtime/10-message-brokers-kafka"
+  ],
+  "SD-I-005": [
+   "backend/17-kafka-and-streaming/01-consumer-groups-and-rebalancing-in-depth"
+  ],
+  "SD-I-006": [
+   "backend/17-kafka-and-streaming/00-producer-internals-acks-idempotence-and-partitioning"
+  ],
+  "SD-I-007": [
+   "backend/17-kafka-and-streaming/00-producer-internals-acks-idempotence-and-partitioning"
+  ],
+  "SD-I-008": [
+   "backend/17-kafka-and-streaming/02-delivery-semantics-and-exactly-once",
+   "learn/15-messaging-and-event-driven-architecture/00-event-driven-architecture-concepts"
+  ],
+  "SD-I-009": [
+   "backend/06-background-processing-and-realtime/09-message-brokers-rabbitmq",
+   "learn/15-messaging-and-event-driven-architecture/02-azure-service-bus-in-depth"
+  ],
+  "SD-I-013": [
+   "backend/10-distributed-systems-patterns/06-event-sourcing"
+  ],
+  "SD-I-014": [
+   "backend/10-distributed-systems-patterns/05-cqrs"
+  ],
+  "SD-I-015": [
+   "backend/06-background-processing-and-realtime/05-webhooks-fundamentals",
+   "learn/15-messaging-and-event-driven-architecture/05-reliability-patterns"
+  ],
+  "SD-I-017": [
+   "backend/17-kafka-and-streaming/03-schemas-and-evolution-with-schema-registry",
+   "learn/15-messaging-and-event-driven-architecture/06-event-schemas-and-versioning"
+  ],
+  "SD-I-020": [
+   "backend/06-background-processing-and-realtime/08-pub-sub-architecture"
+  ],
+  "SD-K-002": [
+   "learn/20-sre-practices/01-slis-and-slos"
+  ],
+  "SD-K-003": [
+   "learn/20-sre-practices/02-error-budgets",
+   "learn/20-sre-practices/00-sre-concepts-and-the-reliability-mindset"
+  ],
+  "SD-K-004": [
+   "learn/22-disaster-recovery-and-chaos-engineering/07-resilience-patterns-review-and-gap-analysis"
+  ],
+  "SD-K-005": [
+   "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues"
+  ],
+  "SD-K-006": [
+   "learn/22-disaster-recovery-and-chaos-engineering/07-resilience-patterns-review-and-gap-analysis",
+   "learn/13-service-mesh/07-resilience-patterns",
+   "learn/19-api-management/05-backend-integration-patterns"
+  ],
+  "SD-K-007": [
+   "system-design/01-core-fundamentals/16-fault-tolerance"
+  ],
+  "SD-K-008": [
+   "system-design/01-core-fundamentals/10-availability"
+  ],
+  "SD-K-010": [
+   "system-design/01-core-fundamentals/10-availability",
+   "system-design/01-core-fundamentals/17-single-point-of-failure"
+  ],
+  "SD-K-012": [
+   "learn/22-disaster-recovery-and-chaos-engineering"
+  ],
+  "SD-K-013": [
+   "learn/22-disaster-recovery-and-chaos-engineering/00-dr-concepts-rto-rpo-and-strategy-spectrum"
+  ],
+  "SD-K-014": [
+   "learn/14-databases-and-stateful-workloads/04-backup-and-restore-strategies",
+   "learn/22-disaster-recovery-and-chaos-engineering/03-platform-level-backup-strategy"
+  ],
+  "SD-K-015": [
+   "learn/22-disaster-recovery-and-chaos-engineering/01-multi-region-architecture-on-azure"
+  ],
+  "SD-K-016": [
+   "system-design/01-core-fundamentals/16-fault-tolerance"
+  ],
+  "SD-K-017": [
+   "learn/22-disaster-recovery-and-chaos-engineering",
+   "learn/22-disaster-recovery-and-chaos-engineering/04-chaos-engineering-concepts",
+   "learn/22-disaster-recovery-and-chaos-engineering/05-chaos-engineering-with-azure-chaos-studio"
+  ],
+  "SD-L-007": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff"
+  ],
+  "SD-L-008": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff"
+  ],
+  "SD-L-009": [
+   "learn/13-service-mesh",
+   "learn/13-service-mesh/00-service-mesh-concepts"
+  ],
+  "SD-L-015": [
+   "backend/13-devops-for-backend-engineers/07-choosing-your-deployment-target",
+   "learn/02-docker/10-deploy-to-azure-container-instances"
+  ],
+  "SD-L-016": [
+   "backend/10-distributed-systems-patterns/04-the-saga-pattern",
+   "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration"
+  ],
+  "SD-L-017": [
+   "backend/10-distributed-systems-patterns/05-cqrs",
+   "backend/10-distributed-systems-patterns/06-event-sourcing"
+  ],
+  "SD-M-001": [
+   "backend/03-authentication-and-authorization",
+   "backend/03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless",
+   "learn/19-api-management/04-authentication-and-authorization-at-the-gateway"
+  ],
+  "SD-M-003": [
+   "backend/03-authentication-and-authorization/02-jwt-deep-dive"
+  ],
+  "SD-M-004": [
+   "backend/03-authentication-and-authorization/03-oauth2-and-oidc"
+  ],
+  "SD-M-006": [
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "SD-M-007": [
+   "backend/03-authentication-and-authorization/04-api-keys-and-service-to-service-auth",
+   "learn/16-identity-deep-dive/01-service-principals-in-depth"
+  ],
+  "SD-M-010": [
+   "backend/09-security-deep-dive/05-secrets-management",
+   "learn/11-security-deep-dive/02-secrets-management-in-depth",
+   "backend/08-observability-and-operational-readiness/02-config-management-fundamentals"
+  ],
+  "SD-M-012": [
+   "backend/09-security-deep-dive/00-owasp-top-10-overview"
+  ],
+  "SD-M-013": [
+   "backend/09-security-deep-dive/00-owasp-top-10-overview",
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "SD-M-014": [
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention"
+  ],
+  "SD-M-016": [
+   "learn/11-security-deep-dive/00-security-mental-model-and-threat-modeling"
+  ],
+  "SD-M-019": [
+   "learn/24-platform-engineering/06-multi-tenancy-and-platform-security",
+   "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer"
+  ],
+  "SD-M-020": [
+   "learn/18-supply-chain-security",
+   "learn/18-supply-chain-security/00-supply-chain-attacks-and-the-slsa-framework",
+   "learn/18-supply-chain-security/07-incident-response-for-supply-chain-compromise"
+  ],
+  "SD-N-001": [
+   "backend/08-observability-and-operational-readiness/04-logging-fundamentals"
+  ],
+  "SD-N-002": [
+   "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki",
+   "backend/08-observability-and-operational-readiness/04-logging-fundamentals"
+  ],
+  "SD-N-003": [
+   "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics",
+   "learn/03-kubernetes/10-observability-logging-and-metrics"
+  ],
+  "SD-N-004": [
+   "learn/12-observability-deep-dive/07-correlating-the-three-pillars"
+  ],
+  "SD-N-005": [
+   "learn/12-observability-deep-dive/05-distributed-tracing-and-opentelemetry",
+   "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability",
+   "backend/16-grpc-deep-dive/03-observability-and-testing"
+  ],
+  "SD-N-006": [
+   "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability"
+  ],
+  "SD-N-007": [
+   "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices"
+  ],
+  "SD-N-008": [
+   "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki"
+  ],
+  "SD-N-009": [
+   "learn/20-sre-practices/03-slo-dashboards-and-burn-rate-alerts",
+   "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting"
+  ],
+  "SD-N-010": [
+   "backend/16-grpc-deep-dive/02-production-serving-health-lb-and-keepalive",
+   "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals"
+  ],
+  "SD-N-011": [
+   "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting"
+  ],
+  "SD-N-012": [
+   "learn/12-observability-deep-dive/06-alerting-and-on-call-basics"
+  ],
+  "SD-N-013": [
+   "learn/20-sre-practices/07-capacity-planning-and-toil-reduction"
+  ],
+  "SD-N-014": [
+   "learn/07-aks/08-cicd-github-actions-to-aks",
+   "backend/13-devops-for-backend-engineers/02-ci-pipelines-for-backend-code"
+  ],
+  "SD-N-015": [
+   "backend/13-devops-for-backend-engineers/03-deployment-strategies"
+  ],
+  "SD-N-016": [
+   "backend/13-devops-for-backend-engineers/03-deployment-strategies",
+   "learn/13-service-mesh/03-canary-and-blue-green-traffic-splitting",
+   "learn/10-cicd-and-gitops/04-continuous-deployment-strategies"
+  ],
+  "SD-N-017": [
+   "learn/10-cicd-and-gitops/06-progressive-delivery-canary-and-blue-green",
+   "backend/13-devops-for-backend-engineers/03-deployment-strategies"
+  ],
+  "SD-N-018": [
+   "backend/13-devops-for-backend-engineers/05-service-configuration-and-environments"
+  ],
+  "SD-O-002": [
+   "learn/01-linux/12-disk-storage-and-mounts"
+  ],
+  "SD-O-003": [
+   "learn/21-cost-management-and-finops/04-storage-and-data-cost-optimization"
+  ],
+  "SD-O-010": [
+   "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system"
+  ],
+  "SD-P-001": [
+   "backend/07-search-with-elasticsearch/02-basic-and-full-text-search"
+  ],
+  "SD-P-002": [
+   "backend/07-search-with-elasticsearch/00-elasticsearch-fundamentals"
+  ],
+  "SD-P-007": [
+   "backend/07-search-with-elasticsearch/00-elasticsearch-fundamentals"
+  ],
+  "SD-P-010": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries",
+   "genai/08-embeddings-and-vector-databases/12-pinecone-weaviate-and-qdrant"
+  ],
+  "SD-P-011": [
+   "genai/09-retrieval-augmented-generation/07-hybrid-search",
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries"
+  ],
+  "SD-Q-001": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "SD-Q-003": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/11-mobile-push-notifications"
+  ],
+  "SD-Q-005": [
+   "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline",
+   "system-design/01-core-fundamentals/12-scalability"
+  ],
+  "SD-Q-006": [
+   "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing"
+  ],
+  "SD-Q-007": [
+   "backend/17-kafka-and-streaming/05-stream-processing-windows-joins-and-state"
+  ],
+  "SD-Q-011": [
+   "lld/17-ride-sharing"
+  ],
+  "SD-R-001": [
+   "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer",
+   "learn/24-platform-engineering/06-multi-tenancy-and-platform-security"
+  ],
+  "SD-R-005": [
+   "backend/15-multi-tenancy-and-saas-architecture/04-billing-plans-and-usage-metering"
+  ],
+  "SD-V-005": [
+   "learn/02-docker/06-docker-compose"
+  ],
+  "SD-V-008": [
+   "learn/03-kubernetes",
+   "learn/07-aks",
+   "learn/07-aks/05-scaling-aks-cluster-autoscaler-and-hpa"
+  ],
+  "SD-V-009": [
+   "learn/14-databases-and-stateful-workloads/00-why-stateful-is-hard",
+   "learn/14-databases-and-stateful-workloads"
+  ],
+  "SD-V-010": [
+   "learn/06-azure-container-apps/04-networking-ingress-and-vnet-integration",
+   "learn/07-aks/04-aks-networking-loadbalancer-and-ingress",
+   "learn/06-azure-container-apps/02-deploying-your-first-container-app"
+  ],
+  "SD-V-012": [
+   "learn/10-cicd-and-gitops/05-gitops-and-argocd",
+   "learn/10-cicd-and-gitops",
+   "learn/10-cicd-and-gitops/00-cicd-concepts-and-pipeline-anatomy"
+  ],
+  "SD-V-019": [
+   "backend/11-advanced-api-paradigms/11-edge-computing-and-webassembly"
+  ],
+  "SD-V-020": [
+   "learn/24-platform-engineering",
+   "learn/24-platform-engineering/05-platform-observability-and-slos",
+   "learn/24-platform-engineering/00-platform-engineering-concepts"
+  ],
+  "SD-V-021": [
+   "backend/06-background-processing-and-realtime/13-batch-etl-pipeline-orchestration"
+  ],
+  "SD-V-022": [
+   "backend/06-background-processing-and-realtime/03-scheduling-recurring-jobs"
+  ],
+  "SD-S-002": [
+   "genai/00-genai-foundations/12-what-ai-engineer-actually-means",
+   "genai/00-genai-foundations/00-what-is-generative-ai"
+  ],
+  "SD-S-005": [
+   "genai/09-retrieval-augmented-generation",
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end",
+   "genai/09-retrieval-augmented-generation/00-why-rag-exists"
+  ],
+  "SD-S-006": [
+   "genai/08-embeddings-and-vector-databases/05-generating-embeddings-at-scale"
+  ],
+  "SD-S-007": [
+   "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies"
+  ],
+  "SD-S-008": [
+   "genai/08-embeddings-and-vector-databases/05-generating-embeddings-at-scale",
+   "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is"
+  ],
+  "SD-S-009": [
+   "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape",
+   "genai/08-embeddings-and-vector-databases"
+  ],
+  "SD-S-010": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries",
+   "genai/08-embeddings-and-vector-databases/08-chunk-overlap-and-metadata"
+  ],
+  "SD-S-011": [
+   "genai/09-retrieval-augmented-generation/07-hybrid-search",
+   "genai/09-retrieval-augmented-generation/09-reranking-with-cross-encoders"
+  ],
+  "SD-S-012": [
+   "genai/03-landmark-models-bert-gpt-and-moe/05-sentence-transformers-and-bi-encoders",
+   "genai/09-retrieval-augmented-generation/08-query-rewriting-and-expansion"
+  ],
+  "SD-S-013": [
+   "genai/09-retrieval-augmented-generation/12-evaluating-retrieval-quality",
+   "genai/09-retrieval-augmented-generation/13-evaluating-generation-quality"
+  ],
+  "SD-S-015": [
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step"
+  ],
+  "SD-S-016": [
+   "genai/01-tokens-and-language-modeling/12-token-cost-economics"
+  ],
+  "SD-S-017": [
+   "genai/06-openai-and-the-model-landscape/16-pricing-rate-limits-and-quotas"
+  ],
+  "SD-S-018": [
+   "genai/06-openai-and-the-model-landscape/03-streaming-responses"
+  ],
+  "SD-S-022": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing",
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "SD-S-023": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing"
+  ],
+  "SD-S-024": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing",
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "SD-S-025": [
+   "genai/14-inference-and-serving-vllm/14-autoscaling-and-multi-replica-serving"
+  ],
+  "SD-S-026": [
+   "genai/14-inference-and-serving-vllm/06-continuous-batching",
+   "genai/14-inference-and-serving-vllm/09-vllm-configuration-and-tuning"
+  ],
+  "SD-S-027": [
+   "genai/14-inference-and-serving-vllm/10-speculative-decoding",
+   "genai/14-inference-and-serving-vllm/03-the-kv-cache"
+  ],
+  "SD-S-028": [
+   "genai/10-ai-agents/01-agents-vs-chatbots-vs-workflows",
+   "genai/10-ai-agents/14-an-agent-design-pattern-catalog"
+  ],
+  "SD-S-029": [
+   "genai/06-openai-and-the-model-landscape/06-function-calling-basics"
+  ],
+  "SD-S-030": [
+   "genai/10-ai-agents/10-memory-short-term-and-scratchpad",
+   "genai/10-ai-agents/11-memory-long-term-and-vector-backed",
+   "genai/11-langchain-and-langgraph/07-memory-in-langchain"
+  ],
+  "SD-S-031": [
+   "genai/12-agent-orchestration-and-multi-agent-systems",
+   "genai/12-agent-orchestration-and-multi-agent-systems/14-choosing-an-orchestration-approach",
+   "genai/12-agent-orchestration-and-multi-agent-systems/00-when-one-agent-isnt-enough"
+  ],
+  "SD-S-032": [
+   "genai/11-langchain-and-langgraph/16-human-in-the-loop-with-langgraph",
+   "genai/10-ai-agents/13-human-in-the-loop-patterns"
+  ],
+  "SD-S-033": [
+   "genai/15-evaluation-observability-and-safety/10-guardrails-input-filtering",
+   "genai/15-evaluation-observability-and-safety/11-guardrails-output-validation"
+  ],
+  "SD-S-034": [
+   "genai/07-prompt-engineering/12-prompt-injection-attacks",
+   "genai/15-evaluation-observability-and-safety/12-pii-and-data-leakage"
+  ],
+  "SD-S-038": [
+   "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag"
+  ],
+  "SD-S-039": [
+   "genai/15-evaluation-observability-and-safety/12-pii-and-data-leakage"
+  ],
+  "SD-T-002": [
+   "system-design/01-core-fundamentals/03-functional-requirements"
+  ],
+  "SD-T-003": [
+   "system-design/01-core-fundamentals/03-functional-requirements",
+   "system-design/01-core-fundamentals/04-non-functional-requirements"
+  ],
+  "SD-T-006": [
+   "backend/14-system-design-interview-practice/01-the-system-design-interview-framework"
+  ],
+  "SD-W-004": [
+   "learn/15-messaging-and-event-driven-architecture/05-reliability-patterns"
+  ],
+  "GAI-GF-002": [
+   "backend/02-api-layer-and-request-handling/05-request-context"
+  ],
+  "GAI-GF-004": [
+   "backend/10-distributed-systems-patterns/01-idempotency-in-practice"
+  ],
+  "GAI-GF-006": [
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events",
+   "genai/06-openai-and-the-model-landscape/03-streaming-responses",
+   "system-design/02-networking-from-zero/26-http-streaming-and-backpressure"
+  ],
+  "GAI-LF-001": [
+   "genai/02-transformer-architecture"
+  ],
+  "GAI-LF-002": [
+   "genai/00-genai-foundations/06-the-transformer-moment",
+   "genai/02-transformer-architecture/05-self-attention-step-by-step-by-hand"
+  ],
+  "GAI-LF-003": [
+   "genai/01-tokens-and-language-modeling",
+   "genai/01-tokens-and-language-modeling/14-multilingual-tokenization"
+  ],
+  "GAI-LF-005": [
+   "genai/08-embeddings-and-vector-databases/01-from-word2vec-to-sentence-embeddings"
+  ],
+  "GAI-LF-006": [
+   "genai/04-training-fine-tuning-and-alignment/06-instruction-tuning",
+   "genai/04-training-fine-tuning-and-alignment/08-rlhf-reward-models"
+  ],
+  "GAI-LF-007": [
+   "genai/07-prompt-engineering",
+   "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag"
+  ],
+  "GAI-LF-008": [
+   "genai/04-training-fine-tuning-and-alignment/12-lora-low-rank-adaptation",
+   "genai/04-training-fine-tuning-and-alignment/14-running-a-real-fine-tune",
+   "genai/04-training-fine-tuning-and-alignment/13-qlora-and-quantized-fine-tuning"
+  ],
+  "GAI-LF-010": [
+   "genai/07-prompt-engineering/08-structured-output-prompting"
+  ],
+  "GAI-LF-011": [
+   "genai/17-agent-harness-engineering/01-tools-and-the-agent-computer-interface"
+  ],
+  "GAI-LF-013": [
+   "genai/06-openai-and-the-model-landscape/09-vision-and-audio-inputs"
+  ],
+  "GAI-LF-015": [
+   "genai/15-evaluation-observability-and-safety/05-benchmark-suites-and-their-limits"
+  ],
+  "GAI-LF-016": [
+   "genai/06-openai-and-the-model-landscape/12-open-weight-models-llama-mistral-qwen"
+  ],
+  "GAI-RI-003": [
+   "genai/09-retrieval-augmented-generation/04-pdfs-tables-and-complex-documents",
+   "genai/16-speech-and-multimodal-models/13-vision-use-cases-ocr-documents-ui"
+  ],
+  "GAI-RI-004": [
+   "genai/09-retrieval-augmented-generation/03-document-loaders-and-parsing"
+  ],
+  "GAI-RI-005": [
+   "genai/08-embeddings-and-vector-databases/06-chunking-fixed-size-strategies"
+  ],
+  "GAI-RI-007": [
+   "genai/08-embeddings-and-vector-databases/07-chunking-semantic-and-structural"
+  ],
+  "GAI-RI-008": [
+   "genai/08-embeddings-and-vector-databases/07-chunking-semantic-and-structural"
+  ],
+  "GAI-RI-012": [
+   "genai/09-retrieval-augmented-generation/02-the-ingestion-pipeline"
+  ],
+  "GAI-RE-001": [
+   "genai/08-embeddings-and-vector-databases/02-embedding-models-compared"
+  ],
+  "GAI-RE-002": [
+   "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics",
+   "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is"
+  ],
+  "GAI-RE-003": [
+   "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics"
+  ],
+  "GAI-RE-004": [
+   "genai/09-retrieval-augmented-generation/02-the-ingestion-pipeline"
+  ],
+  "GAI-RE-007": [
+   "genai/08-embeddings-and-vector-databases/15-ivf-product-quantization-and-other-indexes"
+  ],
+  "GAI-RE-008": [
+   "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape",
+   "genai/08-embeddings-and-vector-databases/12-pinecone-weaviate-and-qdrant"
+  ],
+  "GAI-RE-009": [
+   "backend/04-databases-and-data-layer/03-schema-design-and-indexing",
+   "genai/08-embeddings-and-vector-databases/08-chunk-overlap-and-metadata"
+  ],
+  "GAI-RE-010": [
+   "backend/04-databases-and-data-layer/10-multi-tenancy-patterns"
+  ],
+  "GAI-RR-001": [
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step",
+   "genai/08-embeddings-and-vector-databases/13-exact-vs-approximate-search"
+  ],
+  "GAI-RR-002": [
+   "genai/09-retrieval-augmented-generation/06-keyword-search-and-bm25"
+  ],
+  "GAI-RR-003": [
+   "genai/09-retrieval-augmented-generation/07-hybrid-search",
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries"
+  ],
+  "GAI-RR-004": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries",
+   "genai/09-retrieval-augmented-generation/07-hybrid-search"
+  ],
+  "GAI-RR-006": [
+   "genai/09-retrieval-augmented-generation/08-query-rewriting-and-expansion"
+  ],
+  "GAI-RR-007": [
+   "genai/09-retrieval-augmented-generation/08-query-rewriting-and-expansion"
+  ],
+  "GAI-RR-008": [
+   "genai/09-retrieval-augmented-generation/08-query-rewriting-and-expansion"
+  ],
+  "GAI-RR-009": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries",
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step"
+  ],
+  "GAI-RR-010": [
+   "genai/09-retrieval-augmented-generation/09-reranking-with-cross-encoders"
+  ],
+  "GAI-RR-011": [
+   "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction",
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step"
+  ],
+  "GAI-RR-013": [
+   "genai/09-retrieval-augmented-generation/09-reranking-with-cross-encoders"
+  ],
+  "GAI-RR-014": [
+   "genai/09-retrieval-augmented-generation/15-advanced-rag-graphrag-and-agentic-rag"
+  ],
+  "GAI-RG-001": [
+   "genai/09-retrieval-augmented-generation/10-context-assembly-and-prompt-construction"
+  ],
+  "GAI-RG-002": [
+   "genai/11-langchain-and-langgraph/03-prompt-templates"
+  ],
+  "GAI-RG-003": [
+   "genai/07-prompt-engineering/14-prompt-versioning-and-management"
+  ],
+  "GAI-RG-004": [
+   "genai/06-openai-and-the-model-landscape/01-chat-completions-deep-dive"
+  ],
+  "GAI-RG-006": [
+   "genai/09-retrieval-augmented-generation/11-citations-and-source-attribution"
+  ],
+  "GAI-RG-011": [
+   "genai/06-openai-and-the-model-landscape/03-streaming-responses"
+  ],
+  "GAI-RV-003": [
+   "genai/09-retrieval-augmented-generation/12-evaluating-retrieval-quality",
+   "genai/09-retrieval-augmented-generation/14-ragas-and-evaluation-frameworks"
+  ],
+  "GAI-RV-004": [
+   "genai/09-retrieval-augmented-generation/12-evaluating-retrieval-quality"
+  ],
+  "GAI-RV-005": [
+   "genai/09-retrieval-augmented-generation/14-ragas-and-evaluation-frameworks"
+  ],
+  "GAI-RV-009": [
+   "genai/15-evaluation-observability-and-safety/04-human-evaluation-and-annotation"
+  ],
+  "GAI-RV-010": [
+   "genai/15-evaluation-observability-and-safety/03-llm-as-judge"
+  ],
+  "GAI-RV-011": [
+   "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts"
+  ],
+  "GAI-RP-001": [
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step"
+  ],
+  "GAI-RP-007": [
+   "genai/15-evaluation-observability-and-safety/13-tracing-agent-execution",
+   "genai/11-langchain-and-langgraph/17-langsmith-for-tracing-and-debugging"
+  ],
+  "GAI-RP-008": [
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization",
+   "genai/01-tokens-and-language-modeling/12-token-cost-economics"
+  ],
+  "GAI-RP-010": [
+   "genai/09-retrieval-augmented-generation/16-rag-failure-modes"
+  ],
+  "GAI-IS-001": [
+   "genai/14-inference-and-serving-vllm/00-the-serving-problem",
+   "genai/06-openai-and-the-model-landscape/12-open-weight-models-llama-mistral-qwen"
+  ],
+  "GAI-IS-002": [
+   "genai/14-inference-and-serving-vllm/00-the-serving-problem",
+   "genai/14-inference-and-serving-vllm/08-vllm-getting-started"
+  ],
+  "GAI-IS-003": [
+   "genai/14-inference-and-serving-vllm/02-prefill-and-decode-phases",
+   "genai/05-gpus-and-genai-hardware/03-memory-hierarchy-and-bandwidth",
+   "genai/14-inference-and-serving-vllm/06-continuous-batching"
+  ],
+  "GAI-IS-005": [
+   "genai/14-inference-and-serving-vllm/03-the-kv-cache",
+   "genai/01-tokens-and-language-modeling/11-context-windows-explained",
+   "genai/14-inference-and-serving-vllm/04-kv-cache-memory-math"
+  ],
+  "GAI-IS-006": [
+   "genai/14-inference-and-serving-vllm/06-continuous-batching"
+  ],
+  "GAI-IS-007": [
+   "genai/05-gpus-and-genai-hardware/10-model-and-tensor-parallelism"
+  ],
+  "GAI-IS-008": [
+   "genai/14-inference-and-serving-vllm/10-speculative-decoding"
+  ],
+  "GAI-IS-010": [
+   "genai/14-inference-and-serving-vllm/14-autoscaling-and-multi-replica-serving"
+  ],
+  "GAI-IS-011": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing"
+  ],
+  "GAI-AF-001": [
+   "genai/10-ai-agents/01-agents-vs-chatbots-vs-workflows",
+   "genai/12-agent-orchestration-and-multi-agent-systems/06-sequential-and-parallel-pipelines"
+  ],
+  "GAI-AF-002": [
+   "genai/10-ai-agents/07-the-agent-loop-termination-and-limits",
+   "genai/11-langchain-and-langgraph/13-langgraph-edges-and-conditional-routing"
+  ],
+  "GAI-AF-005": [
+   "genai/06-openai-and-the-model-landscape/06-function-calling-basics",
+   "genai/10-ai-agents/06-tool-execution-and-error-handling"
+  ],
+  "GAI-AF-007": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/06-sequential-and-parallel-pipelines"
+  ],
+  "GAI-AF-008": [
+   "genai/11-langchain-and-langgraph/16-human-in-the-loop-with-langgraph"
+  ],
+  "GAI-AW-002": [
+   "genai/11-langchain-and-langgraph/00-why-frameworks-exist"
+  ],
+  "GAI-AW-004": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/12-autogen-and-semantic-kernel"
+  ],
+  "GAI-AW-007": [
+   "genai/11-langchain-and-langgraph/15-checkpointing-and-persistence"
+  ],
+  "GAI-AW-008": [
+   "genai/13-model-context-protocol-mcp/16-the-mcp-ecosystem"
+  ],
+  "GAI-AM-002": [
+   "genai/10-ai-agents/10-memory-short-term-and-scratchpad"
+  ],
+  "GAI-AM-004": [
+   "backend/15-multi-tenancy-and-saas-architecture/02-auth-and-authorization-across-tenants"
+  ],
+  "GAI-MA-002": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/03-the-supervisor-pattern"
+  ],
+  "GAI-MA-004": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/06-sequential-and-parallel-pipelines"
+  ],
+  "GAI-MA-006": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/04-hierarchical-agent-teams"
+  ],
+  "GAI-MA-007": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/04-hierarchical-agent-teams"
+  ],
+  "GAI-MA-008": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/07-inter-agent-communication"
+  ],
+  "GAI-MA-009": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/09-conflict-resolution-and-consensus"
+  ],
+  "GAI-AR-002": [
+   "genai/15-evaluation-observability-and-safety/11-guardrails-output-validation"
+  ],
+  "GAI-AR-005": [
+   "genai/10-ai-agents/06-tool-execution-and-error-handling"
+  ],
+  "GAI-AR-009": [
+   "genai/07-prompt-engineering/13-defending-against-injection"
+  ],
+  "GAI-AE-007": [
+   "genai/15-evaluation-observability-and-safety/00-why-genai-evaluation-is-hard",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates",
+   "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts"
+  ],
+  "GAI-AP-001": [
+   "genai/13-model-context-protocol-mcp"
+  ],
+  "GAI-AP-003": [
+   "backend/03-authentication-and-authorization"
+  ],
+  "GAI-LO-003": [
+   "learn/07-aks/08-cicd-github-actions-to-aks"
+  ],
+  "GAI-LO-004": [
+   "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates"
+  ],
+  "GAI-LO-006": [
+   "backend/13-devops-for-backend-engineers/03-deployment-strategies",
+   "learn/10-cicd-and-gitops/00-cicd-concepts-and-pipeline-anatomy"
+  ],
+  "GAI-LO-007": [
+   "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting"
+  ],
+  "GAI-LO-009": [
+   "genai/15-evaluation-observability-and-safety/12-pii-and-data-leakage"
+  ],
+  "GAI-LO-012": [
+   "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals"
+  ],
+  "GAI-SG-001": [
+   "genai/07-prompt-engineering/12-prompt-injection-attacks"
+  ],
+  "GAI-SG-002": [
+   "genai/07-prompt-engineering/12-prompt-injection-attacks"
+  ],
+  "GAI-SG-005": [
+   "genai/07-prompt-engineering/12-prompt-injection-attacks"
+  ],
+  "GAI-SG-009": [
+   "backend/08-observability-and-operational-readiness/02-config-management-fundamentals"
+  ],
+  "GAI-AZ-006": [
+   "learn/06-azure-container-apps",
+   "learn/02-docker/11-deploy-to-azure-app-service"
+  ],
+  "GAI-AZ-007": [
+   "learn/07-aks",
+   "learn/07-aks/07-security-aks-aad-rbac-and-keyvault"
+  ],
+  "GAI-AZ-008": [
+   "learn/19-api-management"
+  ],
+  "GAI-AZ-009": [
+   "learn/14-databases-and-stateful-workloads/05-azure-managed-database-services"
+  ],
+  "GAI-AZ-011": [
+   "learn/21-cost-management-and-finops/04-storage-and-data-cost-optimization"
+  ],
+  "GAI-AZ-012": [
+   "learn/15-messaging-and-event-driven-architecture/03-azure-event-grid"
+  ],
+  "GAI-AZ-014": [
+   "learn/11-security-deep-dive/02-secrets-management-in-depth",
+   "learn/06-azure-container-apps/06-secrets-managed-identity-and-config"
+  ],
+  "GAI-AZ-015": [
+   "learn/05-azure-networking",
+   "learn/05-azure-networking/05-vnet-peering-and-private-endpoints"
+  ]
+ },
+ "drop": {
+  "GAI-AF-005": [
+   "genai/06-openai-and-the-model-landscape/10-the-anthropic-claude-api"
+  ],
+  "GAI-AF-008": [
+   "learn/24-platform-engineering/03-self-service-infrastructure-provisioning"
+  ],
+  "GAI-AP-001": [
+   "genai/13-model-context-protocol-mcp/09-primitive-resources"
+  ],
+  "GAI-AR-002": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/13-the-openai-agents-sdk"
+  ],
+  "GAI-AW-008": [
+   "genai/06-openai-and-the-model-landscape/06-function-calling-basics"
+  ],
+  "GAI-AZ-007": [
+   "learn/07-aks/00-azure-cli-and-prerequisites"
+  ],
+  "GAI-AZ-011": [
+   "learn/14-databases-and-stateful-workloads/04-backup-and-restore-strategies"
+  ],
+  "GAI-AZ-014": [
+   "learn/07-aks/07-security-aks-aad-rbac-and-keyvault"
+  ],
+  "GAI-GF-004": [
+   "genai/08-embeddings-and-vector-databases/05-generating-embeddings-at-scale",
+   "genai/07-prompt-engineering/08-structured-output-prompting",
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization"
+  ],
+  "GAI-GF-006": [
+   "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3"
+  ],
+  "GAI-IS-001": [
+   "genai/16-speech-and-multimodal-models/03-running-whisper-in-practice"
+  ],
+  "GAI-IS-002": [
+   "genai/13-model-context-protocol-mcp/03-architecture-hosts-clients-and-servers"
+  ],
+  "GAI-IS-007": [
+   "genai/05-gpus-and-genai-hardware/12-choosing-gpus-consumer-vs-datacenter",
+   "genai/14-inference-and-serving-vllm/09-vllm-configuration-and-tuning"
+  ],
+  "GAI-IS-011": [
+   "genai/07-prompt-engineering/01-anatomy-of-a-good-prompt",
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "GAI-LF-003": [
+   "genai/03-landmark-models-bert-gpt-and-moe/02-bert-architecture-deep-dive"
+  ],
+  "GAI-LF-015": [
+   "genai/08-embeddings-and-vector-databases/02-embedding-models-compared"
+  ],
+  "GAI-LO-003": [
+   "genai/00-genai-foundations/12-what-ai-engineer-actually-means"
+  ],
+  "GAI-LO-004": [
+   "genai/14-inference-and-serving-vllm/08-vllm-getting-started",
+   "genai/11-langchain-and-langgraph/17-langsmith-for-tracing-and-debugging"
+  ],
+  "GAI-LO-006": [
+   "learn/03-kubernetes/03-deployments-and-replicasets"
+  ],
+  "GAI-LO-007": [
+   "backend/12-testing-and-code-quality/05-e2e-and-contract-testing"
+  ],
+  "GAI-LO-009": [
+   "genai/11-langchain-and-langgraph/17-langsmith-for-tracing-and-debugging"
+  ],
+  "GAI-MA-006": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/11-crewai"
+  ],
+  "GAI-RE-002": [
+   "genai/02-transformer-architecture/05-self-attention-step-by-step-by-hand"
+  ],
+  "GAI-RE-003": [
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end"
+  ],
+  "GAI-RE-008": [
+   "genai/08-embeddings-and-vector-databases/02-embedding-models-compared"
+  ],
+  "GAI-RE-010": [
+   "genai/10-ai-agents/11-memory-long-term-and-vector-backed",
+   "genai/15-evaluation-observability-and-safety/12-pii-and-data-leakage"
+  ],
+  "GAI-RE-011": [
+   "backend/07-search-with-elasticsearch/01-indexes-and-mappings"
+  ],
+  "GAI-RG-003": [
+   "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset"
+  ],
+  "GAI-RI-004": [
+   "genai/16-speech-and-multimodal-models/13-vision-use-cases-ocr-documents-ui"
+  ],
+  "GAI-RP-001": [
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end"
+  ],
+  "GAI-RP-007": [
+   "genai/15-evaluation-observability-and-safety/09-grounding-and-citation-verification"
+  ],
+  "GAI-RP-009": [
+   "genai/00-genai-foundations/11-the-modern-genai-stack"
+  ],
+  "GAI-RP-010": [
+   "genai/14-inference-and-serving-vllm/13-benchmarking-throughput-and-latency"
+  ],
+  "GAI-RR-001": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries"
+  ],
+  "GAI-RR-002": [
+   "genai/08-embeddings-and-vector-databases/16-metadata-filtering-and-hybrid-queries"
+  ],
+  "GAI-RR-008": [
+   "genai/09-retrieval-augmented-generation/15-advanced-rag-graphrag-and-agentic-rag",
+   "genai/09-retrieval-augmented-generation/00-why-rag-exists"
+  ],
+  "GAI-RR-009": [
+   "genai/11-langchain-and-langgraph/09-retrievers-and-vector-store-integration"
+  ],
+  "GAI-RR-010": [
+   "genai/03-landmark-models-bert-gpt-and-moe/05-sentence-transformers-and-bi-encoders",
+   "genai/08-embeddings-and-vector-databases/01-from-word2vec-to-sentence-embeddings"
+  ],
+  "GAI-RV-010": [
+   "genai/00-genai-foundations/10-limitations-hallucination-knowledge-cutoff-reasoning",
+   "genai/09-retrieval-augmented-generation/14-ragas-and-evaluation-frameworks"
+  ],
+  "GAI-SG-005": [
+   "genai/10-ai-agents/11-memory-long-term-and-vector-backed"
+  ],
+  "SD-A-001": [
+   "backend/14-system-design-interview-practice",
+   "backend/14-system-design-interview-practice/01-the-system-design-interview-framework"
+  ],
+  "SD-A-002": [
+   "system-design/01-core-fundamentals/17-single-point-of-failure"
+  ],
+  "SD-A-008": [
+   "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics",
+   "system-design/01-core-fundamentals/04-non-functional-requirements"
+  ],
+  "SD-A-010": [
+   "system-design/01-core-fundamentals/04-non-functional-requirements"
+  ],
+  "SD-A-011": [
+   "learn/20-sre-practices/00-sre-concepts-and-the-reliability-mindset"
+  ],
+  "SD-B-003": [
+   "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3"
+  ],
+  "SD-B-004": [
+   "system-design/02-networking-from-zero/27-forward-and-reverse-proxies",
+   "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing"
+  ],
+  "SD-B-005": [
+   "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3"
+  ],
+  "SD-B-009": [
+   "genai/07-prompt-engineering/14-prompt-versioning-and-management"
+  ],
+  "SD-B-012": [
+   "backend/16-grpc-deep-dive/06-project-build-a-grpc-microservice-system"
+  ],
+  "SD-B-013": [
+   "backend/01-request-response-fundamentals/09-tls-ssl-and-https"
+  ],
+  "SD-B-014": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system"
+  ],
+  "SD-B-017": [
+   "learn/04-networking-fundamentals/10-cdn-and-reverse-proxy",
+   "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing"
+  ],
+  "SD-B-019": [
+   "system-design/02-networking-from-zero/07-what-happens-when-you-type-a-url"
+  ],
+  "SD-B-020": [
+   "system-design/02-networking-from-zero/01-what-is-a-network"
+  ],
+  "SD-C-003": [
+   "backend/16-grpc-deep-dive/06-project-build-a-grpc-microservice-system"
+  ],
+  "SD-C-005": [
+   "genai/13-model-context-protocol-mcp/09-primitive-resources"
+  ],
+  "SD-C-010": [
+   "backend/14-system-design-interview-practice/03-designing-a-rate-limiter"
+  ],
+  "SD-C-016": [
+   "learn/19-api-management/04-authentication-and-authorization-at-the-gateway",
+   "backend/11-advanced-api-paradigms/04-graphql-advanced-patterns"
+  ],
+  "SD-C-017": [
+   "backend/14-system-design-interview-practice/03-designing-a-rate-limiter"
+  ],
+  "SD-E-022": [
+   "backend/07-search-with-elasticsearch/00-elasticsearch-fundamentals"
+  ],
+  "SD-E-033": [
+   "genai/08-embeddings-and-vector-databases/14-hnsw-explained"
+  ],
+  "SD-F-010": [
+   "backend/01-request-response-fundamentals/06-http-caching"
+  ],
+  "SD-F-013": [
+   "backend/06-background-processing-and-realtime/00-task-queues-fundamentals",
+   "system-design/01-core-fundamentals/17-single-point-of-failure"
+  ],
+  "SD-F-014": [
+   "system-design/01-core-fundamentals/17-single-point-of-failure"
+  ],
+  "SD-F-016": [
+   "backend/10-distributed-systems-patterns/02-distributed-locking"
+  ],
+  "SD-F-017": [
+   "backend/11-advanced-api-paradigms/07-graphql-security-caching-and-observability"
+  ],
+  "SD-F-019": [
+   "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer"
+  ],
+  "SD-G-001": [
+   "system-design/01-core-fundamentals/07-horizontal-scaling",
+   "backend/08-observability-and-operational-readiness/02-config-management-fundamentals",
+   "system-design/01-core-fundamentals/01-what-is-system-design"
+  ],
+  "SD-G-002": [
+   "system-design/01-core-fundamentals/07-horizontal-scaling"
+  ],
+  "SD-G-003": [
+   "backend/16-grpc-deep-dive/02-production-serving-health-lb-and-keepalive",
+   "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing"
+  ],
+  "SD-G-007": [
+   "backend/05-caching-and-performance/07-concurrency-and-parallelism"
+  ],
+  "SD-G-014": [
+   "learn/23-performance-and-load-testing"
+  ],
+  "SD-H-001": [
+   "backend"
+  ],
+  "SD-H-012": [
+   "system-design/01-core-fundamentals/01-what-is-system-design",
+   "learn/09-terraform-on-azure/05-remote-state-and-collaboration"
+  ],
+  "SD-H-015": [
+   "system-design/01-core-fundamentals/11-reliability-availability-and-durability",
+   "system-design/01-core-fundamentals/15-consistency-models"
+  ],
+  "SD-H-019": [
+   "system-design/01-core-fundamentals/13-cap-theorem"
+  ],
+  "SD-I-007": [
+   "learn/14-databases-and-stateful-workloads/01-statefulsets-in-depth"
+  ],
+  "SD-I-009": [
+   "learn/15-messaging-and-event-driven-architecture/03-azure-event-grid"
+  ],
+  "SD-I-013": [
+   "learn/15-messaging-and-event-driven-architecture/03-azure-event-grid",
+   "learn/15-messaging-and-event-driven-architecture/00-event-driven-architecture-concepts"
+  ],
+  "SD-J-001": [
+   "backend/03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless"
+  ],
+  "SD-J-005": [
+   "system-design/01-core-fundamentals/12-scalability"
+  ],
+  "SD-J-007": [
+   "genai/08-embeddings-and-vector-databases/15-ivf-product-quantization-and-other-indexes"
+  ],
+  "SD-J-013": [
+   "system-design/01-core-fundamentals/04-non-functional-requirements"
+  ],
+  "SD-K-005": [
+   "learn/14-databases-and-stateful-workloads/07-data-migration-and-connection-resilience"
+  ],
+  "SD-K-011": [
+   "learn/22-disaster-recovery-and-chaos-engineering/03-platform-level-backup-strategy"
+  ],
+  "SD-L-002": [
+   "system-design/01-core-fundamentals/18-simple-beats-clever"
+  ],
+  "SD-L-007": [
+   "backend/11-advanced-api-paradigms/10-api-design-tradeoffs-in-practice",
+   "learn/19-api-management/08-kong-and-traefik-oss-gateways"
+  ],
+  "SD-L-009": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff"
+  ],
+  "SD-L-013": [
+   "genai/11-langchain-and-langgraph/01-langchain-architecture-overview"
+  ],
+  "SD-L-019": [
+   "lld/20-anti-patterns-and-code-smells"
+  ],
+  "SD-M-003": [
+   "learn/19-api-management/04-authentication-and-authorization-at-the-gateway"
+  ],
+  "SD-M-007": [
+   "learn/16-identity-deep-dive/00-entra-id-and-identity-fundamentals"
+  ],
+  "SD-M-013": [
+   "backend/08-observability-and-operational-readiness/01-global-error-handlers-and-user-facing-errors",
+   "backend/02-api-layer-and-request-handling/04-common-middleware-patterns"
+  ],
+  "SD-M-015": [
+   "learn/10-cicd-and-gitops/07-pipeline-security-and-secrets"
+  ],
+  "SD-M-016": [
+   "backend/09-security-deep-dive/02-xss-and-csrf",
+   "backend/06-background-processing-and-realtime/06-webhooks-security-and-reliability"
+  ],
+  "SD-M-017": [
+   "learn/01-linux/14-logging-and-journald"
+  ],
+  "SD-N-009": [
+   "learn/15-messaging-and-event-driven-architecture/07-observability-for-event-driven-systems"
+  ],
+  "SD-N-011": [
+   "learn/21-cost-management-and-finops/02-budgets-and-alerts",
+   "learn/19-api-management/07-observability-for-apis"
+  ],
+  "SD-N-012": [
+   "backend/09-security-deep-dive/05-secrets-management"
+  ],
+  "SD-N-014": [
+   "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines"
+  ],
+  "SD-O-003": [
+   "learn/14-databases-and-stateful-workloads/04-backup-and-restore-strategies",
+   "learn/02-docker/08-container-registries-dockerhub-and-acr"
+  ],
+  "SD-O-010": [
+   "backend/17-kafka-and-streaming/05-stream-processing-windows-joins-and-state"
+  ],
+  "SD-O-012": [
+   "backend/07-search-with-elasticsearch/06-kibana-and-operations",
+   "learn/11-security-deep-dive/02-secrets-management-in-depth",
+   "backend/08-observability-and-operational-readiness/02-config-management-fundamentals"
+  ],
+  "SD-P-001": [
+   "backend/07-search-with-elasticsearch/02-basic-and-full-text-search"
+  ],
+  "SD-P-006": [
+   "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines"
+  ],
+  "SD-P-012": [
+   "genai/08-embeddings-and-vector-databases/13-exact-vs-approximate-search"
+  ],
+  "SD-Q-001": [
+   "system-design/02-networking-from-zero/09-tcp-three-way-handshake"
+  ],
+  "SD-Q-010": [
+   "ml",
+   "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics"
+  ],
+  "SD-R-009": [
+   "learn/17-governance-at-scale/01-management-groups-and-subscription-hierarchy"
+  ],
+  "SD-S-005": [
+   "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag",
+   "genai/09-retrieval-augmented-generation/12-evaluating-retrieval-quality",
+   "genai/08-embeddings-and-vector-databases/02-embedding-models-compared"
+  ],
+  "SD-S-008": [
+   "genai/09-retrieval-augmented-generation"
+  ],
+  "SD-S-009": [
+   "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics"
+  ],
+  "SD-S-011": [
+   "genai/09-retrieval-augmented-generation/15-advanced-rag-graphrag-and-agentic-rag"
+  ],
+  "SD-S-016": [
+   "learn/21-cost-management-and-finops/07-cost-as-a-cicd-gate"
+  ],
+  "SD-S-017": [
+   "genai/00-genai-foundations/10-limitations-hallucination-knowledge-cutoff-reasoning"
+  ],
+  "SD-S-020": [
+   "genai/14-inference-and-serving-vllm/12-alternatives-tgi-tensorrt-llm-ollama",
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization",
+   "genai/13-model-context-protocol-mcp/10-primitive-prompts"
+  ],
+  "SD-S-021": [
+   "genai/08-embeddings-and-vector-databases/07-chunking-semantic-and-structural",
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization",
+   "genai/13-model-context-protocol-mcp/10-primitive-prompts"
+  ],
+  "SD-S-026": [
+   "genai/05-gpus-and-genai-hardware/13-cloud-gpu-economics",
+   "genai/05-gpus-and-genai-hardware/03-memory-hierarchy-and-bandwidth"
+  ],
+  "SD-S-027": [
+   "genai/10-ai-agents/14-an-agent-design-pattern-catalog",
+   "genai/15-evaluation-observability-and-safety/15-cost-monitoring-and-optimization",
+   "genai/05-gpus-and-genai-hardware/04-vram-the-real-constraint"
+  ],
+  "SD-S-028": [
+   "genai/09-retrieval-augmented-generation/15-advanced-rag-graphrag-and-agentic-rag",
+   "genai/06-openai-and-the-model-landscape/06-function-calling-basics"
+  ],
+  "SD-S-033": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/13-the-openai-agents-sdk"
+  ],
+  "SD-S-034": [
+   "genai/15-evaluation-observability-and-safety/01-building-an-eval-dataset"
+  ],
+  "SD-T-002": [
+   "lld/11-requirements-to-class-diagrams"
+  ],
+  "SD-T-006": [
+   "backend/14-system-design-interview-practice"
+  ],
+  "SD-W-005": [
+   "genai/11-langchain-and-langgraph/14-langgraph-cycles-and-loops"
+  ],
+  "SD-W-011": [
+   "lld/08-behavioral-patterns-i",
+   "lld/09-behavioral-patterns-ii",
+   "lld/09-behavioral-patterns-ii"
+  ]
+ },
+ "add": {
+  "GAI-AF-001": [
+   "genai/10-ai-agents/01-agents-vs-chatbots-vs-workflows"
+  ],
+  "GAI-AM-002": [
+   "genai/10-ai-agents/10-memory-short-term-and-scratchpad"
+  ],
+  "GAI-AR-002": [
+   "genai/15-evaluation-observability-and-safety/11-guardrails-output-validation"
+  ],
+  "GAI-GF-004": [
+   "backend/10-distributed-systems-patterns/01-idempotency-in-practice"
+  ],
+  "GAI-GF-006": [
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events",
+   "genai/06-openai-and-the-model-landscape/03-streaming-responses",
+   "system-design/02-networking-from-zero/26-http-streaming-and-backpressure"
+  ],
+  "GAI-IS-001": [
+   "genai/14-inference-and-serving-vllm/00-the-serving-problem"
+  ],
+  "GAI-IS-002": [
+   "genai/14-inference-and-serving-vllm/00-the-serving-problem"
+  ],
+  "GAI-LO-004": [
+   "genai/15-evaluation-observability-and-safety/06-regression-testing-prompts",
+   "genai/18-evaluation-harnesses-and-benchmarks/01-evaluation-in-practice-harnesses-inspect-and-regression-gates"
+  ],
+  "GAI-LO-007": [
+   "genai/15-evaluation-observability-and-safety/14-metrics-dashboards-and-alerting"
+  ],
+  "GAI-MA-006": [
+   "genai/12-agent-orchestration-and-multi-agent-systems/04-hierarchical-agent-teams"
+  ],
+  "GAI-RE-002": [
+   "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics",
+   "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is"
+  ],
+  "GAI-RE-008": [
+   "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape",
+   "genai/08-embeddings-and-vector-databases/12-pinecone-weaviate-and-qdrant"
+  ],
+  "GAI-RE-010": [
+   "backend/04-databases-and-data-layer/10-multi-tenancy-patterns"
+  ],
+  "GAI-RI-003": [
+   "genai/09-retrieval-augmented-generation/04-pdfs-tables-and-complex-documents"
+  ],
+  "GAI-RI-004": [
+   "genai/09-retrieval-augmented-generation/03-document-loaders-and-parsing"
+  ],
+  "GAI-RP-007": [
+   "genai/15-evaluation-observability-and-safety/13-tracing-agent-execution",
+   "genai/11-langchain-and-langgraph/17-langsmith-for-tracing-and-debugging"
+  ],
+  "GAI-RP-010": [
+   "genai/09-retrieval-augmented-generation/16-rag-failure-modes"
+  ],
+  "GAI-RR-001": [
+   "genai/09-retrieval-augmented-generation/05-the-retrieval-step",
+   "genai/08-embeddings-and-vector-databases/13-exact-vs-approximate-search"
+  ],
+  "SD-A-005": [
+   "system-design/01-core-fundamentals/05-trade-offs-and-how-to-justify-a-design"
+  ],
+  "SD-B-003": [
+   "system-design/02-networking-from-zero/08-tcp-sequence-numbers-and-acks",
+   "system-design/02-networking-from-zero/09-tcp-three-way-handshake",
+   "system-design/02-networking-from-zero/10-tcp-flow-and-congestion-control"
+  ],
+  "SD-B-004": [
+   "system-design/02-networking-from-zero/09-tcp-three-way-handshake",
+   "system-design/02-networking-from-zero/11-tcp-closing-time-wait-and-ports"
+  ],
+  "SD-B-013": [
+   "system-design/02-networking-from-zero/23-http-1-1-vs-http-2-vs-http-3"
+  ],
+  "SD-B-015": [
+   "system-design/02-networking-from-zero/25-sse-vs-long-polling-vs-websockets"
+  ],
+  "SD-B-020": [
+   "system-design/02-networking-from-zero/30-timeouts-and-502s"
+  ],
+  "SD-C-001": [
+   "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices"
+  ],
+  "SD-C-005": [
+   "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices"
+  ],
+  "SD-C-010": [
+   "backend/02-api-layer-and-request-handling/00-validation-fundamentals"
+  ],
+  "SD-C-012": [
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention"
+  ],
+  "SD-C-014": [
+   "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention"
+  ],
+  "SD-C-016": [
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "SD-E-011": [
+   "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control"
+  ],
+  "SD-E-022": [
+   "backend/04-databases-and-data-layer/08-replication-and-sharding"
+  ],
+  "SD-E-033": [
+   "backend/04-databases-and-data-layer/00-relational-vs-non-relational"
+  ],
+  "SD-F-010": [
+   "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases"
+  ],
+  "SD-F-013": [
+   "backend/05-caching-and-performance/03-multi-level-caching"
+  ],
+  "SD-G-001": [
+   "learn/04-networking-fundamentals/06-load-balancing-concepts"
+  ],
+  "SD-G-003": [
+   "learn/04-networking-fundamentals/06-load-balancing-concepts"
+  ],
+  "SD-H-001": [
+   "backend/10-distributed-systems-patterns"
+  ],
+  "SD-H-012": [
+   "backend/10-distributed-systems-patterns/07-consensus-and-coordination",
+   "system-design/01-core-fundamentals/13-cap-theorem"
+  ],
+  "SD-H-015": [
+   "backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit"
+  ],
+  "SD-I-007": [
+   "backend/17-kafka-and-streaming/00-producer-internals-acks-idempotence-and-partitioning"
+  ],
+  "SD-J-005": [
+   "backend/05-caching-and-performance/07-concurrency-and-parallelism"
+  ],
+  "SD-L-007": [
+   "backend/11-advanced-api-paradigms/09-api-gateways-and-bff"
+  ],
+  "SD-L-017": [
+   "backend/10-distributed-systems-patterns/05-cqrs"
+  ],
+  "SD-M-003": [
+   "backend/03-authentication-and-authorization/02-jwt-deep-dive"
+  ],
+  "SD-M-013": [
+   "backend/09-security-deep-dive/00-owasp-top-10-overview",
+   "backend/03-authentication-and-authorization/06-authorization-models"
+  ],
+  "SD-N-012": [
+   "learn/12-observability-deep-dive/06-alerting-and-on-call-basics"
+  ],
+  "SD-P-001": [
+   "backend/07-search-with-elasticsearch/02-basic-and-full-text-search"
+  ],
+  "SD-Q-001": [
+   "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+   "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events"
+  ],
+  "SD-S-005": [
+   "genai/09-retrieval-augmented-generation",
+   "genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end",
+   "genai/09-retrieval-augmented-generation/00-why-rag-exists"
+  ],
+  "SD-S-008": [
+   "genai/08-embeddings-and-vector-databases/05-generating-embeddings-at-scale",
+   "genai/08-embeddings-and-vector-databases/00-what-an-embedding-is"
+  ],
+  "SD-S-009": [
+   "genai/08-embeddings-and-vector-databases/09-the-vector-database-landscape"
+  ],
+  "SD-S-011": [
+   "genai/09-retrieval-augmented-generation/07-hybrid-search",
+   "genai/09-retrieval-augmented-generation/09-reranking-with-cross-encoders"
+  ],
+  "SD-S-016": [
+   "genai/01-tokens-and-language-modeling/12-token-cost-economics"
+  ],
+  "SD-S-022": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing"
+  ],
+  "SD-S-024": [
+   "genai/06-openai-and-the-model-landscape/17-provider-abstraction-and-model-routing"
+  ],
+  "SD-S-026": [
+   "genai/14-inference-and-serving-vllm/06-continuous-batching"
+  ],
+  "SD-S-027": [
+   "genai/14-inference-and-serving-vllm/10-speculative-decoding",
+   "genai/14-inference-and-serving-vllm/03-the-kv-cache"
+  ],
+  "SD-S-028": [
+   "genai/10-ai-agents/01-agents-vs-chatbots-vs-workflows",
+   "genai/10-ai-agents/14-an-agent-design-pattern-catalog"
+  ],
+  "SD-S-030": [
+   "genai/10-ai-agents/10-memory-short-term-and-scratchpad",
+   "genai/10-ai-agents/11-memory-long-term-and-vector-backed"
+  ],
+  "SD-S-033": [
+   "genai/15-evaluation-observability-and-safety/10-guardrails-input-filtering",
+   "genai/15-evaluation-observability-and-safety/11-guardrails-output-validation"
+  ],
+  "SD-S-034": [
+   "genai/07-prompt-engineering/12-prompt-injection-attacks"
+  ],
+  "SD-T-002": [
+   "system-design/01-core-fundamentals/03-functional-requirements"
+  ]
+ }
+}

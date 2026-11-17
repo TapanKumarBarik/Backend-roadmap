@@ -95,8 +95,9 @@ export function matches(tab, row, record, filters, today, config, stepCount = 0)
   if (filters.pri && row.p !== filters.pri) return false;
   if (filters.df && row.df !== filters.df) return false;
   if (filters.tr && row.tr !== filters.tr) return false;
-  if (filters.lesson === 'has' && !row.u) return false;
-  if (filters.lesson === 'none' && row.u) return false;
+  const hasLesson = Boolean(row.u) || (Array.isArray(row.ls) && row.ls.length > 0);
+  if (filters.lesson === 'has' && !hasLesson) return false;
+  if (filters.lesson === 'none' && hasLesson) return false;
   if (filters.st && (tab === 'pr' ? kindOf(tab, record, config, stepCount) !== filters.st : record.s !== filters.st)) return false;
   if (filters.notes && !record.n) return false;
   if (filters.due && !isDue(tab, record, today, config, stepCount)) return false;

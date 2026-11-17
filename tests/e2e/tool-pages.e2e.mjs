@@ -286,6 +286,16 @@ test('the tracker’s items are all there, every id is its own, and every lesson
   assert.ok(linked.length >= 300, `${linked.length} items link to a lesson`);
   for (const row of linked) assert.ok(serves(row.u), `${row.id} links to ${row.u}, which the site does not serve`);
   assert.equal(data.pr.steps.length, 7);
+  // The lessons of this site: a catalogue every row lists from by position, each one a page the site serves, and the step of every design problem has some.
+  assert.ok(data.lessons.length >= 300 && data.lessons.every((l) => /^\/[^?#]+\/$/.test(l.u) && l.t && l.c), 'a catalogue of lessons, each with an address, a title and a curriculum');
+  for (const lesson of data.lessons) assert.ok(serves(lesson.u), `the tracker lists ${lesson.u}, which the site does not serve`);
+  const listed = ['sd', 'gai', 'qa', 'pr'].flatMap((k) => data[k].rows.filter((r) => r.ls));
+  assert.ok(listed.every((r) => r.ls.length <= 6 && r.ls.every((i) => Number.isInteger(i) && data.lessons[i])), 'a row lists a few lessons, each in the catalogue');
+  const steps = data.sd.rows.filter((r) => r.st && r.n.startsWith(r.st + ': ')).concat(data.gai.rows.filter((r) => r.st && r.n.startsWith(r.st + ': ')));
+  assert.equal(steps.length, 333 + 320, 'the steps of the design problems and of the AI case studies');
+  assert.ok(steps.every((r) => r.ls && r.ls.length >= 1), 'every step lists a lesson: one for the step, and some for the problem where there are');
+  assert.ok(steps.filter((r) => r.ls.length >= 2).length / steps.length >= 0.9, 'and nearly every one lists two or more');
+  assert.ok(data.pr.rows.filter((r) => r.ls).length >= 30, 'nearly every design problem on the practice sheet lists its lessons');
   // The learning resources: every system design item and design problem has some, nearly every GenAI item and question does, and a link is always https.
   assert.ok(data.resources.length >= 70 && data.resources.every((r) => /^https:\/\/\S+$/.test(r.u) && r.n), 'a catalogue of links, every one https');
   const withSet = (k) => data[k].rows.filter((r) => Number.isInteger(r.rs) && data.resourceSets[r.rs] && data.resourceSets[r.rs].every((i) => data.resources[i])).length;
@@ -316,7 +326,7 @@ test('ticking, grading and writing on an item is saved in the browser and is the
   assert.match(await page.locator('.tr-row[data-id="SD-A-002"] .tr-tags').innerText(), /Revise now/);
   assert.match(await page.locator(row + ' .tr-tags').innerText(), /\d+ resources/, 'a row says it has resources');
   await page.locator(row + ' .tr-head').click();
-  const links = await page.locator(row + ' .tr-links a').evaluateAll((as) => as.map((a) => ({ href: a.href, target: a.target, rel: a.rel, text: a.textContent })));
+  const links = await page.locator(row + ' .tr-links:not(.tr-links--lessons) a').evaluateAll((as) => as.map((a) => ({ href: a.href, target: a.target, rel: a.rel, text: a.textContent })));
   assert.ok(links.length >= 2, 'the open row lists where to learn it');
   for (const link of links) {
     assert.match(link.href, /^https:\/\//);
@@ -324,6 +334,9 @@ test('ticking, grading and writing on an item is saved in the browser and is the
     assert.match(link.rel, /noopener/);
     assert.match(link.text, /\(opens in a new tab\)/, 'and says so for a screen reader');
   }
+  const lessonLinks = await page.locator(row + ' .tr-links--lessons a').evaluateAll((as) => as.map((a) => ({ href: a.getAttribute('href'), target: a.target })));
+  assert.ok(lessonLinks.length >= 1 && lessonLinks.every((l) => /^\/[^/].*\/$/.test(l.href) && !l.target), 'the open row lists the lessons of this site, as links that stay on it');
+  assert.ok(lessonLinks.every((l) => serves(l.href)));
   await page.locator(row + ' textarea.tr-note').fill('Token bucket: refill rate against burst. Redo the Lua version.');
   await saved(page);
   const keep = await stored(page);
@@ -422,6 +435,35 @@ test('a question is reviewed, and mastered; a design problem has steps that cycl
   await page.click('#tr-range-clear');
   assert.equal((await page.locator('#tr-count').innerText()).trim(), '748 items', 'and Show all brings the rest back');
   assert.ok(await page.locator('#tr-range').isHidden());
+  await context.close();
+});
+
+test('a step of a design problem lists the lessons of this site for the problem and for the step, and the lesson filter counts them', async () => {
+  const { context, page, problems, goto } = await open(TRACK, { withCsp: true });
+  await goto();
+  await page.waitForSelector('#tr-list .tr-row');
+  await page.fill('#tr-q', 'SD-U-316');
+  await page.waitForFunction(() => document.querySelectorAll('#tr-list .tr-row').length === 1);
+  const row = '.tr-row[data-id="SD-U-316"]';
+  assert.match(await page.locator(row + ' .tr-tags').innerText(), /\d+ lessons here/, 'the row says it has lessons of this site');
+  await page.locator(row + ' .tr-head').click();
+  const lessons = await page.locator(row + ' .tr-links--lessons a').evaluateAll((as) => as.map((a) => ({ href: a.getAttribute('href'), text: a.textContent })));
+  const hrefs = lessons.map((l) => l.href);
+  assert.ok(hrefs.some((h) => /^\/genai\/10-ai-agents\/$/.test(h)), 'a lesson for the problem: the AI agents track');
+  assert.ok(hrefs.some((h) => h === '/system-design/01-core-fundamentals/03-functional-requirements/'), 'a lesson for the step: functional requirements');
+  assert.ok(lessons.every((l) => l.text.trim() && !/^(Module|Lesson|Track) \d/.test(l.text.trim())), 'each is named the way a person says it');
+  assert.match(await page.locator(row + ' .tr-links--lessons .tr-linkmeta').first().innerText(), /\S/, 'with the course it belongs to');
+  for (const href of hrefs) assert.equal((await page.request.get(new URL(href, page.url()).href)).status(), 200, `${href} is served`);
+  // The lesson filter keeps the rows that list one, and its opposite the rest.
+  await page.fill('#tr-q', '');
+  await page.waitForFunction(() => document.getElementById('tr-count').textContent.trim() === '748 items'); // typing waits a moment before it filters
+  await page.selectOption('#tr-lesson', 'none');
+  const none = Number((await page.locator('#tr-count').innerText()).match(/^(\d+)/)[1]);
+  await page.selectOption('#tr-lesson', 'has');
+  const has = Number((await page.locator('#tr-count').innerText()).match(/^(\d+)/)[1]);
+  assert.equal(none + has, 748, 'every item either lists a lesson or does not');
+  assert.ok(has >= 650, `${has} of 748 system design items list a lesson of this site`);
+  assert.deepEqual(problems, []);
   await context.close();
 });
 

@@ -35,13 +35,60 @@ export function lessonUrls(registry, urlOf) {
 // The id of a checklist item inside the text of a design problem's "Checklist IDs" ("SD-U-001 to SD-U-009"): the first one.
 const CHECKLIST_ID = /[A-Z]{2,3}-[A-Z]{1,2}-\d{3}/;
 
+/** A lesson's title as a person would say it: without the "Module 07:" or "Lesson 03:" in front. */
+export function lessonTitle(title) {
+  return String(title || '').replace(/^(Module|Lesson|Track)\s+\d+:\s*/i, '').replace(/^\d+\s*-\s*/, '').trim();
+}
+
+/** The step a design-problem row is for ("Pastebin: Requirements" is "Requirements"), or null when the row is not one step of a problem. */
+export function stepOf(row) {
+  return row && row.st && typeof row.n === 'string' && row.n.startsWith(row.st + ': ') ? row.n.slice(row.st.length + 2) : null;
+}
+
+/**
+ * The lessons of this site for a row, as paths, from content/tracker/lessons.json: a study item has the ones found for it; a step of a design problem has a few for the
+ * problem and a few for the step; a design problem on the practice sheet has the ones for the problem. Nothing when there are none.
+ * @param {string} sheet
+ * @param {any} row
+ * @param {any} links
+ * @param {{ problem: number, step: number, problemSheet: number }} limits
+ * @returns {string[]}
+ */
+export function lessonPathsFor(sheet, row, links, limits) {
+  if (!links) return [];
+  const step = sheet === 'sd' || sheet === 'gai' ? stepOf(row) : null;
+  const unique = (list) => [...new Set(list)];
+  if (step) {
+    const ofProblem = (links.problems && links.problems[row.st]) || [];
+    const ofStep = (links.steps && links.steps[sheet] && links.steps[sheet][step]) || [];
+    return unique([...ofProblem.slice(0, limits.problem), ...ofStep.slice(0, limits.step)]);
+  }
+  if (sheet === 'pr') return unique(((links.problems && links.problems[row.n]) || []).slice(0, limits.problemSheet));
+  return unique((row.i && links.items && links.items[row.i]) || []);
+}
+
 /**
  * items.json made ready for the page: every row has its `id`, a row whose study item has a lesson has its address in `u`, and the list of learning resources is carried
  * with it (`resources`, `resourceSets`, and a row's `rs`, the set it uses). A question takes the resources of the study item it asks about, and a design problem those of
- * the first checklist item it covers, so every sheet can say where to learn the topic.
+ * the first checklist item it covers, so every sheet can say where to learn the topic. When the lessons of the site are given (`lessonLinks`: the links of
+ * content/tracker/lessons.json, `info`: a Map from a lesson's path to its address, title and curriculum, `limits`), the list of lessons used is carried too (`lessons`)
+ * and a row lists its own by position (`ls`), the lesson that has a video first.
+ * @param {any} items
+ * @param {Map<string, string>} lessons
+ * @param {{ lessonLinks?: any, info?: Map<string, { u: string, t: string, c: string }>, limits?: { problem: number, step: number, problemSheet: number } }} [lessonData]
  */
-export function resolveItems(items, lessons) {
+export function resolveItems(items, lessons, lessonData = {}) {
+  const { lessonLinks, info, limits } = lessonData;
+  /** @type {any} */
   const out = {};
+  const catalogue = [];
+  const positionOf = new Map();
+  const byUrl = new Map([...(info || new Map())].map(([, entry]) => [entry.u, entry]));
+  const position = (entry) => {
+    if (!positionOf.has(entry.u)) { positionOf.set(entry.u, catalogue.length); catalogue.push(entry); }
+    return positionOf.get(entry.u);
+  };
+  const lessonsOfItem = new Map();
   for (const key of ['resources', 'resourceSets']) if (items[key]) out[key] = items[key];
   const setOf = new Map();
   for (const sheet of SHEETS) {
@@ -52,11 +99,24 @@ export function resolveItems(items, lessons) {
         const id = rowId(sheet, row, index);
         const url = row.i && lessons.has(row.i) ? lessons.get(row.i) : null;
         if (row.rs !== undefined && row.i && (sheet === 'sd' || sheet === 'gai')) setOf.set(row.i, row.rs);
-        return { id, ...row, ...(url ? { u: url } : {}) };
+        const resolved = { id, ...row, ...(url ? { u: url } : {}) };
+        if (info && sheet !== 'qa') {
+          const entries = [...(url && byUrl.has(url) ? [byUrl.get(url)] : []), ...lessonPathsFor(sheet, row, lessonLinks, limits).map((p) => info.get(p)).filter(Boolean)];
+          const positions = [...new Set(entries.map(position))];
+          if (positions.length) {
+            resolved.ls = positions;
+            if (row.i && (sheet === 'sd' || sheet === 'gai')) lessonsOfItem.set(row.i, positions);
+          }
+        }
+        return resolved;
       })
     };
   }
-  for (const row of out.qa.rows) if (setOf.has(row.i)) row.rs = setOf.get(row.i);
+  for (const row of out.qa.rows) {
+    if (setOf.has(row.i)) row.rs = setOf.get(row.i);
+    if (lessonsOfItem.has(row.i)) row.ls = lessonsOfItem.get(row.i);
+  }
+  if (info) out.lessons = catalogue;
   for (const row of out.pr.rows) {
     const first = CHECKLIST_ID.exec(row.ids || '');
     if (first && setOf.has(first[0])) row.rs = setOf.get(first[0]);
@@ -116,6 +176,41 @@ export function validateItems(items, allowed) {
   problems.push(...validateResources(items));
   if (items.gai && Array.isArray(items.gai.tracks)) {
     for (const row of items.gai.rows) if (row.tr && !items.gai.tracks.includes(row.tr)) problems.push(`gai ${row.i}: track "${row.tr}" is not listed`);
+  }
+  return problems;
+}
+
+/**
+ * What is wrong with the lessons linked in content/tracker/lessons.json, as sentences (empty when it is fine): a path that is not a written lesson, an item or a design
+ * problem that is not in items.json, a step of a design problem with no lesson.
+ * @param {any} links the file
+ * @param {Set<string>} written the paths of the lessons that are written (not placeholders)
+ * @param {any} items items.json
+ */
+export function validateLessonLinks(links, written, items) {
+  const problems = [];
+  const check = (where, paths) => {
+    if (!Array.isArray(paths)) { problems.push(`${where}: not a list`); return; }
+    for (const p of paths) if (!written.has(p)) problems.push(`${where}: "${p}" is not a written lesson`);
+  };
+  const ids = new Set([...items.sd.rows, ...items.gai.rows].map((row) => row.i));
+  const problemNames = new Set([...items.pr.rows.map((row) => row.n), ...[...items.sd.rows, ...items.gai.rows].filter((row) => stepOf(row)).map((row) => row.st)]);
+  for (const [id, paths] of Object.entries(links.items || {})) {
+    if (!ids.has(id)) problems.push(`items: ${id} is not a study item`);
+    check(`items ${id}`, paths);
+  }
+  for (const [name, paths] of Object.entries(links.problems || {})) {
+    if (!problemNames.has(name)) problems.push(`problems: "${name}" is not a design problem`);
+    check(`problems "${name}"`, paths);
+  }
+  for (const sheet of ['sd', 'gai']) {
+    const stepNames = new Set(items[sheet].rows.map(stepOf).filter(Boolean));
+    const given = (links.steps && links.steps[sheet]) || {};
+    for (const name of stepNames) if (!given[name] || !given[name].length) problems.push(`steps ${sheet}: "${name}" has no lesson`);
+    for (const [name, paths] of Object.entries(given)) {
+      if (!stepNames.has(name)) problems.push(`steps ${sheet}: "${name}" is not a step of any problem`);
+      check(`steps ${sheet} "${name}"`, paths);
+    }
   }
   return problems;
 }

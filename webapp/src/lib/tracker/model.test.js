@@ -87,6 +87,8 @@ test('a filter keeps the rows it should: phase, status, priority, difficulty, tr
   assert.ok(keep({ df: 'Beginner' }) && !keep({ df: 'Advanced' }));
   assert.ok(keep({ tr: 'A' }, rec({}), row({ tr: 'A' })) && !keep({ tr: 'B' }, rec({}), row({ tr: 'A' })));
   assert.ok(!keep({ lesson: 'has' }) && keep({ lesson: 'none' }) && keep({ lesson: 'has' }, rec({}), row({ u: '/x/' })));
+  assert.ok(keep({ lesson: 'has' }, rec({}), row({ ls: [3] })) && !keep({ lesson: 'none' }, rec({}), row({ ls: [3] })), 'a row that lists lessons of the site has a lesson even without a video');
+  assert.ok(!keep({ lesson: 'has' }, rec({}), row({ ls: [] })), 'an empty list is no lesson');
   assert.ok(keep({ st: 'Not Started' }) && !keep({ st: 'Completed' }) && keep({ st: 'Completed' }, rec({ s: 'Completed' })));
   assert.ok(!keep({ notes: true }) && keep({ notes: true }, rec({ n: 'redo the Lua version' })));
   assert.ok(!keep({ due: true }) && keep({ due: true }, rec({ s: 'Needs Revision' })));

@@ -108,6 +108,7 @@ fetches that when it opens. A reader's state is one value in the browser's stora
 backup file to export and import and a CSV of a sheet: there is no account and no server, so it needs no migration, and it does not follow a reader to another browser
 by itself. Its logic is pure and tested (`webapp/src/lib/tracker/`: `model.js` the states, the schedule, the filters, the files; `items.js` the build step), its words and
 numbers are `webapp/src/config/tracker.js`, and an item's id is what a saved row is keyed by, so an id is never changed once published.
+The lessons of the site that cover an item are `content/tracker/lessons.json`: `items` is found by `scripts/tracker/match-lessons.mjs` (`npm run tracker:lessons`) from the words of each item and of each written lesson, with `drop` and `add` for what a person decided after reading the matches (kept when it runs again), `steps` the lessons for each step of a design problem and `problems` those for each problem, both by hand. `gen-tracker.mjs` refuses a path that is not a written lesson (a placeholder, or one that moved), so the page never links to a page that is not there.
 
 **Trust pages**: `/about/` and `/corrections/` are pages of their own too (`webapp/about/`, `webapp/corrections/`, listed in `site.config.json -> pages`, built and put in the
 sitemap the same way as the tools). The corrections page is the public log `content/corrections.json` (a date, the lesson's folder, what was wrong, what changed; newest first)

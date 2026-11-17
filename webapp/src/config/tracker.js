@@ -36,6 +36,23 @@ export const TRACKER = {
     pr: { hash: 'practice', label: 'Design practice', noun: 'problems', dateLabel: 'Last attempted', blank: { p: '', c: 0, n: '', d: '' } }
   },
   tabOrder: ['sd', 'gai', 'qa', 'pr'],
+  // Where the lessons of this site that cover an item come from (content/tracker/lessons.json, written partly by scripts/tracker/match-lessons.mjs, which reads this).
+  // An item's words are compared with every written lesson's; a lesson is kept when its score is at least `minScore` and at least `keepRatio` of the best one's, up to `maxLinks`, and `minCoverage` of the item's title words appear in it.
+  lessonMatch: {
+    minScore: 0.15, keepRatio: 0.8, maxLinks: 3,
+    minCoverage: 0.7,                                                // and the lesson's title, headings, tags or folder name must carry at least this share of the item's own title words (by rarity)
+    skipTitleWords: ['capstone'],                                    // a capstone project is not the lesson on a concept
+    headings: 40, bodyChars: 1500,                                   // how much of a lesson is read
+    weights: { title: 4, tags: 2, headings: 2, folder: 2, body: 1 },  // how much a word counts, by where it is in the lesson
+    itemWeights: { title: 4, subtopic: 2, topic: 1 },                 // and where it is in the item
+    preferredBoost: 1.25, trackFactor: 0.85,                          // a lesson from a curriculum that fits the sheet scores a little higher; a track's overview page a little lower
+    preferred: { sd: ['system-design', 'backend', 'lld'], gai: ['genai', 'backend'] },
+    preferredByPhase: { sd: { 6: ['genai', 'backend'] }, gai: { 7: ['learn', 'genai'] } }   // by phase number: the AI phase of system design reads from GenAI; Azure from the cloud course
+  },
+  // The name each curriculum goes by beside a lesson's title (the folder name is its key).
+  curriculumNames: { 'system-design': 'System Design', backend: 'Backend', genai: 'GenAI', learn: 'Cloud and DevOps', lld: 'Low-Level Design', ml: 'Machine Learning', 'neural-networks': 'Neural Networks' },
+  // How many lessons of the site a row lists: for a step of a design problem, up to `problem` for the problem and `step` for the step; for a problem on the practice sheet, `problemSheet`.
+  lessonLinks: { problem: 2, step: 2, problemSheet: 3 },
   // A design problem has a step for each of these in the data; each step is done (2), partly done (1) or not done (0), written as one digit.
   stepState: { none: '0', partly: '1', done: '2' },
   stepCycle: { 0: '2', 2: '1', 1: '0' }, // a click on a step: not done, then done, then partly done, then not done
@@ -57,6 +74,7 @@ export const TRACKER = {
     done: (n, total, word) => `${word} · ${n} of ${total}`,
     toRevise: (n) => `${n} to revise`, nothingToRevise: 'Nothing to revise',
     reviseNow: 'Revise now', hasNotes: 'Notes', openLesson: 'Open the lesson', doFirst: 'Do first:',
+    lessons: 'Lessons on this site', lessonCount: (n) => (n === 1 ? '1 lesson here' : `${n} lessons here`),
     resources: 'Learn more', newTab: '(opens in a new tab)', resourceCount: (n) => (n === 1 ? '1 resource' : `${n} resources`),
     notes: 'Notes', notesHint: 'What you understood, and what to practise next…', answerHint: 'Your answer, in your own words…',
     stepsHint: 'Click a step to mark it done, then partly done, then not done.', stepKey: 'A step is',

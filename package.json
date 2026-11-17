@@ -17,6 +17,7 @@
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:new": "wrangler d1 migrations create DB",
+    "tracker:lessons": "node scripts/tracker/match-lessons.mjs",
     "index": "node scripts/build/gen-docs-index.mjs && node scripts/build/gen-search-index.mjs && node scripts/build/gen-site-stats.mjs && node scripts/build/gen-videos.mjs && node scripts/build/gen-tracker.mjs",
     "test": "node --test \"webapp/src/**/*.test.js\" \"scripts/**/*.test.mjs\" \"api/tests/*.test.js\"",
     "test:e2e": "node --test \"tests/e2e/*.e2e.mjs\"",

@@ -98,7 +98,9 @@ function tagsHtml(key, row) {
   if (row.p) html += `<span class="tr-tag${row.p === C.mustKnow ? ' tr-tag--must' : ''}">${esc(row.p)}</span>`;
   if (row.df) html += `<span class="tr-tag">${esc(row.df)}</span>`;
   if (row.tr) html += `<span class="tr-tag">${esc(ui.track(row.tr))}</span>`;
+  const lessons = lessonsOf(row);
   if (row.u) html += `<a class="tr-tag tr-tag--lesson" href="${esc(row.u)}">${esc(ui.openLesson)}</a>`;
+  else if (lessons.length) html += `<span class="tr-tag tr-tag--lesson">${esc(ui.lessonCount(lessons.length))}</span>`;
   const resources = resourcesOf(row);
   if (resources.length) html += `<span class="tr-tag">${esc(ui.resourceCount(resources.length))}</span>`;
   return `${html}<span class="tr-chips" data-role="chips">${chipsHtml(key, row.id)}</span>`;
@@ -120,6 +122,10 @@ function panelHtml(key, row) {
     html += `<p>${esc(ui.covers(row.ids || '—'))}</p>`;
     if (parseRange(row.ids)) html += `<p><button type="button" class="tool-btn" data-act="range">${esc(ui.showStudyItems)}</button></p>`;
     html += `<ul class="tr-stepkey" aria-label="${esc(ui.stepsHint)}">${['0', '1', '2'].map((v) => `<li data-v="${v}"><span class="tr-step__mark" aria-hidden="true"></span>${esc(ui.stepWords[v])}</li>`).join('')}</ul><p class="tool-note">${esc(ui.stepsHint)}</p>`;
+  }
+  const lessons = lessonsOf(row);
+  if (lessons.length) {
+    html += `<p><strong>${esc(ui.lessons)}</strong></p><ul class="tr-links tr-links--lessons">${lessons.map((l) => `<li><a href="${esc(l.u)}">${esc(l.t)}</a><span class="tr-linkmeta">${esc(C.curriculumNames[l.c] || l.c)}</span></li>`).join('')}</ul>`;
   }
   const resources = resourcesOf(row);
   if (resources.length) {
@@ -146,6 +152,7 @@ function rowHtml(key, row) {
   return `${html}<div class="tr-panel" id="p-${esc(id)}"${isOpen ? '' : ' hidden'}>${isOpen ? panelHtml(key, row) : ''}</div></li>`;
 }
 
+const lessonsOf = (row) => (row.ls || []).map((i) => sheets.lessons[i]).filter(Boolean);
 const resourcesOf = (row) => ((sheets.resourceSets && sheets.resourceSets[row.rs]) || []).map((i) => sheets.resources[i]);
 const rowsOf = (key) => sheets[key].rows;
 const visibleRows = (key) => rowsOf(key).filter((row) => matches(key, row, recordFor(key, row.id), filters[key], today(), C, stepCountOf(key)));
