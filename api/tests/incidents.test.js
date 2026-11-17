@@ -40,7 +40,14 @@ test('the right answer is not always the same option, and not the longest every 
   const counts = [1, 2, 3, 4].map((n) => incidents.filter((i) => i.correct_option === n).length);
   assert.ok(Math.max(...counts) <= Math.ceil(incidents.length * 0.4), `answers by option: ${counts.join(', ')}`);
   const longest = incidents.filter((i) => i.options.reduce((a, b) => (b.text.length > a.text.length ? b : a)).id === i.correct_option).length;
-  assert.ok(longest <= Math.ceil(incidents.length * 0.7), `${longest} of ${incidents.length} right answers are the longest option, which a reader learns to guess`);
+  assert.ok(longest <= Math.ceil(incidents.length * 0.35), `${longest} of ${incidents.length} right answers are the longest option, which a reader learns to guess`);
+  // Four options of about the same size. A right answer that carries the cause and the remedy while the wrong ones are one short clause each is picked by its size alone.
+  for (const i of incidents) {
+    const right = i.options.find((o) => o.id === i.correct_option).text.length;
+    const wrong = i.options.filter((o) => o.id !== i.correct_option).map((o) => o.text.length);
+    const mean = wrong.reduce((a, b) => a + b, 0) / wrong.length;
+    assert.ok(right <= mean * 1.5, `${i.id}: the right answer is ${right} characters and the wrong ones average ${Math.round(mean)}: lengthen the wrong ones or trim the right one`);
+  }
 });
 
 test('the lesson an incident points at is a page of the site', () => {
