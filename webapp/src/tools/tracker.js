@@ -1,12 +1,13 @@
 // The Prep Tracker (webapp/tracker/index.html): the sheets, the progress bar, the filters and the rows, drawn from the study items (dist/tracker.json) and from what the
 // reader has saved in this browser. Plain DOM, no React, so the page is small and quick. The page's explanation is already in the HTML; this adds the behaviour. The
 // logic (what a row's state is, when it is due, what a filter keeps, the files) is lib/tracker/model.js, tested apart from the page; the words and numbers are
-// config/tracker.js. Nothing leaves the browser.
+// config/tracker.js. Nothing leaves the browser unless a signed-in reader turns syncing on (lib/tracker/syncClient.js).
 import './shell.js';
 import { TRACKER as C } from '../config/tracker.js';
 import { STORAGE } from '../config/index.js';
 import { readStored, writeStored } from '../lib/storage.js';
-import { recordOf, compact, parseRange, kindOf, nextReview, isDue, matches, summarize, scoreOf, stepsOf, toCsv, serialize, backupText, readRecords } from '../lib/tracker/model.js';
+import { recordOf, compact, parseRange, kindOf, nextReview, isDue, matches, summarize, scoreOf, stepsOf, toCsv, serialize, stateObject, backupText, readRecords } from '../lib/tracker/model.js';
+import { createSync } from '../lib/tracker/syncClient.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (text) => String(text == null ? '' : text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -23,7 +24,9 @@ const ui = C.ui;
 let sheets = null;                // the items by sheet, once loaded
 const known = new Map();            // item id -> { tab, steps } for every item
 const byId = new Map();             // item id -> { tab, row }
-let records = new Map();          // item id -> what this browser has saved for it (only what differs from blank)
+let records = new Map();          // item id -> what this browser has saved for it (only what differs from blank, and `u`: the second it was changed)
+let removed = new Map();          // item id -> the second a row was reset to blank, so a device that syncs later does not bring it back
+const stamp = () => Math.floor(Date.now() / 1000);
 let tab = C.defaultTab;
 const filters = {};
 const limit = {};
@@ -47,7 +50,7 @@ function flush() {
   saveTimer = 0;
   if (!dirty) return;
   dirty = false;
-  const saved = writeStored(STORAGE.tracker, serialize(records, C));
+  const saved = writeStored(STORAGE.tracker, serialize(records, C, removed));
   setStatus(saved ? ui.saved : ui.saveFailed);
 }
 function changed() {
@@ -55,6 +58,7 @@ function changed() {
   setStatus(ui.saving);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flush, C.saveDelayMs);
+  if (sync) sync.changed();
 }
 window.addEventListener('pagehide', flush);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
@@ -63,7 +67,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 function edit(id, patch) {
   const { tab: key } = byId.get(id);
   const next = compact(key, { ...recordFor(key, id), ...patch }, C);
-  if (Object.keys(next).length) records.set(id, next); else records.delete(id);
+  if (Object.keys(next).length) { records.set(id, { ...next, u: stamp() }); removed.delete(id); } else { if (records.has(id)) removed.set(id, stamp()); records.delete(id); }
   refreshRow(key, id);
   drawSummary();
   changed();
@@ -418,7 +422,7 @@ function wireBackup() {
     if (file.size > C.maxBackupBytes) { setStatus(labels.importTooBig); return; }
     const read = readRecords(await file.text(), known, C);
     if (read.error) { setStatus(read.error === 'size' ? labels.importTooBig : labels.importFailed); return; }
-    for (const [id, record] of read.records) records.set(id, record);
+    for (const [id, record] of read.records) { records.set(id, { ...record, u: stamp() }); removed.delete(id); }
     changed();
     flush();
     renderList();
@@ -426,18 +430,92 @@ function wireBackup() {
     setStatus(labels.importDone(read.records.size, read.ignored));
   });
   const confirm = $('tr-confirm');
-  $('tr-reset').addEventListener('click', () => { confirm.hidden = false; $('tr-confirm-no').focus(); });
+  $('tr-reset').addEventListener('click', () => { $('tr-confirm-text').textContent = syncOn() ? labels.resetAskSynced : labels.resetAsk; confirm.hidden = false; $('tr-confirm-no').focus(); });
   $('tr-confirm-no').addEventListener('click', () => { confirm.hidden = true; $('tr-reset').focus(); });
   $('tr-confirm-yes').addEventListener('click', () => {
+    for (const id of records.keys()) removed.set(id, stamp());
     records = new Map();
     open.clear();
     dirty = true;
     flush();
+    if (sync) sync.changed();
     confirm.hidden = true;
     renderList();
     paintSummary();
     setStatus(labels.resetDone);
     $('tr-reset').focus();
+  });
+}
+
+/* ------------------------------------------------------------------------------------------------ sync */
+
+let sync = null;
+let stopping = false; // asking whether to stop syncing and delete the copy on the account
+let lastRead = 0;
+const syncOn = () => readStored(STORAGE.trackerSync) === '1';
+
+function paintSync(status) {
+  const words = C.sync;
+  const box = $('tr-sync');
+  const actions = $('tr-sync-actions');
+  box.hidden = false;
+  $('tr-sync-h').textContent = words.heading;
+  actions.textContent = '';
+  const button = (label, onClick, primary) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = primary ? 'tool-btn tool-btn--primary' : 'tool-btn';
+    el.textContent = label;
+    el.addEventListener('click', onClick);
+    actions.appendChild(el);
+    return el;
+  };
+  const time = sync && sync.lastAt ? new Date(sync.lastAt * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+  if (status === 'signedOut') {
+    $('tr-sync-text').textContent = words.signedOut;
+    const link = document.createElement('a');
+    link.className = 'tool-btn tool-btn--primary';
+    link.href = words.loginUrl(location.pathname + location.search + location.hash);
+    link.textContent = words.signIn;
+    actions.appendChild(link);
+  } else if (status === 'off') {
+    $('tr-sync-text').textContent = words.off;
+    button(words.start, () => sync.enable(), true);
+  } else if (status === 'syncing') {
+    $('tr-sync-text').textContent = words.syncing;
+  } else if (stopping) {
+    $('tr-sync-text').textContent = words.stopAsk;
+    button(words.stopConfirm, async () => { stopping = false; if (await sync.disable()) setStatus(words.stopped); }, true);
+    button(words.stopCancel, () => { stopping = false; paintSync(sync.status); });
+  } else {
+    $('tr-sync-text').textContent = status === 'synced' ? words.synced(time) : status === 'tooLarge' ? words.tooLarge : words.error;
+    if (status !== 'tooLarge') button(words.syncNow, () => sync.sync());
+    button(words.stop, () => { stopping = true; paintSync(sync.status); });
+  }
+}
+
+function startSync() {
+  sync = createSync({
+    name: C.sync.name,
+    getState: () => ({ records, removed }),
+    setState: (state) => { records = state.records; removed = state.removed; dirty = true; flush(); renderList(); paintSummary(); },
+    parse: (data) => {
+      const read = readRecords(JSON.stringify(data), known, C, 'version');
+      return read.error ? { records: new Map(), removed: new Map() } : { records: read.records, removed: read.removed };
+    },
+    stateData: (state) => stateObject(state.records, state.removed, C),
+    now: stamp,
+    isEnabled: syncOn,
+    setEnabled: (on) => { writeStored(STORAGE.trackerSync, on ? '1' : ''); },
+    onStatus: paintSync
+  });
+  lastRead = Date.now();
+  sync.check();
+  // Coming back to the page after a while reads the account again, to pick up what another device did.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !sync.signedIn || !syncOn() || Date.now() - lastRead < C.sync.recheckAfterSeconds * 1000) return;
+    lastRead = Date.now();
+    sync.sync();
   });
 }
 
@@ -467,12 +545,13 @@ async function start() {
     for (const row of sheets[key].rows) { known.set(row.id, { tab: key, steps: count }); byId.set(row.id, { tab: key, row }); }
   }
   const stored = readRecords(readStored(STORAGE.tracker), known, C, 'version');
-  if (stored.records) records = stored.records;
+  if (stored.records) { records = stored.records; removed = stored.removed; }
   const fromHash = C.tabOrder.find((k) => C.tabs[k].hash === location.hash.slice(1));
   tab = fromHash || C.defaultTab;
   wireBackup();
   setStatus(stored.records && records.size ? ui.saved : ui.savedNever);
   setupTab();
+  startSync();
 }
 
 start();

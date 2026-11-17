@@ -3,7 +3,9 @@
 // day is passed in), so it is tested in model.test.js. Every number and word it needs is in config/tracker.js and is passed in as `config`.
 //
 // A reader's state for one row is a record: { s: status, c: confidence 0-5, n: notes, d: the day it was last studied, YYYY-MM-DD }, or for a design problem
-// { p: one digit for each step (0 not done, 1 partly, 2 done), c, n, d }. A record holds only what differs from the blank one.
+// { p: one digit for each step (0 not done, 1 partly, 2 done), c, n, d }. A record holds only what differs from the blank one. A record the page has changed also has
+// `u`, the second it was changed (the clock of the device), which is what lets two devices that sync decide which of two copies of a row is the newer
+// (lib/tracker/sync.js); a row reset to blank leaves a note in `removed` (its id and the second) for the same reason.
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -179,18 +181,24 @@ export function sanitize(tab, raw, config, stepCount = 0) {
   if (typeof raw.n === 'string') record.n = raw.n.slice(0, config.maxNoteChars);
   if (isDay(raw.d)) record.d = raw.d;
   const kept = compact(tab, { ...spec.blank, ...record }, config);
-  return Object.keys(kept).length ? kept : null;
+  if (!Object.keys(kept).length) return null;
+  if (Number.isInteger(raw.u) && raw.u > 0) kept.u = raw.u;
+  return kept;
 }
 
-/** The text of the browser's own copy: { version, items }. */
-export const serialize = (records, config) => JSON.stringify({ version: config.storageVersion, items: Object.fromEntries(records) });
+/** The browser's own copy as an object: { version, items, removed? } (`removed` only when a row was reset), which is also what is kept for a reader who syncs. */
+export const stateObject = (records, removed, config) => ({ version: config.storageVersion, items: Object.fromEntries(records), ...(removed && removed.size ? { removed: Object.fromEntries(removed) } : {}) });
+
+/** The text of the browser's own copy. */
+export const serialize = (records, config, removed) => JSON.stringify(stateObject(records, removed, config));
 
 /** The text of a backup a reader saves: { tracker, exportedAt, items }. */
 export const backupText = (records, now, config) => JSON.stringify({ tracker: config.backupVersion, exportedAt: now, items: Object.fromEntries(records) }, null, 1);
 
 /**
  * The records in a stored copy or a backup. `known` maps each item id to its sheet (and a design problem's step count); ids that are not items of the tracker, and
- * records with nothing valid in them, are counted in `ignored` and left out. `{ error }` when the text is not one of ours.
+ * records with nothing valid in them, are counted in `ignored` and left out. `removed` maps the ids of rows that were reset to the second they were (the browser's own
+ * copy has them; a backup does not). `{ error }` when the text is not one of ours.
  * @param {string} text
  * @param {Map<string, { tab: string, steps: number }>} known
  * @param {'tracker' | 'version'} marker  the field that says what kind of file it is: `tracker` for a backup, `version` for the browser's own copy
@@ -202,12 +210,16 @@ export function readRecords(text, known, config, marker = 'tracker') {
   const expected = marker === 'tracker' ? config.backupVersion : config.storageVersion;
   if (!data || typeof data !== 'object' || data[marker] !== expected || !data.items || typeof data.items !== 'object' || Array.isArray(data.items)) return { error: 'format' };
   const records = new Map();
+  const removed = new Map();
   let ignored = 0;
+  if (data.removed && typeof data.removed === 'object' && !Array.isArray(data.removed)) {
+    for (const [id, at] of Object.entries(data.removed)) if (known.has(id) && Number.isInteger(at) && at > 0) removed.set(id, at);
+  }
   for (const [id, raw] of Object.entries(data.items)) {
     const where = known.get(id);
     const record = where ? sanitize(where.tab, raw, config, where.steps) : null;
     if (record) records.set(id, record);
     else ignored += 1;
   }
-  return { records, ignored };
+  return { records, ignored, removed };
 }

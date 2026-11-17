@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Interview Prep Tracker: System Design and GenAI Checklist · %SITE_NAME%</title>
-<meta name="description" content="A free tracker for system design and GenAI interview preparation: tick off study items, grade your confidence, write notes and get a revision reminder. It saves in your browser, with no sign-in.">
+<meta name="description" content="A free tracker for system design and GenAI interview preparation: tick off study items, grade your confidence, write notes and get a revision reminder. It saves in your browser with no sign-in, and signing in with Google lets you sync it across devices.">
 <link rel="canonical" href="%SITE_URL%/tracker/">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="theme-color" content="#111111">
@@ -39,6 +39,11 @@
     <noscript><p class="tool-note">This tracker needs JavaScript. The explanation below works without it.</p></noscript>
 
     <p id="tr-status" class="tool-note tr-statusline" role="status"></p>
+    <section id="tr-sync" class="tr-sync" aria-labelledby="tr-sync-h" hidden>
+      <h3 id="tr-sync-h" class="tr-sync__h"></h3>
+      <p id="tr-sync-text" class="tr-sync__text" role="status"></p>
+      <div id="tr-sync-actions" class="tr-sync__actions"></div>
+    </section>
     <div id="tr-tabs" class="tr-tabs" role="group"></div>
 
     <div id="tr-summary" class="tr-summary">
@@ -96,7 +101,8 @@
     </ol>
 
     <h2 id="where-h">Where your progress lives</h2>
-    <p>Everything you tick or write is saved in this browser, on this device, and nowhere else: there is no account and nothing is sent to a server. That keeps it private and instant, and it means the progress does not follow you to another browser by itself. Use <strong>Export a backup</strong> to save a file you can keep, load it again with <strong>Import a backup</strong>, or move it to another browser. A sheet can also be exported as a CSV for a spreadsheet. Clearing this site&rsquo;s data in your browser clears the tracker, so export a backup first.</p>
+    <p>Everything you tick or write is saved in this browser, on this device. You do not need an account, and nothing is sent to a server unless you choose to sync. That keeps it private and instant, and it means the progress does not follow you to another browser by itself. Use <strong>Export a backup</strong> to save a file you can keep, load it again with <strong>Import a backup</strong>, or move it to another browser. A sheet can also be exported as a CSV for a spreadsheet. Clearing this site&rsquo;s data in your browser clears the tracker, so export a backup first, or sync.</p>
+    <p><strong>Syncing across devices is optional.</strong> If you sign in with Google you can turn it on under the tracker: a copy of your progress, notes included, is then kept on this site&rsquo;s server for your account, so the same progress is there on every device you turn it on in. Only you can read it. The most recent change to a row wins, so a tick on your phone and a note on your laptop are both kept. <strong>Stop syncing</strong> deletes the copy on the server (your browser keeps its own), and deleting your account deletes it too.</p>
 
     <h2 id="lessons-h">The lessons behind the items</h2>
     <p>Open an item to see the lessons on this site that cover it, each with the course it belongs to; a topic that has a video also has an <strong>Open the lesson</strong> link beside its title. A step of a design problem lists lessons for the problem and for the step, such as requirements, capacity estimation or the data model, and under them are books, documentation and papers to read further. For the networking items, the <a href="/tools/">Network Lab</a> has interactive tools, and the <a href="/practice/">Practice Center</a> has quizzes, coding problems and mock interviews for checking yourself afterwards.</p>

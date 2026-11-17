@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, config } from '../../scripts/lib/config.mjs';
 import { dailyRound, dailySeed } from '../../webapp/src/lib/netlab/questions.js';
-import { launchBrowser, openPage } from './support.mjs';
+import { answerApiInProcess, launchBrowser, openPage } from './support.mjs';
 import { plan } from '../../webapp/src/lib/netlab/pageload.js';
 import { LOADLAB } from '../../webapp/src/config/loadlab.js';
 
@@ -558,4 +558,81 @@ test('the footer and the foot of a lesson lead to the about page and the correct
   await lessonFoot.waitFor({ timeout: 90000 });
   assert.equal(await lessonFoot.getByRole('link', { name: 'See the corrections' }).getAttribute('href'), '/corrections/');
   await context.close();
+});
+
+test('the tracker can be synced across devices by a signed-in reader: it is offered and off until chosen, goes to the account, reaches a second browser and back, a reset follows, and stopping deletes the copy', async () => {
+  const kept = (env) => env.DB.raw.prepare("SELECT data FROM user_state WHERE name = 'tracker'").all().map((row) => JSON.parse(row.data));
+  const status = (page, id) => page.locator(`.tr-row[data-id="${id}"] select.tr-status`).inputValue();
+  const until = async (read, message) => {
+    for (let i = 0; i < 80; i++) { const value = await read(); if (value) return value; await new Promise((resolve) => setTimeout(resolve, 100)); }
+    assert.fail(message);
+    return null;
+  };
+
+  // Signed out: it offers to sign in, and nothing is sent.
+  const out = await open(TRACK);
+  await answerApiInProcess(out.context, { email: null });
+  await out.goto();
+  await out.page.waitForSelector('#tr-list .tr-row');
+  await out.page.locator('#tr-sync a', { hasText: 'Sign in with Google' }).waitFor();
+  assert.match(await out.page.locator('#tr-sync a').getAttribute('href'), /^\/api\/auth\/login\?redirect=%2Ftracker%2F/);
+  await out.context.close();
+
+  // A first device: signed in, it is offered, and nothing is kept on the account until it is chosen.
+  const a = await open(TRACK);
+  const env = await answerApiInProcess(a.context, { email: 'reader@example.com' });
+  await a.goto();
+  await a.page.waitForSelector('#tr-list .tr-row');
+  await a.page.getByRole('button', { name: 'Sync my progress' }).waitFor();
+  await a.page.locator('.tr-row[data-id="SD-A-001"] select.tr-status').selectOption('Completed');
+  await a.page.locator('.tr-row[data-id="SD-A-001"] .tr-conf button[data-v="4"]').click();
+  await saved(a.page);
+  assert.deepEqual(kept(env), [], 'nothing is sent until the reader chooses');
+
+  await a.page.getByRole('button', { name: 'Sync my progress' }).click();
+  await a.page.locator('#tr-sync-text', { hasText: 'Synced with your account' }).waitFor();
+  const first = kept(env);
+  assert.equal(first.length, 1, 'the copy is on the account');
+  assert.equal(first[0].items['SD-A-001'].s, 'Completed');
+  assert.ok(Number.isInteger(first[0].items['SD-A-001'].u), 'with the second it was changed');
+
+  // A second browser of the same reader has nothing of its own, turns syncing on, and gets the progress.
+  const b = await open(TRACK);
+  await answerApiInProcess(b.context, { email: 'reader@example.com', env });
+  await b.goto();
+  await b.page.waitForSelector('#tr-list .tr-row');
+  assert.equal(await status(b.page, 'SD-A-001'), 'Not Started', 'nothing came across before it was turned on there');
+  await b.page.getByRole('button', { name: 'Sync my progress' }).click();
+  await b.page.locator('#tr-sync-text', { hasText: 'Synced with your account' }).waitFor();
+  assert.equal(await status(b.page, 'SD-A-001'), 'Completed', 'the progress is there');
+
+  // A change on the second is sent after a pause, and the first has it after "Sync now".
+  await b.page.locator('.tr-row[data-id="SD-A-003"] select.tr-status').selectOption('In Progress');
+  await until(() => kept(env)[0].items['SD-A-003'], 'the change was sent');
+  await a.page.getByRole('button', { name: 'Sync now' }).click();
+  await until(async () => (await status(a.page, 'SD-A-003')) === 'In Progress', 'the first browser has what the second did');
+
+  // Starting again says it reaches the account, and the other browser follows.
+  await b.page.click('#tr-reset');
+  assert.match(await b.page.locator('#tr-confirm-text').innerText(), /on your account and your other devices/);
+  await b.page.click('#tr-confirm-yes');
+  await until(() => { const [copy] = kept(env); return copy && Object.keys(copy.items).length === 0 && copy.removed && copy.removed['SD-A-001']; }, 'the reset was sent, with a note for each row');
+  await a.page.getByRole('button', { name: 'Sync now' }).click();
+  await until(async () => (await status(a.page, 'SD-A-001')) === 'Not Started', 'the reset reached the first browser');
+
+  // Stopping asks first, then deletes the copy on the account and keeps what the browser has.
+  await a.page.locator('.tr-row[data-id="SD-A-002"] select.tr-status').selectOption('In Progress');
+  await saved(a.page);
+  await a.page.getByRole('button', { name: 'Stop syncing' }).click();
+  await a.page.locator('#tr-sync-text', { hasText: 'delete the copy on the server' }).waitFor();
+  await a.page.getByRole('button', { name: 'Keep syncing' }).click();
+  assert.equal(kept(env).length, 1, 'keeping it keeps it');
+  await a.page.getByRole('button', { name: 'Stop syncing' }).click();
+  await a.page.getByRole('button', { name: 'Yes, stop and delete the copy' }).click();
+  await until(() => kept(env).length === 0, 'the copy on the account is deleted');
+  await a.page.getByRole('button', { name: 'Sync my progress' }).waitFor();
+  assert.equal(await status(a.page, 'SD-A-002'), 'In Progress', 'the browser keeps its own');
+  assert.deepEqual(real(a.problems), []);
+  await a.context.close();
+  await b.context.close();
 });

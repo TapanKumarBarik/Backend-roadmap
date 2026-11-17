@@ -92,14 +92,36 @@ export const TRACKER = {
     saving: 'Saving…', saved: 'Saved in this browser', savedNever: 'Nothing to save yet',
     tabsLabel: 'Sheets', progressLabel: 'Progress', phasesLabel: 'Phases',
     filterLabels: { phase: 'Phase', status: 'Status', priority: 'Priority', difficulty: 'Difficulty', track: 'Learning track', lesson: 'Lesson on this site' },
-    footNote: 'Your ticks and notes are saved in this browser only, on this device. Export a backup to keep them safe or to move them to another browser.'
+    footNote: 'Your ticks and notes are saved in this browser, on this device, and are sent nowhere unless you sync them. Export a backup to keep them safe or to move them to another browser.'
   },
   backup: {
     export: 'Export a backup', exportCsv: 'Export this sheet as CSV', import: 'Import a backup', reset: 'Start again',
     importDone: (n, ignored) => `Loaded ${n} ${n === 1 ? 'item' : 'items'}${ignored ? `; ${ignored} not recognised were left out` : ''}.`,
     importFailed: 'That file is not a Prep Tracker backup.',
     importTooBig: 'That file is too large to be a backup.',
-    resetAsk: 'This clears every tick, grade and note in this browser.', resetConfirm: 'Yes, clear everything', resetCancel: 'Keep my progress', resetDone: 'Cleared.'
+    resetAsk: 'This clears every tick, grade and note in this browser.',
+    resetAskSynced: 'This clears every tick, grade and note in this browser and, because syncing is on, on your account and your other devices.', resetConfirm: 'Yes, clear everything', resetCancel: 'Keep my progress', resetDone: 'Cleared.'
+  },
+  // Keeping the progress on the reader's Google account, so it follows them to other devices (lib/tracker/syncClient.js, the server is api/routes/state.js).
+  sync: {
+    name: 'tracker', // what is kept on the account (a name in config/sync.js)
+    loginUrl: (redirect) => `/api/auth/login?redirect=${encodeURIComponent(redirect)}`,
+    heading: 'Sync across devices',
+    signedOut: 'Sign in with Google to keep this progress on every device you use. Nothing is sent anywhere until you choose to sync.',
+    signIn: 'Sign in with Google',
+    off: 'Keep this progress with your Google account so it follows you to your other devices. It is stored on the server of this site, notes included, and only you can read it. You can stop at any time, and stopping deletes the copy.',
+    start: 'Sync my progress',
+    syncing: 'Syncing…',
+    synced: (time) => `Synced with your account${time ? ` at ${time}` : ''}. Changes you make here are sent to your other devices, and theirs arrive when you open this page.`,
+    syncNow: 'Sync now',
+    stop: 'Stop syncing',
+    stopAsk: 'Stop syncing and delete the copy on the server? Your progress stays in this browser.',
+    stopConfirm: 'Yes, stop and delete the copy',
+    stopCancel: 'Keep syncing',
+    stopped: 'Stopped. The copy on the server is deleted, and your progress is still in this browser.',
+    error: 'Could not sync just now. Your progress is saved in this browser, and is sent when you change something or press Sync now.',
+    tooLarge: 'Your progress is too large to keep on your account. Export a backup file instead.',
+    recheckAfterSeconds: 60 // coming back to the page after this long reads the account again, to pick up what another device did
   },
   maxBackupBytes: 8 * 1024 * 1024,
   csvColumns: { id: 'Id', item: 'Item', status: 'Status', confidence: 'Confidence', studied: 'Last studied', next: 'Next review', notes: 'Notes' },

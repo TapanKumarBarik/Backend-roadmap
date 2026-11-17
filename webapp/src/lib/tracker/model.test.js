@@ -183,3 +183,22 @@ test('a backup and the browser’s own copy are read back: unknown ids are count
   assert.equal(readRecords(serialize(records, C), KNOWN, C).error, 'format', 'the browser’s copy is not a backup file');
   assert.equal(readRecords('x'.repeat(C.maxBackupBytes + 1), KNOWN, C).error, 'size');
 });
+
+test('a record keeps the second it was changed, and a reset row is remembered, in the browser\'s copy: what lets two devices that sync decide which is newer', () => {
+  assert.deepEqual(sanitize('sd', { s: 'Completed', c: 4, u: 1800000000 }, C), { s: 'Completed', c: 4, u: 1800000000 }, 'the stamp is kept');
+  assert.deepEqual(sanitize('sd', { s: 'Completed', u: -5 }, C), { s: 'Completed' }, 'a stamp that is not a positive whole number is dropped');
+  assert.deepEqual(sanitize('sd', { s: 'Completed', u: '1800000000' }, C), { s: 'Completed' });
+  assert.equal(sanitize('sd', { u: 1800000000 }, C), null, 'a stamp alone is not a record');
+  assert.deepEqual(compact('sd', { ...blankRecord('sd', C), s: 'Completed', u: 5 }, C), { s: 'Completed' }, 'compact is about what the reader wrote: the page adds the stamp after');
+
+  const records = new Map([['SD-A-001', { s: 'Completed', u: 1800000000 }]]);
+  const removed = new Map([['PR-01', 1800000100]]);
+  const read = readRecords(serialize(records, C, removed), KNOWN, C, 'version');
+  assert.deepEqual([...read.records], [...records]);
+  assert.deepEqual([...read.removed], [...removed]);
+  assert.equal(JSON.parse(serialize(records, C)).removed, undefined, 'without a reset row there is no `removed` in the copy');
+
+  const odd = JSON.stringify({ version: C.storageVersion, items: {}, removed: { 'PR-01': 7, 'SD-Z-999': 8, 'Q-GAI-GF-001': -1, 'SD-A-001': 'x' } });
+  assert.deepEqual([...readRecords(odd, KNOWN, C, 'version').removed], [['PR-01', 7]], 'only known items, with a positive whole second');
+  assert.equal(readRecords(backupText(records, '2026-11-16T10:00:00Z', C), KNOWN, C).removed.size, 0, 'a backup file has none');
+});

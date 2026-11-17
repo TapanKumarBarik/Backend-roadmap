@@ -411,7 +411,8 @@
     "levelCheck": "docs.levelCheck",
     "mockRun": "docs.mockRun",
     "mockHistory": "docs.mockHistory",
-    "tracker": "docs.tracker"
+    "tracker": "docs.tracker",
+    "trackerSync": "docs.trackerSync"
   },
   "assistant": {
     "maxInputChars": 12000,
