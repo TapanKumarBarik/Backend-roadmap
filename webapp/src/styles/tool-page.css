@@ -288,3 +288,15 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .about__photo { display: block; width: 100%; height: auto; margin: var(--space-3) 0 var(--space-4); border-radius: var(--r-lg); }
 .about__bio { font-family: var(--sans); font-size: 17px; }
 .about .tool-sources { clear: both; }
+
+/* ---------- the study packs page: a card for each pack, a link for each PDF with what it is beside it ---------- */
+.study-section { margin-top: var(--space-8); }
+.study-section > p { font-family: var(--sans); font-size: 17px; color: var(--fg-muted); }
+.study-totals { margin-top: var(--space-4); }
+.tool-main .study-pack h3 { margin: 0; font-family: var(--sans); font-size: 20px; letter-spacing: 0; text-transform: none; }
+.study-code { display: inline-block; margin-right: var(--space-2); padding: 1px var(--space-2); border: 1px solid var(--border); border-radius: var(--r-md); font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--fg-muted); vertical-align: 2px; }
+.study-pack > p { margin: var(--space-2) 0 0; font-family: var(--sans); font-size: 17px; line-height: 1.65; }
+.study-files { margin: var(--space-4) 0 0; padding: 0; list-style: none; display: grid; gap: var(--space-3); }
+.study-files li { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3); row-gap: 2px; }
+.study-files a { font-family: var(--sans); font-size: 17px; font-weight: 600; }
+.study-meta { font-family: var(--sans); font-size: var(--text-sm); color: var(--fg-subtle); }

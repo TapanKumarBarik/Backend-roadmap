@@ -5,6 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadCorrections, correctionsHtml } from '../scripts/lib/corrections.mjs';
 import { bioHtml } from '../scripts/lib/aboutPage.mjs';
+import { loadStudyPacks, studyPacksHtml } from '../scripts/lib/studyPacks.mjs';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
@@ -71,13 +72,14 @@ function siteHead() {
   };
 }
 
-// The pages that are built from data: /corrections/ carries the log (content/corrections.json) and /about/ the developer's own words about themselves
-// (site.config.json -> developer.bio and developer.photo, when they are set). Each is a %BLOCK_*% placeholder in the page's HTML replaced with HTML that has no
-// raw percent sign in it, so Vite's own %ENV% replacement has nothing to find.
+// The pages that are built from data: /corrections/ carries the log (content/corrections.json), /about/ the developer's own words about themselves
+// (site.config.json -> developer.bio and developer.photo, when they are set) and /study-packs/ the downloads (content/study-packs.json, the PDFs in webapp/public/notes).
+// Each is a %BLOCK_*% placeholder in the page's HTML replaced with HTML that has no raw percent sign in it, so Vite's own %ENV% replacement has nothing to find.
 function trustBlocks() {
   const blocks = () => ({
     BLOCK_CORRECTIONS: correctionsHtml(loadCorrections()),
-    BLOCK_ABOUT_BIO: bioHtml(siteConfig.developer)
+    BLOCK_ABOUT_BIO: bioHtml(siteConfig.developer),
+    BLOCK_STUDY_PACKS: studyPacksHtml(loadStudyPacks())
   });
   return {
     name: 'trust-blocks',

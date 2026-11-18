@@ -613,6 +613,11 @@
         "name": "page-corrections",
         "path": "/corrections/",
         "height": 1300
+      },
+      {
+        "name": "page-study-packs",
+        "path": "/study-packs/",
+        "height": 2400
       }
     ]
   },
@@ -631,6 +636,11 @@
       "id": "tracker",
       "url": "/tracker/",
       "entry": "tracker/index.html"
+    },
+    {
+      "id": "study-packs",
+      "url": "/study-packs/",
+      "entry": "study-packs/index.html"
     }
   ],
   "tools": [

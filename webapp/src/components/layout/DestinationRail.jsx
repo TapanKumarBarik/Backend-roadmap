@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MAIN_NAV } from '../../config/nav.js';
-import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, MyLearningIcon, TrackerIcon, LabIcon } from '../common/icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, MyLearningIcon, TrackerIcon, LabIcon, BookIcon } from '../common/icons.jsx';
 import { SITE_LINKS } from '../../config/siteLinks.js';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import { COMMUNITY_HOME } from '../../config/community.js';
@@ -43,9 +43,10 @@ export default function DestinationRail({
     { key: '__videos', label: 'Videos', Icon: YoutubeIcon, onClick: onOpenVideos, group: 'learn', primary: true, show: !!hasVideos },
     // Practice is a place to do the work, not to read it; it sits in the phone's "More" sheet.
     { key: PRACTICE_ROUTE, label: 'Practice', Icon: PracticeIcon, onClick: onOpenPractice, group: 'learn' },
-    // Two small pages of their own (not screens of the app), so these are links: the Prep Tracker, and the Network Lab with its calculators.
+    // Small pages of their own (not screens of the app), so these are links: the Prep Tracker, the Network Lab with its calculators, and the Azure study packs (free PDF books).
     { key: '__tracker', label: SITE_LINKS.tracker.label, Icon: TrackerIcon, href: SITE_LINKS.tracker.url, group: 'learn' },
     { key: '__lab', label: SITE_LINKS.tools.label, Icon: LabIcon, href: SITE_LINKS.tools.url, short: SITE_LINKS.tools.short, group: 'learn' },
+    { key: '__packs', label: SITE_LINKS.studyPacks.label, Icon: BookIcon, href: SITE_LINKS.studyPacks.url, short: SITE_LINKS.studyPacks.short, group: 'learn' },
     // The community's articles, and the community itself. Community carries the "something's new" dot — someone else's post,
     // or someone else's question, is something that happens without you (same pattern as the account menu's reply badge,
     // see useCommunityActivity). The other destinations are just views onto your own state; there's nothing there to be

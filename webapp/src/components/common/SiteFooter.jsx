@@ -23,6 +23,8 @@ export default function SiteFooter() {
         <span aria-hidden="true">·</span>
         <a href={SITE_LINKS.tools.url}>{SITE_LINKS.tools.label}</a>
         <span aria-hidden="true">·</span>
+        <a href={SITE_LINKS.studyPacks.url}>{SITE_LINKS.studyPacks.label}</a>
+        <span aria-hidden="true">·</span>
         <a href={TRUST.about.url}>{TRUST.about.label}</a>
         <span aria-hidden="true">·</span>
         <a href={TRUST.corrections.url}>{TRUST.corrections.label}</a>

@@ -107,7 +107,8 @@ const SCREENS = [
   { name: 'the Network Lab', url: '/tools/' },
   { name: 'the prep tracker', url: '/tracker/', before: (page) => page.locator('#tr-list .tr-row').first().waitFor() },
   { name: 'the about page', url: '/about/' },
-  { name: 'the corrections page', url: '/corrections/' }
+  { name: 'the corrections page', url: '/corrections/' },
+  { name: 'the study packs page', url: '/study-packs/' }
 ];
 
 for (const screen of SCREENS) {

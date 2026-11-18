@@ -8,6 +8,8 @@ engineering stack: IaC, CI/CD, security, observability, data, and operations.
 You're on Windows 11 — everything here assumes you practice inside **WSL2**
 (a real Linux kernel running alongside Windows).
 
+> **Free PDF books:** the [Azure study packs](https://backendroadmap.com/study-packs/) have a book and a lab workbook for each of the Azure certifications from AZ-900 to AB-100, plus a book of 20 Azure projects.
+
 This is a large curriculum, being built out in batches. Tracks are added in
 dependency order; if a track's folder doesn't exist yet, it hasn't been
 built out yet — check back.

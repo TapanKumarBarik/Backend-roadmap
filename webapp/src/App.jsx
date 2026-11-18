@@ -527,6 +527,7 @@ export default function App() {
       { label: 'Collapse all in the tree', keywords: 'close sidebar', run: collapseAll },
       { label: `Open the ${SITE_LINKS.tracker.label}`, keywords: 'tracker checklist study items revise progress', run: () => { window.location.href = SITE_LINKS.tracker.url; } },
       { label: `Open the ${SITE_LINKS.tools.label}`, keywords: 'lab tools calculator subnet cidr latency network', run: () => { window.location.href = SITE_LINKS.tools.url; } },
+      { label: `Open the ${SITE_LINKS.studyPacks.label}`, keywords: 'azure pdf books download labs workbook az-900 az-104 az-700 az-305 az-400 certification exam', run: () => { window.location.href = SITE_LINKS.studyPacks.url; } },
       { label: 'Today: what to do now', keywords: 'today due review next continue drill', run: () => setTodayOpen(true) },
       { label: 'Export progress (.json)', keywords: 'download backup save', run: handleExport },
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }

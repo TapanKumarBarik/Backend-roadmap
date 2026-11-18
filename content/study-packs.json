@@ -1,0 +1,143 @@
+{
+  "folder": "notes/azure-study-pack",
+  "sections": [
+    {
+      "id": "certifications",
+      "title": "Azure certification study packs",
+      "intro": "One book and one lab workbook for each exam. Read the book first, then do the labs in a free Azure account.",
+      "packs": [
+        {
+          "id": "az-900",
+          "code": "AZ-900",
+          "title": "Azure Fundamentals",
+          "summary": "A picture-rich first step into Azure: cloud concepts, Azure architecture and services, and Azure management and governance. The labs are free-account friendly.",
+          "files": [
+            { "kind": "guide", "title": "Azure Fundamentals: Zero to AZ-900", "file": "az-900-azure-fundamentals-guide.pdf", "pages": 170 },
+            { "kind": "labs", "title": "Azure Fundamentals Labs Workbook", "file": "az-900-azure-fundamentals-labs.pdf", "pages": 39, "labs": 12 }
+          ]
+        },
+        {
+          "id": "az-104",
+          "code": "AZ-104",
+          "title": "Azure Administrator",
+          "summary": "Azure administration, picture first: identity, governance, storage, compute, networking, monitoring and backup. The labs are step by step, in the portal.",
+          "files": [
+            { "kind": "guide", "title": "Azure Administrator: Zero to AZ-104", "file": "az-104-azure-administrator-guide.pdf", "pages": 204 },
+            { "kind": "labs", "title": "Azure Administrator Labs Workbook", "file": "az-104-azure-administrator-labs.pdf", "pages": 75, "labs": 23 }
+          ]
+        },
+        {
+          "id": "az-700",
+          "code": "AZ-700",
+          "title": "Azure Networking",
+          "summary": "Builds networking skills one module at a time, starting from what a network is. The labs go from a first virtual network to VPNs, load balancers, private endpoints and Azure Firewall, all in the portal.",
+          "files": [
+            { "kind": "guide", "title": "Azure Networking: Zero to AZ-700", "file": "az-700-azure-networking-guide.pdf", "pages": 221 },
+            { "kind": "labs", "title": "Azure Networking Labs Workbook", "file": "az-700-azure-networking-labs.pdf", "pages": 105, "labs": 29 }
+          ]
+        },
+        {
+          "id": "az-305",
+          "code": "AZ-305",
+          "title": "Azure Solutions Architect",
+          "summary": "A design book for going from administrator to architect: identity, governance, monitoring, data, business continuity, compute, application architecture, migration and networking, with decision trees, scenarios and case studies. The 20 design labs end in a full capstone.",
+          "files": [
+            { "kind": "guide", "title": "Azure Solutions Architect: Zero to AZ-305", "file": "az-305-azure-solutions-architect-guide.pdf", "pages": 229 },
+            { "kind": "labs", "title": "Azure Solutions Architect Labs Workbook", "file": "az-305-azure-solutions-architect-labs.pdf", "pages": 80, "labs": 20 }
+          ]
+        },
+        {
+          "id": "az-400",
+          "code": "AZ-400",
+          "title": "DevOps Engineer Expert",
+          "summary": "A YAML-first book covering Azure DevOps and GitHub side by side: flow, source control, pipelines, deployments, infrastructure as code, security and monitoring. The labs include AI-assisted DevOps.",
+          "files": [
+            { "kind": "guide", "title": "DevOps Engineer Expert: Zero to AZ-400", "file": "az-400-devops-engineer-expert-guide.pdf", "pages": 215 },
+            { "kind": "labs", "title": "DevOps Engineer Labs Workbook", "file": "az-400-devops-engineer-expert-labs.pdf", "pages": 66, "labs": 16 }
+          ]
+        },
+        {
+          "id": "sc-500",
+          "code": "SC-500",
+          "title": "Cloud and AI Security Engineer",
+          "summary": "Security controls from end to end: identity, Key Vault, governance, storage, databases, networks, servers, containers, AI apps and agents, Defender for Cloud, Sentinel and Security Copilot.",
+          "files": [
+            { "kind": "guide", "title": "Cloud & AI Security Engineer: Zero to SC-500", "file": "sc-500-cloud-and-ai-security-engineer-guide.pdf", "pages": 229 },
+            { "kind": "labs", "title": "Cloud & AI Security Engineer Labs Workbook", "file": "sc-500-cloud-and-ai-security-engineer-labs.pdf", "pages": 66, "labs": 16 }
+          ]
+        },
+        {
+          "id": "ai-103",
+          "code": "AI-103",
+          "title": "Azure AI Apps and Agents Developer",
+          "summary": "A code-first book in Python: Foundry models, RAG, agents and multi-agent workflows, responsible AI, vision, speech, text and document extraction. The labs are runnable code.",
+          "files": [
+            { "kind": "guide", "title": "Azure AI Apps & Agents Developer: Zero to AI-103", "file": "ai-103-azure-ai-apps-and-agents-developer-guide.pdf", "pages": 230 },
+            { "kind": "labs", "title": "Azure AI Apps & Agents Labs Workbook", "file": "ai-103-azure-ai-apps-and-agents-developer-labs.pdf", "pages": 85, "labs": 21 }
+          ]
+        },
+        {
+          "id": "ai-200",
+          "code": "AI-200",
+          "title": "Azure AI Cloud Developer",
+          "summary": "A code-first book in Python: containers, vector databases, messaging, serverless, security and observability on Azure. The labs are runnable code.",
+          "files": [
+            { "kind": "guide", "title": "Azure AI Cloud Developer: Zero to AI-200", "file": "ai-200-azure-ai-cloud-developer-guide.pdf", "pages": 237 },
+            { "kind": "labs", "title": "Azure AI Cloud Developer Labs Workbook", "file": "ai-200-azure-ai-cloud-developer-labs.pdf", "pages": 88, "labs": 22 }
+          ]
+        },
+        {
+          "id": "ai-300",
+          "code": "AI-300",
+          "title": "Machine Learning Operations Engineer",
+          "summary": "A code-first book on Azure Machine Learning MLOps and Microsoft Foundry GenAIOps: infrastructure as code, training, deployment, monitoring, evaluation, tracing, RAG and fine-tuning.",
+          "files": [
+            { "kind": "guide", "title": "Machine Learning Operations Engineer: Zero to AI-300", "file": "ai-300-machine-learning-operations-engineer-guide.pdf", "pages": 186 },
+            { "kind": "labs", "title": "ML Operations Engineer Labs Workbook", "file": "ai-300-machine-learning-operations-engineer-labs.pdf", "pages": 57, "labs": 16 }
+          ]
+        },
+        {
+          "id": "ab-100",
+          "code": "AB-100",
+          "title": "Agentic AI Business Solutions Architect",
+          "summary": "An architecture book on planning, designing and deploying agentic business solutions: strategy, ROI, Copilot Studio, Microsoft 365 Copilot, Foundry, Dynamics 365 and Power Platform agents, testing, ALM and responsible AI.",
+          "files": [
+            { "kind": "guide", "title": "Agentic AI Business Solutions Architect: Zero to AB-100", "file": "ab-100-agentic-ai-business-solutions-architect-guide.pdf", "pages": 207 },
+            { "kind": "labs", "title": "Agentic AI Business Solutions Architect Labs Workbook", "file": "ab-100-agentic-ai-business-solutions-architect-labs.pdf", "pages": 54, "labs": 16 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "companions",
+      "title": "Projects, Python and interviews",
+      "intro": "Books that go with the study packs: build something, learn the Python behind AI systems, and prepare for the interview.",
+      "packs": [
+        {
+          "id": "azure-real-world-projects",
+          "title": "Azure Real-World Projects",
+          "summary": "Twenty portfolio projects that use almost every major Azure service, each with an architecture, a build plan, acceptance tests and guidance on tiers, load and limits. A companion to all the study packs.",
+          "files": [
+            { "kind": "book", "title": "Azure Real-World Projects", "file": "azure-real-world-projects.pdf", "pages": 201 }
+          ]
+        },
+        {
+          "id": "python-for-ai-engineers",
+          "title": "Python for AI Engineers",
+          "summary": "Beginner to advanced, concepts first and then interview questions: basics, the data model, decorators, typing and Pydantic, testing, packaging, memory and the GIL, threads, processes, asyncio, free-threading, FastAPI and LLM engineering patterns.",
+          "files": [
+            { "kind": "book", "title": "Python for AI Engineers", "file": "python-for-ai-engineers.pdf", "pages": 292 }
+          ]
+        },
+        {
+          "id": "ai-engineer-interview-playbook",
+          "title": "AI Engineer Interview Playbook",
+          "summary": "For AI and GenAI engineer roles, from screen call to offer: 350 interview questions with strong answers, follow-ups and red flags, 117 rapid-fire drills, 60 real-world scenarios, an 80-term Azure bank, eight whiteboard system designs, coding exercises, a STAR story bank and a four-week plan.",
+          "files": [
+            { "kind": "book", "title": "AI Engineer Interview Playbook", "file": "ai-engineer-interview-playbook.pdf", "pages": 347 }
+          ]
+        }
+      ]
+    }
+  ]
+}

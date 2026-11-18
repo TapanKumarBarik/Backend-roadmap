@@ -560,6 +560,29 @@ test('the corrections page carries the whole log in its HTML: each fix, its less
   assert.ok(sitemap().includes(`${config.site.url}/corrections/</loc>`), 'it is in the sitemap');
 });
 
+test('the study packs page offers every PDF in its HTML: a link for each file, the file itself in the build and a real PDF, and the page is in the sitemap and the home page footer', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'study-packs', 'index.html'), 'utf8');
+  assert.match(html, /<title>Azure Study Packs · [^<]+<\/title>/);
+  assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}/study-packs/">`));
+  assert.match(html, /<h1>Azure study packs<\/h1>/);
+  assert.doesNotMatch(html, /noindex/);
+  assert.doesNotMatch(html, /%BLOCK_|%DEVELOPER_|%SITE_/, 'no placeholder is left in the page');
+  const catalogue = JSON.parse(fs.readFileSync(path.join(ROOT, config.content.dir, 'study-packs.json'), 'utf8'));
+  const files = catalogue.sections.flatMap((section) => section.packs.flatMap((pack) => pack.files));
+  assert.ok(files.length >= 20, 'the catalogue lists the books');
+  assert.equal((html.match(/<article class="tool-card study-pack"/g) || []).length, catalogue.sections.reduce((sum, section) => sum + section.packs.length, 0), 'a card for each pack');
+  assert.equal((html.match(/type="application\/pdf"/g) || []).length, files.length, 'a link for each file');
+  for (const f of files) {
+    const href = `/${catalogue.folder}/${f.file}`;
+    assert.ok(html.includes(`href="${href}"`), `it links to ${href}`);
+    const built = path.join(ROOT, 'dist', href);
+    assert.ok(serves(href), `${href} is a file the site serves`);
+    assert.equal(fs.readFileSync(built).subarray(0, 5).toString('latin1'), '%PDF-', `${href} is a PDF`);
+  }
+  assert.ok(sitemap().includes(`${config.site.url}/study-packs/</loc>`), 'it is in the sitemap');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8').includes('href="/study-packs/"'), 'the home page leads to it');
+});
+
 test('the about page names who writes the site from the site config, says how the lessons are made and links the corrections, and carries a Person record', () => {
   const html = fs.readFileSync(path.join(ROOT, 'dist', 'about', 'index.html'), 'utf8');
   assert.match(html, /<title>About · [^<]+<\/title>/);
