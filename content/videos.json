@@ -2157,7 +2157,7 @@
       ]
     },
     {
-      "id": "pAc4VuZEc1M",
+      "id": "WHRPPSYQBRM",
       "lesson": "SD-E-015",
       "title": "Document Databases Explained: Embed vs Reference, MongoDB Limits",
       "playlist": "phase-2",
@@ -2387,7 +2387,7 @@
       ]
     },
     {
-      "id": "WHRPPSYQBRM",
+      "id": "pAc4VuZEc1M",
       "lesson": "SD-E-025",
       "title": "Secondary Indexes in Partitioned Data: Local vs Global (GSI)",
       "playlist": "phase-2",
