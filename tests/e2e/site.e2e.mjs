@@ -33,6 +33,7 @@ const LECTURE = '/system-design/01-core-fundamentals/01-what-is-system-design/';
 function findSoonLecture() {
   const { videos } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
   for (const video of videos) {
+    if (!video.file) continue; // a video with no module yet (docs/VIDEOS.md allows it) has no lecture text to be missing
     const file = path.join(CONTENT_ROOT, video.file);
     if (video.chapters?.length >= 3 && fs.existsSync(file) && isPlaceholderText(fs.readFileSync(file, 'utf8'))) {
       return { url: `/${video.file.replace(/README\.md$/, '')}`, summary: video.summary };
