@@ -160,6 +160,7 @@ test('the admin gives videos their modules: search, filter, a flag for those wit
   const repo = mockRepository({ 'videos.json': content('videos.json') });
   const registry = JSON.parse(content('videos.json'));
   const [first, second] = registry.videos;
+  const unattached = registry.videos.filter((v) => !v.module).length; // a video with no module is allowed (docs/VIDEOS.md), so the real registry may have some
   const { context, page, problems, goto } = await open('/#__admin');
   try {
     await goto();
@@ -180,9 +181,9 @@ test('the admin gives videos their modules: search, filter, a flag for those wit
     await module.fill('');
     await page.getByText('No module yet', { exact: true }).waitFor();
     await search.fill('');
-    await page.getByRole('button', { name: 'No module yet (1)' }).click();
-    await page.getByText(`1 of ${registry.videos.length} videos`).waitFor();
-    await page.getByRole('button', { name: 'No module yet (1)' }).click(); // off again, so the row stays once it has a module
+    await page.getByRole('button', { name: `No module yet (${unattached + 1})` }).click();
+    await page.getByText(`${unattached + 1} of ${registry.videos.length} videos`).waitFor();
+    await page.getByRole('button', { name: `No module yet (${unattached + 1})` }).click(); // off again, so the row stays once it has a module
     await search.fill(first.title.slice(0, 20));
 
     // A module the site does not have is flagged, and the server says which video it is on.
