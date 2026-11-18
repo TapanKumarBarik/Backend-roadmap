@@ -8,6 +8,8 @@ export const SITE = site.site;
 export const DEVELOPER = site.developer;
 export const REPO = site.repo;
 export const CONTENT = site.content;
+// Where a lesson's PDF notes are served from, named by the lesson's id (site.config.json -> content.notes): notes/system-design/SD-B-010.pdf.
+export const NOTES = site.content.notes;
 // The library's areas (the curriculum folders): name, short name, a line about each, and how its tracks are grouped. See lib/curriculum/areas.js.
 export const AREAS = site.content.areas;
 // The folder of the repository the curricula sit in. A lesson's key on the site is its path from there.

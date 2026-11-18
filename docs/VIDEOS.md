@@ -60,6 +60,30 @@ A video with no `"module"` still appears on the Videos screen, linking to YouTub
 | `summary`, `chapters` | A paragraph and the chapter lines, from the description. Optional. |
 | `lesson` | Your own id for the lesson (`SD-A-001`), if you keep one. Optional; not shown. |
 
+## Checking the channel against the registry
+
+A scheduled video is private on YouTube until its time, and the site shows a video only from its `published` time on, so the registry and the channel can disagree without anything failing in the build: an id attached to the wrong lesson, a video that has not gone public at its time, one that went public early, or one that the registry never got. A reader would meet a player that says "Video unavailable". Run the audit after uploading or scheduling, and before a push:
+
+```bash
+npm run videos:audit   # read-only: asks YouTube about every id; about 20 seconds
+```
+
+It says in sentences what is wrong and exits with 1, or says that the registry and the channel agree. It reads only public pages (nothing is changed), and the rules it applies are in `scripts/lib/videoAudit.mjs`. What to do with each answer:
+
+| It says | Do |
+|---|---|
+| A video is public on the channel but not in the registry | `npm run videos:sync`, then give it a `"module"` |
+| Dated in the past, but private, not embeddable or not found | Its id is wrong (compare it with the video's address in YouTube Studio), or its `published` time is later than the registry says: fix the one that is wrong |
+| Dated in the future, but already public | Set its `published` to the real time, so the site shows it |
+| An id is "attached to the wrong lesson" | Two ids were swapped when the registry was filled in: put each id on its own lesson |
+| A title worded differently | Nothing: the number matches, so it is the right video (a note, not a problem) |
+
+The sync does not make a scheduled video public: nothing in this repository can see a private video, so for those only the id is checked (a 403 means the id exists and is private; a 404 means a typo).
+
+## The PDF notes of a video
+
+Each video's lesson id (`"lesson": "SD-B-010"`) names its PDF notes: `webapp/public/notes/system-design/SD-B-010.pdf` (the folder is `site.config.json -> content.notes`). The module's video card links to it as **Free PDF notes**, so a new video needs no change to the module's text. `npm run check` fails with the video's id when a video has a lesson id and no PDF, so a link that goes nowhere cannot be deployed. A video with no lesson id (a full course of a phase, for instance) has no PDF link.
+
 ## A video written into a module's text
 
 The older way still works and is the right one when a video belongs *inside* a module, for instance right before the exercise it walks through. Paste the video's link on **a line of its own** in the module's `README.md`:

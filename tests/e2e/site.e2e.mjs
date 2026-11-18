@@ -25,7 +25,7 @@ const NEXT_LESSON = '/backend/03-authentication-and-authorization/02-jwt-deep-di
 const VIDEO_ID = 'jNQXAC9IVRw';
 // A module with a public video of its own in content/videos.json (found there, so a video going public or private does not break the tests),
 // a written lecture, and a lecture whose text is still to come.
-const { url: VIDEO_LESSON, id: VIDEO_LESSON_ID } = aVideoLesson();
+const { url: VIDEO_LESSON, id: VIDEO_LESSON_ID, lesson: VIDEO_LESSON_NOTES } = aVideoLesson();
 const LECTURE = '/system-design/01-core-fundamentals/01-what-is-system-design/';
 
 // A lecture whose video is published but whose text is not written yet: found in the content, so writing the last of them does not
@@ -445,6 +445,9 @@ test('a module with a video shows it under the title, and a chapter starts the p
   assert.equal(await page.locator('.lecture .video iframe').count(), 0, 'nothing is embedded until play is pressed');
   assert.equal(await page.locator('.lecture .video .video-link').getAttribute('href'), `https://www.youtube.com/watch?v=${VIDEO_LESSON_ID}`, 'it is still a link to the video');
   assert.ok(await page.locator('.lecture-chapter').count() >= 3, 'the chapters are listed');
+  const notesFile = `${config.content.notes.folder}/${VIDEO_LESSON_NOTES}${config.content.notes.extension}`;
+  assert.equal(await page.locator('.lecture-notes').getAttribute('href'), `/${notesFile}`, 'the video offers the PDF notes of its lesson');
+  assert.equal(fs.readFileSync(path.join(ROOT, 'dist', notesFile)).subarray(0, 5).toString('latin1'), '%PDF-', 'and that file is a PDF in the build');
   assert.equal(await page.locator(`#sidebar .row[data-file="${VIDEO_LESSON.slice(1)}README.md"] .vid-tag`).count(), 1, 'the sidebar marks a module that has a video');
 
   const chapter = page.locator('.lecture-chapter').nth(2);

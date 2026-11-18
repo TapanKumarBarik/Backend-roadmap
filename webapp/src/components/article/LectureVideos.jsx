@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { PlayIcon, YoutubeIcon } from '../common/icons.jsx';
 import { PLAYER_ALLOW, embedUrl, thumbnailUrl, watchUrl } from '../../lib/markdown/video.js';
-import { formatClock, nextVideo } from '../../lib/curriculum/videos.js';
+import { formatClock, nextVideo, notesAddress } from '../../lib/curriculum/videos.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { followInApp } from '../../lib/linkClick.js';
 import { LECTURE } from '../../config/videos.js';
+import { NOTES } from '../../config/index.js';
 import '../../styles/video.css';
 
 // The video (or videos) of a module, from the channel's registry (content/videos.json, docs/VIDEOS.md), shown at the top of
@@ -18,6 +19,7 @@ export default function LectureVideos({ videos, playlists, allVideos = [], onOpe
   const video = videos[picked] || videos[0];
   const playlist = playlists.find((p) => p.id === video.playlist);
   const playing = start !== null;
+  const notes = notesAddress(video, NOTES); // the video's PDF notes, when it has a lesson id
   // The video after this one in its playlist: its lesson when it has one (so the text comes with it), else the video itself.
   const next = nextVideo(allVideos, video);
   const current = playing ? video.chapters.reduce((at, [t], i) => (t <= start ? i : at), -1) : -1;
@@ -62,6 +64,7 @@ export default function LectureVideos({ videos, playlists, allVideos = [], onOpe
         <span className="lecture-kind"><PlayIcon aria-hidden="true" />{LECTURE.kind}</span>
         {video.seconds && <span>{formatClock(video.seconds)}</span>}
         {playlist && <a href={playlist.url} target="_blank" rel="noopener noreferrer">{playlist.title}</a>}
+        {notes && <a className="lecture-notes" href={notes} target="_blank" rel="noopener noreferrer">{LECTURE.notes}</a>}
         <a className="lecture-yt" href={watchUrl(video.id)} target="_blank" rel="noopener noreferrer">
           <YoutubeIcon aria-hidden="true" />{LECTURE.watchOnYouTube}
         </a>

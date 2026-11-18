@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseClock, formatClock, formatTotal, isoDuration, parseChapterLine, chapterLine, parseChapters, firstParagraph,
-  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo, isPublic, isFresh, nextRelease, releaseDay
+  cleanTitle, moduleFile, notesAddress, resolveVideos, groupByModule, totals, nextVideo, isPublic, isFresh, nextRelease, releaseDay
 } from './videos.js';
 
 test('clock times read and print both ways', () => {
@@ -99,6 +99,12 @@ test('stray spacing in a title is tidied, and a title without a series is left a
   assert.deepEqual(cleanTitle('A one-off video'), { title: 'A one-off video', number: null });
 });
 
+test('the full course of a phase has a series but no number: the suffix goes, and nothing is invented for a number', () => {
+  assert.deepEqual(cleanTitle('API Design Full Course: REST, gRPC | System Design Phase 2'), { title: 'API Design Full Course: REST, gRPC', number: null });
+  assert.deepEqual(cleanTitle('Fundamentals Full Course | System Design Phase 1 '), { title: 'Fundamentals Full Course', number: null });
+  assert.deepEqual(cleanTitle('Key-Value Stores | System Design Phase 2 #67'), { title: 'Key-Value Stores', number: 67 }, 'a numbered one is as before');
+});
+
 const registry = {
   playlists: [{ id: 'one' }, { id: 'two' }],
   videos: [
@@ -179,4 +185,11 @@ test('a time is today or tomorrow by the calendar day of whoever is reading', ()
   assert.equal(releaseDay(at(12, 9), now), null);
   assert.equal(releaseDay(at(9, 9), now), null, 'yesterday is neither');
   assert.equal(releaseDay('nope', now), null);
+});
+
+test('a video with a lesson id is offered with its PDF notes, at the notes folder and the lesson id; one without has none', () => {
+  const notes = { folder: 'notes/system-design', extension: '.pdf' };
+  assert.equal(notesAddress({ lesson: 'SD-B-010' }, notes), '/notes/system-design/SD-B-010.pdf');
+  assert.equal(notesAddress({ lesson: null }, notes), null);
+  assert.equal(notesAddress({}, notes), null);
 });

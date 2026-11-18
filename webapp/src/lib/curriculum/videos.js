@@ -108,8 +108,8 @@ export function firstParagraph(description, max = 320) {
 }
 
 // Titles on the channel end with the series: "… | System Design Phase 2 #41", "… | System Design Lesson 19",
-// "… | System Design Interview Prep (Lesson 1)", "… | Lesson 3". The suffix is where the number comes from.
-const SERIES_SUFFIX = /\s*\|\s*(?:System Design(?: Interview Prep)?\s*)?(?:Phase\s+\d+\s+#(\d+)|\(?Lesson\s+(\d+)\)?)\s*$/i;
+// "… | System Design Interview Prep (Lesson 1)", "… | Lesson 3". The suffix is where the number comes from; a phase with no number (a full course of the phase) has none to give.
+const SERIES_SUFFIX = /\s*\|\s*(?:System Design(?: Interview Prep)?\s*)?(?:Phase\s+\d+(?:\s+#(\d+))?|\(?Lesson\s+(\d+)\)?)\s*$/i;
 
 /**
  * A YouTube title without its series suffix, spacing tidied, and the number the suffix carried (null if none).
@@ -119,7 +119,7 @@ export function cleanTitle(raw) {
   const text = String(raw || '').replace(/\s+/g, ' ').trim();
   const m = SERIES_SUFFIX.exec(text);
   const title = (m ? text.slice(0, m.index) : text).replace(/\s+:/g, ':').replace(/([a-z0-9])\(/g, '$1 (');
-  return { title, number: m ? Number(m[1] || m[2]) : null };
+  return { title, number: m && (m[1] || m[2]) ? Number(m[1] || m[2]) : null };
 }
 
 /**
@@ -159,6 +159,13 @@ export function releaseDay(published, now = Date.now()) {
   const days = Math.round((startOfDay(at) - startOfDay(now)) / DAY);
   return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null;
 }
+
+/**
+ * The address of a video's PDF notes: the notes folder and the video's lesson id (the PDFs are named for the lesson), or null for a video with no lesson id.
+ * @param {{ lesson?: string | null }} video
+ * @param {{ folder: string, extension: string }} notes site.config.json -> content.notes
+ */
+export const notesAddress = (video, notes) => (video.lesson ? `/${notes.folder}/${video.lesson}${notes.extension}` : null);
 
 /** The key the app knows a module by: its folder's README. */
 export const moduleFile = (folder) => `${folder}/README.md`;

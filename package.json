@@ -44,6 +44,7 @@
     "check:urls:live": "node scripts/maintain/check-urls-live.mjs",
     "urls:register": "node scripts/maintain/register-urls.mjs",
     "videos:sync": "node scripts/maintain/sync-videos.mjs",
+    "videos:audit": "node scripts/maintain/audit-videos.mjs",
     "videos:links": "node scripts/maintain/video-links.mjs",
     "check:diagrams": "node scripts/check/mermaid.mjs",
     "shots": "node scripts/dev/screenshots.mjs",

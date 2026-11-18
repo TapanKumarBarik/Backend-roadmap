@@ -9,6 +9,7 @@ export const LECTURE = {
   kind: 'Video lecture',
   next: 'Next video',
   watchOnYouTube: 'Watch on YouTube',
+  notes: 'Free PDF notes',
   chapters: 'Chapters',
   play: (title) => `Play: ${title}`,
   playAt: (time, name) => `Play from ${time}: ${name}`,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRegistry, serializeRegistry, fileCounts, videoLinks } from './videos.mjs';
+import { validateRegistry, serializeRegistry, fileCounts, videoLinks, validateNotes, validateAgainstContent, loadRegistry } from './videos.mjs';
 import { parseFeed, toUtc, inferLesson } from './youtubeFeed.mjs';
 
 const folders = new Set(['backend/01-x/02-y', 'system-design/01-core/01-intro']);
@@ -138,4 +138,16 @@ test('a lesson id is worked out from the neighbours a description links to', () 
   assert.equal(inferLesson('◀️ Previous: SD-B-019 ▶️ Next: SD-C-001'), 'SD-B-020', 'the last of a series precedes the first of the next');
   assert.equal(inferLesson('Previous: SD-C-021'), 'SD-C-022', 'the newest has no next yet');
   assert.equal(inferLesson('nothing to see'), null);
+});
+
+test('a video whose lesson has no PDF is named, so no module page offers a link that goes nowhere; a video with no lesson id needs none', () => {
+  const pdfs = new Set(['SD-A-001']);
+  const options = { folder: 'webapp/public/notes/system-design', hasNotes: (lesson) => pdfs.has(lesson) };
+  const registry = { playlists, videos: [video({ lesson: 'SD-A-001' }), video({ id: 'bbbbbbbbbbb', number: 2, lesson: 'SD-A-002' }), video({ id: 'ccccccccccc', number: 3, lesson: undefined })] };
+  assert.deepEqual(validateNotes(registry, options), ['video bbbbbbbbbbb (phase-1 #2, lesson SD-A-002): there is no PDF for it in webapp/public/notes/system-design']);
+  assert.deepEqual(validateNotes({ playlists, videos: [video({ lesson: 'SD-A-001' })] }, options), []);
+});
+
+test('the real registry is whole: every module exists and every video with a lesson id has its PDF in the notes folder', () => {
+  assert.deepEqual(validateAgainstContent(loadRegistry()), []);
 });

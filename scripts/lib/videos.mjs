@@ -3,7 +3,7 @@
 // app shares (titles, chapters, clock times) are in webapp/src/lib/curriculum/videos.js.
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONTENT_ROOT } from './config.mjs';
+import { CONTENT_ROOT, ROOT, config } from './config.mjs';
 import { moduleFile } from '../../webapp/src/lib/curriculum/videos.js';
 import { serializeRegistry, validateRegistry } from '../../webapp/src/lib/siteContent/videos.js';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
@@ -25,9 +25,25 @@ export function saveRegistry(registry, file = VIDEOS_FILE) {
   fs.writeFileSync(file, serializeRegistry(registry));
 }
 
-/** The checks against the real content folder. */
+/**
+ * A video with a lesson id is offered with its PDF notes (the module page links notesAddress), so the PDF has to be there: a video added without its PDF would
+ * show a link that goes nowhere. `hasNotes(lessonId)` says whether the file is in the notes folder.
+ * @param {Registry} registry
+ * @param {{ hasNotes: (lesson: string) => boolean, folder: string }} options
+ */
+export function validateNotes(registry, { hasNotes, folder }) {
+  return registry.videos
+    .filter((v) => v.lesson && !hasNotes(v.lesson))
+    .map((v) => `video ${v.id} (${v.playlist} #${v.number}, lesson ${v.lesson}): there is no PDF for it in ${folder}`);
+}
+
+/** The checks against the real content folder, and the real notes folder. */
 export function validateAgainstContent(registry) {
-  return validateRegistry(registry, { hasModule: (folder) => fs.existsSync(path.join(CONTENT_ROOT, folder, 'README.md')) });
+  const { folder, extension } = config.content.notes;
+  return [
+    ...validateRegistry(registry, { hasModule: (module) => fs.existsSync(path.join(CONTENT_ROOT, module, 'README.md')) }),
+    ...validateNotes(registry, { folder: `webapp/public/${folder}`, hasNotes: (lesson) => fs.existsSync(path.join(ROOT, 'webapp', 'public', folder, `${lesson}${extension}`)) })
+  ];
 }
 
 /**

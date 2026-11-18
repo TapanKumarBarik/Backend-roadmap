@@ -58,6 +58,10 @@
     "placeholderMarker": "has not been written yet",
     "placeholderScanLines": 25,
     "wordsPerMinute": 210,
+    "notes": {
+      "folder": "notes/system-design",
+      "extension": ".pdf"
+    },
     "ignoredFiles": [
       "STATUS.md"
     ],
