@@ -323,6 +323,76 @@
         "lld"
       ],
       "next": "system-design-interview"
+    },
+    {
+      "id": "data-and-ml-foundations",
+      "title": "Data & Machine Learning Foundations",
+      "topic": "Machine Learning",
+      "goal": "Master the complete tabular data and classical machine learning engineering pipeline: NumPy vectorization, Pandas EDA, rigorous mathematics for ML (derivatives, gradients, probability, information theory), and production linear models and SVMs.",
+      "audience": "Backend and software engineers expanding into ML engineering, quantitative systems, and data analytics.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Python programming proficiency",
+        "High school calculus and linear algebra fundamentals"
+      ],
+      "skills": [
+        "NumPy Vectorization & Broadcasting",
+        "Pandas Data Wrangling & Leak-Free EDA",
+        "Multivariate Calculus & Convex Optimization",
+        "Ordinary Least Squares & Regularized Linear Models",
+        "Support Vector Machines & Kernel Methods"
+      ],
+      "steps": [
+        "ml/00-python-data-stack-and-eda",
+        "ml/01-ml-foundations-and-evaluation",
+        "ml/02-math-for-machine-learning",
+        "ml/03-linear-models-and-svm"
+      ],
+      "milestone": {
+        "title": "Production Fraud Detection Baseline",
+        "description": "Build a leak-free end-to-end classification pipeline comparing regularized logistic regression, SVMs with RBF kernels, and evaluated on Precision-Recall AUC under heavy class imbalance.",
+        "deliverables": [
+          "Clean Pandas ingestion with automated missingness audit",
+          "Scikit-learn Pipeline with ColumnTransformer and StandardScaler",
+          "Threshold tuning report maximizing F2-score for fraud recall"
+        ]
+      },
+      "flagship": true,
+      "next": "deep-learning-from-scratch"
+    },
+    {
+      "id": "deep-learning-from-scratch",
+      "title": "Deep Learning from Scratch",
+      "topic": "Deep Learning",
+      "goal": "Build and train neural networks from fundamental mathematics to running code: perceptrons, backpropagation step-by-step, computation graphs, micrograd autograd engines, and multi-layer perceptrons in NumPy.",
+      "audience": "Engineers who want to deeply understand the inner workings of modern neural networks and deep learning before using high-level frameworks.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Python programming",
+        "Basic matrix multiplication and chain rule of calculus"
+      ],
+      "skills": [
+        "Biological & Artificial Perceptron Mechanics",
+        "Activation Functions (Sigmoid, Tanh, ReLU, GELU, SwiGLU)",
+        "Vectorized Forward Pass as Matrix Multiplication",
+        "Symbolic Computation Graphs & Reverse-Mode Autograd",
+        "Vector-Jacobian Products & Backpropagation Derivations",
+        "Building Micrograd & MLPs from Scratch in NumPy"
+      ],
+      "steps": [
+        "neural-networks/00-perceptrons-mlps-and-backpropagation"
+      ],
+      "milestone": {
+        "title": "NumPy Deep Neural Network Engine",
+        "description": "Implement an object-oriented deep neural network library in pure NumPy supporting arbitrary layers, non-linear activations, cross-entropy loss, and vectorized backprop.",
+        "deliverables": [
+          "Layer base class with forward and backward signatures",
+          "Numerically stable Softmax Cross-Entropy loss",
+          "Verification against PyTorch gradients on synthetic nonlinear datasets"
+        ]
+      },
+      "flagship": true,
+      "next": "genai-foundations"
     }
   ]
 }

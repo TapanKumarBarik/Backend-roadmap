@@ -1,0 +1,56 @@
+{
+  "title": "Machine learning and mathematical modeling",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/02-math-for-machine-learning/05-gradient-descent-sgd-momentum-and-adam/README.md",
+  "questions": [
+    {
+      "q": "Derive the Bias-Variance Decomposition of expected prediction error and explain its implications.",
+      "a": "For a true data generator y = f(x) + epsilon where epsilon ~ N(0, sigma^2), the expected mean squared error of a model f_hat(x) decomposes into three terms: E[(y - f_hat(x))^2] = Bias[f_hat(x)]^2 + Var[f_hat(x)] + sigma^2. Bias squared measures the systematic error between the average model prediction and the true function (underfitting). Variance measures how much the model's predictions fluctuate across different training sets (overfitting). sigma^2 is the irreducible noise in the environment. Minimizing total generalization error requires balancing model complexity to optimize the trade-off between bias and variance."
+    },
+    {
+      "q": "Why does L1 (Lasso) regularization produce sparse weights while L2 (Ridge) only shrinks them?",
+      "a": "Formulate both as constrained optimization problems: minimizing loss subject to ||w||_1 <= t (L1) or ||w||_2^2 <= t (L2). The L1 constraint region is a rotated hypercube (diamond in 2D) with sharp corners located on the coordinate axes, whereas the L2 constraint region is a smooth hypersphere (circle in 2D). The elliptical contours of the unconstrained loss function are far more likely to intersect the L1 diamond at a sharp corner where one or more coordinates equal zero, driving weights strictly to 0.0 (feature selection). For L2, the derivative of w^2 is proportional to w, shrinking weights smoothly toward zero without ever reaching exact zero."
+    },
+    {
+      "q": "Derive the Ordinary Least Squares (OLS) closed-form solution (the Normal Equation). When does it break down?",
+      "a": "The OLS cost function in matrix form is J(w) = ||Xw - y||^2 = (Xw - y)^T (Xw - y) = w^T X^T X w - 2 y^T X w + y^T y. Taking the gradient with respect to w and setting it to zero: grad_w J = 2 X^T X w - 2 X^T y = 0, giving X^T X w = X^T y. Multiplying by (X^T X)^(-1) yields the Normal Equation: w = (X^T X)^(-1) X^T y. It breaks down when X^T X is non-invertible (singular), which happens when features are linearly dependent (perfect multicollinearity) or when the number of features p exceeds the number of observations n (p > n). It is also computationally prohibitive for massive datasets due to O(p^3) matrix inversion cost."
+    },
+    {
+      "q": "Explain the differences between Batch Gradient Descent, Mini-batch SGD, Momentum, RMSProp, and Adam.",
+      "a": "Batch GD computes gradients across the entire training dataset per step: stable convergence, but slow and memory-intensive for large datasets. Mini-batch SGD computes gradients over small batches (e.g., 32-256 samples), introducing stochastic noise that helps escape shallow local minima. Momentum adds an exponentially decaying moving average of past gradients to smooth oscillations along steep canyon walls and accelerate down ravines. RMSProp divides the gradient by the root of an exponential moving average of squared gradients, adapting per-parameter learning rates. Adam combines both Momentum (first moment estimation) and RMSProp (second moment estimation) with initialization bias correction."
+    },
+    {
+      "q": "Why is Logistic Regression a linear model, and how do you interpret its coefficients via Odds Ratios?",
+      "a": "Logistic Regression is linear because its decision boundary is a linear hyperplane in feature space, and the log-odds (logit) of the positive class is a linear combination of the input features: ln(P(y=1|x) / (1 - P(y=1|x))) = w^T x + b. Exponentiating both sides gives the odds ratio: Odds = exp(w^T x + b). Therefore, for every one-unit increase in feature x_j, the odds of the event occurring are multiplied by exp(w_j). If exp(w_j) = 1.25, the odds increase by 25%; if exp(w_j) = 0.80, the odds decrease by 20%."
+    },
+    {
+      "q": "How do you handle severe class imbalance (e.g., 99.9% negative vs 0.1% positive fraud detection)?",
+      "a": "1) Never rely on raw Accuracy, which trivially achieves 99.9% by predicting only negatives; use Precision-Recall AUC (PR-AUC), F-beta (with beta=2 to prioritize recall), and cost-weighted utility. 2) Cost-sensitive learning: weight the loss function inversely proportional to class frequencies so false negatives incur severe loss penalties. 3) Resampling: use stratified sampling, downsample the majority class, or apply SMOTE on the training fold only. 4) Threshold tuning: calibrate decision probability thresholds away from the default 0.5 to balance the business cost of false positives vs false negatives."
+    },
+    {
+      "q": "When is Precision-Recall AUC superior to ROC-AUC for model evaluation?",
+      "a": "ROC-AUC plots True Positive Rate vs False Positive Rate (FPR = FP / (FP + TN)). When the negative class is overwhelmingly large (e.g., fraud or click prediction), the denominator (FP + TN) is dominated by TN. As a result, thousands of false positives barely change FPR, making ROC-AUC look deceptively optimistic (e.g., 0.98 ROC-AUC). In contrast, PR-AUC evaluates Precision (TP / (TP + FP)) vs Recall; because Precision directly contrasts true positives against false positives without including true negatives, PR-AUC exposes excessive false positives and reflects true operational performance under severe class skew."
+    },
+    {
+      "q": "Explain the primal and dual formulations of Support Vector Machines and the role of Support Vectors.",
+      "a": "The primal SVM formulation finds the separating hyperplane w^T x + b = 0 that maximizes the geometric margin 2 / ||w||, equivalent to minimizing (1/2)||w||^2 subject to y_i(w^T x_i + b) >= 1 - xi_i (where xi_i are slack variables penalizing margin violations). By constructing the Lagrangian and taking derivatives, we arrive at the dual formulation, which depends solely on dot products between training vectors: x_i^T x_j. Only samples that lie directly on or inside the margin violate the constraint and have non-zero Lagrange multipliers (alpha_i > 0); these critical points are the Support Vectors, and the model's decision boundary is defined entirely by them."
+    },
+    {
+      "q": "What is the Kernel Trick in SVMs, and how does it enable non-linear classification without high-dimensional feature mapping?",
+      "a": "The Kernel Trick observes that the dual formulation of an SVM depends only on dot products between input vectors <phi(x_i), phi(x_j)> in a higher-dimensional feature space. A Mercer kernel function K(x_i, x_j) computes this inner product directly in the original low-dimensional input space without ever explicitly calculating or materializing the high-dimensional transformed coordinates phi(x). For instance, the Radial Basis Function (RBF / Gaussian) kernel K(x, z) = exp(-gamma ||x - z||^2) corresponds to an inner product in an infinite-dimensional Hilbert space, providing non-linear boundaries at minimal computational cost."
+    },
+    {
+      "q": "What is Data Leakage in machine learning, and what are its three most dangerous forms?",
+      "a": "Data leakage occurs when information from outside the training dataset is inadvertently used to create the model, producing overly optimistic validation metrics that collapse in production. The three most common forms are: 1) Preprocessing leakage: fitting scalers, imputers, or encoders on the full dataset before train/test splitting. 2) Target leakage: including features that are proxy variables or consequences of the target that will not be available at inference time (e.g., 'refund_date' when predicting customer churn). 3) Temporal leakage: using future data to predict past events in time-series problems without using chronological rolling splits."
+    },
+    {
+      "q": "Contrast Maximum Likelihood Estimation (MLE) and Maximum A Posteriori (MAP). How does MAP connect to regularization?",
+      "a": "MLE estimates parameters theta that maximize the likelihood of the observed data: argmax_theta P(D|theta). MAP introduces a Bayesian prior distribution over parameters P(theta) and maximizes the posterior: argmax_theta P(theta|D) = argmax_theta [ln P(D|theta) + ln P(theta)]. If we assume a Gaussian prior theta ~ N(0, sigma^2), ln P(theta) contributes a term proportional to -||theta||^2, which is mathematically identical to L2 (Ridge) regularization. If we assume a Laplace prior theta ~ Laplace(0, b), ln P(theta) contributes -||theta||_1, which is mathematically identical to L1 (Lasso) regularization."
+    },
+    {
+      "q": "How do you distinguish between High Bias (Underfitting) and High Variance (Overfitting) using learning curves?",
+      "a": "Plot training error and validation error as a function of training dataset size. Underfitting (High Bias) is characterized by high training error and high validation error converging close together with a narrow gap; adding more training data will not help, and the solution is increasing model capacity (more features, non-linear models, less regularization). Overfitting (High Variance) is characterized by very low training error but significantly higher validation error with a large persistent gap between curves; the solution is adding more training data, feature selection, data augmentation, or increasing regularization penalties."
+    }
+  ]
+}

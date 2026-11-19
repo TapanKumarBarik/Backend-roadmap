@@ -1,0 +1,56 @@
+{
+  "title": "Deep learning and neural network foundations",
+  "topic": "neural-networks",
+  "difficulty": "intermediate",
+  "module": "neural-networks/00-perceptrons-mlps-and-backpropagation/06-backpropagation-step-by-step-derivation/README.md",
+  "questions": [
+    {
+      "q": "Why can a single-layer perceptron not solve the XOR problem, and how do multi-layer networks overcome this limitation?",
+      "a": "A single-layer perceptron computes a single linear decision hyperplane w1*x1 + w2*x2 + b = 0. The XOR logic gate outputs 1 only when inputs differ ((0,1) or (1,0)) and 0 when they match ((0,0) or (1,1)). These points cannot be separated by any single straight line in 2D space. A multi-layer perceptron (MLP) overcomes this by introducing a hidden layer with non-linear activation functions that warps and projects the feature space into a higher-dimensional manifold where the classes become linearly separable by the output layer."
+    },
+    {
+      "q": "Compare Sigmoid, Tanh, ReLU, Leaky ReLU, and GELU activation functions. What are the trade-offs of each?",
+      "a": "Sigmoid squashes outputs into (0, 1) and saturates at both extremes, causing vanishing gradients (max derivative is only 0.25). Tanh maps into (-1, 1), offering zero-centered outputs which speed up gradient descent convergence, but still suffers vanishing gradients. ReLU (max(0, x)) has constant gradient 1 for positive inputs and zero saturation, enabling deep training, but suffers the 'Dying ReLU' problem if large negative gradients permanently push neurons inactive. Leaky ReLU adds a small non-zero slope (alpha*x) for negative inputs to keep neurons alive. GELU weights inputs by their standard Gaussian cumulative probability, providing smooth, probabilistic gating widely adopted in modern Transformers."
+    },
+    {
+      "q": "Explain the exact mechanics of reverse-mode automatic differentiation (Backpropagation) and Vector-Jacobian Products.",
+      "a": "Backpropagation executes in two phases on a Directed Acyclic Graph (DAG) of operations: 1) The Forward Pass computes intermediate activation tensors from inputs to the scalar loss L. 2) The Backward Pass applies the multivariate chain rule in reverse order. For an operation y = f(x), rather than materializing the full m x n Jacobian matrix J = dy/dx (which would consume gigabytes of memory), backprop computes the Vector-Jacobian Product (VJP): (dL/dy) * J. The incoming upstream gradient vector dL/dy is multiplied directly by the local derivatives to yield the downstream gradient dL/dx, propagating sensitivity backward in O(1) space per node."
+    },
+    {
+      "q": "What causes the Vanishing and Exploding Gradient problems in deep neural networks, and how are they mitigated?",
+      "a": "By the chain rule, gradients backpropagating through L layers multiply L weight matrices and derivative factors: dL/dh_0 = product_{k=1}^L (W_k^T * diag(sigma'(z_k))). If weight matrices have spectral norms (eigenvalues) > 1 or gradients compound exponentially, gradients explode toward infinity, causing numeric overflow and NaN losses. If eigenvalues < 1 or saturating activations (Sigmoid/Tanh) attenuate gradients, they vanish to 0, leaving early layers untrained. Mitigations include: proper weight initialization (He/Xavier), non-saturating activations (ReLU/GELU), residual skip connections (ResNet), normalization layers (BatchNorm/LayerNorm), and gradient clipping."
+    },
+    {
+      "q": "Why do we use Xavier/Glorot and He/Kaiming initialization instead of small random normal weights?",
+      "a": "Standard random normal initialization N(0, 1) or N(0, 0.01) causes activation variances to either shrink to zero or explode exponentially across successive layers. Xavier/Glorot initialization sets weights with variance Var(W) = 2 / (n_in + n_out) to preserve activation and gradient variance across linear and tanh layers. He/Kaiming initialization accounts for the fact that ReLU zeroes out half the activations, setting Var(W) = 2 / n_in. This ensures that the variance of activations remains constant across forward passes and the variance of gradients remains stable across backward passes."
+    },
+    {
+      "q": "Why is Softmax combined with Cross-Entropy Loss directly in deep learning engines instead of applying Softmax followed by separate Log?",
+      "a": "Applying Softmax followed by separate Log causes severe numerical instability: if a predicted logit is very large and positive, exp(z) overflows to infinity; if very negative, exp(z) underflows to 0.0, causing log(0) which returns -inf or NaN. Computing the Log-Softmax analytically as log(exp(z_i) / sum_j exp(z_j)) = z_i - logsumexp(z) allows using the Log-Sum-Exp trick: subtracting max(z) ensures the largest exponentiated term is exp(0) = 1, completely preventing overflow and underflow while computing exact gradients cleanly as (softmax(z) - y)."
+    },
+    {
+      "q": "What does the Universal Approximation Theorem guarantee, and why do we prefer deep networks over ultra-wide shallow ones?",
+      "a": "The Universal Approximation Theorem states that a feedforward network with a single hidden layer containing a finite number of non-linear neurons can approximate any continuous function on compact subsets of R^n to arbitrary accuracy. However, it says nothing about learnability or efficiency. Approximating complex functions with a single shallow layer often requires an exponentially large number of neurons (2^n). In contrast, deep hierarchical architectures compose simpler low-level abstractions into high-level features with exponentially fewer parameters, exhibiting superior inductive bias and generalization on real-world data."
+    },
+    {
+      "q": "Compare Batch Normalization and Layer Normalization. Where is each preferred?",
+      "a": "Batch Normalization computes mean and variance across the batch dimension (N) for each channel independently, normalizing features across samples. It acts as an implicit regularizer, speeds up CNN training, but depends on large batch sizes, breaks down for batch size 1, and struggles in recurrent models. Layer Normalization computes mean and variance across the feature/channel dimension for each individual sample independently. It has zero dependency across batch items, behaves identically in training and inference, and is the standard normalization layer for RNNs, Transformers, and reinforcement learning."
+    },
+    {
+      "q": "Explain Inverted Dropout and why it is used instead of standard Dropout.",
+      "a": "In standard Dropout, neurons are randomly zeroed out with probability p during training, and at inference time all neurons are kept active but the weights or activations are scaled by (1 - p) to match expected values. Inverted Dropout applies the scaling during training instead: active neurons are multiplied by 1 / (1 - p) on the forward pass. This keeps the expected activation magnitude identical between training and test time, meaning inference requires zero modification or extra multiplication operations, simplifying model export and deployment."
+    },
+    {
+      "q": "Why does AdamW decouple weight decay from gradient updates, and how does standard Adam mishandle L2 regularization?",
+      "a": "In standard SGD, adding an L2 penalty (1/2)*lambda*||w||^2 to the loss is mathematically equivalent to true weight decay (w <- w - lr*lambda*w). However, in adaptive optimizers like Adam, the gradient of the L2 penalty is divided by the moving average of squared gradients (sqrt(v_t)). Consequently, weights with frequently occurring large gradients experience diminished weight decay penalties, while weights with infrequent gradients get penalized excessively. AdamW decouples weight decay entirely from the adaptive gradient steps, subtracting the decay directly from the weights (w <- w - lr*lambda*w) before applying the Adam update."
+    },
+    {
+      "q": "What are the essential steps to triage and debug a neural network training run when the loss is not decreasing?",
+      "a": "1) Overfit a single batch: feed the model a single mini-batch (e.g., 8 samples) for 100 epochs without regularization; if training loss does not drop to near 0, there is a fundamental bug in model architecture, loss calculation, or backprop. 2) Check learning rate: run a learning rate range test to identify whether the rate is too large (exploding loss) or too small (flat loss). 3) Verify data pipelines: inspect input ranges, verify normalization, and ensure labels match the expected loss function format. 4) Monitor gradient norms: compute torch.nn.utils.clip_grad_norm_ to detect vanishing gradients (norm near 0) or exploding gradients (norm > 1000)."
+    },
+    {
+      "q": "How do you detect and isolate the root cause when a deep neural network produces NaN loss values?",
+      "a": "1) Activate PyTorch anomaly detection (torch.autograd.set_detect_anomaly(True)) to point to the exact forward operation that spawned the first NaN during backprop. 2) Check for division by zero: verify denominators have an epsilon guard (e.g., sqrt(var + 1e-8) in layer norm or cosine similarity). 3) Inspect log/sqrt inputs: ensure values passed into torch.log() are strictly positive (> 0). 4) Check for exploding gradients: add gradient clipping (clip_grad_norm_) before optimizer.step(). 5) Verify mixed precision scaling: if using float16, enable torch.cuda.amp.GradScaler to prevent small gradients from underflowing to zero."
+    }
+  ]
+}

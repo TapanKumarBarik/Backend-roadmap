@@ -1,23 +1,677 @@
 # Lesson 19: State
 
-*Content for this module has not been written yet — content will come up soon.*
+> **Prerequisites:** [Template Method](../18-template-method/README.md) and [Track 25 Overview](../README.md).  
+> **Estimated Reading Time:** 18 minutes  
+> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
-This lesson is part of [Track 25: Design Patterns, One at a Time](../README.md) in the [Low-Level Design](../../README.md) course. Every example will be written twice, in Python and in C#.
+> [!TIP]
+> **The One Rule of the State Pattern:** State encapsulates state-dependent behavior and transitions into discrete polymorphic classes, allowing an object's behavior to vary dynamically as its state changes without monolithic `switch` or `if/elif` statements. If a state machine has rich behavior coupled to each state, use the State pattern; if states are dumb data flags with static transitions, use an enum or lookup table.
 
-**After this lesson you will be able to:** Model an object whose behaviour depends on its state, such as an order or a vending machine.
+---
 
-## What it will cover
+## 1. Why This Matters: The Interview Trap
 
-- Replacing state flags and switch statements
-- An order state machine in both languages
-- State versus Strategy
-- When a simple enum and a transition table are better
+"How would you design an order processing system where an order can be created, paid, shipped, or cancelled?" is a classic system modeling interview question.
 
-## Interview questions it will answer
+Junior candidates immediately reach for a status enum and conditional branching:
 
-1. What is the State pattern?
-2. What is the difference between State and Strategy?
-3. How would you model order status changes?
+```csharp
+// The Junior Trap: The Exploding If/Else Monolith
+public void ShipOrder(Order order, string trackingNumber)
+{
+    if (order.Status == OrderStatus.New)
+        throw new InvalidOperationException("Cannot ship unpaid order.");
+    else if (order.Status == OrderStatus.Paid)
+    {
+        order.TrackingNumber = trackingNumber;
+        order.Status = OrderStatus.Shipped;
+    }
+    else if (order.Status == OrderStatus.Shipped)
+        throw new InvalidOperationException("Already shipped.");
+    else if (order.Status == OrderStatus.Cancelled)
+        throw new InvalidOperationException("Cannot ship cancelled order.");
+}
+```
+
+Interviewers spot the fatal flaws immediately:
+1. **Violation of the Open/Closed Principle:** Adding a new state (e.g., `PartiallyRefunded`, `AwaitingPickup`, `OnHold`) forces you to modify every single method in the `Order` class (`Pay`, `Ship`, `Cancel`, `Refund`, `Return`).
+2. **Scattered Invariants:** Business rules governing valid and invalid transitions are fractured across dozens of conditional branches, making bugs like shipping an unpaid order or refunding an already returned item easy to introduce.
+3. **High Cyclomatic Complexity:** Methods quickly swell to hundreds of lines with nested conditional checks.
+
+A senior engineer answers with **the State Pattern**:
+> "I model each state as an autonomous polymorphic class conforming to an `OrderState` abstraction. The `Order` context delegates its state-dependent operations (`Pay`, `Ship`, `Cancel`) to its current `OrderState` instance. Valid transitions instantiate and set the next state on the context; invalid transitions throw domain exceptions directly. This localizes all rules for a given state within a single class and allows adding new states without modifying existing ones."
+
+### State vs. Strategy vs. Transition Table
+
+Candidates frequently confuse the State and Strategy patterns because their UML class diagrams look identical. Here is the architectural distinction:
+
+| Dimension | State Pattern | Strategy Pattern | Transition Table (Enum / FSM) |
+| :--- | :--- | :--- | :--- |
+| **Primary Intent** | Alter object behavior as internal state mutates over time. | Interchange interchangeable algorithms or policies. | Validate state graph transitions for passive data models. |
+| **Coupling to Context** | **High:** States know the Context and actively mutate the Context's current state. | **Zero / Low:** Strategy executes independently; caller chooses the strategy. | **None:** Context is mutated by an external service or lookup dictionary. |
+| **Lifecycle & Transitions** | Dynamic: transitions happen continuously during the entity's lifecycle. | Static: typically set once at initialization (e.g., via DI) and rarely swapped. | Deterministic lookup: `(CurrentState, Trigger) -> NextState`. |
+| **Where Logic Lives** | Inside concrete state classes. | Inside concrete strategy classes. | In an external transition matrix or workflow engine. |
+| **Failure Mode** | Class explosion if states have trivial or non-existent behavior. | Misused when behavior needs to evolve during runtime. | Anemic domain model if transition actions need complex domain logic. |
+
+---
+
+## 2. Visual Mental Model / Taxonomic Comparison
+
+In the State pattern, the `Order` context holds a reference to an `OrderState`. When a client calls `order.Ship()`, the context delegates to `_state.Ship(this)`.
+
+```mermaid
+flowchart TD
+    subgraph Context["Context: Order"]
+        StateRef["Current State: _state"]
+        PayOp["Pay(amount)"] -->|delegates to| StateRef
+        ShipOp["Ship(tracking)"] -->|delegates to| StateRef
+        CancelOp["Cancel(reason)"] -->|delegates to| StateRef
+    end
+
+    subgraph StateHierarchy["State Hierarchy: OrderState"]
+        BaseState["OrderState (Abstract Interface)"]
+        NewState["NewOrderState"]
+        PaidState["PaidOrderState"]
+        ShippedState["ShippedOrderState"]
+        CancelledState["CancelledOrderState"]
+
+        BaseState -.->|implements| NewState
+        BaseState -.->|implements| PaidState
+        BaseState -.->|implements| ShippedState
+        BaseState -.->|implements| CancelledState
+    end
+
+    StateRef -.->|references| BaseState
+
+    NewState -->|"Pay() valid"| PaidState
+    NewState -->|"Cancel() valid"| CancelledState
+    NewState x--x|"Ship() INVALID (Throws)"| ShippedState
+
+    PaidState -->|"Ship() valid"| ShippedState
+    PaidState -->|"Cancel() valid (Refund)"| CancelledState
+    PaidState x--x|"Pay() INVALID (Throws)"| PaidState
+
+    ShippedState x--x|"Cancel() INVALID (Throws)"| CancelledState
+    CancelledState x--x|"All Operations INVALID (Terminal)"| CancelledState
+```
+
+### Transition Matrix for E-Commerce Order
+
+| Current State | `Pay(amount)` | `Ship(trackingId)` | `Cancel(reason)` |
+| :--- | :--- | :--- | :--- |
+| **`New`** | Transition to `Paid` | ❌ InvalidOperationException | Transition to `Cancelled` |
+| **`Paid`** | ❌ InvalidOperationException | Transition to `Shipped` | Transition to `Cancelled` (Refund) |
+| **`Shipped`** | ❌ InvalidOperationException | ❌ InvalidOperationException | ❌ InvalidOperationException |
+| **`Cancelled`** | ❌ InvalidOperationException | ❌ InvalidOperationException | ❌ InvalidOperationException |
+
+---
+
+## 3. Code Implementation
+
+The following implementation models an e-commerce order workflow. Notice how:
+1. Invalid operations throw explicit domain exceptions caught cleanly by the caller.
+2. The `Order` context exposes a package-private/internal `TransitionTo` method used exclusively by state classes.
+3. State classes encapsulate domain business rules (e.g., cannot ship unpaid goods; cannot cancel shipped goods).
+
+````carousel
+```python
+from __future__ import annotations
+from abc import ABC, abstractmethod
+
+
+class InvalidStateTransitionError(Exception):
+  """Raised when an operation is invalid for the current order state."""
+
+  pass
+
+
+class OrderState(ABC):
+  """Abstract State contract: defines all operations the context supports."""
+
+  @property
+  @abstractmethod
+  def name(self) -> str:
+    """Friendly state name for telemetry and diagnostics."""
+    pass
+
+  @abstractmethod
+  def pay(self, order: Order, amount: float) -> None:
+    pass
+
+  @abstractmethod
+  def ship(self, order: Order, tracking_id: str) -> None:
+    pass
+
+  @abstractmethod
+  def cancel(self, order: Order, reason: str) -> None:
+    pass
+
+
+class Order:
+  """Context: Maintains a reference to concrete state and delegates operations."""
+
+  def __init__(self, order_id: str, total_amount: float) -> None:
+    self.order_id: str = order_id
+    self.total_amount: float = total_amount
+    self._state: OrderState = NewOrderState()
+
+  @property
+  def state_name(self) -> str:
+    return self._state.name
+
+  def transition_to(self, new_state: OrderState) -> None:
+    """State transition hook invoked by concrete states."""
+    self._state = new_state
+
+  def pay(self, amount: float) -> None:
+    self._state.pay(self, amount)
+
+  def ship(self, tracking_id: str) -> None:
+    self._state.ship(self, tracking_id)
+
+  def cancel(self, reason: str) -> None:
+    self._state.cancel(self, reason)
+
+
+class NewOrderState(OrderState):
+  """Order has been created but not yet paid."""
+
+  @property
+  def name(self) -> str:
+    return "New"
+
+  def pay(self, order: Order, amount: float) -> None:
+    if amount < order.total_amount:
+      raise InvalidStateTransitionError(
+          f"Insufficient payment: received ${amount:.2f}, required"
+          f" ${order.total_amount:.2f}."
+      )
+    print(
+        f"[Order {order.order_id}] Payment of ${amount:.2f} accepted."
+        " Transitioning to Paid."
+    )
+    order.transition_to(PaidOrderState())
+
+  def ship(self, order: Order, tracking_id: str) -> None:
+    raise InvalidStateTransitionError(
+        f"Cannot ship order in New state. Order must be paid first."
+    )
+
+  def cancel(self, order: Order, reason: str) -> None:
+    print(
+        f"[Order {order.order_id}] Order cancelled: {reason}. Transitioning to"
+        " Cancelled."
+    )
+    order.transition_to(CancelledOrderState())
+
+
+class PaidOrderState(OrderState):
+  """Order has been paid; awaiting fulfillment or cancellation with refund."""
+
+  @property
+  def name(self) -> str:
+    return "Paid"
+
+  def pay(self, order: Order, amount: float) -> None:
+    raise InvalidStateTransitionError("Order is already paid.")
+
+  def ship(self, order: Order, tracking_id: str) -> None:
+    print(
+        f"[Order {order.order_id}] Order shipped with tracking {tracking_id}."
+        " Transitioning to Shipped."
+    )
+    order.transition_to(ShippedOrderState())
+
+  def cancel(self, order: Order, reason: str) -> None:
+    print(
+        f"[Order {order.order_id}] Order cancelled after payment. Refund of"
+        f" ${order.total_amount:.2f} issued. Transitioning to Cancelled."
+    )
+    order.transition_to(CancelledOrderState())
+
+
+class ShippedOrderState(OrderState):
+  """Order has been shipped and is in transit; terminal business state."""
+
+  @property
+  def name(self) -> str:
+    return "Shipped"
+
+  def pay(self, order: Order, amount: float) -> None:
+    raise InvalidStateTransitionError("Order is already paid and shipped.")
+
+  def ship(self, order: Order, tracking_id: str) -> None:
+    raise InvalidStateTransitionError("Order is already shipped.")
+
+  def cancel(self, order: Order, reason: str) -> None:
+    raise InvalidStateTransitionError(
+        "Cannot cancel order in Shipped state. Items are already in transit."
+    )
+
+
+class CancelledOrderState(OrderState):
+  """Terminal state: order is closed."""
+
+  @property
+  def name(self) -> str:
+    return "Cancelled"
+
+  def pay(self, order: Order, amount: float) -> None:
+    raise InvalidStateTransitionError(
+        "Cannot pay for order in Cancelled state."
+    )
+
+  def ship(self, order: Order, tracking_id: str) -> None:
+    raise InvalidStateTransitionError(
+        "Cannot ship order in Cancelled state."
+    )
+
+  def cancel(self, order: Order, reason: str) -> None:
+    raise InvalidStateTransitionError("Order is already cancelled.")
+
+
+# Demonstration
+if __name__ == "__main__":
+  # Scenario 1: Standard lifecycle with invalid attempts
+  order1 = Order("ORD-101", 250.00)
+  print(f"[Order {order1.order_id}] Current State: {order1.state_name}")
+
+  try:
+    order1.ship("TRK-999")
+  except InvalidStateTransitionError as ex:
+    print(f"[Order {order1.order_id}] Error: {ex}")
+
+  order1.pay(250.00)
+  print(f"[Order {order1.order_id}] Current State: {order1.state_name}")
+
+  try:
+    order1.pay(250.00)
+  except InvalidStateTransitionError as ex:
+    print(f"[Order {order1.order_id}] Error: {ex}")
+
+  order1.ship("TRK-999")
+  print(f"[Order {order1.order_id}] Current State: {order1.state_name}")
+
+  try:
+    order1.cancel("Customer changed mind")
+  except InvalidStateTransitionError as ex:
+    print(f"[Order {order1.order_id}] Error: {ex}")
+
+  print()
+
+  # Scenario 2: Cancellation before payment
+  order2 = Order("ORD-102", 100.00)
+  print(f"[Order {order2.order_id}] Current State: {order2.state_name}")
+
+  order2.cancel("Duplicate order")
+  print(f"[Order {order2.order_id}] Current State: {order2.state_name}")
+
+  try:
+    order2.pay(100.00)
+  except InvalidStateTransitionError as ex:
+    print(f"[Order {order2.order_id}] Error: {ex}")
+```
+<!-- slide -->
+```csharp
+using System;
+
+// Custom domain exception for invalid state operations
+public class InvalidStateTransitionException : InvalidOperationException
+{
+    public InvalidStateTransitionException(string message) : base(message) { }
+}
+
+// Abstract State Interface
+public abstract class OrderState
+{
+    public abstract string Name { get; }
+    public abstract void Pay(Order order, decimal amount);
+    public abstract void Ship(Order order, string trackingId);
+    public abstract void Cancel(Order order, string reason);
+}
+
+// Context: Maintains current state reference
+public class Order
+{
+    public string OrderId { get; }
+    public decimal TotalAmount { get; }
+    private OrderState _state;
+
+    public string StateName => _state.Name;
+
+    public Order(string orderId, decimal totalAmount)
+    {
+        OrderId = orderId;
+        TotalAmount = totalAmount;
+        _state = new NewOrderState();
+    }
+
+    internal void TransitionTo(OrderState newState)
+    {
+        _state = newState;
+    }
+
+    public void Pay(decimal amount) => _state.Pay(this, amount);
+    public void Ship(string trackingId) => _state.Ship(this, trackingId);
+    public void Cancel(string reason) => _state.Cancel(this, reason);
+}
+
+// Concrete State: New
+public class NewOrderState : OrderState
+{
+    public override string Name => "New";
+
+    public override void Pay(Order order, decimal amount)
+    {
+        if (amount < order.TotalAmount)
+            throw new InvalidStateTransitionException($"Insufficient payment: received ${amount:F2}, required ${order.TotalAmount:F2}.");
+
+        Console.WriteLine($"[Order {order.OrderId}] Payment of ${amount:F2} accepted. Transitioning to Paid.");
+        order.TransitionTo(new PaidOrderState());
+    }
+
+    public override void Ship(Order order, string trackingId)
+    {
+        throw new InvalidStateTransitionException("Cannot ship order in New state. Order must be paid first.");
+    }
+
+    public override void Cancel(Order order, string reason)
+    {
+        Console.WriteLine($"[Order {order.OrderId}] Order cancelled: {reason}. Transitioning to Cancelled.");
+        order.TransitionTo(new CancelledOrderState());
+    }
+}
+
+// Concrete State: Paid
+public class PaidOrderState : OrderState
+{
+    public override string Name => "Paid";
+
+    public override void Pay(Order order, decimal amount)
+    {
+        throw new InvalidStateTransitionException("Order is already paid.");
+    }
+
+    public override void Ship(Order order, string trackingId)
+    {
+        Console.WriteLine($"[Order {order.OrderId}] Order shipped with tracking {trackingId}. Transitioning to Shipped.");
+        order.TransitionTo(new ShippedOrderState());
+    }
+
+    public override void Cancel(Order order, string reason)
+    {
+        Console.WriteLine($"[Order {order.OrderId}] Order cancelled after payment. Refund of ${order.TotalAmount:F2} issued. Transitioning to Cancelled.");
+        order.TransitionTo(new CancelledOrderState());
+    }
+}
+
+// Concrete State: Shipped
+public class ShippedOrderState : OrderState
+{
+    public override string Name => "Shipped";
+
+    public override void Pay(Order order, decimal amount)
+    {
+        throw new InvalidStateTransitionException("Order is already paid and shipped.");
+    }
+
+    public override void Ship(Order order, string trackingId)
+    {
+        throw new InvalidStateTransitionException("Order is already shipped.");
+    }
+
+    public override void Cancel(Order order, string reason)
+    {
+        throw new InvalidStateTransitionException("Cannot cancel order in Shipped state. Items are already in transit.");
+    }
+}
+
+// Concrete State: Cancelled
+public class CancelledOrderState : OrderState
+{
+    public override string Name => "Cancelled";
+
+    public override void Pay(Order order, decimal amount)
+    {
+        throw new InvalidStateTransitionException("Cannot pay for order in Cancelled state.");
+    }
+
+    public override void Ship(Order order, string trackingId)
+    {
+        throw new InvalidStateTransitionException("Cannot ship order in Cancelled state.");
+    }
+
+    public override void Cancel(Order order, string reason)
+    {
+        throw new InvalidStateTransitionException("Order is already cancelled.");
+    }
+}
+
+// Demonstration
+public class Program
+{
+    public static void Main()
+    {
+        // Scenario 1: Standard lifecycle with invalid attempts
+        var order1 = new Order("ORD-101", 250.00m);
+        Console.WriteLine($"[Order {order1.OrderId}] Current State: {order1.StateName}");
+
+        try
+        {
+            order1.Ship("TRK-999");
+        }
+        catch (InvalidStateTransitionException ex)
+        {
+            Console.WriteLine($"[Order {order1.OrderId}] Error: {ex.Message}");
+        }
+
+        order1.Pay(250.00m);
+        Console.WriteLine($"[Order {order1.OrderId}] Current State: {order1.StateName}");
+
+        try
+        {
+            order1.Pay(250.00m);
+        }
+        catch (InvalidStateTransitionException ex)
+        {
+            Console.WriteLine($"[Order {order1.OrderId}] Error: {ex.Message}");
+        }
+
+        order1.Ship("TRK-999");
+        Console.WriteLine($"[Order {order1.OrderId}] Current State: {order1.StateName}");
+
+        try
+        {
+            order1.Cancel("Customer changed mind");
+        }
+        catch (InvalidStateTransitionException ex)
+        {
+            Console.WriteLine($"[Order {order1.OrderId}] Error: {ex.Message}");
+        }
+
+        Console.WriteLine();
+
+        // Scenario 2: Cancellation before payment
+        var order2 = new Order("ORD-102", 100.00m);
+        Console.WriteLine($"[Order {order2.OrderId}] Current State: {order2.StateName}");
+
+        order2.Cancel("Duplicate order");
+        Console.WriteLine($"[Order {order2.OrderId}] Current State: {order2.StateName}");
+
+        try
+        {
+            order2.Pay(100.00m);
+        }
+        catch (InvalidStateTransitionException ex)
+        {
+            Console.WriteLine($"[Order {order2.OrderId}] Error: {ex.Message}");
+        }
+    }
+}
+```
+````
+
+**Expected Output (Both Languages):**
+
+```text
+[Order ORD-101] Current State: New
+[Order ORD-101] Error: Cannot ship order in New state. Order must be paid first.
+[Order ORD-101] Payment of $250.00 accepted. Transitioning to Paid.
+[Order ORD-101] Current State: Paid
+[Order ORD-101] Error: Order is already paid.
+[Order ORD-101] Order shipped with tracking TRK-999. Transitioning to Shipped.
+[Order ORD-101] Current State: Shipped
+[Order ORD-101] Error: Cannot cancel order in Shipped state. Items are already in transit.
+
+[Order ORD-102] Current State: New
+[Order ORD-102] Order cancelled: Duplicate order. Transitioning to Cancelled.
+[Order ORD-102] Current State: Cancelled
+[Order ORD-102] Error: Cannot pay for order in Cancelled state.
+```
+
+---
+
+## 4. Where You Already Use It
+
+State machines and stateful objects are foundational across modern backend frameworks:
+
+- **In .NET / C#:**
+  - `System.Threading.Tasks.Task`: An async task transitions through discrete states: `Created` $\to$ `WaitingForActivation` $\to$ `WaitingToRun` $\to$ `Running` $\to$ `RanToCompletion` (or `Faulted` / `Canceled`). Methods like `.Start()` or `.Wait()` exhibit radically different behavior depending on the current task state.
+  - **Entity Framework Core (`EntityEntry.State`):** EF Core tracks every entity via an `EntityState` (`Detached`, `Unchanged`, `Deleted`, `Modified`, `Added`). Calling `DbContext.SaveChanges()` invokes completely different SQL generation logic (`INSERT`, `UPDATE`, `DELETE`, or no-op) based on that state.
+  - **Stateless library (`Stateless` NuGet):** The de facto standard library in .NET for creating hierarchical state machines in business workflows.
+
+- **In Python:**
+  - `asyncio.Future` and `Task`: A future begins in `PENDING`, transitions to `CANCELLED` or `FINISHED`. Calling `.result()` or `.set_result()` behaves according to the internal state (e.g., calling `.set_result()` on a finished future raises `InvalidStateError`).
+  - **Generator States (`inspect.getgeneratorstate`):** A generator transitions through `GEN_CREATED`, `GEN_RUNNING`, `GEN_SUSPENDED`, and `GEN_CLOSED`. Yielding pauses execution, while `StopIteration` transitions it permanently to `GEN_CLOSED`.
+  - **Django FSM (`django-fsm`):** Widely used in Python production backends to turn Django model status fields into formal finite state machines with transition decorators and authorization guards.
+
+---
+
+## 5. Pitfalls and When Not to Use It
+
+1. **State Explosion for Anemic Workflows:**
+   - If your entity has 10 states but each state has *no distinct behavior* (it is purely a status tag saved in a database column for UI display), creating 10 individual classes is pure overengineering.
+   - *Fix:* Use an enum with a static dictionary or state transition table `IDictionary<(State, Trigger), State>`. Use the State pattern only when state changes *behavior*, not just data.
+
+2. **Database Persistence Impedance Mismatch:**
+   - Concrete state classes are in-memory objects. Relational databases store strings or integers (`status = 'PAID'`). Reconstructing an entity from EF Core or SQLAlchemy requires a factory or mapping layer to re-hydrate the correct `OrderState` subclass.
+   - *Fix:* Store an enum or string in the database column, and use a factory method (`OrderStateFactory.Create(order.Status)`) in the entity constructor or ORM post-load hook to instantiate the matching state instance.
+
+3. **Concurrency and Race Conditions:**
+   - In distributed backend services, two concurrent HTTP requests might attempt to transition an order at the same microsecond (e.g., payment webhook arrives while the user clicks cancel). If transitions are not guarded by optimistic concurrency checks (e.g., `row_version` or database transactions with `SELECT ... FOR UPDATE`), double-transitions will occur.
+   - *Fix:* Combine the in-memory State pattern with database optimistic concurrency tokens (`xmin` in PostgreSQL, `RowVersion` / `[Timestamp]` in EF Core).
+
+4. **Circular Reference Memory Leaks:**
+   - In the classic GoF implementation, `Order` references `OrderState`, and `OrderState` receives `Order` in every method call. If state objects retain persistent references to the `Order` context inside instance fields, circular reference cycles can complicate garbage collection in languages without generational cycle collectors.
+   - *Fix:* Pass `Order` as a method argument (`state.Ship(order)`), rather than storing `Order` as a persistent field inside `OrderState`. Keep state instances stateless or singletons if possible.
+
+---
+
+## 6. Exercises & Practical Drills
+
+### Drill 1: Identify the Anti-Pattern
+Examine the following class:
+```csharp
+public class VendingMachine
+{
+    public string State = "IDLE"; // "IDLE", "HAS_MONEY", "DISPENSING", "SOLD_OUT"
+
+    public void InsertCoin(decimal amount)
+    {
+        if (State == "IDLE") { State = "HAS_MONEY"; }
+        else if (State == "HAS_MONEY") { /* add money */ }
+        else if (State == "DISPENSING") { throw new Exception("Wait for dispense"); }
+        else if (State == "SOLD_OUT") { throw new Exception("Sold out"); }
+    }
+}
+```
+What happens when you need to add an `EJECT_MONEY` action or a `MAINTENANCE_MODE` state?
+
+<details>
+<summary>Answer</summary>
+
+**Failure Modes:**
+1. Every new action (`EjectCoin`, `SelectProduct`, `Restock`) requires adding another method containing a massive `if (State == ...)` branch for all existing states.
+2. Every new state (`MAINTENANCE_MODE`) requires finding and updating every existing action method across the class.
+3. Stringly-typed state (`"IDLE"`) is vulnerable to typos (`"Idle"`, `"HAS_MOENY"`), producing silent runtime bugs without compiler warnings.
+
+**Remediation:**
+Introduce an abstract `VendingMachineState` with methods `InsertCoin()`, `EjectCoin()`, `SelectProduct()`, `Dispense()`. Create concrete classes: `IdleState`, `HasMoneyState`, `DispensingState`, `SoldOutState`, `MaintenanceState`. The machine simply delegates to `_state.InsertCoin(this, amount)`.
+</details>
+
+### Drill 2: Stateless Singletons vs. Allocating States
+In our `Order` implementation, each transition allocates a new state object: `order.TransitionTo(new PaidOrderState())`. Under high throughput (100,000 orders/sec), this triggers high GC allocation pressure. How can you optimize the State pattern to allocate zero objects during transitions?
+
+<details>
+<summary>Answer</summary>
+
+If concrete state classes hold **no instance fields** (they only contain transition logic and operate solely on parameters passed through `Order`), they are completely **stateless**.
+
+You can declare state instances as static singletons:
+```csharp
+public static class OrderStates
+{
+    public static readonly OrderState New = new NewOrderState();
+    public static readonly OrderState Paid = new PaidOrderState();
+    public static readonly OrderState Shipped = new ShippedOrderState();
+    public static readonly OrderState Cancelled = new CancelledOrderState();
+}
+
+// In transitions:
+order.TransitionTo(OrderStates.Paid);
+```
+In Python:
+```python
+class OrderStates:
+  NEW = NewOrderState()
+  PAID = PaidOrderState()
+  SHIPPED = ShippedOrderState()
+  CANCELLED = CancelledOrderState()
+
+
+# In transitions:
+order.transition_to(OrderStates.PAID)
+```
+This reduces heap allocations during state transitions to **zero**, entirely eliminating GC pressure.
+</details>
+
+---
+
+## 7. Interview Questions & Model Answers
+
+> [!interview]
+> **Question 1: What is the State pattern?**  
+> **Strong Answer:**  
+> "The State pattern is a behavioral design pattern that allows an object to alter its behavior when its internal state changes, appearing to the caller as though the object changed its class.  
+> 
+> Instead of using massive `switch` or `if/else` statements that check flags on every method invocation, the context object delegates all state-dependent behavior to an instance of a concrete state class conforming to a common state interface. When a state transition occurs, the context swaps its current state object for another. This satisfies the Open/Closed Principle by encapsulating state-specific rules and transition logic inside dedicated, cohesive classes."
+
+> [!interview]
+> **Question 2: What is the difference between State and Strategy?**  
+> **Strong Answer:**  
+> "While State and Strategy share virtually identical UML class diagrams, their architectural intent and coupling are fundamentally different:  
+> 
+> 1. **Intent & Dynamic Mutation:** The **State pattern** models an object whose behavior changes dynamically over time as its internal state progresses through a lifecycle (e.g., an Order transitioning from `New` $\to$ `Paid` $\to$ `Shipped`). The **Strategy pattern** encapsulates interchangeable algorithms or policies (e.g., `CreditCardPayment` vs. `PayPalPayment`), and the strategy chosen at construction rarely changes during the object's lifetime.  
+> 2. **Awareness of Context & Other Options:** State classes are tightly coupled to the Context; they accept the context as a parameter and actively invoke `context.TransitionTo(nextState)`. They know about other states in the transition graph. In contrast, Strategy classes are completely decoupled: a strategy does not know about other strategies or drive changes on the context; it simply executes its algorithm and returns a result."
+
+> [!interview]
+> **Question 3: How would you model order status changes?**  
+> **Strong Answer:**  
+> "I evaluate order status changes based on whether the states have behavior or are passive data:  
+> 
+> 1. **If states drive distinct domain behavior:** I model it using the State pattern. I create an abstract `OrderState` with operations like `Pay(amount)`, `Ship(trackingNumber)`, and `Cancel(reason)`. Concrete classes—`NewOrderState`, `PaidOrderState`, `ShippedOrderState`, and `CancelledOrderState`—implement valid transitions and throw domain exceptions (such as `InvalidStateTransitionException` or `InvalidOperationException`) on illegal transitions (e.g., shipping an unpaid order or cancelling a shipped order).  
+> 2. **If states are passive data persisted to a database:** I model it as an enum with an immutable state transition table `Dictionary<(OrderStatus, OrderTrigger), OrderStatus>`. This avoids class bloat when states contain no distinct logic beyond validation guards.  
+> 3. **Persistence & Concurrency:** In production, I combine this with optimistic concurrency control (a database version timestamp) so concurrent requests cannot execute conflicting state transitions simultaneously."
+
+---
+
+## 8. Sources & Further Reading
+
+- Gamma, E., Helm, R., Johnson, R., & Vlissides, J. (1994). *Design Patterns: Elements of Reusable Object-Oriented Software*. Addison-Wesley (The State Pattern, pp. 305–313).
+- [Microsoft Learn: State Machine in .NET Workflows](https://learn.microsoft.com/en-us/dotnet/framework/windows-workflow-foundation/state-machine-workflows)
+- [Stateless Library (.NET State Machines)](https://github.com/dotnet-state-machine/stateless)
+- [Refactoring.Guru: State Pattern](https://refactoring.guru/design-patterns/state)
+- [Martin Fowler: State Machine Design Pattern](https://martinfowler.com/books/dsl.html)
 
 ---
 

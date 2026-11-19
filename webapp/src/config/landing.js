@@ -12,7 +12,7 @@ const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
 // pre-render step): the description under the title in a search result, with the real count, and the line that names
 // who is behind the site.
 export const HOME_META = {
-  description: (modules) => `Free curriculum for backend, system design, ML, neural networks, cloud and GenAI: ${modules ? `${fmt(modules.written)} modules` : 'hundreds of modules'} with code, progress and notes.`,
+  description: (modules) => `Free curriculum for backend, low-level design, system design, ML, neural networks, cloud and GenAI: ${modules ? `${fmt(modules.written)} modules` : 'hundreds of modules'} with code, progress and notes.`,
   credit: (name) => `Created and maintained by ${name}.`
 };
 
@@ -22,7 +22,7 @@ export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-
 export const HERO = {
   eyebrow: 'Free · No sign-up to read',
   headline: 'Build the engineering skills that matter.',
-  lead: (modules) => `Learn backend development, distributed systems, cloud DevOps and AI engineering through 4 focused flagship tracks, actionable milestone projects and real-world failure post-mortems.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
+  lead: (modules) => `Learn backend development, low-level design (OOP, Design Patterns, Python and C#), distributed systems, cloud DevOps and AI engineering through focused flagship tracks, hands-on practice arenas and real-world failure post-mortems.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
   // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
   // FALLBACK_START_FILE instead.
   startPath: 'production-core',

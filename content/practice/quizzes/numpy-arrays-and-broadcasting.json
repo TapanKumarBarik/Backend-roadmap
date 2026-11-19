@@ -1,0 +1,86 @@
+{
+  "title": "NumPy arrays, shapes and broadcasting",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/00-python-data-stack-and-eda/02-numpy-indexing-slicing-and-broadcasting/README.md",
+  "description": "Strides, views versus copies, dimension prepending, trailing axis expansion, axis reductions, and vectorization rules in NumPy.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Given array a of shape (3, 1) and array b of shape (4,), what is the shape of a + b under NumPy broadcasting rules?",
+      "options": [
+        { "id": "a", "text": "ValueError: operands could not be broadcast together with shapes (3, 1) and (4,)" },
+        { "id": "b", "text": "(3, 4), because NumPy prepends 1 to b making it (1, 4), then stretches both arrays along singleton axes" },
+        { "id": "c", "text": "(4, 3), because 1D arrays take precedence on the leading axis" },
+        { "id": "d", "text": "(3, 1), because b is truncated to match the column count of a" }
+      ],
+      "answer": ["b"],
+      "explanation": "NumPy broadcasting compares trailing dimensions right to left. b has shape (4,), so NumPy prepends 1 to align ranks: (1, 4). Then dimension 1 of a (size 1) stretches to 4, and dimension 0 of b (size 1) stretches to 3, producing a broadcasted shape of (3, 4)."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "You execute sub = arr[0:2, 0:2] on a 2D NumPy array arr, and then set sub[0, 0] = 999. What happens to arr[0, 0]?",
+      "options": [
+        { "id": "a", "text": "arr[0, 0] is unchanged because basic slicing always returns an independent memory copy" },
+        { "id": "b", "text": "arr[0, 0] is updated to 999 because basic slice indexing returns a view sharing the same data buffer" },
+        { "id": "c", "text": "NumPy throws a ReadOnlyBufferError unless arr.copy() was explicitly called" },
+        { "id": "d", "text": "arr[0, 0] updates only if arr is C-contiguous, but remains unchanged if Fortran-ordered" }
+      ],
+      "answer": ["b"],
+      "explanation": "Basic slicing with slice objects (start:stop:step) returns a view pointing to the same underlying data buffer with modified shape and strides. Mutating a view modifies the base array. In contrast, advanced indexing (with boolean masks or integer arrays) creates an independent copy."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "For a 2D array X of shape (100, 10), what does X.sum(axis=0) return?",
+      "options": [
+        { "id": "a", "text": "A 1D array of shape (10,) containing the column sums" },
+        { "id": "b", "text": "A 1D array of shape (100,) containing the row sums" },
+        { "id": "c", "text": "A scalar containing the sum of all 1,000 elements" },
+        { "id": "d", "text": "A 2D array of shape (100, 1) with preserved row dimensions" }
+      ],
+      "answer": ["a"],
+      "explanation": "Specifying axis=0 collapses dimension 0 (the 100 rows), aggregating across rows to produce the sum for each of the 10 columns. To sum each row across columns, use axis=1."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "Boolean mask indexing arr[arr > 0] returns a memory view of arr, so mutating it modifies arr in place.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Boolean indexing is advanced indexing. Because the matching elements may not follow a regular strided stepping in memory, NumPy must allocate a fresh 1D array and copy the matching elements into it. Mutating the resulting array does not modify arr."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Why is np.linalg.solve(A, b) preferred over np.linalg.inv(A) @ b for solving linear systems Ax = b in numerical ML?",
+      "options": [
+        { "id": "a", "text": "np.linalg.solve uses LU/Cholesky decomposition directly without forming the inverse, making it both faster and significantly more numerically stable" },
+        { "id": "b", "text": "np.linalg.inv works only for diagonal matrices, while solve works on all matrices" },
+        { "id": "c", "text": "np.linalg.solve automatically performs L2 regularization if the matrix is singular" },
+        { "id": "d", "text": "There is no difference in accuracy; solve is simply syntactic sugar for inv(A) @ b" }
+      ],
+      "answer": ["a"],
+      "explanation": "Explicitly computing the matrix inverse A^(-1) squares the condition number error and requires ~2x more floating point operations. solve(A, b) performs triangular factorizations (LU or Cholesky) and backward substitution, preserving numerical precision and avoiding catastrophic cancellation on near-singular matrices."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "What does a[:, np.newaxis] do to a 1D NumPy array a of shape (N,)?",
+      "options": [
+        { "id": "a", "text": "Flattens the array into a scalar" },
+        { "id": "b", "text": "Converts it into a 2D column vector of shape (N, 1)" },
+        { "id": "c", "text": "Converts it into a 2D row vector of shape (1, N)" },
+        { "id": "d", "text": "Copies the array N times along a new memory axis" }
+      ],
+      "answer": ["b"],
+      "explanation": "np.newaxis (an alias for None) inserts a new axis of length 1 at that position. Placing it in the column slot transforms shape (N,) into a 2D column vector of shape (N, 1) without copying underlying memory."
+    }
+  ]
+}
+

@@ -1,0 +1,164 @@
+{
+  "title": "OOP Principles & SOLID Architecture",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "description": "Test your mastery of encapsulation, behavioral subtyping, the fragile base class problem, and SOLID principles.",
+  "module": "lld/24-oop-interview-questions/01-the-four-pillars-answered-well/README.md",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the primary cause of the Fragile Base Class problem in object-oriented inheritance?",
+      "options": [
+        { "id": "a", "text": "Subclasses directly accessing private fields through reflection" },
+        { "id": "b", "text": "Subclasses relying on the internal execution order and method-call chains of the superclass" },
+        { "id": "c", "text": "The language runtime lacking support for multiple inheritance" },
+        { "id": "d", "text": "Memory leaks caused by cyclic references between parent and child classes" }
+      ],
+      "answer": ["b"],
+      "explanation": "The Fragile Base Class problem arises because inheritance exposes the parent's internal execution details to subclasses (white-box reuse). If a parent class refactors an internal helper call or switches from calling a method directly to delegating via a template, subclasses overriding those methods can suffer double-counting or broken invariants without any compilation warnings."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "According to the Liskov Substitution Principle (LSP), which of the following is legally permitted when a subclass overrides a superclass method?",
+      "options": [
+        { "id": "a", "text": "Strengthening preconditions (requiring stricter input arguments)" },
+        { "id": "b", "text": "Weakening postconditions (promising fewer guarantees on returned results)" },
+        { "id": "c", "text": "Weakening preconditions (accepting broader, more permissive input arguments)" },
+        { "id": "d", "text": "Throwing new, arbitrary checked exceptions not declared by the superclass" }
+      ],
+      "answer": ["c"],
+      "explanation": "LSP requires behavioral subtyping: callers expecting the superclass must not be surprised by the subclass. A subclass may weaken preconditions (accepting a wider range of valid inputs than the parent), but it must deliver at least everything the parent promised (strengthening or maintaining postconditions) and preserve all class invariants."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which design principle is violated when a client class is forced to implement placeholder methods that throw NotImplementedException or UnsupportedOperationException?",
+      "options": [
+        { "id": "a", "text": "Single Responsibility Principle (SRP)" },
+        { "id": "b", "text": "Interface Segregation Principle (ISP)" },
+        { "id": "c", "text": "Dependency Inversion Principle (DIP)" },
+        { "id": "d", "text": "Open/Closed Principle (OCP)" }
+      ],
+      "answer": ["b"],
+      "explanation": "The Interface Segregation Principle states that no client should be forced to depend on methods it does not use. Monolithic 'fat' interfaces force implementing classes to provide dummy stubs that throw exceptions, polluting the class contract and coupling clients to operations they never perform."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What is the key difference between Inversion of Control (IoC) and Dependency Injection (DI)?",
+      "options": [
+        { "id": "a", "text": "IoC is an architectural paradigm where program flow is inverted; DI is a specific design pattern implementing IoC by passing dependencies from the outside" },
+        { "id": "b", "text": "IoC applies only to microservices, while DI is strictly an in-memory compiler feature" },
+        { "id": "c", "text": "DI requires using a third-party container library, whereas IoC can only be done with manual factories" },
+        { "id": "d", "text": "There is no difference; they are exact synonyms for the Dependency Inversion Principle" }
+      ],
+      "answer": ["a"],
+      "explanation": "Inversion of Control (IoC) is the overarching architectural concept where the framework or runtime calls custom code rather than custom code driving execution. Dependency Injection (DI) is a concrete design pattern implementing IoC by injecting collaborating instances into an object (via constructor, properties, or methods) instead of letting the object instantiate them directly."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which of the following are distinct characteristics of a Value Object compared to an Entity in Domain-Driven Design and LLD?",
+      "options": [
+        { "id": "a", "text": "Value Objects are identified by their unique persistent IDs, such as UUIDs" },
+        { "id": "b", "text": "Value Objects are completely defined by the values of their attributes" },
+        { "id": "c", "text": "Value Objects should be immutable; any change produces a new instance" },
+        { "id": "d", "text": "Two Value Objects with identical attributes are considered equal" }
+      ],
+      "answer": ["b", "c", "d"],
+      "explanation": "Entities are tracked by their identity and lifecycle (ID), whereas Value Objects have no conceptual identity and are defined entirely by their attributes. Value Objects are immutable (like Money(100, 'USD') or Coordinates(12.5, 77.2)); comparing two Value Objects checks structural equality of all fields."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "A class can have low coupling with external systems while simultaneously suffering from very low internal cohesion.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "True. A monolithic 'GeneralUtils' or 'Helper' class can be loosely coupled to callers via interfaces, but have abysmal cohesion because its internal methods handle unrelated concerns (date parsing, AES encryption, email delivery, and mathematical calculations)."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "How does the 'Tell, Don't Ask' principle improve object-oriented software design?",
+      "options": [
+        { "id": "a", "text": "By forcing all method arguments to be primitive types" },
+        { "id": "b", "text": "By commanding objects to perform operations on their own data rather than querying their state to execute logic externally" },
+        { "id": "c", "text": "By replacing synchronous method invocations with asynchronous message queues" },
+        { "id": "d", "text": "By requiring all class fields to be public so callers have complete visibility" }
+      ],
+      "answer": ["b"],
+      "explanation": "'Tell, Don't Ask' reminds developers that callers should not pull state out of an object to make decisions and then push modified state back in (which violates encapsulation). Instead, the caller tells the object what outcome it wants, allowing the object to protect its invariants and internal data structures."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "When designing an extensible payment processing pipeline, which SOLID principle is most directly served by introducing an IPaymentGateway interface rather than hardcoding StripeClient inside CheckoutService?",
+      "options": [
+        { "id": "a", "text": "Dependency Inversion Principle (DIP)" },
+        { "id": "b", "text": "Liskov Substitution Principle (LSP)" },
+        { "id": "c", "text": "Single Responsibility Principle (SRP)" },
+        { "id": "d", "text": "Interface Segregation Principle (ISP)" }
+      ],
+      "answer": ["a"],
+      "explanation": "DIP states that high-level modules (CheckoutService) must not depend on low-level modules (StripeClient); both must depend on abstractions (IPaymentGateway). This enables swapping payment providers (e.g., PayPal, Adyen) or mocking the gateway during unit testing without touching the checkout domain logic."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In the Liskov Substitution Principle (LSP), a subtype is allowed to _____ (weaken/strengthen) preconditions, but must _____ (weaken/strengthen) or maintain postconditions, while strictly preserving all class _____.' Which of the following statements correctly evaluate this contract?",
+      "options": [
+        { "id": "a", "text": "Preconditions can be weakened: the subtype may accept a wider range of valid inputs than the base class" },
+        { "id": "b", "text": "Postconditions can be strengthened: the subtype may promise tighter guarantees or more specific valid outputs" },
+        { "id": "c", "text": "Preconditions can be strengthened: the subtype may reject inputs that the base class previously accepted" },
+        { "id": "d", "text": "Class invariants must be preserved: internal safety rules cannot be broken by subclass methods" }
+      ],
+      "answer": ["a", "b", "d"],
+      "explanation": "Under LSP, callers expecting a base class must not be surprised. A subclass can accept broader inputs (weakening preconditions), must deliver at least everything promised (strengthening or maintaining postconditions), and must never violate established class invariants."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram connecting OOP design smells (Boxes 1-4) with dashed connectors `-- (dash) -->` to their root design violations:\n[Box 1: God Class with 45 methods]        -- (1) --> [Violation A: Low Cohesion & SRP Failure]\n[Box 2: Circle inheriting from Ellipse]   -- (2) --> [Violation B: Liskov Substitution Violation]\n[Box 3: Direct `new StripeClient()` call] -- (3) --> [Violation C: Dependency Inversion Violation]\n[Box 4: Class implementing 20 dummy stubs]-- (4) --> [Violation D: Interface Segregation Failure]\nWhich of the following box-joining pairings are valid?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Violation A (God classes exhibit low cohesion and violate Single Responsibility)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Violation B (Altering radius in Circle breaks ellipse axes assumptions)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Violation C (Hardcoding concrete collaborators couples high-level domain to low-level implementation)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Violation D (Monolithic interfaces force clients to implement unused stubs)" },
+        { "id": "e", "text": "Box 3 -- (3) --> Violation D (Hardcoding concrete classes is an interface segregation issue)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Pairings 1, 2, 3, and 4 are canonical design smell mappings. Box 3 directly violates Dependency Inversion (coupling high-level domain to a low-level concrete client), not Interface Segregation."
+    },
+    {
+      "id": "q11",
+      "type": "multiple",
+      "text": "Which of the following are legitimate architectural advantages of using object composition over class inheritance?",
+      "options": [
+        { "id": "a", "text": "Behavior can be dynamically swapped or reconfigured at runtime by injecting alternative strategy instances" },
+        { "id": "b", "text": "It avoids the Fragile Base Class problem by providing black-box encapsulation rather than exposing parent internals" },
+        { "id": "c", "text": "It avoids combinatorial subclass explosion when combining independent orthogonal behaviors" },
+        { "id": "d", "text": "It completely eliminates the need for unit testing or interface definitions" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Composition provides black-box reuse, allows runtime behavior changes via dependency injection, and prevents subclass explosions. It does not eliminate unit testing or interface requirements."
+    },
+    {
+      "id": "q12",
+      "type": "multiple",
+      "text": "Review the following box-joining connections linking SOLID principles (Boxes 1-3) with dashes to their primary code-smell remedies:\n[Box 1: Single Responsibility]  -- (dash) --> [Extract cohesive collaborator classes]\n[Box 2: Open/Closed]            -- (dash) --> [Introduce strategy interfaces to allow new behavior without editing existing files]\n[Box 3: Interface Segregation]  -- (dash) --> [Break monolithic fat interfaces into small role interfaces]\nWhich remedies correctly pair with their SOLID principle box?",
+      "options": [
+        { "id": "a", "text": "Box 1 correctly pairs with extracting cohesive collaborator classes" },
+        { "id": "b", "text": "Box 2 correctly pairs with strategy interfaces for extension without modification" },
+        { "id": "c", "text": "Box 3 correctly pairs with decomposing fat interfaces into focused role interfaces" },
+        { "id": "d", "text": "Box 1 pairs with merging unrelated utility functions into a single shared static namespace" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Extracting classes resolves low cohesion (SRP), strategy interfaces enable extension without mutation (OCP), and role interfaces prevent dummy stubs (ISP). Merging unrelated utilities worsens cohesion."
+    }
+  ]
+}

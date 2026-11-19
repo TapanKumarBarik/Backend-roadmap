@@ -1,0 +1,164 @@
+{
+  "title": "C# CLR, Structs & Memory Management",
+  "topic": "concurrency",
+  "difficulty": "advanced",
+  "description": "Deep dive into .NET generational GC, boxing, Span<T>, ref structs, and async state machines.",
+  "module": "lld/26-csharp-and-dotnet-interview/01-how-dotnet-runs-your-code/README.md",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What happens in memory when an integer value type is boxed in C# (e.g., `object obj = 42;`)?",
+      "options": [
+        { "id": "a", "text": "The CLR allocates an object header on the managed heap, copies the 4-byte integer into it, and returns a reference pointer" },
+        { "id": "b", "text": "The stack frame pointer is duplicated without any heap allocation" },
+        { "id": "c", "text": "The value is written directly to the Large Object Heap (LOH)" },
+        { "id": "d", "text": "The Roslyn compiler rejects the code because value types cannot be cast to object" }
+      ],
+      "answer": ["a"],
+      "explanation": "Boxing converts a value type to a reference type (`object` or an interface). The CLR allocates an object header (MethodTable pointer + SyncBlockIndex) on the managed heap, copies the struct's byte values into the new heap memory payload, and returns a reference to that heap allocation."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Why are types declared as `ref struct` (such as `Span<T>`) strictly forbidden from being boxed, captured in closures, or used in async methods?",
+      "options": [
+        { "id": "a", "text": "They contain interior pointers that can only safely point to stack memory; if promoted to the heap, stack unwinding would create dangling pointers" },
+        { "id": "b", "text": "The JIT compiler cannot generate IL for ref structs" },
+        { "id": "c", "text": "Ref structs are restricted exclusively to 32-bit CPU architectures" },
+        { "id": "d", "text": "They are deprecated in favor of unsafe fixed pointers" }
+      ],
+      "answer": ["a"],
+      "explanation": "`ref struct` types like `Span<T>` can reference stack-allocated memory (e.g., via `stackalloc`). To guarantee memory safety without GC tracking overhead, the compiler enforces that they never escape the stack: they cannot be boxed, stored in normal classes on the heap, or preserved across `await` suspension points where state machines are hoisted to the heap."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "In the standard C# Dispose Pattern, what is the critical purpose of calling `GC.SuppressFinalize(this)` inside `Dispose()`?",
+      "options": [
+        { "id": "a", "text": "It forces an immediate Gen 2 full garbage collection" },
+        { "id": "b", "text": "It tells the GC that the object's unmanaged resources have already been cleaned up, removing it from the finalizer queue to avoid redundant overhead" },
+        { "id": "c", "text": "It clears all static event subscriptions" },
+        { "id": "d", "text": "It prevents subclasses from overriding Dispose" }
+      ],
+      "answer": ["b"],
+      "explanation": "Objects with finalizers (~ClassName) are placed into a finalization queue. If an object is explicitly disposed via `Dispose()`, all unmanaged resources are freed immediately. Calling `GC.SuppressFinalize(this)` removes the object from the finalizer queue, allowing it to be collected directly in Gen 0/1 without surviving an extra collection cycle waiting for the dedicated finalizer thread."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Which of the following are distinct properties of the Large Object Heap (LOH) in the .NET Garbage Collector?",
+      "options": [
+        { "id": "a", "text": "It holds objects that are 85,000 bytes or larger (such as large byte arrays)" },
+        { "id": "b", "text": "By default, it is collected only during full Gen 2 garbage collections" },
+        { "id": "c", "text": "Historically, it is not compacted during collections (sweep only) to avoid expensive memory copying, which can lead to fragmentation" },
+        { "id": "d", "text": "It is stored entirely in CPU L1 cache memory" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "The LOH stores large objects (>= 85,000 bytes) to prevent the massive performance cost of copying large chunks of memory during normal Gen 0/1 compaction. It is collected along with Gen 2 and was traditionally swept rather than compacted, which is why frequent allocation of large buffers can cause memory fragmentation."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "In ASP.NET Core Dependency Injection, what risk occurs when a Singleton service injects a Scoped dependency (a Captive Dependency)?",
+      "options": [
+        { "id": "a", "text": "The application fails to compile" },
+        { "id": "b", "text": "The Scoped dependency is kept alive for the entire application lifetime, leading to concurrency bugs, memory leaks, and stale DbContext tracking" },
+        { "id": "c", "text": "Every HTTP request creates a new Singleton instance" },
+        { "id": "d", "text": "The GC forcibly terminates the ASP.NET Core process" }
+      ],
+      "answer": ["b"],
+      "explanation": "Because a Singleton lives for the entire lifetime of the process, any dependency injected into its constructor is captured forever. If that dependency was intended to be Scoped (e.g., an EF Core DbContext), it will never be disposed at the end of the HTTP request, causing multiple concurrent threads to share a non-thread-safe context and holding onto memory indefinitely."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Calling `ConfigureAwait(false)` in an ASP.NET Core application running on .NET 6+ has no effect on SynchronizationContext because ASP.NET Core does not have a SynchronizationContext.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "True. Unlike legacy ASP.NET on .NET Framework (which had a request-bound SynchronizationContext), ASP.NET Core was redesigned without a SynchronizationContext; continuations always resume on any available thread pool worker. However, `ConfigureAwait(false)` is still best practice in reusable class libraries that might be consumed by UI apps (WPF, WinForms, MAUI)."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "What is Tiered Compilation in the modern .NET CLR (RyuJIT)?",
+      "options": [
+        { "id": "a", "text": "Compiling C# into IL, then bytecode, then machine code across three servers" },
+        { "id": "b", "text": "Initially compiling methods with Tier 0 (quick JIT, no optimizations) for fast startup, then re-JITting frequently called methods with Tier 1 (full optimizations and PGO)" },
+        { "id": "c", "text": "Compiling only UI threads ahead of time while backend threads run in interpreted mode" },
+        { "id": "d", "text": "Splitting code compilation between the client browser and the server" }
+      ],
+      "answer": ["b"],
+      "explanation": "Tiered Compilation delivers both instant application startup and peak steady-state throughput. The JIT first produces Tier 0 unoptimized native code with zero compilation latency. If a method is called repeatedly (hot code), the runtime profiles its execution and queues it for Tier 1 recompilation with full loop unrolling, devirtualization, and profile-guided optimization."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Why should you choose `ValueTask<T>` over `Task<T>` when writing a high-frequency method that usually completes synchronously?",
+      "options": [
+        { "id": "a", "text": "`ValueTask<T>` is a struct, so returning a cached or immediate result allocates zero objects on the managed heap" },
+        { "id": "b", "text": "`ValueTask<T>` can be awaited multiple times by different threads concurrently" },
+        { "id": "c", "text": "`ValueTask<T>` forces the method to run on a background thread" },
+        { "id": "d", "text": "`ValueTask<T>` bypasses the C# async/await state machine completely" }
+      ],
+      "answer": ["a"],
+      "explanation": "`Task<T>` is a reference type; returning it from an async method requires allocating a `Task` object on the heap unless using a cached task. `ValueTask<T>` is a value type (struct): when an operation completes synchronously (such as a cache hit), it returns the result directly with zero heap allocation."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In .NET memory architecture, objects >= 85,000 bytes live on the _____ Heap (LOH), while `Span<T>` is declared as a _____ struct to guarantee it never escapes the execution _____, preventing dangling interior pointers.' Which of the following statements are correct?",
+      "options": [
+        { "id": "a", "text": "The Large Object Heap holds allocations >= 85,000 bytes to avoid costly memory copying during Gen 0/1 compaction" },
+        { "id": "b", "text": "Span<T> is a ref struct that lives strictly on the stack and cannot be boxed or placed in classes on the heap" },
+        { "id": "c", "text": "Memory<T> can be used when buffer views need to outlive stack frames across async await boundaries" },
+        { "id": "d", "text": "Ref structs can be freely boxed into object references whenever passed as method arguments" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "LOH stores large objects without compaction. Span<T> is a ref struct restricted to stack memory to prevent dangling pointers. Memory<T> is safe for heap storage and async methods."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram connecting .NET synchronization primitives (Boxes 1-4) with dashes `-- (dash) -->` to their concurrency mechanics:\n[Box 1: Interlocked]         -- (1) --> [Mechanic A: Hardware-level atomic CPU instructions with zero OS context-switching]\n[Box 2: Monitor (lock)]      -- (2) --> [Mechanic B: Exclusive monitor lock supporting thin-lock optimization]\n[Box 3: SemaphoreSlim]       -- (3) --> [Mechanic C: Async-awaitable throttling primitive via WaitAsync()]\n[Box 4: ReaderWriterLockSlim]-- (4) --> [Mechanic D: Multiple concurrent readers with single exclusive writer]\nWhich box-joining pairings accurately describe the synchronization primitives?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Mechanic A is correct (Interlocked executes atomic CPU instructions)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Mechanic B is correct (Monitor provides thread mutexes with thin-lock optimizations)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Mechanic C is correct (SemaphoreSlim supports async awaiting)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Mechanic D is correct (ReaderWriterLockSlim optimizes read-heavy shared state)" },
+        { "id": "e", "text": "Box 1 -- (1) --> Mechanic C is correct (Interlocked provides async awaitable semaphores)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Boxes 1 to 4 correctly pair each synchronization primitive with its operational model. Option e is false because Interlocked is purely synchronous CPU instructions."
+    },
+    {
+      "id": "q11",
+      "type": "multiple",
+      "text": "Which of the following statements are accurate regarding dependency injection lifetimes and captive dependencies in ASP.NET Core?",
+      "options": [
+        { "id": "a", "text": "A Transient service creates a brand-new instance every time it is resolved from the service provider" },
+        { "id": "b", "text": "A Scoped service is created once per HTTP request context and disposed at the request boundary" },
+        { "id": "c", "text": "Injecting a Scoped DbContext into a Singleton background worker creates a dangerous Captive Dependency" },
+        { "id": "d", "text": "Singletons are disposed and recreated on every incoming HTTP request" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Transient creates on demand; Scoped lives for the HTTP request; capturing a Scoped service in a Singleton prevents disposal and causes concurrency/memory bugs."
+    },
+    {
+      "id": "q12",
+      "type": "multiple",
+      "text": "Review the following box-joining diagram connecting .NET Garbage Collection generations (Boxes 1-3) with dashes to their expected object lifecycles:\n[Box 1: Generation 0] -- (dash) --> [Short-lived temporary objects, local variables, and string concatenations]\n[Box 2: Generation 1] -- (dash) --> [Buffer generation separating short-lived objects from surviving long-lived objects]\n[Box 3: Generation 2] -- (dash) --> [Long-lived objects, application singletons, static references, and cached pools]\nWhich of these GC generation connections are accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 accurately describes short-lived temporary allocations in Gen 0" },
+        { "id": "b", "text": "Box 2 accurately describes the buffer role of Gen 1" },
+        { "id": "c", "text": "Box 3 accurately describes persistent long-lived objects in Gen 2" },
+        { "id": "d", "text": "Box 1 holds 100 MB cached data structures by default" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Generational GC collects Gen 0 frequently for temporary objects, promotes survivors to Gen 1, and holds long-lived objects in Gen 2."
+    }
+  ]
+}

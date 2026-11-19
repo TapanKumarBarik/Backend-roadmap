@@ -1,0 +1,139 @@
+{
+  "title": "Linear models, regularization and SVMs",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/03-linear-models-and-svm/03-regularization-ridge-lasso-and-elasticnet/README.md",
+  "description": "Normal equation versus gradient descent, OLS assumptions, L1 sparsity geometry, L2 condition number improvement, odds ratios in logistic regression, and maximum margin SVMs.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Geometrically, why does L1 regularization (Lasso) drive feature weights to exact zero while L2 regularization (Ridge) merely shrinks them close to zero?",
+      "options": [
+        { "id": "a", "text": "The L1 constraint region is a diamond (polytope) with sharp corners positioned on the coordinate axes where the elliptical RSS loss contours touch first" },
+        { "id": "b", "text": "L1 optimization uses second derivatives which vanish at zero" },
+        { "id": "c", "text": "L2 regularization is mathematically incompatible with negative weights" },
+        { "id": "d", "text": "Lasso eliminates features whose p-values exceed 0.05 automatically" }
+      ],
+      "answer": ["a"],
+      "explanation": "In 2D (or higher dimensional) parameter space, the L1 ball ||w||_1 <= t is a diamond whose vertices lie precisely along the coordinate axes where one or more coordinates are exactly zero. Because the elliptical RSS contours expand outwards, they frequently make first contact with the sharp corner of the L1 diamond, producing exact sparsity."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "How does Ridge regression (L2 regularization) guarantee that (X^T X + lambda I) is invertible even if X has collinear features?",
+      "options": [
+        { "id": "a", "text": "Adding lambda I shifts all eigenvalues of X^T X upward by lambda > 0, ensuring all eigenvalues are strictly positive and bounded away from zero" },
+        { "id": "b", "text": "It projects the data into an infinite-dimensional Hilbert space" },
+        { "id": "c", "text": "It deletes linearly dependent columns from X prior to matrix multiplication" },
+        { "id": "d", "text": "It converts the matrix into a diagonal matrix" }
+      ],
+      "answer": ["a"],
+      "explanation": "X^T X is always positive semi-definite (eigenvalues >= 0). When collinearity exists, some eigenvalues are zero or near-zero, rendering the matrix singular. Adding lambda I increases every eigenvalue lambda_i to lambda_i + lambda > 0, making the matrix strictly positive definite and stably invertible."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "In a logistic regression model, feature x_j (credit utilization) has a fitted weight of w_j = 0.693. What is the odds ratio interpretation of this coefficient?",
+      "options": [
+        { "id": "a", "text": "A 1-unit increase in x_j multiplies the odds of default by exp(0.693) approx 2.0 (doubles the odds)" },
+        { "id": "b", "text": "A 1-unit increase in x_j increases default probability by 69.3 percentage points" },
+        { "id": "c", "text": "The feature explains 69.3% of the variance in the target" },
+        { "id": "d", "text": "The model has an accuracy of 69.3% on that feature" }
+      ],
+      "answer": ["a"],
+      "explanation": "In logistic regression, the log-odds is linear: ln(p / (1 - p)) = w^T x + b. Exponentiating both sides shows that a 1-unit increase in x_j scales the odds by exp(w_j). Since exp(0.693) approx 2.0, each additional unit of credit utilization doubles the odds of default."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "In a Support Vector Machine (SVM), moving a training data point that is far away from the decision boundary (not a support vector) changes the final decision hyperplane.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "The SVM decision boundary is determined strictly by the support vectors (the points lying on or violating the margin gutters where alpha_i > 0). Moving or deleting non-support vectors has zero effect on the optimal hyperplane."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "What is the primary motivation for using ElasticNet over pure Lasso when dealing with genomics or text data with thousands of correlated features?",
+      "options": [
+        { "id": "a", "text": "Lasso arbitrarily selects only one feature from a group of highly correlated predictors and zeros out the rest, whereas ElasticNet's L2 component groups correlated features together" },
+        { "id": "b", "text": "Lasso cannot handle more features than observations (d > n), whereas ElasticNet can" },
+        { "id": "c", "text": "ElasticNet avoids matrix multiplications completely" },
+        { "id": "d", "text": "Both A and B are correct" }
+      ],
+      "answer": ["d"],
+      "explanation": "When predictors are correlated, Lasso arbitrarily picks one and drops the others, and when d > n, Lasso can select at most n features. ElasticNet combines L1 sparsity with L2 strict convexity, enabling it to select groups of correlated features and pick more than n predictors when d > n."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "What is the computational complexity of solving the OLS Normal Equation (X^T X)^(-1) X^T y where X is an n x d matrix?",
+      "options": [
+        { "id": "a", "text": "O(n d)" },
+        { "id": "b", "text": "O(n d^2 + d^3)" },
+        { "id": "c", "text": "O(n^2 d)" },
+        { "id": "d", "text": "O(d log d)" }
+      ],
+      "answer": ["b"],
+      "explanation": "Computing X^T X requires O(n d^2) operations. Inverting or solving the d x d linear system via Cholesky or LU decomposition requires O(d^3) operations. When d exceeds 10,000, O(d^3) becomes computationally prohibitive, making iterative gradient descent necessary."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In regularized linear models, assuming a Gaussian prior on weights corresponds to _____ (L1/L2) regularization, while assuming a Laplace prior corresponds to _____ (L1/L2) regularization, which induces _____ in the learned weight vector.' Which statements are mathematically sound?",
+      "options": [
+        { "id": "a", "text": "A Gaussian prior on weights produces L2 (Ridge) penalty via negative log-prior proportional to -lambda ||w||_2^2" },
+        { "id": "b", "text": "A Laplace prior on weights produces L1 (Lasso) penalty via negative log-prior proportional to -lambda ||w||_1" },
+        { "id": "c", "text": "L1 regularization induces sparsity (exact zero weights), performing automatic feature selection" },
+        { "id": "d", "text": "L2 regularization produces exact zero weights for 90% of features" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "In MAP estimation, Gaussian priors produce L2 Ridge penalties (smooth shrinkage), while Laplace priors produce L1 Lasso penalties (sharp corners inducing exact sparsity)."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram connecting Regularization types (Boxes 1-4) with dashes `-- (dash) -->` to their geometric constraint surfaces in weight space:\n[Box 1: L1 Regularization (Lasso)]     -- (1) --> [Surface A: Diamond / Polytope with sharp corners on axes]\n[Box 2: L2 Regularization (Ridge)]     -- (2) --> [Surface B: Hypersphere / Circle with smooth rotational symmetry]\n[Box 3: ElasticNet Regularization]     -- (3) --> [Surface C: Stretched diamond with curved hyper-edges]\n[Box 4: Unconstrained OLS]             -- (4) --> [Surface D: Unbounded parameter space minimizing RSS]\nWhich box-joining pairings are geometrically accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Surface A is accurate (sharp corners intersect loss ellipses on coordinate axes)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Surface B is accurate (spherical constraint smoothly shrinks weights without rotation bias)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Surface C is accurate (convex combination of diamond and circle geometry)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Surface D is accurate (unregularized OLS has no constraint ball)" },
+        { "id": "e", "text": "Box 1 -- (1) --> Surface B is accurate (L1 has spherical rotational symmetry)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Boxes 1 through 4 correctly map the constraint regions for Lasso (L1 diamond), Ridge (L2 hypersphere), ElasticNet (blended hyper-surface), and OLS (unconstrained). Option e is false because L1 has sharp diamond corners, not spherical symmetry."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which of the following statements regarding Support Vector Machines (SVMs) and the Kernel Trick are true?",
+      "options": [
+        { "id": "a", "text": "The SVM decision boundary is determined solely by support vectors lying on or inside the margin gutters" },
+        { "id": "b", "text": "Mercer kernels compute dot products in higher/infinite dimensional feature spaces without computing explicit coordinate transforms" },
+        { "id": "c", "text": "The slack parameter C controls the trade-off between maximizing margin width and penalizing margin violations" },
+        { "id": "d", "text": "SVMs require the dataset to have strictly equal numbers of positive and negative samples" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "SVM boundaries depend strictly on support vectors; Mercer kernels compute inner products without materializing high-dimensional features; and parameter C balances margin width against training slack violations."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Review the following box-joining diagram connecting Classification models (Boxes 1-3) with dashes to their decision boundary behaviors:\n[Box 1: Logistic Regression] -- (dash) --> [Smooth probabilistic sigmoid boundary calibrated to log-odds]\n[Box 2: Linear SVM]          -- (dash) --> [Maximum geometric margin hyperplane robust to distant outliers]\n[Box 3: RBF-Kernel SVM]      -- (dash) --> [Non-linear boundary in input space via infinite-dimensional projection]\nWhich of these model connections are accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 accurately describes calibrated probabilistic log-odds boundaries" },
+        { "id": "b", "text": "Box 2 accurately describes maximum geometric margin hyperplanes" },
+        { "id": "c", "text": "Box 3 accurately describes non-linear boundaries in input space" },
+        { "id": "d", "text": "Box 1 produces circular quadratic boundaries in raw input space without polynomial expansion" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Logistic regression produces a linear decision boundary with calibrated probabilities; linear SVM produces a maximum margin hyperplane; and RBF-kernel SVM yields non-linear boundaries in the original feature space."
+    }
+  ]
+}
+

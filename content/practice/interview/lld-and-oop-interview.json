@@ -1,0 +1,56 @@
+{
+  "title": "Object-oriented design and LLD fundamentals",
+  "topic": "lld",
+  "difficulty": "intermediate",
+  "module": "lld/24-oop-interview-questions/01-the-four-pillars-answered-well/README.md",
+  "questions": [
+    {
+      "q": "How do you explain the four pillars of OOP (Encapsulation, Abstraction, Inheritance, Polymorphism) in a senior interview without reciting textbook definitions?",
+      "a": "Frame them in terms of managing complexity and change. Encapsulation bundles state with the invariants that govern it, hiding internal representation so outside code cannot bypass validation. Abstraction exposes what an entity does rather than how it works, providing minimal contracts that reduce cognitive load. Inheritance expresses true subtyping (an 'is-a' substitution relationship) to share structure and behavior, though it tightly couples classes. Polymorphism decouples caller code from concrete implementations, allowing runtime dispatch via interfaces or abstract base classes so new types can be introduced without modifying existing caller code."
+    },
+    {
+      "q": "Why is 'composition over inheritance' a guiding principle in low-level design, and what is the Fragile Base Class problem?",
+      "a": "Inheritance creates white-box reuse where a subclass depends on the implementation details and execution order of base class methods. The Fragile Base Class problem occurs when a benign modification in the parent (such as changing an internal method call from self.add() to self.add_all()) silently breaks subclass invariants or causes double-counting. Composition provides black-box reuse: the container class interacts only with the public interface of its components. This allows swapping behaviors at runtime, eliminates combinatorial subclass explosions, and prevents leaking internal base class state to callers."
+    },
+    {
+      "q": "Walk through the Liskov Substitution Principle (LSP). What are behavioral subtyping, precondition weakening, and postcondition strengthening?",
+      "a": "LSP states that objects of a superclass must be replaceable with objects of a subclass without altering the correctness of the program. Syntactic compatibility (same method names and types) is insufficient; behavioral subtyping is required. Specifically, a subclass cannot strengthen preconditions (it cannot demand stricter inputs than the parent accepted), cannot weaken postconditions (it must deliver at least everything the parent promised), and must preserve all class invariants. A classic violation is a Square inheriting from Rectangle where set_width also alters height, violating caller assumptions about independent dimension modification."
+    },
+    {
+      "q": "Distinguish between the Dependency Inversion Principle (DIP), Inversion of Control (IoC), and Dependency Injection (DI).",
+      "a": "DIP is a high-level architectural principle stating that high-level modules should not depend on low-level modules; both should depend on abstractions, and abstractions should not depend on details. IoC is a broad design pattern where the framework controls program flow rather than custom code (the Hollywood Principle: 'Don't call us, we'll call you'). Dependency Injection is a specific creational technique implementing IoC: instead of a class constructing its collaborators internally via 'new', collaborators are provided from the outside (via constructor, property, or method parameters), making classes loosely coupled and straightforward to mock in unit tests."
+    },
+    {
+      "q": "When should you choose an abstract class over an interface, and how has this distinction evolved in modern languages?",
+      "a": "Choose an interface when defining a pure behavioral capability ('can-do') across completely unrelated class hierarchies (e.g., IComparable, ISerializable), or when supporting multiple interface implementation. Choose an abstract class when modeling a core domain identity ('is-a') with shared state (non-static fields), constructor logic, or common template methods. Modern languages blur this boundary (Java default methods, C# default interface implementations), but state remains the fundamental differentiator: interfaces specify contracts without owning instance state, whereas abstract classes provide partial implementations with protected fields and lifecycle management."
+    },
+    {
+      "q": "What is the Interface Segregation Principle (ISP) and what code smells indicate that an interface is too fat?",
+      "a": "ISP dictates that no client should be forced to depend on methods it does not use. Code smells indicating a fat interface include: clients implementing dummy methods that throw NotImplementedException or UnsupportedOperationException, test mocks needing dozens of boilerplate method stubs just to test one method, and changes to one part of a service causing recompilation or redeployment of unrelated client modules. The remedy is role interfaces: decompose monolithic interfaces into focused, cohesive contracts (e.g., separating IReader from IWriter)."
+    },
+    {
+      "q": "Explain the difference between High Cohesion and Loose Coupling. Can a system have loose coupling but low cohesion?",
+      "a": "Cohesion measures how closely related and focused the responsibilities within a single module or class are (internal strength). Coupling measures the degree of interdependence between different modules (external friction). Yes, a system can have loose coupling with low cohesion: for example, a generic 'Utility' or 'Manager' class that contains completely unrelated functions (date formatting, string encryption, email sending) can be loosely coupled to other classes via interfaces, but has low cohesion because it lacks a single, well-defined domain purpose."
+    },
+    {
+      "q": "What is the Law of Demeter (Principle of Least Knowledge), and what is the 'Tell, Don't Ask' principle?",
+      "a": "The Law of Demeter states that a method of object A should only invoke methods of A itself, objects passed as parameters, objects instantiated within the method, or direct component objects of A (avoiding chaining calls like a.getB().getC().doSomething()). 'Tell, Don't Ask' complements this by reminding engineers not to query an object's internal data to make decisions outside it, but instead to command the object to perform the action itself. This preserves encapsulation and prevents domain logic from leaking across boundaries."
+    },
+    {
+      "q": "In Domain-Driven Design and LLD, what is the exact difference between an Entity and a Value Object?",
+      "a": "An Entity is defined by its persistent identity and continuity across state mutations over time; two entities with identical attributes but different unique IDs are distinct (e.g., two Users named John Doe). A Value Object is defined entirely by its attributes; it has no conceptual identity and is immutable. Two value objects with identical fields are interchangeable and equal (e.g., Money(amount=50, currency='USD')). Mutating a value object produces a fresh instance rather than changing the existing one in place, making value objects thread-safe and free from aliasing bugs."
+    },
+    {
+      "q": "How do you handle multiple inheritance conflicts, such as the Diamond Problem, in languages like Python vs C# vs Java?",
+      "a": "The Diamond Problem occurs when class D inherits from B and C, which both inherit from A; if B and C override a method from A, D faces ambiguity over which override to execute. Python resolves this deterministically at runtime using the C3 Linearization algorithm to compute a monotonic Method Resolution Order (MRO), accessible via Class.__mro__. C# and Java prohibit multiple class inheritance altogether, avoiding the problem by allowing only single class inheritance while permitting multiple interface implementation. In C# 8+ and Java 8+, if two interfaces provide conflicting default implementations, the implementing class must explicitly disambiguate by overriding the method."
+    },
+    {
+      "q": "What are Covariance, Contravariance, and Invariance in OOP type systems, and why do they matter for generics?",
+      "a": "Invariance means a container or generic type accepts only the exact specified type (e.g., List<Dog> is not a List<Animal>). Covariance preserves the subtyping relationship: if Dog is an Animal, then ReadOnlyCollection<Dog> is a ReadOnlyCollection<Animal> (useful for read-only outputs/producers, marked 'out' in C# or '? extends' in Java). Contravariance reverses the subtyping relationship: Action<Animal> can be treated as Action<Dog> because a function that handles any animal can safely handle a dog (useful for write-only inputs/consumers, marked 'in' in C# or '? super' in Java). Incorrect variance causes runtime type safety failures."
+    },
+    {
+      "q": "How do you design object models to guarantee thread safety without turning every method into a coarse-grained bottleneck?",
+      "a": "Prefer immutability first: immutable objects are inherently thread-safe and can be shared freely across threads without locks. For mutable shared state, isolate state behind fine-grained synchronization primitives (e.g., ReaderWriterLockSlim, ReadWriteLock) to allow concurrent reads while serializing writes. Use lock-free atomic primitives (Interlocked, AtomicInteger) for counters and reference updates. Avoid publishing the 'this' reference inside constructors before initialization completes, and use copy-on-write data structures for scenarios with frequent reads and infrequent writes."
+    }
+  ]
+}

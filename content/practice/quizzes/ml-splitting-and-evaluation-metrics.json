@@ -1,0 +1,86 @@
+{
+  "title": "ML data splitting and evaluation metrics",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/01-ml-foundations-and-evaluation/05-evaluation-metrics-regression-and-classification/README.md",
+  "description": "Stratified versus Group versus TimeSeries splits, ROC-AUC versus PR-AUC on imbalanced datasets, calibration, Brier score, and log-loss.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Why is PR-AUC (Area Under the Precision-Recall Curve) preferred over ROC-AUC when evaluating models on severe class imbalance (e.g. 0.1% fraud)?",
+      "options": [
+        { "id": "a", "text": "ROC-AUC divides false positives by all true negatives; when negatives outnumber positives 1,000 to 1, thousands of false positives yield a tiny False Positive Rate, making ROC-AUC deceptively optimistic" },
+        { "id": "b", "text": "PR-AUC can be computed without defining probability thresholds, whereas ROC-AUC cannot" },
+        { "id": "c", "text": "ROC-AUC is valid only for linear models, while PR-AUC works for all models" },
+        { "id": "d", "text": "Scikit-learn deprecates ROC-AUC on datasets with fewer than 10,000 positive samples" }
+      ],
+      "answer": ["a"],
+      "explanation": "ROC-AUC plots True Positive Rate vs False Positive Rate (FP / (FP + TN)). With huge TN counts (e.g. 999,000), even 5,000 false positives produces an FPR under 0.5%, yielding a stellar 0.98 ROC-AUC despite precision being abysmal (less than 15%). PR-AUC directly tracks Precision (TP / (TP + FP)) against Recall, immediately exposing precision collapse."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "You are building a model to predict clinical patient outcomes where each patient has between 3 and 15 hospital visit records. What cross-validation splitting strategy MUST be used?",
+      "options": [
+        { "id": "a", "text": "Standard K-Fold cross-validation" },
+        { "id": "b", "text": "Stratified K-Fold cross-validation" },
+        { "id": "c", "text": "GroupKFold cross-validation grouped by patient ID" },
+        { "id": "d", "text": "ShuffleSplit with random state" }
+      ],
+      "answer": ["c"],
+      "explanation": "If records from the same patient appear in both training and test folds, the model memorizes patient-specific idiosyncrasies (genetics, baseline vitals) rather than general disease indicators. GroupKFold ensures that all visits for any individual patient reside entirely in either the train fold or the validation fold."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "A binary classification model with high ROC-AUC (e.g., 0.95) is guaranteed to produce well-calibrated probabilities.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "ROC-AUC evaluates only ranking order: whether positive instances score higher than negative instances. If you scale all predicted probabilities by dividing by 10, the ranking and ROC-AUC remain identical (0.95), but the probabilities become severely miscalibrated. Calibration must be assessed separately with calibration curves or Brier score."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What does a lower Brier score indicate about a probabilistic classification model?",
+      "options": [
+        { "id": "a", "text": "The model has high variance and is overfitting" },
+        { "id": "b", "text": "The model has superior probability calibration and accuracy (mean squared error between predicted probabilities and actual 0/1 outcomes)" },
+        { "id": "c", "text": "The model is predicting only the majority class" },
+        { "id": "d", "text": "The model's decision threshold is set too high" }
+      ],
+      "answer": ["b"],
+      "explanation": "The Brier score measures the mean squared difference between predicted probabilities p_i and actual binary outcomes y_i in {0, 1}: Brier = (1/N) sum (p_i - y_i)^2. A Brier score of 0 indicates perfect calibration and deterministic accuracy."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "When cross-validating a time series forecasting model, why is random K-Fold cross-validation invalid?",
+      "options": [
+        { "id": "a", "text": "Random splitting trains on future data to predict past data (lookahead leakage), creating artificially inflated performance metrics" },
+        { "id": "b", "text": "Time series data cannot be evaluated with Mean Absolute Error" },
+        { "id": "c", "text": "K-Fold splits cannot handle datetime index types in Python" },
+        { "id": "d", "text": "It requires 10 times more memory than rolling window validation" }
+      ],
+      "answer": ["a"],
+      "explanation": "Random K-Fold shuffles observations across time, allowing the model to train on day t+1 and test on day t. This lookahead leakage hides non-stationarity and autocorrelation, producing validation metrics that collapse in production. Use TimeSeriesSplit or rolling forward validation."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "If a classifier's decision threshold is raised from 0.5 to 0.8, what typically happens to Precision and Recall on the positive class?",
+      "options": [
+        { "id": "a", "text": "Precision increases (or stays same) while Recall decreases" },
+        { "id": "b", "text": "Precision decreases while Recall increases" },
+        { "id": "c", "text": "Both Precision and Recall decrease" },
+        { "id": "d", "text": "Both Precision and Recall increase" }
+      ],
+      "answer": ["a"],
+      "explanation": "Raising the threshold makes the classifier more conservative: fewer instances are predicted positive. False positives decrease, typically increasing Precision, but false negatives increase, reducing Recall."
+    }
+  ]
+}
+

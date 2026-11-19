@@ -1,0 +1,56 @@
+{
+  "title": "Design patterns in system interviews",
+  "topic": "lld",
+  "difficulty": "advanced",
+  "module": "lld/25-design-patterns-one-at-a-time/01-how-to-answer-any-pattern-question/README.md",
+  "questions": [
+    {
+      "q": "How do you systematically distinguish between Factory Method, Abstract Factory, and Builder patterns?",
+      "a": "Factory Method defines an interface for creating a single object but lets subclasses decide which class to instantiate, delegating creation via inheritance. Abstract Factory creates families of related or dependent objects (e.g., WindowsButton + WindowsCheckbox vs MacButton + MacCheckbox) without specifying their concrete classes, grouping multiple factory methods under a unified interface. Builder separates the construction of a complex object with many optional parameters or multi-step validation from its final representation, constructing the product step-by-step and exposing a final .build() call to enforce invariants."
+    },
+    {
+      "q": "Why is the Singleton pattern frequently called an anti-pattern, and how do you implement a thread-safe Singleton if required?",
+      "a": "Singleton acts as an anti-pattern because it introduces hidden global state, tightly couples callers to a concrete class, prevents clean dependency substitution in unit tests, and can hide multi-threading race conditions. In modern architectures, singleton lifecycle is best delegated to a DI container. When implemented manually in code, use either: 1) Eager static initialization (leveraging the language runtime's thread-safe class loading, like .NET's static constructor or Java's initialization-on-demand holder idiom), or 2) Double-checked locking with volatile/memory barriers to prevent instruction reordering where a thread observes an allocated but uninitialized instance pointer."
+    },
+    {
+      "q": "Compare the Strategy pattern with the State pattern. Their UML class diagrams are identical; what is the architectural difference?",
+      "a": "The difference lies in intent, independence, and state transitions. In Strategy, concrete strategies are independent algorithms interchangeable at runtime by the client; a strategy rarely knows about other strategies or alters the context's strategy reference. In State, concrete states represent phases in a state machine lifecycle; state objects actively trigger transitions to next states by updating the context's current state reference. Strategy encapsulates *how* something is computed; State encapsulates *what* an entity is and *how it reacts* to events based on its current condition."
+    },
+    {
+      "q": "Distinguish between Decorator, Proxy, and Adapter patterns. When would you use each?",
+      "a": "Adapter translates an incompatible interface into one the client expects without changing core functionality (bridging two foreign APIs). Decorator shares the exact same interface as the wrapped object, enhancing or adding responsibilities dynamically without inheritance (e.g., adding gzip compression or metrics timing around an HTTP client). Proxy shares the exact same interface as the real subject, but controls access to it (e.g., lazy loading an expensive resource on first call, authorization checks, caching, or remote RPC communication across networks)."
+    },
+    {
+      "q": "What is the difference between the in-memory Observer pattern and an asynchronous Pub/Sub message broker?",
+      "a": "Observer is an in-process, synchronous pattern where the Subject directly holds references to Observer interfaces in memory and iterates over them in its own call stack; a slow or failing observer blocks or crashes the subject. Pub/Sub is an architectural pattern decoupled across processes and networks: Publishers publish messages to a named topic/channel on a central broker (Kafka, RabbitMQ, Redis) without any knowledge of Subscribers. Pub/Sub provides asynchronous delivery, temporal decoupling (subscribers can be offline), load leveling, and persistent buffering."
+    },
+    {
+      "q": "How does the Chain of Responsibility pattern underpin modern web framework middleware (ASP.NET Core, Express, FastAPI)?",
+      "a": "Chain of Responsibility passes a request along a dynamic pipeline of handler objects. Each handler in the chain decides whether to process the request, modify the context, pass execution to the next handler via a delegate (e.g., next() or await _next(context)), or short-circuit the pipeline entirely (e.g., returning 401 Unauthorized before hitting downstream controllers). This structure allows cross-cutting concerns (authentication, rate limiting, request tracing, compression, error handling) to be composed modularly without polluting business endpoints."
+    },
+    {
+      "q": "Explain the Repository and Unit of Work patterns and how they work together in an enterprise backend.",
+      "a": "Repository mediates between the domain layer and data mapping layers, providing a collection-like interface (FindById, Add, Remove) that hides raw SQL, ORMs, and persistence details. Unit of Work maintains a list of business objects affected by a business transaction and coordinates writing out changes and resolving concurrency conflicts. Repositories register created, updated, or deleted entities with the Unit of Work; when the business operation completes, UnitOfWork.Commit() executes all database writes within a single atomic database transaction."
+    },
+    {
+      "q": "Compare Template Method and Strategy patterns. What are the trade-offs of compile-time inheritance vs runtime composition?",
+      "a": "Template Method uses inheritance: the base class defines the skeleton of an algorithm in a non-virtual template method and delegates specific invariant steps to abstract or virtual primitive methods implemented by subclasses. Strategy uses object composition: the context delegates the entire algorithm or calculation to a swappable interface collaborator. Strategy is more flexible because strategies can be swapped dynamically at runtime and shared across disparate classes without subclassing, whereas Template Method enforces rigid compile-time inheritance hierarchy."
+    },
+    {
+      "q": "How do you implement Undo/Redo or Transaction Rollback using the Command and Memento patterns?",
+      "a": "Command encapsulates all information needed to perform an action (the receiver, arguments, and an execute() method) along with an unexecute() / undo() method. Memento captures and externalizes an object's internal state snapshot without violating encapsulation. For Undo/Redo, a history manager maintains two stacks of Command objects (undo stack and redo stack). When an operation runs, command.execute() is invoked and pushed to the undo stack. To undo, command.unexecute() restores the previous state (often leveraging a saved Memento) and moves the command to the redo stack."
+    },
+    {
+      "q": "How does the Facade pattern differ from an API Gateway or Adapter?",
+      "a": "Facade provides a simplified, unified high-level interface over a complex in-memory subsystem of classes within the same process (e.g., VideoConverterFacade coordinating AudioExtractor, CodecFactory, BitrateCompressor, and ContainerMuxer). An Adapter changes an existing interface to match a client expectation without simplifying it. An API Gateway is a distributed infrastructure component (reverse proxy) that routes, translates protocols, aggregates microservices, and terminates TLS at the boundary of a network, rather than an in-memory code refactoring pattern."
+    },
+    {
+      "q": "Explain the Flyweight pattern and where it is applied in high-throughput engines.",
+      "a": "Flyweight minimizes memory consumption by sharing common, immutable state ('intrinsic state') across large quantities of fine-grained objects, while passing context-dependent, unique data ('extrinsic state') as method parameters. Real-world applications include: text editors where millions of characters share Flyweight glyph representations (font, size, render bitmap) while individual positions (x, y line index) are extrinsic; game engines rendering forests of trees sharing 3D mesh and texture data; and Java's Integer.valueOf() or Python's small integer caching."
+    },
+    {
+      "q": "What is the Anemic Domain Model anti-pattern, and how does Rich Domain Modeling solve it?",
+      "a": "An Anemic Domain Model occurs when domain entities are reduced to dumb data holders (bags of getters and setters without business rules or invariants), while all business logic is placed into bloated procedural Service or Manager classes. This leads to code duplication, broken invariants, and loss of encapsulation. A Rich Domain Model enforces encapsulation: entities own both data and the business methods that mutate that data, verifying business rules and lifecycle transitions inside the entity itself before altering state."
+    }
+  ]
+}

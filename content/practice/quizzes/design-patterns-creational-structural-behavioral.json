@@ -1,0 +1,164 @@
+{
+  "title": "GoF Design Patterns in Practice",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "description": "Identify the exact design pattern needed to solve common software architecture and low-level design problems.",
+  "module": "lld/25-design-patterns-one-at-a-time/01-how-to-answer-any-pattern-question/README.md",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "You need to instantiate families of related UI widgets (e.g., WindowsButton + WindowsCheckbox vs MacButton + MacCheckbox) without hardcoding concrete classes in client code. Which pattern is best suited?",
+      "options": [
+        { "id": "a", "text": "Factory Method" },
+        { "id": "b", "text": "Abstract Factory" },
+        { "id": "c", "text": "Builder" },
+        { "id": "d", "text": "Prototype" }
+      ],
+      "answer": ["b"],
+      "explanation": "Abstract Factory provides an interface for creating families of related or dependent objects without specifying their concrete classes. Factory Method creates only one product at a time via inheritance, whereas Abstract Factory bundles multiple creation methods for an entire product family."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A third-party billing library returns an incompatible interface from what your existing accounting domain expects. You want to bridge this gap without altering the vendor's source code. Which pattern should you use?",
+      "options": [
+        { "id": "a", "text": "Adapter" },
+        { "id": "b", "text": "Decorator" },
+        { "id": "c", "text": "Proxy" },
+        { "id": "d", "text": "Bridge" }
+      ],
+      "answer": ["a"],
+      "explanation": "Adapter converts the interface of a class into another interface that clients expect. It allows classes with incompatible interfaces to work together by wrapping the adaptee and translating calls between interfaces."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "You want to dynamically attach gzip compression, request logging, and rate limiting to an HTTP client without modifying the client or creating an explosion of subclasses. Which pattern is designed for this?",
+      "options": [
+        { "id": "a", "text": "Composite" },
+        { "id": "b", "text": "Decorator" },
+        { "id": "c", "text": "Facade" },
+        { "id": "d", "text": "Flyweight" }
+      ],
+      "answer": ["b"],
+      "explanation": "Decorator attaches additional responsibilities to an object dynamically. Decorators provide a flexible alternative to subclassing for extending functionality, sharing the exact same interface as the wrapped object and delegating calls through a chain of wrappers."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What is the primary structural and intent difference between the Strategy pattern and the State pattern?",
+      "options": [
+        { "id": "a", "text": "Strategy relies on multiple inheritance, whereas State uses single inheritance" },
+        { "id": "b", "text": "Strategies are independent algorithms swapped by the client; States represent lifecycle phases where state objects trigger transitions to next states" },
+        { "id": "c", "text": "State is a creational pattern, while Strategy is a structural pattern" },
+        { "id": "d", "text": "There is no functional or architectural difference; they are exact duplicates" }
+      ],
+      "answer": ["b"],
+      "explanation": "While both Strategy and State share similar UML structures, their intent differs completely. In Strategy, algorithms are independent and the client selects which one to use; strategies rarely transition the context. In State, the context's behavior changes dynamically as its internal state changes, and state subclasses actively coordinate transitions to subsequent states."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Which design pattern is used by web framework middleware pipelines (e.g., ASP.NET Core, Express) where an HTTP request is passed along a series of handlers that can each process or short-circuit the request?",
+      "options": [
+        { "id": "a", "text": "Chain of Responsibility" },
+        { "id": "b", "text": "Observer" },
+        { "id": "c", "text": "Command" },
+        { "id": "d", "text": "Mediator" }
+      ],
+      "answer": ["a"],
+      "explanation": "Chain of Responsibility passes a request along a chain of potential handlers. Upon receiving a request, each handler decides either to process the request and pass it to the next handler in the pipeline, or to short-circuit the chain and return a response immediately."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which of the following problems can be resolved or mitigated using the Command pattern?",
+      "options": [
+        { "id": "a", "text": "Implementing multi-level Undo and Redo operations" },
+        { "id": "b", "text": "Queueing and scheduling tasks for background execution" },
+        { "id": "c", "text": "Logging operations to disk for transactional crash recovery" },
+        { "id": "d", "text": "Eliminating virtual method table dispatch in the CPU cache" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "The Command pattern encapsulates a request as a standalone object containing all information about the call. This makes it trivial to parameterize clients with different requests, queue or log requests, and support reversible undo/redo operations by storing execution history."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A text editor needs to render 500,000 glyphs on screen without exhausting RAM. Most characters share the exact same font, size, and bitmap rendering data, differing only in line coordinates. Which pattern should be applied?",
+      "options": [
+        { "id": "a", "text": "Flyweight" },
+        { "id": "b", "text": "Prototype" },
+        { "id": "c", "text": "Singleton" },
+        { "id": "d", "text": "Proxy" }
+      ],
+      "answer": ["a"],
+      "explanation": "The Flyweight pattern minimizes memory usage by sharing as much common data as possible with other similar objects. It splits state into intrinsic state (shared, immutable font/bitmap data stored in the flyweight) and extrinsic state (context-dependent screen coordinates passed to methods)."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "The Facade pattern alters the underlying interfaces of subsystem classes to enforce strict type checking on callers.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "False. A Facade provides a higher-level, simplified interface to an existing complex subsystem without modifying the subsystem's underlying classes or restricting direct access to them if advanced functionality is needed."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram mapping GoF structural patterns (Boxes 1-4) with dashes `-- (dash) -->` to their runtime behaviors:\n[Box 1: Decorator] -- (1) --> [Behavior A: Dynamically attaches responsibilities while keeping the exact same interface]\n[Box 2: Adapter]   -- (2) --> [Behavior B: Translates one incompatible interface into an expected interface]\n[Box 3: Proxy]     -- (3) --> [Behavior C: Controls lazy loading, access permissions, or remote network RPC]\n[Box 4: Facade]    -- (4) --> [Behavior D: Provides a simplified high-level entryway over complex subsystem classes]\nWhich box-joining pairings correctly reflect the intent of the pattern?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Behavior A is correct (Decorator enhances behavior without changing the interface contract)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Behavior B is correct (Adapter bridges incompatible interfaces)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Behavior C is correct (Proxy controls and manages access to the real subject)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Behavior D is correct (Facade unifies and simplifies a complex subsystem)" },
+        { "id": "e", "text": "Box 1 -- (1) --> Behavior B is correct (Decorator translates incompatible foreign APIs)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Boxes 1, 2, 3, and 4 correctly describe Decorator, Adapter, Proxy, and Facade respectively. Option e is false because adapting incompatible APIs is the sole intent of the Adapter pattern."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In the Singleton pattern, double-checked locking requires the instance field to be declared as _____ (volatile/final) to prevent CPU instruction _____, and a thread-safe DI container assigns the singleton a _____ lifetime.' Which statements are true regarding Singleton implementations?",
+      "options": [
+        { "id": "a", "text": "Declaring the field volatile inserts a memory barrier, preventing out-of-order writes where another thread sees an allocated but uninitialized object" },
+        { "id": "b", "text": "CPU instruction reordering can cause thread B to observe a non-null instance pointer before the constructor has finished executing" },
+        { "id": "c", "text": "A DI container Singleton lives for the entire application process lifetime, avoiding manual double-checked locking boilerplate" },
+        { "id": "d", "text": "Singletons make unit testing easier by sharing global state across all test runners" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Without `volatile`, instruction reordering can publish a pointer to allocated memory before constructor field initialization completes. DI containers manage thread-safe singletons cleanly without manual boilerplate. Singletons actually make unit testing harder due to shared state pollution."
+    },
+    {
+      "id": "q11",
+      "type": "multiple",
+      "text": "Which of the following statements correctly compare Factory Method, Abstract Factory, and Builder?",
+      "options": [
+        { "id": "a", "text": "Factory Method delegates the creation of a single object to subclasses via inheritance" },
+        { "id": "b", "text": "Abstract Factory creates entire families of related objects without specifying their concrete classes" },
+        { "id": "c", "text": "Builder separates complex multi-step object construction and validation from its final representation" },
+        { "id": "d", "text": "Abstract Factory is strictly used for asynchronous coroutines, while Builder is synchronous only" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Factory Method delegates instantiation of one product to subclasses. Abstract Factory creates families of related objects. Builder constructs complex objects step-by-step with parameter validation."
+    },
+    {
+      "id": "q12",
+      "type": "multiple",
+      "text": "Review the following box-joining diagram connecting Behavioral patterns (Boxes 1-3) with dashes to their event dispatch models:\n[Box 1: Observer]                -- (dash) --> [In-process, synchronous callback iteration across in-memory subscribers]\n[Box 2: Publish-Subscribe]       -- (dash) --> [Decoupled, asynchronous event streaming through a central message broker]\n[Box 3: Chain of Responsibility] -- (dash) --> [Sequential request propagation through a pipeline with short-circuiting]\nWhich of these connections are accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 accurately describes synchronous in-memory subscriber dispatch" },
+        { "id": "b", "text": "Box 2 accurately describes decoupled asynchronous broker streaming" },
+        { "id": "c", "text": "Box 3 accurately describes sequential middleware pipelines" },
+        { "id": "d", "text": "Box 1 accurately describes distributed Kafka topic consumers" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Observer is an in-memory synchronous pattern; Pub/Sub is distributed and asynchronous; Chain of Responsibility passes requests sequentially along a pipeline."
+    }
+  ]
+}

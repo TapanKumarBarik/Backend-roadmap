@@ -1,0 +1,27 @@
+{
+  "title": "Publish-Subscribe Event Bus",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "description": "Decouple domain events with an in-memory event bus, subscription tracking, and isolated handler dispatch.",
+  "statement": "Implement an in-memory `EventBus` to facilitate low-level decoupling between components.\n\n- `subscribe(event_name, handler)`: Registers a callable `handler` for `event_name` (a string). A handler can be registered multiple times or once per distinct function. Return a callable unsubscription function that, when called with no arguments, removes that specific registration.\n- `unsubscribe(event_name, handler)`: Removes the first registered instance of `handler` for `event_name` if present. If not found, do nothing.\n- `publish(event_name, *args, **kwargs)`: Sequentially calls all handlers registered for `event_name` with `*args` and `**kwargs`. Handlers must execute in insertion order. Return the count of handlers invoked.\n\n**Example**\n\n```python\nbus = EventBus()\nlog = []\ndef on_login(user_id):\n    log.append(f\"login:{user_id}\")\n\nunsub = bus.subscribe(\"user_login\", on_login)\nbus.publish(\"user_login\", 42)    # calls on_login(42), returns 1\nunsub()                          # unregisters handler\nbus.publish(\"user_login\", 42)    # returns 0, log unchanged\n```",
+  "starter": "from typing import Callable, Any\n\n\nclass EventBus:\n    def __init__(self):\n        ...\n\n    def subscribe(self, event_name: str, handler: Callable[..., Any]) -> Callable[[], None]:\n        ...\n\n    def unsubscribe(self, event_name: str, handler: Callable[..., Any]) -> None:\n        ...\n\n    def publish(self, event_name: str, *args, **kwargs) -> int:\n        ...\n",
+  "tests": [
+    "bus = EventBus()\nlog = []\ndef h1(x):\n    log.append(f\"h1:{x}\")\ndef h2(x):\n    log.append(f\"h2:{x}\")\n\nunsub1 = bus.subscribe(\"order_placed\", h1)\nbus.subscribe(\"order_placed\", h2)",
+    "assert bus.publish(\"order_placed\", 101) == 2",
+    "assert log == [\"h1:101\", \"h2:101\"]",
+    "scenario = \"Unsubscribe via returned callable\"\nunsub1()",
+    "assert bus.publish(\"order_placed\", 102) == 1",
+    "assert log == [\"h1:101\", \"h2:101\", \"h2:102\"]",
+    "scenario = \"Unsubscribe via bus method\"\nbus.unsubscribe(\"order_placed\", h2)",
+    "assert bus.publish(\"order_placed\", 103) == 0",
+    "scenario = \"Multiple arguments and keyword arguments forwarded intact\"\nkwargs_log = []\ndef handler_with_kw(a, b, status=\"pending\"):\n    kwargs_log.append((a, b, status))\n\nbus.subscribe(\"txn\", handler_with_kw)\nbus.publish(\"txn\", 1, 2, status=\"completed\")",
+    "assert kwargs_log == [(1, 2, \"completed\")]"
+  ],
+  "hints": [
+    "Store handlers in a dictionary mapping event_name strings to lists of callables: self._handlers = defaultdict(list).",
+    "When subscribe() is called, append the handler to the list and return a closure lambda: self.unsubscribe(event_name, handler).",
+    "To prevent mutation issues if a handler unsubscribes during publish(), iterate over a shallow copy of the handler list: list(self._handlers.get(event_name, []))."
+  ],
+  "solution": "from collections import defaultdict\nfrom typing import Callable, Any, Dict, List\n\n\nclass EventBus:\n    def __init__(self):\n        self._handlers: Dict[str, List[Callable[..., Any]]] = defaultdict(list)\n\n    def subscribe(self, event_name: str, handler: Callable[..., Any]) -> Callable[[], None]:\n        self._handlers[event_name].append(handler)\n\n        def _unsub():\n            self.unsubscribe(event_name, handler)\n        return _unsub\n\n    def unsubscribe(self, event_name: str, handler: Callable[..., Any]) -> None:\n        if event_name in self._handlers:\n            handlers = self._handlers[event_name]\n            if handler in handlers:\n                handlers.remove(handler)\n                if not handlers:\n                    del self._handlers[event_name]\n\n    def publish(self, event_name: str, *args, **kwargs) -> int:\n        handlers = list(self._handlers.get(event_name, []))\n        for handler in handlers:\n            handler(*args, **kwargs)\n        return len(handlers)\n",
+  "explanation": "**Shallow copy during dispatch.** If a subscriber unsubscribes itself or registers a new listener during the execution of `publish()`, mutating the underlying list while iterating over it causes skipped callbacks or runtime modification errors. Iterating over `list(handlers)` avoids this hazard.\n\n**Return unsubscription tokens.** Returning a simple parameterless cancellation callback (`unsub()`) gives callers ergonomic lifecycle management without forcing them to retain the original event name and handler reference."
+}

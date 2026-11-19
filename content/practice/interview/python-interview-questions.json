@@ -1,0 +1,56 @@
+{
+  "title": "Python internals and senior engineering",
+  "topic": "python",
+  "difficulty": "advanced",
+  "module": "lld/27-python-interview/01-how-python-runs-your-code/README.md",
+  "questions": [
+    {
+      "q": "Walk through the entire CPython execution pipeline from source code to machine execution.",
+      "a": "CPython executes code in five distinct stages: 1) Tokenization / Lexical analysis transforms raw UTF-8 source strings into a stream of tokens. 2) Parsing parses tokens into an Abstract Syntax Tree (AST) using Python 3.9+'s PEG parser. 3) Compilation transforms the AST into a Control Flow Graph and emits Python bytecode, applying peephole optimizations. 4) Code Object creation packages bytecode, constant tables (co_consts), variable names (co_varnames), and metadata into a code object, serialized as .pyc files inside __pycache__. 5) The Evaluation Loop (ceval.c) runs the virtual machine, executing bytecode instructions (like LOAD_FAST, BINARY_OP, STORE_NAME) on a stack-based frame structure."
+    },
+    {
+      "q": "What is the Global Interpreter Lock (GIL), why does it exist, and how does free-threading in Python 3.13 change this?",
+      "a": "The GIL is a mutex that prevents multiple native OS threads from executing Python bytecode simultaneously within a single CPython process. It exists because CPython's memory management relies heavily on non-atomic reference counting (Py_INCREF/Py_DECREF), which would suffer race conditions and corrupt memory without either synchronization on every pointer adjustment or a global lock. In Python 3.13 (PEP 703), experimental free-threading removes the GIL by introducing mimalloc-based thread-local allocators, biased reference counting, and immortal objects, enabling true multi-core CPU parallelism in pure Python threads."
+    },
+    {
+      "q": "How does CPython garbage collection work? Distinguish between Reference Counting and the Cyclic GC.",
+      "a": "Reference counting is CPython's primary, immediate memory management mechanism: every PyObject tracks how many references point to it (ob_refcnt). When a reference count drops to 0, memory is immediately deallocated. However, reference counting cannot reclaim cyclic references (e.g., A references B and B references A). To resolve this, CPython runs a generational cyclic garbage collector across three generations (0, 1, 2) using double-linked lists of container objects. It temporarily decrements trial reference counts to detect unreachable isolated cycles and frees them when generation allocation thresholds are triggered."
+    },
+    {
+      "q": "What is the difference between __new__ and __init__ in Python class instantiation?",
+      "a": "__new__ is the static allocator method called first to create and return a new instance of the class (it receives cls as its first argument and must return an instance). __init__ is the initializer method called second to configure the newly created instance (it receives self as its first argument and must return None). __new__ is used when subclassing immutable types (int, str, tuple) to set initial state before creation, when implementing custom metaclasses, and when constructing Singletons to return a pre-existing instance instead of allocating a fresh one."
+    },
+    {
+      "q": "Explain the Python Descriptor Protocol. How do @property, @classmethod, and @staticmethod work under the hood?",
+      "a": "A descriptor is any object that implements at least one of the methods __get__(self, instance, owner), __set__(self, instance, value), or __delete__(self, instance). If an object defines __set__ or __delete__, it is a data descriptor; if it only defines __get__, it is a non-data descriptor. Attribute lookup on an instance checks: 1) data descriptors on the class, 2) instance __dict__, 3) non-data descriptors on the class, 4) class __dict__. @property is a data descriptor storing getter and setter callables. Regular functions and @staticmethod/@classmethod are non-data descriptors whose __get__ binds 'self', binds 'cls', or returns the raw function respectively."
+    },
+    {
+      "q": "What are Metaclasses in Python, and how does __init_subclass__ offer a cleaner modern alternative?",
+      "a": "A metaclass is the class of a class; where ordinary classes define how instances behave, metaclasses define how class objects themselves are constructed and instantiated (the default metaclass is 'type'). Metaclasses intercept class creation via __new__ and __init__ to enforce API contracts, automatically register subclasses, or dynamically rewrite attributes. In Python 3.6+, __init_subclass__ allows parent classes to intercept and customize the creation of their subclasses with standard inheritance syntax, eliminating the need for complex metaclass inheritance hierarchies for validation and registry patterns."
+    },
+    {
+      "q": "Explain the mechanics of asyncio: the event loop, coroutines, tasks, and how blocking code starves the loop.",
+      "a": "asyncio implements cooperative single-threaded concurrency. An event loop maintains an OS I/O selector (epoll/kqueue) and a run queue of ready Task callbacks. When a coroutine executes 'await future', it yields execution back to the loop frame until the socket or timer triggers an OS notification. Because all tasks share one thread, any synchronous, CPU-intensive, or blocking call (e.g., time.sleep(), requests.get(), or heavy math) halts the entire event loop, freezing all concurrent requests. Blocking tasks must be offloaded to thread/process pools via loop.run_in_executor()."
+    },
+    {
+      "q": "How do Generators save memory, and how do yield and yield from differ from eager list comprehensions?",
+      "a": "List comprehensions allocate an entire collection of items in memory upfront on the heap. Generators produce items lazily on demand using the iterator protocol (__iter__ and __next__). When a generator encounters 'yield', execution pauses and its stack frame is preserved on the heap, allowing infinite streams and processing gigabyte-scale logs in constant O(1) memory. 'yield from iterable' delegates generation directly to a subgenerator, passing values and transparently forwarding exceptions (throw) and return values back to the outer caller."
+    },
+    {
+      "q": "How are Python Dictionaries implemented internally in modern CPython (3.6+)?",
+      "a": "Modern CPython uses compact hash tables with open addressing and perturbation. Instead of an array of sparse 24-byte hash/key/value entries, CPython splits storage into two arrays: 1) A dense 'entries' array storing [hash, key, value] in insertion order, and 2) A sparse 'indices' hash array storing integer indexes into the entries table. This design reduces memory consumption by 30-40% and preserves insertion order as an official language guarantee. Hash collisions are resolved via open addressing with pseudo-random perturbation (j = (5*j + 1 + perturb) >> 5)."
+    },
+    {
+      "q": "Explain Python scope resolution (LEGB rule) and the late-binding closure gotcha in loops.",
+      "a": "CPython searches for names according to the LEGB rule: Local (inside current function), Enclosing (outer enclosing functions/closures), Global (module level), and Built-in (builtins module). A common trap occurs in closures defined inside loops: e.g., funcs = [lambda: i for i in range(3)]. Because closures look up variables by reference in the enclosing scope at invocation time rather than capture time, all lambda instances resolve 'i' to its final loop value (2). The fix is default argument binding: lambda i=i: i, which captures the current value at definition time in the function's arg defaults."
+    },
+    {
+      "q": "How does the Context Management protocol work (__enter__ and __exit__), and how can __exit__ suppress exceptions?",
+      "a": "A context manager implements __enter__() and __exit__(exc_type, exc_val, exc_tb). Entering a 'with' block executes __enter__(), binding its return value to the 'as' target. Exiting the block (either normally or via an exception) executes __exit__(). If an exception occurred inside the block, its type, value, and traceback are passed to __exit__. If __exit__ returns a truthy value (e.g., return True), Python suppresses the exception and continues execution immediately after the with statement; if it returns False or None, the exception propagates up the call stack."
+    },
+    {
+      "q": "What is __slots__ in Python classes, and what are its performance and design trade-offs?",
+      "a": "By default, Python instances store attributes in a dynamic dictionary (__dict__), allowing arbitrary runtime attribute assignment at the cost of dict memory overhead (~150+ bytes per instance). Specifying __slots__ = ('name', 'id') replaces __dict__ with a fixed-size C array of descriptor pointers directly inside the PyObject structure. This slashes memory usage by 60-70% and speeds up attribute access. Trade-offs: instances cannot have dynamic attributes outside the slots, multiple inheritance requires matching slots, and subclasses must define slots or they reintroduce __dict__."
+    }
+  ]
+}

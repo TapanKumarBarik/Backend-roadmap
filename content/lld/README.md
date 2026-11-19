@@ -56,38 +56,79 @@ The browser viewer renders this as clickable **Python | C#** tabs. Read a
 concept once; see it expressed idiomatically in both languages; pick
 whichever you're actively practicing.
 
-## How to use this
+## Recommended Study Paths: How to Learn LLD
 
-- Go in order — later modules assume every pattern and principle taught
-  earlier. Modules 00–01 are not optional even if you already write code
-  elsewhere; they're where both languages get taught from scratch, and
-  every later module's tabs assume you can read both.
-- Every standard module has: concepts explained plainly with a class
-  diagram or code reference, **hands-on exercises** (do these, in *both*
-  languages if the module says so), an **independent challenge** with no
-  code given, common mistakes, a checkpoint quiz, and **interview
-  questions** — real/likely questions asked on this exact topic, each with
-  a model answer. Every 3–4 modules there's also a **cumulative review**
-  mixing questions from everything so far.
-- Modules 12–18 (the classic problems: parking lot, elevator, library,
-  vending machine, tic-tac-toe, chess, Splitwise, ticket booking,
-  ride-sharing, LRU/LFU cache, rate limiter) get a **full worked solution**
-  — requirements → class diagram → complete Python and C# implementation →
-  tradeoffs and extensions. Their independent challenge is a scoped
-  *extension* to the already-solved problem, not the base problem itself.
+Not everyone starts with the same background or timeline. Pick the study path that matches your current goal:
 
-## How to actually retain this (read this once, seriously)
+```mermaid
+flowchart TD
+    subgraph PathA["Path 1: Python Backend Specialist"]
+        direction TB
+        A1["00: Programming Basics (Python)"] --> A2["01-02: OOP & UML"]
+        A2 --> A3["04-05: SOLID & Core Principles"]
+        A3 --> A4["Track 27: Python Internals & Metaprogramming"]
+        A4 --> A5["Track 25: Design Patterns (Python tabs)"]
+        A5 --> A6["12-18: Classic LLD Problems in Python"]
+    end
 
-- **Attempt every quiz and interview question in writing before opening
-  the answer.** LLD interviews are verbal and whiteboard-based — if you
-  can't articulate the answer out loud or on paper, you don't have it yet.
-- **Implement the independent challenge in both languages**, not just the
-  one you're more comfortable in. The point of the dual-language format is
-  to prove the *design* is language-independent — if you can only build it
-  in one language, you've memorized code, not learned design.
-- **Redraw the class diagram from memory** before starting a new classic
-  problem, using the previous problem's diagram as a warm-up.
-- **Take the cumulative reviews closed-book.**
+    subgraph PathB["Path 2: C# / .NET Enterprise Specialist"]
+        direction TB
+        B1["00: Programming Basics (C#)"] --> B2["01-02: OOP & UML"]
+        B2 --> B3["04-05: SOLID & Core Principles"]
+        B3 --> B4["Track 26: C# & .NET Internals (CLR, Async, DI)"]
+        B4 --> B5["Track 25: Design Patterns (C# tabs)"]
+        B5 --> B6["12-18: Classic LLD Problems in C#"]
+    end
+
+    subgraph PathC["Path 3: 14-Day Rapid Interview Sprint"]
+        direction TB
+        C1["Track 24: High-Yield OOP Interview Questions"] --> C2["Track 25: Top 10 Core GoF Patterns"]
+        C2 --> C3["Track 26 or 27: Language Screener Drill"]
+        C3 --> C4["21: LLD Interview Playbook (Whiteboard Format)"]
+        C4 --> C5["12, 15, 18: Parking Lot, Splitwise, Rate Limiter"]
+    end
+```
+
+### Path 1: Python Backend Specialist
+1. **Foundations:** Complete [00-programming-basics-python-and-csharp](00-programming-basics-python-and-csharp/README.md), [01-classes-objects-and-oop-building-blocks](01-classes-objects-and-oop-building-blocks/README.md), and [02-oop-foundations-and-uml](02-oop-foundations-and-uml/README.md).
+2. **Principles:** Master [04-solid-principles](04-solid-principles/README.md) and [05-core-design-principles](05-core-design-principles/README.md).
+3. **Language Deep Dive:** Complete all lessons in [Track 27: Python Interview Questions](27-python-interview/README.md) to master mutability, closures, decorators, generators, dunder data model, MRO, asyncio, and memory management.
+4. **Patterns & Practice:** Learn [Track 25: Design Patterns](25-design-patterns-one-at-a-time/README.md) focusing on Pythonic idioms.
+5. **Interview Problems:** Implement the classic problems in [12-parking-lot-and-elevator](12-parking-lot-and-elevator/README.md) through [18-lru-lfu-cache-and-rate-limiter](18-lru-lfu-cache-and-rate-limiter/README.md).
+
+### Path 2: C# / .NET Enterprise Specialist
+1. **Foundations:** Complete [00-programming-basics-python-and-csharp](00-programming-basics-python-and-csharp/README.md), [01-classes-objects-and-oop-building-blocks](01-classes-objects-and-oop-building-blocks/README.md), and [02-oop-foundations-and-uml](02-oop-foundations-and-uml/README.md).
+2. **Principles:** Master [04-solid-principles](04-solid-principles/README.md) and [05-core-design-principles](05-core-design-principles/README.md).
+3. **Language Deep Dive:** Complete all lessons in [Track 26: C# and .NET Interview Questions](26-csharp-and-dotnet-interview/README.md) to master value vs. reference types, delegates/lambdas, LINQ deferred execution, GC/IDisposable, async/await state machines, DI lifetimes, and ASP.NET Core middleware.
+4. **Patterns & Practice:** Learn [Track 25: Design Patterns](25-design-patterns-one-at-a-time/README.md) focusing on C# idioms.
+5. **Interview Problems:** Implement the classic problems in [12-parking-lot-and-elevator](12-parking-lot-and-elevator/README.md) through [18-lru-lfu-cache-and-rate-limiter](18-lru-lfu-cache-and-rate-limiter/README.md).
+
+### Path 3: The 14-Day Rapid Interview Sprint
+When you have an interview in 1–2 weeks:
+1. **Day 1–3 (OOP Screener):** Work through [Track 24: OOP Interview Questions](24-oop-interview-questions/README.md) (The 4 pillars, abstract class vs. interface, overriding vs. hiding, value vs. reference equality, coupling and cohesion).
+2. **Day 4–8 (Core Patterns):** Study Singleton, Factory Method, Builder, Adapter, Decorator, Proxy, Strategy, Observer, State, and Chain of Responsibility in [Track 25](25-design-patterns-one-at-a-time/README.md).
+3. **Day 9–11 (Language Deep Dive):** Rapid-fire revision sheets in [Track 26 Lesson 22](26-csharp-and-dotnet-interview/22-rapid-fire-csharp-and-dotnet/README.md) or [Track 27 Lesson 20](27-python-interview/20-rapid-fire-python/README.md).
+4. **Day 12–14 (Whiteboarding Classic Problems):** Master the 45-minute template in [21-lld-interview-playbook](21-lld-interview-playbook/README.md) and whiteboard [12-parking-lot-and-elevator](12-parking-lot-and-elevator/README.md), [15-splitwise-expense-sharing](15-splitwise-expense-sharing/README.md), and [18-lru-lfu-cache-and-rate-limiter](18-lru-lfu-cache-and-rate-limiter/README.md).
+
+---
+
+## The Active Practice & Retention System: Build Muscle Memory
+
+Passive reading does not pass LLD interviews. To guarantee retention:
+
+1. **Immediate Inline Drills (Every Lesson):**
+   Every single lesson includes a dedicated `## 6. Exercises & Practical Drills` section with hands-on coding challenges and interview debugging prompts. Always solve the challenge in code before expanding the `<details><summary>Answer</summary>` block.
+2. **Dedicated Practice Workbooks (`PRACTICE.md`):**
+   Each major track includes a standalone practice arena containing targeted coding challenges, refactoring exercises, and whiteboard drills:
+   - [Master LLD Practice Arena](PRACTICE.md) — Comprehensive problem directory & timed challenge checklists.
+   - [OOP & SOLID Practice Arena](24-oop-interview-questions/PRACTICE.md) — 11 hands-on exercises covering inheritance, composition, and contracts.
+   - [Design Patterns Practice Arena](25-design-patterns-one-at-a-time/PRACTICE.md) — 30 mini-coding challenges (one per pattern) with automated test cases.
+   - [C# & .NET Practice Arena](26-csharp-and-dotnet-interview/PRACTICE.md) — Profiling allocations, custom LINQ operators, middleware, and DI container diagnostics.
+   - [Python Internals Practice Arena](27-python-interview/PRACTICE.md) — Mutable defaults, closure inspection, custom decorators, and async generators.
+3. **The 3-Step Recall Rule:**
+   - **Step 1:** Read the concept and examine the visual mental model.
+   - **Step 2:** Type the code snippet into your terminal without copy-pasting; verify matching console output.
+   - **Step 3:** Answer the senior interview question out loud in under 2 minutes without looking at the model answer.
 
 ## Modules
 

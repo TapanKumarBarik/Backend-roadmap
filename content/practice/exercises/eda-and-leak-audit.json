@@ -1,0 +1,16 @@
+{
+  "title": "Audit a messy production dataset for data leakage and distributional defects",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/00-python-data-stack-and-eda/09-systematic-eda-univariate-bivariate-and-leakage-checks/README.md",
+  "brief": "You are auditing a customer churn prediction dataset containing 250,000 subscriber accounts and 45 raw features before it is fed into an automated retraining pipeline. The existing model claimed a 99.4% ROC-AUC in cross-validation, but when deployed to production, churn intervention campaigns yielded zero actual impact.\n\nYour task is to write a systematic data audit and exploratory data analysis specification in Python/Pandas that flags all forms of target leakage, train-test contamination, impossible values, and skewed distributions, detailing how each flaw must be remediated.",
+  "deliverables": [
+    "A checklist of target leakage red flags (features populated only after the churn event occurs, such as cancellation_survey_score, refund_processed_date, or account_status='closed')",
+    "A key uniqueness and merge cardinality check to ensure user_id is unique and not creating hidden cartesian explosion during feature joins",
+    "A missingness audit distinguishing Missing Completely at Random (MCAR) from Missing Not at Random (MNAR), with appropriate imputation strategies",
+    "Outlier and anomaly detection rules for negative tenure, 9999 sentinel codes, and future timestamp lookahead errors",
+    "A clean split architecture (time-based cutoff vs random split) ensuring no temporal leakage from future customer actions into past predictions",
+    "Code snippets in Python/Pandas implementing automated validation assertions that fail CI/CD if leakage features or severe drift are detected"
+  ]
+}
+

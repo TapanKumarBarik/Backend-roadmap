@@ -14,7 +14,7 @@ export default [
   {
     // Built output, installed packages, local state, and the curricula (Markdown, plus a few code samples that are
     // teaching material, not part of this project). Pyodide, which the practice screens run Python with, is vendored as it was released.
-    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/', 'webapp/public/runner/pyodide-*/', 'webapp/public/runner/sqljs-*/']
+    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/', '_work_files_ignore/', 'webapp/public/runner/pyodide-*/', 'webapp/public/runner/sqljs-*/']
   },
 
   js.configs.recommended,

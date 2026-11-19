@@ -1,0 +1,56 @@
+{
+  "title": "C# and .NET runtime engineering",
+  "topic": "csharp",
+  "difficulty": "advanced",
+  "module": "lld/26-csharp-and-dotnet-interview/01-how-dotnet-runs-your-code/README.md",
+  "questions": [
+    {
+      "q": "Walk through the .NET compilation and execution model: Roslyn, IL, JIT, Tiered Compilation, and Native AOT.",
+      "a": "Roslyn compiles C# source code into Common Intermediate Language (CIL/IL) and metadata stored in an assembly (.dll or .exe). At runtime, the Common Language Runtime (CLR) uses the RyuJIT compiler to translate IL into native machine instructions on demand. Tiered Compilation optimizes throughput and startup: methods first compile with Tier 0 (quick JIT with zero or minimal optimizations to launch fast). Hot methods that execute frequently are re-compiled in the background by Tier 1 with full loop unrolling, vectorization, and Profile-Guided Optimization (Dynamic PGO). Native AOT compiles C# directly to platform-specific machine code ahead of time, stripping the JIT and unused runtime code for sub-millisecond cold starts and reduced memory footprints."
+    },
+    {
+      "q": "Explain the differences between Stack vs Managed Heap, Value Types (struct), Reference Types (class), and Records in C#.",
+      "a": "Value types (primitives, structs, enums) hold their data directly inline in memory; local variables of value types live on the execution stack or inline within containing objects on the heap. Reference types (classes, strings, delegates) allocate an object header (MethodTable pointer + SyncBlockIndex) and fields on the managed heap, with local variables holding only an 8-byte pointer reference. Records (record class vs record struct) provide compiler-generated value-based equality, non-destructive mutation ('with' expressions), and formatted display, while preserving either reference-type or value-type memory semantics respectively."
+    },
+    {
+      "q": "What is Boxing and Unboxing in .NET, why is it expensive, and how do you eliminate it in high-performance paths?",
+      "a": "Boxing is the process of converting a value type into an object reference type or interface reference; the CLR allocates a fresh heap object, copies the struct's byte values into the new heap memory, and returns a reference. Unboxing extracts the pointer to the boxed value type, and requires an explicit type check followed by copying data back to the stack. Boxing is expensive because it stresses the Garbage Collector and degrades CPU cache locality. Eliminate it by using generic collections (List<T> instead of ArrayList), generic interfaces with struct constraints (where T : struct, IEquatable<T>), and avoiding casting value types to object or string.Format without string interpolation."
+    },
+    {
+      "q": "How does the .NET Garbage Collector work? Explain Generations (0, 1, 2, LOH) and Workstation vs Server GC.",
+      "a": "The .NET GC is a generational, mark-and-sweep collector based on the generational hypothesis (newer objects die young). Gen 0 contains short-lived objects (locals, temporary strings); Gen 1 serves as a buffer between short-lived and long-lived objects; Gen 2 holds long-lived objects (caches, singletons, static references). The Large Object Heap (LOH) holds objects >= 85,000 bytes (e.g., large arrays) to avoid costly compaction; it is collected only during Gen 2 collections. Workstation GC prioritizes low UI latency with smaller heaps and background threads; Server GC allocates dedicated heap segments and background GC threads per CPU core, maximizing parallel throughput for web services at the cost of higher memory consumption."
+    },
+    {
+      "q": "Explain the full Dispose Pattern in C#, including IDisposable, finalizers (~ClassName), GC.SuppressFinalize, and IAsyncDisposable.",
+      "a": "The standard Dispose Pattern cleans up unmanaged OS handles (file descriptors, sockets, native memory). The class implements IDisposable with a public Dispose() method that calls a protected virtual Dispose(bool disposing) method with 'true', freeing both managed collaborators and native handles, followed by GC.SuppressFinalize(this) to remove the object from the finalizer queue. A finalizer (~ClassName) calls Dispose(false) as a safety net if caller code forgot to dispose; it cleans up only native handles because managed objects may already be collected. IAsyncDisposable (DisposeAsync) allows non-blocking asynchronous cleanup of I/O resources (e.g., flushing network streams to disk)."
+    },
+    {
+      "q": "What are Span<T>, ReadOnlySpan<T>, and Memory<T>? What safety rules govern ref structs?",
+      "a": "Span<T> is a contiguous, type-safe view of arbitrary memory (managed arrays, native heap memory, or stack-allocated buffers via stackalloc) that enables allocation-free slicing without creating string or array copies. Because Span<T> contains an interior pointer (ref T and length), it is declared as a 'ref struct', meaning it must reside strictly on the stack: it cannot be boxed, cannot be stored as a field in a regular class, cannot be used inside async methods across await boundaries, and cannot be captured in closures. Memory<T> is a heap-safe alternative that can outlive stack frames, making it suitable for async I/O pipelines and background processing."
+    },
+    {
+      "q": "How do async/await work internally in C#? What is the compiler-generated State Machine and SynchronizationContext?",
+      "a": "When a method is marked 'async', the Roslyn compiler transforms it into an 'IAsyncStateMachine' struct containing fields for local variables, the current execution step state, and an AsyncTaskMethodBuilder. When 'await' is reached on an incomplete task, the state machine hooks its MoveNext method as a continuation callback and yields the thread back to the thread pool. SynchronizationContext decides which thread executes the continuation: UI frameworks capture it to resume on the UI thread, while ASP.NET Core has no SynchronizationContext, resuming continuations on any available thread pool thread. ConfigureAwait(false) instructs the runtime to ignore captured contexts, preventing deadlocks in library code."
+    },
+    {
+      "q": "What are the three Dependency Injection service lifetimes in ASP.NET Core, and what is a Captive Dependency?",
+      "a": "Transient services are created every time they are requested from the container. Scoped services are created once per client request (or scope) and disposed at the end of the request. Singleton services are created once upon first resolution and live for the application's entire lifetime. A Captive Dependency occurs when a service with a longer lifetime captures a service with a shorter lifetime (e.g., a Singleton class taking a Scoped DbContext in its constructor). The Scoped service remains stuck in memory for the life of the application, leading to thread safety issues, stale entity tracking, and memory leaks."
+    },
+    {
+      "q": "How does the ASP.NET Core Middleware pipeline work, and how do you short-circuit it?",
+      "a": "The ASP.NET Core pipeline is a sequence of RequestDelegate delegates chained together via the Chain of Responsibility pattern. Incoming HttpContext passes down through each registered middleware in the order specified in Program.cs. Each middleware inspects or mutates the context, optionally calls 'await next(context)' to pass control down to the next middleware (e.g., routing, authentication, endpoint execution), and post-processes the response on the way back up. Short-circuiting occurs when a middleware returns without invoking next(context) (e.g., authorization middleware returning 401 Unauthorized or response cache middleware returning a cached payload), immediately stopping downstream handlers."
+    },
+    {
+      "q": "How does virtual method dispatch work in the CLR? Explain VTable and Virtual Stub Dispatch (VSD).",
+      "a": "Every reference type points to a MethodTable structure in memory. For virtual class methods, the MethodTable contains a Virtual Method Table (vtable) of function pointers; the runtime performs an indirect call by indexing into the vtable at a fixed offset determined at JIT time. For interfaces, because multiple unrelated classes can implement the same interface at different vtable offsets, .NET uses Virtual Stub Dispatch (VSD): it caches the target address using call-site stubs, polymorphic stubs, and fallback dispatch tables to achieve near-vtable performance while supporting complex interface hierarchies."
+    },
+    {
+      "q": "Compare Interlocked operations, Monitor (lock), SemaphoreSlim, and ReaderWriterLockSlim for thread synchronization.",
+      "a": "Interlocked provides lock-free, atomic CPU instructions (CMPXCHG) for primitive operations (Increment, Add, Exchange), delivering the highest performance without thread preemption. Monitor (the C# 'lock' statement) provides exclusive mutex synchronization for reference objects with low contention overhead via thin locks. SemaphoreSlim throttles concurrency to a specified limit and supports async waiting (await WaitAsync()), essential for I/O pipelines without blocking thread pool threads. ReaderWriterLockSlim allows multiple concurrent reader threads while granting exclusive access to single writers, optimizing read-heavy in-memory state."
+    },
+    {
+      "q": "What are C# Source Generators, and why are they replacing runtime Reflection in modern .NET?",
+      "a": "Source Generators are Roslyn compiler plugins that inspect source code and syntax trees during compilation and emit additional C# source files directly into the compilation pipeline. Runtime Reflection inspects types, invokes methods, and emits IL at runtime, incurring high memory overhead, slow execution, and blocking AOT trimming because reflection targets cannot be statically analyzed. Source Generators generate strongly typed, zero-allocation serialization (System.Text.Json source generation), dependency injection mappings, and regex compilation at compile time, guaranteeing type safety and instant startup."
+    }
+  ]
+}

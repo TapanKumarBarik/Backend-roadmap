@@ -1,0 +1,16 @@
+{
+  "title": "Build a scalar autograd engine and multi-layer perceptron from scratch",
+  "topic": "deep-learning",
+  "difficulty": "advanced",
+  "module": "neural-networks/00-perceptrons-mlps-and-backpropagation/08-micrograd-building-autograd-from-scratch/README.md",
+  "brief": "Deep learning frameworks like PyTorch and JAX operate on automatic differentiation computation graphs. To demystify these abstractions and diagnose gradient bugs with confidence, build a lightweight scalar reverse-mode automatic differentiation engine from scratch in pure Python.\n\nYour implementation must construct a dynamic computation graph on the fly, execute reverse topological sorting, support gradient accumulation across branching nodes, and train a Multi-Layer Perceptron (MLP) on a non-linear dataset.",
+  "deliverables": [
+    "A Value scalar class tracking data, grad, child references (_prev), operation name (_op), and backward closure (_backward)",
+    "Operator overloads for addition, subtraction, multiplication, division, power, negation, and activation functions (ReLU, Tanh)",
+    "A backward() method executing a depth-first search topological sort to ensure adjoint gradients propagate in exact reverse dependency order",
+    "Proper handling of multi-path graph branches using gradient accumulation (self.grad += out.grad * local_derivative) to prevent dropped gradients",
+    "Neuron, Layer, and MLP classes built on Value objects supporting parameter collection and zero_grad()",
+    "A verification test suite comparing computed gradients against PyTorch autograd tensors to within 1e-6 relative tolerance"
+  ]
+}
+

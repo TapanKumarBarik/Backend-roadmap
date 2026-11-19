@@ -1,0 +1,15 @@
+{
+  "title": "Build an end-to-end leak-free Scikit-learn feature pipeline",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/03-linear-models-and-svm/09-capstone-credit-risk-and-fraud-baseline/README.md",
+  "brief": "You are designing the feature preprocessing and cross-validation pipeline for a financial credit risk scoring service. The dataset contains continuous financial metrics (income, debt-to-income, credit utilization), high-cardinality categorical attributes (employment industry, merchant category), and missing values. The previous team normalized features before splitting and computed target statistics on the full dataset, creating severe data leakage.\n\nDesign a leak-free scikit-learn Pipeline architecture using ColumnTransformer, strict cross-validation, and calibrated linear classification that can safely serialize to production.",
+  "deliverables": [
+    "A modular Scikit-learn Pipeline incorporating ColumnTransformer to route numeric features through StandardScaler and categoricals through OneHotEncoder/TargetEncoder with strict handle_unknown guards",
+    "Proper integration of SimpleImputer or KNNImputer inside the pipeline so statistics are fitted solely on training folds",
+    "A StratifiedKFold or TimeSeriesSplit cross-validation harness ensuring no test fold data is ever exposed to transformer fit methods",
+    "Probability calibration using CalibratedClassifierCV with Platt scaling to convert raw SVM or uncalibrated margins into honest posterior probabilities",
+    "Decision threshold tuning against an asymmetric business loss matrix ($50 false positive inquiry cost vs $1,000 false negative default cost)",
+    "Model serialization specification with version pinning and input validation schemas"
+  ]
+}

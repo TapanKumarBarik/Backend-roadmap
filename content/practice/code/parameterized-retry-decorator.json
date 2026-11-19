@@ -1,0 +1,29 @@
+{
+  "title": "Parameterized Retry Decorator",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "description": "Handle transient failures with exponential backoff while preserving docstrings and function metadata.",
+  "statement": "Implement a parameterized decorator `retry(max_retries=3, initial_delay=0.1, backoff=2.0, exceptions=(Exception,), sleep_fn=None)` to wrap flaky functions.\n\n- When the decorated function executes successfully, return its result immediately.\n- If it raises an exception that is an instance of `exceptions`:\n  - If retries remain (attempt count < `max_retries`), call `sleep_fn(delay)` (if `sleep_fn` is provided), multiply `delay` by `backoff`, and retry.\n  - If retries are exhausted (all `max_retries` attempts failed), let the final exception propagate up.\n- If it raises an exception that is NOT in `exceptions`, re-raise it immediately without sleeping or retrying.\n- Crucially, preserve the original function's `__name__` and `__doc__` using `functools.wraps`.\n\n**Example**\n\n```python\nsleeps = []\n\n@retry(max_retries=3, initial_delay=1.0, backoff=2.0, exceptions=(ValueError,), sleep_fn=sleeps.append)\ndef flaky(attempt=[0]):\n    attempt[0] += 1\n    if attempt[0] < 3:\n        raise ValueError(\"temporary\")\n    return \"success\"\n\nflaky()       # returns \"success\"\nsleeps        # [1.0, 2.0]\n```",
+  "starter": "import functools\nfrom typing import Tuple, Type\n\n\ndef retry(\n    max_retries: int = 3,\n    initial_delay: float = 0.1,\n    backoff: float = 2.0,\n    exceptions: Tuple[Type[BaseException], ...] = (Exception,),\n    sleep_fn=None\n):\n    def decorator(fn):\n        ...\n    return decorator\n",
+  "tests": [
+    "scenario = \"Function succeeds on 3rd attempt after 2 retries\"\nsleeps = []\nattempts = [0]\n\n@retry(max_retries=3, initial_delay=1.0, backoff=2.0, exceptions=(ValueError,), sleep_fn=sleeps.append)\ndef flaky():\n    attempts[0] += 1\n    if attempts[0] < 3:\n        raise ValueError(\"temporary\")\n    return \"success\"\n\nres = flaky()",
+    "assert res == \"success\"",
+    "assert attempts[0] == 3",
+    "assert sleeps == [1.0, 2.0]",
+    "scenario = \"Metadata is preserved\"\nassert flaky.__name__ == \"flaky\"",
+    "scenario = \"Uncaught exception fails immediately without retrying or sleeping\"\nsleeps2 = []\nattempts2 = [0]\n\n@retry(max_retries=5, exceptions=(KeyError,), sleep_fn=sleeps2.append)\ndef fatal():\n    attempts2[0] += 1\n    raise TypeError(\"wrong type\")\n\ntry:\n    fatal()\n    failed = False\nexcept TypeError:\n    failed = True",
+    "assert failed is True",
+    "assert attempts2[0] == 1",
+    "assert sleeps2 == []",
+    "scenario = \"Exhausting all retries raises the last exception\"\nsleeps3 = []\n\n@retry(max_retries=2, initial_delay=0.5, backoff=3.0, sleep_fn=sleeps3.append)\ndef always_fail():\n    raise RuntimeError(\"down\")\n\ntry:\n    always_fail()\n    raised = False\nexcept RuntimeError:\n    raised = True",
+    "assert raised is True",
+    "assert sleeps3 == [0.5]"
+  ],
+  "hints": [
+    "Use functools.wraps(fn) inside the decorator to copy metadata from the wrapped function.",
+    "A retry limit of max_retries means the function can run at most max_retries times (1 initial run + (max_retries - 1) retries).",
+    "Catch only exceptions matching tuple(exceptions). Use delay *= backoff after each sleep."
+  ],
+  "solution": "import functools\nfrom typing import Tuple, Type\n\n\ndef retry(\n    max_retries: int = 3,\n    initial_delay: float = 0.1,\n    backoff: float = 2.0,\n    exceptions: Tuple[Type[BaseException], ...] = (Exception,),\n    sleep_fn=None\n):\n    def decorator(fn):\n        @functools.wraps(fn)\n        def wrapper(*args, **kwargs):\n            delay = initial_delay\n            for attempt in range(1, max_retries + 1):\n                try:\n                    return fn(*args, **kwargs)\n                except exceptions:\n                    if attempt >= max_retries:\n                        raise\n                    if sleep_fn is not None:\n                        sleep_fn(delay)\n                    delay *= backoff\n        return wrapper\n    return decorator\n",
+  "explanation": "**Preserving introspection.** Using `functools.wraps` copies `__name__`, `__doc__`, and `__annotations__` to the wrapper function, ensuring logging, debugging, and documentation tools identify the original function.\n\n**Exponential backoff.** Rapid retry storms can overwhelm a recovering database or third-party API. Multiplying the backoff interval prevents thundering herds and gives downstream dependencies time to stabilize."
+}

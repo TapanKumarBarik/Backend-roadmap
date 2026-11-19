@@ -928,6 +928,64 @@
       "correct_option": 4,
       "post_mortem_markdown": "### Root Cause Analysis\nThe alert that mattered fired on time but arrived in a stream where 97% of pages were not actionable. People mute noisy channels to stay sane, which is a rational response to alert fatigue, and it means the signal is lost with the noise. The failure was in the alerting design, not in a person.\n\n### The Resolution\n1. Page only on symptoms that users feel (error rate, latency, availability against an SLO, ideally with multi-window **burn-rate** alerts), and route everything else to a ticket or a dashboard.\n2. Delete or fix every alert that was not actionable last month; each page should have an owner and a runbook.\n3. Escalate automatically if a page is not acknowledged in a few minutes.\n\n### Prevention\n- Review the page-to-action ratio monthly; aim for most pages to need a human.\n- Test the path from alert to person, including the escalation.",
       "related_module": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md"
+    },
+    {
+      "id": "inc-training-serving-skew",
+      "title": "02:15 PM — Silent Conversion Crash Caused by Training-Serving Skew",
+      "severity": "P1",
+      "service_name": "recsys-inference-prod",
+      "scenario_markdown": "Following a scheduled deployment of a retrained recommendation model, checkout conversion rates dropped by 68% over 3 hours. Model latency and error rates remained completely normal (p99 < 15ms, 0% HTTP 5xx errors). The model was predicting near-zero conversion probabilities for almost all active users.",
+      "logs_snippet": "2026-11-19T14:15:02.114Z [INFO] recsys.predict: user_id=849201 score=0.00012 rank_action='suppress'\n2026-11-19T14:15:02.210Z [DEBUG] feature_store.online: key='user:849201:last_30d_spend' val=null -> imputed='-1'\n2026-11-19T14:15:03.119Z [DEBUG] batch_pipeline_training.log: df['last_30d_spend'].fillna(0.0) -> median=45.2, std=12.1",
+      "options": [
+        {
+          "id": 1,
+          "text": "A high learning rate in distributed training caused gradient explosion, corrupting user embedding vectors and yielding near-zero predictions."
+        },
+        {
+          "id": 2,
+          "text": "Online inference imputed missing features with -1 while offline training imputed 0.0 and standardized, shifting inputs into the sigmoid tail."
+        },
+        {
+          "id": 3,
+          "text": "Redis online feature cache evictions under sudden memory pressure led to stale fallback vectors being passed into the model."
+        },
+        {
+          "id": 4,
+          "text": "Python runtime differences between the training cluster and serving container caused floating-point truncation in logit scoring."
+        }
+      ],
+      "correct_option": 2,
+      "post_mortem_markdown": "### Root Cause Analysis\nAn inconsistency existed between the offline training feature preparation (written in Python/Pandas) and the online real-time feature retrieval service (written in Go with Redis). In training, missing customer spend was imputed with `0.0` before passing through a `StandardScaler`. In production, a recent microservice refactor defaulted null Redis lookups to `-1` to denote missingness. Because the scaler subtracted mean $45.20 and divided by $12.10, the `-1` flag was transformed into $-3.81$ standard deviations, pushing the model's logistic sigmoid directly into the saturated near-zero tail.\n\n### The Resolution\n1. **Unify Feature Logic**: Utilize a shared Feature Store definition (e.g. Feast) or serialize the entire Scikit-learn preprocessing `Pipeline` / ONNX graph so identical transformation code runs in both environments.\n2. **Feature Distribution Monitoring**: Add an automated drift detector alerting on Population Stability Index (PSI) or Kolmogorov-Smirnov distance between online inference feature payloads and training baselines.\n3. **Shadow Deployments**: Run retrained models in shadow mode (receiving live traffic without acting on predictions) to compare prediction distributions against the incumbent model prior to cutover.",
+      "related_module": "ml/00-python-data-stack-and-eda/09-systematic-eda-univariate-bivariate-and-leakage-checks/README.md"
+    },
+    {
+      "id": "inc-matrix-inversion-collapse",
+      "title": "10:30 AM — Algorithmic Pricing Collapse on Collinear Features",
+      "severity": "P1",
+      "service_name": "pricing-engine-core",
+      "scenario_markdown": "At 10:30 AM, an updated real-estate automated valuation model began submitting catastrophic pricing recommendations: thousands of residential homes were valued at either -$12,000,000 or +$85,000,000. Automated buying was halted by risk supervisors after three anomalous contracts were auto-drafted.",
+      "logs_snippet": "2026-11-19T10:30:11.021Z [INFO] pricing.ols: Solving normal equation w = inv(X.T @ X) @ X.T @ y\n2026-11-19T10:30:11.029Z [WARN] numpy.linalg: Matrix is singular to working precision (cond=1.84e+17)\n2026-11-19T10:30:11.035Z [ERROR] pricing.weights: feature 'sq_ft' w=4.82e+07, feature 'sq_meters' w=-5.18e+08\n2026-11-19T10:30:12.441Z [FATAL] pricing.quote: quote_price=-12849102.44 property_id='p-90182'",
+      "options": [
+        {
+          "id": 1,
+          "text": "Direct matrix inversion on collinear features (sq_ft and sq_meters) squared the condition number, causing catastrophic precision loss and wild weights."
+        },
+        {
+          "id": 2,
+          "text": "Database column type mismatch returned price strings instead of numeric floats, causing string concatenations rather than arithmetic weight additions."
+        },
+        {
+          "id": 3,
+          "text": "The quote service ran out of disk space on temporary scratch volumes, corrupting cached valuation predictions and returning default garbage values."
+        },
+        {
+          "id": 4,
+          "text": "An inverted gradient descent step size caused optimization divergence, sending parameter weights to maximum allowable floating-point magnitudes."
+        }
+      ],
+      "correct_option": 1,
+      "post_mortem_markdown": "### Root Cause Analysis\nA recent data engineering ingest added `sq_meters` alongside the legacy `sq_ft` feature without updating the feature selection list. Because `sq_meters = 0.0929 * sq_ft`, the Gram matrix $X^T X$ had linearly dependent columns, causing its condition number to reach $1.84 \\times 10^{17}$ (exceeding IEEE 754 64-bit float precision). The code used `np.linalg.inv(X.T @ X) @ X.T @ y` rather than a regularized solver or QR decomposition. Catastrophic cancellation assigned massive, opposing weights to the collinear features (±10^8), causing minor floating-point differences to swing valuations by tens of millions of dollars.\n\n### The Resolution\n1. **Never Invert (X^T X) Directly**: Use LAPACK `np.linalg.solve` or reduced QR decomposition ($X = QR$, $Rw = Q^T y$) which halves the condition number.\n2. **Mandatory L2 Regularization (Ridge)**: Add $\\lambda I$ to $X^T X$ ensuring all eigenvalues are bounded strictly away from zero.\n3. **Automated Collinearity Filtering**: Enforce Variance Inflation Factor (VIF) or correlation checks ($|r| > 0.95$) in the preprocessing pipeline to prune redundant features automatically.",
+      "related_module": "ml/03-linear-models-and-svm/00-ordinary-least-squares-and-normal-equation/README.md"
     }
   ]
 }

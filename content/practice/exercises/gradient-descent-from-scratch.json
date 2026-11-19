@@ -1,0 +1,16 @@
+{
+  "title": "Implement a modular gradient descent optimizer suite in pure NumPy",
+  "topic": "ml",
+  "difficulty": "advanced",
+  "module": "ml/02-math-for-machine-learning/09-capstone-gradient-descent-from-scratch/README.md",
+  "brief": "In order to deeply understand optimizer mechanics before debugging large-scale distributed training runs, you are tasked with building a modular, object-oriented gradient descent optimizer framework in pure Python and NumPy from first principles.\n\nYour library must support vanilla SGD, Polyak Heavy-Ball Momentum, RMSProp, Adam, and decoupled AdamW, along with gradient norm clipping and a cosine annealing learning rate scheduler.",
+  "deliverables": [
+    "A clean BaseOptimizer abstract class with step(), zero_grad(), and parameter registration interfaces",
+    "Vectorized implementations of SGD with momentum (v_t = beta * v_{t-1} + lr * g_t)",
+    "Vectorized Adam optimizer with first and second moment moving averages, bias correction factors (1 - beta^t), and epsilon stability guards",
+    "Decoupled AdamW implementation demonstrating why direct weight decay differs from L2 gradient regularization in adaptive optimizers",
+    "A global gradient clipping utility that scales gradients down if the L2 norm exceeds a threshold (clip_grad_norm)",
+    "A benchmark script optimizing an ill-conditioned quadratic bowl and the 2D Rosenbrock banana valley, comparing convergence paths and step counts"
+  ]
+}
+

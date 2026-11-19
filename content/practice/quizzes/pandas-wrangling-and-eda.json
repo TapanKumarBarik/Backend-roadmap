@@ -1,0 +1,86 @@
+{
+  "title": "Pandas wrangling and systematic EDA",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "ml/00-python-data-stack-and-eda/09-systematic-eda-univariate-bivariate-and-leakage-checks/README.md",
+  "description": ".loc versus .iloc, groupby transform versus aggregate, merge cardinalities, missingness mechanisms, and spotting target leakage before training.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the key difference between df.groupby('dept')['salary'].agg('mean') and df.groupby('dept')['salary'].transform('mean')?",
+      "options": [
+        { "id": "a", "text": "agg returns one summarized row per group; transform returns a Series aligned with the original DataFrame's index having the group mean broadcasted to each row" },
+        { "id": "b", "text": "transform modifies the original DataFrame in-place while agg returns a new Series" },
+        { "id": "c", "text": "agg computes the sample mean while transform computes the population mean" },
+        { "id": "d", "text": "There is no difference; transform is an older deprecated alias for agg" }
+      ],
+      "answer": ["a"],
+      "explanation": "agg collapses groups into a summary table where each group key appears once. transform computes the aggregate per group but broadcasts the result back across all rows belonging to that group, preserving the original DataFrame length and index for direct feature column assignment."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "You execute df[df['status'] == 'active']['score'] = 100 and Pandas raises SettingWithCopyWarning. Why did this occur?",
+      "options": [
+        { "id": "a", "text": "df['status'] == 'active' contains NaN values which cannot be assigned" },
+        { "id": "b", "text": "Chained indexing df[...][...] creates an intermediate object that may be a copy, so the assignment to 'score' may not mutate the underlying df" },
+        { "id": "c", "text": "The 'score' column is typed as integer and 100 is converted to float" },
+        { "id": "d", "text": "Pandas does not allow modifying rows where status is active" }
+      ],
+      "answer": ["b"],
+      "explanation": "Chained indexing evaluates df[...] first (which may return a copy rather than a view depending on memory layout) and then indexes into that temporary object. Assigning to it may silently discard changes. The safe idiom is df.loc[df['status'] == 'active', 'score'] = 100 in a single step."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "During exploratory data analysis for a loan default prediction model, you notice a feature called 'collection_recovery_fee'. What type of data leakage does this represent?",
+      "options": [
+        { "id": "a", "text": "Train-test contamination leakage" },
+        { "id": "b", "text": "Target leakage, because a collection recovery fee is only charged after a loan has defaulted and gone to collections" },
+        { "id": "c", "text": "Preprocessing leakage caused by mean imputation" },
+        { "id": "d", "text": "Measurement unit scaling error" }
+      ],
+      "answer": ["b"],
+      "explanation": "Target leakage occurs when a feature contains information that will not be available at inference time. A recovery fee is assessed only after the borrower defaults; including it allows the model to achieve near-100% training accuracy while failing catastrophically on new loan applications."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "When performing a pd.merge(df1, df2, on='user_id', how='left'), the resulting DataFrame is guaranteed to have the exact same number of rows as df1.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "If user_id appears multiple times in df2 (a one-to-many relationship), a left merge will duplicate the matching rows in df1, creating a Cartesian product expansion for those duplicate keys. Always verify key uniqueness with df2['user_id'].is_unique before merging."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "When imputing missing values in a numeric feature using the mean or median, why MUST the imputer be fitted strictly on the training set and only transformed on the test set?",
+      "options": [
+        { "id": "a", "text": "Fitting on the entire dataset leaks statistical information from the test distribution into the training pipeline" },
+        { "id": "b", "text": "Scikit-learn raises a ValueError if an imputer is fitted on more than 1,000 samples" },
+        { "id": "c", "text": "Test sets do not support numeric imputation" },
+        { "id": "d", "text": "It speeds up training computation by 50%" }
+      ],
+      "answer": ["a"],
+      "explanation": "Fitting preprocessing transformations (scalers, encoders, imputers) across the entire dataset introduces data leakage: information about the test distribution's center or spread bleeds into the training process, causing overly optimistic cross-validation scores that fail to hold in production."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Which missingness mechanism occurs when the probability of a value being missing depends directly on the unobserved value itself (e.g., high-income earners refusing to report income)?",
+      "options": [
+        { "id": "a", "text": "Missing Completely at Random (MCAR)" },
+        { "id": "b", "text": "Missing at Random (MAR)" },
+        { "id": "c", "text": "Missing Not at Random (MNAR)" },
+        { "id": "d", "text": "Structural Zero Missingness" }
+      ],
+      "answer": ["c"],
+      "explanation": "Missing Not at Random (MNAR) means the missingness mechanism is linked to the value that is missing. Simple mean or median imputation on MNAR features severely biases the data distribution; domain modeling or adding a missingness indicator column is required."
+    }
+  ]
+}
+

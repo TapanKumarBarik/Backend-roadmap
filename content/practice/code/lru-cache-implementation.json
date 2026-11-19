@@ -1,0 +1,35 @@
+{
+  "title": "LRU Cache",
+  "topic": "caching-and-limits",
+  "difficulty": "intermediate",
+  "description": "Evict the least recently used item when full: an O(1) cache using a hash map and a doubly-linked list.",
+  "statement": "Implement `LRUCache(capacity)` to store key-value pairs with a fixed size limit. When capacity is exceeded, it must evict the least recently used key before inserting a new one.\n\n- `get(key)`: Return the value of `key` if it exists, otherwise `-1`. Accessing a key marks it as most recently used.\n- `put(key, value)`: Update the value if `key` exists, or insert `key-value` if not. If the cache exceeds `capacity`, evict the least recently used key. Both operations mark the key as most recently used.\n\nBoth `get` and `put` must run in strict **$O(1)$** average time complexity.\n\n**Example**\n\n```python\ncache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.get(1)       # returns 1 (key 1 is now most recent)\ncache.put(3, 3)    # evicts key 2 (least recently used)\ncache.get(2)       # returns -1 (not found)\ncache.put(4, 4)    # evicts key 1\ncache.get(1)       # returns -1\ncache.get(3)       # returns 3\ncache.get(4)       # returns 4\n```",
+  "starter": "class Node:\n    def __init__(self, key=0, val=0):\n        self.key = key\n        self.val = val\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        ...\n\n    def get(self, key: int) -> int:\n        ...\n\n    def put(self, key: int, value: int) -> None:\n        ...\n",
+  "tests": [
+    "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)",
+    "assert cache.get(1) == 1",
+    "cache.put(3, 3)",
+    "assert cache.get(2) == -1",
+    "cache.put(4, 4)",
+    "assert cache.get(1) == -1",
+    "assert cache.get(3) == 3",
+    "assert cache.get(4) == 4",
+    "scenario = \"Updating an existing key refreshes recency without increasing size\"\ncache = LRUCache(2)\ncache.put(1, 10)\ncache.put(2, 20)\ncache.put(1, 15)",
+    "assert cache.get(1) == 15",
+    "cache.put(3, 30)",
+    "assert cache.get(2) == -1",
+    "assert cache.get(1) == 15",
+    "scenario = \"Capacity of 1 evicts on every insert\"\ncache = LRUCache(1)\ncache.put(10, 100)",
+    "assert cache.get(10) == 100",
+    "cache.put(20, 200)",
+    "assert cache.get(10) == -1",
+    "assert cache.get(20) == 200"
+  ],
+  "hints": [
+    "A standard array or list requires O(n) time to shift elements when moving a key to the front.",
+    "Combine a hash map with a doubly-linked list. The hash map maps keys directly to list nodes in O(1).",
+    "Use dummy head and tail sentinel nodes in the doubly-linked list to eliminate edge cases when inserting at the head or removing from the tail."
+  ],
+  "solution": "class Node:\n    def __init__(self, key=0, val=0):\n        self.key = key\n        self.val = val\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        self.capacity = capacity\n        self.cache = {}\n        self.head = Node()\n        self.tail = Node()\n        self.head.next = self.tail\n        self.tail.prev = self.head\n\n    def _remove(self, node: Node) -> None:\n        prev_node = node.prev\n        next_node = node.next\n        prev_node.next = next_node\n        next_node.prev = prev_node\n\n    def _add_to_head(self, node: Node) -> None:\n        node.prev = self.head\n        node.next = self.head.next\n        self.head.next.prev = node\n        self.head.next = node\n\n    def _move_to_head(self, node: Node) -> None:\n        self._remove(node)\n        self._add_to_head(node)\n\n    def get(self, key: int) -> int:\n        if key not in self.cache:\n            return -1\n        node = self.cache[key]\n        self._move_to_head(node)\n        return node.val\n\n    def put(self, key: int, value: int) -> None:\n        if key in self.cache:\n            node = self.cache[key]\n            node.val = value\n            self._move_to_head(node)\n            return\n        new_node = Node(key, value)\n        self.cache[key] = new_node\n        self._add_to_head(new_node)\n        if len(self.cache) > self.capacity:\n            lru_node = self.tail.prev\n            self._remove(lru_node)\n            del self.cache[lru_node.key]\n",
+  "explanation": "**The core insight.** An LRU cache needs two things at the same time: fast lookup by key, and fast reordering by access time. A hash map gives O(1) lookup but no ordering. A doubly-linked list gives O(1) node removal and insertion once a node reference is known, but O(n) search. Combining them gives O(1) for both.\n\n**Sentinel nodes.** Using dummy `head` and `tail` nodes avoids null-pointer checks when adding to the front or removing from the back. The most recently used node is always right after `head`, and the least recently used node is right before `tail`."
+}

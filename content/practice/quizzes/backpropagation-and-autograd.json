@@ -1,0 +1,139 @@
+{
+  "title": "Backpropagation, computation graphs and autograd",
+  "topic": "ml",
+  "difficulty": "intermediate",
+  "module": "neural-networks/00-perceptrons-mlps-and-backpropagation/06-backpropagation-step-by-step-derivation/README.md",
+  "description": "Reverse-mode automatic differentiation, multivariable chain rule, gradient accumulation on branching nodes, activation memory, and numerical stability in loss functions.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Why do deep learning frameworks use reverse-mode automatic differentiation (backprop) rather than forward-mode automatic differentiation to train neural networks?",
+      "options": [
+        { "id": "a", "text": "Reverse-mode computes the gradient of a scalar loss with respect to all N parameters in a single backward pass (O(1) graph traversals), whereas forward-mode requires N separate passes" },
+        { "id": "b", "text": "Forward-mode differentiation cannot calculate non-linear activation derivatives" },
+        { "id": "c", "text": "Reverse-mode requires zero memory to store intermediate activations" },
+        { "id": "d", "text": "PyTorch GPUs only support reverse matrix multiplication" }
+      ],
+      "answer": ["a"],
+      "explanation": "In deep learning, the loss function maps millions or billions of parameters (R^N) to a single scalar loss in R^1. Reverse-mode automatic differentiation (backprop) propagates from the scalar loss backward, computing all N parameter gradients in a single backward traversal. Forward-mode would require evaluating the graph once per parameter, which is completely intractable."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "In an autograd engine, if a variable x is used multiple times in an expression (e.g. y = x + x * z), why must gradients be accumulated using `x.grad += ...` instead of overwritten with `x.grad = ...`?",
+      "options": [
+        { "id": "a", "text": "The multivariable chain rule states that the total derivative dL/dx is the SUM of contributions across all pathways from x to the loss" },
+        { "id": "b", "text": "Python garbage collection deletes gradients if they are assigned with =" },
+        { "id": "c", "text": "To prevent floating point underflow" },
+        { "id": "d", "text": "It is an arbitrary design convention used by PyTorch" }
+      ],
+      "answer": ["a"],
+      "explanation": "By the multivariable chain rule, if a node's output fans out to multiple downstream operations, each downstream path contributes to the rate of change of the loss with respect to that node. Overwriting with = keeps only the last visited branch's gradient, dropping all other branches and producing mathematically wrong gradients."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Why does training a multi-layer network with Sigmoid activations and Mean Squared Error (MSE) loss frequently cause training to stall when the model makes confident mistakes?",
+      "options": [
+        { "id": "a", "text": "When a sigmoid neuron is strongly saturated (z >> 0 or z << 0), its derivative sigma'(z) vanishes to near zero, multiplying the MSE gradient by ~0 and freezing weight updates" },
+        { "id": "b", "text": "MSE loss is undefined for values between 0 and 1" },
+        { "id": "c", "text": "Sigmoid activations invert the sign of the MSE gradient" },
+        { "id": "d", "text": "MSE loss forces weights to become negative" }
+      ],
+      "answer": ["a"],
+      "explanation": "The MSE gradient with sigmoid output contains the factor sigma'(z)(sigma(z) - y). When the network predicts 0.999 but the true label is 0 (a catastrophic error), sigma'(z) is ~0.001, effectively killing the gradient signal. Pairing Sigmoid with Binary Cross-Entropy cancels out sigma'(z), leaving (sigma(z) - y), ensuring strong gradient updates proportional to error."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "Initializing all weights in a multi-layer perceptron to exactly 0 allows gradient descent to break symmetry as long as the learning rate is positive.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "If all weights in a layer are initialized to 0, every hidden neuron receives the identical input, produces the identical activation, and receives the identical gradient during backprop. All neurons update identically, collapsing the layer's effective capacity to a single neuron (symmetry breaking failure). Random initialization (e.g. He/Kaiming) is required."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Why do production deep learning libraries compute Categorical Cross-Entropy with Softmax using the Log-Sum-Exp trick rather than `torch.log(torch.softmax(z))`?",
+      "options": [
+        { "id": "a", "text": "Large logit values in exp(z) cause floating-point overflow to +inf, and tiny probabilities in log(p) cause underflow to -inf or NaN; subtracting max(z) guarantees mathematical equivalence without overflow" },
+        { "id": "b", "text": "Log-Sum-Exp converts multiclass classification into binary classification" },
+        { "id": "c", "text": "The log-sum-exp trick reduces memory consumption from O(N) to O(1)" },
+        { "id": "d", "text": "It automatically applies dropout to the logits" }
+      ],
+      "answer": ["a"],
+      "explanation": "In 32-bit floating point, exp(x) overflows to +inf when x > 88. By shifting logits z_i - max(z), the maximum exponent is exp(0) = 1, completely preventing overflow while preserving exact probability and log-loss values."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Why is He (Kaiming) weight initialization (W ~ N(0, 2/D_in)) standard for ReLU networks rather than Xavier (Glorot) initialization (W ~ N(0, 1/D_in))?",
+      "options": [
+        { "id": "a", "text": "Because ReLU sets all negative activations to zero, halving the signal variance; the factor of 2 compensates for this loss to maintain constant variance across deep layers" },
+        { "id": "b", "text": "Xavier initialization only works for 1D inputs" },
+        { "id": "c", "text": "He initialization prevents matrix dimensions from changing" },
+        { "id": "d", "text": "It guarantees that no neuron ever dies" }
+      ],
+      "answer": ["a"],
+      "explanation": "Xavier assumes linear or symmetric zero-centered activations (like tanh). ReLU zeros out roughly 50% of activations at random initialization, cutting layer output variance in half at each step. In a 20-layer network, variance would shrink by (0.5)^20 ~ 10^-6 without the factor of 2 in He initialization."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In reverse-mode automatic differentiation, instead of computing the full $M \\times N$ Jacobian matrix, the backward pass computes the Vector-Jacobian Product (VJP) which multiplies the upstream sensitivity vector by local derivatives in _____ memory per node, while activation values from the forward pass must be stored on the execution _____.' Which statements are correct?",
+      "options": [
+        { "id": "a", "text": "Computing VJPs avoids materializing full Jacobian matrices, consuming O(1) space per scalar operation" },
+        { "id": "b", "text": "Forward pass activations must be cached in memory (tape/graph) to calculate local derivatives during the backward pass" },
+        { "id": "c", "text": "Gradient checkpointing trades additional compute for memory by discarding intermediate activations and recomputing them during backprop" },
+        { "id": "d", "text": "Reverse-mode automatic differentiation eliminates the need for any forward pass" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "VJPs compute gradients in O(1) space per operation. Forward activations must be retained for the chain rule, which is why gradient checkpointing is used to manage GPU RAM in large models."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram connecting Autograd operations (Boxes 1-4) with dashes `-- (dash) -->` to their local backward gradient formulas:\n[Box 1: Addition: z = x + y]       -- (1) --> [Formula A: dx = 1.0 * dz, dy = 1.0 * dz]\n[Box 2: Multiplication: z = x * y] -- (2) --> [Formula B: dx = y * dz, dy = x * dz]\n[Box 3: ReLU: z = max(0, x)]       -- (3) --> [Formula C: dx = (1.0 if x > 0 else 0.0) * dz]\n[Box 4: Power: z = x^n]            -- (4) --> [Formula D: dx = n * x^(n - 1) * dz]\nWhich of these box-joining pairings are mathematically accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Formula A is accurate (addition distributes gradient equally to both inputs)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Formula B is accurate (multiplication scales by the opposite operand)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Formula C is accurate (ReLU acts as a binary gate on gradient flow)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Formula D is accurate (power rule scaled by incoming gradient dz)" },
+        { "id": "e", "text": "Box 1 -- (1) --> Formula B is accurate (addition scales by the opposite operand)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Boxes 1 through 4 correctly express the elementary local gradient updates in an autograd computation graph. Option e is false because addition does not swap or scale operands."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which of the following architectural techniques directly protect deep neural networks from the vanishing and exploding gradient problem?",
+      "options": [
+        { "id": "a", "text": "Residual skip connections (ResNet) providing highway gradient flow directly back to early layers" },
+        { "id": "b", "text": "Normalization layers (Batch Normalization, Layer Normalization, RMSNorm) stabilizing activation scales" },
+        { "id": "c", "text": "Gradient clipping (torch.nn.utils.clip_grad_norm_) capping maximum gradient vector norms" },
+        { "id": "d", "text": "Increasing the learning rate to 100.0 whenever gradients drop" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Skip connections preserve identity gradient pathways (identity + F(x)), normalization layers keep activations within stable distributions, and gradient clipping caps explosive gradient vectors."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Review the following box-joining diagram connecting Loss functions (Boxes 1-3) with dashes to their canonical gradient formulations:\n[Box 1: MSE Loss: (1/2)(y_hat - y)^2]                 -- (dash) --> [Gradient A: dL/dy_hat = y_hat - y]\n[Box 2: Sigmoid + BCE Loss: -y*ln(p) - (1-y)*ln(1-p)] -- (dash) --> [Gradient B: dL/dz = sigma(z) - y]\n[Box 3: Softmax + Cross-Entropy Loss]                 -- (dash) --> [Gradient C: dL/dz = p - y (predicted prob minus one-hot label)]\nWhich of these loss gradient connections are mathematically valid?",
+      "options": [
+        { "id": "a", "text": "Box 1 correctly pairs with Gradient A" },
+        { "id": "b", "text": "Box 2 correctly pairs with Gradient B (activation derivative cancels out beautifully)" },
+        { "id": "c", "text": "Box 3 correctly pairs with Gradient C (multiclass cancellation to vector difference)" },
+        { "id": "d", "text": "Box 1 pairs with Gradient C (MSE collapses to multiclass probability difference)" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "MSE derivative is (y_hat - y). Sigmoid with BCE derivative with respect to pre-activation logit z cancels to (sigma(z) - y). Softmax with Cross-Entropy collapses cleanly to (p - y)."
+    }
+  ]
+}
+

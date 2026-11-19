@@ -1,0 +1,165 @@
+{
+  "title": "Python Execution & Memory Internals",
+  "topic": "python",
+  "difficulty": "advanced",
+  "description": "Explore CPython reference counting, generational cyclic GC, the GIL, descriptors, and scoping gotchas.",
+  "module": "lld/27-python-interview/01-how-python-runs-your-code/README.md",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What happens in CPython when two objects reference each other cyclically (e.g., A.child = B and B.parent = A) and all external references to them are deleted?",
+      "options": [
+        { "id": "a", "text": "They are immediately reclaimed by reference counting because their scope ended" },
+        { "id": "b", "text": "Their reference counts remain at 1, so they survive until the cyclic garbage collector runs and detects the isolated cycle" },
+        { "id": "c", "text": "CPython crashes with a RecursionError during teardown" },
+        { "id": "d", "text": "The operating system forcibly frees the memory pages when the thread context switches" }
+      ],
+      "answer": ["b"],
+      "explanation": "Reference counting alone cannot free cyclic references because each object retains a non-zero reference count from the other. CPython relies on its secondary cyclic garbage collector, which periodically scans generations of container objects, simulates trial reference decrements, and frees unreachable cyclic subgraphs."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "In Python's descriptor protocol, what is the crucial behavioral difference between a Data Descriptor and a Non-Data Descriptor?",
+      "options": [
+        { "id": "a", "text": "Data descriptors can only store strings, while non-data descriptors store functions" },
+        { "id": "b", "text": "A data descriptor defines __set__ or __delete__ and takes precedence over an instance's __dict__; a non-data descriptor only defines __get__ and is shadowed by an instance's __dict__" },
+        { "id": "c", "text": "Non-data descriptors run in C extensions while data descriptors run in pure Python" },
+        { "id": "d", "text": "Data descriptors cannot be used with the @property decorator" }
+      ],
+      "answer": ["b"],
+      "explanation": "If an object implements __set__ (or __delete__), it is a data descriptor. When an attribute is looked up on an instance (obj.attr), CPython checks the class's data descriptors *before* looking in obj.__dict__. If the class only defines a non-data descriptor (defining only __get__, like regular methods), obj.__dict__ takes precedence and shadows it."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Consider the code: `funcs = [lambda: i for i in range(3)]`. What does `[f() for f in funcs]` return, and why?",
+      "options": [
+        { "id": "a", "text": "[0, 1, 2], because each lambda captures the value of i at the moment it was created" },
+        { "id": "b", "text": "[2, 2, 2], because closures bind names by reference late, looking up the value of i at invocation time when the loop has finished" },
+        { "id": "c", "text": "TypeError, because lambdas cannot access loop variables" },
+        { "id": "d", "text": "[0, 0, 0], because the loop scope resets upon completion" }
+      ],
+      "answer": ["b"],
+      "explanation": "Python closures bind variables by name late, not by value at definition time. All three lambda functions look up the variable `i` in their enclosing scope when called; by that time, the for-loop has completed and `i` equals 2. To capture current values, use default argument binding: `lambda i=i: i`."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "What performance and architectural benefits are achieved by defining `__slots__ = ('name', 'age')` on a Python class?",
+      "options": [
+        { "id": "a", "text": "It eliminates the default `__dict__` attribute dictionary, drastically reducing per-instance memory overhead" },
+        { "id": "b", "text": "It speeds up attribute access by using fixed descriptor offsets instead of hash table lookups" },
+        { "id": "c", "text": "It prevents arbitrary creation of new undeclared attributes on instances" },
+        { "id": "d", "text": "It automatically disables the Global Interpreter Lock (GIL) for instances of that class" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Defining `__slots__` tells CPython to allocate a fixed-size C array of pointers for the declared attributes instead of creating an internal `__dict__` hash table for each instance. This reduces memory usage by 60-70%, speeds up attribute access, and prevents callers from assigning arbitrary attributes outside the declared slots."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Why does calling `def append_to(item, target=[])` create unexpected state bugs across multiple invocations?",
+      "options": [
+        { "id": "a", "text": "Default arguments are evaluated once at module load time when the function definition is executed, creating a single shared list" },
+        { "id": "b", "text": "Python garbage collects default lists after the first return" },
+        { "id": "c", "text": "Lists are immutable in function headers" },
+        { "id": "d", "text": "The GIL locks default arguments to prevent thread concurrency" }
+      ],
+      "answer": ["a"],
+      "explanation": "In Python, default arguments are evaluated once when the function definition is executed (at compile/import time), not each time the function is called. If a mutable object (like a list or dict) is used as a default, every call that relies on the default modifies the exact same underlying object. The idiomatic fix is `def append_to(item, target=None): if target is None: target = []`."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "In Python asyncio, running a CPU-bound computation like `time.sleep(5)` inside an async function will freeze the entire event loop, stopping all other concurrent tasks.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "True. Asyncio runs a single-threaded cooperative event loop. If a task executes synchronous blocking code (like time.sleep or heavy CPU math) instead of awaiting an asynchronous non-blocking future (`await asyncio.sleep(5)`), the main thread cannot yield control back to the event loop, freezing all concurrent coroutines."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "What is the primary role of `__new__` versus `__init__` in Python?",
+      "options": [
+        { "id": "a", "text": "`__new__` initializes attributes; `__init__` compiles the bytecode" },
+        { "id": "b", "text": "`__new__` is the static method that allocates and returns the instance object; `__init__` initializes the newly created instance" },
+        { "id": "c", "text": "`__new__` is called only when an object is deserialized with pickle" },
+        { "id": "d", "text": "They are interchangeable aliases" }
+      ],
+      "answer": ["b"],
+      "explanation": "`__new__` is the constructor that creates and returns a new object instance (receiving `cls`). `__init__` is the initializer called immediately after `__new__` returns an instance of that class (receiving `self`). Overriding `__new__` is necessary when subclassing immutable types (like tuple or int) or implementing singletons."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "How does `__exit__` in a context manager suppress an exception raised within the `with` block?",
+      "options": [
+        { "id": "a", "text": "By setting exc_type to None" },
+        { "id": "b", "text": "By returning a truthy value (such as True)" },
+        { "id": "c", "text": "By executing a break statement" },
+        { "id": "d", "text": "Context managers cannot suppress exceptions" }
+      ],
+      "answer": ["b"],
+      "explanation": "When an exception occurs inside a `with` statement, the exception's type, value, and traceback are passed into `__exit__(exc_type, exc_val, exc_tb)`. If `__exit__` returns a truthy value (e.g. `return True`), CPython suppresses the exception and resumes normal execution immediately after the `with` block."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Fill in the blanks (denoted by dashes `___`): 'In CPython, memory management uses immediate reference counting, but cyclic references survive until the _____ collector runs across three _____, while attribute lookup checks the class's _____ descriptors before inspecting the instance `__dict__`.' Which of the following statements are correct?",
+      "options": [
+        { "id": "a", "text": "The cyclic garbage collector runs across three generations (0, 1, 2) to detect and reclaim unreachable reference cycles" },
+        { "id": "b", "text": "Data descriptors (defining __set__ or __delete__) take precedence over an instance's __dict__" },
+        { "id": "c", "text": "Non-data descriptors (defining only __get__) take precedence over data descriptors" },
+        { "id": "d", "text": "Generational collection is triggered when allocation counts exceed deallocation thresholds" }
+      ],
+      "answer": ["a", "b", "d"],
+      "explanation": "Cyclic GC reclaims unreferenced cycles across three generations. Data descriptors take precedence over `__dict__`, whereas non-data descriptors are shadowed by `__dict__`."
+    },
+    {
+      "id": "q10",
+      "type": "multiple",
+      "text": "Examine the architectural box-joining diagram mapping Python execution layers (Boxes 1-4) with dashes `-- (dash) -->` to their runtime artifacts:\n[Box 1: Tokenizer / Lexer]   -- (1) --> [Artifact A: Stream of lexical tokens from source code]\n[Box 2: PEG Parser]          -- (2) --> [Artifact B: Abstract Syntax Tree (AST)]\n[Box 3: Bytecode Compiler]   -- (3) --> [Artifact C: PyCodeObject containing bytecode & co_consts]\n[Box 4: CPython Eval Loop]   -- (4) --> [Artifact D: ceval.c virtual machine stack evaluation]\nWhich box-joining pairings accurately trace Python compilation?",
+      "options": [
+        { "id": "a", "text": "Box 1 -- (1) --> Artifact A is correct (lexical analysis generates tokens)" },
+        { "id": "b", "text": "Box 2 -- (2) --> Artifact B is correct (parser constructs the AST)" },
+        { "id": "c", "text": "Box 3 -- (3) --> Artifact C is correct (compiler emits code objects with bytecode)" },
+        { "id": "d", "text": "Box 4 -- (4) --> Artifact D is correct (ceval.c executes the virtual machine evaluation loop)" },
+        { "id": "e", "text": "Box 1 -- (1) --> Artifact C is correct (tokenizer directly generates code objects)" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Stages 1 to 4 accurately trace the CPython pipeline from source tokens to AST, bytecode compilation, and the virtual machine evaluation loop. Option e is false because tokenization precedes parsing."
+    },
+    {
+      "id": "q11",
+      "type": "multiple",
+      "text": "Which of the following built-in Python decorators and language constructs are implemented using the Descriptor Protocol?",
+      "options": [
+        { "id": "a", "text": "@property (implements __get__, __set__, and __delete__ as a data descriptor)" },
+        { "id": "b", "text": "@classmethod (binds cls as first argument via __get__ as a non-data descriptor)" },
+        { "id": "c", "text": "@staticmethod (returns the raw function without binding self or cls via __get__)" },
+        { "id": "d", "text": "Regular instance methods (binds self via __get__ when accessed through an instance)" },
+        { "id": "e", "text": "Local variables defined inside a function scope" }
+      ],
+      "answer": ["a", "b", "c", "d"],
+      "explanation": "Properties, classmethods, staticmethods, and standard functions all implement the descriptor protocol via `__get__` (and `__set__` for properties). Local variables are stored on the frame stack, not via descriptors."
+    },
+    {
+      "id": "q12",
+      "type": "multiple",
+      "text": "Review the following box-joining diagram connecting Python concurrency primitives (Boxes 1-3) with dashes to their execution characteristics:\n[Box 1: threading.Thread]        -- (dash) --> [OS threads sharing memory but constrained by the GIL for CPU-bound tasks]\n[Box 2: multiprocessing.Process] -- (dash) --> [Independent OS processes with separate memory and isolated GILs]\n[Box 3: asyncio.Task]            -- (dash) --> [Single-threaded cooperative multitasking scheduled via an OS I/O event loop]\nWhich of these concurrency connections are accurate?",
+      "options": [
+        { "id": "a", "text": "Box 1 accurately describes OS threads constrained by CPython's GIL" },
+        { "id": "b", "text": "Box 2 accurately describes isolated processes with independent GILs" },
+        { "id": "c", "text": "Box 3 accurately describes single-threaded cooperative coroutines on an event loop" },
+        { "id": "d", "text": "Box 3 accurately describes multi-core preemptive CPU scheduling across kernel threads" }
+      ],
+      "answer": ["a", "b", "c"],
+      "explanation": "Threads share memory but run under the GIL; processes run independent Python interpreters; asyncio runs a single-threaded cooperative event loop without preemptive thread scheduling."
+    }
+  ]
+}

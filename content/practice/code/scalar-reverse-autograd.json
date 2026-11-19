@@ -1,0 +1,31 @@
+{
+  "title": "Scalar Autograd Engine",
+  "topic": "ml-from-scratch",
+  "difficulty": "advanced",
+  "description": "Implement scalar reverse-mode automatic differentiation supporting addition, multiplication, relu, and backward.",
+  "statement": "Implement a minimal scalar automatic differentiation engine `Value(data)`.\n\n- `self.data`: Float value stored in the node.\n- `self.grad`: Float derivative initialized to `0.0`.\n- Overload `__add__`, `__mul__`, and implement `relu()`.\n  - `a + b`: `out.data = a.data + b.data`. Local backward: `a.grad += 1.0 * out.grad`, `b.grad += 1.0 * out.grad`.\n  - `a * b`: `out.data = a.data * b.data`. Local backward: `a.grad += b.data * out.grad`, `b.grad += a.data * out.grad`.\n  - `a.relu()`: `out.data = max(0.0, a.data)`. Local backward: `a.grad += (1.0 if a.data > 0 else 0.0) * out.grad`.\n  - Both `__add__` and `__mul__` must support standard Python numeric types (int, float) as operands.\n- `backward()`: Computes the gradients of all ancestor nodes in the computation graph with respect to `self`.\n  - Initializes `self.grad = 1.0`.\n  - Performs a topological sort of the graph and iterates in reverse order, calling each node's internal backward step.\n\n**Example**\n\n```python\nx = Value(2.0)\nw = Value(-3.0)\nb = Value(10.0)\ny = (x * w + b).relu()  # (-6 + 10).relu() = 4.0\ny.backward()\nprint(y.data)           # 4.0\nprint(x.grad)           # -3.0 (dy/dx = w = -3.0)\nprint(w.grad)           # 2.0  (dy/dw = x = 2.0)\n```",
+  "starter": "class Value:\n    def __init__(self, data: float, _children=(), _op: str = ''):\n        self.data = float(data)\n        self.grad = 0.0\n        self._prev = set(_children)\n        self._backward = lambda: None\n\n    def __add__(self, other):\n        ...\n\n    def __mul__(self, other):\n        ...\n\n    def relu(self):\n        ...\n\n    def backward(self):\n        ...\n",
+  "tests": [
+    "x = Value(2.0)\nw = Value(-3.0)\nb = Value(10.0)\ny = (x * w + b).relu()\ny.backward()",
+    "assert y.data == 4.0",
+    "assert x.grad == -3.0",
+    "assert w.grad == 2.0",
+    "assert b.grad == 1.0",
+    "scenario = \"ReLU zero-clipping blocks gradient flow\"\nx2 = Value(-5.0)\ny2 = x2.relu()\ny2.backward()",
+    "assert y2.data == 0.0",
+    "assert x2.grad == 0.0",
+    "scenario = \"Variable reused multiple times accumulates gradients properly\"\na = Value(3.0)\nb = a * a + a\nb.backward()",
+    "assert b.data == 12.0",
+    "assert a.grad == 7.0",
+    "scenario = \"Interoperation with raw numbers\"\nc = Value(4.0)\nd = c * 2 + 5\nd.backward()",
+    "assert d.data == 13.0",
+    "assert c.grad == 2.0"
+  ],
+  "hints": [
+    "Remember to convert other to Value(other) if isinstance(other, (int, float)).",
+    "Gradients must ACCUMULATE (use +=, not =), otherwise a variable used multiple times in the expression will overwrite previous partial derivatives.",
+    "For backward(), build a topological ordering with DFS and visit nodes in reversed order."
+  ],
+  "solution": "class Value:\n    def __init__(self, data: float, _children=(), _op: str = ''):\n        self.data = float(data)\n        self.grad = 0.0\n        self._prev = set(_children)\n        self._backward = lambda: None\n\n    def __add__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data + other.data, (self, other), '+')\n\n        def _backward():\n            self.grad += 1.0 * out.grad\n            other.grad += 1.0 * out.grad\n        out._backward = _backward\n        return out\n\n    def __radd__(self, other):\n        return self + other\n\n    def __mul__(self, other):\n        other = other if isinstance(other, Value) else Value(other)\n        out = Value(self.data * other.data, (self, other), '*')\n\n        def _backward():\n            self.grad += other.data * out.grad\n            other.grad += self.data * out.grad\n        out._backward = _backward\n        return out\n\n    def __rmul__(self, other):\n        return self * other\n\n    def relu(self):\n        out = Value(max(0.0, self.data), (self,), 'ReLU')\n\n        def _backward():\n            self.grad += (1.0 if self.data > 0 else 0.0) * out.grad\n        out._backward = _backward\n        return out\n\n    def backward(self):\n        topo = []\n        visited = set()\n\n        def build_topo(v):\n            if v not in visited:\n                visited.add(v)\n                for child in v._prev:\n                    build_topo(child)\n                topo.append(v)\n\n        build_topo(self)\n        self.grad = 1.0\n        for node in reversed(topo):\n            node._backward()\n",
+  "explanation": "**Topological sorting.** The backward pass must execute nodes in the exact reverse of their dependency order. Performing a post-order depth-first traversal produces a valid topological sequence.\n\n**Gradient accumulation.** A variable can appear multiple times in an expression (e.g., `y = x * x`). According to the multivariable chain rule, total derivative is the sum of partial derivatives across all execution branches. Using `+=` guarantees correct accumulation."
+}

@@ -1,0 +1,25 @@
+{
+  "title": "Batch Cosine Similarity",
+  "topic": "data-processing",
+  "difficulty": "intermediate",
+  "description": "Compute pairwise cosine similarities between query and corpus vectors with epsilon guards.",
+  "statement": "Write `batch_cosine_similarity(queries, corpus, eps=1e-9)` to compute pairwise cosine similarities between two collections of equal-length numerical vectors.\n\n- `queries`: A list of $M$ vectors (each vector is a list of floats/ints of length $D$).\n- `corpus`: A list of $N$ vectors (each vector is a list of floats/ints of length $D$).\n- `eps`: A small float added to the denominator to prevent division by zero when a vector has zero magnitude: $\\text{sim}(u, v) = \\frac{u \\cdot v}{\\max(\\lVert u \\rVert_2 \\times \\lVert v \\rVert_2, \\text{eps})}$.\n\nThe function must return an $M \\times N$ matrix (a list of $M$ lists, each containing $N$ float similarity values rounded to 4 decimal places).\n\n**Example**\n\n```python\nqueries = [[1.0, 0.0], [0.0, 1.0]]\ncorpus = [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]\nbatch_cosine_similarity(queries, corpus)\n# Returns:\n# [[1.0, 0.0, 0.7071],\n#  [0.0, 1.0, 0.7071]]\n```",
+  "starter": "from typing import List\nimport math\n\n\ndef batch_cosine_similarity(\n    queries: List[List[float]],\n    corpus: List[List[float]],\n    eps: float = 1e-9\n) -> List[List[float]]:\n    ...\n",
+  "tests": [
+    "scenario = \"Orthogonal, identical, and 45-degree vectors\"\nqueries = [[1.0, 0.0], [0.0, 1.0]]\ncorpus = [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]\nres = batch_cosine_similarity(queries, corpus)",
+    "assert res == [[1.0, 0.0, 0.7071], [0.0, 1.0, 0.7071]]",
+    "scenario = \"Opposite vectors give -1.0\"\nq = [[2.0, 0.0]]\nc = [[-5.0, 0.0]]",
+    "assert batch_cosine_similarity(q, c) == [[-1.0]]",
+    "scenario = \"Zero vector handles divide-by-zero cleanly without crashing\"\nzero_q = [[0.0, 0.0]]\nunit_c = [[1.0, 0.0]]",
+    "assert batch_cosine_similarity(zero_q, unit_c) == [[0.0]]",
+    "scenario = \"3-dimensional vector match\"\nq3 = [[1.0, 2.0, 3.0]]\nc3 = [[2.0, 4.0, 6.0], [1.0, 0.0, 0.0]]",
+    "assert batch_cosine_similarity(q3, c3) == [[1.0, 0.2673]]"
+  ],
+  "hints": [
+    "Cosine similarity is dot_product(u, v) / max(norm(u) * norm(v), eps).",
+    "Precompute the Euclidean norms for all queries and all corpus vectors once upfront to avoid redundant O(D) square roots in the inner loop.",
+    "Round each resulting similarity score to 4 decimal places with round(sim, 4)."
+  ],
+  "solution": "from typing import List\nimport math\n\n\ndef batch_cosine_similarity(\n    queries: List[List[float]],\n    corpus: List[List[float]],\n    eps: float = 1e-9\n) -> List[List[float]]:\n    def norm(v: List[float]) -> float:\n        return math.sqrt(sum(x * x for x in v))\n\n    q_norms = [norm(q) for q in queries]\n    c_norms = [norm(c) for c in corpus]\n\n    matrix = []\n    for i, q in enumerate(queries):\n        row = []\n        q_n = q_norms[i]\n        for j, c in enumerate(corpus):\n            c_n = c_norms[j]\n            dot = sum(x * y for x, y in zip(q, c))\n            denom = max(q_n * c_n, eps)\n            sim = dot / denom\n            row.append(round(sim, 4))\n        matrix.append(row)\n    return matrix\n",
+  "explanation": "**Precompute norms.** In a matrix similarity search with M queries and N documents, computing vector magnitudes inside the inner loop requires M * N square root operations. Precomputing norms outside takes only M + N square root calculations, saving massive compute.\n\n**Epsilon guarding.** When a query or document is all zeros, norm(v) is 0. Dividing by 0 raises ZeroDivisionError or emits NaN. Clamping the denominator with max(norm_prod, eps) ensures numerical stability."
+}
