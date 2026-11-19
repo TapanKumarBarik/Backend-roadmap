@@ -370,6 +370,15 @@
               "22-capstone-project",
               "23-supply-chain-platform"
             ]
+          },
+          {
+            "label": "Interview questions: OOP, patterns, C# and Python",
+            "tracks": [
+              "24-oop-interview-questions",
+              "25-design-patterns-one-at-a-time",
+              "26-csharp-and-dotnet-interview",
+              "27-python-interview"
+            ]
           }
         ]
       }

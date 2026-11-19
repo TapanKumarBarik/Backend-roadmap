@@ -118,6 +118,18 @@ whichever you're actively practicing.
 | 22 | [22-capstone-project](22-capstone-project/README.md) | Design and build a larger combined system end to end with no guidance given | everything above |
 | 23 | [23-supply-chain-platform](23-supply-chain-platform/README.md) | Design and build a supply-chain platform (inventory, warehouses, orders, shipments, suppliers) end to end with no guidance given — a second, differently-themed capstone | capstone-project |
 
+## Interview questions: OOP, patterns, C# and Python
+
+Four tracks of interview questions, each a folder of short lessons. They sit beside the modules above, not after them: use them whenever
+an interview is close. Lessons not written yet are marked *Soon*, and their page lists the questions they will answer.
+
+| # | Track | What you'll be able to do |
+|---|-------|---------------------------|
+| 24 | [OOP Interview Questions](24-oop-interview-questions/README.md) | Answer the OOP questions that open most interviews (pillars, abstract class vs interface, overloading vs overriding, equality, SOLID) in two minutes each, in Python and C# |
+| 25 | [Design Patterns, One at a Time](25-design-patterns-one-at-a-time/README.md) | Explain every common pattern on its own: where to use it, how to build it in Python and C#, when not to, and where your framework already uses it |
+| 26 | [C# and .NET Interview Questions](26-csharp-and-dotnet-interview/README.md) | Answer C#, .NET and ASP.NET Core questions: types, delegates, async/await, the GC, DI lifetimes, the middleware pipeline (`app.Use`, `app.Run`, `app.Map`), EF Core |
+| 27 | [Python Interview Questions](27-python-interview/README.md) | Answer Python questions: mutability, decorators, generators, dunder methods, the MRO, the GIL and asyncio, and web apps (`app.run`, WSGI, ASGI, FastAPI) |
+
 ## Prerequisites already confirmed
 
 - **Zero prior programming assumed, in either language** — not Python,
