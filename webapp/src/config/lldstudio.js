@@ -366,5 +366,153 @@ export const LLD_PRESETS = {
       { from: 'posts', to: 'post_tags', type: 'oneToMany', label: '1 : N' },
       { from: 'tags', to: 'post_tags', type: 'oneToMany', label: '1 : N' }
     ]
+  },
+  lruCache: {
+    id: 'lruCache',
+    name: 'LRU Cache Architecture',
+    category: 'Data Structures & LLD',
+    pattern: 'Composite + Doubly Linked List',
+    description: 'Constant O(1) get and put cache with hash map pointer lookup and doubly linked list frequency eviction.',
+    mode: 'class',
+    classes: [
+      {
+        id: 'CacheNode',
+        name: 'CacheNode',
+        fields: ['+ key: str', '+ value: Any', '+ prev: Optional[CacheNode]', '+ next: Optional[CacheNode]'],
+        methods: ['+ __init__(key: str, val: Any)'],
+        x: 40,
+        y: 40,
+        w: 240,
+        h: 110
+      },
+      {
+        id: 'DoublyLinkedList',
+        name: 'DoublyLinkedList',
+        fields: ['- head: CacheNode', '- tail: CacheNode', '- size: int'],
+        methods: ['+ addToHead(node: CacheNode)', '+ removeNode(node: CacheNode)', '+ moveToHead(node: CacheNode)', '+ removeTail(): CacheNode'],
+        x: 320,
+        y: 40,
+        w: 260,
+        h: 130
+      },
+      {
+        id: 'LRUCache',
+        name: 'LRUCache',
+        fields: ['- capacity: int', '- lookup: dict[str, CacheNode]', '- list: DoublyLinkedList'],
+        methods: ['+ get(key: str): Optional[Any]', '+ put(key: str, val: Any)', '+ size(): int'],
+        x: 620,
+        y: 40,
+        w: 250,
+        h: 120
+      },
+      {
+        id: 'IEvictionPolicy',
+        name: 'IEvictionPolicy',
+        stereotype: 'interface',
+        fields: [],
+        methods: ['+ keyAccessed(key: str)', '+ evictKey(): str'],
+        x: 320,
+        y: 210,
+        w: 240,
+        h: 90
+      },
+      {
+        id: 'LRUEvictionPolicy',
+        name: 'LRUEvictionPolicy',
+        implements: 'IEvictionPolicy',
+        fields: ['- order: DoublyLinkedList'],
+        methods: ['+ keyAccessed(key: str)', '+ evictKey(): str'],
+        x: 620,
+        y: 210,
+        w: 240,
+        h: 90
+      }
+    ],
+    relationships: [
+      { from: 'DoublyLinkedList', to: 'CacheNode', type: 'composition', label: 'links' },
+      { from: 'LRUCache', to: 'DoublyLinkedList', type: 'composition', label: 'tracks' },
+      { from: 'LRUCache', to: 'CacheNode', type: 'association', label: 'maps' },
+      { from: 'LRUEvictionPolicy', to: 'IEvictionPolicy', type: 'implementation', label: 'implements' }
+    ]
+  },
+  chess: {
+    id: 'chess',
+    name: 'Chess Game Engine',
+    category: 'Game Design',
+    pattern: 'Command Pattern + Polymorphism',
+    description: 'Complete object-oriented chess model with polymorphic piece moves, turn enforcement, and reversible command history.',
+    mode: 'class',
+    classes: [
+      {
+        id: 'Piece',
+        name: 'Piece',
+        stereotype: 'abstract',
+        fields: ['+ isWhite: bool', '+ isKilled: bool'],
+        methods: ['+ canMove(board: Board, start: Spot, end: Spot): bool'],
+        x: 40,
+        y: 40,
+        w: 260,
+        h: 100
+      },
+      {
+        id: 'King',
+        name: 'King',
+        parent: 'Piece',
+        fields: ['- castlingDone: bool'],
+        methods: ['+ canMove(board: Board, start: Spot, end: Spot): bool'],
+        x: 40,
+        y: 180,
+        w: 200,
+        h: 90
+      },
+      {
+        id: 'Knight',
+        name: 'Knight',
+        parent: 'Piece',
+        fields: [],
+        methods: ['+ canMove(board: Board, start: Spot, end: Spot): bool'],
+        x: 260,
+        y: 180,
+        w: 200,
+        h: 80
+      },
+      {
+        id: 'Spot',
+        name: 'Spot',
+        fields: ['+ x: int', '+ y: int', '+ piece: Optional[Piece]'],
+        methods: ['+ isOccupied(): bool'],
+        x: 340,
+        y: 40,
+        w: 200,
+        h: 100
+      },
+      {
+        id: 'Board',
+        name: 'Board',
+        fields: ['- boxes: list[list[Spot]]'],
+        methods: ['+ getSpot(x: int, y: int): Spot', '+ resetBoard()'],
+        x: 580,
+        y: 40,
+        w: 230,
+        h: 100
+      },
+      {
+        id: 'MoveCommand',
+        name: 'MoveCommand',
+        fields: ['+ player: Player', '+ start: Spot', '+ end: Spot', '+ capturedPiece: Optional[Piece]'],
+        methods: ['+ execute(): bool', '+ undo(): void'],
+        x: 580,
+        y: 180,
+        w: 250,
+        h: 110
+      }
+    ],
+    relationships: [
+      { from: 'King', to: 'Piece', type: 'inheritance', label: 'extends' },
+      { from: 'Knight', to: 'Piece', type: 'inheritance', label: 'extends' },
+      { from: 'Spot', to: 'Piece', type: 'aggregation', label: 'holds' },
+      { from: 'Board', to: 'Spot', type: 'composition', label: 'contains 64' },
+      { from: 'MoveCommand', to: 'Board', type: 'association', label: 'modifies' }
+    ]
   }
 };

@@ -71,4 +71,15 @@ describe('LLD & Database Schema Studio Logic', () => {
     assert.match(mermaidEr, /^erDiagram/);
     assert.match(mermaidEr, /users \{/);
   });
+
+  it('renders LRU Cache and Chess presets with complex composition and command patterns', () => {
+    const lruSvg = renderSvgDiagram(LLD_PRESETS.lruCache);
+    assert.match(lruSvg, /LRUCache/);
+    assert.match(lruSvg, /DoublyLinkedList/);
+    assert.match(lruSvg, /diamond-comp/);
+
+    const chessCode = generatePythonCode(LLD_PRESETS.chess);
+    assert.match(chessCode, /class Piece\(ABC\):/);
+    assert.match(chessCode, /class MoveCommand/);
+  });
 });
