@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Clocks &amp; Distributed Causality Lab · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Vector Clocks and distributed causality simulator. Visualize Lamport logical clocks, happens-before ordering, concurrent write conflicts, and multi-version merges.">
+<link rel="canonical" href="%SITE_URL%/tools/vector-clocks/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/vector-clocks/">
+<meta property="og:title" content="Vector Clocks &amp; Distributed Causality Lab">
+<meta property="og:description" content="Simulate vector clocks, happens-before relations, concurrent divergence, and Dynamo-style conflict resolution in your browser.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Vector Clocks & Distributed Causality Lab","url":"%SITE_URL%/tools/vector-clocks/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/system-design/01-core-fundamentals/15-consistency-models/">Consistency Models</a>
+    <a href="/backend/10-distributed-systems-patterns/">Distributed Patterns</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Vector Clocks &amp; Distributed Causality Lab</h1>
+  <p class="tool-lead">Physical wall-clock time is unreliable across distributed nodes due to clock skew and NTP drift. How do systems like Amazon DynamoDB and Riak determine whether event $X$ caused event $Y$, or whether two writes happened concurrently? Explore Lamport logical timestamps, vector clock rules, and conflict resolution live.</p>
+
+  <section aria-labelledby="vc-lab-h" class="tool-card" id="vc-lab">
+    <h2 id="vc-lab-h">Space-Time Diagram &amp; Message Passing</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <div class="vc-controls-bar">
+      <div>
+        <span class="tool-note">Causal Scenarios:</span>
+        <div id="vc-scenarios" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div class="tool-row">
+        <button id="vc-btn-reset" type="button" class="tool-btn">Reset Timeline</button>
+      </div>
+    </div>
+
+    <!-- Interactive Event Trigger Bar -->
+    <div class="vc-actions-bar">
+      <div class="tool-row" style="align-items: center;">
+        <span class="tool-note">Local Event:</span>
+        <button id="vc-btn-event-a" type="button" class="tool-btn tool-btn-sm">+ Event on A</button>
+        <button id="vc-btn-event-b" type="button" class="tool-btn tool-btn-sm">+ Event on B</button>
+        <button id="vc-btn-event-c" type="button" class="tool-btn tool-btn-sm">+ Event on C</button>
+      </div>
+      <div class="tool-row" style="align-items: center;">
+        <span class="tool-note">Send Message:</span>
+        <button id="vc-btn-send-ab" type="button" class="tool-btn tool-btn-sm tool-btn--primary">A &rarr; B</button>
+        <button id="vc-btn-send-bc" type="button" class="tool-btn tool-btn-sm tool-btn--primary">B &rarr; C</button>
+        <button id="vc-btn-send-ca" type="button" class="tool-btn tool-btn-sm tool-btn--primary">C &rarr; A</button>
+      </div>
+    </div>
+
+    <!-- Timeline SVG Canvas -->
+    <div class="vc-timeline-wrapper">
+      <div id="vc-timeline-canvas" class="vc-timeline-scroll"></div>
+    </div>
+
+    <!-- Live Pairwise Causal Matrix -->
+    <div class="vc-matrix-section">
+      <h3>Pairwise Causal Relationship Matrix</h3>
+      <p class="tool-note">Evaluates whether current node states have a strict partial order ($V_1 \le V_2$) or represent concurrent divergent branches ($V_1 \parallel V_2$).</p>
+      <div class="tool-table-scroll">
+        <table class="tool-table">
+          <thead>
+            <tr>
+              <th>Pair</th>
+              <th>Clock 1</th>
+              <th>Clock 2</th>
+              <th>Causal Relationship</th>
+              <th>Explanation &amp; Reconciliation</th>
+            </tr>
+          </thead>
+          <tbody id="vc-matrix-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Educational Theory -->
+  <section aria-labelledby="vc-theory-h" class="tool-card">
+    <h2 id="vc-theory-h">The Math Behind Vector Clocks</h2>
+    <div class="tool-grid">
+      <article>
+        <h3>Local Event Rule</h3>
+        <p>Before node $i$ produces any internal event, it increments its own logical component in its vector clock: $V_i[i] \leftarrow V_i[i] + 1$.</p>
+      </article>
+      <article>
+        <h3>Message Passing &amp; Merge Rule</h3>
+        <p>When sending, node $i$ increments $V_i[i]$ and attaches $V_i$ to the message. When receiving, node $j$ computes the component-wise maximum and increments its own clock: $V_j[k] \leftarrow \max(V_j[k], V_{msg}[k]), \forall k$, followed by $V_j[j] \leftarrow V_j[j] + 1$.</p>
+      </article>
+      <article>
+        <h3>Happens-Before ($\le$)</h3>
+        <p>$V_A \le V_B$ if and only if $\forall k, V_A[k] \le V_B[k]$. If $V_A \le V_B$ and $V_A \ne V_B$, event $A$ strictly preceded $B$ in the causal timeline ($A \to B$).</p>
+      </article>
+      <article>
+        <h3>Concurrent Conflicts ($\parallel$)</h3>
+        <p>If neither $V_A \le V_B$ nor $V_B \le V_A$ holds, the events are <strong>concurrent</strong> ($V_A \parallel V_B$). Distributed databases (e.g. DynamoDB shopping carts) return siblings to the client or invoke conflict resolution (CRDTs or Last-Write-Wins).</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/vectorclock.js"></script>
+</body>
+</html>

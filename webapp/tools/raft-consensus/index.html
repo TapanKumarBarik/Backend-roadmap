@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raft Distributed Consensus Simulator · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Raft distributed consensus simulator. Explore 5-node leader election, split votes, majority quorum, heartbeat RPCs, and fault-tolerant log replication.">
+<link rel="canonical" href="%SITE_URL%/tools/raft-consensus/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/raft-consensus/">
+<meta property="og:title" content="Raft Distributed Consensus Simulator">
+<meta property="og:description" content="Simulate Raft leader election, randomized timeouts, log replication, and leader failovers interactively in your browser.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Raft Distributed Consensus Simulator","url":"%SITE_URL%/tools/raft-consensus/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/system-design/01-core-fundamentals/13-cap-theorem/">CAP Theorem</a>
+    <a href="/backend/10-distributed-systems-patterns/">Distributed Patterns</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Raft Distributed Consensus Simulator</h1>
+  <p class="tool-lead">How do distributed databases like etcd, CockroachDB, and TiKV agree on values across servers that can crash or disconnect at any second? Explore Raft consensus live: watch leader election, randomized election timeouts, split-vote ties, and majority quorum log replication right in your browser.</p>
+
+  <section aria-labelledby="raft-lab-h" class="tool-card" id="raft-lab">
+    <h2 id="raft-lab-h">5-Node Cluster Simulation</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <div class="raft-controls-bar">
+      <div>
+        <span class="tool-note">Consensus Scenarios:</span>
+        <div id="raft-scenarios" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div class="tool-row">
+        <button id="raft-btn-election" type="button" class="tool-btn tool-btn--primary">Trigger Election</button>
+        <button id="raft-btn-heartbeat" type="button" class="tool-btn">Send Heartbeats</button>
+        <button id="raft-btn-crash" type="button" class="tool-btn">Crash Leader</button>
+        <button id="raft-btn-recover-all" type="button" class="tool-btn">Recover All</button>
+      </div>
+    </div>
+
+    <!-- Cluster Visual Mesh & Live Metrics -->
+    <div class="raft-stage-grid">
+      <div class="raft-canvas-card">
+        <div id="raft-canvas" class="raft-canvas-holder"></div>
+        <p class="tool-hint" style="text-align: center; margin-top: 8px;">Tip: Click any node to crash it or trigger an election on it.</p>
+      </div>
+
+      <div class="raft-sidebar">
+        <div class="ll-summary" style="margin-bottom: var(--space-4);">
+          <div class="ll-stat"><span>Active Leader</span><strong id="raft-stat-leader">-</strong></div>
+          <div class="ll-stat"><span>Current Term</span><strong id="raft-stat-term">0</strong></div>
+          <div class="ll-stat"><span>Quorum Size</span><strong id="raft-stat-quorum">3 of 5</strong></div>
+          <div class="ll-stat"><span>Cluster Health</span><strong id="raft-stat-active">5 / 5 alive</strong></div>
+        </div>
+
+        <h3>Event Stream &amp; State Transitions</h3>
+        <div id="raft-log-box" class="raft-console"></div>
+      </div>
+    </div>
+
+    <!-- Log Replication Subsystem -->
+    <div class="raft-replication-section">
+      <div class="lld-codegen-header">
+        <h3>Replicated Log &amp; State Machine</h3>
+        <div class="tool-row">
+          <input id="raft-cmd-input" type="text" placeholder="e.g. SET user = alice" style="max-width: 200px;">
+          <button id="raft-btn-append" type="button" class="tool-btn tool-btn--primary">Append Log Entry</button>
+        </div>
+      </div>
+
+      <div class="tool-table-scroll">
+        <table class="tool-table">
+          <thead>
+            <tr>
+              <th>Index / Term</th>
+              <th>State Machine Command</th>
+              <th>Node 1</th>
+              <th>Node 2</th>
+              <th>Node 3</th>
+              <th>Node 4</th>
+              <th>Node 5</th>
+            </tr>
+          </thead>
+          <tbody id="raft-log-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Raft Educational Core Concepts -->
+  <section aria-labelledby="raft-edu-h" class="tool-card">
+    <h2 id="raft-edu-h">How Raft Guarantees Safety and Liveness</h2>
+    <div class="tool-grid">
+      <article>
+        <h3>Leader Election</h3>
+        <p>A node starts as a <strong>Follower</strong>. If it hears no heartbeats within a randomized timeout (150–300 ms), it increments its <strong>Term</strong>, becomes a <strong>Candidate</strong>, and asks peers for votes. Winning a majority ($\lfloor N/2 \rfloor + 1$) transitions it to <strong>Leader</strong>.</p>
+      </article>
+      <article>
+        <h3>Randomized Election Timeouts</h3>
+        <p>Split votes occur when two nodes become candidates simultaneously. To prevent persistent split-vote ties, Raft randomizes election timeouts so one candidate almost always times out first, collects votes, and wins before others compete.</p>
+      </article>
+      <article>
+        <h3>Quorum Commitment</h3>
+        <p>A log entry is only <strong>committed</strong> once safely written to a majority of nodes. Once committed, the Raft Leader Completeness property guarantees that every future elected leader will already contain this entry in its log.</p>
+      </article>
+      <article>
+        <h3>Heartbeats &amp; Authority</h3>
+        <p>The leader sends periodic empty <code>AppendEntries</code> heartbeats to prevent followers from timing out. If network partitions isolate the leader, a minority partition cannot commit writes because it cannot achieve a quorum of 3.</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/raft.js"></script>
+</body>
+</html>

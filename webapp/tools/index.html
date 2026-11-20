@@ -18,7 +18,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"Network Lab","url":"%SITE_URL%/tools/","isAccessibleForFree":true,"mainEntity":{"@type":"ItemList","itemListElement":[{"@type":"ListItem","position":1,"name":"Page load latency calculator","url":"%SITE_URL%/tools/page-load-latency/"},{"@type":"ListItem","position":2,"name":"Subnet calculator and CIDR practice","url":"%SITE_URL%/tools/subnet/"},{"@type":"ListItem","position":3,"name":"TCP Congestion & Flow Control Simulator","url":"%SITE_URL%/tools/tcp-congestion/"},{"@type":"ListItem","position":4,"name":"Consistent Hashing & Partitioning Lab","url":"%SITE_URL%/tools/consistent-hashing/"},{"@type":"ListItem","position":5,"name":"Rate Limiting & Traffic Shaping Simulator","url":"%SITE_URL%/tools/rate-limiting/"},{"@type":"ListItem","position":6,"name":"Bloom Filter Simulator & Sizing Calculator","url":"%SITE_URL%/tools/bloom-filter/"},{"@type":"ListItem","position":7,"name":"Low-Level Design (LLD) & Schema Studio","url":"%SITE_URL%/tools/lld-studio/"}]}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"Network Lab","url":"%SITE_URL%/tools/","isAccessibleForFree":true,"mainEntity":{"@type":"ItemList","itemListElement":[{"@type":"ListItem","position":1,"name":"Page load latency calculator","url":"%SITE_URL%/tools/page-load-latency/"},{"@type":"ListItem","position":2,"name":"Subnet calculator and CIDR practice","url":"%SITE_URL%/tools/subnet/"},{"@type":"ListItem","position":3,"name":"TCP Congestion & Flow Control Simulator","url":"%SITE_URL%/tools/tcp-congestion/"},{"@type":"ListItem","position":4,"name":"Consistent Hashing & Partitioning Lab","url":"%SITE_URL%/tools/consistent-hashing/"},{"@type":"ListItem","position":5,"name":"Rate Limiting & Traffic Shaping Simulator","url":"%SITE_URL%/tools/rate-limiting/"},{"@type":"ListItem","position":6,"name":"Bloom Filter Simulator & Sizing Calculator","url":"%SITE_URL%/tools/bloom-filter/"},{"@type":"ListItem","position":7,"name":"Low-Level Design (LLD) & Schema Studio","url":"%SITE_URL%/tools/lld-studio/"},{"@type":"ListItem","position":8,"name":"Raft Distributed Consensus Simulator","url":"%SITE_URL%/tools/raft-consensus/"},{"@type":"ListItem","position":9,"name":"Vector Clocks & Distributed Causality Lab","url":"%SITE_URL%/tools/vector-clocks/"}]}}</script>
 </head>
 <body class="tool">
 <header class="tool-top">
@@ -69,6 +69,16 @@
       <h2 id="lld-h">Low-Level Design (LLD) &amp; Schema Studio</h2>
       <p>Interactive UML class diagrams, relational ER schemas, and design pattern templates (Parking Lot, Elevator, Payment Gateway) with 1-click code export to Python, TypeScript, Go, SQL DDL, and Mermaid.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/lld-studio/">Open the studio</a>
+    </section>
+    <section class="tool-card" aria-labelledby="raft-h">
+      <h2 id="raft-h">Raft Distributed Consensus Simulator</h2>
+      <p>Simulate a 5-node distributed cluster running Raft consensus. Watch leader election, split-vote scenarios, heartbeat intervals, and majority quorum log replication in real time.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/raft-consensus/">Open the simulator</a>
+    </section>
+    <section class="tool-card" aria-labelledby="vc-h">
+      <h2 id="vc-h">Vector Clocks &amp; Distributed Causality Lab</h2>
+      <p>Explore Lamport timestamps, vector clock rules, happens-before causal ordering ($V_1 \le V_2$), and multi-version concurrent conflict detection (Dynamo-style) across independent nodes.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/vector-clocks/">Open the lab</a>
     </section>
   </div>
 

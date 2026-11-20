@@ -633,6 +633,16 @@
         "height": 2200
       },
       {
+        "name": "tool-raft-consensus",
+        "path": "/tools/raft-consensus/",
+        "height": 2200
+      },
+      {
+        "name": "tool-vector-clocks",
+        "path": "/tools/vector-clocks/",
+        "height": 2000
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -721,6 +731,16 @@
       "id": "lld-studio",
       "url": "/tools/lld-studio/",
       "entry": "tools/lld-studio/index.html"
+    },
+    {
+      "id": "raft-consensus",
+      "url": "/tools/raft-consensus/",
+      "entry": "tools/raft-consensus/index.html"
+    },
+    {
+      "id": "vector-clocks",
+      "url": "/tools/vector-clocks/",
+      "entry": "tools/vector-clocks/index.html"
     }
   ]
 }
