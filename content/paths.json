@@ -304,6 +304,29 @@
       "next": "ai-backend"
     },
     {
+      "id": "oop-first-steps",
+      "title": "Object-oriented programming, first steps",
+      "topic": "Code design",
+      "goal": "See how Python and C# hold data in memory, then build classes and objects, and draw them as a class diagram.",
+      "audience": "Developers new to object-oriented code, or who learned it without being shown how an object is laid out.",
+      "difficulty": "beginner",
+      "prerequisites": [
+        "Write a small program in Python or C#"
+      ],
+      "skills": [
+        "Value and reference types",
+        "Classes, objects and encapsulation",
+        "The four pillars of OOP",
+        "UML class diagrams"
+      ],
+      "steps": [
+        "lld/00-programming-basics-python-and-csharp",
+        "lld/01-classes-objects-and-oop-building-blocks",
+        "lld/02-oop-foundations-and-uml"
+      ],
+      "next": "low-level-design"
+    },
+    {
       "id": "low-level-design",
       "title": "Low-level design",
       "topic": "Code design",
