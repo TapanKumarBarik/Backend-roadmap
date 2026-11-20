@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Low-Level Design (LLD) &amp; Schema Studio · %SITE_NAME%</title>
+<meta name="description" content="Interactive Low-Level Design and Database Schema Studio. Explore UML Class Diagrams, ER schemas, and design pattern architectures with instant code generation for Python, TypeScript, Go, and SQL DDL.">
+<link rel="canonical" href="%SITE_URL%/tools/lld-studio/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/lld-studio/">
+<meta property="og:title" content="Low-Level Design (LLD) &amp; Database Schema Studio">
+<meta property="og:description" content="Visual UML Class and ER diagram modeling studio with classic interview patterns and multi-language code export.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Low-Level Design (LLD) & Database Schema Studio","url":"%SITE_URL%/tools/lld-studio/","applicationCategory":"DeveloperApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/lld/">LLD Course</a>
+    <a href="/system-design/01-core-fundamentals/">System Design</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Low-Level Design (LLD) &amp; Schema Studio</h1>
+  <p class="tool-lead">Master object-oriented design and database schema modeling. Explore interactive UML class diagrams, relational entity-relationship (ER) models, classic interview patterns (Parking Lot, Elevator, Payment Processing), and instantly generate production-ready code in Python, TypeScript, Go, SQL DDL, or Mermaid.</p>
+
+  <section aria-labelledby="studio-h" class="tool-card" id="studio-lab">
+    <h2 id="studio-h">Interactive Visual Modeling Studio</h2>
+    <noscript><p class="tool-note">This interactive modeling studio requires JavaScript.</p></noscript>
+
+    <div class="lld-controls-bar">
+      <div>
+        <span class="tool-note">Architecture Templates:</span>
+        <div id="lld-preset-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div>
+        <button id="lld-download-svg" type="button" class="tool-btn">Download SVG</button>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="lld-canvas-container">
+      <div id="lld-canvas-holder" class="lld-canvas-scroll"></div>
+    </div>
+
+    <!-- Interactive Inspector -->
+    <div id="lld-inspector" class="lld-inspector-card"></div>
+  </section>
+
+  <!-- Multi-Language Code Generation -->
+  <section aria-labelledby="codegen-h" class="tool-card">
+    <div class="lld-codegen-header">
+      <h2 id="codegen-h">Model-to-Code Generator</h2>
+      <div class="lld-lang-tabs">
+        <button type="button" class="lld-lang-tab is-active" data-lang="python">Python</button>
+        <button type="button" class="lld-lang-tab" data-lang="typescript">TypeScript</button>
+        <button type="button" class="lld-lang-tab" data-lang="go">Go</button>
+        <button type="button" class="lld-lang-tab" data-lang="sql">SQL DDL</button>
+        <button type="button" class="lld-lang-tab" data-lang="mermaid">Mermaid</button>
+      </div>
+    </div>
+    <p class="tool-lead" style="font-size: var(--text-sm); margin-bottom: var(--space-3);">Generates strongly typed class definitions, inheritance hierarchies, dataclasses, abstract methods, and relational DDL constraints directly from the visual model.</p>
+    <div class="lld-code-wrapper">
+      <button id="lld-copy-btn" class="tool-btn lld-copy-btn" type="button">Copy code</button>
+      <pre class="lld-code-pre"><code id="lld-code-output"></code></pre>
+    </div>
+  </section>
+
+  <!-- Educational Reference -->
+  <section aria-labelledby="patterns-h" class="tool-card">
+    <h2 id="patterns-h">Design Pattern Cheat Sheet for LLD Interviews</h2>
+    <div class="tool-grid">
+      <article>
+        <h3>Strategy Pattern</h3>
+        <p>Defines a family of algorithms, encapsulates each one, and makes them interchangeable. Used in the <strong>Parking Lot</strong> (hourly vs. flat pricing) and <strong>Payment Gateway</strong> (Stripe vs. PayPal vs. Crypto) so clients depend only on an abstraction.</p>
+      </article>
+      <article>
+        <h3>State Pattern</h3>
+        <p>Allows an object to alter its behavior when its internal state changes. The object appears to change its class. Essential for the <strong>Elevator System</strong> (Idle, Moving, DoorsOpen), avoiding fragile nested <code>if/else</code> or <code>switch</code> blocks.</p>
+      </article>
+      <article>
+        <h3>Factory Pattern</h3>
+        <p>Decouples object creation from consumption. The client requests an implementation by key or configuration, allowing new providers or hardware types to be registered with zero modifications to existing business logic.</p>
+      </article>
+      <article>
+        <h3>Relational 3NF &amp; Junctions</h3>
+        <p>Eliminates redundancy and update anomalies. Many-to-many relationships (e.g. users following users, posts tagged with multiple tags) decompose into explicit associative junction tables with composite primary keys.</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/lld.js"></script>
+</body>
+</html>

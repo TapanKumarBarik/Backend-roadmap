@@ -58,6 +58,7 @@ patterns you already know applies, why, and what it costs.
 | 09 | [Designing a web crawler](09-designing-a-web-crawler/README.md) | Design a polite, deduplicating crawler: the URL frontier with one queue per host, robots.txt (RFC 9309), URL-seen and content-seen tests, Bloom filter sizing, spider traps, and capacity worked from two real crawls | 3-4 hrs |
 | 10 | [Designing typeahead and autocomplete](10-designing-typeahead-and-autocomplete/README.md) | Design search-as-you-type: a trie with the best completions precomputed at every node, an offline snapshot plus an online delta, a blocklist that works at read time, edge caching of short prefixes, and a latency budget from the 100 ms limit | 3-4 hrs |
 | 11 | [Designing a leaderboard](11-designing-a-leaderboard/README.md) | Design a ranked board: why a rank is hard for a table, the Redis sorted set (skip list and hash table), tie-breaking and the 53-bit score budget, time windows as key names, sharding by hash or by score band, and estimated ranks below the top | 3-4 hrs |
+| 12 | [Designing a geospatial ride-matching service](12-designing-geospatial-and-ride-matching/README.md) | Design real-time dispatch at scale: H3 hexagonal spatial indexing, driver location stream ingestion, $k$-ring neighbor expansions, and atomic lock leases | 3-4 hrs |
 
 Modules 09 and later are further problems added after the capstone, so that the capstone keeps its address. Each one runs the same seven-step framework, so you can take them before or after the capstone.
 

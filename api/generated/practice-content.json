@@ -13477,6 +13477,38 @@
     }
    ]
   },
+  "production-architecture-case-studies": {
+   "title": "Production Architecture Case Studies",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+   "questions": [
+    {
+     "q": "Why did Discord migrate from MongoDB to Apache Cassandra, and subsequently from Cassandra to ScyllaDB for trillions of chat messages?",
+     "a": "MongoDB struggled with memory exhaustion and unpredictable replica latency as message counts exploded past billions. Discord initially moved to Apache Cassandra because its LSM-tree storage engine and wide-column partition keys (e.g. channel_id) offered high write throughput and easy horizontal node expansion. However, as messages grew to trillions, JVM garbage collection pauses (stop-the-world GC) and node-to-node gossip overhead caused 99th-percentile tail latency spikes of up to 5 seconds. Discord migrated from Cassandra to ScyllaDB (a C++ rewrite of Cassandra that uses a thread-per-core asynchronous architecture, direct AIO kernel bypass, and deterministic memory management without a JVM garbage collector), reducing p99 tail read latencies from over 2,000 ms to under 15 ms while cutting the cluster footprint by 60%."
+    },
+    {
+     "q": "How does Uber match riders with nearby drivers in real time at global scale?",
+     "a": "Uber uses H3, an open-source hexagonal hierarchical spatial indexing system. Earth's surface is partitioned into nested hexagonal cells across 16 resolution levels. Every active driver streams GPS coordinates every 4 seconds via WebSockets/gRPC. The backend maps coordinates into an H3 index (e.g., resolution 8, ~460m edge length) and updates an in-memory spatial index (sharded by consistent hashing using Ringpop). When a rider requests a pickup, the dispatch system looks up the rider's H3 cell and queries the $k$-ring (adjacent concentric hexagon neighbors) in $O(1)$ ring expansions. Hexagons are preferred over square grids or Geohashes because all adjacent hexagon neighbors share the exact same centroid distance, eliminating directional distortion."
+    },
+    {
+     "q": "How did WhatsApp achieve 2 million concurrent TCP connections per single server node?",
+     "a": "WhatsApp customized the FreeBSD kernel and Erlang/OTP runtime to scale their ejabberd chat infrastructure. Key optimizations included: (1) Tuning sysctl parameters: raising `kern.ipc.maxsockets`, `kern.maxfiles`, and `net.inet.tcp.recvspace`/`sendspace` to minimize socket buffer overhead per connection from 32 KB down to 8 KB; (2) Erlang's lightweight actor model, which allocates only ~300 words of memory per process compared to OS threads requiring 1 MB stack each; (3) epoll/kqueue event demultiplexing to handle I/O asynchronously with zero context switching; and (4) offloading SSL/TLS termination to front-end hardware appliances so message routing nodes handled raw byte streams with minimal crypto CPU overhead."
+    },
+    {
+     "q": "How does Netflix optimize video streaming delivery across thousands of heterogeneous devices globally?",
+     "a": "Netflix avoids serving video directly from origin AWS data centers. Instead, they built Open Connect, a global Content Delivery Network (CDN) of custom Open Connect Appliances (OCAs) deployed directly inside thousands of local Internet Service Provider (ISP) networks. Master video files are ingested, split into chunks, and transcoded offline into hundreds of permutations across resolutions (1080p, 4K), audio tracks, and codecs (H.264, HEVC, AV1) with varying bitrates. During off-peak hours (e.g., 2 AM to 5 AM local time), Netflix predictively caches popular titles directly onto local ISP OCAs based on machine learning viewing forecasts, allowing over 95% of video traffic to be served over single-hop peering links with near-zero transit costs."
+    },
+    {
+     "q": "What is the Thundering Herd / Cache Stampede problem, and how do production systems like Reddit and Facebook prevent it?",
+     "a": "A cache stampede happens when a high-traffic cache entry expires or is invalidated while hundreds of concurrent requests arrive simultaneously. Every worker detects a cache miss and queries the underlying database concurrently, overloading the database and bringing down the service. Production defenses include: (1) Singleflight / Request Coalescing (e.g., Go sync/singleflight or Redis lock), where only the first worker queries the database while concurrent requests await that worker's result; (2) Probabilistic Early Expiration (XFetch algorithm), where workers refresh the cache before it expires based on elapsed time, TTL, and compute cost; and (3) Stale-While-Revalidate with dual caching, where stale data is served immediately while an async background worker refreshes the cache."
+    },
+    {
+     "q": "Why does Slack use a master-slave gateway architecture rather than connecting clients directly to channel servers?",
+     "a": "Slack users participate in dozens of channels across multiple workspaces. Direct client-to-channel connections would create an $O(U \\times C)$ connection mesh, overwhelming backend message brokers. Slack introduced the Gateway Layer: clients maintain a single persistent WebSocket to an edge gateway server. The gateway subscribes to backend Kafka/Redis channel pub/sub feeds on behalf of all connected users on that gateway. When a message is sent to a 5,000-user channel, the backend publishes 1 message to the channel broker, which distributes it only once to each gateway holding active subscribers, reducing fan-out network bandwidth by orders of magnitude."
+    }
+   ]
+  },
   "python-interview-questions": {
    "title": "Python internals and senior engineering",
    "topic": "python",

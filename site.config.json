@@ -628,6 +628,11 @@
         "height": 2000
       },
       {
+        "name": "tool-lld-studio",
+        "path": "/tools/lld-studio/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -711,6 +716,11 @@
       "id": "bloom-filter",
       "url": "/tools/bloom-filter/",
       "entry": "tools/bloom-filter/index.html"
+    },
+    {
+      "id": "lld-studio",
+      "url": "/tools/lld-studio/",
+      "entry": "tools/lld-studio/index.html"
     }
   ]
 }
