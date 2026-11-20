@@ -68,6 +68,18 @@
     {
       "q": "What is the difference between authentication and authorization middleware?",
       "a": "**Authentication** middleware (`app.UseAuthentication()`) verifies *who* the caller is by inspecting credentials (e.g. validating a JWT Bearer token or cookie) and establishing the `ClaimsPrincipal` on `HttpContext.User`. **Authorization** middleware (`app.UseAuthorization()`) verifies *what* that caller is permitted to do against policies and roles."
+    },
+    {
+      "q": "What is the N+1 query problem in Entity Framework Core, and how do you prevent it?",
+      "a": "The **N+1 problem** occurs when querying a parent collection executes 1 query to fetch $N$ parent records, followed by $N$ separate queries executed in a loop to fetch related child records for each parent. This generates devastating network latency and database query load. Prevent it by using eager loading via `.Include(x => x.Children)` to join child data in a single SQL query."
+    },
+    {
+      "q": "What does AsNoTracking() do in EF Core, and when should you use it?",
+      "a": "`.AsNoTracking()` tells EF Core not to snapshot or track entities in the `ChangeTracker` cache. It should be used for **read-only queries** (e.g. GET endpoints, reports). Disabling tracking reduces memory allocations, eliminates snapshot comparison overhead, and significantly boosts read throughput."
+    },
+    {
+      "q": "What is the difference between eager loading, lazy loading, and explicit loading in EF Core?",
+      "a": "**Eager loading** (`.Include()`) loads related data from the database as part of the initial query using SQL JOINs. **Lazy loading** defers loading navigation properties until they are accessed in code via proxy instances (which risks hidden N+1 queries). **Explicit loading** (`context.Entry(order).Collection(o => o.Items).Load()`) loads related entities on-demand via an explicit query call."
     }
   ]
 }

@@ -80,6 +80,22 @@
     {
       "q": "What is the Mediator pattern, and how does it differ from Observer?",
       "a": "The Mediator pattern centralizes complex communications between disparate objects, preventing them from referring to each other directly. In **Observer**, subjects broadcast events to many subscribers (one-to-many). In **Mediator**, communication is orchestrated centrally (many-to-many), with components (colleagues) routing all commands and notifications through the mediator (e.g., `MediatR` in .NET)."
+    },
+    {
+      "q": "What is the Visitor pattern, and what is double dispatch?",
+      "a": "The **Visitor pattern** separates an algorithm from the object structure on which it operates, allowing new operations to be added to existing class hierarchies without modifying them. It relies on **double dispatch**: the client calls `element.Accept(visitor)`, and inside `Accept`, the element invokes `visitor.Visit(this)`, binding dispatch on both the element type and visitor type at runtime."
+    },
+    {
+      "q": "What is the Memento pattern, and how does it preserve encapsulation during state capture?",
+      "a": "The **Memento pattern** captures and externalizes an object's internal state without violating encapsulation, allowing the object to be restored to this state later (undo mechanism). The **Originator** creates and consumes the memento. The **Caretaker** (e.g. undo manager) stores mementos but is given a narrow interface, preventing it from inspecting or tampering with internal saved state."
+    },
+    {
+      "q": "What is the Null Object pattern, and how does it eliminate null-checking boilerplate?",
+      "a": "The **Null Object pattern** provides an object that implements an interface with neutral, no-op behavior (e.g. `NullLogger` doing nothing on `Log()`) instead of passing `null`. Clients invoke methods safely without repetitive `if (logger != null)` checks, keeping domain code cohesive, readable, and free from defensive guard clauses."
+    },
+    {
+      "q": "What is the Specification pattern, and how does it support composite business rules?",
+      "a": "The **Specification pattern** encapsulates a domain business rule or query predicate into an object implementing an `IsSatisfiedBy(candidate)` method. Specifications can be combined using boolean combinators (`And`, `Or`, `Not`) to form composite business rules (e.g. `isEligible = isOver18.And(hasActiveSubscription.Not())`), separating validation logic from domain entities."
     }
   ]
 }

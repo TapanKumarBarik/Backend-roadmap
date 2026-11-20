@@ -76,6 +76,22 @@
     {
       "q": "Why should you avoid async void in C#?",
       "a": "Avoid `async void` (except in event handlers). An `async void` method cannot be awaited by callers, meaning exceptions thrown inside cannot be caught with a standard `try/catch` block. Unhandled exceptions on `async void` methods crash the entire process through the `AppDomain.UnhandledException` handler."
+    },
+    {
+      "q": "What causes a deadlock when calling .Result or .Wait() on a Task in .NET?",
+      "a": "In environments with a non-null `SynchronizationContext` (e.g. WPF, WinForms, legacy ASP.NET), awaiting an asynchronous method captures the context to resume on that specific UI or request thread. Calling `.Result` or `.Wait()` synchronously blocks that thread. When the background task finishes and tries to queue its continuation onto the captured context, the context thread is already blocked waiting for the task to finish, creating a permanent deadlock."
+    },
+    {
+      "q": "What does ConfigureAwait(false) do, and when should you use it?",
+      "a": "`await task.ConfigureAwait(false)` instructs the runtime not to marshal the continuation back to the original captured `SynchronizationContext` or `TaskScheduler`, allowing the remaining code to execute on an arbitrary available ThreadPool thread. It should be used in non-UI class libraries and backend services to avoid context-switching overhead and eliminate synchronization-context deadlocks."
+    },
+    {
+      "q": "What generic constraints does C# support?",
+      "a": "C# supports constraints using the `where T : ...` clause: `class` (reference type), `struct` (non-nullable value type), `notnull` (non-nullable type), `unmanaged` (blittable value type without heap references), `new()` (parameterless public constructor), base class (`where T : BaseClass`), interface (`where T : IComparable<T>`), and type parameter constraints (`where T : U`)."
+    },
+    {
+      "q": "Why can you not use await inside a lock block in C#, and what should you use instead?",
+      "a": "The `lock` statement in C# compiles to `Monitor.Enter` and `Monitor.Exit`, which enforce **thread affinity**: the exact same thread that entered the monitor must release it. An `await` expression can yield the thread, and its continuation may resume on a completely different ThreadPool thread, causing `SynchronizationLockException`. Instead, use asynchronous synchronization primitives like `SemaphoreSlim.WaitAsync()`."
     }
   ]
 }

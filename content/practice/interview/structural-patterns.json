@@ -72,6 +72,18 @@
     {
       "q": "How does lazy loading use a proxy?",
       "a": "A virtual proxy defers the expensive creation of the real object until a client actually calls a method that needs it. In ORMs like Entity Framework Core, navigation properties are represented by generated proxy subclasses. When code accesses `order.Customer.Name`, the proxy intercepts the property access, executes a database query to load the customer row, and populates the field transparently."
+    },
+    {
+      "q": "What is the difference between a Class Adapter and an Object Adapter?",
+      "a": "A **Class Adapter** uses multiple inheritance (inheriting from both the target interface and the adaptee class implementation) to adapt one interface to another; it cannot adapt a class and all its subclasses. An **Object Adapter** uses composition (holding a private reference to the adaptee instance and delegating calls to it); it can adapt an adaptee and any of its derived subclasses."
+    },
+    {
+      "q": "When should you choose a Facade over direct calls to subsystem classes?",
+      "a": "Choose a **Facade** when you want to provide a simple, default interface to a complex subsystem for the 80% use case, without preventing advanced clients from bypassing the facade to access subsystem classes directly if specialized customization is needed. It decouples callers from complex multi-step subsystem wiring and reduces inter-package dependencies."
+    },
+    {
+      "q": "How does the Flyweight pattern manage intrinsic vs extrinsic state in game or UI rendering engines?",
+      "a": "**Intrinsic state** (e.g. 3D tree mesh, texture bitmap, glyph contour) is immutable and context-independent; it is stored inside a single flyweight instance shared across thousands of objects. **Extrinsic state** (e.g. tree coordinates $x, y, z$, scaling factor, foliage color tint) is context-specific and stored in lightweight client structures or passed as method parameters during rendering."
     }
   ]
 }

@@ -11999,6 +11999,18 @@
     {
      "q": "What is the difference between authentication and authorization middleware?",
      "a": "**Authentication** middleware (`app.UseAuthentication()`) verifies *who* the caller is by inspecting credentials (e.g. validating a JWT Bearer token or cookie) and establishing the `ClaimsPrincipal` on `HttpContext.User`. **Authorization** middleware (`app.UseAuthorization()`) verifies *what* that caller is permitted to do against policies and roles."
+    },
+    {
+     "q": "What is the N+1 query problem in Entity Framework Core, and how do you prevent it?",
+     "a": "The **N+1 problem** occurs when querying a parent collection executes 1 query to fetch $N$ parent records, followed by $N$ separate queries executed in a loop to fetch related child records for each parent. This generates devastating network latency and database query load. Prevent it by using eager loading via `.Include(x => x.Children)` to join child data in a single SQL query."
+    },
+    {
+     "q": "What does AsNoTracking() do in EF Core, and when should you use it?",
+     "a": "`.AsNoTracking()` tells EF Core not to snapshot or track entities in the `ChangeTracker` cache. It should be used for **read-only queries** (e.g. GET endpoints, reports). Disabling tracking reduces memory allocations, eliminates snapshot comparison overhead, and significantly boosts read throughput."
+    },
+    {
+     "q": "What is the difference between eager loading, lazy loading, and explicit loading in EF Core?",
+     "a": "**Eager loading** (`.Include()`) loads related data from the database as part of the initial query using SQL JOINs. **Lazy loading** defers loading navigation properties until they are accessed in code via proxy instances (which risks hidden N+1 queries). **Explicit loading** (`context.Entry(order).Collection(o => o.Items).Load()`) loads related entities on-demand via an explicit query call."
     }
    ]
   },
@@ -12084,6 +12096,22 @@
     {
      "q": "What is the Mediator pattern, and how does it differ from Observer?",
      "a": "The Mediator pattern centralizes complex communications between disparate objects, preventing them from referring to each other directly. In **Observer**, subjects broadcast events to many subscribers (one-to-many). In **Mediator**, communication is orchestrated centrally (many-to-many), with components (colleagues) routing all commands and notifications through the mediator (e.g., `MediatR` in .NET)."
+    },
+    {
+     "q": "What is the Visitor pattern, and what is double dispatch?",
+     "a": "The **Visitor pattern** separates an algorithm from the object structure on which it operates, allowing new operations to be added to existing class hierarchies without modifying them. It relies on **double dispatch**: the client calls `element.Accept(visitor)`, and inside `Accept`, the element invokes `visitor.Visit(this)`, binding dispatch on both the element type and visitor type at runtime."
+    },
+    {
+     "q": "What is the Memento pattern, and how does it preserve encapsulation during state capture?",
+     "a": "The **Memento pattern** captures and externalizes an object's internal state without violating encapsulation, allowing the object to be restored to this state later (undo mechanism). The **Originator** creates and consumes the memento. The **Caretaker** (e.g. undo manager) stores mementos but is given a narrow interface, preventing it from inspecting or tampering with internal saved state."
+    },
+    {
+     "q": "What is the Null Object pattern, and how does it eliminate null-checking boilerplate?",
+     "a": "The **Null Object pattern** provides an object that implements an interface with neutral, no-op behavior (e.g. `NullLogger` doing nothing on `Log()`) instead of passing `null`. Clients invoke methods safely without repetitive `if (logger != null)` checks, keeping domain code cohesive, readable, and free from defensive guard clauses."
+    },
+    {
+     "q": "What is the Specification pattern, and how does it support composite business rules?",
+     "a": "The **Specification pattern** encapsulates a domain business rule or query predicate into an object implementing an `IsSatisfiedBy(candidate)` method. Specifications can be combined using boolean combinators (`And`, `Or`, `Not`) to form composite business rules (e.g. `isEligible = isOver18.And(hasActiveSubscription.Not())`), separating validation logic from domain entities."
     }
    ]
   },
@@ -12621,6 +12649,22 @@
     {
      "q": "Why should you avoid async void in C#?",
      "a": "Avoid `async void` (except in event handlers). An `async void` method cannot be awaited by callers, meaning exceptions thrown inside cannot be caught with a standard `try/catch` block. Unhandled exceptions on `async void` methods crash the entire process through the `AppDomain.UnhandledException` handler."
+    },
+    {
+     "q": "What causes a deadlock when calling .Result or .Wait() on a Task in .NET?",
+     "a": "In environments with a non-null `SynchronizationContext` (e.g. WPF, WinForms, legacy ASP.NET), awaiting an asynchronous method captures the context to resume on that specific UI or request thread. Calling `.Result` or `.Wait()` synchronously blocks that thread. When the background task finishes and tries to queue its continuation onto the captured context, the context thread is already blocked waiting for the task to finish, creating a permanent deadlock."
+    },
+    {
+     "q": "What does ConfigureAwait(false) do, and when should you use it?",
+     "a": "`await task.ConfigureAwait(false)` instructs the runtime not to marshal the continuation back to the original captured `SynchronizationContext` or `TaskScheduler`, allowing the remaining code to execute on an arbitrary available ThreadPool thread. It should be used in non-UI class libraries and backend services to avoid context-switching overhead and eliminate synchronization-context deadlocks."
+    },
+    {
+     "q": "What generic constraints does C# support?",
+     "a": "C# supports constraints using the `where T : ...` clause: `class` (reference type), `struct` (non-nullable value type), `notnull` (non-nullable type), `unmanaged` (blittable value type without heap references), `new()` (parameterless public constructor), base class (`where T : BaseClass`), interface (`where T : IComparable<T>`), and type parameter constraints (`where T : U`)."
+    },
+    {
+     "q": "Why can you not use await inside a lock block in C#, and what should you use instead?",
+     "a": "The `lock` statement in C# compiles to `Monitor.Enter` and `Monitor.Exit`, which enforce **thread affinity**: the exact same thread that entered the monitor must release it. An `await` expression can yield the thread, and its continuation may resume on a completely different ThreadPool thread, causing `SynchronizationLockException`. Instead, use asynchronous synchronization primitives like `SemaphoreSlim.WaitAsync()`."
     }
    ]
   },
@@ -13302,6 +13346,22 @@
     {
      "q": "What is the Liskov Substitution Principle and what violates it?",
      "a": "LSP states that objects of a superclass must be replaceable with objects of a subclass without affecting program correctness. Subclasses must satisfy behavioral subtyping: they cannot strengthen preconditions, cannot weaken postconditions, and must preserve base invariants. A classic violation is `Square` inheriting from `Rectangle` where setting width alters height, breaking caller assumptions."
+    },
+    {
+     "q": "What is the difference between a field and a property in object-oriented languages?",
+     "a": "A **field** is an ordinary variable declared directly in a class that holds raw state in memory; exposing fields publicly breaks encapsulation. A **property** wraps access through `get` and `set` accessor methods (syntactic sugar in C# or `@property` in Python), allowing validation, computed values, lazy initialization, or read-only exposure without altering the caller's call-site syntax."
+    },
+    {
+     "q": "What access modifiers does C# support, and what is the default modifier for class members?",
+     "a": "C# supports six access modifiers: `public` (accessible anywhere), `private` (accessible only within containing class), `protected` (containing class and derived subclasses), `internal` (current assembly), `protected internal` (current assembly or derived types), and `private protected` (derived types within current assembly). The default modifier for class members (methods, fields) is `private`, while top-level classes default to `internal`."
+    },
+    {
+     "q": "How do you make an attribute private in Python, and what is name mangling?",
+     "a": "Python has no compiler-enforced access modifiers. By convention, a single underscore prefix (`_balance`) signals private internal use. A double underscore prefix (`__balance`) invokes **name mangling**, where the CPython interpreter rewrites the attribute name to `_ClassName__balance` in `__dict__`. This prevents accidental attribute shadowing in subclasses, though it can still be accessed if explicitly addressed."
+    },
+    {
+     "q": "What is the difference between @staticmethod and @classmethod in Python?",
+     "a": "A `@staticmethod` does not receive an implicit first argument; it behaves like a regular function scoped inside the class namespace, used for utility operations. A `@classmethod` receives the class itself (`cls`) as its first argument; it can access and mutate class-level state and is widely used to implement alternative factory constructors that support proper polymorphic subclassing."
     }
    ]
   },
@@ -13439,6 +13499,22 @@
     {
      "q": "When should you use threading vs multiprocessing vs asyncio in Python?",
      "a": "Use **multiprocessing** for CPU-bound computations (image processing, ML data transformations) to bypass the GIL across separate OS processes. Use **asyncio** for high-concurrency, network-heavy I/O (thousands of web sockets, API gateways) via a single-threaded cooperative event loop. Use **threading** for blocking I/O with legacy libraries that lack async support."
+    },
+    {
+     "q": "What is a Python descriptor, and how does @property use the descriptor protocol?",
+     "a": "A **descriptor** is an object attribute whose access is overridden by implementing at least one of the protocol methods: `__get__()`, `__set__()`, or `__delete__()`. In Python, the `@property` decorator creates a descriptor whose `__get__` and `__set__` methods intercept attribute lookup on instance dictionaries, routing reads and writes to user-defined getter and setter functions."
+    },
+    {
+     "q": "What is the difference between EAFP and LBYL programming styles in Python?",
+     "a": "**EAFP** (*Easier to Ask for Forgiveness than Permission*) assumes keys or attributes exist and handles missing cases with `try/except` (idiomatic in Python). **LBYL** (*Look Before You Leap*) explicitly checks preconditions beforehand (`if key in dict:`). EAFP is faster when exceptions are rare and avoids Time-of-Check to Time-of-Use (TOCTOU) race conditions in concurrent or filesystem code."
+    },
+    {
+     "q": "What does the else clause do in a Python try/except block?",
+     "a": "The `else` clause in a `try/except/else/finally` block executes **only if the try block ran without raising any exceptions**. It prevents accidentally catching unexpected exceptions that might be thrown by code placed inside the `try` block that was not intended to be protected by the `except` handlers."
+    },
+    {
+     "q": "What is the difference between a coroutine and a Task in asyncio?",
+     "a": "A **coroutine** is a generator-like function defined with `async def`; calling it returns a coroutine object that does nothing until it is awaited or scheduled. A **Task** (`asyncio.create_task()`) wraps a coroutine, immediately scheduling its execution on the event loop in the background and providing methods to inspect status, cancel execution, or retrieve results."
     }
    ]
   },
@@ -13512,6 +13588,18 @@
     {
      "q": "How do you implement authentication and extract the current user in FastAPI?",
      "a": "Use a FastAPI dependency with security utilities like `OAuth2PasswordBearer`. Define a dependency function `async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:`. The function decodes and validates the JWT token, retrieves the user from the database, and raises `HTTPException(status_code=401)` if invalid."
+    },
+    {
+     "q": "How do you stream large file uploads or downloads in FastAPI without loading them entirely into memory?",
+     "a": "For uploads, use `UploadFile`: it buffers data in memory up to a threshold (1MB in SpooledTemporaryFile) before rolling over to a temporary disk file, and provides `await file.read(chunk_size)` for chunked streaming. For downloads, return a `StreamingResponse` wrapping an asynchronous or synchronous generator that yields data chunks on demand."
+    },
+    {
+     "q": "How does FastAPI handle dependency overrides in automated tests?",
+     "a": "FastAPI provides `app.dependency_overrides`, a dictionary mapping original dependency callables to mock or test implementations (e.g. `app.dependency_overrides[get_db] = get_test_db`). When running tests via `TestClient`, FastAPI intercepts the dependency graph and substitutes the mock, allowing seamless database or auth isolation without monkey-patching."
+    },
+    {
+     "q": "What is the purpose of lifespan events (@asynccontextmanager) in FastAPI compared to deprecated on_event?",
+     "a": "The `lifespan` handler uses an `@asynccontextmanager` async generator function to manage startup and shutdown logic in a single unified flow. Code before `yield` runs before the server accepts requests (e.g. initializing database pools or ML models); code after `yield` executes during graceful shutdown, ensuring robust resource cleanup and clean error propagation."
     }
    ]
   },
@@ -13677,6 +13765,18 @@
     {
      "q": "What is the Prototype pattern, and why is ICloneable discouraged in .NET?",
      "a": "The Prototype pattern creates new objects by copying an existing instance (the prototype) rather than constructing new ones from scratch, saving overhead when creation is costly. In .NET, `ICloneable` is discouraged because its contract does not specify whether the clone is shallow or deep. Callers cannot know if mutating the clone affects original nested references, leading to bugs. Instead, define custom, explicit methods like `DeepClone()`."
+    },
+    {
+     "q": "What is an Object Pool, and when is it worth implementing?",
+     "a": "An **Object Pool** manages a cache of pre-allocated, reusable objects rather than allocating and deallocating them on demand. It is worth implementing when instantiating an object is expensive (e.g. database connections, network sockets, thread workers) or when allocating large numbers of transient byte buffers creates severe GC pause pressure (e.g. .NET `ArrayPool<T>`)."
+    },
+    {
+     "q": "What goes wrong if an object is returned to an object pool in a dirty state?",
+     "a": "Returning a dirty object leaks state from one request into another, causing catastrophic cross-tenant data corruption or security breaches (e.g. an unreset database connection retaining an open transaction or tenant ID). Pools must enforce reset invariants: the object must reset its state either when released back to the pool or upon check-out before being handed to the next caller."
+    },
+    {
+     "q": "Why is the Service Locator pattern considered an anti-pattern compared to Dependency Injection?",
+     "a": "Service Locator introduces a central registry that classes query to resolve dependencies (e.g. `Locator.GetService<ILogger>()`). It is an anti-pattern because it hides class dependencies from constructor signatures, couples classes to the locator implementation, makes static analysis and unit test mocking difficult, and causes runtime crashes if a required dependency is unregistered."
     }
    ]
   },
@@ -13754,6 +13854,18 @@
     {
      "q": "How does lazy loading use a proxy?",
      "a": "A virtual proxy defers the expensive creation of the real object until a client actually calls a method that needs it. In ORMs like Entity Framework Core, navigation properties are represented by generated proxy subclasses. When code accesses `order.Customer.Name`, the proxy intercepts the property access, executes a database query to load the customer row, and populates the field transparently."
+    },
+    {
+     "q": "What is the difference between a Class Adapter and an Object Adapter?",
+     "a": "A **Class Adapter** uses multiple inheritance (inheriting from both the target interface and the adaptee class implementation) to adapt one interface to another; it cannot adapt a class and all its subclasses. An **Object Adapter** uses composition (holding a private reference to the adaptee instance and delegating calls to it); it can adapt an adaptee and any of its derived subclasses."
+    },
+    {
+     "q": "When should you choose a Facade over direct calls to subsystem classes?",
+     "a": "Choose a **Facade** when you want to provide a simple, default interface to a complex subsystem for the 80% use case, without preventing advanced clients from bypassing the facade to access subsystem classes directly if specialized customization is needed. It decouples callers from complex multi-step subsystem wiring and reduces inter-package dependencies."
+    },
+    {
+     "q": "How does the Flyweight pattern manage intrinsic vs extrinsic state in game or UI rendering engines?",
+     "a": "**Intrinsic state** (e.g. 3D tree mesh, texture bitmap, glyph contour) is immutable and context-independent; it is stored inside a single flyweight instance shared across thousands of objects. **Extrinsic state** (e.g. tree coordinates $x, y, z$, scaling factor, foliage color tint) is context-specific and stored in lightweight client structures or passed as method parameters during rendering."
     }
    ]
   },

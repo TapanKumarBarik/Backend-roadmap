@@ -68,6 +68,18 @@
     {
       "q": "How do you implement authentication and extract the current user in FastAPI?",
       "a": "Use a FastAPI dependency with security utilities like `OAuth2PasswordBearer`. Define a dependency function `async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:`. The function decodes and validates the JWT token, retrieves the user from the database, and raises `HTTPException(status_code=401)` if invalid."
+    },
+    {
+      "q": "How do you stream large file uploads or downloads in FastAPI without loading them entirely into memory?",
+      "a": "For uploads, use `UploadFile`: it buffers data in memory up to a threshold (1MB in SpooledTemporaryFile) before rolling over to a temporary disk file, and provides `await file.read(chunk_size)` for chunked streaming. For downloads, return a `StreamingResponse` wrapping an asynchronous or synchronous generator that yields data chunks on demand."
+    },
+    {
+      "q": "How does FastAPI handle dependency overrides in automated tests?",
+      "a": "FastAPI provides `app.dependency_overrides`, a dictionary mapping original dependency callables to mock or test implementations (e.g. `app.dependency_overrides[get_db] = get_test_db`). When running tests via `TestClient`, FastAPI intercepts the dependency graph and substitutes the mock, allowing seamless database or auth isolation without monkey-patching."
+    },
+    {
+      "q": "What is the purpose of lifespan events (@asynccontextmanager) in FastAPI compared to deprecated on_event?",
+      "a": "The `lifespan` handler uses an `@asynccontextmanager` async generator function to manage startup and shutdown logic in a single unified flow. Code before `yield` runs before the server accepts requests (e.g. initializing database pools or ML models); code after `yield` executes during graceful shutdown, ensuring robust resource cleanup and clean error propagation."
     }
   ]
 }

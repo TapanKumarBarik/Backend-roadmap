@@ -72,6 +72,18 @@
     {
       "q": "What is the Prototype pattern, and why is ICloneable discouraged in .NET?",
       "a": "The Prototype pattern creates new objects by copying an existing instance (the prototype) rather than constructing new ones from scratch, saving overhead when creation is costly. In .NET, `ICloneable` is discouraged because its contract does not specify whether the clone is shallow or deep. Callers cannot know if mutating the clone affects original nested references, leading to bugs. Instead, define custom, explicit methods like `DeepClone()`."
+    },
+    {
+      "q": "What is an Object Pool, and when is it worth implementing?",
+      "a": "An **Object Pool** manages a cache of pre-allocated, reusable objects rather than allocating and deallocating them on demand. It is worth implementing when instantiating an object is expensive (e.g. database connections, network sockets, thread workers) or when allocating large numbers of transient byte buffers creates severe GC pause pressure (e.g. .NET `ArrayPool<T>`)."
+    },
+    {
+      "q": "What goes wrong if an object is returned to an object pool in a dirty state?",
+      "a": "Returning a dirty object leaks state from one request into another, causing catastrophic cross-tenant data corruption or security breaches (e.g. an unreset database connection retaining an open transaction or tenant ID). Pools must enforce reset invariants: the object must reset its state either when released back to the pool or upon check-out before being handed to the next caller."
+    },
+    {
+      "q": "Why is the Service Locator pattern considered an anti-pattern compared to Dependency Injection?",
+      "a": "Service Locator introduces a central registry that classes query to resolve dependencies (e.g. `Locator.GetService<ILogger>()`). It is an anti-pattern because it hides class dependencies from constructor signatures, couples classes to the locator implementation, makes static analysis and unit test mocking difficult, and causes runtime crashes if a required dependency is unregistered."
     }
   ]
 }

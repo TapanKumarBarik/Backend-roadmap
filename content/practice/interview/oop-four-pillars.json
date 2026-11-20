@@ -76,6 +76,22 @@
     {
       "q": "What is the Liskov Substitution Principle and what violates it?",
       "a": "LSP states that objects of a superclass must be replaceable with objects of a subclass without affecting program correctness. Subclasses must satisfy behavioral subtyping: they cannot strengthen preconditions, cannot weaken postconditions, and must preserve base invariants. A classic violation is `Square` inheriting from `Rectangle` where setting width alters height, breaking caller assumptions."
+    },
+    {
+      "q": "What is the difference between a field and a property in object-oriented languages?",
+      "a": "A **field** is an ordinary variable declared directly in a class that holds raw state in memory; exposing fields publicly breaks encapsulation. A **property** wraps access through `get` and `set` accessor methods (syntactic sugar in C# or `@property` in Python), allowing validation, computed values, lazy initialization, or read-only exposure without altering the caller's call-site syntax."
+    },
+    {
+      "q": "What access modifiers does C# support, and what is the default modifier for class members?",
+      "a": "C# supports six access modifiers: `public` (accessible anywhere), `private` (accessible only within containing class), `protected` (containing class and derived subclasses), `internal` (current assembly), `protected internal` (current assembly or derived types), and `private protected` (derived types within current assembly). The default modifier for class members (methods, fields) is `private`, while top-level classes default to `internal`."
+    },
+    {
+      "q": "How do you make an attribute private in Python, and what is name mangling?",
+      "a": "Python has no compiler-enforced access modifiers. By convention, a single underscore prefix (`_balance`) signals private internal use. A double underscore prefix (`__balance`) invokes **name mangling**, where the CPython interpreter rewrites the attribute name to `_ClassName__balance` in `__dict__`. This prevents accidental attribute shadowing in subclasses, though it can still be accessed if explicitly addressed."
+    },
+    {
+      "q": "What is the difference between @staticmethod and @classmethod in Python?",
+      "a": "A `@staticmethod` does not receive an implicit first argument; it behaves like a regular function scoped inside the class namespace, used for utility operations. A `@classmethod` receives the class itself (`cls`) as its first argument; it can access and mutate class-level state and is widely used to implement alternative factory constructors that support proper polymorphic subclassing."
     }
   ]
 }
