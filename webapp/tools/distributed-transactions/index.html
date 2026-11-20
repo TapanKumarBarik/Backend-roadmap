@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distributed Transactions &amp; Saga Simulator · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Distributed Transactions and Saga Simulator. Compare Two-Phase Commit (2PC) with Orchestrated and Choreographed Sagas under network partitions and partial failures.">
+<link rel="canonical" href="%SITE_URL%/tools/distributed-transactions/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/distributed-transactions/">
+<meta property="og:title" content="Distributed Transactions &amp; Saga Simulator">
+<meta property="og:description" content="Compare Two-Phase Commit (2PC) vs Saga pattern with compensating rollbacks under microservice partial failures.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Distributed Transactions and Saga Simulator","url":"%SITE_URL%/tools/distributed-transactions/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit/">2PC &amp; Sagas</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Distributed Transactions &amp; Saga Pattern Simulator</h1>
+  <p class="tool-lead">How do microservices ensure consistency when a transaction spans multiple databases? Compare strict ACID Two-Phase Commit (2PC) locks with eventually consistent Sagas and backwards compensating rollbacks.</p>
+
+  <section aria-labelledby="distxt-lab-h" class="tool-card" id="distxt-lab">
+    <h2 id="distxt-lab-h">Transaction Protocol Visualizer</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Controls: Mode and Scenario Selectors -->
+    <div class="distxt-controls-bar">
+      <div>
+        <span class="tool-note">Transaction Protocol:</span>
+        <div id="distxt-mode-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div style="margin-top: 12px;">
+        <span class="tool-note">Failure Scenarios:</span>
+        <div id="distxt-scen-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Active Protocol & Scenario Details -->
+    <div class="distxt-info-banner">
+      <div><strong>Protocol: </strong><span id="distxt-mode-desc">-</span></div>
+      <div style="margin-top: 4px;"><strong>Scenario: </strong><span id="distxt-scen-desc">-</span></div>
+    </div>
+
+    <!-- Overall Outcome Badge -->
+    <div style="margin: var(--space-4) 0; display: flex; align-items: center; gap: var(--space-3);">
+      <span class="tool-note">Final Transaction Outcome:</span>
+      <span id="distxt-status-badge" class="sql-plan-pill">-</span>
+    </div>
+
+    <!-- Microservice Pipeline Grid -->
+    <div id="distxt-services-grid" class="distxt-services-grid"></div>
+
+    <!-- Execution Timeline Console -->
+    <div class="distxt-console-wrapper">
+      <h4>Transaction Coordinator &amp; Service Execution Trace</h4>
+      <div id="distxt-console" class="distxt-console"></div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>2PC vs. Saga Pattern: The Architectural Trade-offs</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. Two-Phase Commit (2PC) &amp; Blocking Locks</h3>
+        <p>In 2PC, a central coordinator asks participants to prepare (locking row data). If all participants agree, it sends <code>GLOBAL_COMMIT</code>. While guaranteeing strict ACID serializability, 2PC holds database locks across network boundaries. If the coordinator or network crashes during Phase 2, participants remain blocked holding locks, severely limiting throughput.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Saga Pattern &amp; Compensating Transactions</h3>
+        <p>A Saga replaces distributed locking with a sequence of local ACID transactions. Each microservice commits locally immediately and releases its locks. If a subsequent step fails, the saga executes <strong>compensating transactions</strong> in reverse order (e.g. issuing a credit card refund or unreserving stock), trading isolation for high availability and linear scalability.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. Orchestration vs. Choreography</h3>
+        <p><strong>Orchestrated Sagas</strong> use a dedicated workflow coordinator (like Temporal or AWS Step Functions) that explicitly commands each service and handles failure routing. <strong>Choreographed Sagas</strong> use event pub/sub (Kafka/RabbitMQ) where services publish and subscribe to domain events without a central coordinator.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Semantic Idempotency Requirements</h3>
+        <p>Because network retries can trigger duplicate requests, both forward transactions and compensating actions in a Saga must be strictly <strong>idempotent</strong> (using unique idempotency keys) and handle out-of-order delivery gracefully.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/distxt.js"></script>
+</body>
+</html>

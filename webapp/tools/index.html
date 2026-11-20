@@ -95,6 +95,26 @@
       <p>Back-of-the-envelope calculations for distributed architectures. Estimate peak QPS, network ingress/egress bandwidth, multi-year replicated storage, 80/20 RAM cache sizing, and database sharding with 1-click Markdown export.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/system-design-estimator/">Open the estimator</a>
     </section>
+    <section class="tool-card" aria-labelledby="distxt-h">
+      <h2 id="distxt-h">Distributed Transactions &amp; Saga Simulator</h2>
+      <p>Compare strict ACID Two-Phase Commit (2PC) with eventually consistent Sagas. Test microservice partial failures, coordinator timeouts, and backwards compensating rollbacks.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/distributed-transactions/">Open the simulator</a>
+    </section>
+    <section class="tool-card" aria-labelledby="cache-h">
+      <h2 id="cache-h">Cache Strategies &amp; Stampede Protection Lab</h2>
+      <p>Explore Cache-Aside, Write-Through, and Write-Behind patterns. Simulate thundering herd cache stampedes and compare Mutex Locking vs XFetch probabilistic early refresh.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/caching-strategies/">Open the lab</a>
+    </section>
+    <section class="tool-card" aria-labelledby="ws-h">
+      <h2 id="ws-h">Real-Time Connection &amp; WebSocket Scaling Lab</h2>
+      <p>Model socket buffer memory overhead (<code>rmem</code>/<code>wmem</code>), Linux file descriptor limits (<code>ulimit -n</code>), pub/sub backplane throughput, and reconnection storm jitter windows.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/websocket-scaling/">Open the lab</a>
+    </section>
+    <section class="tool-card" aria-labelledby="inc-h">
+      <h2 id="inc-h">Production Incident Troubleshooting &amp; RCA Simulator</h2>
+      <p>Step into an on-call engineer's shoes during an active P0 backend outage. Inspect database locks, analyze JVM Full GC freezes, and mitigate thundering retry storms live.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/incident-debugger/">Open the simulator</a>
+    </section>
   </div>
 
   <section aria-labelledby="learn-h" class="tool-prose">

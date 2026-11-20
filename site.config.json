@@ -658,6 +658,26 @@
         "height": 2200
       },
       {
+        "name": "tool-distributed-transactions",
+        "path": "/tools/distributed-transactions/",
+        "height": 2200
+      },
+      {
+        "name": "tool-caching-strategies",
+        "path": "/tools/caching-strategies/",
+        "height": 2200
+      },
+      {
+        "name": "tool-websocket-scaling",
+        "path": "/tools/websocket-scaling/",
+        "height": 2200
+      },
+      {
+        "name": "tool-incident-debugger",
+        "path": "/tools/incident-debugger/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -771,6 +791,26 @@
       "id": "system-design-estimator",
       "url": "/tools/system-design-estimator/",
       "entry": "tools/system-design-estimator/index.html"
+    },
+    {
+      "id": "distributed-transactions",
+      "url": "/tools/distributed-transactions/",
+      "entry": "tools/distributed-transactions/index.html"
+    },
+    {
+      "id": "caching-strategies",
+      "url": "/tools/caching-strategies/",
+      "entry": "tools/caching-strategies/index.html"
+    },
+    {
+      "id": "websocket-scaling",
+      "url": "/tools/websocket-scaling/",
+      "entry": "tools/websocket-scaling/index.html"
+    },
+    {
+      "id": "incident-debugger",
+      "url": "/tools/incident-debugger/",
+      "entry": "tools/incident-debugger/index.html"
     }
   ]
 }

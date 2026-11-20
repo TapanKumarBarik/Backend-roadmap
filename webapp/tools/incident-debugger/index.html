@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Production Incident Troubleshooting &amp; Root Cause Analysis · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Production Incident Troubleshooting and RCA Simulator. Debug active P0/P1 backend outages: database connection pool exhaustion, thundering retry storms, and Stop-The-World GC freezes.">
+<link rel="canonical" href="%SITE_URL%/tools/incident-debugger/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/incident-debugger/">
+<meta property="og:title" content="Production Incident Troubleshooting &amp; RCA Simulator">
+<meta property="og:description" content="Step into an on-call engineer's shoes during an active P0 backend outage. Run diagnostic commands, interpret telemetry, and execute real-time mitigations.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Production Incident Troubleshooting Simulator","url":"%SITE_URL%/tools/incident-debugger/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/backend/08-observability-and-monitoring/00-metrics-and-monitoring-fundamentals/">Observability Course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Production Incident Troubleshooting &amp; RCA Simulator</h1>
+  <p class="tool-lead">Your pager goes off at 3:00 AM. Checkout error rates have surged to 24%, P99 latency is 6.5 seconds, and pods are failing health checks. Inspect telemetry, run live diagnostic queries, avoid tempting red herrings, and execute the correct mitigation to restore service.</p>
+
+  <section aria-labelledby="inc-lab-h" class="tool-card" id="inc-lab">
+    <h2 id="inc-lab-h">Live Incident Command Center</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Incident Scenario Picker -->
+    <div class="distxt-controls-bar">
+      <div>
+        <span class="tool-note">Active PagerDuty Outage Scenarios:</span>
+        <div id="inc-scenario-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Active Incident Details Banner -->
+    <div class="distxt-info-banner">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 id="inc-scenario-title" style="margin: 0; font-size: var(--text-md);">-</h3>
+        <span id="inc-status-badge" class="sql-plan-pill">-</span>
+      </div>
+      <p id="inc-scenario-summary" style="margin: 8px 0 0; color: var(--fg-muted);">-</p>
+    </div>
+
+    <!-- Live Telemetry Metrics -->
+    <div class="ll-summary" style="margin: var(--space-4) 0;">
+      <div class="ll-stat"><span>Error Rate</span><strong id="inc-stat-errors" style="color: var(--danger);">0%</strong></div>
+      <div class="ll-stat"><span>P99 Latency</span><strong id="inc-stat-p99">0 ms</strong></div>
+      <div class="ll-stat"><span>CPU Utilization</span><strong id="inc-stat-cpu">0%</strong></div>
+      <div class="ll-stat"><span>Active DB Connections</span><strong id="inc-stat-conns">0</strong></div>
+    </div>
+
+    <!-- Interactive Panels: Investigation Diagnostics vs Mitigations -->
+    <div class="est-grid">
+      <!-- Left: Diagnostics -->
+      <div class="est-inputs-panel">
+        <h3>1. Run Diagnostic Telemetry &amp; Logs</h3>
+        <p class="tool-note">Click a diagnostic tool to gather real-time observability telemetry and isolate the bottleneck.</p>
+        <div id="inc-diagnostics-list" class="inc-actions-list"></div>
+      </div>
+
+      <!-- Right: Mitigations -->
+      <div class="est-results-panel">
+        <h3>2. Execute Incident Mitigation Actions</h3>
+        <p class="tool-note">Choose your emergency response. Beware: ineffective mitigations can worsen cascading failures!</p>
+        <div id="inc-mitigations-list" class="inc-actions-list"></div>
+        <div style="margin-top: var(--space-3); text-align: right;">
+          <button id="inc-btn-reset" type="button" class="tool-btn tool-btn-sm">Restart Scenario</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timeline Log Console -->
+    <div class="distxt-console-wrapper">
+      <h4>Incident Response Timeline &amp; Postmortem Audit Log</h4>
+      <div id="inc-timeline-console" class="distxt-console"></div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>On-Call Engineering Mental Models</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. Mitigate First, Root-Cause Later</h3>
+        <p>During an active P0 incident, your primary duty is to <strong>stop the bleeding and restore customer SLOs</strong>, not to complete a full forensic investigation. Shedding load, flipping emergency disable flags, or killing stuck queries buys time to fix root cause bugs safely.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Beware the "Restart Everything" Trap</h3>
+        <p>Restarting pods or databases during connection pool starvation or retry storms often turns a degraded system into a complete black hole. Hundreds of booting instances immediately hammer downstream dependencies simultaneously during cold start, prolonging recovery.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. Connection Pool Starvation &amp; Timeouts</h3>
+        <p>A single unindexed query or external HTTP call holding an open database transaction (<code>idle in transaction</code>) blocks connection slots in pools (like HikariCP or PgBouncer). Always configure strict <strong>connection acquisition timeouts</strong> and database <strong>statement timeouts</strong>.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Blameless Postmortems</h3>
+        <p>Every major production incident reveals a systemic architectural gap: missing timeouts, unbounded memory queues, or lack of circuit breakers. A healthy engineering culture treats incidents as opportunities to automate safeguards and build resilient backends.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/incidentlab.js"></script>
+</body>
+</html>

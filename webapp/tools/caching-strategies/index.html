@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cache Strategies &amp; Stampede Protection Lab · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Cache Strategies and Stampede Protection Lab. Compare Cache-Aside, Write-Through, and Write-Behind, and simulate thundering herd cache stampedes with Mutex Locks and XFetch early expiration.">
+<link rel="canonical" href="%SITE_URL%/tools/caching-strategies/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/caching-strategies/">
+<meta property="og:title" content="Cache Strategies &amp; Stampede Protection Lab">
+<meta property="og:description" content="Simulate Cache-Aside vs Write-Through, model cache stampedes, and test Mutex Locking vs XFetch probabilistic refresh.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Cache Strategies and Stampede Protection Lab","url":"%SITE_URL%/tools/caching-strategies/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/backend/05-caching-and-performance/00-caching-fundamentals/">Caching Course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Cache Strategies &amp; Stampede Protection Lab</h1>
+  <p class="tool-lead">What happens when your most popular cache key expires under 1,000 concurrent requests? Explore Cache-Aside, Write-Behind buffers, and compare Thundering Herd stampedes with Distributed Mutex locks and XFetch probabilistic pre-warming.</p>
+
+  <section aria-labelledby="cache-lab-h" class="tool-card" id="cache-lab">
+    <h2 id="cache-lab-h">Interactive Caching Workbench</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Controls -->
+    <div class="distxt-controls-bar">
+      <div>
+        <span class="tool-note">Caching Strategy:</span>
+        <div id="cache-strategy-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div style="margin-top: 12px;">
+        <span class="tool-note">Stampede Mitigation Algorithm:</span>
+        <div id="cache-mitigation-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+      <div style="margin-top: 12px;">
+        <span class="tool-note">Traffic Scenario:</span>
+        <div id="cache-scenario-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Active Details -->
+    <div class="distxt-info-banner">
+      <div><strong>Strategy: </strong><span id="cache-strategy-desc">-</span></div>
+      <div style="margin-top: 4px;"><strong>Mitigation: </strong><span id="cache-mitigation-desc">-</span></div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="tool-row" style="margin: var(--space-4) 0; align-items: center;">
+      <button id="cache-btn-fire" type="button" class="tool-btn tool-btn-primary">Fire Concurrent Traffic Batch</button>
+    </div>
+
+    <!-- Metrics Summary -->
+    <div class="ll-summary" style="margin: var(--space-4) 0;">
+      <div class="ll-stat"><span>Cache Hit Ratio</span><strong id="cache-stat-hit-rate">0%</strong></div>
+      <div class="ll-stat"><span>Hits / Misses</span><strong id="cache-stat-hits">0 / 0</strong></div>
+      <div class="ll-stat"><span>Database Queries Made</span><strong id="cache-stat-db-queries">0</strong></div>
+      <div class="ll-stat"><span>Average Latency</span><strong id="cache-stat-latency">0 ms</strong></div>
+      <div class="ll-stat"><span>Database Pressure</span><strong id="cache-stat-db-load" class="cache-load-badge">0%</strong></div>
+    </div>
+
+    <!-- Console Trace -->
+    <div class="distxt-console-wrapper">
+      <h4>Cache &amp; Database Activity Log</h4>
+      <div id="cache-console" class="distxt-console"></div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>Caching Architecture &amp; Stampede Protection Explained</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. The Thundering Herd / Cache Stampede</h3>
+        <p>When high-frequency keys (e.g. homepage headlines or trending products) expire, hundreds or thousands of simultaneous client queries encounter a cache miss at the exact same millisecond. Each worker rushes the database to compute the same query, crashing database connection pools.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Distributed Mutex Locking (Redis SETNX)</h3>
+        <p>On a cache miss, requests attempt to acquire an exclusive lock: <code>SET key:lock uuid NX PX 5000</code>. Only the lock winner queries the database and populates the cache. Other concurrent threads sleep for 50ms and retry reading from the warm cache, dropping database load from 1,000 queries to 1.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. XFetch Probabilistic Early Expiration</h3>
+        <p>Proposed by Vattani et al., XFetch evaluates: <code>-beta * delta * ln(rand()) &gt; TTL - now</code>, where $\delta$ is the database computation duration. As the key nears expiration, the probability of an async background pre-refresh increases smoothly, eliminating waiting stalls for all incoming users.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Cache-Aside vs. Write-Through vs. Write-Behind</h3>
+        <p><strong>Cache-Aside</strong> gives full control to the application but requires explicit invalidation on updates. <strong>Write-Through</strong> eliminates stale data but incurs write latency overhead. <strong>Write-Behind</strong> absorbs heavy write bursts in RAM but risks data loss if the cache node crashes before flushing dirty writes to disk.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/cachelab.js"></script>
+</body>
+</html>

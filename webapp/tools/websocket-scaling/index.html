@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real-Time Connection &amp; WebSocket Scaling Lab · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Real-Time Connection and WebSocket Scaling Lab. Model socket buffer memory overhead, Linux file descriptor limits (ulimit -n), gateway cluster sizing, and reconnection storms.">
+<link rel="canonical" href="%SITE_URL%/tools/websocket-scaling/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/websocket-scaling/">
+<meta property="og:title" content="Real-Time Connection &amp; WebSocket Scaling Lab">
+<meta property="og:description" content="Scale stateful persistent connections from 10k to 1M users. Size socket buffer RAM, file descriptor limits, and pub/sub backplanes.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Real-Time Connection and WebSocket Scaling Lab","url":"%SITE_URL%/tools/websocket-scaling/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/system-design/02-networking-from-zero/">Networking from Zero</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Real-Time Connection &amp; WebSocket Scaling Lab</h1>
+  <p class="tool-lead">How do Discord, Slack, and Binance hold millions of open TCP connections simultaneously? Calculate socket buffer memory overhead (<code>rmem</code>/<code>wmem</code>), Linux file descriptor limits (<code>ulimit -n</code>), pub/sub backplanes, and reconnection storm mitigations.</p>
+
+  <section aria-labelledby="ws-lab-h" class="tool-card" id="ws-lab">
+    <h2 id="ws-lab-h">WebSocket Gateway Sizing Simulator</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Presets -->
+    <div class="est-controls-bar">
+      <div>
+        <span class="tool-note">Real-Time Workload Presets:</span>
+        <div id="ws-presets-bar" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Main Grid: Inputs vs Sizing Results -->
+    <div class="est-grid">
+      <!-- Left: Inputs -->
+      <div class="est-inputs-panel">
+        <h3>Connection &amp; OS Kernel Assumptions</h3>
+
+        <div class="est-input-group">
+          <label for="ws-input-conns">Concurrent Persistent Connections</label>
+          <input type="number" id="ws-input-conns" class="tool-input" min="1000" step="50000">
+        </div>
+
+        <div class="tool-row-2">
+          <div class="est-input-group">
+            <label for="ws-input-buffer">Socket Buffer per Conn (KB)</label>
+            <input type="number" id="ws-input-buffer" class="tool-input" min="1" step="1">
+          </div>
+          <div class="est-input-group">
+            <label for="ws-input-fd">FD Limit per Server (<code>ulimit -n</code>)</label>
+            <select id="ws-input-fd" class="tool-select">
+              <option value="65535">65,535 (Default standard)</option>
+              <option value="262144">262,144 (Tuned Linux)</option>
+              <option value="1048576">1,048,576 (High-scale gateway)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tool-row-2">
+          <div class="est-input-group">
+            <label for="ws-input-ram">Gateway Node RAM (GB)</label>
+            <input type="number" id="ws-input-ram" class="tool-input" min="4" step="8">
+          </div>
+          <div class="est-input-group">
+            <label for="ws-input-rate">Broadcast Msgs / sec</label>
+            <input type="number" id="ws-input-rate" class="tool-input" min="1" step="10">
+          </div>
+        </div>
+
+        <div class="est-input-group">
+          <label for="ws-input-size">Avg Message Size (KB)</label>
+          <input type="number" id="ws-input-size" class="tool-input" min="0.1" step="0.2">
+        </div>
+      </div>
+
+      <!-- Right: Sizing Results -->
+      <div class="est-results-panel">
+        <h3>Calculated Gateway Cluster Sizing</h3>
+
+        <div class="ll-summary" style="margin: 0 0 var(--space-4);">
+          <div class="ll-stat"><span>Recommended Cluster</span><strong id="ws-stat-total-nodes" class="est-highlight">-</strong></div>
+          <div class="ll-stat"><span>Conns per Gateway</span><strong id="ws-stat-conns-node">-</strong></div>
+          <div class="ll-stat"><span>Total Socket RAM</span><strong id="ws-stat-total-ram">-</strong></div>
+          <div class="ll-stat"><span>Primary Bottleneck</span><strong id="ws-stat-bottleneck" class="est-highlight">-</strong></div>
+        </div>
+
+        <div class="est-spec-card">
+          <h4>Bandwidth &amp; Reliability Safeguards</h4>
+          <div class="est-spec-grid">
+            <div><span class="tool-note">Total Fan-Out Egress:</span><strong id="ws-stat-egress">-</strong></div>
+            <div><span class="tool-note">Jittered Reconnect Window:</span><strong id="ws-stat-jitter" class="est-highlight">-</strong></div>
+          </div>
+        </div>
+
+        <!-- Visual Cluster Nodes Grid -->
+        <h4 style="margin: var(--space-3) 0 var(--space-2); font-size: var(--text-xs); text-transform: uppercase; color: var(--fg-muted);">Active Gateway Cluster Distribution</h4>
+        <div id="ws-cluster-grid" class="ws-cluster-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>Key Real-Time Connection Scaling Architecture</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. The C10K to C1000K Evolution &amp; epoll</h3>
+        <p>In traditional thread-per-connection architectures, each connection consumed an 8MB thread stack, limiting servers to ~1,000 connections. Modern non-blocking event-driven runtimes (Linux <code>epoll</code>, Node.js libuv, Go goroutines, Netty) monitor millions of idle descriptors on a single thread pool without context-switching penalties.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Socket Buffer Memory Sizing (<code>rmem</code>/<code>wmem</code>)</h3>
+        <p>Every active TCP connection requires kernel receive (<code>rmem</code>) and transmit (<code>wmem</code>) ring buffers. A naive default of 128KB per socket causes 100,000 connections to eat 25GB of pure kernel memory. In production, kernel parameters are tuned (e.g. <code>net.ipv4.tcp_rmem = 4096 87380 6291456</code>) to keep idle sockets lean.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. Pub/Sub Broker Backplane</h3>
+        <p>Since client $A$ on Gateway Server 1 needs to chat with client $B$ connected to Gateway Server 4, gateways cannot operate in isolation. A high-throughput horizontal pub/sub backplane (Redis Pub/Sub, NATS, Apache Kafka) distributes incoming channel messages to all connected gateway nodes.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Reconnection Stampedes (Thundering Herd)</h3>
+        <p>If a load balancer or gateway node crashes, 50,000 clients immediately attempt to reconnect in the same second, overwhelming authentication services and TLS handshakes. Clients must implement <strong>Exponential Backoff with Full Random Jitter</strong> to spread reconnection load smoothly over a multi-second window.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/websocketlab.js"></script>
+</body>
+</html>
