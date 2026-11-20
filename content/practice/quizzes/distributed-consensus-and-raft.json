@@ -1,0 +1,136 @@
+{
+  "title": "Distributed consensus and the Raft protocol",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+  "description": "Leader elections, randomized timeouts, log matching invariants, quorums, and split-brain prevention in Raft.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "In Raft, why are election timeouts randomized across nodes (e.g. between 150ms and 300ms)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "To prevent split votes where multiple candidates simultaneously declare candidacy and split the majority quorum"
+        },
+        {
+          "id": "b",
+          "text": "To reduce network bandwidth consumption between follower heartbeats"
+        },
+        {
+          "id": "c",
+          "text": "To allow Byzantine faulty nodes to be detected and isolated"
+        },
+        {
+          "id": "d",
+          "text": "To balance CPU utilization evenly across the cluster"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Randomized election timeouts ensure that typically only one follower times out first, increments its term, and gathers a majority before others time out, preventing indefinite split-vote stalemates."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What is the Raft Log Matching Invariant?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Every node must have the exact same number of uncommitted log entries at all times"
+        },
+        {
+          "id": "b",
+          "text": "If two entries in different logs have the same index and term, they store the same command and their logs are identical in all preceding entries"
+        },
+        {
+          "id": "c",
+          "text": "The leader only accepts writes if all follower logs match its log bit-for-bit"
+        },
+        {
+          "id": "d",
+          "text": "Follower logs must always be strictly longer than the candidate's log"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Log Matching Invariant guarantees that if two logs agree on an entry at index `i` with term `t`, then all prior entries up to `i` are identical. AppendEntries consistency checks enforce this induction."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A network partition splits a 5-node Raft cluster into a minority partition of 2 nodes (including the current leader L1) and a majority partition of 3 nodes. What happens when clients send writes to L1?",
+      "options": [
+        {
+          "id": "a",
+          "text": "L1 commits the writes locally and acknowledges success to clients immediately"
+        },
+        {
+          "id": "b",
+          "text": "L1 crashes and shuts down immediately"
+        },
+        {
+          "id": "c",
+          "text": "L1 accepts the write into its uncommitted log but cannot commit it because it cannot reach a majority quorum (3 nodes), so it never acknowledges success"
+        },
+        {
+          "id": "d",
+          "text": "The minority partition promotes a second leader and splits the state machine permanently"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "To commit an entry, a leader must replicate it to a strict majority ($\\lfloor N/2 \\rfloor + 1 = 3$ nodes). In the minority partition of 2 nodes, L1 cannot reach 3 acknowledgments, so writes remain uncommitted and safe."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "When a Raft follower receives a RequestVote RPC from candidate C, under which condition MUST the follower refuse to vote for C?",
+      "options": [
+        {
+          "id": "a",
+          "text": "If candidate C's log is less up-to-date than the follower's own log (lower last term, or same term with fewer entries)"
+        },
+        {
+          "id": "b",
+          "text": "If candidate C has a higher node ID than the follower"
+        },
+        {
+          "id": "c",
+          "text": "If candidate C has sent more than 3 heartbeats in the current term"
+        },
+        {
+          "id": "d",
+          "text": "If candidate C's term number is greater than the follower's term"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Raft's Leader Completeness Property requires that any elected leader contains all committed entries. Followers reject candidate votes if the candidate's log is less up-to-date than their own."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "In Raft, a leader may directly commit an uncommitted log entry from a previous term once it is replicated on a majority of nodes.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False (Raft Section 5.4.2). Raft never commits prior-term entries by simply counting replicas; doing so can lead to committed entries being overwritten after leader crashes. A leader only commits entries from its CURRENT term by counting replicas; prior entries are committed indirectly by the Log Matching Property."
+    }
+  ]
+}

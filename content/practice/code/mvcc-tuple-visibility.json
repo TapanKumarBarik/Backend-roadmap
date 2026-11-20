@@ -1,0 +1,34 @@
+{
+  "title": "MVCC Snapshot Isolation Tuple Visibility",
+  "topic": "databases-and-indexing",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+  "description": "Determine PostgreSQL-style multi-version concurrency control (MVCC) tuple visibility under snapshot isolation.",
+  "statement": "Relational databases like PostgreSQL implement **Multi-Version Concurrency Control (MVCC)** to permit concurrent reads and writes without read-write locking. When a query begins under Snapshot Isolation, it acquires a transaction snapshot:\n- `snapshot.xmin`: Lowest transaction ID that was active when snapshot was taken.\n- `snapshot.xmax`: Highest transaction ID assigned $+ 1$.\n- `snapshot.active_txns`: Set of transaction IDs currently in progress when snapshot was created.\n\nEvery physical row tuple carries two transaction headers:\n- `xmin`: Transaction ID that inserted/created the tuple.\n- `xmax`: Transaction ID that deleted or updated the tuple (`None` if never deleted).\n\n### Visibility Rules\n\n1. **Creator (`xmin`) check:**\n   - If `xmin >= snapshot.xmax`: Tuple was created in the future $\\rightarrow$ **Invisible**.\n   - If `xmin in snapshot.active_txns`: Tuple was created by an uncommitted in-flight transaction $\\rightarrow$ **Invisible**.\n   - If `xmin not in committed_txns`: Tuple was aborted $\\rightarrow$ **Invisible**.\n   - (If `xmin < snapshot.xmin` or `xmin` is committed and not in `active_txns`, the creation is visible).\n\n2. **Deleter (`xmax`) check:**\n   - If `xmax is None`: Tuple was never deleted $\\rightarrow$ **Visible**.\n   - If `xmax >= snapshot.xmax`: Deleted in the future $\\rightarrow$ Deletion invisible $\\rightarrow$ Tuple **Visible**.\n   - If `xmax in snapshot.active_txns`: Deletion is in-flight $\\rightarrow$ Deletion invisible $\\rightarrow$ Tuple **Visible**.\n   - If `xmax not in committed_txns`: Deleting transaction aborted $\\rightarrow$ Deletion rolled back $\\rightarrow$ Tuple **Visible**.\n   - Otherwise, `xmax` committed before the snapshot $\\rightarrow$ Tuple was deleted $\\rightarrow$ **Invisible**.\n\n### Your Task\nImplement `is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool` in Python.",
+  "starter": "def is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool:\n    \"\"\"Returns True if tuple is visible to snapshot, False otherwise.\"\"\"\n    return False\n",
+  "solution": "def is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool:\n    xmin = tuple_hdr[\"xmin\"]\n    xmax = tuple_hdr.get(\"xmax\")\n    snap_xmin = snapshot[\"xmin\"]\n    snap_xmax = snapshot[\"xmax\"]\n    active = set(snapshot.get(\"active_txns\", []))\n\n    # 1. Creator (xmin) check\n    if xmin >= snap_xmax:\n        return False\n    if xmin in active:\n        return False\n    if xmin not in committed_txns:\n        return False\n\n    # 2. Deleter (xmax) check\n    if xmax is None:\n        return True\n    if xmax >= snap_xmax:\n        return True\n    if xmax in active:\n        return True\n    if xmax not in committed_txns:\n        return True\n\n    # xmax committed before snapshot -> deleted and invisible\n    return False\n",
+  "tests": [
+    {
+      "name": "tuple created and committed before snapshot is visible",
+      "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": [102, 105]}\ncommitted = {90, 95, 99}\ntup = {\"xmin\": 95, \"xmax\": None}\nassert is_tuple_visible(tup, snap, committed) is True"
+    },
+    {
+      "name": "tuple created by in-flight active transaction is invisible",
+      "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": [102, 105]}\ncommitted = {90, 102}\ntup = {\"xmin\": 102, \"xmax\": None}\nassert is_tuple_visible(tup, snap, committed) is False"
+    },
+    {
+      "name": "tuple deleted in the future remains visible to older snapshot",
+      "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": []}\ncommitted = {90, 115}\ntup = {\"xmin\": 90, \"xmax\": 115}  # deleted by txn 115 (future)\nassert is_tuple_visible(tup, snap, committed) is True"
+    },
+    {
+      "name": "tuple deleted before snapshot is invisible",
+      "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": []}\ncommitted = {80, 90}\ntup = {\"xmin\": 80, \"xmax\": 90}  # deleted by txn 90 (< snapshot.xmin)\nassert is_tuple_visible(tup, snap, committed) is False"
+    }
+  ],
+  "hints": [
+    "First evaluate `xmin`: if `xmin >= snapshot.xmax`, `xmin in snapshot.active_txns`, or `xmin not in committed_txns`, return `False` immediately.",
+    "Then evaluate `xmax`: if `xmax is None`, return `True`.",
+    "If `xmax >= snapshot.xmax`, `xmax in snapshot.active_txns`, or `xmax not in committed_txns`, the deletion has not taken effect for this snapshot, so return `True`."
+  ],
+  "explanation": "**Why MVCC?** In traditional 2-Phase Locking, reading rows acquires shared locks that block writers. In MVCC, readers never block writers, and writers never block readers. Every query evaluates tuple visibility headers against its transaction snapshot."
+}

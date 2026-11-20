@@ -1,0 +1,24 @@
+{
+  "title": "Designing a Write-Heavy Distributed Counter",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+  "questions": [
+    {
+      "q": "How do you design a distributed counter (e.g. YouTube video views or Twitter post likes) that can handle 500,000 writes/sec without database row lock contention?",
+      "a": "Use Write Sharding (Striping): Instead of incrementing a single row in MySQL/PostgreSQL (which serializes on row locks), shard the counter into N separate counter slots (e.g. 50 slots per video: counter_slot_0 to counter_slot_49). Writers randomly select slot = hash(user_id) % N and execute atomic increments (UPDATE counters SET count = count + 1 WHERE id = ? AND slot = ?). Readers compute SUM(count) across all N slots. Alternatively, buffer increments in Redis INCR and asynchronously flush aggregated increments in batches to durable storage."
+    },
+    {
+      "q": "How do you guarantee that a user's 'Like' or 'Increment' action is exactly-once and idempotent?",
+      "a": "Assign a deterministic idempotency key or composite unique constraint: UNIQUE(user_id, entity_id). When a client sends a like, the service attempts to insert into a user_likes table. If the unique key conflicts, return HTTP 200 OK without incrementing the counter. For non-relational or high-throughput caches, use a Redis Bloom Filter or Set (SADD user_likes:post_id user_id); only if SADD returns 1 (new member) is the counter incremented."
+    },
+    {
+      "q": "If Redis is used to absorb write bursts for counting, how do you prevent data loss during Redis failovers?",
+      "a": "Combine in-memory buffering with an append-only WAL or Kafka event topic. Increment requests are published as lightweight events (like_event) to a partitioned Kafka topic before or alongside Redis INCR. Background consumer workers pull batches of 5,000 events from Kafka and execute bulk SQL updates (INSERT INTO counters ... ON CONFLICT DO UPDATE). If Redis crashes, Kafka retains the uncommitted stream and workers reconstruct the exact count."
+    },
+    {
+      "q": "How do you reconcile eventual consistency between high-frequency memory counters and slow analytical reporting dashboards?",
+      "a": "Employ Lambda/Kappa architecture principles: Real-time queries read from the live memory cache or approximate HyperLogLog registers. Nightly or hourly batch reconciliation jobs run MapReduce / BigQuery jobs over raw immutable access logs, computing the exact ground-truth count and updating the primary database counter, reconciling discrepancies caused by deduplication or dropped network packets."
+    }
+  ]
+}

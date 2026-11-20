@@ -3054,6 +3054,142 @@
     }
    ]
   },
+  "database-transactions-and-isolation-levels": {
+   "title": "Database transactions and isolation levels",
+   "topic": "databases-and-indexing",
+   "difficulty": "advanced",
+   "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+   "description": "ANSI SQL vs Snapshot Isolation anomalies: dirty reads, non-repeatable reads, phantom reads, and write skew.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "Which concurrency anomaly occurs when Transaction A reads uncommitted data written by Transaction B, which later rolls back?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Non-Repeatable Read"
+      },
+      {
+       "id": "b",
+       "text": "Dirty Read"
+      },
+      {
+       "id": "c",
+       "text": "Phantom Read"
+      },
+      {
+       "id": "d",
+       "text": "Write Skew"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A Dirty Read occurs when a transaction reads uncommitted changes from another concurrent transaction. Read Committed isolation prevents dirty reads."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "Under standard Snapshot Isolation (e.g. PostgreSQL Repeatable Read), which anomaly is NOT prevented?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Dirty Read"
+      },
+      {
+       "id": "b",
+       "text": "Non-Repeatable Read"
+      },
+      {
+       "id": "c",
+       "text": "Write Skew"
+      },
+      {
+       "id": "d",
+       "text": "Lost Update on a single row"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Snapshot Isolation prevents dirty reads, non-repeatable reads, phantom reads, and single-row lost updates (first-committer-wins). However, it allows Write Skew (where two concurrent transactions read overlapping disjoint sets and violate a shared cross-row invariant, such as doctor on-call shifts)."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "How does Two-Phase Locking (2PL) differ from Two-Phase Commit (2PC)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "They are identical protocols used interchangeably"
+      },
+      {
+       "id": "b",
+       "text": "2PL is a concurrency control protocol to serialize local transactions; 2PC is an atomic commitment protocol across distributed nodes"
+      },
+      {
+       "id": "c",
+       "text": "2PL operates on replicas; 2PC operates on single instances"
+      },
+      {
+       "id": "d",
+       "text": "2PC acquires row locks; 2PL coordinates message queues"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "2PL (Growing phase acquiring locks, Shrinking phase releasing locks) ensures local transaction serializability. 2PC (Prepare phase, Commit/Abort phase) ensures all distributed nodes agree whether to commit or abort."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "How does Serializable Snapshot Isolation (SSI) in modern databases (like PostgreSQL) achieve true serializability without blocking read locks?",
+     "options": [
+      {
+       "id": "a",
+       "text": "By executing all transactions sequentially on a single CPU core"
+      },
+      {
+       "id": "b",
+       "text": "By tracking rw-antidependencies (siREAD locks in memory) and aborting one transaction if a cycle of dependencies appears"
+      },
+      {
+       "id": "c",
+       "text": "By writing all reads to disk in a separate log file"
+      },
+      {
+       "id": "d",
+       "text": "By acquiring exclusive table locks on every SELECT query"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "PostgreSQL SSI tracks read-write conflicts using non-blocking memory markers (SIREAD locks). It detects dangerous dependency structures (cycles in the serialization graph) and aborts one transaction with a serialization failure error."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "In PostgreSQL, a SELECT query inside a READ COMMITTED transaction takes a new snapshot at the start of each individual statement.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. In Read Committed mode, each statement within a transaction sees a new snapshot of committed data at the instant that statement begins. In Repeatable Read mode, the snapshot is taken once at the start of the first query and reused throughout the entire transaction."
+    }
+   ]
+  },
   "design-patterns-creational-structural-behavioral": {
    "title": "GoF Design Patterns in Practice",
    "topic": "system-design",
@@ -3391,6 +3527,142 @@
       "c"
      ],
      "explanation": "Observer is an in-memory synchronous pattern; Pub/Sub is distributed and asynchronous; Chain of Responsibility passes requests sequentially along a pipeline."
+    }
+   ]
+  },
+  "distributed-consensus-and-raft": {
+   "title": "Distributed consensus and the Raft protocol",
+   "topic": "distributed-systems",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+   "description": "Leader elections, randomized timeouts, log matching invariants, quorums, and split-brain prevention in Raft.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "In Raft, why are election timeouts randomized across nodes (e.g. between 150ms and 300ms)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "To prevent split votes where multiple candidates simultaneously declare candidacy and split the majority quorum"
+      },
+      {
+       "id": "b",
+       "text": "To reduce network bandwidth consumption between follower heartbeats"
+      },
+      {
+       "id": "c",
+       "text": "To allow Byzantine faulty nodes to be detected and isolated"
+      },
+      {
+       "id": "d",
+       "text": "To balance CPU utilization evenly across the cluster"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Randomized election timeouts ensure that typically only one follower times out first, increments its term, and gathers a majority before others time out, preventing indefinite split-vote stalemates."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "What is the Raft Log Matching Invariant?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Every node must have the exact same number of uncommitted log entries at all times"
+      },
+      {
+       "id": "b",
+       "text": "If two entries in different logs have the same index and term, they store the same command and their logs are identical in all preceding entries"
+      },
+      {
+       "id": "c",
+       "text": "The leader only accepts writes if all follower logs match its log bit-for-bit"
+      },
+      {
+       "id": "d",
+       "text": "Follower logs must always be strictly longer than the candidate's log"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The Log Matching Invariant guarantees that if two logs agree on an entry at index `i` with term `t`, then all prior entries up to `i` are identical. AppendEntries consistency checks enforce this induction."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "A network partition splits a 5-node Raft cluster into a minority partition of 2 nodes (including the current leader L1) and a majority partition of 3 nodes. What happens when clients send writes to L1?",
+     "options": [
+      {
+       "id": "a",
+       "text": "L1 commits the writes locally and acknowledges success to clients immediately"
+      },
+      {
+       "id": "b",
+       "text": "L1 crashes and shuts down immediately"
+      },
+      {
+       "id": "c",
+       "text": "L1 accepts the write into its uncommitted log but cannot commit it because it cannot reach a majority quorum (3 nodes), so it never acknowledges success"
+      },
+      {
+       "id": "d",
+       "text": "The minority partition promotes a second leader and splits the state machine permanently"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "To commit an entry, a leader must replicate it to a strict majority ($\\lfloor N/2 \\rfloor + 1 = 3$ nodes). In the minority partition of 2 nodes, L1 cannot reach 3 acknowledgments, so writes remain uncommitted and safe."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "When a Raft follower receives a RequestVote RPC from candidate C, under which condition MUST the follower refuse to vote for C?",
+     "options": [
+      {
+       "id": "a",
+       "text": "If candidate C's log is less up-to-date than the follower's own log (lower last term, or same term with fewer entries)"
+      },
+      {
+       "id": "b",
+       "text": "If candidate C has a higher node ID than the follower"
+      },
+      {
+       "id": "c",
+       "text": "If candidate C has sent more than 3 heartbeats in the current term"
+      },
+      {
+       "id": "d",
+       "text": "If candidate C's term number is greater than the follower's term"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Raft's Leader Completeness Property requires that any elected leader contains all committed entries. Followers reject candidate votes if the candidate's log is less up-to-date than their own."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "In Raft, a leader may directly commit an uncommitted log entry from a previous term once it is replicated on a majority of nodes.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False (Raft Section 5.4.2). Raft never commits prior-term entries by simply counting replicas; doing so can lead to committed entries being overwritten after leader crashes. A leader only commits entries from its CURRENT term by counting replicas; prior entries are committed indirectly by the Log Matching Property."
     }
    ]
   },
@@ -12888,6 +13160,30 @@
     }
    ]
   },
+  "distributed-counter-design": {
+   "title": "Designing a Write-Heavy Distributed Counter",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+   "questions": [
+    {
+     "q": "How do you design a distributed counter (e.g. YouTube video views or Twitter post likes) that can handle 500,000 writes/sec without database row lock contention?",
+     "a": "Use Write Sharding (Striping): Instead of incrementing a single row in MySQL/PostgreSQL (which serializes on row locks), shard the counter into N separate counter slots (e.g. 50 slots per video: counter_slot_0 to counter_slot_49). Writers randomly select slot = hash(user_id) % N and execute atomic increments (UPDATE counters SET count = count + 1 WHERE id = ? AND slot = ?). Readers compute SUM(count) across all N slots. Alternatively, buffer increments in Redis INCR and asynchronously flush aggregated increments in batches to durable storage."
+    },
+    {
+     "q": "How do you guarantee that a user's 'Like' or 'Increment' action is exactly-once and idempotent?",
+     "a": "Assign a deterministic idempotency key or composite unique constraint: UNIQUE(user_id, entity_id). When a client sends a like, the service attempts to insert into a user_likes table. If the unique key conflicts, return HTTP 200 OK without incrementing the counter. For non-relational or high-throughput caches, use a Redis Bloom Filter or Set (SADD user_likes:post_id user_id); only if SADD returns 1 (new member) is the counter incremented."
+    },
+    {
+     "q": "If Redis is used to absorb write bursts for counting, how do you prevent data loss during Redis failovers?",
+     "a": "Combine in-memory buffering with an append-only WAL or Kafka event topic. Increment requests are published as lightweight events (like_event) to a partitioned Kafka topic before or alongside Redis INCR. Background consumer workers pull batches of 5,000 events from Kafka and execute bulk SQL updates (INSERT INTO counters ... ON CONFLICT DO UPDATE). If Redis crashes, Kafka retains the uncommitted stream and workers reconstruct the exact count."
+    },
+    {
+     "q": "How do you reconcile eventual consistency between high-frequency memory counters and slow analytical reporting dashboards?",
+     "a": "Employ Lambda/Kappa architecture principles: Real-time queries read from the live memory cache or approximate HyperLogLog registers. Nightly or hourly batch reconciliation jobs run MapReduce / BigQuery jobs over raw immutable access logs, computing the exact ground-truth count and updating the primary database counter, reconciling discrepancies caused by deduplication or dropped network packets."
+    }
+   ]
+  },
   "docker-and-deployments": {
    "title": "Docker and deployments",
    "topic": "devops",
@@ -19550,6 +19846,40 @@
    "solution": "class LSMTree:\n    _TOMBSTONE = object()\n\n    def __init__(self, flush_threshold=3):\n        self.flush_threshold = flush_threshold\n        self.memtable = {}\n        self.sstables = []\n\n    def put(self, key, value):\n        self.memtable[key] = value\n        if len(self.memtable) >= self.flush_threshold:\n            self.flush()\n\n    def delete(self, key):\n        self.memtable[key] = self._TOMBSTONE\n        if len(self.memtable) >= self.flush_threshold:\n            self.flush()\n\n    def get(self, key):\n        if key in self.memtable:\n            val = self.memtable[key]\n            return None if val is self._TOMBSTONE else val\n\n        for sstable in self.sstables:\n            if key in sstable:\n                val = sstable[key]\n                return None if val is self._TOMBSTONE else val\n        return None\n\n    def flush(self):\n        if not self.memtable:\n            return\n        sorted_items = dict(sorted(self.memtable.items()))\n        self.sstables.insert(0, sorted_items)\n        self.memtable = {}\n\n    def compact(self):\n        if len(self.sstables) <= 1:\n            return\n        merged = {}\n        for sstable in reversed(self.sstables):\n            merged.update(sstable)\n        final = {k: v for k, v in sorted(merged.items()) if v is not self._TOMBSTONE}\n        self.sstables = [final]\n",
    "explanation": "**The problem.** Traditional B-Tree database storage engines (PostgreSQL, MySQL InnoDB) perform random writes to disk pages on every update, causing severe disk I/O bottlenecks during heavy write workloads.\n\n**The LSM-Tree solution.** Log-Structured Merge-Trees optimize write throughput by converting random writes into sequential writes:\n1. **MemTable:** Writes and deletes are recorded in an in-memory sorted structure (e.g., a Red-Black tree or SkipList). Deletions write a marker called a *tombstone*.\n2. **SSTable (Sorted String Table):** When the MemTable fills up, it is written to disk as an immutable sorted file in a single sequential I/O operation.\n3. **Reads:** Queries check the MemTable first, then scan SSTables from newest to oldest. The first match found is the most up-to-date state.\n4. **Compaction:** A background merge-sort process combines multiple SSTables, reconciles shadowed versions of identical keys, and removes tombstones to reclaim disk space.\n\n**Complexity.** O(1) in-memory write time, sequential disk flush, and O(S) read lookup where S is the number of active SSTables (further accelerated in real systems using Bloom filters)."
   },
+  "lsm-sstable-compaction": {
+   "title": "LSM-Tree SSTable Compaction and Merge",
+   "topic": "databases-and-indexing",
+   "difficulty": "advanced",
+   "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+   "description": "Merge multi-level sorted SSTable segments, discard overwritten keys, and purge tombstone deletions.",
+   "statement": "In Log-Structured Merge-tree (LSM-tree) storage engines (RocksDB, Cassandra, Google Bigtable), writes are buffered in memory (MemTable) and periodically flushed to immutable on-disk **Sorted String Tables (SSTables)**. Over time, multiple SSTable segments accumulate redundant updates and deleted keys.\n\n**Compaction** performs a k-way merge of sorted SSTable segments: for each unique key, it preserves only the record with the **highest timestamp**. If that latest record is a tombstone (`is_tombstone == True`), the key was deleted and must be purged from the compacted output.\n\n### Record Structure\nEach record is a tuple: `(key: str, value: str | None, timestamp: int, is_tombstone: bool)`.\nEach SSTable segment is a list of records sorted in ascending lexicographical order by `key`.\n\n### Your Task\nImplement `compact_sstables(sstables: list[list[tuple]]) -> list[tuple]` in Python:\n- Takes a list of sorted SSTable runs.\n- Merges them into a single consolidated, deduplicated list of records sorted strictly by `key` in ascending order.\n- For any key appearing in multiple SSTables, only keep the record with the greatest `timestamp`.\n- If the record with the greatest timestamp has `is_tombstone == True`, omit that key entirely from the final output.\n- Returns the final list of active `(key, value, timestamp, False)` records.\n\n### Example\n```python\nsstable1 = [(\"a\", \"apple\", 10, False), (\"b\", \"banana\", 20, False)]\nsstable2 = [(\"b\", None, 30, True), (\"c\", \"cherry\", 15, False)]  # \"b\" is deleted at t=30\n\ncompact_sstables([sstable1, sstable2])\n# [(\"a\", \"apple\", 10, False), (\"c\", \"cherry\", 15, False)]\n```",
+   "starter": "def compact_sstables(sstables: list[list[tuple]]) -> list[tuple]:\n    \"\"\"Perform k-way merge compaction on SSTables, resolving updates and tombstones.\"\"\"\n    return []\n",
+   "solution": "import heapq\n\ndef compact_sstables(sstables: list[list[tuple]]) -> list[tuple]:\n    # Group records across all SSTables by key\n    latest_by_key = {}\n    for sstable in sstables:\n        for key, val, ts, is_tombstone in sstable:\n            if key not in latest_by_key or ts > latest_by_key[key][2]:\n                latest_by_key[key] = (key, val, ts, is_tombstone)\n\n    # Filter out tombstones and sort by key ascending\n    compacted = [\n        (k, v, ts, False)\n        for k, (key, v, ts, is_tombstone) in sorted(latest_by_key.items())\n        if not is_tombstone\n    ]\n    return compacted\n",
+   "tests": [
+    {
+     "name": "basic merge with overwrite and tombstone deletion",
+     "code": "s1 = [(\"a\", \"v1\", 10, False), (\"b\", \"v2\", 20, False)]\ns2 = [(\"b\", None, 30, True), (\"c\", \"v3\", 15, False)]\nres = compact_sstables([s1, s2])\nassert res == [(\"a\", \"v1\", 10, False), (\"c\", \"v3\", 15, False)], f\"Got {res}\""
+    },
+    {
+     "name": "latest timestamp overwrites earlier versions",
+     "code": "s1 = [(\"user:1\", \"alice\", 100, False), (\"user:2\", \"bob\", 50, False)]\ns2 = [(\"user:1\", \"alice_updated\", 200, False)]\ns3 = [(\"user:2\", \"bob_older\", 25, False)]\nres = compact_sstables([s1, s2, s3])\nassert res == [(\"user:1\", \"alice_updated\", 200, False), (\"user:2\", \"bob\", 50, False)]"
+    },
+    {
+     "name": "reviving deleted key with later timestamp succeeds",
+     "code": "s1 = [(\"x\", \"old\", 10, False)]\ns2 = [(\"x\", None, 20, True)]  # deleted at 20\ns3 = [(\"x\", \"recreated\", 30, False)]  # recreated at 30\nres = compact_sstables([s1, s2, s3])\nassert res == [(\"x\", \"recreated\", 30, False)]"
+    },
+    {
+     "name": "all keys deleted results in empty SSTable",
+     "code": "s1 = [(\"k1\", \"v1\", 5, False), (\"k2\", \"v2\", 10, False)]\ns2 = [(\"k1\", None, 15, True), (\"k2\", None, 20, True)]\nres = compact_sstables([s1, s2])\nassert res == []"
+    }
+   ],
+   "hints": [
+    "You can group records by key and track the maximum timestamp seen for each key.",
+    "If the record with the maximum timestamp has `is_tombstone == True`, exclude it from the final result.",
+    "Ensure final records are sorted in ascending order by key."
+   ],
+   "explanation": "**Why LSM-Tree Compaction?** In append-only LSM trees, deletes and updates do not overwrite data in place; instead, they append new timestamped values or deletion markers called **tombstones**. Background compaction merges older SSTable segments, eliminates dead records, and reclaims disk space."
+  },
   "majority-element": {
    "title": "Majority Element",
    "topic": "arrays-and-hashing",
@@ -20161,6 +20491,40 @@
    ],
    "solution": "def move_zeroes(nums):\n    next_slot = 0                       # everything before this index is a non-zero item, still in its original order\n    for i, value in enumerate(nums):\n        if value != 0:\n            nums[next_slot], nums[i] = nums[i], nums[next_slot]   # the zeros skipped so far end up behind the writer\n            next_slot += 1\n",
    "explanation": "**The idea (two pointers).** One pointer, `i`, reads every item. The other, `next_slot`, marks where the next non-zero item belongs. Whenever the reader finds a non-zero item it is swapped into `next_slot`, and `next_slot` moves one step on. The non-zero items arrive in `next_slot` in the order the reader met them, which is why their order is kept, and the zeros are pushed behind the writer without ever being moved on purpose.\n\n**Complexity.** One pass: O(n) time and O(1) extra space.\n\n**Fewer writes.** The swap writes two slots even when `next_slot == i` (no zero has been skipped yet). Skipping the swap in that case, or copying the non-zero items forward and then filling the tail with zeros, writes less. The tests do not care, but it matters when writes are expensive (flash memory, a database).\n\n**Mistakes to avoid.** Calling `remove(0)` or `pop(i)` while walking the list: every call shifts the rest, so it is O(n²), and removing during a `for` loop makes you skip the item after each removal. Building a new list and returning it: the caller's list stays as it was.\n\n**Follow-up.** The same writer-and-reader pattern removes duplicates from a sorted list in place, or removes every occurrence of a given value."
+  },
+  "mvcc-tuple-visibility": {
+   "title": "MVCC Snapshot Isolation Tuple Visibility",
+   "topic": "databases-and-indexing",
+   "difficulty": "advanced",
+   "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+   "description": "Determine PostgreSQL-style multi-version concurrency control (MVCC) tuple visibility under snapshot isolation.",
+   "statement": "Relational databases like PostgreSQL implement **Multi-Version Concurrency Control (MVCC)** to permit concurrent reads and writes without read-write locking. When a query begins under Snapshot Isolation, it acquires a transaction snapshot:\n- `snapshot.xmin`: Lowest transaction ID that was active when snapshot was taken.\n- `snapshot.xmax`: Highest transaction ID assigned $+ 1$.\n- `snapshot.active_txns`: Set of transaction IDs currently in progress when snapshot was created.\n\nEvery physical row tuple carries two transaction headers:\n- `xmin`: Transaction ID that inserted/created the tuple.\n- `xmax`: Transaction ID that deleted or updated the tuple (`None` if never deleted).\n\n### Visibility Rules\n\n1. **Creator (`xmin`) check:**\n   - If `xmin >= snapshot.xmax`: Tuple was created in the future $\\rightarrow$ **Invisible**.\n   - If `xmin in snapshot.active_txns`: Tuple was created by an uncommitted in-flight transaction $\\rightarrow$ **Invisible**.\n   - If `xmin not in committed_txns`: Tuple was aborted $\\rightarrow$ **Invisible**.\n   - (If `xmin < snapshot.xmin` or `xmin` is committed and not in `active_txns`, the creation is visible).\n\n2. **Deleter (`xmax`) check:**\n   - If `xmax is None`: Tuple was never deleted $\\rightarrow$ **Visible**.\n   - If `xmax >= snapshot.xmax`: Deleted in the future $\\rightarrow$ Deletion invisible $\\rightarrow$ Tuple **Visible**.\n   - If `xmax in snapshot.active_txns`: Deletion is in-flight $\\rightarrow$ Deletion invisible $\\rightarrow$ Tuple **Visible**.\n   - If `xmax not in committed_txns`: Deleting transaction aborted $\\rightarrow$ Deletion rolled back $\\rightarrow$ Tuple **Visible**.\n   - Otherwise, `xmax` committed before the snapshot $\\rightarrow$ Tuple was deleted $\\rightarrow$ **Invisible**.\n\n### Your Task\nImplement `is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool` in Python.",
+   "starter": "def is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool:\n    \"\"\"Returns True if tuple is visible to snapshot, False otherwise.\"\"\"\n    return False\n",
+   "solution": "def is_tuple_visible(tuple_hdr: dict, snapshot: dict, committed_txns: set[int]) -> bool:\n    xmin = tuple_hdr[\"xmin\"]\n    xmax = tuple_hdr.get(\"xmax\")\n    snap_xmin = snapshot[\"xmin\"]\n    snap_xmax = snapshot[\"xmax\"]\n    active = set(snapshot.get(\"active_txns\", []))\n\n    # 1. Creator (xmin) check\n    if xmin >= snap_xmax:\n        return False\n    if xmin in active:\n        return False\n    if xmin not in committed_txns:\n        return False\n\n    # 2. Deleter (xmax) check\n    if xmax is None:\n        return True\n    if xmax >= snap_xmax:\n        return True\n    if xmax in active:\n        return True\n    if xmax not in committed_txns:\n        return True\n\n    # xmax committed before snapshot -> deleted and invisible\n    return False\n",
+   "tests": [
+    {
+     "name": "tuple created and committed before snapshot is visible",
+     "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": [102, 105]}\ncommitted = {90, 95, 99}\ntup = {\"xmin\": 95, \"xmax\": None}\nassert is_tuple_visible(tup, snap, committed) is True"
+    },
+    {
+     "name": "tuple created by in-flight active transaction is invisible",
+     "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": [102, 105]}\ncommitted = {90, 102}\ntup = {\"xmin\": 102, \"xmax\": None}\nassert is_tuple_visible(tup, snap, committed) is False"
+    },
+    {
+     "name": "tuple deleted in the future remains visible to older snapshot",
+     "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": []}\ncommitted = {90, 115}\ntup = {\"xmin\": 90, \"xmax\": 115}  # deleted by txn 115 (future)\nassert is_tuple_visible(tup, snap, committed) is True"
+    },
+    {
+     "name": "tuple deleted before snapshot is invisible",
+     "code": "snap = {\"xmin\": 100, \"xmax\": 110, \"active_txns\": []}\ncommitted = {80, 90}\ntup = {\"xmin\": 80, \"xmax\": 90}  # deleted by txn 90 (< snapshot.xmin)\nassert is_tuple_visible(tup, snap, committed) is False"
+    }
+   ],
+   "hints": [
+    "First evaluate `xmin`: if `xmin >= snapshot.xmax`, `xmin in snapshot.active_txns`, or `xmin not in committed_txns`, return `False` immediately.",
+    "Then evaluate `xmax`: if `xmax is None`, return `True`.",
+    "If `xmax >= snapshot.xmax`, `xmax in snapshot.active_txns`, or `xmax not in committed_txns`, the deletion has not taken effect for this snapshot, so return `True`."
+   ],
+   "explanation": "**Why MVCC?** In traditional 2-Phase Locking, reading rows acquires shared locks that block writers. In MVCC, readers never block writers, and writers never block readers. Every query evaluates tuple visibility headers against its transaction snapshot."
   },
   "ndcg-at-k": {
    "title": "NDCG@k for Ranking",

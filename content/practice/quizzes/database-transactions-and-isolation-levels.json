@@ -1,0 +1,136 @@
+{
+  "title": "Database transactions and isolation levels",
+  "topic": "databases-and-indexing",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+  "description": "ANSI SQL vs Snapshot Isolation anomalies: dirty reads, non-repeatable reads, phantom reads, and write skew.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which concurrency anomaly occurs when Transaction A reads uncommitted data written by Transaction B, which later rolls back?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Non-Repeatable Read"
+        },
+        {
+          "id": "b",
+          "text": "Dirty Read"
+        },
+        {
+          "id": "c",
+          "text": "Phantom Read"
+        },
+        {
+          "id": "d",
+          "text": "Write Skew"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A Dirty Read occurs when a transaction reads uncommitted changes from another concurrent transaction. Read Committed isolation prevents dirty reads."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Under standard Snapshot Isolation (e.g. PostgreSQL Repeatable Read), which anomaly is NOT prevented?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dirty Read"
+        },
+        {
+          "id": "b",
+          "text": "Non-Repeatable Read"
+        },
+        {
+          "id": "c",
+          "text": "Write Skew"
+        },
+        {
+          "id": "d",
+          "text": "Lost Update on a single row"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Snapshot Isolation prevents dirty reads, non-repeatable reads, phantom reads, and single-row lost updates (first-committer-wins). However, it allows Write Skew (where two concurrent transactions read overlapping disjoint sets and violate a shared cross-row invariant, such as doctor on-call shifts)."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "How does Two-Phase Locking (2PL) differ from Two-Phase Commit (2PC)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They are identical protocols used interchangeably"
+        },
+        {
+          "id": "b",
+          "text": "2PL is a concurrency control protocol to serialize local transactions; 2PC is an atomic commitment protocol across distributed nodes"
+        },
+        {
+          "id": "c",
+          "text": "2PL operates on replicas; 2PC operates on single instances"
+        },
+        {
+          "id": "d",
+          "text": "2PC acquires row locks; 2PL coordinates message queues"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "2PL (Growing phase acquiring locks, Shrinking phase releasing locks) ensures local transaction serializability. 2PC (Prepare phase, Commit/Abort phase) ensures all distributed nodes agree whether to commit or abort."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "How does Serializable Snapshot Isolation (SSI) in modern databases (like PostgreSQL) achieve true serializability without blocking read locks?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By executing all transactions sequentially on a single CPU core"
+        },
+        {
+          "id": "b",
+          "text": "By tracking rw-antidependencies (siREAD locks in memory) and aborting one transaction if a cycle of dependencies appears"
+        },
+        {
+          "id": "c",
+          "text": "By writing all reads to disk in a separate log file"
+        },
+        {
+          "id": "d",
+          "text": "By acquiring exclusive table locks on every SELECT query"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "PostgreSQL SSI tracks read-write conflicts using non-blocking memory markers (SIREAD locks). It detects dangerous dependency structures (cycles in the serialization graph) and aborts one transaction with a serialization failure error."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "In PostgreSQL, a SELECT query inside a READ COMMITTED transaction takes a new snapshot at the start of each individual statement.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. In Read Committed mode, each statement within a transaction sees a new snapshot of committed data at the instant that statement begins. In Repeatable Read mode, the snapshot is taken once at the start of the first query and reused throughout the entire transaction."
+    }
+  ]
+}

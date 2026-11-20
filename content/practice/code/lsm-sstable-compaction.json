@@ -1,0 +1,34 @@
+{
+  "title": "LSM-Tree SSTable Compaction and Merge",
+  "topic": "databases-and-indexing",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+  "description": "Merge multi-level sorted SSTable segments, discard overwritten keys, and purge tombstone deletions.",
+  "statement": "In Log-Structured Merge-tree (LSM-tree) storage engines (RocksDB, Cassandra, Google Bigtable), writes are buffered in memory (MemTable) and periodically flushed to immutable on-disk **Sorted String Tables (SSTables)**. Over time, multiple SSTable segments accumulate redundant updates and deleted keys.\n\n**Compaction** performs a k-way merge of sorted SSTable segments: for each unique key, it preserves only the record with the **highest timestamp**. If that latest record is a tombstone (`is_tombstone == True`), the key was deleted and must be purged from the compacted output.\n\n### Record Structure\nEach record is a tuple: `(key: str, value: str | None, timestamp: int, is_tombstone: bool)`.\nEach SSTable segment is a list of records sorted in ascending lexicographical order by `key`.\n\n### Your Task\nImplement `compact_sstables(sstables: list[list[tuple]]) -> list[tuple]` in Python:\n- Takes a list of sorted SSTable runs.\n- Merges them into a single consolidated, deduplicated list of records sorted strictly by `key` in ascending order.\n- For any key appearing in multiple SSTables, only keep the record with the greatest `timestamp`.\n- If the record with the greatest timestamp has `is_tombstone == True`, omit that key entirely from the final output.\n- Returns the final list of active `(key, value, timestamp, False)` records.\n\n### Example\n```python\nsstable1 = [(\"a\", \"apple\", 10, False), (\"b\", \"banana\", 20, False)]\nsstable2 = [(\"b\", None, 30, True), (\"c\", \"cherry\", 15, False)]  # \"b\" is deleted at t=30\n\ncompact_sstables([sstable1, sstable2])\n# [(\"a\", \"apple\", 10, False), (\"c\", \"cherry\", 15, False)]\n```",
+  "starter": "def compact_sstables(sstables: list[list[tuple]]) -> list[tuple]:\n    \"\"\"Perform k-way merge compaction on SSTables, resolving updates and tombstones.\"\"\"\n    return []\n",
+  "solution": "import heapq\n\ndef compact_sstables(sstables: list[list[tuple]]) -> list[tuple]:\n    # Group records across all SSTables by key\n    latest_by_key = {}\n    for sstable in sstables:\n        for key, val, ts, is_tombstone in sstable:\n            if key not in latest_by_key or ts > latest_by_key[key][2]:\n                latest_by_key[key] = (key, val, ts, is_tombstone)\n\n    # Filter out tombstones and sort by key ascending\n    compacted = [\n        (k, v, ts, False)\n        for k, (key, v, ts, is_tombstone) in sorted(latest_by_key.items())\n        if not is_tombstone\n    ]\n    return compacted\n",
+  "tests": [
+    {
+      "name": "basic merge with overwrite and tombstone deletion",
+      "code": "s1 = [(\"a\", \"v1\", 10, False), (\"b\", \"v2\", 20, False)]\ns2 = [(\"b\", None, 30, True), (\"c\", \"v3\", 15, False)]\nres = compact_sstables([s1, s2])\nassert res == [(\"a\", \"v1\", 10, False), (\"c\", \"v3\", 15, False)], f\"Got {res}\""
+    },
+    {
+      "name": "latest timestamp overwrites earlier versions",
+      "code": "s1 = [(\"user:1\", \"alice\", 100, False), (\"user:2\", \"bob\", 50, False)]\ns2 = [(\"user:1\", \"alice_updated\", 200, False)]\ns3 = [(\"user:2\", \"bob_older\", 25, False)]\nres = compact_sstables([s1, s2, s3])\nassert res == [(\"user:1\", \"alice_updated\", 200, False), (\"user:2\", \"bob\", 50, False)]"
+    },
+    {
+      "name": "reviving deleted key with later timestamp succeeds",
+      "code": "s1 = [(\"x\", \"old\", 10, False)]\ns2 = [(\"x\", None, 20, True)]  # deleted at 20\ns3 = [(\"x\", \"recreated\", 30, False)]  # recreated at 30\nres = compact_sstables([s1, s2, s3])\nassert res == [(\"x\", \"recreated\", 30, False)]"
+    },
+    {
+      "name": "all keys deleted results in empty SSTable",
+      "code": "s1 = [(\"k1\", \"v1\", 5, False), (\"k2\", \"v2\", 10, False)]\ns2 = [(\"k1\", None, 15, True), (\"k2\", None, 20, True)]\nres = compact_sstables([s1, s2])\nassert res == []"
+    }
+  ],
+  "hints": [
+    "You can group records by key and track the maximum timestamp seen for each key.",
+    "If the record with the maximum timestamp has `is_tombstone == True`, exclude it from the final result.",
+    "Ensure final records are sorted in ascending order by key."
+  ],
+  "explanation": "**Why LSM-Tree Compaction?** In append-only LSM trees, deletes and updates do not overwrite data in place; instead, they append new timestamped values or deletion markers called **tombstones**. Background compaction merges older SSTable segments, eliminates dead records, and reclaims disk space."
+}
