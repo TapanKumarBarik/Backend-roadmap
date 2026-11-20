@@ -1,0 +1,75 @@
+{
+  "slug": "kubernetes-networking-and-operations",
+  "title": "Kubernetes Networking, Pod Lifecycle, and Operations",
+  "topic": "Kubernetes & SRE Operations",
+  "difficulty": "advanced",
+  "module": "learn/03-kubernetes/04-services-and-networking/README.md",
+  "description": "Test your deep knowledge of Kubernetes cluster networking, CNI implementations, pod graceful shutdown sequences, and service routing mechanisms.",
+  "questions": [
+    {
+      "id": "k8s-kube-proxy-modes",
+      "type": "single",
+      "text": "Why do large Kubernetes clusters (thousands of services and pods) typically switch `kube-proxy` from `iptables` mode to `IPVS` mode?",
+      "options": [
+        { "id": "a", "text": "IPVS enforces mutual TLS (mTLS) natively in kernel space without sidecar proxies" },
+        { "id": "b", "text": "iptables evaluates routing rules linearly in O(n) time, whereas IPVS uses kernel hash tables providing O(1) packet lookup regardless of service count" },
+        { "id": "c", "text": "iptables cannot support HTTP/2 and gRPC streams, while IPVS operates at Layer 7" },
+        { "id": "d", "text": "IPVS eliminates the need for a CNI plugin by directly handling container network interfaces" }
+      ],
+      "answer": ["b"],
+      "explanation": "In clusters with tens of thousands of services, `iptables` rule evaluation degrades significantly because rules are organized as a sequential list ($O(n)$ packet traversal) and synchronized by re-generating the entire table. IPVS uses kernel IP set hash tables, offering $O(1)$ packet matching and negligible sync overhead under high churn."
+    },
+    {
+      "id": "k8s-pod-graceful-termination",
+      "type": "single",
+      "text": "When a Kubernetes Pod is deleted, which sequence of events accurately describes the lifecycle of traffic termination and container shutdown?",
+      "options": [
+        { "id": "a", "text": "The container receives SIGKILL immediately, then kube-proxy removes the IP from Service endpoints" },
+        { "id": "b", "text": "Pod state becomes Terminating; endpoints controller asynchronously removes the Pod IP from endpoints while the container executes preStop hooks and receives SIGTERM concurrently" },
+        { "id": "c", "text": "All active TCP connections are severed by the Linux kernel, then kubelet sends SIGTERM" },
+        { "id": "d", "text": "kubelet waits until all inbound HTTP requests return status 200 before sending SIGTERM" }
+      ],
+      "answer": ["b"],
+      "explanation": "Pod deletion triggers two parallel workflows: the Endpoints/EndpointSlice controller detects deletion and propagates IP removal to kube-proxy/ingress, while kubelet executes the container's `preStop` hook and sends SIGTERM. Because endpoint propagation takes several seconds, applications typically add a short preStop sleep (e.g. 5-10s) to avoid receiving new connections after SIGTERM."
+    },
+    {
+      "id": "k8s-headless-services",
+      "type": "single",
+      "text": "What is the primary operational characteristic and use case of a Kubernetes 'Headless Service' (`clusterIP: None`)?",
+      "options": [
+        { "id": "a", "text": "It bypasses kube-proxy VIP allocation; DNS queries for the service name return direct A/AAAA/SRV records for individual matching Pod IPs, enabling peer discovery for stateful distributed databases" },
+        { "id": "b", "text": "It exposes pods directly to the public internet without an ingress controller or cloud load balancer" },
+        { "id": "c", "text": "It prevents pods from making outbound internet requests to ensure PCI-DSS compliance" },
+        { "id": "d", "text": "It runs the pod directly on the host network namespace without a container veth pair" }
+      ],
+      "answer": ["a"],
+      "explanation": "Headless services do not allocate a ClusterIP virtual IP and do not perform load balancing via kube-proxy. CoreDNS returns the set of actual Pod IPs associated with the selector, allowing stateful systems (e.g., Kafka, Cassandra, ZooKeeper) to directly discover and communicate with specific peers."
+    },
+    {
+      "id": "k8s-cni-overlay-vs-flat",
+      "type": "single",
+      "text": "What is the key performance trade-off between an overlay CNI (e.g., Flannel/Calico with VXLAN) and a cloud-native flat routed CNI (e.g., AWS VPC CNI, GKE Alias IPs)?",
+      "options": [
+        { "id": "a", "text": "Overlay networks have zero MTU overhead, whereas flat networks encapsulate every packet in UDP" },
+        { "id": "b", "text": "Overlay networks wrap inner packet headers with outer UDP/VXLAN headers causing MTU reduction and CPU encapsulation cost; flat routed networks assign native VPC IPs to Pods, avoiding encapsulation at the cost of IP address exhaustion" },
+        { "id": "c", "text": "Flat networks cannot use NetworkPolicies, while overlay networks can only run in single-zone clusters" },
+        { "id": "d", "text": "Overlay networks require dedicated hardware ASICs on every worker node" }
+      ],
+      "answer": ["b"],
+      "explanation": "Overlay networks encapsulate container traffic in VXLAN/Geneve UDP packets across nodes, adding ~50 bytes per packet and minor CPU overhead. Flat VPC CNIs assign real VPC subnet IPs directly to container interfaces, providing line-rate wire speed and native cloud routing, but can quickly exhaust VPC subnet IP quotas."
+    },
+    {
+      "id": "k8s-gateway-api-vs-ingress",
+      "type": "single",
+      "text": "Which architectural limitation of the traditional Kubernetes `Ingress` resource does the Kubernetes `Gateway API` resolve?",
+      "options": [
+        { "id": "a", "text": "Ingress could only route HTTP traffic on port 80, whereas Gateway API only supports gRPC" },
+        { "id": "b", "text": "Ingress is a monolithic resource that blends infrastructure provisioning and application routing, causing vendor-specific annotation sprawl; Gateway API splits concerns across GatewayClass (infra), Gateway (cluster ops), and HTTPRoute (app developer)" },
+        { "id": "c", "text": "Ingress required recompiling the Linux kernel for each new routing rule" },
+        { "id": "d", "text": "Gateway API removes the need for Envoy or NGINX proxies completely" }
+      ],
+      "answer": ["b"],
+      "explanation": "The traditional `Ingress` resource forced cluster operators and application developers into a single shared resource with non-standard vendor annotations (e.g., `nginx.ingress.kubernetes.io/*`). Gateway API provides role-oriented, expressive CRDs (`GatewayClass`, `Gateway`, `HTTPRoute`, `GRPCRoute`) with standardized multi-tenant support."
+    }
+  ]
+}

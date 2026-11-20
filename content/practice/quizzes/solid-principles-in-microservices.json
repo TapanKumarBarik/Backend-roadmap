@@ -1,0 +1,75 @@
+{
+  "slug": "solid-principles-in-microservices",
+  "title": "Advanced Object-Oriented Design and SOLID Principles",
+  "topic": "Clean Code & Architecture",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "Evaluate your understanding of SOLID design principles, architectural boundaries, cohesion, coupling, and behavioral subtyping in enterprise software systems.",
+  "questions": [
+    {
+      "id": "solid-srp-actor",
+      "type": "single",
+      "text": "In clean architecture and SOLID design, what is Robert C. Martin's precise definition of the Single Responsibility Principle (SRP)?",
+      "options": [
+        { "id": "a", "text": "A function or class should only do exactly one computational operation and contain no more than 10 lines of code" },
+        { "id": "b", "text": "A module should have one, and only one, reason to change — meaning it is responsible to one, and only one, actor or business stakeholder" },
+        { "id": "c", "text": "Each microservice must only manage a single database table" },
+        { "id": "d", "text": "Every class must have only a single private member field" }
+      ],
+      "answer": ["b"],
+      "explanation": "SRP is fundamentally about actors and business stakeholders. As Robert C. Martin states: 'A module should have one, and only one, reason to change.' If code serving the accounting department (CFO) is mixed with code serving operational logistics (COO), changes required by one actor inadvertently risk breaking the other."
+    },
+    {
+      "id": "solid-ocp-extensions",
+      "type": "single",
+      "text": "How is the Open/Closed Principle (OCP) primarily realized when adding new payment processors (e.g., Stripe, PayPal, Klarna) to a checkout backend?",
+      "options": [
+        { "id": "a", "text": "By adding nested `if/elif/else` branches to the central `process_payment()` method so all payment logic is centralized" },
+        { "id": "b", "text": "By defining a stable `PaymentProcessor` interface and plugging in new concrete implementations without modifying existing checkout coordinator classes" },
+        { "id": "c", "text": "By copy-pasting the existing payment code into a separate file for every merchant" },
+        { "id": "d", "text": "By making all fields public so any external class can directly manipulate payment processor internals" }
+      ],
+      "answer": ["b"],
+      "explanation": "The Open/Closed Principle states software entities should be open for extension but closed for modification. By coding against an abstract interface (`PaymentProcessor`), new gateways can be plugged in via Strategy or Factory patterns without altering or re-testing existing core checkout workflows."
+    },
+    {
+      "id": "solid-lsp-subtyping",
+      "type": "single",
+      "text": "According to Barbara Liskov's Substitution Principle (LSP), which of the following violations demonstrates invalid behavioral subtyping?",
+      "options": [
+        { "id": "a", "text": "A subclass overrides a parent method and strengthens the preconditions (demanding stricter input constraints than the parent class allowed)" },
+        { "id": "b", "text": "A subclass relaxes input preconditions, accepting a broader range of valid arguments" },
+        { "id": "c", "text": "A subclass strengthens output postconditions, promising a more specific non-null return value" },
+        { "id": "d", "text": "A subclass executes faster than the base class implementation" }
+      ],
+      "answer": ["a"],
+      "explanation": "Liskov Substitution Principle requires that subtypes must satisfy the behavioral contracts of their parent types. Specifically: preconditions cannot be strengthened in a subtype (you cannot reject valid inputs that the supertype accepted), postconditions cannot be weakened (you must guarantee at least what the supertype promised), and supertype invariants must be preserved."
+    },
+    {
+      "id": "solid-isp-fat-interfaces",
+      "type": "single",
+      "text": "Which code smell directly violates the Interface Segregation Principle (ISP)?",
+      "options": [
+        { "id": "a", "text": "An interface that defines 20 unrelated methods, forcing clients that only need 1 method to implement dummy empty stubs or raise `NotImplementedError` for the remaining 19" },
+        { "id": "b", "text": "A class that implements three small, distinct, cohesive interfaces" },
+        { "id": "c", "text": "Using dependency injection frameworks like Guice, Spring, or Dagger" },
+        { "id": "d", "text": "Creating immutable value objects with private setters" }
+      ],
+      "answer": ["a"],
+      "explanation": "The Interface Segregation Principle states that clients should not be forced to depend on methods they do not use. 'Fat' or 'polluted' interfaces force consumers to depend on and implement irrelevant methods, causing unnecessary coupling and maintenance churn."
+    },
+    {
+      "id": "solid-dip-ports-adapters",
+      "type": "single",
+      "text": "How does the Dependency Inversion Principle (DIP) apply to hexagonal architecture (Ports & Adapters) in backend services?",
+      "options": [
+        { "id": "a", "text": "High-level domain entities import low-level database drivers (e.g. `psycopg2` or `pymongo`) directly to minimize abstractions" },
+        { "id": "b", "text": "High-level business logic defines abstract ports (interfaces), while low-level infrastructure adapters (SQL, HTTP, Redis) implement those interfaces, inverting the source-code dependency direction" },
+        { "id": "c", "text": "All classes must be declared abstract and instantiated only via reflection" },
+        { "id": "d", "text": "Application databases must never use foreign keys or relational schemas" }
+      ],
+      "answer": ["b"],
+      "explanation": "DIP states: high-level modules should not depend on low-level modules; both should depend on abstractions. In hexagonal architecture, the domain defines repository and notification ports (interfaces). The database and external API layers act as outbound adapters that depend inward on the domain's interfaces."
+    }
+  ]
+}

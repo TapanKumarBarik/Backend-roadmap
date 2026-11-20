@@ -5628,6 +5628,151 @@
     }
    ]
   },
+  "kubernetes-networking-and-operations": {
+   "slug": "kubernetes-networking-and-operations",
+   "title": "Kubernetes Networking, Pod Lifecycle, and Operations",
+   "topic": "Kubernetes & SRE Operations",
+   "difficulty": "advanced",
+   "module": "learn/03-kubernetes/04-services-and-networking/README.md",
+   "description": "Test your deep knowledge of Kubernetes cluster networking, CNI implementations, pod graceful shutdown sequences, and service routing mechanisms.",
+   "questions": [
+    {
+     "id": "k8s-kube-proxy-modes",
+     "type": "single",
+     "text": "Why do large Kubernetes clusters (thousands of services and pods) typically switch `kube-proxy` from `iptables` mode to `IPVS` mode?",
+     "options": [
+      {
+       "id": "a",
+       "text": "IPVS enforces mutual TLS (mTLS) natively in kernel space without sidecar proxies"
+      },
+      {
+       "id": "b",
+       "text": "iptables evaluates routing rules linearly in O(n) time, whereas IPVS uses kernel hash tables providing O(1) packet lookup regardless of service count"
+      },
+      {
+       "id": "c",
+       "text": "iptables cannot support HTTP/2 and gRPC streams, while IPVS operates at Layer 7"
+      },
+      {
+       "id": "d",
+       "text": "IPVS eliminates the need for a CNI plugin by directly handling container network interfaces"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "In clusters with tens of thousands of services, `iptables` rule evaluation degrades significantly because rules are organized as a sequential list ($O(n)$ packet traversal) and synchronized by re-generating the entire table. IPVS uses kernel IP set hash tables, offering $O(1)$ packet matching and negligible sync overhead under high churn."
+    },
+    {
+     "id": "k8s-pod-graceful-termination",
+     "type": "single",
+     "text": "When a Kubernetes Pod is deleted, which sequence of events accurately describes the lifecycle of traffic termination and container shutdown?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The container receives SIGKILL immediately, then kube-proxy removes the IP from Service endpoints"
+      },
+      {
+       "id": "b",
+       "text": "Pod state becomes Terminating; endpoints controller asynchronously removes the Pod IP from endpoints while the container executes preStop hooks and receives SIGTERM concurrently"
+      },
+      {
+       "id": "c",
+       "text": "All active TCP connections are severed by the Linux kernel, then kubelet sends SIGTERM"
+      },
+      {
+       "id": "d",
+       "text": "kubelet waits until all inbound HTTP requests return status 200 before sending SIGTERM"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Pod deletion triggers two parallel workflows: the Endpoints/EndpointSlice controller detects deletion and propagates IP removal to kube-proxy/ingress, while kubelet executes the container's `preStop` hook and sends SIGTERM. Because endpoint propagation takes several seconds, applications typically add a short preStop sleep (e.g. 5-10s) to avoid receiving new connections after SIGTERM."
+    },
+    {
+     "id": "k8s-headless-services",
+     "type": "single",
+     "text": "What is the primary operational characteristic and use case of a Kubernetes 'Headless Service' (`clusterIP: None`)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It bypasses kube-proxy VIP allocation; DNS queries for the service name return direct A/AAAA/SRV records for individual matching Pod IPs, enabling peer discovery for stateful distributed databases"
+      },
+      {
+       "id": "b",
+       "text": "It exposes pods directly to the public internet without an ingress controller or cloud load balancer"
+      },
+      {
+       "id": "c",
+       "text": "It prevents pods from making outbound internet requests to ensure PCI-DSS compliance"
+      },
+      {
+       "id": "d",
+       "text": "It runs the pod directly on the host network namespace without a container veth pair"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Headless services do not allocate a ClusterIP virtual IP and do not perform load balancing via kube-proxy. CoreDNS returns the set of actual Pod IPs associated with the selector, allowing stateful systems (e.g., Kafka, Cassandra, ZooKeeper) to directly discover and communicate with specific peers."
+    },
+    {
+     "id": "k8s-cni-overlay-vs-flat",
+     "type": "single",
+     "text": "What is the key performance trade-off between an overlay CNI (e.g., Flannel/Calico with VXLAN) and a cloud-native flat routed CNI (e.g., AWS VPC CNI, GKE Alias IPs)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Overlay networks have zero MTU overhead, whereas flat networks encapsulate every packet in UDP"
+      },
+      {
+       "id": "b",
+       "text": "Overlay networks wrap inner packet headers with outer UDP/VXLAN headers causing MTU reduction and CPU encapsulation cost; flat routed networks assign native VPC IPs to Pods, avoiding encapsulation at the cost of IP address exhaustion"
+      },
+      {
+       "id": "c",
+       "text": "Flat networks cannot use NetworkPolicies, while overlay networks can only run in single-zone clusters"
+      },
+      {
+       "id": "d",
+       "text": "Overlay networks require dedicated hardware ASICs on every worker node"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Overlay networks encapsulate container traffic in VXLAN/Geneve UDP packets across nodes, adding ~50 bytes per packet and minor CPU overhead. Flat VPC CNIs assign real VPC subnet IPs directly to container interfaces, providing line-rate wire speed and native cloud routing, but can quickly exhaust VPC subnet IP quotas."
+    },
+    {
+     "id": "k8s-gateway-api-vs-ingress",
+     "type": "single",
+     "text": "Which architectural limitation of the traditional Kubernetes `Ingress` resource does the Kubernetes `Gateway API` resolve?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Ingress could only route HTTP traffic on port 80, whereas Gateway API only supports gRPC"
+      },
+      {
+       "id": "b",
+       "text": "Ingress is a monolithic resource that blends infrastructure provisioning and application routing, causing vendor-specific annotation sprawl; Gateway API splits concerns across GatewayClass (infra), Gateway (cluster ops), and HTTPRoute (app developer)"
+      },
+      {
+       "id": "c",
+       "text": "Ingress required recompiling the Linux kernel for each new routing rule"
+      },
+      {
+       "id": "d",
+       "text": "Gateway API removes the need for Envoy or NGINX proxies completely"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The traditional `Ingress` resource forced cluster operators and application developers into a single shared resource with non-standard vendor annotations (e.g., `nginx.ingress.kubernetes.io/*`). Gateway API provides role-oriented, expressive CRDs (`GatewayClass`, `Gateway`, `HTTPRoute`, `GRPCRoute`) with standardized multi-tenant support."
+    }
+   ]
+  },
   "kubernetes-pods-probes-and-services": {
    "title": "Kubernetes pods, probes, deployments and services",
    "topic": "kubernetes",
@@ -10754,6 +10899,151 @@
     }
    ]
   },
+  "solid-principles-in-microservices": {
+   "slug": "solid-principles-in-microservices",
+   "title": "Advanced Object-Oriented Design and SOLID Principles",
+   "topic": "Clean Code & Architecture",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "Evaluate your understanding of SOLID design principles, architectural boundaries, cohesion, coupling, and behavioral subtyping in enterprise software systems.",
+   "questions": [
+    {
+     "id": "solid-srp-actor",
+     "type": "single",
+     "text": "In clean architecture and SOLID design, what is Robert C. Martin's precise definition of the Single Responsibility Principle (SRP)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A function or class should only do exactly one computational operation and contain no more than 10 lines of code"
+      },
+      {
+       "id": "b",
+       "text": "A module should have one, and only one, reason to change — meaning it is responsible to one, and only one, actor or business stakeholder"
+      },
+      {
+       "id": "c",
+       "text": "Each microservice must only manage a single database table"
+      },
+      {
+       "id": "d",
+       "text": "Every class must have only a single private member field"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "SRP is fundamentally about actors and business stakeholders. As Robert C. Martin states: 'A module should have one, and only one, reason to change.' If code serving the accounting department (CFO) is mixed with code serving operational logistics (COO), changes required by one actor inadvertently risk breaking the other."
+    },
+    {
+     "id": "solid-ocp-extensions",
+     "type": "single",
+     "text": "How is the Open/Closed Principle (OCP) primarily realized when adding new payment processors (e.g., Stripe, PayPal, Klarna) to a checkout backend?",
+     "options": [
+      {
+       "id": "a",
+       "text": "By adding nested `if/elif/else` branches to the central `process_payment()` method so all payment logic is centralized"
+      },
+      {
+       "id": "b",
+       "text": "By defining a stable `PaymentProcessor` interface and plugging in new concrete implementations without modifying existing checkout coordinator classes"
+      },
+      {
+       "id": "c",
+       "text": "By copy-pasting the existing payment code into a separate file for every merchant"
+      },
+      {
+       "id": "d",
+       "text": "By making all fields public so any external class can directly manipulate payment processor internals"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The Open/Closed Principle states software entities should be open for extension but closed for modification. By coding against an abstract interface (`PaymentProcessor`), new gateways can be plugged in via Strategy or Factory patterns without altering or re-testing existing core checkout workflows."
+    },
+    {
+     "id": "solid-lsp-subtyping",
+     "type": "single",
+     "text": "According to Barbara Liskov's Substitution Principle (LSP), which of the following violations demonstrates invalid behavioral subtyping?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A subclass overrides a parent method and strengthens the preconditions (demanding stricter input constraints than the parent class allowed)"
+      },
+      {
+       "id": "b",
+       "text": "A subclass relaxes input preconditions, accepting a broader range of valid arguments"
+      },
+      {
+       "id": "c",
+       "text": "A subclass strengthens output postconditions, promising a more specific non-null return value"
+      },
+      {
+       "id": "d",
+       "text": "A subclass executes faster than the base class implementation"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Liskov Substitution Principle requires that subtypes must satisfy the behavioral contracts of their parent types. Specifically: preconditions cannot be strengthened in a subtype (you cannot reject valid inputs that the supertype accepted), postconditions cannot be weakened (you must guarantee at least what the supertype promised), and supertype invariants must be preserved."
+    },
+    {
+     "id": "solid-isp-fat-interfaces",
+     "type": "single",
+     "text": "Which code smell directly violates the Interface Segregation Principle (ISP)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "An interface that defines 20 unrelated methods, forcing clients that only need 1 method to implement dummy empty stubs or raise `NotImplementedError` for the remaining 19"
+      },
+      {
+       "id": "b",
+       "text": "A class that implements three small, distinct, cohesive interfaces"
+      },
+      {
+       "id": "c",
+       "text": "Using dependency injection frameworks like Guice, Spring, or Dagger"
+      },
+      {
+       "id": "d",
+       "text": "Creating immutable value objects with private setters"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "The Interface Segregation Principle states that clients should not be forced to depend on methods they do not use. 'Fat' or 'polluted' interfaces force consumers to depend on and implement irrelevant methods, causing unnecessary coupling and maintenance churn."
+    },
+    {
+     "id": "solid-dip-ports-adapters",
+     "type": "single",
+     "text": "How does the Dependency Inversion Principle (DIP) apply to hexagonal architecture (Ports & Adapters) in backend services?",
+     "options": [
+      {
+       "id": "a",
+       "text": "High-level domain entities import low-level database drivers (e.g. `psycopg2` or `pymongo`) directly to minimize abstractions"
+      },
+      {
+       "id": "b",
+       "text": "High-level business logic defines abstract ports (interfaces), while low-level infrastructure adapters (SQL, HTTP, Redis) implement those interfaces, inverting the source-code dependency direction"
+      },
+      {
+       "id": "c",
+       "text": "All classes must be declared abstract and instantiated only via reflection"
+      },
+      {
+       "id": "d",
+       "text": "Application databases must never use foreign keys or relational schemas"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "DIP states: high-level modules should not depend on low-level modules; both should depend on abstractions. In hexagonal architecture, the domain defines repository and notification ports (interfaces). The database and external API layers act as outbound adapters that depend inward on the domain's interfaces."
+    }
+   ]
+  },
   "sql-joins-and-grouping": {
    "title": "SQL joins, grouping and NULL",
    "topic": "databases",
@@ -14000,6 +14290,32 @@
     }
    ]
   },
+  "designing-a-zero-downtime-deployment-system": {
+   "slug": "designing-a-zero-downtime-deployment-system",
+   "title": "Designing a Zero-Downtime Deployment & Canary Router",
+   "topic": "DevOps & Infrastructure",
+   "difficulty": "advanced",
+   "module": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md",
+   "description": "Senior system design interview questions on engineering zero-downtime canary deployment platforms, automated rollback engines, and online database schema migrations.",
+   "questions": [
+    {
+     "q": "How would you design an automated Canary Traffic Routing and Rollback system that shifts production traffic gradually while detecting regressions within 15 seconds?",
+     "a": "An automated canary system consists of four core building blocks:\n1. **Dynamic Traffic Router:** An edge proxy / service mesh (Envoy, Istio, or Cloudflare Workers) capable of weighted traffic splitting by HTTP header, cookie, or percentage (e.g., 1% -> 5% -> 25% -> 100%).\n2. **Canary & Baseline Pair:** Deploy two identical sized pods/instances: the *canary* (new version v2.1) and a *baseline* (current production v2.0 deployed fresh). Comparing the canary against the baseline eliminates differences caused by container age, JIT warming, or accumulated memory fragmentation.\n3. **Real-time Metric Analysis Engine:** A daemon (e.g. Kayenta, Flagger) querying Prometheus/Datadog every 5 seconds, calculating Mann-Whitney U or Wilcoxon rank-sum statistical tests on key SLIs: HTTP 5xx error rate, p95/p99 latency, and unhandled exception counters.\n4. **Automated Fast-Abort Circuit:** If the canary's error budget burn rate exceeds 3x normal or p99 latency spikes by >20% compared to baseline over two consecutive 5-second evaluation windows, the controller instantly flips routing weights back to 0% v2.0 baseline and alerts the on-call engineer."
+    },
+    {
+     "q": "How do you execute non-backward-compatible database schema changes (e.g., renaming a column or changing a data type) without taking downtime during rolling deployments?",
+     "a": "Non-backward-compatible migrations must follow the **Expand and Contract (Parallel Run)** pattern executed across 4 distinct deployment stages:\n1. **Expand (Phase 1):** Add the new column as nullable alongside the old column (e.g., add `phone_number_e164` alongside legacy `phone`). Old code (v1) continues reading and writing to `phone`.\n2. **Dual-Writing (Phase 2):** Deploy application version (v2). It writes simultaneously to both `phone` and `phone_number_e164`, but continues reading from `phone` with fallback.\n3. **Backfill & Read-Switch (Phase 3):** Run an asynchronous batch job (chunked by primary key with rate throttling) to backfill historical rows from `phone` into `phone_number_e164`. Deploy application version (v3) which reads exclusively from `phone_number_e164` while continuing dual-writing.\n4. **Contract (Phase 4):** Once all pods run v3 and telemetry confirms zero reads on the old column, deploy application version (v4) which ceases writes to `phone`. Finally, run a schema migration to drop the old column `phone`."
+    },
+    {
+     "q": "How do you ensure graceful connection draining in Kubernetes so that in-flight HTTP, gRPC, and WebSocket connections are not dropped during a rolling update?",
+     "a": "Graceful draining requires orchestrating the race between network routing updates and OS process termination:\n1. **The Endpoint Desynchronization Problem:** When a pod is terminated, kubelet sends SIGTERM while the Endpoints controller asynchronously updates kube-proxy/ingress iptables. Because IP removal takes 2–5 seconds to propagate across all cluster nodes, new requests may still be routed to the dying pod.\n2. **preStop Hook Delay:** Add a `preStop` hook containing `sleep 5` to the pod spec. This guarantees the pod keeps serving requests for 5 seconds while its IP is removed from all ingress routing tables.\n3. **Server Graceful Shutdown:** Upon receiving SIGTERM (after the preStop hook), the application server stops accepting new connections on its listening socket, sends HTTP/2 `GOAWAY` frames or WebSocket close frames to prompt clients to reconnect elsewhere, and gives existing requests a grace window (e.g., 25s) to finish.\n4. **`terminationGracePeriodSeconds`:** Configure `terminationGracePeriodSeconds: 35` (preStop delay + application timeout + margin) so kubelet does not send SIGKILL prematurely."
+    },
+    {
+     "q": "How do you manage configuration drift, secret rotation, and multi-region progressive rollouts using GitOps?",
+     "a": "1. **Single Source of Truth:** All infrastructure, Kubernetes manifests, and Helm/Kustomize overlays are stored in Git. Cluster agents (ArgoCD or Flux) pull and reconcile cluster state continuously, prohibiting manual `kubectl` mutations.\n2. **Progressive Regional Wave Deployment:** Rollouts proceed in scheduled waves: Staging -> Canary Region (lowest traffic) -> Soak period (2 hours) -> Primary Regions in parallel. A regression in an early wave halts subsequent waves automatically.\n3. **Decoupling Config from Deployment:** Fast-changing parameters and kill switches are decoupled via distributed feature flags (LaunchDarkly, Unleash), allowing instant operational mitigation without waiting for a 15-minute CI/CD deployment pipeline.\n4. **External Secrets Operator:** Secrets are stored in cloud vaults (AWS Secrets Manager, GCP Secret Manager) and mirrored into Kubernetes secrets via External Secrets Operator (ESO) with automated rotation and checksum annotations that trigger rollout restarts when secret contents change."
+    }
+   ]
+  },
   "designing-an-api-gateway": {
    "title": "Designing an Enterprise API Gateway",
    "topic": "system-design",
@@ -14021,6 +14337,32 @@
     {
      "q": "How do you protect upstream microservices from cascading failures when an API Gateway forwards high-traffic requests?",
      "a": "Implement Circuit Breaking, Outbound Retries with Backoff, and Bulkheading at the gateway layer. Dedicated worker thread pools or connection pools are isolated per downstream route (bulkheading): if the Product Recommendation service hangs, its pool exhausts without starving the Checkout service. Furthermore, wrap downstream calls in circuit breakers (e.g. Envoy outlier detection): if a service produces >50% 5xx errors over 10 seconds, fast-fail with HTTP 503 to allow the service to recover."
+    }
+   ]
+  },
+  "designing-an-event-driven-payment-settlement-system": {
+   "slug": "designing-an-event-driven-payment-settlement-system",
+   "title": "Designing an Idempotent, High-Throughput Payment Settlement System",
+   "topic": "Distributed Systems & Financial Tech",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md",
+   "description": "Senior system design interview questions on engineering high-scale financial ledgers, double-entry bookkeeping, payment idempotency, and asynchronous webhook reconciliation.",
+   "questions": [
+    {
+     "q": "How do you guarantee exactly-once payment processing across distributed payment gateways (Stripe, Adyen, Banking Rails) when network timeouts and client retries occur?",
+     "a": "Guaranteed exactly-once payment processing is achieved through **Idempotency Keys with Two-Phase Commit State Machines**:\n1. **Client Idempotency Key:** Clients generate a unique UUID v4 idempotency key per payment intent and include it in the `Idempotency-Key` HTTP header.\n2. **Distributed Lock & Pre-Record:** When the API Gateway receives the request, it acquires a short-lived Redis lock on the idempotency key and checks the Postgres `payment_intents` table. If a record exists with status `SUCCEEDED` or `FAILED`, the cached HTTP response is returned immediately. If status is `PROCESSING`, a 409 Conflict / 425 Too Early is returned to prevent concurrent duplicate attempts.\n3. **Optimistic State Transition:** The intent is recorded as `PENDING_GATEWAY` with an atomic database write.\n4. **Gateway Idempotency Propagation:** The system calls the external payment gateway (e.g. Stripe) passing the exact same customer idempotency key as Stripe's `Idempotency-Key`. If the connection times out, our retry mechanism submits the exact same key; the gateway recognizes the duplicate and returns the existing transaction state rather than charging the card twice.\n5. **Completion:** Upon receiving the gateway response, update the database to `SUCCEEDED` and release the distributed lock."
+    },
+    {
+     "q": "Why is double-entry bookkeeping mandatory for financial ledgers, and how do you design the schema to ensure zero discrepancies under high concurrency?",
+     "a": "Double-entry bookkeeping mandates that every financial transaction consists of at least two entries: a debit and a credit, where the sum of debits must strictly equal the sum of credits ($sum(debits) = sum(credits)$). Money is never created or destroyed, only transferred between accounts.\n\n**Schema Design:**\n- `accounts (id, user_id, type [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE], currency, balance, version)`\n- `transactions (id, idempotency_key, description, posted_at, status)`\n- `ledger_entries (id, transaction_id, account_id, amount, direction [DEBIT, CREDIT], created_at)`\n\n**Concurrency & Integrity Controls:**\n1. **Immutable Append-Only Entries:** Ledger entries are strictly immutable (append-only). Updates and deletes are prohibited at the database permission level; corrections require creating offsetting compensatory transactions.\n2. **Transaction Invariant Enforcement:** A database trigger or application transaction coordinator verifies that within a database transaction, $\\sum \\text{DEBIT} - \\sum \\text{CREDIT} = 0$ before committing.\n3. **Optimistic Locking:** Account balance updates utilize `version` columns (`UPDATE accounts SET balance = balance + :delta, version = version + 1 WHERE id = :id AND version = :cur_version`). Under extreme hot-spot accounts (e.g., company master clearing account), balances are computed asynchronously by streaming ledger entries into an event log rather than synchronizing updates on a single row."
+    },
+    {
+     "q": "How do you handle asynchronous payment webhooks arriving out-of-order, delayed, or duplicated from multiple banking providers?",
+     "a": "1. **Signature Verification & Ingestion Buffer:** Webhooks are verified using HMAC-SHA256 signatures against the provider's shared secret and pushed directly to an append-only event stream (Kafka or AWS SQS) without synchronous processing.\n2. **Deduplication:** Consumers check a `processed_webhook_events` table indexed by `(provider, event_id)` inside a transaction to filter duplicates.\n3. **State Transition Matrix Guard:** Payment states follow a strict directed acyclic graph: `INITIATED -> AUTHORIZED -> CAPTURED -> SETTLED` (or `FAILED`/`REFUNDED`). If a `SETTLED` webhook arrives before `AUTHORIZED` due to network reordering, the state machine either rejects illegal backward transitions or holds the out-of-order event in an 'unsequenced' buffer until prerequisite states resolve.\n4. **Dead Letter Queue (DLQ):** Webhooks that fail processing due to database contention or transient errors are retried with exponential backoff and randomized jitter, falling back to a DLQ after 5 attempts."
+    },
+    {
+     "q": "How do you perform nightly financial reconciliation between internal ledger transactions and external banking settlement files (e.g. MT940, CAMT.053, ACH NACHA files)?",
+     "a": "Nightly reconciliation uses a three-way automated reconciliation pipeline:\n1. **File Ingestion:** Automated SFTP workers ingest raw daily settlement files (CAMT.053 XML or BAI2 format) from acquiring banks into an S3 bucket with versioning and object locks.\n2. **Parsing & Normalization:** Spark or PySpark batch jobs parse raw banking records into standardized normalized settlement events `(bank_tx_id, internal_ref, amount, currency, fee, timestamp)`.\n3. **Matching Engine (Three-Way Match):**\n   - **Exact Match:** Match on `internal_ref` (payment intent UUID) where amounts and currencies match exactly. Mark internal transaction as `RECONCILED`.\n   - **Fuzzy / Rule-based Match:** If reference is truncated by intermediary clearing houses, match on `(account_number, amount, timestamp +/- 24h)`.\n   - **Break Detection:** Any transaction present in the bank file but missing in internal ledgers (unmatched bank credit) or present in internal ledgers but missing from bank settlement after T+2 days triggers a **Reconciliation Break**.\n4. **Exception Workflow:** Unmatched items are automatically partitioned into an operations dashboard with suspected reasons (FX variance, interchange fee mismatch, chargeback reversal) for manual compliance resolution."
     }
    ]
   },
@@ -16324,6 +16666,36 @@
    "solution": "import time\n\n\nclass CircuitOpenError(Exception):\n    \"\"\"Raised by CircuitBreaker.call instead of calling the function while the circuit is open.\"\"\"\n\n\nclass CircuitBreaker:\n    def __init__(self, failure_threshold, cooldown, clock=time.monotonic):\n        self._failure_threshold = failure_threshold\n        self._cooldown = cooldown\n        self._clock = clock\n        self._failures = 0              # failures in a row while closed\n        self._opened_at = None          # when the circuit last opened; None while it is closed\n        self._trial_running = False     # True while the single half-open trial call is in progress\n\n    @property\n    def state(self):\n        if self._opened_at is None:\n            return \"closed\"\n        if self._clock() - self._opened_at >= self._cooldown:\n            return \"half_open\"\n        return \"open\"\n\n    def call(self, fn, *args, **kwargs):\n        state = self.state\n        if state == \"open\" or (state == \"half_open\" and self._trial_running):\n            raise CircuitOpenError(\"circuit is open, the call was not made\")\n        trial = state == \"half_open\"\n        if trial:\n            self._trial_running = True\n        try:\n            result = fn(*args, **kwargs)\n        except Exception:\n            self._failures += 1\n            if trial or self._failures >= self._failure_threshold:\n                self._opened_at = self._clock()     # (re)open, and start the cool-down now\n            raise\n        else:\n            self._failures = 0\n            self._opened_at = None                  # a success closes the circuit\n            return result\n        finally:\n            if trial:\n                self._trial_running = False\n",
    "explanation": "**The idea.** A circuit breaker stops you from hammering a service that is already failing: after enough failures it fails fast for a while (no waiting on timeouts, no extra load on the struggling service), then lets one request through to find out whether it has recovered.\n\n**Little state is enough.** Keep the number of failures in a row, the time the circuit opened (`None` while closed) and a flag for \"the trial call is running\". Then `state` can be *computed*: closed if never opened, otherwise open until `cooldown` has passed since `opened_at`, half-open after that. Nothing needs a timer, which is why the clock is injected.\n\n**Why one trial.** If every request were allowed through the moment the cool-down ended, a service that is still sick would be hit by the whole queue of waiting callers at once. One probe is enough to decide.\n\n**Usual mistakes.** Not resetting the failure count on success; refreshing `opened_at` when a call is rejected (the cool-down never ends); not clearing the trial flag when the trial raises (the breaker rejects everything forever, hence the `finally`); letting a failed trial count as just one more failure instead of reopening.\n\n**Follow-up.** Real breakers count failures in a rolling window or by error rate, only count some exception types, need a lock when threads share them, and report state changes to metrics."
   },
+  "circuit-breaker-state-machine": {
+   "title": "Resilient Circuit Breaker State Machine",
+   "topic": "fault-tolerance",
+   "difficulty": "intermediate",
+   "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+   "description": "Implement an enterprise Circuit Breaker pattern with failure thresholds, probe limits, and automated recovery timeouts.",
+   "statement": "A circuit breaker prevents cascading outages by monitoring RPC calls to external dependencies, cutting off traffic when failures exceed a threshold, and probing recovery before restoring traffic.\n\nImplement the **CircuitBreaker** class:\n- `__init__(failure_rate_threshold: float, min_samples: int, recovery_timeout: float, half_open_success_needed: int)`:\n  - `failure_rate_threshold`: Failure rate percentage (e.g. 50.0 means 50%) required to trip the breaker.\n  - `min_samples`: Minimum number of recorded samples in CLOSED state before evaluating the failure rate.\n  - `recovery_timeout`: Seconds to wait in OPEN state before transitioning to HALF_OPEN.\n  - `half_open_success_needed`: Number of consecutive successful probe requests in HALF_OPEN to transition back to CLOSED.\n- `state: str`: Property returning current state: `'CLOSED'`, `'OPEN'`, or `'HALF_OPEN'`.\n- `allow_request(current_time: float) -> bool`:\n  - In `'CLOSED'`: Returns `True`.\n  - In `'OPEN'`: If `current_time - trip_time >= recovery_timeout`, transitions to `'HALF_OPEN'`, resets probe counters, and returns `True`. If timeout hasn't elapsed, returns `False`.\n  - In `'HALF_OPEN'`: Allows probe requests up to `half_open_success_needed`. Returns `True` if under capacity, `False` otherwise.\n- `record_result(success: bool, current_time: float)`:\n  - In `'CLOSED'`: Records the sample. If total samples $\\ge$ `min_samples` and `(failures / total) * 100.0 >= failure_rate_threshold`, transitions to `'OPEN'`, sets `trip_time = current_time`, and clears samples.\n  - In `'HALF_OPEN'`:\n    - If `success == True`: Increments consecutive successes. When reaching `half_open_success_needed`, transitions to `'CLOSED'`, resetting sample history.\n    - If `success == False`: Immediately trips back to `'OPEN'` with `trip_time = current_time`.\n  - In `'OPEN'`: Ignores outcome.",
+   "starter": "class CircuitBreaker:\n    def __init__(self, failure_rate_threshold: float, min_samples: int, recovery_timeout: float, half_open_success_needed: int):\n        pass\n\n    @property\n    def state(self) -> str:\n        return 'CLOSED'\n\n    def allow_request(self, current_time: float) -> bool:\n        return True\n\n    def record_result(self, success: bool, current_time: float):\n        pass\n",
+   "solution": "class CircuitBreaker:\n    def __init__(self, failure_rate_threshold: float, min_samples: int, recovery_timeout: float, half_open_success_needed: int):\n        self.threshold = failure_rate_threshold\n        self.min_samples = min_samples\n        self.recovery_timeout = recovery_timeout\n        self.half_open_needed = half_open_success_needed\n        self._state = 'CLOSED'\n        self.trip_time = 0.0\n        self.samples = []\n        self.half_open_successes = 0\n        self.half_open_in_flight = 0\n\n    @property\n    def state(self) -> str:\n        return self._state\n\n    def allow_request(self, current_time: float) -> bool:\n        if self._state == 'CLOSED':\n            return True\n        if self._state == 'OPEN':\n            if current_time - self.trip_time >= self.recovery_timeout:\n                self._state = 'HALF_OPEN'\n                self.half_open_successes = 0\n                self.half_open_in_flight = 1\n                return True\n            return False\n        if self._state == 'HALF_OPEN':\n            if self.half_open_in_flight < self.half_open_needed:\n                self.half_open_in_flight += 1\n                return True\n            return False\n        return False\n\n    def record_result(self, success: bool, current_time: float):\n        if self._state == 'CLOSED':\n            self.samples.append(success)\n            if len(self.samples) >= self.min_samples:\n                failures = sum(1 for s in self.samples if not s)\n                rate = (failures / len(self.samples)) * 100.0\n                if rate >= self.threshold:\n                    self._state = 'OPEN'\n                    self.trip_time = current_time\n                    self.samples = []\n        elif self._state == 'HALF_OPEN':\n            if success:\n                self.half_open_successes += 1\n                if self.half_open_successes >= self.half_open_needed:\n                    self._state = 'CLOSED'\n                    self.samples = []\n                    self.half_open_in_flight = 0\n                    self.half_open_successes = 0\n            else:\n                self._state = 'OPEN'\n                self.trip_time = current_time\n                self.half_open_in_flight = 0\n                self.half_open_successes = 0\n",
+   "tests": [
+    {
+     "name": "healthy closed circuit allows calls and trips when failure threshold met",
+     "code": "cb = CircuitBreaker(failure_rate_threshold=50.0, min_samples=4, recovery_timeout=10.0, half_open_success_needed=2)\nassert cb.state == 'CLOSED'\nassert cb.allow_request(0.0) == True\n\ncb.record_result(True, 1.0)\ncb.record_result(False, 2.0)\ncb.record_result(False, 3.0)\nassert cb.state == 'CLOSED'\ncb.record_result(False, 4.0)\nassert cb.state == 'OPEN'"
+    },
+    {
+     "name": "open circuit blocks calls until recovery timeout then recovers via half-open probe",
+     "code": "cb = CircuitBreaker(failure_rate_threshold=50.0, min_samples=4, recovery_timeout=10.0, half_open_success_needed=2)\ncb.record_result(False, 1.0)\ncb.record_result(False, 2.0)\ncb.record_result(False, 3.0)\ncb.record_result(False, 4.0)\nassert cb.state == 'OPEN'\n\nassert cb.allow_request(5.0) == False\nassert cb.allow_request(13.9) == False\nassert cb.allow_request(14.0) == True\nassert cb.state == 'HALF_OPEN'\n\ncb.record_result(True, 14.1)\nassert cb.state == 'HALF_OPEN'\nassert cb.allow_request(14.2) == True\ncb.record_result(True, 14.3)\nassert cb.state == 'CLOSED'\nassert cb.allow_request(15.0) == True"
+    },
+    {
+     "name": "half-open probe trips back to open immediately upon single failure",
+     "code": "cb = CircuitBreaker(failure_rate_threshold=50.0, min_samples=2, recovery_timeout=5.0, half_open_success_needed=2)\ncb.record_result(False, 1.0)\ncb.record_result(False, 2.0)\nassert cb.state == 'OPEN'\n\nassert cb.allow_request(7.0) == True\nassert cb.state == 'HALF_OPEN'\ncb.record_result(False, 7.1)\nassert cb.state == 'OPEN'\nassert cb.allow_request(8.0) == False\nassert cb.allow_request(12.2) == True"
+    }
+   ],
+   "hints": [
+    "Track the current state as a private string variable `_state`.",
+    "When in `OPEN`, compare `current_time - self.trip_time >= self.recovery_timeout` before granting access.",
+    "In `HALF_OPEN`, reset probe counters and only transition back to `CLOSED` after consecutive successes equal `half_open_success_needed`."
+   ],
+   "explanation": "Circuit Breakers (popularized by Netflix Hystrix and Resilience4j) protect backend microservices from cascading failures. When a downstream dependency fails repeatedly, opening the circuit fails fast without wasting connection pools and worker threads."
+  },
   "climbing-stairs": {
    "title": "Climbing Stairs",
    "topic": "dynamic-programming",
@@ -17825,6 +18197,36 @@
    ],
    "solution": "def find_deadlock(wait_for):\n    UNSEEN, ON_PATH, DONE = 0, 1, 2\n    state = {}                                       # transaction -> UNSEEN / ON_PATH / DONE (missing means UNSEEN)\n\n    for start in wait_for:\n        if state.get(start, UNSEEN) != UNSEEN:\n            continue\n        state[start] = ON_PATH\n        path = [start]                               # the transactions on the current depth-first path\n        pending = [iter(wait_for.get(start, ()))]    # for each of them, the waits not yet followed\n        while path:\n            for nxt in pending[-1]:\n                seen = state.get(nxt, UNSEEN)\n                if seen == ON_PATH:                  # back on our own path: that part of the path is a cycle\n                    return path[path.index(nxt):]\n                if seen == UNSEEN:\n                    state[nxt] = ON_PATH\n                    path.append(nxt)\n                    pending.append(iter(wait_for.get(nxt, ())))\n                    break                            # go deeper; the iterator remembers where it stopped\n            else:                                    # every wait of path[-1] has been followed: it is finished\n                state[path.pop()] = DONE\n                pending.pop()\n    return None\n",
    "explanation": "**The idea.** In a wait-for graph an edge `A -> B` means \"A is blocked until B releases a lock\". A deadlock is exactly a cycle: everybody in it waits for somebody else in it, so none of them can ever continue. Databases run this check (or use timeouts) and abort one transaction of the cycle, the victim.\n\n**Finding a cycle.** Depth-first search with three states per transaction: unseen, on the current path, and finished. Meeting a transaction that is *on the current path* means you have come back to your own trail, and the cycle is the part of the path from that transaction onwards. Meeting a *finished* one is harmless: everything reachable from it was explored already and holds no cycle. Treating finished like on-path gives false alarms on diamonds. Forgetting finished transactions makes the search explore them again, which is exponential on a ladder of diamonds (one test), and starting a fresh search from every transaction is quadratic on a big graph (another test).\n\n**Details.** The path from the start may include a tail of transactions that only lead into the cycle; cut it off at the repeated one. Transactions that nobody waits for, or that appear only as a target, still need handling (`.get(txn, ())`). An explicit stack, as here, keeps a long chain of waits from hitting the recursion limit.\n\n**Complexity.** O(V + E) time and O(V) space. Follow-up: which transaction would you abort? (Often the youngest, or the one that holds the fewest locks.)"
+  },
+  "deadlock-detection-graph": {
+   "title": "Deadlock Detection in Transaction Lock Manager",
+   "topic": "concurrency-and-locking",
+   "difficulty": "intermediate",
+   "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+   "description": "Maintain a database wait-for graph and detect cyclic lock dependencies with automated victim abortion.",
+   "statement": "In relational and distributed databases, concurrent transactions acquire shared and exclusive locks on data resources. When transactions wait on resources held by each other, circular wait dependencies cause deadlocks.\n\nImplement a **LockManager** with wait-for graph cycle detection and victim resolution:\n\n1. **`add_dependency(waiter: int, holder: int)`:**\n   - Adds a directed edge in the wait-for graph indicating that transaction `waiter` is blocked waiting for a lock held by transaction `holder`.\n2. **`remove_dependency(waiter: int, holder: int)`:**\n   - Removes the directed edge between `waiter` and `holder` if it exists.\n3. **`has_deadlock() -> bool`:**\n   - Returns `True` if any directed cycle exists in the wait-for graph; otherwise `False`.\n4. **`find_deadlock_cycle() -> list[int] | None`:**\n   - Returns a list of transaction IDs representing a directed cycle in traversal order (e.g. `[1, 2, 1]` or `[1, 2, 3, 1]`) starting and ending with the same node. If no cycle exists, returns `None`.\n5. **`resolve_deadlock(policy: str = 'youngest') -> int | None`:**\n   - If a deadlock exists, identifies a cycle, selects a victim transaction according to `policy`:\n     - `'youngest'`: chooses the transaction with the highest numeric ID in the cycle.\n     - `'oldest'`: chooses the transaction with the lowest numeric ID in the cycle.\n   - Removes all directed edges (incoming and outgoing) connected to the victim transaction from the graph, and returns the victim ID.\n   - If no deadlock exists, returns `None`.",
+   "starter": "class LockManager:\n    def __init__(self):\n        pass\n\n    def add_dependency(self, waiter: int, holder: int):\n        pass\n\n    def remove_dependency(self, waiter: int, holder: int):\n        pass\n\n    def has_deadlock(self) -> bool:\n        return False\n\n    def find_deadlock_cycle(self) -> list[int] | None:\n        return None\n\n    def resolve_deadlock(self, policy: str = 'youngest') -> int | None:\n        return None\n",
+   "solution": "from collections import defaultdict\n\nclass LockManager:\n    def __init__(self):\n        self.adj = defaultdict(set)\n\n    def add_dependency(self, waiter: int, holder: int):\n        if waiter != holder:\n            self.adj[waiter].add(holder)\n            if holder not in self.adj:\n                self.adj[holder] = set()\n        else:\n            self.adj[waiter].add(holder)\n\n    def remove_dependency(self, waiter: int, holder: int):\n        if waiter in self.adj and holder in self.adj[waiter]:\n            self.adj[waiter].remove(holder)\n\n    def _dfs_cycle(self, node: int, visited: dict, path: list, cycle_result: list) -> bool:\n        visited[node] = 1\n        path.append(node)\n        for neighbor in sorted(self.adj[node]):\n            if visited.get(neighbor, 0) == 1:\n                cycle_start_idx = path.index(neighbor)\n                cycle_result.extend(path[cycle_start_idx:] + [neighbor])\n                return True\n            elif visited.get(neighbor, 0) == 0:\n                if self._dfs_cycle(neighbor, visited, path, cycle_result):\n                    return True\n        visited[node] = 2\n        path.pop()\n        return False\n\n    def find_deadlock_cycle(self) -> list[int] | None:\n        visited = {}\n        for node in sorted(self.adj.keys()):\n            if visited.get(node, 0) == 0:\n                cycle = []\n                if self._dfs_cycle(node, visited, [], cycle):\n                    return cycle\n        return None\n\n    def has_deadlock(self) -> bool:\n        return self.find_deadlock_cycle() is not None\n\n    def resolve_deadlock(self, policy: str = 'youngest') -> int | None:\n        cycle = self.find_deadlock_cycle()\n        if not cycle:\n            return None\n        cycle_nodes = set(cycle[:-1])\n        if policy == 'youngest':\n            victim = max(cycle_nodes)\n        else:\n            victim = min(cycle_nodes)\n        if victim in self.adj:\n            del self.adj[victim]\n        for u in list(self.adj.keys()):\n            self.adj[u].discard(victim)\n        return victim\n",
+   "tests": [
+    {
+     "name": "linear dependencies have no deadlock",
+     "code": "lm = LockManager()\nlm.add_dependency(1, 2)\nlm.add_dependency(2, 3)\nassert lm.has_deadlock() == False\nassert lm.find_deadlock_cycle() is None\nassert lm.resolve_deadlock() is None"
+    },
+    {
+     "name": "three-node cycle detected and resolved with youngest victim",
+     "code": "lm = LockManager()\nlm.add_dependency(1, 2)\nlm.add_dependency(2, 3)\nlm.add_dependency(3, 1)\nassert lm.has_deadlock() == True\ncycle = lm.find_deadlock_cycle()\nassert cycle is not None\nassert cycle[0] == cycle[-1]\nassert len(cycle) == 4\n\nvictim = lm.resolve_deadlock(policy='youngest')\nassert victim == 3\nassert lm.has_deadlock() == False"
+    },
+    {
+     "name": "two-node direct circular wait resolved with oldest victim",
+     "code": "lm = LockManager()\nlm.add_dependency(10, 20)\nlm.add_dependency(20, 10)\nassert lm.has_deadlock() == True\nvictim = lm.resolve_deadlock(policy='oldest')\nassert victim == 10\nassert lm.has_deadlock() == False"
+    }
+   ],
+   "hints": [
+    "Use a directed adjacency list representation where `waiter -> holder` indicates waiter is blocked on holder.",
+    "Cycle detection can be cleanly implemented using 3-color DFS (0=unvisited, 1=currently exploring in recursion stack, 2=finished).",
+    "When a back-edge to a node with color 1 is discovered, reconstruct the cycle from that node to the end of the current traversal path."
+   ],
+   "explanation": "Modern database lock managers run a background deadlock detection daemon periodically. When a cycle in the Wait-For Graph (WFG) is discovered, aborting a victim transaction breaks the cycle and allows the remaining transactions to acquire their locks and proceed to commit."
   },
   "decode-ways": {
    "title": "Decode Ways",
