@@ -643,6 +643,11 @@
         "height": 2000
       },
       {
+        "name": "tool-sql-optimizer",
+        "path": "/tools/sql-optimizer/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -741,6 +746,11 @@
       "id": "vector-clocks",
       "url": "/tools/vector-clocks/",
       "entry": "tools/vector-clocks/index.html"
+    },
+    {
+      "id": "sql-optimizer",
+      "url": "/tools/sql-optimizer/",
+      "entry": "tools/sql-optimizer/index.html"
     }
   ]
 }

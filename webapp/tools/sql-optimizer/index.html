@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL Query &amp; Index Optimizer Playground · %SITE_NAME%</title>
+<meta name="description" content="Free interactive SQL Query and Index Optimizer Playground. Explore B-tree index scans, sequential table scans, index-only scans, the left-prefix rule, and join optimization live in your browser.">
+<link rel="canonical" href="%SITE_URL%/tools/sql-optimizer/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/sql-optimizer/">
+<meta property="og:title" content="SQL Query &amp; Index Optimizer Playground">
+<meta property="og:description" content="Visualize database query execution plans, toggle B-tree indexes, and understand database optimizer cost models interactively.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"SQL Query & Index Optimizer Playground","url":"%SITE_URL%/tools/sql-optimizer/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/backend/04-databases-and-data-layer/03-schema-design-and-indexing/">Indexing Course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>SQL Query &amp; Index Optimizer Playground</h1>
+  <p class="tool-lead">How do query planners in PostgreSQL and MySQL decide whether to use an index or scan all 100,000 rows on disk? Toggle indexes ON and OFF, observe left-prefix rule violations, test covering index-only scans, and watch query costs drop live in your browser.</p>
+
+  <section aria-labelledby="sql-opt-h" class="tool-card" id="sql-lab">
+    <h2 id="sql-opt-h">Interactive Query Plan Analyzer</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Query Selector Pills -->
+    <div class="sql-controls-bar">
+      <div>
+        <span class="tool-note">Test Queries:</span>
+        <div id="sql-query-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- SQL Query Display -->
+    <div class="sql-code-box">
+      <pre><code id="sql-query-display"></code></pre>
+    </div>
+
+    <!-- Index Toggle Panel -->
+    <div class="sql-index-panel">
+      <div class="lld-codegen-header">
+        <h3>Database B-Tree Indexes Available</h3>
+        <div class="tool-row">
+          <button id="sql-btn-enable-all" type="button" class="tool-btn tool-btn-sm">Enable All</button>
+          <button id="sql-btn-disable-all" type="button" class="tool-btn tool-btn-sm">Disable All</button>
+        </div>
+      </div>
+      <div id="sql-index-toggles" class="sql-toggles-grid"></div>
+    </div>
+
+    <!-- Plan Execution Results -->
+    <div class="sql-results-card">
+      <div class="sql-results-header">
+        <div>
+          <span class="tool-note">Selected Planner Execution Strategy:</span>
+          <div style="margin-top: 4px;">
+            <span id="sql-plan-badge" class="sql-plan-pill">-</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats Summary -->
+      <div class="ll-summary" style="margin: var(--space-4) 0;">
+        <div class="ll-stat"><span>Estimated Cost</span><strong id="sql-stat-cost">-</strong></div>
+        <div class="ll-stat"><span>Est. Execution Time</span><strong id="sql-stat-time">-</strong></div>
+        <div class="ll-stat"><span>Heap Pages Read</span><strong id="sql-stat-heap-pages">-</strong></div>
+        <div class="ll-stat"><span>Rows Returned / Checked</span><strong id="sql-stat-rows">-</strong></div>
+      </div>
+
+      <!-- Visual Plan Node Tree -->
+      <div class="sql-tree-wrapper">
+        <h4>EXPLAIN Execution Plan Tree</h4>
+        <div id="sql-plan-tree" class="sql-tree-container"></div>
+      </div>
+
+      <!-- Explanation Box -->
+      <div class="sql-explanation-card">
+        <h4>Planner Decision Rationale</h4>
+        <p id="sql-explanation-text" class="tool-note"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Educational Reference -->
+  <section aria-labelledby="sql-edu-h" class="tool-card">
+    <h2 id="sql-edu-h">Database Indexing &amp; Query Optimization Cheatsheet</h2>
+    <div class="tool-grid">
+      <article>
+        <h3>Sequential Scan vs Index Scan</h3>
+        <p>A <strong>Sequential Scan</strong> reads every 8KB table page sequentially from disk ($O(N)$). When a query filters for high selectivity ($< 5\%$ of rows), an <strong>Index Scan</strong> navigates the B-Tree root-to-leaf in 3–4 seeks and reads only matching heap pages ($O(\log N)$).</p>
+      </article>
+      <article>
+        <h3>The Left-Prefix Rule</h3>
+        <p>A composite B-Tree index on <code>(status, created_at)</code> is sorted first by <code>status</code>, and only secondarily by <code>created_at</code>. A query filtering <code>WHERE created_at >= '2026-01-01'</code> cannot use this index as a seek because the leading prefix is missing.</p>
+      </article>
+      <article>
+        <h3>Covering Index (Index-Only Scan)</h3>
+        <p>When all columns requested in both the <code>WHERE</code> clause and the <code>SELECT</code> projection exist within the index leaf nodes, the engine executes an <strong>Index-Only Scan</strong>, bypassing heap table pages entirely ($0$ heap reads).</p>
+      </article>
+      <article>
+        <h3>Hash Join vs Nested Loop</h3>
+        <p>Without an index on foreign keys (<code>o.customer_id</code>), the planner falls back to a <strong>Hash Join</strong>, building a hash table in RAM and scanning all 100,000 orders. Adding an index allows the engine to perform a rapid <strong>Nested Loop Join</strong> with index seeks.</p>
+      </article>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/sqlopt.js"></script>
+</body>
+</html>
