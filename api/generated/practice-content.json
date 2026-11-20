@@ -12011,6 +12011,34 @@
     {
      "q": "What is the difference between eager loading, lazy loading, and explicit loading in EF Core?",
      "a": "**Eager loading** (`.Include()`) loads related data from the database as part of the initial query using SQL JOINs. **Lazy loading** defers loading navigation properties until they are accessed in code via proxy instances (which risks hidden N+1 queries). **Explicit loading** (`context.Entry(order).Collection(o => o.Items).Load()`) loads related entities on-demand via an explicit query call."
+    },
+    {
+     "q": "How does hierarchical configuration work in ASP.NET Core, and which provider wins by default?",
+     "a": "ASP.NET Core stacks configuration providers in order: 1. `appsettings.json`, 2. `appsettings.{Environment}.json`, 3. User Secrets (in Development), 4. Environment Variables (using `Section__Key` double-underscore syntax), 5. Command-line arguments. The **last registered provider always wins**, meaning environment variables or CLI flags cleanly override default JSON settings in production."
+    },
+    {
+     "q": "How do you securely manage production secrets in ASP.NET Core without committing them to source control?",
+     "a": "Never commit secrets to `appsettings.json`. In local development, use the .NET Secret Manager (`dotnet user-secrets init/set`), which stores credentials in a local machine profile outside the git repository. In production, inject secrets via environment variables, Azure Key Vault, AWS Secrets Manager, or HashiCorp Vault using configuration provider extensions."
+    },
+    {
+     "q": "What is structured logging in ASP.NET Core, and why is `logger.LogInformation(\"Order {OrderId}\", id)` superior to string interpolation?",
+     "a": "Using message templates (`\"Order {OrderId}\"`) preserves parameter names and types as first-class JSON fields in centralized logging engines (Elasticsearch, Seq, Datadog), allowing indexing and querying (`OrderId == 104`). In contrast, string interpolation (`$\"Order {id}\"`) bakes parameters into a flat string, destroying queryable metadata and incurring upfront string allocation costs even if logging is disabled."
+    },
+    {
+     "q": "What is the architectural difference between MVC Controllers and Minimal APIs in ASP.NET Core?",
+     "a": "**Controllers** rely on heavy reflection, dynamic model metadata binding, action filter pipelines, and instantiating a controller class per request. **Minimal APIs** route requests directly to lightweight delegate handlers using source generators, bypassing MVC filter pipeline overhead. Minimal APIs reduce memory allocations, drastically accelerate cold starts, and are fully compatible with Native AOT."
+    },
+    {
+     "q": "What are the five categories of action filters in ASP.NET Core MVC, and what is their execution order?",
+     "a": "Filters execute in this order around an action: 1. **Authorization filters** (check access first), 2. **Resource filters** (wrap model binding and caching), 3. **Action filters** (execute immediately before and after the action method), 4. **Exception filters** (handle unhandled exceptions), 5. **Result filters** (wrap execution of the action result or JSON serialization)."
+    },
+    {
+     "q": "How does JWT Bearer authentication validate tokens in ASP.NET Core, and how do you handle token revocation?",
+     "a": "`JwtBearerHandler` validates token signatures, issuer, audience, and expiration mathematically using the public or symmetric key, without database round-trips. However, because JWTs are stateless, compromised tokens remain valid until expiration. To handle revocation, maintain a distributed token blacklist or user security stamp in Redis checked inside `OnTokenValidated` events."
+    },
+    {
+     "q": "What is policy-based authorization in ASP.NET Core, and how do Requirements and AuthorizationHandlers interact?",
+     "a": "A policy defines one or more `IAuthorizationRequirement` rules (e.g. `MinimumAgeRequirement(21)`). You implement an `AuthorizationHandler<TRequirement>`, which receives `AuthorizationHandlerContext`. The handler evaluates user claims, database permissions, or resource ownership and calls `context.Succeed(requirement)`. If all requirements succeed, ASP.NET Core permits access."
     }
    ]
   },
@@ -12112,6 +12140,34 @@
     {
      "q": "What is the Specification pattern, and how does it support composite business rules?",
      "a": "The **Specification pattern** encapsulates a domain business rule or query predicate into an object implementing an `IsSatisfiedBy(candidate)` method. Specifications can be combined using boolean combinators (`And`, `Or`, `Not`) to form composite business rules (e.g. `isEligible = isOver18.And(hasActiveSubscription.Not())`), separating validation logic from domain entities."
+    },
+    {
+     "q": "How do you implement the Strategy pattern using modern C# delegates instead of defining multiple classes?",
+     "a": "Inject a `Func<T, TResult>` delegate instead of an interface: `public class DiscountEngine { private readonly Func<Order, decimal> _strategy; public DiscountEngine(Func<Order, decimal> strategy) => _strategy = strategy; public decimal Apply(Order o) => _strategy(o); }`. Callers pass pure lambdas (e.g. `order => order.Total * 0.15m`), keeping code concise while preserving Open/Closed substitutability."
+    },
+    {
+     "q": "How would you model order state transitions using the State pattern to prevent shipping an unpaid order?",
+     "a": "Create an `IOrderState` interface with `Pay(Order o)` and `Ship(Order o)`. In `DraftState`, calling `Ship()` throws an `InvalidOperationException(\"Cannot ship an unpaid order\")`, while `Pay()` transitions `o.SetState(new PaidState())`. In `PaidState`, `Ship()` prints a tracking manifest and transitions to `ShippedState()`. The `Order` delegates behavior to `_state`, eliminating nested conditionals."
+    },
+    {
+     "q": "What is the Interpreter pattern, and when is it appropriate to build a custom domain DSL interpreter?",
+     "a": "The **Interpreter pattern** defines a grammar representation for a domain-specific language (DSL) along with an interpreter that uses the representation to evaluate sentences. Nodes implement `Interpret(Context ctx)`. It is appropriate for simple, static grammars: evaluating dynamic boolean user-segmentation rules (`Age > 21 AND Country == 'US'`), math expressions, or internal query-filtering DSLs."
+    },
+    {
+     "q": "What is the difference between Repository and Unit of Work, and should you wrap EF Core in a generic repository?",
+     "a": "A **Repository** mediates between the domain and data mapping layers, presenting an in-memory collection interface (`Add`, `GetById`, `Find`). A **Unit of Work** maintains a list of affected business objects and coordinates atomic transactions (`Commit`). Wrapping EF Core in a generic repository is usually redundant because `DbContext` already implements Unit of Work and `DbSet<T>` already acts as a repository."
+    },
+    {
+     "q": "What architectural problems arise from using a generic IRepository in enterprise systems?",
+     "a": "A generic `IRepository<T>` often leaks database abstractions if it exposes `IQueryable<T>`, causing business logic to trigger unoptimized SQL queries across domain boundaries. Furthermore, it treats every aggregate as a flat CRUD table, encouraging anemic domain models, disabling specialized database operations (bulk inserts, raw SQL), and obscuring domain intention behind generic `Update()` calls."
+    },
+    {
+     "q": "How does MediatR implement the Mediator and Chain of Responsibility patterns in ASP.NET Core?",
+     "a": "`MediatR` implements the **Mediator pattern** via `IMediator.Send(command)`: requests are dispatched to a single `IRequestHandler<TRequest, TResponse>`, eliminating direct dependencies between API controllers and domain handlers. It implements the **Chain of Responsibility pattern** via pipeline behaviors (`IPipelineBehavior<TRequest, TResponse>`), wrapping execution in validation, logging, and metrics hooks."
+    },
+    {
+     "q": "How do you implement a thread-safe Observer pattern in Python without risking race conditions during notification?",
+     "a": "Use a `threading.Lock` to synchronize `subscribe` and `unsubscribe`. Inside `notify()`, make a defensive snapshot copy of the subscriber collection under the lock before invoking callbacks: `with self._lock: observers = list(self._observers)`. Then loop over the copied list outside the lock. This prevents deadlocks and avoids `RuntimeError: Set changed size during iteration` if a callback unsubscribes."
     }
    ]
   },
@@ -12665,6 +12721,34 @@
     {
      "q": "Why can you not use await inside a lock block in C#, and what should you use instead?",
      "a": "The `lock` statement in C# compiles to `Monitor.Enter` and `Monitor.Exit`, which enforce **thread affinity**: the exact same thread that entered the monitor must release it. An `await` expression can yield the thread, and its continuation may resume on a completely different ThreadPool thread, causing `SynchronizationLockException`. Instead, use asynchronous synchronization primitives like `SemaphoreSlim.WaitAsync()`."
+    },
+    {
+     "q": "Walk through the .NET compilation and execution model: Roslyn, IL, RyuJIT, Tiered Compilation, and Dynamic PGO.",
+     "a": "Roslyn compiles C# source into Common Intermediate Language (CIL) and metadata in an assembly. At runtime, the Common Language Runtime (CLR) uses RyuJIT to compile IL to native machine instructions. **Tiered Compilation** balances startup and throughput: methods initially run on Tier 0 (fast, unoptimized JIT). Methods called frequently are promoted to Tier 1, where **Dynamic PGO** (Profile-Guided Optimization) leverages live runtime metrics for aggressive loop unrolling, devirtualization, and vectorization."
+    },
+    {
+     "q": "What is Native AOT in .NET, and what are its trade-offs compared to traditional JIT compilation?",
+     "a": "**Native AOT** compiles C# code directly into platform-specific native machine code ahead of time, bundling a minimal runtime and stripping the JIT. It delivers sub-millisecond cold starts, zero JIT memory overhead, and tiny container footprints (ideal for serverless). Trade-offs: dynamic code generation (`Reflection.Emit`) is unsupported, and heavy runtime reflection requires trimming annotations to avoid aggressive pruning."
+    },
+    {
+     "q": "How does the .NET Garbage Collector manage memory across Generations 0, 1, 2, LOH, and POH?",
+     "a": "The .NET GC is generational: **Gen 0** holds short-lived temporary objects (frequently collected); surviving objects promote to **Gen 1** (buffer), and long-lived objects promote to **Gen 2** (rare full collections). The **Large Object Heap (LOH)** stores objects $\\ge 85,000$ bytes to prevent costly memory copying and fragmentation. The **Pinned Object Heap (POH)** stores buffers pinned for native OS I/O to avoid GC compaction pins."
+    },
+    {
+     "q": "Explain the full Dispose pattern in C#, including finalizers, GC.SuppressFinalize, and IAsyncDisposable.",
+     "a": "Public `Dispose()` calls `Dispose(true)` to free both managed objects and unmanaged OS handles, followed by `GC.SuppressFinalize(this)` to remove the object from the finalizer queue. A finalizer (`~ClassName()`) calls `Dispose(false)` as a safety net to clean only native handles if the caller forgot `Dispose()`. `IAsyncDisposable` (`DisposeAsync()`) enables non-blocking asynchronous release of network streams and database connections."
+    },
+    {
+     "q": "What is an exception filter in C# (`catch (Exception ex) when (...)`), and why is it superior to catch followed by if?",
+     "a": "An exception filter evaluates a condition *before* the call stack is unwound. If the `when` condition evaluates to false, the runtime leaves the call stack completely intact and continues searching up the stack for an enclosing handler. In contrast, catching and re-throwing (`catch { if (...) throw; }`) unwinds the stack to the catch block first, destroying vital diagnostic context in crash dumps."
+    },
+    {
+     "q": "What is an extension method in C#, and what happens if an extension method shares the exact signature of an instance method?",
+     "a": "An extension method is a static method in a static class with `this` on its first parameter, allowing it to be invoked with instance syntax (`item.DoSomething()`). It is compile-time syntactic sugar. If an extension method shares the exact same name and compatible signature as an existing instance method, the **instance method always takes precedence**, and the compiler silently ignores the extension method."
+    },
+    {
+     "q": "What is reflection in .NET, and why is it dangerous in high-throughput hot paths?",
+     "a": "Reflection allows inspecting assemblies, types, and invoking methods dynamically at runtime via `System.Type` and `MethodInfo`. In high-throughput paths, reflection is dangerous because: it bypasses JIT inlining and devirtualization, incurs string-lookup overhead, allocates parameter object arrays on the heap, triggers boxing on value types, and prevents Ahead-of-Time (AOT) static analysis."
     }
    ]
   },
@@ -13362,6 +13446,34 @@
     {
      "q": "What is the difference between @staticmethod and @classmethod in Python?",
      "a": "A `@staticmethod` does not receive an implicit first argument; it behaves like a regular function scoped inside the class namespace, used for utility operations. A `@classmethod` receives the class itself (`cls`) as its first argument; it can access and mutate class-level state and is widely used to implement alternative factory constructors that support proper polymorphic subclassing."
+    },
+    {
+     "q": "In C#, what does this tricky code print and why: `BasePrinter p = new LaserPrinter(); p.Print();` where LaserPrinter uses `public new void Print()`?",
+     "a": "It prints the **Base** implementation. The `new` keyword hides the base class method without altering the compiler-generated virtual method table (vtable). Because the variable `p` is typed as the compile-time reference `BasePrinter`, the non-virtual call binds statically at compile time to `BasePrinter.Print()`. To invoke `LaserPrinter.Print()`, the method must be declared `virtual` in the base and `override` in the derived class."
+    },
+    {
+     "q": "What is the Diamond Problem, and what exact attribute resolution order does Python produce for `class D(B, C): pass` where `B(A)` and `C(A)`?",
+     "a": "The Diamond Problem occurs when class D inherits from B and C, which both inherit from A. Python resolves this deterministically using the **C3 Linearization Algorithm (MRO)**, producing: `D -> B -> C -> A -> object`. C3 inspects subclasses before their base classes and preserves declaration order (B before C). C# prevents the problem entirely by forbidding multiple class inheritance, allowing multiple implementation only for interfaces."
+    },
+    {
+     "q": "What is a mixin in object-oriented programming, and how is it implemented?",
+     "a": "A **mixin** is a small, cohesive class designed to provide optional behavioral methods to other classes without acting as a standalone parent in an 'is-a' hierarchy. In Python, mixins are implemented via multiple inheritance (e.g. `class JsonSerializableMixin:` defining `.to_json()`), avoiding `__init__` state. In C# 8+, mixins are implemented using interfaces with **Default Interface Methods** (DIM)."
+    },
+    {
+     "q": "Why does marking a class or method as `sealed` in C# improve runtime execution performance?",
+     "a": "Marking a class or method as `sealed` prevents further subclassing or overriding. This enables the RyuJIT compiler to perform **de-virtualization**: since no derived class can override the method, the JIT can convert dynamic virtual vtable lookups into direct, static function calls and inline the method body entirely, eliminating call-overhead in performance-critical code paths."
+    },
+    {
+     "q": "What are Covariance (`out`) and Contravariance (`in`) in C#, and why is `List<Dog>` not a `List<Animal>`?",
+     "a": "`List<Dog>` is not a `List<Animal>` because `List<T>` is **invariant**: if it were allowed, code holding a `List<Animal>` reference could call `.Add(new Cat())`, corrupting the underlying `List<Dog>` with a runtime type violation. **Covariance** (`out T`, e.g. `IEnumerable<out T>`) is safe for read-only outputs because you only pull items out. **Contravariance** (`in T`, e.g. `Action<in T>`) is safe for write-only consumers because an animal-handler can safely consume a dog."
+    },
+    {
+     "q": "What is the Law of Demeter, and how do you refactor the code smell `customer.GetOrders()[0].GetPayment().Process()`?",
+     "a": "The **Law of Demeter** ('Principle of Least Knowledge') states that an object should only talk to its immediate collaborators, never reaching through strangers. Refactor following **'Tell, Don't Ask'**: instead of querying nested internals, command the aggregate root to perform the action (e.g. `customer.ProcessFirstOrderPayment()`, or retrieve the `Order` and call `order.ProcessPayment()`). This protects internal data structures from leaking to external callers."
+    },
+    {
+     "q": "What is the architectural distinction between an Entity and a Value Object in Domain-Driven Design (LLD)?",
+     "a": "An **Entity** is defined by its persistent unique identity (`Id`) across state mutations over time; two entities with identical fields but different IDs are distinct (e.g. two `User` rows). A **Value Object** is defined entirely by its structural attributes, has no conceptual identity, and is immutable; two value objects with identical fields are equal and interchangeable (e.g. `Money(50, \"USD\")`). Mutating a value object produces a fresh instance."
     }
    ]
   },
@@ -13515,6 +13627,34 @@
     {
      "q": "What is the difference between a coroutine and a Task in asyncio?",
      "a": "A **coroutine** is a generator-like function defined with `async def`; calling it returns a coroutine object that does nothing until it is awaited or scheduled. A **Task** (`asyncio.create_task()`) wraps a coroutine, immediately scheduling its execution on the event loop in the background and providing methods to inspect status, cancel execution, or retrieve results."
+    },
+    {
+     "q": "What is the classic loop closure trap: `funcs = [lambda: i for i in range(3)]`? What does `[f() for f in funcs]` print, and how do you fix it?",
+     "a": "It prints `[2, 2, 2]`. Python closures exhibit **late binding**: the lambda functions do not capture the variable's value when created, but look up `i` in the enclosing scope when invoked (at which point the loop has finished and `i == 2`). Fix this by capturing the current value as a default parameter: `funcs = [lambda i=i: i for i in range(3)]`, creating a local scope copy per function."
+    },
+    {
+     "q": "Is Python interpreted or compiled, and what is stored inside __pycache__/*.pyc files?",
+     "a": "Python is both: CPython first compiles source code (`.py`) into platform-independent bytecode instructions (`.pyc` files stored in `__pycache__`), which are cached on disk to speed up subsequent imports by skipping tokenizing and parsing. The CPython virtual machine (a stack-based bytecode interpreter written in C) then interprets and executes the bytecode loop."
+    },
+    {
+     "q": "What is duck typing in Python, and how does it compare to nominal type checking?",
+     "a": "Duck typing ('if it walks like a duck and quacks like a duck, it is a duck') means an object's suitability is determined by the presence of specific methods or properties at runtime, rather than its inheritance hierarchy. For example, any object with a `.read()` method can be consumed as a file-like stream, eliminating rigid subclassing requirements and enabling structural polymorphism."
+    },
+    {
+     "q": "What is the difference between an Abstract Base Class (ABC) and a typing.Protocol in Python?",
+     "a": "**ABCs** (`abc.ABC`) provide **nominal subtyping**: classes must explicitly inherit from the ABC (or be registered), and missing `@abstractmethod` implementations raise `TypeError` at instantiation time. **Protocols** (`typing.Protocol`, PEP 544) provide **structural subtyping** (static duck typing): any class with matching signatures satisfies the protocol without explicit inheritance, verified by `mypy`."
+    },
+    {
+     "q": "What is the difference between a dataclass and a typing.NamedTuple in Python?",
+     "a": "A **dataclass** generates a normal mutable Python class with generated `__init__`, `__repr__`, and `__eq__` methods, supporting default values, mutable fields, and inheritance. A **NamedTuple** creates an immutable subclass of `tuple`: it supports tuple unpacking, positional indexing (`t[0]`), is hashable if elements are hashable, and consumes significantly less memory than a class."
+    },
+    {
+     "q": "How do you write a custom context manager using contextlib.contextmanager, and how must exceptions be handled?",
+     "a": "Decorate a generator function with `@contextmanager`. Code before `yield` performs acquisition; `yield` exposes the resource; code after `yield` executes cleanup. **Crucial:** Always wrap the `yield` in a `try...finally` block (e.g. `try: yield conn finally: conn.close()`). Without `finally`, an unhandled exception inside the caller's `with` block will abort the generator and leave the resource unclosed."
+    },
+    {
+     "q": "What does `raise NewError from original_error` do in Python, and what does `raise NewError from None` do?",
+     "a": "`raise NewError from original_error` establishes **explicit exception chaining**: it sets `__cause__` to the original error, printing both tracebacks clearly ('The above exception was the direct cause of the following exception'). `raise NewError from None` suppresses exception context by setting `__suppress_context__ = True`, hiding internal implementation errors from external library consumers."
     }
    ]
   },
@@ -13600,6 +13740,30 @@
     {
      "q": "What is the purpose of lifespan events (@asynccontextmanager) in FastAPI compared to deprecated on_event?",
      "a": "The `lifespan` handler uses an `@asynccontextmanager` async generator function to manage startup and shutdown logic in a single unified flow. Code before `yield` runs before the server accepts requests (e.g. initializing database pools or ML models); code after `yield` executes during graceful shutdown, ensuring robust resource cleanup and clean error propagation."
+    },
+    {
+     "q": "In FastAPI, what is the difference between declaring a dependency as a function vs a class?",
+     "a": "A **function dependency** (`def get_db(): ...`) is executed per-call, ideal for procedural setup/teardown. A **class dependency** (`class PaginationParams: def __init__(self, skip: int = 0, limit: int = 100): ...`) can be declared via `params: PaginationParams = Depends(PaginationParams)` (or simply `Depends()`), grouping related query parameters into a strongly typed, reusable model with automatic OpenAPI documentation."
+    },
+    {
+     "q": "Why is mutating a global variable or cache directly inside an async def FastAPI endpoint a concurrency hazard?",
+     "a": "In `async def` endpoints, requests run on a single event loop thread, but execution interleaves across `await` points. If two concurrent requests execute a read-modify-write on a shared global dict without an `asyncio.Lock()`, a context switch during an `await` can interleave their updates, causing race conditions and lost data. Use thread-safe shared caches (like Redis) or guard critical sections with `asyncio.Lock`."
+    },
+    {
+     "q": "How does FastAPI's response_model parameter prevent unintentional data leakage from ORM objects?",
+     "a": "When a route returns a database ORM object (e.g. SQLAlchemy `User` row containing `hashed_password`), setting `response_model=UserPublic` instructs FastAPI to filter and serialize only the fields declared on `UserPublic`. Any internal columns, hashes, or relationship attributes not declared in `UserPublic` are stripped from the JSON response before leaving the server."
+    },
+    {
+     "q": "How do you implement rate limiting in a high-throughput FastAPI service?",
+     "a": "Rate limiting is best implemented via Starlette middleware or custom route dependencies backed by a distributed key-value store like **Redis**. Using a sliding window or token bucket algorithm via Redis Lua scripts, the middleware inspects client IP or API tokens, increments call counters within time windows, and returns an HTTP 429 Too Many Requests response with a `Retry-After` header if exceeded."
+    },
+    {
+     "q": "What is the difference between Starlette's Request object and raw ASGI scope in custom middleware?",
+     "a": "In ASGI, `scope` is a low-level Python dictionary containing raw connection metadata (`type: \"http\"`, `path`, headers as raw byte tuples). Starlette's `Request(scope, receive)` is a high-level wrapper around the scope that provides convenient helper properties (`request.url`, `request.headers`, `request.cookies`, `await request.json()`, `request.state`), parsing headers and query strings on demand."
+    },
+    {
+     "q": "How does Uvicorn process worker concurrency with asyncio, and when should you scale with multiple Gunicorn worker processes?",
+     "a": "A single Uvicorn process runs on a single CPU core, using one asyncio event loop to multiplex thousands of non-blocking I/O connections. However, because CPython has a GIL, a single process cannot utilize multiple CPU cores. On multi-core production servers, scale by running multiple Uvicorn worker processes supervised by Gunicorn (`gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app`), utilizing all available CPU cores."
     }
    ]
   },
@@ -13777,6 +13941,30 @@
     {
      "q": "Why is the Service Locator pattern considered an anti-pattern compared to Dependency Injection?",
      "a": "Service Locator introduces a central registry that classes query to resolve dependencies (e.g. `Locator.GetService<ILogger>()`). It is an anti-pattern because it hides class dependencies from constructor signatures, couples classes to the locator implementation, makes static analysis and unit test mocking difficult, and causes runtime crashes if a required dependency is unregistered."
+    },
+    {
+     "q": "In C#, why can naive double-checked locking without volatile result in reading partially constructed objects?",
+     "a": "Modern compilers and out-of-order CPU architectures can reorder memory writes: 1. Allocate heap memory; 2. Assign reference pointer to `_instance`; 3. Execute constructor body. Without a memory barrier (provided by `volatile`), Thread A can complete steps 1 and 2, and before step 3 finishes, Thread B can check the outer `if (_instance == null)`, observe it as non-null, and access uninitialized fields on a half-constructed object, triggering runtime NullReferenceExceptions."
+    },
+    {
+     "q": "How do you protect a classic C# Singleton from reflection and deserialization attacks?",
+     "a": "For **reflection**: inside the private constructor, check if `_instance != null` and throw an `InvalidOperationException` if called a second time. For **deserialization**: implement the `ISerializable` / `IObjectReference` interface and return `Instance` in `GetRealObject(StreamingContext context)`. This ensures binary or JSON deserialization returns the existing singleton rather than constructing a duplicate object."
+    },
+    {
+     "q": "How do you implement a thread-safe Singleton in Python using a reusable metaclass?",
+     "a": "Create a metaclass inheriting from `type`: `class SingletonMeta(type): _instances = {}; _lock = threading.Lock()`. In `__call__(cls, *args, **kwargs)`, acquire `with cls._lock:` and perform double-checked locking: `if cls not in cls._instances: cls._instances[cls] = super().__call__(*args, **kwargs); return cls._instances[cls]`. Any target class simply declares `class AppConfig(metaclass=SingletonMeta):`, gaining thread-safe single-instance semantics."
+    },
+    {
+     "q": "How do you choose between Factory Method, Abstract Factory, and Builder for an e-commerce checkout engine?",
+     "a": "Use **Factory Method** when choosing between single interchangeable components (e.g. `CreatePaymentGateway()` returning PayPal vs Stripe). Use **Abstract Factory** when instantiating an entire compatible suite of regional services together (e.g. USSuite creating `USShipping`, `USTax`, `USInvoicing` vs EUSuite). Use **Builder** to construct the complex `Order` or `Invoice` object itself, allowing step-by-step additions of items, coupons, and addresses before calling `Build()`."
+    },
+    {
+     "q": "What are the three categories of GoF design patterns, and what core architectural challenge does each solve?",
+     "a": "1. **Creational patterns** (Singleton, Factory, Builder, Prototype): Decouple object creation from business logic, preventing hardcoded `new` calls across systems. 2. **Structural patterns** (Adapter, Decorator, Facade, Composite, Proxy): Assemble classes and objects into larger, flexible structures while maintaining clean interfaces. 3. **Behavioral patterns** (Strategy, Observer, Command, State, Mediator): Manage communication, algorithms, and state transitions between objects."
+    },
+    {
+     "q": "When does design pattern adoption become an architectural anti-pattern ('Patternitis')?",
+     "a": "Patternitis occurs when developers introduce abstract factories, builders, and decorators to solve speculative problems that do not exist (violating YAGNI and KISS). If a class has three fields that never change, replacing `new Point(x, y)` with a 5-class `PointBuilderFactory` introduces indirection, hurts debugging, and slows development without delivering architectural flexibility. Use patterns only when concrete variations or requirements demand them."
     }
    ]
   },
@@ -13866,6 +14054,30 @@
     {
      "q": "How does the Flyweight pattern manage intrinsic vs extrinsic state in game or UI rendering engines?",
      "a": "**Intrinsic state** (e.g. 3D tree mesh, texture bitmap, glyph contour) is immutable and context-independent; it is stored inside a single flyweight instance shared across thousands of objects. **Extrinsic state** (e.g. tree coordinates $x, y, z$, scaling factor, foliage color tint) is context-specific and stored in lightweight client structures or passed as method parameters during rendering."
+    },
+    {
+     "q": "How do Decorator, Proxy, and Adapter differ when all three wrap a target object and share its interface signature?",
+     "a": "Their architectural intent, ownership, and composability differ completely: 1. **Decorator** enhances behavior dynamically; the caller owns the target object and can stack multiple decorators in chains. 2. **Proxy** controls access, lazy loading, or caching; it typically owns and manages the lifecycle of the real subject, and clients rarely stack proxies. 3. **Adapter** translates between two incompatible interfaces; its client-facing interface matches the target, not the adaptee."
+    },
+    {
+     "q": "How would you implement a caching Decorator around an IRepository in C#? Show the code structure.",
+     "a": "Implement `IRepository<T>` and inject both the inner repository and a cache: `public class CachingOrderRepository : IOrderRepository { private readonly IOrderRepository _inner; private readonly IMemoryCache _cache; public CachingOrderRepository(IOrderRepository inner, IMemoryCache cache) { _inner = inner; _cache = cache; } public async Task<Order> GetByIdAsync(int id) => await _cache.GetOrCreateAsync($\"order:{id}\", _ => _inner.GetByIdAsync(id)); }`. This adds caching without altering database queries."
+    },
+    {
+     "q": "What is the distinction between a Virtual Proxy, a Protection Proxy, and a Remote Proxy?",
+     "a": "1. **Virtual Proxy:** Defers expensive object creation (e.g. heavy image rasterization or DB context connection) until a client first calls a method requiring it. 2. **Protection Proxy:** Checks caller authentication and role permissions before delegating to the target, throwing security exceptions if unauthorized. 3. **Remote Proxy:** Marshals arguments, handles network RPC/gRPC transport, and unpacks return values so remote service calls look like local object invocations."
+    },
+    {
+     "q": "How do you detect and prevent infinite circular recursion when implementing the Composite pattern?",
+     "a": "Circular references happen if a composite directory is added as a child of its own sub-directory. To prevent stack overflow crashes: before adding a node via `parent.Add(child)`, traverse upward from the parent through all ancestor links (`node.Parent`). If the candidate `child` matches any ancestor node in the chain, abort the operation and throw an `InvalidOperationException` to maintain a valid directed tree."
+    },
+    {
+     "q": "What is the Bridge pattern, and how does it prevent an MxN subclass explosion in cross-platform graphics engines?",
+     "a": "The Bridge pattern separates an abstraction hierarchy from its implementation hierarchy via composition. Without Bridge, supporting $M$ shapes (`Circle`, `Square`, `Triangle`) across $N$ platforms (`DirectX`, `OpenGL`, `Vulkan`) requires $M \\times N$ classes (e.g. `DirectXCircle`). With Bridge, `Shape` holds an `IRenderer` interface. New shapes and new renderers are developed independently, reducing the class count to $M + N$."
+    },
+    {
+     "q": "How does the Python standard library use the Adapter pattern in the io module?",
+     "a": "In Python's `io` module, `io.TextIOWrapper` adapts a raw binary byte stream (`io.BufferedReader` or socket stream) into a text stream interface (`io.TextIOBase`). Callers invoke `.readline()` or `.read()` to receive Python Unicode strings, while the adapter transparently handles character encoding (e.g. UTF-8 decoding), newline translation, and buffering beneath the surface."
     }
    ]
   },

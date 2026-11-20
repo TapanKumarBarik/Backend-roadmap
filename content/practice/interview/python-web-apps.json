@@ -80,6 +80,30 @@
     {
       "q": "What is the purpose of lifespan events (@asynccontextmanager) in FastAPI compared to deprecated on_event?",
       "a": "The `lifespan` handler uses an `@asynccontextmanager` async generator function to manage startup and shutdown logic in a single unified flow. Code before `yield` runs before the server accepts requests (e.g. initializing database pools or ML models); code after `yield` executes during graceful shutdown, ensuring robust resource cleanup and clean error propagation."
+    },
+    {
+      "q": "In FastAPI, what is the difference between declaring a dependency as a function vs a class?",
+      "a": "A **function dependency** (`def get_db(): ...`) is executed per-call, ideal for procedural setup/teardown. A **class dependency** (`class PaginationParams: def __init__(self, skip: int = 0, limit: int = 100): ...`) can be declared via `params: PaginationParams = Depends(PaginationParams)` (or simply `Depends()`), grouping related query parameters into a strongly typed, reusable model with automatic OpenAPI documentation."
+    },
+    {
+      "q": "Why is mutating a global variable or cache directly inside an async def FastAPI endpoint a concurrency hazard?",
+      "a": "In `async def` endpoints, requests run on a single event loop thread, but execution interleaves across `await` points. If two concurrent requests execute a read-modify-write on a shared global dict without an `asyncio.Lock()`, a context switch during an `await` can interleave their updates, causing race conditions and lost data. Use thread-safe shared caches (like Redis) or guard critical sections with `asyncio.Lock`."
+    },
+    {
+      "q": "How does FastAPI's response_model parameter prevent unintentional data leakage from ORM objects?",
+      "a": "When a route returns a database ORM object (e.g. SQLAlchemy `User` row containing `hashed_password`), setting `response_model=UserPublic` instructs FastAPI to filter and serialize only the fields declared on `UserPublic`. Any internal columns, hashes, or relationship attributes not declared in `UserPublic` are stripped from the JSON response before leaving the server."
+    },
+    {
+      "q": "How do you implement rate limiting in a high-throughput FastAPI service?",
+      "a": "Rate limiting is best implemented via Starlette middleware or custom route dependencies backed by a distributed key-value store like **Redis**. Using a sliding window or token bucket algorithm via Redis Lua scripts, the middleware inspects client IP or API tokens, increments call counters within time windows, and returns an HTTP 429 Too Many Requests response with a `Retry-After` header if exceeded."
+    },
+    {
+      "q": "What is the difference between Starlette's Request object and raw ASGI scope in custom middleware?",
+      "a": "In ASGI, `scope` is a low-level Python dictionary containing raw connection metadata (`type: \"http\"`, `path`, headers as raw byte tuples). Starlette's `Request(scope, receive)` is a high-level wrapper around the scope that provides convenient helper properties (`request.url`, `request.headers`, `request.cookies`, `await request.json()`, `request.state`), parsing headers and query strings on demand."
+    },
+    {
+      "q": "How does Uvicorn process worker concurrency with asyncio, and when should you scale with multiple Gunicorn worker processes?",
+      "a": "A single Uvicorn process runs on a single CPU core, using one asyncio event loop to multiplex thousands of non-blocking I/O connections. However, because CPython has a GIL, a single process cannot utilize multiple CPU cores. On multi-core production servers, scale by running multiple Uvicorn worker processes supervised by Gunicorn (`gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app`), utilizing all available CPU cores."
     }
   ]
 }

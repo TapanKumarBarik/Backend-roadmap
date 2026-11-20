@@ -84,6 +84,30 @@
     {
       "q": "Why is the Service Locator pattern considered an anti-pattern compared to Dependency Injection?",
       "a": "Service Locator introduces a central registry that classes query to resolve dependencies (e.g. `Locator.GetService<ILogger>()`). It is an anti-pattern because it hides class dependencies from constructor signatures, couples classes to the locator implementation, makes static analysis and unit test mocking difficult, and causes runtime crashes if a required dependency is unregistered."
+    },
+    {
+      "q": "In C#, why can naive double-checked locking without volatile result in reading partially constructed objects?",
+      "a": "Modern compilers and out-of-order CPU architectures can reorder memory writes: 1. Allocate heap memory; 2. Assign reference pointer to `_instance`; 3. Execute constructor body. Without a memory barrier (provided by `volatile`), Thread A can complete steps 1 and 2, and before step 3 finishes, Thread B can check the outer `if (_instance == null)`, observe it as non-null, and access uninitialized fields on a half-constructed object, triggering runtime NullReferenceExceptions."
+    },
+    {
+      "q": "How do you protect a classic C# Singleton from reflection and deserialization attacks?",
+      "a": "For **reflection**: inside the private constructor, check if `_instance != null` and throw an `InvalidOperationException` if called a second time. For **deserialization**: implement the `ISerializable` / `IObjectReference` interface and return `Instance` in `GetRealObject(StreamingContext context)`. This ensures binary or JSON deserialization returns the existing singleton rather than constructing a duplicate object."
+    },
+    {
+      "q": "How do you implement a thread-safe Singleton in Python using a reusable metaclass?",
+      "a": "Create a metaclass inheriting from `type`: `class SingletonMeta(type): _instances = {}; _lock = threading.Lock()`. In `__call__(cls, *args, **kwargs)`, acquire `with cls._lock:` and perform double-checked locking: `if cls not in cls._instances: cls._instances[cls] = super().__call__(*args, **kwargs); return cls._instances[cls]`. Any target class simply declares `class AppConfig(metaclass=SingletonMeta):`, gaining thread-safe single-instance semantics."
+    },
+    {
+      "q": "How do you choose between Factory Method, Abstract Factory, and Builder for an e-commerce checkout engine?",
+      "a": "Use **Factory Method** when choosing between single interchangeable components (e.g. `CreatePaymentGateway()` returning PayPal vs Stripe). Use **Abstract Factory** when instantiating an entire compatible suite of regional services together (e.g. USSuite creating `USShipping`, `USTax`, `USInvoicing` vs EUSuite). Use **Builder** to construct the complex `Order` or `Invoice` object itself, allowing step-by-step additions of items, coupons, and addresses before calling `Build()`."
+    },
+    {
+      "q": "What are the three categories of GoF design patterns, and what core architectural challenge does each solve?",
+      "a": "1. **Creational patterns** (Singleton, Factory, Builder, Prototype): Decouple object creation from business logic, preventing hardcoded `new` calls across systems. 2. **Structural patterns** (Adapter, Decorator, Facade, Composite, Proxy): Assemble classes and objects into larger, flexible structures while maintaining clean interfaces. 3. **Behavioral patterns** (Strategy, Observer, Command, State, Mediator): Manage communication, algorithms, and state transitions between objects."
+    },
+    {
+      "q": "When does design pattern adoption become an architectural anti-pattern ('Patternitis')?",
+      "a": "Patternitis occurs when developers introduce abstract factories, builders, and decorators to solve speculative problems that do not exist (violating YAGNI and KISS). If a class has three fields that never change, replacing `new Point(x, y)` with a 5-class `PointBuilderFactory` introduces indirection, hurts debugging, and slows development without delivering architectural flexibility. Use patterns only when concrete variations or requirements demand them."
     }
   ]
 }

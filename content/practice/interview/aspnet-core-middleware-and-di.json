@@ -80,6 +80,34 @@
     {
       "q": "What is the difference between eager loading, lazy loading, and explicit loading in EF Core?",
       "a": "**Eager loading** (`.Include()`) loads related data from the database as part of the initial query using SQL JOINs. **Lazy loading** defers loading navigation properties until they are accessed in code via proxy instances (which risks hidden N+1 queries). **Explicit loading** (`context.Entry(order).Collection(o => o.Items).Load()`) loads related entities on-demand via an explicit query call."
+    },
+    {
+      "q": "How does hierarchical configuration work in ASP.NET Core, and which provider wins by default?",
+      "a": "ASP.NET Core stacks configuration providers in order: 1. `appsettings.json`, 2. `appsettings.{Environment}.json`, 3. User Secrets (in Development), 4. Environment Variables (using `Section__Key` double-underscore syntax), 5. Command-line arguments. The **last registered provider always wins**, meaning environment variables or CLI flags cleanly override default JSON settings in production."
+    },
+    {
+      "q": "How do you securely manage production secrets in ASP.NET Core without committing them to source control?",
+      "a": "Never commit secrets to `appsettings.json`. In local development, use the .NET Secret Manager (`dotnet user-secrets init/set`), which stores credentials in a local machine profile outside the git repository. In production, inject secrets via environment variables, Azure Key Vault, AWS Secrets Manager, or HashiCorp Vault using configuration provider extensions."
+    },
+    {
+      "q": "What is structured logging in ASP.NET Core, and why is `logger.LogInformation(\"Order {OrderId}\", id)` superior to string interpolation?",
+      "a": "Using message templates (`\"Order {OrderId}\"`) preserves parameter names and types as first-class JSON fields in centralized logging engines (Elasticsearch, Seq, Datadog), allowing indexing and querying (`OrderId == 104`). In contrast, string interpolation (`$\"Order {id}\"`) bakes parameters into a flat string, destroying queryable metadata and incurring upfront string allocation costs even if logging is disabled."
+    },
+    {
+      "q": "What is the architectural difference between MVC Controllers and Minimal APIs in ASP.NET Core?",
+      "a": "**Controllers** rely on heavy reflection, dynamic model metadata binding, action filter pipelines, and instantiating a controller class per request. **Minimal APIs** route requests directly to lightweight delegate handlers using source generators, bypassing MVC filter pipeline overhead. Minimal APIs reduce memory allocations, drastically accelerate cold starts, and are fully compatible with Native AOT."
+    },
+    {
+      "q": "What are the five categories of action filters in ASP.NET Core MVC, and what is their execution order?",
+      "a": "Filters execute in this order around an action: 1. **Authorization filters** (check access first), 2. **Resource filters** (wrap model binding and caching), 3. **Action filters** (execute immediately before and after the action method), 4. **Exception filters** (handle unhandled exceptions), 5. **Result filters** (wrap execution of the action result or JSON serialization)."
+    },
+    {
+      "q": "How does JWT Bearer authentication validate tokens in ASP.NET Core, and how do you handle token revocation?",
+      "a": "`JwtBearerHandler` validates token signatures, issuer, audience, and expiration mathematically using the public or symmetric key, without database round-trips. However, because JWTs are stateless, compromised tokens remain valid until expiration. To handle revocation, maintain a distributed token blacklist or user security stamp in Redis checked inside `OnTokenValidated` events."
+    },
+    {
+      "q": "What is policy-based authorization in ASP.NET Core, and how do Requirements and AuthorizationHandlers interact?",
+      "a": "A policy defines one or more `IAuthorizationRequirement` rules (e.g. `MinimumAgeRequirement(21)`). You implement an `AuthorizationHandler<TRequirement>`, which receives `AuthorizationHandlerContext`. The handler evaluates user claims, database permissions, or resource ownership and calls `context.Succeed(requirement)`. If all requirements succeed, ASP.NET Core permits access."
     }
   ]
 }

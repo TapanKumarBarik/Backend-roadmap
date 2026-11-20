@@ -84,6 +84,30 @@
     {
       "q": "How does the Flyweight pattern manage intrinsic vs extrinsic state in game or UI rendering engines?",
       "a": "**Intrinsic state** (e.g. 3D tree mesh, texture bitmap, glyph contour) is immutable and context-independent; it is stored inside a single flyweight instance shared across thousands of objects. **Extrinsic state** (e.g. tree coordinates $x, y, z$, scaling factor, foliage color tint) is context-specific and stored in lightweight client structures or passed as method parameters during rendering."
+    },
+    {
+      "q": "How do Decorator, Proxy, and Adapter differ when all three wrap a target object and share its interface signature?",
+      "a": "Their architectural intent, ownership, and composability differ completely: 1. **Decorator** enhances behavior dynamically; the caller owns the target object and can stack multiple decorators in chains. 2. **Proxy** controls access, lazy loading, or caching; it typically owns and manages the lifecycle of the real subject, and clients rarely stack proxies. 3. **Adapter** translates between two incompatible interfaces; its client-facing interface matches the target, not the adaptee."
+    },
+    {
+      "q": "How would you implement a caching Decorator around an IRepository in C#? Show the code structure.",
+      "a": "Implement `IRepository<T>` and inject both the inner repository and a cache: `public class CachingOrderRepository : IOrderRepository { private readonly IOrderRepository _inner; private readonly IMemoryCache _cache; public CachingOrderRepository(IOrderRepository inner, IMemoryCache cache) { _inner = inner; _cache = cache; } public async Task<Order> GetByIdAsync(int id) => await _cache.GetOrCreateAsync($\"order:{id}\", _ => _inner.GetByIdAsync(id)); }`. This adds caching without altering database queries."
+    },
+    {
+      "q": "What is the distinction between a Virtual Proxy, a Protection Proxy, and a Remote Proxy?",
+      "a": "1. **Virtual Proxy:** Defers expensive object creation (e.g. heavy image rasterization or DB context connection) until a client first calls a method requiring it. 2. **Protection Proxy:** Checks caller authentication and role permissions before delegating to the target, throwing security exceptions if unauthorized. 3. **Remote Proxy:** Marshals arguments, handles network RPC/gRPC transport, and unpacks return values so remote service calls look like local object invocations."
+    },
+    {
+      "q": "How do you detect and prevent infinite circular recursion when implementing the Composite pattern?",
+      "a": "Circular references happen if a composite directory is added as a child of its own sub-directory. To prevent stack overflow crashes: before adding a node via `parent.Add(child)`, traverse upward from the parent through all ancestor links (`node.Parent`). If the candidate `child` matches any ancestor node in the chain, abort the operation and throw an `InvalidOperationException` to maintain a valid directed tree."
+    },
+    {
+      "q": "What is the Bridge pattern, and how does it prevent an MxN subclass explosion in cross-platform graphics engines?",
+      "a": "The Bridge pattern separates an abstraction hierarchy from its implementation hierarchy via composition. Without Bridge, supporting $M$ shapes (`Circle`, `Square`, `Triangle`) across $N$ platforms (`DirectX`, `OpenGL`, `Vulkan`) requires $M \\times N$ classes (e.g. `DirectXCircle`). With Bridge, `Shape` holds an `IRenderer` interface. New shapes and new renderers are developed independently, reducing the class count to $M + N$."
+    },
+    {
+      "q": "How does the Python standard library use the Adapter pattern in the io module?",
+      "a": "In Python's `io` module, `io.TextIOWrapper` adapts a raw binary byte stream (`io.BufferedReader` or socket stream) into a text stream interface (`io.TextIOBase`). Callers invoke `.readline()` or `.read()` to receive Python Unicode strings, while the adapter transparently handles character encoding (e.g. UTF-8 decoding), newline translation, and buffering beneath the surface."
     }
   ]
 }

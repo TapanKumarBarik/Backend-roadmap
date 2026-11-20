@@ -92,6 +92,34 @@
     {
       "q": "Why can you not use await inside a lock block in C#, and what should you use instead?",
       "a": "The `lock` statement in C# compiles to `Monitor.Enter` and `Monitor.Exit`, which enforce **thread affinity**: the exact same thread that entered the monitor must release it. An `await` expression can yield the thread, and its continuation may resume on a completely different ThreadPool thread, causing `SynchronizationLockException`. Instead, use asynchronous synchronization primitives like `SemaphoreSlim.WaitAsync()`."
+    },
+    {
+      "q": "Walk through the .NET compilation and execution model: Roslyn, IL, RyuJIT, Tiered Compilation, and Dynamic PGO.",
+      "a": "Roslyn compiles C# source into Common Intermediate Language (CIL) and metadata in an assembly. At runtime, the Common Language Runtime (CLR) uses RyuJIT to compile IL to native machine instructions. **Tiered Compilation** balances startup and throughput: methods initially run on Tier 0 (fast, unoptimized JIT). Methods called frequently are promoted to Tier 1, where **Dynamic PGO** (Profile-Guided Optimization) leverages live runtime metrics for aggressive loop unrolling, devirtualization, and vectorization."
+    },
+    {
+      "q": "What is Native AOT in .NET, and what are its trade-offs compared to traditional JIT compilation?",
+      "a": "**Native AOT** compiles C# code directly into platform-specific native machine code ahead of time, bundling a minimal runtime and stripping the JIT. It delivers sub-millisecond cold starts, zero JIT memory overhead, and tiny container footprints (ideal for serverless). Trade-offs: dynamic code generation (`Reflection.Emit`) is unsupported, and heavy runtime reflection requires trimming annotations to avoid aggressive pruning."
+    },
+    {
+      "q": "How does the .NET Garbage Collector manage memory across Generations 0, 1, 2, LOH, and POH?",
+      "a": "The .NET GC is generational: **Gen 0** holds short-lived temporary objects (frequently collected); surviving objects promote to **Gen 1** (buffer), and long-lived objects promote to **Gen 2** (rare full collections). The **Large Object Heap (LOH)** stores objects $\\ge 85,000$ bytes to prevent costly memory copying and fragmentation. The **Pinned Object Heap (POH)** stores buffers pinned for native OS I/O to avoid GC compaction pins."
+    },
+    {
+      "q": "Explain the full Dispose pattern in C#, including finalizers, GC.SuppressFinalize, and IAsyncDisposable.",
+      "a": "Public `Dispose()` calls `Dispose(true)` to free both managed objects and unmanaged OS handles, followed by `GC.SuppressFinalize(this)` to remove the object from the finalizer queue. A finalizer (`~ClassName()`) calls `Dispose(false)` as a safety net to clean only native handles if the caller forgot `Dispose()`. `IAsyncDisposable` (`DisposeAsync()`) enables non-blocking asynchronous release of network streams and database connections."
+    },
+    {
+      "q": "What is an exception filter in C# (`catch (Exception ex) when (...)`), and why is it superior to catch followed by if?",
+      "a": "An exception filter evaluates a condition *before* the call stack is unwound. If the `when` condition evaluates to false, the runtime leaves the call stack completely intact and continues searching up the stack for an enclosing handler. In contrast, catching and re-throwing (`catch { if (...) throw; }`) unwinds the stack to the catch block first, destroying vital diagnostic context in crash dumps."
+    },
+    {
+      "q": "What is an extension method in C#, and what happens if an extension method shares the exact signature of an instance method?",
+      "a": "An extension method is a static method in a static class with `this` on its first parameter, allowing it to be invoked with instance syntax (`item.DoSomething()`). It is compile-time syntactic sugar. If an extension method shares the exact same name and compatible signature as an existing instance method, the **instance method always takes precedence**, and the compiler silently ignores the extension method."
+    },
+    {
+      "q": "What is reflection in .NET, and why is it dangerous in high-throughput hot paths?",
+      "a": "Reflection allows inspecting assemblies, types, and invoking methods dynamically at runtime via `System.Type` and `MethodInfo`. In high-throughput paths, reflection is dangerous because: it bypasses JIT inlining and devirtualization, incurs string-lookup overhead, allocates parameter object arrays on the heap, triggers boxing on value types, and prevents Ahead-of-Time (AOT) static analysis."
     }
   ]
 }

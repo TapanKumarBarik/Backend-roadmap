@@ -92,6 +92,34 @@
     {
       "q": "What is the difference between a coroutine and a Task in asyncio?",
       "a": "A **coroutine** is a generator-like function defined with `async def`; calling it returns a coroutine object that does nothing until it is awaited or scheduled. A **Task** (`asyncio.create_task()`) wraps a coroutine, immediately scheduling its execution on the event loop in the background and providing methods to inspect status, cancel execution, or retrieve results."
+    },
+    {
+      "q": "What is the classic loop closure trap: `funcs = [lambda: i for i in range(3)]`? What does `[f() for f in funcs]` print, and how do you fix it?",
+      "a": "It prints `[2, 2, 2]`. Python closures exhibit **late binding**: the lambda functions do not capture the variable's value when created, but look up `i` in the enclosing scope when invoked (at which point the loop has finished and `i == 2`). Fix this by capturing the current value as a default parameter: `funcs = [lambda i=i: i for i in range(3)]`, creating a local scope copy per function."
+    },
+    {
+      "q": "Is Python interpreted or compiled, and what is stored inside __pycache__/*.pyc files?",
+      "a": "Python is both: CPython first compiles source code (`.py`) into platform-independent bytecode instructions (`.pyc` files stored in `__pycache__`), which are cached on disk to speed up subsequent imports by skipping tokenizing and parsing. The CPython virtual machine (a stack-based bytecode interpreter written in C) then interprets and executes the bytecode loop."
+    },
+    {
+      "q": "What is duck typing in Python, and how does it compare to nominal type checking?",
+      "a": "Duck typing ('if it walks like a duck and quacks like a duck, it is a duck') means an object's suitability is determined by the presence of specific methods or properties at runtime, rather than its inheritance hierarchy. For example, any object with a `.read()` method can be consumed as a file-like stream, eliminating rigid subclassing requirements and enabling structural polymorphism."
+    },
+    {
+      "q": "What is the difference between an Abstract Base Class (ABC) and a typing.Protocol in Python?",
+      "a": "**ABCs** (`abc.ABC`) provide **nominal subtyping**: classes must explicitly inherit from the ABC (or be registered), and missing `@abstractmethod` implementations raise `TypeError` at instantiation time. **Protocols** (`typing.Protocol`, PEP 544) provide **structural subtyping** (static duck typing): any class with matching signatures satisfies the protocol without explicit inheritance, verified by `mypy`."
+    },
+    {
+      "q": "What is the difference between a dataclass and a typing.NamedTuple in Python?",
+      "a": "A **dataclass** generates a normal mutable Python class with generated `__init__`, `__repr__`, and `__eq__` methods, supporting default values, mutable fields, and inheritance. A **NamedTuple** creates an immutable subclass of `tuple`: it supports tuple unpacking, positional indexing (`t[0]`), is hashable if elements are hashable, and consumes significantly less memory than a class."
+    },
+    {
+      "q": "How do you write a custom context manager using contextlib.contextmanager, and how must exceptions be handled?",
+      "a": "Decorate a generator function with `@contextmanager`. Code before `yield` performs acquisition; `yield` exposes the resource; code after `yield` executes cleanup. **Crucial:** Always wrap the `yield` in a `try...finally` block (e.g. `try: yield conn finally: conn.close()`). Without `finally`, an unhandled exception inside the caller's `with` block will abort the generator and leave the resource unclosed."
+    },
+    {
+      "q": "What does `raise NewError from original_error` do in Python, and what does `raise NewError from None` do?",
+      "a": "`raise NewError from original_error` establishes **explicit exception chaining**: it sets `__cause__` to the original error, printing both tracebacks clearly ('The above exception was the direct cause of the following exception'). `raise NewError from None` suppresses exception context by setting `__suppress_context__ = True`, hiding internal implementation errors from external library consumers."
     }
   ]
 }

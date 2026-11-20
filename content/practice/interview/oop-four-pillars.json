@@ -92,6 +92,34 @@
     {
       "q": "What is the difference between @staticmethod and @classmethod in Python?",
       "a": "A `@staticmethod` does not receive an implicit first argument; it behaves like a regular function scoped inside the class namespace, used for utility operations. A `@classmethod` receives the class itself (`cls`) as its first argument; it can access and mutate class-level state and is widely used to implement alternative factory constructors that support proper polymorphic subclassing."
+    },
+    {
+      "q": "In C#, what does this tricky code print and why: `BasePrinter p = new LaserPrinter(); p.Print();` where LaserPrinter uses `public new void Print()`?",
+      "a": "It prints the **Base** implementation. The `new` keyword hides the base class method without altering the compiler-generated virtual method table (vtable). Because the variable `p` is typed as the compile-time reference `BasePrinter`, the non-virtual call binds statically at compile time to `BasePrinter.Print()`. To invoke `LaserPrinter.Print()`, the method must be declared `virtual` in the base and `override` in the derived class."
+    },
+    {
+      "q": "What is the Diamond Problem, and what exact attribute resolution order does Python produce for `class D(B, C): pass` where `B(A)` and `C(A)`?",
+      "a": "The Diamond Problem occurs when class D inherits from B and C, which both inherit from A. Python resolves this deterministically using the **C3 Linearization Algorithm (MRO)**, producing: `D -> B -> C -> A -> object`. C3 inspects subclasses before their base classes and preserves declaration order (B before C). C# prevents the problem entirely by forbidding multiple class inheritance, allowing multiple implementation only for interfaces."
+    },
+    {
+      "q": "What is a mixin in object-oriented programming, and how is it implemented?",
+      "a": "A **mixin** is a small, cohesive class designed to provide optional behavioral methods to other classes without acting as a standalone parent in an 'is-a' hierarchy. In Python, mixins are implemented via multiple inheritance (e.g. `class JsonSerializableMixin:` defining `.to_json()`), avoiding `__init__` state. In C# 8+, mixins are implemented using interfaces with **Default Interface Methods** (DIM)."
+    },
+    {
+      "q": "Why does marking a class or method as `sealed` in C# improve runtime execution performance?",
+      "a": "Marking a class or method as `sealed` prevents further subclassing or overriding. This enables the RyuJIT compiler to perform **de-virtualization**: since no derived class can override the method, the JIT can convert dynamic virtual vtable lookups into direct, static function calls and inline the method body entirely, eliminating call-overhead in performance-critical code paths."
+    },
+    {
+      "q": "What are Covariance (`out`) and Contravariance (`in`) in C#, and why is `List<Dog>` not a `List<Animal>`?",
+      "a": "`List<Dog>` is not a `List<Animal>` because `List<T>` is **invariant**: if it were allowed, code holding a `List<Animal>` reference could call `.Add(new Cat())`, corrupting the underlying `List<Dog>` with a runtime type violation. **Covariance** (`out T`, e.g. `IEnumerable<out T>`) is safe for read-only outputs because you only pull items out. **Contravariance** (`in T`, e.g. `Action<in T>`) is safe for write-only consumers because an animal-handler can safely consume a dog."
+    },
+    {
+      "q": "What is the Law of Demeter, and how do you refactor the code smell `customer.GetOrders()[0].GetPayment().Process()`?",
+      "a": "The **Law of Demeter** ('Principle of Least Knowledge') states that an object should only talk to its immediate collaborators, never reaching through strangers. Refactor following **'Tell, Don't Ask'**: instead of querying nested internals, command the aggregate root to perform the action (e.g. `customer.ProcessFirstOrderPayment()`, or retrieve the `Order` and call `order.ProcessPayment()`). This protects internal data structures from leaking to external callers."
+    },
+    {
+      "q": "What is the architectural distinction between an Entity and a Value Object in Domain-Driven Design (LLD)?",
+      "a": "An **Entity** is defined by its persistent unique identity (`Id`) across state mutations over time; two entities with identical fields but different IDs are distinct (e.g. two `User` rows). A **Value Object** is defined entirely by its structural attributes, has no conceptual identity, and is immutable; two value objects with identical fields are equal and interchangeable (e.g. `Money(50, \"USD\")`). Mutating a value object produces a fresh instance."
     }
   ]
 }

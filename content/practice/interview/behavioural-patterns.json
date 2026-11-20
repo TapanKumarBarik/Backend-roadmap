@@ -96,6 +96,34 @@
     {
       "q": "What is the Specification pattern, and how does it support composite business rules?",
       "a": "The **Specification pattern** encapsulates a domain business rule or query predicate into an object implementing an `IsSatisfiedBy(candidate)` method. Specifications can be combined using boolean combinators (`And`, `Or`, `Not`) to form composite business rules (e.g. `isEligible = isOver18.And(hasActiveSubscription.Not())`), separating validation logic from domain entities."
+    },
+    {
+      "q": "How do you implement the Strategy pattern using modern C# delegates instead of defining multiple classes?",
+      "a": "Inject a `Func<T, TResult>` delegate instead of an interface: `public class DiscountEngine { private readonly Func<Order, decimal> _strategy; public DiscountEngine(Func<Order, decimal> strategy) => _strategy = strategy; public decimal Apply(Order o) => _strategy(o); }`. Callers pass pure lambdas (e.g. `order => order.Total * 0.15m`), keeping code concise while preserving Open/Closed substitutability."
+    },
+    {
+      "q": "How would you model order state transitions using the State pattern to prevent shipping an unpaid order?",
+      "a": "Create an `IOrderState` interface with `Pay(Order o)` and `Ship(Order o)`. In `DraftState`, calling `Ship()` throws an `InvalidOperationException(\"Cannot ship an unpaid order\")`, while `Pay()` transitions `o.SetState(new PaidState())`. In `PaidState`, `Ship()` prints a tracking manifest and transitions to `ShippedState()`. The `Order` delegates behavior to `_state`, eliminating nested conditionals."
+    },
+    {
+      "q": "What is the Interpreter pattern, and when is it appropriate to build a custom domain DSL interpreter?",
+      "a": "The **Interpreter pattern** defines a grammar representation for a domain-specific language (DSL) along with an interpreter that uses the representation to evaluate sentences. Nodes implement `Interpret(Context ctx)`. It is appropriate for simple, static grammars: evaluating dynamic boolean user-segmentation rules (`Age > 21 AND Country == 'US'`), math expressions, or internal query-filtering DSLs."
+    },
+    {
+      "q": "What is the difference between Repository and Unit of Work, and should you wrap EF Core in a generic repository?",
+      "a": "A **Repository** mediates between the domain and data mapping layers, presenting an in-memory collection interface (`Add`, `GetById`, `Find`). A **Unit of Work** maintains a list of affected business objects and coordinates atomic transactions (`Commit`). Wrapping EF Core in a generic repository is usually redundant because `DbContext` already implements Unit of Work and `DbSet<T>` already acts as a repository."
+    },
+    {
+      "q": "What architectural problems arise from using a generic IRepository in enterprise systems?",
+      "a": "A generic `IRepository<T>` often leaks database abstractions if it exposes `IQueryable<T>`, causing business logic to trigger unoptimized SQL queries across domain boundaries. Furthermore, it treats every aggregate as a flat CRUD table, encouraging anemic domain models, disabling specialized database operations (bulk inserts, raw SQL), and obscuring domain intention behind generic `Update()` calls."
+    },
+    {
+      "q": "How does MediatR implement the Mediator and Chain of Responsibility patterns in ASP.NET Core?",
+      "a": "`MediatR` implements the **Mediator pattern** via `IMediator.Send(command)`: requests are dispatched to a single `IRequestHandler<TRequest, TResponse>`, eliminating direct dependencies between API controllers and domain handlers. It implements the **Chain of Responsibility pattern** via pipeline behaviors (`IPipelineBehavior<TRequest, TResponse>`), wrapping execution in validation, logging, and metrics hooks."
+    },
+    {
+      "q": "How do you implement a thread-safe Observer pattern in Python without risking race conditions during notification?",
+      "a": "Use a `threading.Lock` to synchronize `subscribe` and `unsubscribe`. Inside `notify()`, make a defensive snapshot copy of the subscriber collection under the lock before invoking callbacks: `with self._lock: observers = list(self._observers)`. Then loop over the copied list outside the lock. This prevents deadlocks and avoids `RuntimeError: Set changed size during iteration` if a callback unsubscribes."
     }
   ]
 }
