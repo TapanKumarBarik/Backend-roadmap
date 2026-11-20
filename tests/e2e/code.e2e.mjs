@@ -279,7 +279,9 @@ test('the daily drill is five questions, each answered and explained on the spot
   for (let n = 1; n <= game.drill.questions; n += 1) {
     await page.getByText(`Question ${n} of ${game.drill.questions}`).waitFor();
     const text = await page.locator('.dr-question legend').innerText();
-    const question = quizzes.flatMap((q) => q.questions).find((q) => text.startsWith(q.text));
+    // A few questions are small diagrams, one box to a line, so the line breaks and runs of spaces in the source are not in the page's text.
+    const flat = (s) => s.replace(/\s+/g, ' ').trim();
+    const question = quizzes.flatMap((q) => q.questions).find((q) => flat(text).startsWith(flat(q.text)));
     assert.ok(question, `the question is one of the quizzes': ${text}`);
     const deliberately = n === 2; // one answer is wrong on purpose
     const options = deliberately

@@ -67,7 +67,7 @@
 #root #empty.dr-screen, .dr-screen { max-width: 760px; }
 #root .dr-from { margin: var(--space-4) 0 var(--space-3); font-size: var(--text-xs); color: var(--fg-subtle); }
 .dr-question { border: 0; margin: 0 0 var(--space-3); padding: 0; min-width: 0; }
-.dr-question legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-lg); line-height: var(--leading-snug); margin-bottom: var(--space-4); }
+.dr-question legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-lg); line-height: var(--leading-snug); margin-bottom: var(--space-4); white-space: pre-line; /* a question may list its boxes one per line */ }
 .dr-question legend em { display: block; margin-top: 4px; font-weight: 400; font-style: normal; font-size: var(--text-sm); color: var(--fg-muted); }
 .dr-done { margin-top: var(--space-4); }
 .dr-review { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; gap: var(--space-3); }

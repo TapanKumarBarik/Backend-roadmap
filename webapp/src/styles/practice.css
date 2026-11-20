@@ -29,7 +29,7 @@
 /* A quiz */
 .pr-questions { list-style: none; margin: var(--space-6) 0; padding: 0; display: grid; gap: var(--space-6); }
 .pr-questions fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
-.pr-questions legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-md); line-height: var(--leading-snug); margin-bottom: var(--space-3); }
+.pr-questions legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-md); line-height: var(--leading-snug); margin-bottom: var(--space-3); white-space: pre-line; /* a question may list its boxes one per line */ }
 .pr-questions legend em { font-weight: 400; font-style: normal; color: var(--fg-muted); font-size: var(--text-sm); }
 .pr-qn { color: var(--fg-subtle); }
 .pr-option { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-2); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; background: var(--bg); }
