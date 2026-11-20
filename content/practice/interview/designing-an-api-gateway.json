@@ -1,0 +1,24 @@
+{
+  "title": "Designing an Enterprise API Gateway",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+  "questions": [
+    {
+      "q": "What is the architectural role of an API Gateway (e.g. Envoy, Kong, Cloudflare) versus a standard Layer 4/Layer 7 Load Balancer?",
+      "a": "A standard load balancer (e.g. AWS ALB or HAProxy) routes incoming TCP/HTTP packets to healthy server pools. An API Gateway sits in front of microservices as an intelligent reverse proxy, centralizing cross-cutting operational concerns: TLS termination, JWT authentication & OAuth2 scope verification, dynamic path routing, token bucket rate limiting, protocol translation (e.g. gRPC-Web to JSON REST), CORS enforcement, and distributed tracing span injection (W3C Traceparent)."
+    },
+    {
+      "q": "How does an API Gateway validate user authentication (JWT) without hitting the Auth database on every single incoming API request?",
+      "a": "Use Asymmetric Public-Key Cryptography (RS256 / Ed25519) and JSON Web Key Sets (JWKS). The Auth Service signs user tokens using its private key. The API Gateway fetches and caches the Auth Service's public keys from a /.well-known/jwks.json endpoint. Upon receiving a request with an Authorization: Bearer token, the Gateway verifies the cryptographic signature, expiration (exp), and scopes locally in memory in sub-millisecond time without querying any database."
+    },
+    {
+      "q": "If JWTs are stateless and verified in memory, how does the API Gateway handle immediate token revocation (e.g. compromised account or password change)?",
+      "a": "Combine short-lived access tokens with a centralized Distributed Revocation Denylist: (1) Issue short-lived access tokens (e.g. 5 to 15 minutes TTL) so natural expiration limits exposure. (2) Maintain an in-memory Redis Set of revoked user IDs or JTI (JWT ID) claims (e.g. SADD revoked_tokens:jti with TTL equal to the token's remaining lifespan). The Gateway performs an O(1) Redis check (EXISTS revoked_tokens:jti); if the token is revoked, it returns HTTP 401 Unauthorized."
+    },
+    {
+      "q": "How do you protect upstream microservices from cascading failures when an API Gateway forwards high-traffic requests?",
+      "a": "Implement Circuit Breaking, Outbound Retries with Backoff, and Bulkheading at the gateway layer. Dedicated worker thread pools or connection pools are isolated per downstream route (bulkheading): if the Product Recommendation service hangs, its pool exhausts without starving the Checkout service. Furthermore, wrap downstream calls in circuit breakers (e.g. Envoy outlier detection): if a service produces >50% 5xx errors over 10 seconds, fast-fail with HTTP 503 to allow the service to recover."
+    }
+  ]
+}

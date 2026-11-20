@@ -3666,6 +3666,278 @@
     }
    ]
   },
+  "distributed-tracing-and-observability": {
+   "title": "Distributed tracing and modern observability",
+   "topic": "observability",
+   "difficulty": "advanced",
+   "module": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+   "description": "W3C Trace Context, OpenTelemetry, spans, context propagation, head vs tail sampling, and metric histograms.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What are the two mandatory HTTP headers standardized by the W3C Trace Context specification for propagating distributed trace context across microservices?",
+     "options": [
+      {
+       "id": "a",
+       "text": "X-B3-TraceId and X-B3-SpanId"
+      },
+      {
+       "id": "b",
+       "text": "traceparent and tracestate"
+      },
+      {
+       "id": "c",
+       "text": "X-Request-ID and X-Correlation-ID"
+      },
+      {
+       "id": "d",
+       "text": "OpenTelemetry-Context and OpenTelemetry-Span"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The W3C Trace Context standard defines `traceparent` (version, 16-byte trace-id, 8-byte parent-id, 1-byte trace-flags) and `tracestate` (opaque vendor-specific routing state). This replaces proprietary headers like Zipkin's X-B3."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "What is the primary difference between Head-Based Sampling and Tail-Based Sampling in distributed tracing systems?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Head sampling occurs in browser clients; tail sampling occurs on backend databases"
+      },
+      {
+       "id": "b",
+       "text": "Head sampling decides whether to record a trace at the root request ingress; Tail sampling buffers all spans of a trace and decides whether to keep it only after the entire request completes (e.g. keeping only errors or high-latency traces)"
+      },
+      {
+       "id": "c",
+       "text": "Head sampling samples HTTP traffic; tail sampling samples gRPC traffic"
+      },
+      {
+       "id": "d",
+       "text": "Head sampling is deterministic; tail sampling is random"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Head-based sampling makes an upfront decision at ingress, meaning rare 500 errors or P99 latency spikes might be dropped. Tail-based sampling buffers spans in an OpenTelemetry Collector collector tier and retains 100% of errors and slow traces while discarding uninteresting successful requests."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "In Prometheus metrics instrumentation, why is it dangerous to attach a high-cardinality label (such as `user_id` or `order_id`) to a metric counter or histogram?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Prometheus requires all labels to be integers"
+      },
+      {
+       "id": "b",
+       "text": "Each unique combination of label key-value pairs creates a brand new distinct time-series in memory, leading to severe memory exhaustion (cardinality explosion)"
+      },
+      {
+       "id": "c",
+       "text": "Prometheus does not support string labels"
+      },
+      {
+       "id": "d",
+       "text": "It prevents Grafana dashboards from rendering line charts"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Time-Series Databases (TSDB) store each unique metric name + label combination as an independent time-series. With 10 million users, adding `user_id` creates 10 million separate time-series, consuming gigabytes of TSDB index RAM and crashing Prometheus."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "In a distributed trace, what does a single 'Span' represent?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The entire lifecycle of a user session from login to logout"
+      },
+      {
+       "id": "b",
+       "text": "A single contiguous named unit of work (e.g. an HTTP handler, database query, or RPC call) with start time, end time, attributes, and events"
+      },
+      {
+       "id": "c",
+       "text": "The size of a TCP socket buffer in the kernel"
+      },
+      {
+       "id": "d",
+       "text": "A physical machine in a Kubernetes cluster"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A Span is the fundamental building block of a distributed trace. It represents a single operation (e.g. `SELECT * FROM users`), containing operation name, timestamps, status, key-value attributes, and parent span references."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "Context propagation in OpenTelemetry relies strictly on thread-local storage and cannot propagate across asynchronous thread pools, coroutines, or message queues without manual bridging.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Thread-local storage does not automatically follow tasks dispatched across thread pool executors, reactive streams, or message queues (like Kafka). Developers or instrumentation agents must explicitly inject the context into message headers or carrier bags and extract it on the receiving thread."
+    }
+   ]
+  },
+  "docker-containers-and-ci-cd": {
+   "title": "Docker containers, cgroups, and CI/CD pipelines",
+   "topic": "devops",
+   "difficulty": "intermediate",
+   "module": "backend/13-devops-for-backend-engineers/02-ci-pipelines-for-backend-code/README.md",
+   "description": "Docker layer caching, multi-stage builds, Linux cgroups v2 resource limits, and CI/CD security.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "Why should 'COPY package*.json ./' and 'npm install' precede 'COPY . .' in a production Node.js Dockerfile?",
+     "options": [
+      {
+       "id": "a",
+       "text": "To prevent npm from running as root"
+      },
+      {
+       "id": "b",
+       "text": "To leverage Docker layer caching: dependencies are only re-installed when package files change, speeding up CI builds when only application source code is modified"
+      },
+      {
+       "id": "c",
+       "text": "Because npm install requires an empty working directory"
+      },
+      {
+       "id": "d",
+       "text": "To minify JavaScript files automatically"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Docker caches intermediate layers. If `COPY . .` is executed first, any tiny change to a source file or README invalidates all subsequent layers, forcing an expensive and slow `npm install` on every single commit."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "What is the primary security advantage of Docker Multi-Stage builds for compiled or bundled languages (Go, Rust, Java, TypeScript)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It encrypts container disk volumes at rest"
+      },
+      {
+       "id": "b",
+       "text": "It leaves compilers, build tools, package managers, and source code in the build stage, producing a minimal final runtime container (e.g. distroless or alpine) with a drastically reduced CVE attack surface"
+      },
+      {
+       "id": "c",
+       "text": "It enables GPU acceleration for backend microservices"
+      },
+      {
+       "id": "d",
+       "text": "It runs containers without Linux kernel namespaces"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Compilers (GCC, Rustc, Go SDK) and package managers contain thousands of utilities that attackers can abuse if a container is compromised. Multi-stage builds copy only the compiled static binary into a clean runtime base, reducing image size from 1GB to 25MB and eliminating vulnerable binaries."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "When a container in Kubernetes exceeds its configured 'resources.limits.memory', what action does the Linux kernel take?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It throttles container CPU cycles until memory usage subsides"
+      },
+      {
+       "id": "b",
+       "text": "The Linux cgroups Out-Of-Memory (OOM) Killer immediately sends SIGKILL (exit code 137) to terminate the primary container process"
+      },
+      {
+       "id": "c",
+       "text": "It automatically expands the node's physical RAM swap file"
+      },
+      {
+       "id": "d",
+       "text": "It writes active memory pages to disk without stopping execution"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Unlike CPU limits (which cause throttling via CFS bandwidth quotas), memory cannot be compressed. When a container exceeds its cgroup hard memory limit, the kernel OOM Killer immediately terminates it with `SIGKILL` (reported as `OOMKilled` / Exit Code 137 in Kubernetes)."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Why is running a containerized production backend as the default 'root' (UID 0) user considered a dangerous security antipattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Because root processes cannot open ports below 1024"
+      },
+      {
+       "id": "b",
+       "text": "Because container UID 0 is mapped directly to the host's UID 0; a container breakout vulnerability grants the attacker full root control over the underlying host node"
+      },
+      {
+       "id": "c",
+       "text": "Because Linux terminates root containers after 24 hours"
+      },
+      {
+       "id": "d",
+       "text": "Because root containers cannot read environment variables"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Unless user namespaces (userns-remap) are configured, root inside a container is root on the host machine. If an attacker exploits a remote code execution or container breakout flaw, they immediately gain kernel-level host access."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "In Linux cgroups v2, CPU limits do not kill the container; instead, the Completely Fair Scheduler (CFS) throttles CPU time slices within the enforcement period.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. If a container exceeds its CPU limit (e.g. 500m / 0.5 CPU cores), the CFS scheduler simply halts thread execution until the next 100ms quota period begins, causing latency spikes without process termination."
+    }
+   ]
+  },
   "docker-images-containers-and-volumes": {
    "title": "Docker images, containers, volumes and networks",
    "topic": "docker",
@@ -13704,6 +13976,54 @@
     }
    ]
   },
+  "designing-a-metrics-tsdb": {
+   "title": "Designing a Time-Series Metrics Database (TSDB)",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
+   "questions": [
+    {
+     "q": "How do modern Time-Series Databases (e.g. Prometheus, InfluxDB, Gorilla) compress billions of (timestamp, float64_value) metric points down to ~1.3 bytes per sample?",
+     "a": "They use Facebook's Gorilla Compression algorithm: (1) Timestamp Compression (Delta-of-Delta): Real-world metric scraping occurs at fixed intervals (e.g. every 15s). The difference between consecutive deltas (D = (t_n - t_{n-1}) - (t_{n-1} - t_{n-2})) is almost always 0. A delta-of-delta of 0 is encoded in a single '0' bit. (2) Value Compression (XOR): Consecutive floating-point measurements (e.g. CPU% = 45.2, 45.3) share identical IEEE-754 sign, exponent, and leading bits. XORing consecutive float64 values produces mostly leading and trailing zeros, which are bit-packed using variable-length prefixes, reducing 16 bytes (8B time + 8B value) to ~1.37 bytes."
+    },
+    {
+     "q": "What is the difference between Pull-Based metrics collection (Prometheus) and Push-Based collection (Datadog, StatsD)?",
+     "a": "In a Pull model (Prometheus), the central TSDB server scrapes HTTP /metrics endpoints from targets discovered via Kubernetes/EC2 service discovery. Benefits: The server controls scrape frequency and cannot be overwhelmed; dead endpoints are instantly detected. Drawbacks: Requires network accessibility into private subnets, and struggles with short-lived ephemeral batch jobs (solved via Pushgateway). In a Push model, clients/agents send metrics directly to an ingest gateway. Benefits: Works seamlessly behind firewalls and NAT, and captures ephemeral serverless functions. Drawbacks: Influx of traffic from thousands of auto-scaling instances can crash the metrics gateway."
+    },
+    {
+     "q": "How do TSDBs handle High Cardinality without running out of RAM or degrading query speeds?",
+     "a": "TSDBs maintain an Inverted Index (mapping metric name + label key-value pairs to unique Series IDs). When cardinality explodes, they employ: (1) Block-based chunking: Group data into immutable 2-hour blocks consisting of chunks, inverted index, and meta files. (2) Memory-mapped files (mmap): Older 2-hour blocks are flushed to disk and accessed via OS page cache mmap, keeping only active head chunks in RAM. (3) Rollups and Downsampling: Background compaction aggregates raw 15s samples into 5-minute averages, min, max, and P99 after 14 days, and into 1-hour rollups after 90 days."
+    },
+    {
+     "q": "How does an alerting engine evaluate thousands of alerting rules (e.g. 'P99 > 500ms for 5m') without causing database read lockup?",
+     "a": "Alert evaluation is decoupled from client dashboards. The Alert Engine executes rule queries against the in-memory Head chunk on a fixed evaluation interval (e.g. every 15 seconds). It tracks consecutive breach states: 'INACTIVE' -> 'PENDING' (condition met, waiting for duration threshold 'for: 5m') -> 'FIRING' (breached for >= 5m). When FIRING, it pushes notification payloads to Alertmanager for deduplication, grouping, inhibition (muting downstream alerts if parent cluster is down), and paging dispatch."
+    }
+   ]
+  },
+  "designing-an-api-gateway": {
+   "title": "Designing an Enterprise API Gateway",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+   "questions": [
+    {
+     "q": "What is the architectural role of an API Gateway (e.g. Envoy, Kong, Cloudflare) versus a standard Layer 4/Layer 7 Load Balancer?",
+     "a": "A standard load balancer (e.g. AWS ALB or HAProxy) routes incoming TCP/HTTP packets to healthy server pools. An API Gateway sits in front of microservices as an intelligent reverse proxy, centralizing cross-cutting operational concerns: TLS termination, JWT authentication & OAuth2 scope verification, dynamic path routing, token bucket rate limiting, protocol translation (e.g. gRPC-Web to JSON REST), CORS enforcement, and distributed tracing span injection (W3C Traceparent)."
+    },
+    {
+     "q": "How does an API Gateway validate user authentication (JWT) without hitting the Auth database on every single incoming API request?",
+     "a": "Use Asymmetric Public-Key Cryptography (RS256 / Ed25519) and JSON Web Key Sets (JWKS). The Auth Service signs user tokens using its private key. The API Gateway fetches and caches the Auth Service's public keys from a /.well-known/jwks.json endpoint. Upon receiving a request with an Authorization: Bearer token, the Gateway verifies the cryptographic signature, expiration (exp), and scopes locally in memory in sub-millisecond time without querying any database."
+    },
+    {
+     "q": "If JWTs are stateless and verified in memory, how does the API Gateway handle immediate token revocation (e.g. compromised account or password change)?",
+     "a": "Combine short-lived access tokens with a centralized Distributed Revocation Denylist: (1) Issue short-lived access tokens (e.g. 5 to 15 minutes TTL) so natural expiration limits exposure. (2) Maintain an in-memory Redis Set of revoked user IDs or JTI (JWT ID) claims (e.g. SADD revoked_tokens:jti with TTL equal to the token's remaining lifespan). The Gateway performs an O(1) Redis check (EXISTS revoked_tokens:jti); if the token is revoked, it returns HTTP 401 Unauthorized."
+    },
+    {
+     "q": "How do you protect upstream microservices from cascading failures when an API Gateway forwards high-traffic requests?",
+     "a": "Implement Circuit Breaking, Outbound Retries with Backoff, and Bulkheading at the gateway layer. Dedicated worker thread pools or connection pools are isolated per downstream route (bulkheading): if the Product Recommendation service hangs, its pool exhausts without starving the Checkout service. Furthermore, wrap downstream calls in circuit breakers (e.g. Envoy outlier detection): if a service produces >50% 5xx errors over 10 seconds, fast-fail with HTTP 503 to allow the service to recover."
+    }
+   ]
+  },
   "distributed-counter-design": {
    "title": "Designing a Write-Heavy Distributed Counter",
    "topic": "system-design",
@@ -19464,6 +19784,36 @@
    "solution": "from collections import defaultdict\n\n\ndef group_anagrams(words):\n    groups = defaultdict(list)\n    for word in words:\n        groups[\"\".join(sorted(word))].append(word)   # anagrams have the same letters once sorted\n    return list(groups.values())\n",
    "explanation": "**The idea.** All the anagrams of a word have the same letters, so sorting the letters of a word gives a \"fingerprint\" that every anagram shares: `\"eat\"`, `\"tea\"` and `\"ate\"` all become `\"aet\"`. Use the fingerprint as a dictionary key and collect the words that share it.\n\n**Why a string key.** Dictionary keys must be hashable. A list of letters is not, but `\"\".join(sorted(word))` is a string, and a tuple of letter counts would be too.\n\n**Complexity.** For n words of length up to k, O(n · k log k) time. Counting the letters into a tuple of 26 numbers instead of sorting makes the key O(k), so the whole thing O(n · k) for lowercase words. Comparing every word with every other word would be O(n²).\n\n**Follow-up.** How would you handle capital letters or accents? Decide whether `\"Eat\"` and `\"tea\"` are anagrams, then lowercase or normalise each word before you build its key."
   },
+  "hashed-timing-wheel": {
+   "title": "Hashed Timing Wheel Timer Scheduler",
+   "topic": "distributed-systems",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+   "description": "Implement a Varghese-Lauck circular hashed timing wheel for O(1) timer scheduling and expiration.",
+   "statement": "In high-throughput network servers and distributed message brokers (**Netty, Apache Kafka, Linux Kernel**), managing millions of independent connection timeouts using standard priority queues takes $O(\\log N)$ time per insertion and cancellation, creating CPU bottlenecks.\n\nThe **Hashed Timing Wheel** (Varghese & Lauck, 1987) uses a circular buffer of $N$ buckets where each bucket represents a discrete tick interval of length $\\delta$:\n\n1. **Scheduling a Task:** To schedule a task to execute after delay $d \\ge 0$:\n   - Compute total ticks: $\\text{ticks} = \\lfloor d / \\delta \\rfloor$.\n   - Target bucket index: $\\text{bucket} = (\\text{current\\_tick} + \\text{ticks}) \\pmod N$.\n   - Remaining rounds: $\\text{rounds} = \\lfloor \\text{ticks} / N \\rfloor$.\n   - Store `(task_id, rounds)` in `wheel[bucket]`.\n\n2. **Advancing Time (`tick()`):**\n   - Advance `current_tick = (current_tick + 1) % N`.\n   - Inspect all tasks in `wheel[current_tick]`:\n     - If a task has $\\text{rounds} == 0$, it has **expired** and is triggered in this tick.\n     - If a task has $\\text{rounds} > 0$, decrement its $\\text{rounds} \\mathrel{-}= 1$ and retain it in the bucket for future wheel revolutions.\n   - Return the list of triggered task IDs in the order they were scheduled in this bucket.\n\n### Your Task\n\nImplement `HashedTimingWheel` in Python:\n- `__init__(self, num_buckets: int = 8, tick_duration: float = 1.0)`: Initializes empty circular timing wheel.\n- `schedule(self, task_id: str, delay: float) -> None`: Schedules `task_id` to fire after `delay` seconds.\n- `tick(self) -> list[str]`: Advances wheel by one tick and returns list of expired task IDs in this tick.",
+   "starter": "class HashedTimingWheel:\n    def __init__(self, num_buckets: int = 8, tick_duration: float = 1.0):\n        self.n = num_buckets\n        self.delta = tick_duration\n        self.current_tick = 0\n        self.wheel = [[] for _ in range(num_buckets)]\n\n    def schedule(self, task_id: str, delay: float) -> None:\n        pass\n\n    def tick(self) -> list[str]:\n        return []\n",
+   "solution": "import math\n\nclass HashedTimingWheel:\n    def __init__(self, num_buckets: int = 8, tick_duration: float = 1.0):\n        self.n = num_buckets\n        self.delta = tick_duration\n        self.current_tick = 0\n        # Each bucket contains list of [task_id, rounds]\n        self.wheel = [[] for _ in range(num_buckets)]\n\n    def schedule(self, task_id: str, delay: float) -> None:\n        ticks = max(0, int(delay // self.delta))\n        bucket = (self.current_tick + ticks) % self.n\n        rounds = ticks // self.n\n        self.wheel[bucket].append([task_id, rounds])\n\n    def tick(self) -> list[str]:\n        self.current_tick = (self.current_tick + 1) % self.n\n        bucket = self.wheel[self.current_tick]\n        \n        expired = []\n        remaining = []\n        for item in bucket:\n            task_id, rounds = item\n            if rounds == 0:\n                expired.append(task_id)\n            else:\n                remaining.append([task_id, rounds - 1])\n                \n        self.wheel[self.current_tick] = remaining\n        return expired\n",
+   "tests": [
+    {
+     "name": "tasks expiring on next tick trigger immediately",
+     "code": "wheel = HashedTimingWheel(num_buckets=4, tick_duration=1.0)\nwheel.schedule(\"task1\", delay=1.0)\nwheel.schedule(\"task2\", delay=1.0)\n\n# Tick 1: current_tick moves from 0 to 1\nexpired = wheel.tick()\nassert expired == [\"task1\", \"task2\"]"
+    },
+    {
+     "name": "tasks scheduled across multiple wheel rounds trigger at correct rotation",
+     "code": "wheel = HashedTimingWheel(num_buckets=4, tick_duration=1.0)\n# delay=9: 9 ticks / 4 buckets = 2 rounds + bucket 1\nwheel.schedule(\"task_far\", delay=9.0)\n# delay=1: 1 tick / 4 buckets = 0 rounds + bucket 1\nwheel.schedule(\"task_near\", delay=1.0)\n\n# Tick 1: bucket 1 fires task_near (rounds=0). task_far has rounds=2 -> decremented to 1.\nassert wheel.tick() == [\"task_near\"]\n\n# Ticks 2, 3, 4 (round 1 complete): no expirations\nassert wheel.tick() == []\nassert wheel.tick() == []\nassert wheel.tick() == []\n\n# Tick 5: bucket 1 again (task_far rounds=1 -> decremented to 0)\nassert wheel.tick() == []\n\n# Ticks 6, 7, 8 (round 2 complete)\nassert wheel.tick() == []\nassert wheel.tick() == []\nassert wheel.tick() == []\n\n# Tick 9: bucket 1 again -> task_far rounds=0 -> EXPIRES!\nassert wheel.tick() == [\"task_far\"]"
+    },
+    {
+     "name": "empty wheel ticks return empty list without error",
+     "code": "wheel = HashedTimingWheel(num_buckets=8, tick_duration=0.5)\nfor _ in range(16):\n    assert wheel.tick() == []"
+    }
+   ],
+   "hints": [
+    "Compute `ticks = int(delay // self.delta)`.",
+    "Target bucket is `(self.current_tick + ticks) % self.n`, and initial rounds is `ticks // self.n`.",
+    "In `tick()`, advance `self.current_tick = (self.current_tick + 1) % self.n` first, then separate tasks whose `rounds == 0` (expired) from tasks with `rounds > 0` (decrement rounds and keep)."
+   ],
+   "explanation": "**Why Hashed Timing Wheels?** Standard priority queue timers take $O(\\log N)$ time per insertion and tick. Hashed Timing Wheels reduce both scheduling and expiration to $O(1)$ amortized time by trading clock resolution for constant-time ring indexing, enabling Kafka and Netty to handle millions of active network deadlines."
+  },
   "house-robber": {
    "title": "House Robber",
    "topic": "dynamic-programming",
@@ -22274,6 +22624,40 @@
     "$\\Phi$ is calculated as `(now - last_ts) / (mean * math.log(10))`."
    ],
    "explanation": "**Why Phi Accrual?** Rather than hardcoding fixed timeouts, the Phi Accrual detector adapts dynamically to network jitter and GC pauses. Different consumers can apply different $\\Phi$ thresholds to the same node: e.g. $\\Phi=3$ for warming backup caches, and $\\Phi=8$ for committing leader failover."
+  },
+  "policy-engine-evaluator": {
+   "title": "ABAC Policy Engine Expression Evaluator",
+   "topic": "security",
+   "difficulty": "advanced",
+   "module": "backend/03-authentication-and-authorization/06-authorization-models/README.md",
+   "description": "Evaluate recursive Attribute-Based Access Control (ABAC) JSON policy rules against authorization contexts.",
+   "statement": "Enterprise authorization systems (such as **AWS IAM Policy Evaluation**, Open Policy Agent, and Google Zanzibar) evaluate access requests using **Attribute-Based Access Control (ABAC)** rules defined in declarative JSON trees.\n\nA policy rule is represented as an Abstract Syntax Tree (AST):\n- **Literal value:** String, number, or boolean: `\"admin\"`, `100`, `True`.\n- **Attribute reference:** A dictionary with a `\"var\"` key using dot-notation: `{\"var\": \"user.role\"}` extracts `context[\"user\"][\"role\"]` (or `None` if any key in the path does not exist).\n- **Boolean operators:**\n  - `{\"and\": [rule1, rule2, ...]}`: Returns `True` if all rules evaluate to truthy; `False` otherwise (empty list is `True`).\n  - `{\"or\": [rule1, rule2, ...]}`: Returns `True` if any rule evaluates to truthy; `False` otherwise (empty list is `False`).\n  - `{\"not\": rule}`: Logical negation.\n- **Comparison operators:**\n  - `{\"eq\": [left, right]}`: Evaluates both operands and returns `left == right`.\n  - `{\"in\": [needle, haystack]}`: Returns `needle in haystack` (haystack can be a list or string).\n  - `{\"gte\": [left, right]}`: Returns `left >= right` (assumes numeric or comparable).\n\n### Your Task\nImplement `evaluate_policy(rule: dict | any, context: dict) -> bool | any` in Python.",
+   "starter": "def evaluate_policy(rule, context):\n    \"\"\"Recursively evaluate an ABAC JSON policy rule against a context dictionary.\"\"\"\n    return False\n",
+   "solution": "def get_path_value(ctx, path_str):\n    parts = path_str.split('.')\n    curr = ctx\n    for p in parts:\n        if isinstance(curr, dict) and p in curr:\n            curr = curr[p]\n        else:\n            return None\n    return curr\n\ndef evaluate_policy(rule, context):\n    # Base cases: primitives\n    if not isinstance(rule, dict):\n        return rule\n\n    # Variable reference\n    if \"var\" in rule:\n        return get_path_value(context, rule[\"var\"])\n\n    # Operators\n    if \"and\" in rule:\n        return all(bool(evaluate_policy(sub, context)) for sub in rule[\"and\"])\n    if \"or\" in rule:\n        return any(bool(evaluate_policy(sub, context)) for sub in rule[\"or\"])\n    if \"not\" in rule:\n        return not bool(evaluate_policy(rule[\"not\"], context))\n    if \"eq\" in rule:\n        left = evaluate_policy(rule[\"eq\"][0], context)\n        right = evaluate_policy(rule[\"eq\"][1], context)\n        return left == right\n    if \"in\" in rule:\n        needle = evaluate_policy(rule[\"in\"][0], context)\n        haystack = evaluate_policy(rule[\"in\"][1], context)\n        return needle in haystack if haystack is not None else False\n    if \"gte\" in rule:\n        left = evaluate_policy(rule[\"gte\"][0], context)\n        right = evaluate_policy(rule[\"gte\"][1], context)\n        if left is None or right is None:\n            return False\n        return left >= right\n\n    return False\n",
+   "tests": [
+    {
+     "name": "basic attribute equality and path lookup",
+     "code": "ctx = {\"user\": {\"role\": \"admin\", \"department\": \"finance\"}}\nrule = {\"eq\": [{\"var\": \"user.role\"}, \"admin\"]}\nassert evaluate_policy(rule, ctx) is True\n\nrule2 = {\"eq\": [{\"var\": \"user.role\"}, \"editor\"]}\nassert evaluate_policy(rule2, ctx) is False"
+    },
+    {
+     "name": "composite boolean AND/OR permissions with numeric comparisons",
+     "code": "ctx = {\n    \"user\": {\"role\": \"manager\", \"clearance\": 3},\n    \"resource\": {\"min_clearance\": 2, \"owner\": \"bob\"}\n}\n# (role == 'admin') OR (clearance >= min_clearance)\npolicy = {\n    \"or\": [\n        {\"eq\": [{\"var\": \"user.role\"}, \"admin\"]},\n        {\"gte\": [{\"var\": \"user.clearance\"}, {\"var\": \"resource.min_clearance\"}]}\n    ]\n}\nassert evaluate_policy(policy, ctx) is True"
+    },
+    {
+     "name": "membership in list operator and negation",
+     "code": "ctx = {\"user\": {\"country\": \"CA\"}, \"allowed_countries\": [\"US\", \"CA\", \"MX\"]}\npolicy = {\n    \"and\": [\n        {\"in\": [{\"var\": \"user.country\"}, {\"var\": \"allowed_countries\"}]},\n        {\"not\": {\"eq\": [{\"var\": \"user.country\"}, \"CU\"]}}\n    ]\n}\nassert evaluate_policy(policy, ctx) is True\n\nctx_blocked = {\"user\": {\"country\": \"GB\"}, \"allowed_countries\": [\"US\", \"CA\", \"MX\"]}\nassert evaluate_policy(policy, ctx_blocked) is False"
+    },
+    {
+     "name": "missing attribute returns None safely without crashing",
+     "code": "ctx = {}\npolicy = {\"eq\": [{\"var\": \"user.profile.age\"}, 25]}\nassert evaluate_policy(policy, ctx) is False"
+    }
+   ],
+   "hints": [
+    "Write a helper function to resolve dotted variable strings like `'user.role'` by stepping through nested dictionaries.",
+    "If the rule is not a dictionary (e.g. string or number literal), return it as-is.",
+    "Recursively evaluate arguments to comparison operators like `left = evaluate_policy(rule['eq'][0], context)` before comparing."
+   ],
+   "explanation": "**Why ABAC Policy Engines?** Traditional Role-Based Access Control (RBAC) suffers from 'role explosion' in enterprise systems. Attribute-Based Access Control evaluates fine-grained dynamic attributes (user clearance, tenant ID, resource owner, time of day, IP address) using recursive boolean AST rules."
   },
   "population-stability-index": {
    "title": "Population Stability Index",

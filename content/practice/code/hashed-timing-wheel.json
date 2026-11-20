@@ -1,0 +1,30 @@
+{
+  "title": "Hashed Timing Wheel Timer Scheduler",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+  "description": "Implement a Varghese-Lauck circular hashed timing wheel for O(1) timer scheduling and expiration.",
+  "statement": "In high-throughput network servers and distributed message brokers (**Netty, Apache Kafka, Linux Kernel**), managing millions of independent connection timeouts using standard priority queues takes $O(\\log N)$ time per insertion and cancellation, creating CPU bottlenecks.\n\nThe **Hashed Timing Wheel** (Varghese & Lauck, 1987) uses a circular buffer of $N$ buckets where each bucket represents a discrete tick interval of length $\\delta$:\n\n1. **Scheduling a Task:** To schedule a task to execute after delay $d \\ge 0$:\n   - Compute total ticks: $\\text{ticks} = \\lfloor d / \\delta \\rfloor$.\n   - Target bucket index: $\\text{bucket} = (\\text{current\\_tick} + \\text{ticks}) \\pmod N$.\n   - Remaining rounds: $\\text{rounds} = \\lfloor \\text{ticks} / N \\rfloor$.\n   - Store `(task_id, rounds)` in `wheel[bucket]`.\n\n2. **Advancing Time (`tick()`):**\n   - Advance `current_tick = (current_tick + 1) % N`.\n   - Inspect all tasks in `wheel[current_tick]`:\n     - If a task has $\\text{rounds} == 0$, it has **expired** and is triggered in this tick.\n     - If a task has $\\text{rounds} > 0$, decrement its $\\text{rounds} \\mathrel{-}= 1$ and retain it in the bucket for future wheel revolutions.\n   - Return the list of triggered task IDs in the order they were scheduled in this bucket.\n\n### Your Task\n\nImplement `HashedTimingWheel` in Python:\n- `__init__(self, num_buckets: int = 8, tick_duration: float = 1.0)`: Initializes empty circular timing wheel.\n- `schedule(self, task_id: str, delay: float) -> None`: Schedules `task_id` to fire after `delay` seconds.\n- `tick(self) -> list[str]`: Advances wheel by one tick and returns list of expired task IDs in this tick.",
+  "starter": "class HashedTimingWheel:\n    def __init__(self, num_buckets: int = 8, tick_duration: float = 1.0):\n        self.n = num_buckets\n        self.delta = tick_duration\n        self.current_tick = 0\n        self.wheel = [[] for _ in range(num_buckets)]\n\n    def schedule(self, task_id: str, delay: float) -> None:\n        pass\n\n    def tick(self) -> list[str]:\n        return []\n",
+  "solution": "import math\n\nclass HashedTimingWheel:\n    def __init__(self, num_buckets: int = 8, tick_duration: float = 1.0):\n        self.n = num_buckets\n        self.delta = tick_duration\n        self.current_tick = 0\n        # Each bucket contains list of [task_id, rounds]\n        self.wheel = [[] for _ in range(num_buckets)]\n\n    def schedule(self, task_id: str, delay: float) -> None:\n        ticks = max(0, int(delay // self.delta))\n        bucket = (self.current_tick + ticks) % self.n\n        rounds = ticks // self.n\n        self.wheel[bucket].append([task_id, rounds])\n\n    def tick(self) -> list[str]:\n        self.current_tick = (self.current_tick + 1) % self.n\n        bucket = self.wheel[self.current_tick]\n        \n        expired = []\n        remaining = []\n        for item in bucket:\n            task_id, rounds = item\n            if rounds == 0:\n                expired.append(task_id)\n            else:\n                remaining.append([task_id, rounds - 1])\n                \n        self.wheel[self.current_tick] = remaining\n        return expired\n",
+  "tests": [
+    {
+      "name": "tasks expiring on next tick trigger immediately",
+      "code": "wheel = HashedTimingWheel(num_buckets=4, tick_duration=1.0)\nwheel.schedule(\"task1\", delay=1.0)\nwheel.schedule(\"task2\", delay=1.0)\n\n# Tick 1: current_tick moves from 0 to 1\nexpired = wheel.tick()\nassert expired == [\"task1\", \"task2\"]"
+    },
+    {
+      "name": "tasks scheduled across multiple wheel rounds trigger at correct rotation",
+      "code": "wheel = HashedTimingWheel(num_buckets=4, tick_duration=1.0)\n# delay=9: 9 ticks / 4 buckets = 2 rounds + bucket 1\nwheel.schedule(\"task_far\", delay=9.0)\n# delay=1: 1 tick / 4 buckets = 0 rounds + bucket 1\nwheel.schedule(\"task_near\", delay=1.0)\n\n# Tick 1: bucket 1 fires task_near (rounds=0). task_far has rounds=2 -> decremented to 1.\nassert wheel.tick() == [\"task_near\"]\n\n# Ticks 2, 3, 4 (round 1 complete): no expirations\nassert wheel.tick() == []\nassert wheel.tick() == []\nassert wheel.tick() == []\n\n# Tick 5: bucket 1 again (task_far rounds=1 -> decremented to 0)\nassert wheel.tick() == []\n\n# Ticks 6, 7, 8 (round 2 complete)\nassert wheel.tick() == []\nassert wheel.tick() == []\nassert wheel.tick() == []\n\n# Tick 9: bucket 1 again -> task_far rounds=0 -> EXPIRES!\nassert wheel.tick() == [\"task_far\"]"
+    },
+    {
+      "name": "empty wheel ticks return empty list without error",
+      "code": "wheel = HashedTimingWheel(num_buckets=8, tick_duration=0.5)\nfor _ in range(16):\n    assert wheel.tick() == []"
+    }
+  ],
+  "hints": [
+    "Compute `ticks = int(delay // self.delta)`.",
+    "Target bucket is `(self.current_tick + ticks) % self.n`, and initial rounds is `ticks // self.n`.",
+    "In `tick()`, advance `self.current_tick = (self.current_tick + 1) % self.n` first, then separate tasks whose `rounds == 0` (expired) from tasks with `rounds > 0` (decrement rounds and keep)."
+  ],
+  "explanation": "**Why Hashed Timing Wheels?** Standard priority queue timers take $O(\\log N)$ time per insertion and tick. Hashed Timing Wheels reduce both scheduling and expiration to $O(1)$ amortized time by trading clock resolution for constant-time ring indexing, enabling Kafka and Netty to handle millions of active network deadlines."
+}

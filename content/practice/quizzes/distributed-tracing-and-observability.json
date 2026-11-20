@@ -1,0 +1,136 @@
+{
+  "title": "Distributed tracing and modern observability",
+  "topic": "observability",
+  "difficulty": "advanced",
+  "module": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+  "description": "W3C Trace Context, OpenTelemetry, spans, context propagation, head vs tail sampling, and metric histograms.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What are the two mandatory HTTP headers standardized by the W3C Trace Context specification for propagating distributed trace context across microservices?",
+      "options": [
+        {
+          "id": "a",
+          "text": "X-B3-TraceId and X-B3-SpanId"
+        },
+        {
+          "id": "b",
+          "text": "traceparent and tracestate"
+        },
+        {
+          "id": "c",
+          "text": "X-Request-ID and X-Correlation-ID"
+        },
+        {
+          "id": "d",
+          "text": "OpenTelemetry-Context and OpenTelemetry-Span"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The W3C Trace Context standard defines `traceparent` (version, 16-byte trace-id, 8-byte parent-id, 1-byte trace-flags) and `tracestate` (opaque vendor-specific routing state). This replaces proprietary headers like Zipkin's X-B3."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What is the primary difference between Head-Based Sampling and Tail-Based Sampling in distributed tracing systems?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Head sampling occurs in browser clients; tail sampling occurs on backend databases"
+        },
+        {
+          "id": "b",
+          "text": "Head sampling decides whether to record a trace at the root request ingress; Tail sampling buffers all spans of a trace and decides whether to keep it only after the entire request completes (e.g. keeping only errors or high-latency traces)"
+        },
+        {
+          "id": "c",
+          "text": "Head sampling samples HTTP traffic; tail sampling samples gRPC traffic"
+        },
+        {
+          "id": "d",
+          "text": "Head sampling is deterministic; tail sampling is random"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Head-based sampling makes an upfront decision at ingress, meaning rare 500 errors or P99 latency spikes might be dropped. Tail-based sampling buffers spans in an OpenTelemetry Collector collector tier and retains 100% of errors and slow traces while discarding uninteresting successful requests."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "In Prometheus metrics instrumentation, why is it dangerous to attach a high-cardinality label (such as `user_id` or `order_id`) to a metric counter or histogram?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Prometheus requires all labels to be integers"
+        },
+        {
+          "id": "b",
+          "text": "Each unique combination of label key-value pairs creates a brand new distinct time-series in memory, leading to severe memory exhaustion (cardinality explosion)"
+        },
+        {
+          "id": "c",
+          "text": "Prometheus does not support string labels"
+        },
+        {
+          "id": "d",
+          "text": "It prevents Grafana dashboards from rendering line charts"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Time-Series Databases (TSDB) store each unique metric name + label combination as an independent time-series. With 10 million users, adding `user_id` creates 10 million separate time-series, consuming gigabytes of TSDB index RAM and crashing Prometheus."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "In a distributed trace, what does a single 'Span' represent?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The entire lifecycle of a user session from login to logout"
+        },
+        {
+          "id": "b",
+          "text": "A single contiguous named unit of work (e.g. an HTTP handler, database query, or RPC call) with start time, end time, attributes, and events"
+        },
+        {
+          "id": "c",
+          "text": "The size of a TCP socket buffer in the kernel"
+        },
+        {
+          "id": "d",
+          "text": "A physical machine in a Kubernetes cluster"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A Span is the fundamental building block of a distributed trace. It represents a single operation (e.g. `SELECT * FROM users`), containing operation name, timestamps, status, key-value attributes, and parent span references."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "Context propagation in OpenTelemetry relies strictly on thread-local storage and cannot propagate across asynchronous thread pools, coroutines, or message queues without manual bridging.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Thread-local storage does not automatically follow tasks dispatched across thread pool executors, reactive streams, or message queues (like Kafka). Developers or instrumentation agents must explicitly inject the context into message headers or carrier bags and extract it on the receiving thread."
+    }
+  ]
+}

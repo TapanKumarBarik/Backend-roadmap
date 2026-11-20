@@ -1,0 +1,24 @@
+{
+  "title": "Designing a Time-Series Metrics Database (TSDB)",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
+  "questions": [
+    {
+      "q": "How do modern Time-Series Databases (e.g. Prometheus, InfluxDB, Gorilla) compress billions of (timestamp, float64_value) metric points down to ~1.3 bytes per sample?",
+      "a": "They use Facebook's Gorilla Compression algorithm: (1) Timestamp Compression (Delta-of-Delta): Real-world metric scraping occurs at fixed intervals (e.g. every 15s). The difference between consecutive deltas (D = (t_n - t_{n-1}) - (t_{n-1} - t_{n-2})) is almost always 0. A delta-of-delta of 0 is encoded in a single '0' bit. (2) Value Compression (XOR): Consecutive floating-point measurements (e.g. CPU% = 45.2, 45.3) share identical IEEE-754 sign, exponent, and leading bits. XORing consecutive float64 values produces mostly leading and trailing zeros, which are bit-packed using variable-length prefixes, reducing 16 bytes (8B time + 8B value) to ~1.37 bytes."
+    },
+    {
+      "q": "What is the difference between Pull-Based metrics collection (Prometheus) and Push-Based collection (Datadog, StatsD)?",
+      "a": "In a Pull model (Prometheus), the central TSDB server scrapes HTTP /metrics endpoints from targets discovered via Kubernetes/EC2 service discovery. Benefits: The server controls scrape frequency and cannot be overwhelmed; dead endpoints are instantly detected. Drawbacks: Requires network accessibility into private subnets, and struggles with short-lived ephemeral batch jobs (solved via Pushgateway). In a Push model, clients/agents send metrics directly to an ingest gateway. Benefits: Works seamlessly behind firewalls and NAT, and captures ephemeral serverless functions. Drawbacks: Influx of traffic from thousands of auto-scaling instances can crash the metrics gateway."
+    },
+    {
+      "q": "How do TSDBs handle High Cardinality without running out of RAM or degrading query speeds?",
+      "a": "TSDBs maintain an Inverted Index (mapping metric name + label key-value pairs to unique Series IDs). When cardinality explodes, they employ: (1) Block-based chunking: Group data into immutable 2-hour blocks consisting of chunks, inverted index, and meta files. (2) Memory-mapped files (mmap): Older 2-hour blocks are flushed to disk and accessed via OS page cache mmap, keeping only active head chunks in RAM. (3) Rollups and Downsampling: Background compaction aggregates raw 15s samples into 5-minute averages, min, max, and P99 after 14 days, and into 1-hour rollups after 90 days."
+    },
+    {
+      "q": "How does an alerting engine evaluate thousands of alerting rules (e.g. 'P99 > 500ms for 5m') without causing database read lockup?",
+      "a": "Alert evaluation is decoupled from client dashboards. The Alert Engine executes rule queries against the in-memory Head chunk on a fixed evaluation interval (e.g. every 15 seconds). It tracks consecutive breach states: 'INACTIVE' -> 'PENDING' (condition met, waiting for duration threshold 'for: 5m') -> 'FIRING' (breached for >= 5m). When FIRING, it pushes notification payloads to Alertmanager for deduplication, grouping, inhibition (muting downstream alerts if parent cluster is down), and paging dispatch."
+    }
+  ]
+}

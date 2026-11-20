@@ -1,0 +1,34 @@
+{
+  "title": "ABAC Policy Engine Expression Evaluator",
+  "topic": "security",
+  "difficulty": "advanced",
+  "module": "backend/03-authentication-and-authorization/06-authorization-models/README.md",
+  "description": "Evaluate recursive Attribute-Based Access Control (ABAC) JSON policy rules against authorization contexts.",
+  "statement": "Enterprise authorization systems (such as **AWS IAM Policy Evaluation**, Open Policy Agent, and Google Zanzibar) evaluate access requests using **Attribute-Based Access Control (ABAC)** rules defined in declarative JSON trees.\n\nA policy rule is represented as an Abstract Syntax Tree (AST):\n- **Literal value:** String, number, or boolean: `\"admin\"`, `100`, `True`.\n- **Attribute reference:** A dictionary with a `\"var\"` key using dot-notation: `{\"var\": \"user.role\"}` extracts `context[\"user\"][\"role\"]` (or `None` if any key in the path does not exist).\n- **Boolean operators:**\n  - `{\"and\": [rule1, rule2, ...]}`: Returns `True` if all rules evaluate to truthy; `False` otherwise (empty list is `True`).\n  - `{\"or\": [rule1, rule2, ...]}`: Returns `True` if any rule evaluates to truthy; `False` otherwise (empty list is `False`).\n  - `{\"not\": rule}`: Logical negation.\n- **Comparison operators:**\n  - `{\"eq\": [left, right]}`: Evaluates both operands and returns `left == right`.\n  - `{\"in\": [needle, haystack]}`: Returns `needle in haystack` (haystack can be a list or string).\n  - `{\"gte\": [left, right]}`: Returns `left >= right` (assumes numeric or comparable).\n\n### Your Task\nImplement `evaluate_policy(rule: dict | any, context: dict) -> bool | any` in Python.",
+  "starter": "def evaluate_policy(rule, context):\n    \"\"\"Recursively evaluate an ABAC JSON policy rule against a context dictionary.\"\"\"\n    return False\n",
+  "solution": "def get_path_value(ctx, path_str):\n    parts = path_str.split('.')\n    curr = ctx\n    for p in parts:\n        if isinstance(curr, dict) and p in curr:\n            curr = curr[p]\n        else:\n            return None\n    return curr\n\ndef evaluate_policy(rule, context):\n    # Base cases: primitives\n    if not isinstance(rule, dict):\n        return rule\n\n    # Variable reference\n    if \"var\" in rule:\n        return get_path_value(context, rule[\"var\"])\n\n    # Operators\n    if \"and\" in rule:\n        return all(bool(evaluate_policy(sub, context)) for sub in rule[\"and\"])\n    if \"or\" in rule:\n        return any(bool(evaluate_policy(sub, context)) for sub in rule[\"or\"])\n    if \"not\" in rule:\n        return not bool(evaluate_policy(rule[\"not\"], context))\n    if \"eq\" in rule:\n        left = evaluate_policy(rule[\"eq\"][0], context)\n        right = evaluate_policy(rule[\"eq\"][1], context)\n        return left == right\n    if \"in\" in rule:\n        needle = evaluate_policy(rule[\"in\"][0], context)\n        haystack = evaluate_policy(rule[\"in\"][1], context)\n        return needle in haystack if haystack is not None else False\n    if \"gte\" in rule:\n        left = evaluate_policy(rule[\"gte\"][0], context)\n        right = evaluate_policy(rule[\"gte\"][1], context)\n        if left is None or right is None:\n            return False\n        return left >= right\n\n    return False\n",
+  "tests": [
+    {
+      "name": "basic attribute equality and path lookup",
+      "code": "ctx = {\"user\": {\"role\": \"admin\", \"department\": \"finance\"}}\nrule = {\"eq\": [{\"var\": \"user.role\"}, \"admin\"]}\nassert evaluate_policy(rule, ctx) is True\n\nrule2 = {\"eq\": [{\"var\": \"user.role\"}, \"editor\"]}\nassert evaluate_policy(rule2, ctx) is False"
+    },
+    {
+      "name": "composite boolean AND/OR permissions with numeric comparisons",
+      "code": "ctx = {\n    \"user\": {\"role\": \"manager\", \"clearance\": 3},\n    \"resource\": {\"min_clearance\": 2, \"owner\": \"bob\"}\n}\n# (role == 'admin') OR (clearance >= min_clearance)\npolicy = {\n    \"or\": [\n        {\"eq\": [{\"var\": \"user.role\"}, \"admin\"]},\n        {\"gte\": [{\"var\": \"user.clearance\"}, {\"var\": \"resource.min_clearance\"}]}\n    ]\n}\nassert evaluate_policy(policy, ctx) is True"
+    },
+    {
+      "name": "membership in list operator and negation",
+      "code": "ctx = {\"user\": {\"country\": \"CA\"}, \"allowed_countries\": [\"US\", \"CA\", \"MX\"]}\npolicy = {\n    \"and\": [\n        {\"in\": [{\"var\": \"user.country\"}, {\"var\": \"allowed_countries\"}]},\n        {\"not\": {\"eq\": [{\"var\": \"user.country\"}, \"CU\"]}}\n    ]\n}\nassert evaluate_policy(policy, ctx) is True\n\nctx_blocked = {\"user\": {\"country\": \"GB\"}, \"allowed_countries\": [\"US\", \"CA\", \"MX\"]}\nassert evaluate_policy(policy, ctx_blocked) is False"
+    },
+    {
+      "name": "missing attribute returns None safely without crashing",
+      "code": "ctx = {}\npolicy = {\"eq\": [{\"var\": \"user.profile.age\"}, 25]}\nassert evaluate_policy(policy, ctx) is False"
+    }
+  ],
+  "hints": [
+    "Write a helper function to resolve dotted variable strings like `'user.role'` by stepping through nested dictionaries.",
+    "If the rule is not a dictionary (e.g. string or number literal), return it as-is.",
+    "Recursively evaluate arguments to comparison operators like `left = evaluate_policy(rule['eq'][0], context)` before comparing."
+  ],
+  "explanation": "**Why ABAC Policy Engines?** Traditional Role-Based Access Control (RBAC) suffers from 'role explosion' in enterprise systems. Attribute-Based Access Control evaluates fine-grained dynamic attributes (user clearance, tenant ID, resource owner, time of day, IP address) using recursive boolean AST rules."
+}

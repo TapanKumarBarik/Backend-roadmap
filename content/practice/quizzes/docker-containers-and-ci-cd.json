@@ -1,0 +1,136 @@
+{
+  "title": "Docker containers, cgroups, and CI/CD pipelines",
+  "topic": "devops",
+  "difficulty": "intermediate",
+  "module": "backend/13-devops-for-backend-engineers/02-ci-pipelines-for-backend-code/README.md",
+  "description": "Docker layer caching, multi-stage builds, Linux cgroups v2 resource limits, and CI/CD security.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Why should 'COPY package*.json ./' and 'npm install' precede 'COPY . .' in a production Node.js Dockerfile?",
+      "options": [
+        {
+          "id": "a",
+          "text": "To prevent npm from running as root"
+        },
+        {
+          "id": "b",
+          "text": "To leverage Docker layer caching: dependencies are only re-installed when package files change, speeding up CI builds when only application source code is modified"
+        },
+        {
+          "id": "c",
+          "text": "Because npm install requires an empty working directory"
+        },
+        {
+          "id": "d",
+          "text": "To minify JavaScript files automatically"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Docker caches intermediate layers. If `COPY . .` is executed first, any tiny change to a source file or README invalidates all subsequent layers, forcing an expensive and slow `npm install` on every single commit."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What is the primary security advantage of Docker Multi-Stage builds for compiled or bundled languages (Go, Rust, Java, TypeScript)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It encrypts container disk volumes at rest"
+        },
+        {
+          "id": "b",
+          "text": "It leaves compilers, build tools, package managers, and source code in the build stage, producing a minimal final runtime container (e.g. distroless or alpine) with a drastically reduced CVE attack surface"
+        },
+        {
+          "id": "c",
+          "text": "It enables GPU acceleration for backend microservices"
+        },
+        {
+          "id": "d",
+          "text": "It runs containers without Linux kernel namespaces"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Compilers (GCC, Rustc, Go SDK) and package managers contain thousands of utilities that attackers can abuse if a container is compromised. Multi-stage builds copy only the compiled static binary into a clean runtime base, reducing image size from 1GB to 25MB and eliminating vulnerable binaries."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "When a container in Kubernetes exceeds its configured 'resources.limits.memory', what action does the Linux kernel take?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It throttles container CPU cycles until memory usage subsides"
+        },
+        {
+          "id": "b",
+          "text": "The Linux cgroups Out-Of-Memory (OOM) Killer immediately sends SIGKILL (exit code 137) to terminate the primary container process"
+        },
+        {
+          "id": "c",
+          "text": "It automatically expands the node's physical RAM swap file"
+        },
+        {
+          "id": "d",
+          "text": "It writes active memory pages to disk without stopping execution"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Unlike CPU limits (which cause throttling via CFS bandwidth quotas), memory cannot be compressed. When a container exceeds its cgroup hard memory limit, the kernel OOM Killer immediately terminates it with `SIGKILL` (reported as `OOMKilled` / Exit Code 137 in Kubernetes)."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Why is running a containerized production backend as the default 'root' (UID 0) user considered a dangerous security antipattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Because root processes cannot open ports below 1024"
+        },
+        {
+          "id": "b",
+          "text": "Because container UID 0 is mapped directly to the host's UID 0; a container breakout vulnerability grants the attacker full root control over the underlying host node"
+        },
+        {
+          "id": "c",
+          "text": "Because Linux terminates root containers after 24 hours"
+        },
+        {
+          "id": "d",
+          "text": "Because root containers cannot read environment variables"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Unless user namespaces (userns-remap) are configured, root inside a container is root on the host machine. If an attacker exploits a remote code execution or container breakout flaw, they immediately gain kernel-level host access."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "In Linux cgroups v2, CPU limits do not kill the container; instead, the Completely Fair Scheduler (CFS) throttles CPU time slices within the enforcement period.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. If a container exceeds its CPU limit (e.g. 500m / 0.5 CPU cores), the CFS scheduler simply halts thread execution until the next 100ms quota period begins, causing latency spikes without process termination."
+    }
+  ]
+}
