@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloom Filter Simulator &amp; Sizing Calculator · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Bloom filter simulator and math dimensioning calculator. Explore hash bit arrays, false positive rates, and optimal memory sizing in your browser.">
+<link rel="canonical" href="%SITE_URL%/tools/bloom-filter/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/bloom-filter/">
+<meta property="og:title" content="Bloom Filter Simulator &amp; Sizing Calculator">
+<meta property="og:description" content="Simulate bit array insertions and queries live, test false positives, and calculate optimal m and k parameters for production databases.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Bloom Filter Simulator & Sizing Calculator","url":"%SITE_URL%/tools/bloom-filter/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Bloom Filter Simulator &amp; Sizing Calculator</h1>
+  <p class="tool-lead">How do high-performance databases like Cassandra and RocksDB check if a key exists among millions of disk records in a fraction of a millisecond? Test live insertions on a bit array, inspect false positives, and calculate optimal memory configurations in your browser.</p>
+
+  <section aria-labelledby="interactive-h" class="tool-card" id="interactive-lab">
+    <h2 id="interactive-h">Interactive Bit Array Simulation</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <div class="bf-actions-grid">
+      <form id="bf-insert-form" class="bf-form" novalidate>
+        <label for="bf-key-input">Insert key into filter</label>
+        <div class="tool-row">
+          <input id="bf-key-input" type="text" placeholder="e.g. user:alice or cart:102">
+          <button type="submit" class="tool-btn tool-btn--primary">Insert</button>
+        </div>
+      </form>
+
+      <form id="bf-query-form" class="bf-form" novalidate>
+        <label for="bf-query-input">Query key membership</label>
+        <div class="tool-row">
+          <input id="bf-query-input" type="text" placeholder="e.g. user:alice or visitor:99">
+          <button type="submit" class="tool-btn">Query</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="bf-quick-row">
+      <span class="tool-note">Quick insert samples:</span>
+      <div id="bf-samples" class="tool-row"></div>
+      <button id="bf-clear" type="button" class="tool-btn">Clear filter</button>
+    </div>
+
+    <div id="bf-query-result" class="bf-result-box" hidden></div>
+    <div id="bf-warning" class="bf-warning-box" hidden></div>
+
+    <div class="ll-summary" aria-live="polite" aria-atomic="true">
+      <div class="ll-stat"><span>Items inserted (n)</span><strong id="bf-count"></strong></div>
+      <div class="ll-stat"><span>Bits set to 1</span><strong id="bf-set-count"></strong></div>
+      <div class="ll-stat"><span>Bit saturation</span><strong id="bf-fill"></strong></div>
+      <div class="ll-stat"><span>Theoretical false positive risk</span><strong id="bf-fp"></strong></div>
+    </div>
+
+    <div class="bf-grid-wrapper">
+      <label>64-Bit Array State (Bits marked in accent are currently 1)</label>
+      <div id="bf-grid" class="bf-grid"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="calc-h" class="tool-card" id="dimensioning-calc">
+    <h2 id="calc-h">Optimal Dimensioning Calculator</h2>
+    <p class="tool-note">Calculate the exact memory (m) and optimal hash functions (k) needed for your target capacity (n) and false positive tolerance (p).</p>
+
+    <div class="ll-presets">
+      <span class="ll-presets__label">Production presets</span>
+      <div id="bf-presets" class="tool-row" role="group" aria-label="Production presets"></div>
+    </div>
+
+    <div class="ll-controls">
+      <div class="ll-field">
+        <label for="bf-calc-n">Expected items (n) <output id="bf-calc-n-out" for="bf-calc-n"></output></label>
+        <input id="bf-calc-n" type="range" min="1000" max="1000000" step="5000" value="10000">
+      </div>
+      <div class="ll-field">
+        <label for="bf-calc-p">Target false positive rate (p) <output id="bf-calc-p-out" for="bf-calc-p"></output></label>
+        <input id="bf-calc-p" type="range" min="1" max="100" step="1" value="10">
+      </div>
+    </div>
+
+    <div class="ll-summary" aria-live="polite" aria-atomic="true">
+      <div class="ll-stat"><span>Optimal bit array size (m)</span><strong id="bf-out-m"></strong></div>
+      <div class="ll-stat"><span>Optimal hash functions (k)</span><strong id="bf-out-k"></strong></div>
+      <div class="ll-stat"><span>Bits per item (m / n)</span><strong id="bf-out-bits-item"></strong></div>
+      <div class="ll-stat"><span>Total memory required</span><strong id="bf-out-mem"></strong></div>
+    </div>
+
+    <p id="bf-calc-tip" class="bf-calc-tip"></p>
+  </section>
+
+  <section aria-labelledby="learn-h" class="tool-prose">
+    <h2 id="learn-h">How Bloom Filters Work</h2>
+    <p>A Bloom filter is a space-efficient probabilistic data structure used to test whether an element is a member of a set. It guarantees two fundamental properties:</p>
+    <ul>
+      <li><strong>Zero False Negatives:</strong> If the filter returns <em>false</em>, the element is <strong>definitely not</strong> in the set.</li>
+      <li><strong>Possible False Positives:</strong> If the filter returns <em>true</em>, the element is <strong>probably</strong> in the set, with a mathematically predictable error probability $p$.</li>
+    </ul>
+
+    <h2>The Math Behind Optimal Sizing</h2>
+    <p>Given an expected set size of $n$ elements and an acceptable false positive probability $p$:</p>
+    <ul>
+      <li>The optimal bit array size $m$ is given by: <code>m = -(n * ln(p)) / (ln(2))² ≈ -1.442 * n * log2(p)</code></li>
+      <li>The optimal number of hash functions $k$ is given by: <code>k = (m / n) * ln(2) ≈ 0.693 * (m / n)</code></li>
+      <li>For a typical $p = 1\%$ error rate, the filter requires roughly <strong>9.6 bits per element</strong> and $k = 7$ hash functions, regardless of whether $n$ is ten thousand or ten billion items!</li>
+    </ul>
+
+    <h2>Production Systems Using Bloom Filters</h2>
+    <p>Because checking in-memory bits takes tens of nanoseconds while reading an SSD takes milliseconds, Bloom filters are ubiquitous across modern infrastructure:</p>
+    <ul>
+      <li><strong>RocksDB, LevelDB &amp; Apache Cassandra:</strong> Every SSTable file on disk has an accompanying in-memory Bloom filter. If a key is not in the SSTable, the database skips the disk read entirely.</li>
+      <li><strong>Web Crawlers &amp; Search Engines:</strong> Filter already-visited URLs from trillions of links without storing string URLs in memory.</li>
+      <li><strong>CDNs &amp; Proxies (Akamai, Squid):</strong> Only cache objects requested more than once (the "one-hit-wonder" problem) by tracking first-seen requests in a Bloom filter.</li>
+    </ul>
+
+    <h2>Explore Related Lessons</h2>
+    <p>Read about storage engines in <a href="/backend/04-databases-and-data-layer/03-schema-design-and-indexing/">Schema Design &amp; Indexing</a>, try the <a href="/practice/code/lsm-memtable-and-sstable/">LSM-Tree MemTable &amp; SSTable Compaction</a> coding problem, or explore the <a href="/tools/consistent-hashing/">Consistent Hashing Lab</a>.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/bloom.js"></script>
+</body>
+</html>

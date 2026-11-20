@@ -623,6 +623,11 @@
         "height": 2200
       },
       {
+        "name": "tool-bloom-filter",
+        "path": "/tools/bloom-filter/",
+        "height": 2000
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -701,6 +706,11 @@
       "id": "rate-limiting",
       "url": "/tools/rate-limiting/",
       "entry": "tools/rate-limiting/index.html"
+    },
+    {
+      "id": "bloom-filter",
+      "url": "/tools/bloom-filter/",
+      "entry": "tools/bloom-filter/index.html"
     }
   ]
 }

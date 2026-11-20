@@ -391,5 +391,23 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .rl-sw-rate { background: #e9a053; }
 .rl-row-throttled { background: rgba(220, 53, 69, 0.08); }
 
+/* ---------- the Bloom Filter Lab (/tools/bloom-filter/) ---------- */
+.bf-actions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); margin: var(--space-4) 0; }
+.bf-quick-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
+.bf-result-box { padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; border-radius: var(--r-md); font-size: var(--text-sm); font-weight: 600; }
+.bf-result-box.is-hit { background: var(--signal-bg); border: 1px solid var(--signal); color: var(--signal); }
+.bf-result-box.is-miss { background: rgba(46, 204, 113, 0.1); border: 1px solid var(--done); color: var(--done); }
+.bf-warning-box { padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; background: rgba(233, 160, 83, 0.1); border: 1px solid #e9a053; border-radius: var(--r-md); font-size: var(--text-sm); color: #e9a053; }
+.bf-grid-wrapper { margin: var(--space-4) 0; }
+.bf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 4px; margin-top: var(--space-2); }
+.bf-bit { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 42px; border: 1px solid var(--border-subtle); border-radius: var(--r-sm); background: var(--bg-sunken); font-family: var(--mono); }
+.bf-bit-idx { font-size: 9px; color: var(--fg-subtle); line-height: 1; }
+.bf-bit-val { font-size: 13px; color: var(--fg-muted); line-height: 1.2; }
+.bf-bit.is-set { background: var(--signal-bg); border-color: var(--signal); }
+.bf-bit.is-set .bf-bit-val { color: var(--signal); font-weight: 800; }
+.bf-bit.is-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+.bf-calc-tip { font-size: var(--text-sm); color: var(--fg-muted); margin-top: var(--space-3); }
+
+
 
 
