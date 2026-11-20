@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Design Capacity Estimator &amp; Whiteboard Workbench · %SITE_NAME%</title>
+<meta name="description" content="Free interactive System Design Capacity Estimator and Whiteboard Workbench. Calculate QPS, peak ingress/egress bandwidth, storage growth, 80/20 RAM cache sizing, and database sharding with 1-click Markdown export.">
+<link rel="canonical" href="%SITE_URL%/tools/system-design-estimator/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/system-design-estimator/">
+<meta property="og:title" content="System Design Capacity Estimator &amp; Whiteboard Workbench">
+<meta property="og:description" content="Calculate QPS, network bandwidth, storage growth, and cache memory for high-scale system design interviews.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"System Design Capacity Estimator","url":"%SITE_URL%/tools/system-design-estimator/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/system-design/01-distributed-systems-and-scalability/">System Design Prep</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>System Design Capacity Estimator &amp; Whiteboard Workbench</h1>
+  <p class="tool-lead">Back-of-the-envelope calculations are the foundation of every senior distributed systems interview. Plug in Daily Active Users, read/write ratios, and retention goals to instantly size QPS, peak ingress/egress network pipes, multi-year storage clusters, and Redis cache memory.</p>
+
+  <section aria-labelledby="est-lab-h" class="tool-card" id="est-lab">
+    <h2 id="est-lab-h">Interactive Capacity Sizing Workbench</h2>
+    <noscript><p class="tool-note">This interactive tool requires JavaScript.</p></noscript>
+
+    <!-- Presets -->
+    <div class="est-controls-bar">
+      <div>
+        <span class="tool-note">Interview Architecture Presets:</span>
+        <div id="est-presets-bar" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Main Two-Column Layout: Inputs vs Results -->
+    <div class="est-grid">
+      <!-- Left: Input Assumptions -->
+      <div class="est-inputs-panel">
+        <h3>System Assumptions &amp; Traffic Volume</h3>
+
+        <div class="est-input-group">
+          <label for="est-input-dau">Daily Active Users (DAU)</label>
+          <input type="number" id="est-input-dau" class="tool-input" min="1" step="1000000">
+        </div>
+
+        <div class="tool-row-2">
+          <div class="est-input-group">
+            <label for="est-input-reads">Reads / user / day</label>
+            <input type="number" id="est-input-reads" class="tool-input" min="0" step="1">
+          </div>
+          <div class="est-input-group">
+            <label for="est-input-writes">Writes / user / day</label>
+            <input type="number" id="est-input-writes" class="tool-input" min="0.01" step="0.1">
+          </div>
+        </div>
+
+        <div class="tool-row-2">
+          <div class="est-input-group">
+            <label for="est-input-read-size">Avg Read Payload (KB)</label>
+            <input type="number" id="est-input-read-size" class="tool-input" min="0.1" step="0.5">
+          </div>
+          <div class="est-input-group">
+            <label for="est-input-write-size">Avg Write Payload (KB)</label>
+            <input type="number" id="est-input-write-size" class="tool-input" min="0.1" step="0.5">
+          </div>
+        </div>
+
+        <div class="tool-row-3">
+          <div class="est-input-group">
+            <label for="est-input-retention">Retention (Years)</label>
+            <input type="number" id="est-input-retention" class="tool-input" min="1" max="20" step="1">
+          </div>
+          <div class="est-input-group">
+            <label for="est-input-replication">Replication Factor</label>
+            <select id="est-input-replication" class="tool-select">
+              <option value="1">1x (No replication)</option>
+              <option value="2">2x</option>
+              <option value="3" selected>3x (Production standard)</option>
+              <option value="5">5x (Cross-region)</option>
+            </select>
+          </div>
+          <div class="est-input-group">
+            <label for="est-input-peak-multiplier">Peak Multiplier</label>
+            <select id="est-input-peak-multiplier" class="tool-select">
+              <option value="2">2x</option>
+              <option value="2.5">2.5x</option>
+              <option value="3" selected>3x (Standard)</option>
+              <option value="4">4x</option>
+              <option value="5">5x (Breaking event)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Calculated Results Summary -->
+      <div class="est-results-panel">
+        <h3>Calculated Sizing Specifications</h3>
+
+        <!-- QPS Section -->
+        <div class="est-spec-card">
+          <h4>Traffic Throughput &amp; QPS</h4>
+          <div class="est-spec-grid">
+            <div><span class="tool-note">Total Peak QPS:</span><strong id="est-stat-total-qps" class="est-highlight">-</strong></div>
+            <div><span class="tool-note">Peak Read QPS:</span><strong id="est-stat-read-qps">-</strong></div>
+            <div><span class="tool-note">Peak Write QPS:</span><strong id="est-stat-write-qps">-</strong></div>
+          </div>
+        </div>
+
+        <!-- Network Bandwidth Section -->
+        <div class="est-spec-card">
+          <h4>Network Bandwidth</h4>
+          <div class="est-spec-grid">
+            <div><span class="tool-note">Total Network Pipe:</span><strong id="est-stat-total-bw" class="est-highlight">-</strong></div>
+            <div><span class="tool-note">Ingress (Writes @ Peak):</span><strong id="est-stat-ingress">-</strong></div>
+            <div><span class="tool-note">Egress (Reads @ Peak):</span><strong id="est-stat-egress">-</strong></div>
+          </div>
+        </div>
+
+        <!-- Storage & Cache Section -->
+        <div class="est-spec-card">
+          <h4>Storage &amp; Memory Allocation</h4>
+          <div class="est-spec-grid">
+            <div><span class="tool-note">Replicated Storage:</span><strong id="est-stat-replicated-storage" class="est-highlight">-</strong></div>
+            <div><span class="tool-note">Daily Growth:</span><strong id="est-stat-daily-storage">-</strong></div>
+            <div><span class="tool-note">Raw Cluster Storage:</span><strong id="est-stat-raw-storage">-</strong></div>
+            <div><span class="tool-note">RAM Cache (80/20 Rule):</span><strong id="est-stat-cache-ram" class="est-highlight">-</strong></div>
+          </div>
+        </div>
+
+        <!-- Hardware Sharding Recommendations -->
+        <div class="est-spec-card">
+          <h4>Cluster Hardware Sizing</h4>
+          <div class="est-spec-grid">
+            <div><span class="tool-note">DB Storage Shards:</span><strong id="est-stat-db-shards">-</strong></div>
+            <div><span class="tool-note">Redis Cache Nodes:</span><strong id="est-stat-cache-nodes">-</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exportable Markdown Section -->
+    <div class="est-markdown-section">
+      <div class="lld-codegen-header">
+        <h3>Interview-Ready Markdown Capacity Document</h3>
+        <button id="est-btn-copy-md" type="button" class="tool-btn tool-btn-primary">Copy Markdown to Clipboard</button>
+      </div>
+      <div class="sql-code-box">
+        <pre><code id="est-markdown-preview"></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>System Design Sizing Rules of Thumb</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. The 86,400 Seconds Rule</h3>
+        <p>A standard day has <code>24 &times; 3600 = 86,400</code> seconds. In high-pressure interviews, round up to <strong>100,000 seconds</strong> for lightning-fast mental math. For example, 10 million daily requests divided by 100k seconds equals approximately 100 QPS.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Peak vs. Average Traffic ($2\times$ to $5\times$)</h3>
+        <p>User traffic is never evenly distributed. Daily diurnal curves, timezone bursts, and notification pushes create sharp peaks. System engineers typically size infrastructure for <strong>$2.5\times$ to $3\times$ average QPS</strong>, and up to $5\times$ for flash sales or breaking news.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. The Pareto 80/20 Memory Cache Rule</h3>
+        <p>In almost all consumer applications, 20% of content generates 80% of read traffic. Sizing your Redis or Memcached cluster to hold <strong>20% of daily read volume</strong> guarantees high cache hit rates (&gt;90%), shielding primary databases from read overload.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Disk Capacity vs. IOPS Bottlenecks</h3>
+        <p>Sharding calculations must evaluate both <strong>volume</strong> (e.g. 2 TB NVMe capacity per shard) and <strong>throughput</strong> (e.g. 25,000 IOPS per SSD). High write loads may necessitate sharding long before disk space is exhausted.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/estimator.js"></script>
+</body>
+</html>

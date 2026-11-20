@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kafka &amp; Event Streaming Architecture Simulator · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Apache Kafka &amp; Event Streaming architecture simulator. Experiment with commit logs, partition keys, consumer group rebalancing, consumer lag, and delivery semantics.">
+<link rel="canonical" href="%SITE_URL%/tools/event-streaming/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/event-streaming/">
+<meta property="og:title" content="Kafka &amp; Event Streaming Architecture Simulator">
+<meta property="og:description" content="Visualize partitioned commit logs, consumer group rebalancing, consumer lag, and delivery semantics in Apache Kafka.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Kafka & Event Streaming Architecture Simulator","url":"%SITE_URL%/tools/event-streaming/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Interactive Labs</a>
+    <a href="/backend/05-message-brokers-and-event-driven-architecture/02-apache-kafka-deep-dive/">Kafka Deep Dive</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Kafka &amp; Event Streaming Architecture Simulator</h1>
+  <p class="tool-lead">How do distributed event streaming logs scale horizontally while maintaining strict partition ordering? Publish events across hashed keys, inspect append-only partition logs, crash consumers to trigger group rebalances, and observe consumer lag live.</p>
+
+  <section aria-labelledby="stream-lab-h" class="tool-card" id="stream-lab">
+    <h2 id="stream-lab-h">Event Log &amp; Consumer Group Simulator</h2>
+    <noscript><p class="tool-note">This interactive simulation requires JavaScript.</p></noscript>
+
+    <!-- Preset Scenarios -->
+    <div class="stream-controls-bar">
+      <div>
+        <span class="tool-note">Architectural Scenarios:</span>
+        <div id="stream-scenario-pills" class="tool-row" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <!-- Metrics Summary -->
+    <div class="ll-summary" style="margin: var(--space-4) 0;">
+      <div class="ll-stat"><span>Total Consumer Lag</span><strong id="stream-stat-total-lag">0</strong></div>
+      <div class="ll-stat"><span>Total Messages Logged</span><strong id="stream-stat-total-msgs">0</strong></div>
+      <div class="ll-stat"><span>Consumer Group Health</span><strong id="stream-stat-consumers">2 active</strong></div>
+    </div>
+
+    <!-- Action Toolbar -->
+    <div class="stream-actions-toolbar">
+      <div class="tool-row" style="align-items: center; gap: var(--space-2);">
+        <label for="stream-publish-key" class="tool-note" style="margin: 0;">Message Key:</label>
+        <select id="stream-publish-key" class="tool-select">
+          <option value="order:101">order:101</option>
+          <option value="user:42">user:42</option>
+          <option value="payment:999">payment:999</option>
+          <option value="device:A5">device:A5</option>
+          <option value="cart:303">cart:303</option>
+        </select>
+        <button id="stream-btn-publish" type="button" class="tool-btn tool-btn-primary">Publish Event</button>
+        <button id="stream-btn-burst" type="button" class="tool-btn tool-btn-secondary">Publish Burst (5x)</button>
+      </div>
+
+      <div class="tool-row" style="align-items: center; gap: var(--space-2); margin-top: 8px;">
+        <label for="stream-semantics-select" class="tool-note" style="margin: 0;">Delivery Semantics:</label>
+        <select id="stream-semantics-select" class="tool-select">
+          <option value="atLeastOnce">At-Least-Once (Default)</option>
+          <option value="atMostOnce">At-Most-Once</option>
+          <option value="idempotent">Exactly-Once / Idempotent</option>
+        </select>
+        <button id="stream-btn-consume" type="button" class="tool-btn tool-btn-primary">Poll &amp; Consume Batch</button>
+        <button id="stream-btn-add-consumer" type="button" class="tool-btn tool-btn-secondary">+ Add Consumer</button>
+      </div>
+    </div>
+
+    <!-- Semantics Note -->
+    <div class="stream-semantics-info">
+      <span class="tool-note">Semantics Guarantee: </span>
+      <span id="stream-semantics-desc" class="stream-semantics-desc-text">Offsets committed after successful processing.</span>
+    </div>
+
+    <!-- Layout: Partitions and Consumers Grid -->
+    <div class="stream-grid">
+      <!-- Left: Topic Partitions -->
+      <div class="stream-partitions-panel">
+        <h3>Topic: <code>orders-stream</code> (Partitions &amp; Offsets)</h3>
+        <p class="tool-note">Messages are appended to partitions deterministically via FNV-1a key hash modulo partition count.</p>
+        <div id="stream-partitions-list" class="stream-partitions-container"></div>
+      </div>
+
+      <!-- Right: Consumer Group & Activity Console -->
+      <div class="stream-consumers-panel">
+        <h3>Consumer Group: <code>order-workers</code></h3>
+        <p class="tool-note">Each partition is consumed by exactly one consumer in the group. If consumer count &gt; partition count, excess consumers sit idle.</p>
+        <div id="stream-consumers-list" class="stream-consumers-container"></div>
+
+        <div class="stream-console-wrapper">
+          <div class="lld-codegen-header">
+            <h4>Consumer Group Activity Log</h4>
+            <button id="stream-btn-clear-logs" type="button" class="tool-btn tool-btn-sm">Clear</button>
+          </div>
+          <div id="stream-console" class="stream-console"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deep Dive Educational Cards -->
+  <section class="tool-card" style="margin-top: var(--space-5);">
+    <h2>Key Event Streaming Mechanics Explained</h2>
+    <div class="tool-grid-2">
+      <div class="tool-card-inner">
+        <h3>1. Append-Only Commit Logs &amp; Offsets</h3>
+        <p>Unlike traditional message queues (e.g. RabbitMQ) where consumed messages are deleted from the broker, Kafka retains messages on disk in an append-only sequential log. Consumers simply maintain an <strong>offset pointer</strong> into each partition, allowing high-throughput sequential disk I/O and arbitrary offset rewinds for replayability.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>2. Partitioning &amp; Key Routing</h3>
+        <p>A topic is sharded into multiple partitions. Kafka computes <code>hash(key) % num_partitions</code> to assign messages with the same key (such as <code>order_id</code> or <code>user_id</code>) to the exact same partition, guaranteeing total causal ordering for that entity while enabling parallel consumption across partitions.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>3. Consumer Groups &amp; Dynamic Rebalancing</h3>
+        <p>Consumers belonging to the same group coordinate partition ownership. When a consumer joins or crashes, the Group Coordinator detects heartbeat failure and triggers a <strong>rebalance</strong>, reassigning orphan partitions to remaining active members without downtime.</p>
+      </div>
+      <div class="tool-card-inner">
+        <h3>4. Consumer Lag &amp; Delivery Guarantees</h3>
+        <p><strong>Consumer lag</strong> is the delta between the latest log offset produced and the current committed offset of the consumer. High lag signals downstream processing bottlenecks. Changing commit timing dictates guarantees: committing before processing causes message loss (At-Most-Once), while committing after processing causes duplicates upon crash (At-Least-Once).</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/eventstream.js"></script>
+</body>
+</html>

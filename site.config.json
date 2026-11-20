@@ -648,6 +648,16 @@
         "height": 2200
       },
       {
+        "name": "tool-event-streaming",
+        "path": "/tools/event-streaming/",
+        "height": 2200
+      },
+      {
+        "name": "tool-system-design-estimator",
+        "path": "/tools/system-design-estimator/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -751,6 +761,16 @@
       "id": "sql-optimizer",
       "url": "/tools/sql-optimizer/",
       "entry": "tools/sql-optimizer/index.html"
+    },
+    {
+      "id": "event-streaming",
+      "url": "/tools/event-streaming/",
+      "entry": "tools/event-streaming/index.html"
+    },
+    {
+      "id": "system-design-estimator",
+      "url": "/tools/system-design-estimator/",
+      "entry": "tools/system-design-estimator/index.html"
     }
   ]
 }
