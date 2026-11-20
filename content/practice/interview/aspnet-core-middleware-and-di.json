@@ -15,7 +15,7 @@
     },
     {
       "q": "What do app.Map and app.MapWhen do in the middleware pipeline?",
-      "a": "`app.Map` branches the middleware pipeline based on a matching request URL path prefix (e.g. `app.Map(\"/api\", apiApp => ...)`). `app.MapWhen` branches the pipeline conditionally based on an arbitrary predicate predicate evaluated against the `HttpContext` (e.g. checking query strings, headers, or client IP). If the predicate matches, execution diverges into the branch."
+      "a": "`app.Map` branches the middleware pipeline based on a matching request URL path prefix (e.g. `app.Map(\"/api\", apiApp => ...)`). `app.MapWhen` branches the pipeline conditionally based on an arbitrary predicate evaluated against the `HttpContext` (e.g. checking query strings, headers, or client IP). If the predicate matches, execution diverges into the branch."
     },
     {
       "q": "Why does the order of middleware matter in ASP.NET Core? Give the standard order.",
@@ -95,7 +95,7 @@
     },
     {
       "q": "What is the architectural difference between MVC Controllers and Minimal APIs in ASP.NET Core?",
-      "a": "**Controllers** rely on heavy reflection, dynamic model metadata binding, action filter pipelines, and instantiating a controller class per request. **Minimal APIs** route requests directly to lightweight delegate handlers using source generators, bypassing MVC filter pipeline overhead. Minimal APIs reduce memory allocations, drastically accelerate cold starts, and are fully compatible with Native AOT."
+      "a": "**Controllers** rely on heavy reflection, dynamic model metadata binding, action filter pipelines, and instantiating a controller class per request. **Minimal APIs** route requests directly to lightweight delegate handlers, bypassing controller activation and the MVC filter pipeline. Minimal APIs cut per-request allocations and startup work and, with the request delegate source generator (.NET 8), work with Native AOT, which MVC controllers do not."
     },
     {
       "q": "What are the five categories of action filters in ASP.NET Core MVC, and what is their execution order?",
