@@ -1,0 +1,30 @@
+{
+  "title": "Count-Min Sketch Frequency Estimator",
+  "topic": "databases-and-indexing",
+  "difficulty": "advanced",
+  "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+  "description": "Estimate event frequencies in high-throughput data streams using a 2D Count-Min Sketch matrix.",
+  "statement": "The **Count-Min Sketch** (Cormode & Muthukrishnan, 2005) is a sub-linear space probabilistic data structure for tracking frequency of events in massive data streams (e.g. network packet tracking, heavy-hitter detection, search query trending).\n\nUnlike an exact hash map which grows as $O(N)$ unique keys, a Count-Min Sketch uses a fixed 2D table of dimensions $d \\times w$ ($d$ independent hash functions, $w$ counters per row):\n\n1. **Initialization:** Table $M$ of size $d \\times w$ initialized to zeros.\n2. **Addition:** When an item is added with weight $c \\ge 1$, compute $d$ hash values: for each row $i \\in [0, d-1]$, map the item to column $j = h_i(\\text{item}) \\pmod w$, and increment $M[i][j] \\mathrel{+}= c$.\n3. **Estimation:** The estimated frequency of an item is the **minimum** across all $d$ rows:\n   $$\\hat{f}(\\text{item}) = \\min_{i=0..d-1} M[i][h_i(\\text{item}) \\pmod w]$$\n   Because hash collisions only ever *increase* counter values, the estimate is guaranteed to never underestimate the true frequency ($f \\le \\hat{f}$), and taking the minimum across $d$ rows significantly reduces collision bias.\n\n### Your Task\n\nImplement `CountMinSketch` in Python:\n- `__init__(self, width: int = 100, depth: int = 4, seed: int = 0)`: Initializes table of shape `[depth][width]`.\n- `add(self, item: str, count: int = 1) -> None`: Hashes item for each row $i$ using `hashlib.sha256(f\"{self.seed}:{i}:{item}\".encode()).digest()`, reduces to column index `j = int.from_bytes(digest[:4], 'big') % self.width`, and adds `count` to `self.table[i][j]`.\n- `estimate(self, item: str) -> int`: Computes column index for each row and returns $\\min$ of the table values.",
+  "starter": "import hashlib\n\nclass CountMinSketch:\n    def __init__(self, width: int = 100, depth: int = 4, seed: int = 0):\n        self.width = width\n        self.depth = depth\n        self.seed = seed\n        self.table = [[0] * width for _ in range(depth)]\n\n    def add(self, item: str, count: int = 1) -> None:\n        pass\n\n    def estimate(self, item: str) -> int:\n        return 0\n",
+  "solution": "import hashlib\n\nclass CountMinSketch:\n    def __init__(self, width: int = 100, depth: int = 4, seed: int = 0):\n        self.width = width\n        self.depth = depth\n        self.seed = seed\n        self.table = [[0] * width for _ in range(depth)]\n\n    def _hash(self, row: int, item: str) -> int:\n        digest = hashlib.sha256(f\"{self.seed}:{row}:{item}\".encode('utf-8')).digest()\n        return int.from_bytes(digest[:4], byteorder='big') % self.width\n\n    def add(self, item: str, count: int = 1) -> None:\n        for row in range(self.depth):\n            col = self._hash(row, item)\n            self.table[row][col] += count\n\n    def estimate(self, item: str) -> int:\n        return min(self.table[row][self._hash(row, item)] for row in range(self.depth))\n",
+  "tests": [
+    {
+      "name": "unseen item returns zero estimate in clean sketch",
+      "code": "cms = CountMinSketch(width=50, depth=4)\nassert cms.estimate(\"unseen\") == 0"
+    },
+    {
+      "name": "exact count tracking without collisions",
+      "code": "cms = CountMinSketch(width=200, depth=5, seed=42)\ncms.add(\"apple\", 10)\ncms.add(\"banana\", 25)\ncms.add(\"apple\", 5)\n\nassert cms.estimate(\"apple\") == 15\nassert cms.estimate(\"banana\") == 25"
+    },
+    {
+      "name": "frequency estimation under heavy traffic never underestimates",
+      "code": "cms = CountMinSketch(width=100, depth=4, seed=123)\ncounts = {\"reqA\": 500, \"reqB\": 200, \"reqC\": 50}\nfor item, cnt in counts.items():\n    cms.add(item, cnt)\n\n# Also inject 100 random noise items of weight 1\nfor i in range(100):\n    cms.add(f\"noise_{i}\", 1)\n\n# Count-Min sketch guarantees estimate >= true count\nassert cms.estimate(\"reqA\") >= 500\nassert cms.estimate(\"reqB\") >= 200\nassert cms.estimate(\"reqC\") >= 50\n# Error should be reasonably small relative to stream size\nassert cms.estimate(\"reqA\") <= 520"
+    }
+  ],
+  "hints": [
+    "Use a helper `_hash(self, row: int, item: str) -> int` to compute `int.from_bytes(digest[:4], 'big') % self.width`.",
+    "During `add()`, increment the counter at `self.table[row][col]` for every row `row \\in [0, self.depth - 1]`.",
+    "During `estimate()`, return `min(self.table[row][self._hash(row, item)] for row in range(self.depth))`."
+  ],
+  "explanation": "**Why Count-Min Sketch?** Unlike HyperLogLog (which only counts distinct items), Count-Min Sketch estimates individual item frequencies. Because hash collisions can only add to counters, taking the minimum over $d$ rows suppresses false positives with error bounded by $\\epsilon = e / w$ and confidence $1 - \\delta = 1 - e^{-d}$."
+}

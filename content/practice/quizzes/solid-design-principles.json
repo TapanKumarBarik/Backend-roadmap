@@ -1,0 +1,136 @@
+{
+  "title": "SOLID design principles in backend architecture",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion in production backends.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "An OrderService class validates order inputs, calculates tax rates, charges Stripe credit cards, generates a PDF invoice, and sends an SMTP confirmation email. Which SOLID principle does this class most directly violate?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interface Segregation Principle (ISP)"
+        },
+        {
+          "id": "b",
+          "text": "Single Responsibility Principle (SRP)"
+        },
+        {
+          "id": "c",
+          "text": "Liskov Substitution Principle (LSP)"
+        },
+        {
+          "id": "d",
+          "text": "Dependency Inversion Principle (DIP)"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Single Responsibility Principle (SRP) states that a class should have only one reason to change. Combining tax logic, payment gateway integration, PDF rendering, and email transport gives this class multiple disparate business actors and reasons to change."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "How do you refactor an application containing an 'if (paymentType == \"CREDIT_CARD\") ... else if (paymentType == \"PAYPAL\") ... else if (paymentType == \"CRYPTO\")' block to adhere to the Open/Closed Principle (OCP)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Replace the if-else chain with a switch statement inside the same method"
+        },
+        {
+          "id": "b",
+          "text": "Define a PaymentStrategy interface and register distinct strategy implementations in a factory or dependency injection container"
+        },
+        {
+          "id": "c",
+          "text": "Store all payment credentials in a JSON configuration file"
+        },
+        {
+          "id": "d",
+          "text": "Make all payment classes static singletons"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Open/Closed Principle states software entities should be open for extension but closed for modification. Introducing a PaymentStrategy interface allows adding new payment methods (e.g. Apple Pay) by creating new classes without modifying existing, tested checkout code."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A base class 'ReadOnlyRepository' has a method 'getById(id)'. A subclass 'CachedRepository' overrides it, but throws an UnsupportedOperationException whenever a cache miss occurs. Which SOLID principle is violated?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Liskov Substitution Principle (LSP)"
+        },
+        {
+          "id": "b",
+          "text": "Single Responsibility Principle (SRP)"
+        },
+        {
+          "id": "c",
+          "text": "Open/Closed Principle (OCP)"
+        },
+        {
+          "id": "d",
+          "text": "Dependency Inversion Principle (DIP)"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The Liskov Substitution Principle (LSP) requires that subclasses can replace parent classes without altering the correctness of the program. Strengthening preconditions, throwing unexpected exceptions, or weakening postconditions violates LSP."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What is the primary architectural benefit of the Dependency Inversion Principle (DIP: High-level modules should not depend on low-level modules; both should depend on abstractions)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It makes SQL database queries execute with fewer table locks"
+        },
+        {
+          "id": "b",
+          "text": "It decouples core domain business rules from volatile infrastructure details (like specific databases, third-party APIs, or web frameworks), making code unit-testable via mocks"
+        },
+        {
+          "id": "c",
+          "text": "It eliminates the need for unit tests entirely"
+        },
+        {
+          "id": "d",
+          "text": "It compresses class bytecode in memory"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "DIP decouples core business logic from external libraries and I/O. For instance, UserService depends on an abstract UserRepository interface rather than a concrete PostgresUserRepository, allowing in-memory testing without a live database."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "The Interface Segregation Principle (ISP) suggests that creating many small, client-specific role interfaces is preferable to a single bloated, general-purpose interface.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. ISP states that no client should be forced to depend on methods it does not use. Breaking giant interfaces into role-focused interfaces (e.g. Reader, Writer, Closer instead of an all-in-one FileHandler) prevents unnecessary coupling."
+    }
+  ]
+}

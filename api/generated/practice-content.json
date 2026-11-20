@@ -8275,6 +8275,142 @@
     }
    ]
   },
+  "production-devops-and-deployment": {
+   "title": "Production DevOps, deployment strategies, and SRE",
+   "topic": "devops",
+   "difficulty": "intermediate",
+   "module": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md",
+   "description": "Blue-Green, Canary, Rolling deployments, expand-and-contract database migrations, Kubernetes health probes, and graceful shutdown.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "In a Canary Deployment, how is traffic routed to the newly deployed software version?",
+     "options": [
+      {
+       "id": "a",
+       "text": "100% of traffic is switched to the new environment instantaneously"
+      },
+      {
+       "id": "b",
+       "text": "A tiny percentage of live user traffic (e.g. 2% to 5%) is routed to the new version while monitoring error rates and latency before gradually ramping up to 100%"
+      },
+      {
+       "id": "c",
+       "text": "Only automated synthetic test bots are permitted to access the canary version"
+      },
+      {
+       "id": "d",
+       "text": "Traffic is alternated between version A and B based on odd and even seconds"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Canary deployments expose a small subset of real user traffic to the new release. Observability monitors P99 latency and error rates; if anomalies appear, traffic is rolled back with minimal user blast radius."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "How does the 'Expand and Contract' (Parallel Run) pattern achieve zero-downtime database schema migrations during rolling deployments?",
+     "options": [
+      {
+       "id": "a",
+       "text": "By locking the database table for 10 minutes at midnight"
+      },
+      {
+       "id": "b",
+       "text": "Phase 1: Expand by adding new columns without deleting old ones; Phase 2: Deploy code writing to both; Phase 3: Contract by dropping old columns only after all old app versions are retired"
+      },
+      {
+       "id": "c",
+       "text": "By migrating the database to a NoSQL key-value store"
+      },
+      {
+       "id": "d",
+       "text": "By creating a brand new database cluster for each deployment"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Because rolling deployments have old and new app versions running concurrently, dropping or renaming a column in-place breaks old pods. Expand-and-contract ensures backwards and forwards compatibility across deployment phases."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "What is the critical distinction between a Kubernetes Liveness Probe and a Readiness Probe?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Liveness determines if the container is running (if it fails, Kubelet restarts it); Readiness determines if the container is ready to accept traffic (if it fails, Kubelet removes it from service endpoints)"
+      },
+      {
+       "id": "b",
+       "text": "Liveness is for HTTP; Readiness is for gRPC"
+      },
+      {
+       "id": "c",
+       "text": "Liveness runs only once at startup; Readiness runs continuously"
+      },
+      {
+       "id": "d",
+       "text": "There is no difference; they are interchangeable"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "If a pod is overloaded or warming up its local cache, failing a Readiness probe cleanly removes it from load balancer routing without terminating it. Failing a Liveness probe kills and restarts the container, which can cause cascading crash loops if dependencies are down."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "When a containerized backend receives a SIGTERM signal during a rolling deployment, what should its Graceful Shutdown sequence do?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Exit immediately with exit code 0"
+      },
+      {
+       "id": "b",
+       "text": "Stop accepting new incoming connections, finish processing in-flight active requests, close database connection pools and background workers, and then exit before SIGKILL arrives"
+      },
+      {
+       "id": "c",
+       "text": "Ignore the signal and continue running indefinitely"
+      },
+      {
+       "id": "d",
+       "text": "Flush all cache keys to disk synchronously"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A graceful shutdown prevents dropping client connections in-flight: the process unregisters from service discovery, stops accepting new requests, drains active HTTP requests within the termination grace period (e.g. 30s), closes DB pools, and cleanly exits."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "In a Blue-Green deployment, both environments (Blue = current live, Green = new version) run simultaneously, allowing instantaneous rollback by switching the router/load balancer back to Blue.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Blue-Green maintains two identical production environments. The new code is tested on Green in isolation; flipping the router switches 100% of user traffic to Green. If an issue is detected, switching back to Blue takes seconds."
+    }
+   ]
+  },
   "prompting-and-tool-calling": {
    "title": "Prompting and tool calling",
    "topic": "agents",
@@ -10207,6 +10343,142 @@
       "b"
      ],
      "explanation": "Anyone who guesses a valid id becomes that user. Use a cryptographically secure random generator and enough bits that guessing is hopeless."
+    }
+   ]
+  },
+  "solid-design-principles": {
+   "title": "SOLID design principles in backend architecture",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion in production backends.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "An OrderService class validates order inputs, calculates tax rates, charges Stripe credit cards, generates a PDF invoice, and sends an SMTP confirmation email. Which SOLID principle does this class most directly violate?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Interface Segregation Principle (ISP)"
+      },
+      {
+       "id": "b",
+       "text": "Single Responsibility Principle (SRP)"
+      },
+      {
+       "id": "c",
+       "text": "Liskov Substitution Principle (LSP)"
+      },
+      {
+       "id": "d",
+       "text": "Dependency Inversion Principle (DIP)"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The Single Responsibility Principle (SRP) states that a class should have only one reason to change. Combining tax logic, payment gateway integration, PDF rendering, and email transport gives this class multiple disparate business actors and reasons to change."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "How do you refactor an application containing an 'if (paymentType == \"CREDIT_CARD\") ... else if (paymentType == \"PAYPAL\") ... else if (paymentType == \"CRYPTO\")' block to adhere to the Open/Closed Principle (OCP)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Replace the if-else chain with a switch statement inside the same method"
+      },
+      {
+       "id": "b",
+       "text": "Define a PaymentStrategy interface and register distinct strategy implementations in a factory or dependency injection container"
+      },
+      {
+       "id": "c",
+       "text": "Store all payment credentials in a JSON configuration file"
+      },
+      {
+       "id": "d",
+       "text": "Make all payment classes static singletons"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The Open/Closed Principle states software entities should be open for extension but closed for modification. Introducing a PaymentStrategy interface allows adding new payment methods (e.g. Apple Pay) by creating new classes without modifying existing, tested checkout code."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "A base class 'ReadOnlyRepository' has a method 'getById(id)'. A subclass 'CachedRepository' overrides it, but throws an UnsupportedOperationException whenever a cache miss occurs. Which SOLID principle is violated?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Liskov Substitution Principle (LSP)"
+      },
+      {
+       "id": "b",
+       "text": "Single Responsibility Principle (SRP)"
+      },
+      {
+       "id": "c",
+       "text": "Open/Closed Principle (OCP)"
+      },
+      {
+       "id": "d",
+       "text": "Dependency Inversion Principle (DIP)"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "The Liskov Substitution Principle (LSP) requires that subclasses can replace parent classes without altering the correctness of the program. Strengthening preconditions, throwing unexpected exceptions, or weakening postconditions violates LSP."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "What is the primary architectural benefit of the Dependency Inversion Principle (DIP: High-level modules should not depend on low-level modules; both should depend on abstractions)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It makes SQL database queries execute with fewer table locks"
+      },
+      {
+       "id": "b",
+       "text": "It decouples core domain business rules from volatile infrastructure details (like specific databases, third-party APIs, or web frameworks), making code unit-testable via mocks"
+      },
+      {
+       "id": "c",
+       "text": "It eliminates the need for unit tests entirely"
+      },
+      {
+       "id": "d",
+       "text": "It compresses class bytecode in memory"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "DIP decouples core business logic from external libraries and I/O. For instance, UserService depends on an abstract UserRepository interface rather than a concrete PostgresUserRepository, allowing in-memory testing without a live database."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "The Interface Segregation Principle (ISP) suggests that creating many small, client-specific role interfaces is preferable to a single bloated, general-purpose interface.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. ISP states that no client should be forced to depend on methods it does not use. Breaking giant interfaces into role-focused interfaces (e.g. Reader, Writer, Closer instead of an all-in-one FileHandler) prevents unnecessary coupling."
     }
    ]
   },
@@ -13456,6 +13728,30 @@
     }
    ]
   },
+  "distributed-job-scheduler-design": {
+   "title": "Designing a Distributed Job Scheduler",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+   "questions": [
+    {
+     "q": "How do you design a distributed scheduler (e.g. Distributed Cron or Temporal) that can trigger millions of scheduled jobs with millisecond precision?",
+     "a": "Architecture components: (1) Ingestion & Store: Store scheduled tasks in a distributed database partitioned by execution time: task_id, execution_time, cron_expression, payload. (2) Two-Tier Time-Wheel / Bucketing: A Dispatcher service scans upcoming tasks in 1-minute time slices into an in-memory Hierarchical Timing Wheel. (3) Task Queue: When a task is due, the scheduler publishes a trigger message to a distributed message queue (Kafka/RabbitMQ) with task metadata. (4) Worker Pool: Stateless worker nodes pull execution messages, acquire distributed execution locks, run the user task, and update status."
+    },
+    {
+     "q": "How do you ensure that a scheduled task executes exactly once and is not triggered twice by competing scheduler nodes?",
+     "a": "Use a combination of Leader Election (or Partition Sharding) and Distributed Mutex Locks. Schedulers either shard time buckets using Consistent Hashing (so only one node owns bucket T) or acquire a distributed lease using Redis Redlock or ZooKeeper/etcd leader election. When dispatching, execute an atomic compare-and-swap: UPDATE tasks SET status = 'TRIGGERED', locked_by = node_id, locked_at = now WHERE id = ? AND status = 'SCHEDULED'. If another node already updated the status, the second node aborts."
+    },
+    {
+     "q": "What is a 'Misfire Policy' and how should the scheduler handle tasks that were missed due to a scheduler outage or database lag?",
+     "a": "A misfire occurs when a task's scheduled execution time passes without being triggered (e.g. scheduler node crashed for 15 minutes). Configurable misfire policies per task: (1) Run Immediately (Fire Once): Execute one catch-up run now, and resume regular future cron schedule (typical for reporting or invoice generation). (2) Reschedule Next: Ignore all missed runs and wait for the next scheduled occurrence (typical for idempotent cleanup jobs). (3) Backfill All: Execute all missed intervals sequentially in order (critical for billing or financial ledger increments)."
+    },
+    {
+     "q": "How do you monitor worker execution and handle crashed workers that died halfway through job processing?",
+     "a": "Implement Worker Heartbeats and Visibility Timeouts. When a worker picks up a job, it sets a visibility lease (e.g. 60 seconds). While running, the worker sends periodic heartbeats (e.g. every 15s) to extend the lease. If the worker crashes or loses network connectivity, heartbeats stop. A reaper process detects expired leases, transitions the task back to 'PENDING', increments the retry counter, and re-enqueues it for another healthy worker to claim."
+    }
+   ]
+  },
   "distributed-rate-limiter-design": {
    "title": "Designing a Global Distributed Rate Limiter",
    "topic": "system-design",
@@ -14616,6 +14912,30 @@
     }
    ]
   },
+  "site-reliability-and-incident-management": {
+   "title": "Site Reliability Engineering (SRE) and Incident Management",
+   "topic": "observability",
+   "difficulty": "advanced",
+   "module": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md",
+   "questions": [
+    {
+     "q": "What is the concrete difference between SLIs, SLOs, and SLAs, and how do SRE teams use Error Budgets to balance feature velocity with reliability?",
+     "a": "An SLI (Service Level Indicator) is a quantifiable metric of service performance (e.g. % of successful HTTP requests with latency < 200ms). An SLO (Service Level Objective) is the internal target reliability agreed upon by product and engineering (e.g. 99.9% over a rolling 30-day window). An SLA (Service Level Agreement) is the external contractual commitment to customers carrying financial penalties (e.g. 99.5%). The Error Budget is 100% - SLO (e.g. 0.1% = ~43 minutes downtime/month). If the error budget is healthy, developers deploy fast; if burned, feature launches are paused and engineering shifts entirely to reliability, tests, and infrastructure hardening."
+    },
+    {
+     "q": "How do you alert on SLO Error Budget Burn Rates to eliminate alert fatigue while ensuring critical outages wake up on-call engineers within minutes?",
+     "a": "Avoid static threshold alerts (e.g. CPU > 80% or 5xx > 10). Instead, alert on Multi-Window Multi-Burn-Rate alarms: (1) Paging / Critical Alert: Triggers if 2% of the 30-day error budget is consumed in a 1-hour window (14.4x burn rate, meaning total budget exhaustion in 2 days). (2) Ticket / Low Priority: Triggers if 5% of error budget is consumed over 6 hours (6x burn rate). Verifying with a secondary shorter lookback window (e.g. 5 minutes) prevents waking engineers on momentary 1-second recovery blips."
+    },
+    {
+     "q": "What are the essential phases of conducting a Blameless Postmortem after a major P0 production outage?",
+     "a": "A blameless postmortem assumes that human operators acted in good faith with the information available. Phases: (1) Timeline Reconstruction: Document minute-by-minute detection, triage, mitigation, and recovery timestamps. (2) Impact Analysis: Quantify customer downtime, failed transactions, and SLA impact. (3) 5-Whys Root Cause: Dig past proximate human error (e.g. 'engineer pushed a bad config') to systemic vulnerabilities (e.g. why didn't automated validation or CI reject the config before deploy?). (4) Action Items: Specific, assigned, tracked preventative tasks (P0/P1) with deadlines to ensure this failure mode cannot recur."
+    },
+    {
+     "q": "How does Chaos Engineering (e.g. Chaos Monkey) improve system resilience in production Kubernetes clusters?",
+     "a": "Chaos Engineering proactively injects controlled failures into staging and production (e.g. terminating random pods, injecting network latency, dropping database packets, simulating AZ power loss) to uncover architectural blind spots before real outages happen. It verifies whether retry mechanisms, circuit breakers, fallback caches, and auto-scaling groups recover automatically without human intervention."
+    }
+   ]
+  },
   "structural-patterns": {
    "title": "Structural Design Patterns",
    "topic": "lld",
@@ -15531,6 +15851,37 @@
    "solution": "def ship_within_days(weights, days):\n    def days_needed(capacity):\n        used, load = 1, 0\n        for weight in weights:\n            if load + weight > capacity:       # it does not fit today: start a new day\n                used, load = used + 1, 0\n            load += weight\n        return used\n\n    lo, hi = max(weights), sum(weights)        # at least the heaviest package, at most everything in one day\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if days_needed(mid) <= days:\n            hi = mid                           # mid is enough; perhaps something smaller is too\n        else:\n            lo = mid + 1\n    return lo\n",
    "explanation": "**The idea.** You cannot binary search the packages, but you can binary search the **answer**. If a ship of capacity `c` gets the job done in time, so does any bigger ship. So \"does capacity `c` work?\" is false, false, ..., true, true as `c` grows, and the answer is the first `true`.\n\n**Checking one capacity.** A single greedy pass: keep loading packages until the next one would not fit, then start a new day. With the order fixed, this uses the fewest days that capacity allows.\n\n**The range.** The answer is at least the heaviest package (a smaller ship could never carry it) and at most the total weight (everything in one day). A lower start makes the day count meaningless; the `[5, 5, 5]` example with ten days catches it.\n\n**The loop.** When a capacity works, keep it as a candidate (`hi = mid`); when it does not, rule it out (`lo = mid + 1`). Stop when `lo == hi`.\n\n**Complexity.** O(n log S) time for n packages of total weight S (about log S steps, each one pass over the packages), O(1) extra space.\n\n**Follow-up.** The same pattern solves \"split an array into k parts with the smallest possible largest sum\", \"minimum eating speed\" and \"minimum time to finish all jobs\"."
   },
+  "chandy-lamport-snapshot": {
+   "title": "Chandy-Lamport Distributed Snapshot Protocol",
+   "topic": "distributed-systems",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+   "description": "Simulate process state and in-flight channel message recording in an asynchronous network.",
+   "statement": "The **Chandy-Lamport algorithm** (1985) captures a consistent global snapshot of a distributed system without pausing normal processing. It forms the algorithmic foundation of **Apache Flink's asynchronous checkpointing**.\n\nIn a network of processes connected by directed FIFO channels:\n\n1. **Initiation:** When process $P$ initiates a snapshot:\n   - $P$ records its own local state.\n   - $P$ immediately sends a special control message `\"MARKER\"` along all its outgoing channels.\n   - $P$ begins recording incoming messages on all incoming channels.\n\n2. **Receiving a Marker on channel $C$:**\n   - **First time seeing a marker:** If process $Q$ has NOT yet recorded its state:\n     - $Q$ records its current local state.\n     - $Q$ records the state of channel $C$ as **empty** (no in-flight messages).\n     - $Q$ sends a `\"MARKER\"` on all its outgoing channels.\n     - $Q$ begins recording incoming messages on all incoming channels *except* $C$.\n   - **Subsequent markers:** If $Q$ has ALREADY recorded its state:\n     - $Q$ stops recording messages on channel $C$. The recorded messages on channel $C$ since $Q$'s local snapshot represent the in-flight channel state.\n\n### Your Task\n\nImplement `DistributedProcess` in Python:\n- `__init__(self, pid: str, state: int, incoming_channels: list[str], outgoing_channels: list[str])`\n- `start_snapshot(self) -> list[tuple[str, str]]`: Initiates snapshot. Records local state. Returns list of `(out_channel, \"MARKER\")` to send.\n- `receive_marker(self, channel_id: str) -> list[tuple[str, str]]`: Handles marker arrival on `channel_id`. If first marker seen, takes snapshot, marks `channel_id` empty, starts recording other incoming channels, and returns `(out_chan, \"MARKER\")` for all outgoing channels. If already snapshotted, stops recording on `channel_id` and returns `[]`.\n- `receive_message(self, channel_id: str, msg: str) -> None`: Delivers a normal application message on `channel_id`. Updates local state (e.g. if `msg == \"+10\"`, adds 10 to state). If currently recording on `channel_id`, also appends `msg` to that channel's snapshot state.\n- `get_snapshot() -> dict`: Returns `{\"state\": self.saved_state, \"channels\": {chan: list_of_recorded_messages}}`.",
+   "starter": "class DistributedProcess:\n    def __init__(self, pid: str, state: int, incoming_channels: list[str], outgoing_channels: list[str]):\n        self.pid = pid\n        self.state = state\n        self.incoming = incoming_channels\n        self.outgoing = outgoing_channels\n\n    def start_snapshot(self) -> list[tuple[str, str]]:\n        return []\n\n    def receive_marker(self, channel_id: str) -> list[tuple[str, str]]:\n        return []\n\n    def receive_message(self, channel_id: str, msg: str) -> None:\n        pass\n\n    def get_snapshot(self) -> dict:\n        return {}\n",
+   "solution": "class DistributedProcess:\n    def __init__(self, pid: str, state: int, incoming_channels: list[str], outgoing_channels: list[str]):\n        self.pid = pid\n        self.state = state\n        self.incoming = incoming_channels\n        self.outgoing = outgoing_channels\n        self.has_snapshotted = False\n        self.saved_state = None\n        self.channel_snapshots = {}\n        self.recording_channels = set()\n\n    def start_snapshot(self) -> list[tuple[str, str]]:\n        self.has_snapshotted = True\n        self.saved_state = self.state\n        for ch in self.incoming:\n            self.channel_snapshots[ch] = []\n            self.recording_channels.add(ch)\n        return [(ch, \"MARKER\") for ch in self.outgoing]\n\n    def receive_marker(self, channel_id: str) -> list[tuple[str, str]]:\n        if not self.has_snapshotted:\n            self.has_snapshotted = True\n            self.saved_state = self.state\n            for ch in self.incoming:\n                self.channel_snapshots[ch] = []\n                if ch != channel_id:\n                    self.recording_channels.add(ch)\n            return [(ch, \"MARKER\") for ch in self.outgoing]\n        else:\n            if channel_id in self.recording_channels:\n                self.recording_channels.remove(channel_id)\n            return []\n\n    def receive_message(self, channel_id: str, msg: str) -> None:\n        # Apply message effect to state (parse integer delta if present)\n        if msg.startswith(\"+\"):\n            self.state += int(msg[1:])\n        elif msg.startswith(\"-\"):\n            self.state -= int(msg[1:])\n\n        if channel_id in self.recording_channels:\n            self.channel_snapshots[channel_id].append(msg)\n\n    def get_snapshot(self) -> dict:\n        return {\n            \"state\": self.saved_state,\n            \"channels\": {k: list(v) for k, v in self.channel_snapshots.items()}\n        }\n",
+   "tests": [
+    {
+     "name": "initiator records state and returns markers on outgoing channels",
+     "code": "p1 = DistributedProcess(\"p1\", state=100, incoming_channels=[\"c_in\"], outgoing_channels=[\"c_out1\", \"c_out2\"])\nmarkers = p1.start_snapshot()\nassert markers == [(\"c_out1\", \"MARKER\"), (\"c_out2\", \"MARKER\")]\nsnap = p1.get_snapshot()\nassert snap[\"state\"] == 100\nassert snap[\"channels\"] == {\"c_in\": []}"
+    },
+    {
+     "name": "first marker on channel records state and marks incoming channel empty",
+     "code": "p2 = DistributedProcess(\"p2\", state=50, incoming_channels=[\"c1\", \"c2\"], outgoing_channels=[\"c3\"])\n# Receives marker on c1 first\nout_markers = p2.receive_marker(\"c1\")\nassert out_markers == [(\"c3\", \"MARKER\")]\n\n# Message arrives on c2 while c2 is still recording\np2.receive_message(\"c2\", \"+15\")\n\n# Marker arrives on c2 -> finishes c2 recording\nmore_markers = p2.receive_marker(\"c2\")\nassert more_markers == []\n\nsnap = p2.get_snapshot()\nassert snap[\"state\"] == 50\nassert snap[\"channels\"][\"c1\"] == []\nassert snap[\"channels\"][\"c2\"] == [\"+15\"]\nassert p2.state == 65"
+    },
+    {
+     "name": "messages arriving after channel marker are excluded from channel snapshot",
+     "code": "p3 = DistributedProcess(\"p3\", state=20, incoming_channels=[\"c_in\"], outgoing_channels=[])\np3.receive_marker(\"c_in\")\n# c_in is already finished recording because the first marker arrived on it\np3.receive_message(\"c_in\", \"+5\")\n\nsnap = p3.get_snapshot()\nassert snap[\"state\"] == 20\nassert snap[\"channels\"][\"c_in\"] == []\nassert p3.state == 25"
+    }
+   ],
+   "hints": [
+    "Track `self.has_snapshotted`, `self.saved_state`, `self.channel_snapshots`, and `self.recording_channels`.",
+    "When a process starts or receives its first marker, save `self.saved_state = self.state`.",
+    "For the channel the first marker arrived on, do not add it to `self.recording_channels` (its state is empty).",
+    "When a marker arrives on a channel that was actively recording, remove it from `self.recording_channels`."
+   ],
+   "explanation": "**Why Chandy-Lamport Snapshots?** In distributed systems without a shared global clock, you cannot simply say 'everyone record state at 12:00:00'. Chandy-Lamport uses marker messages to slice distributed causal execution into a consistent cut, capturing both process memory and in-flight messages on network channels."
+  },
   "cheap-products": {
    "title": "Cheap Products",
    "topic": "sql-querying",
@@ -16231,6 +16582,36 @@
    ],
    "solution": "SELECT feature, COUNT(*) AS calls, ROUND(SUM(cost_usd), 4) AS cost\nFROM llm_calls\nGROUP BY feature\nORDER BY cost DESC, feature;\n",
    "explanation": "**The idea.** `GROUP BY feature` makes one row per feature and the aggregates (`COUNT(*)`, `SUM`) are computed over each group. This is the first question anyone asks of LLM telemetry: *where is the money going?*\n\n**Worth knowing.** Failed calls are in the table with a cost of 0, so they add to `calls` but not to `cost`; if you wanted cost per *successful* call you would divide by `COUNT(*) FILTER (WHERE status = 'ok')` (or a `SUM(CASE ...)`).\n\n**Usual mistakes.** Selecting a column that is neither grouped nor aggregated (SQLite lets you, other databases refuse, and the value it shows is arbitrary); rounding each row instead of the total."
+  },
+  "count-min-sketch": {
+   "title": "Count-Min Sketch Frequency Estimator",
+   "topic": "databases-and-indexing",
+   "difficulty": "advanced",
+   "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+   "description": "Estimate event frequencies in high-throughput data streams using a 2D Count-Min Sketch matrix.",
+   "statement": "The **Count-Min Sketch** (Cormode & Muthukrishnan, 2005) is a sub-linear space probabilistic data structure for tracking frequency of events in massive data streams (e.g. network packet tracking, heavy-hitter detection, search query trending).\n\nUnlike an exact hash map which grows as $O(N)$ unique keys, a Count-Min Sketch uses a fixed 2D table of dimensions $d \\times w$ ($d$ independent hash functions, $w$ counters per row):\n\n1. **Initialization:** Table $M$ of size $d \\times w$ initialized to zeros.\n2. **Addition:** When an item is added with weight $c \\ge 1$, compute $d$ hash values: for each row $i \\in [0, d-1]$, map the item to column $j = h_i(\\text{item}) \\pmod w$, and increment $M[i][j] \\mathrel{+}= c$.\n3. **Estimation:** The estimated frequency of an item is the **minimum** across all $d$ rows:\n   $$\\hat{f}(\\text{item}) = \\min_{i=0..d-1} M[i][h_i(\\text{item}) \\pmod w]$$\n   Because hash collisions only ever *increase* counter values, the estimate is guaranteed to never underestimate the true frequency ($f \\le \\hat{f}$), and taking the minimum across $d$ rows significantly reduces collision bias.\n\n### Your Task\n\nImplement `CountMinSketch` in Python:\n- `__init__(self, width: int = 100, depth: int = 4, seed: int = 0)`: Initializes table of shape `[depth][width]`.\n- `add(self, item: str, count: int = 1) -> None`: Hashes item for each row $i$ using `hashlib.sha256(f\"{self.seed}:{i}:{item}\".encode()).digest()`, reduces to column index `j = int.from_bytes(digest[:4], 'big') % self.width`, and adds `count` to `self.table[i][j]`.\n- `estimate(self, item: str) -> int`: Computes column index for each row and returns $\\min$ of the table values.",
+   "starter": "import hashlib\n\nclass CountMinSketch:\n    def __init__(self, width: int = 100, depth: int = 4, seed: int = 0):\n        self.width = width\n        self.depth = depth\n        self.seed = seed\n        self.table = [[0] * width for _ in range(depth)]\n\n    def add(self, item: str, count: int = 1) -> None:\n        pass\n\n    def estimate(self, item: str) -> int:\n        return 0\n",
+   "solution": "import hashlib\n\nclass CountMinSketch:\n    def __init__(self, width: int = 100, depth: int = 4, seed: int = 0):\n        self.width = width\n        self.depth = depth\n        self.seed = seed\n        self.table = [[0] * width for _ in range(depth)]\n\n    def _hash(self, row: int, item: str) -> int:\n        digest = hashlib.sha256(f\"{self.seed}:{row}:{item}\".encode('utf-8')).digest()\n        return int.from_bytes(digest[:4], byteorder='big') % self.width\n\n    def add(self, item: str, count: int = 1) -> None:\n        for row in range(self.depth):\n            col = self._hash(row, item)\n            self.table[row][col] += count\n\n    def estimate(self, item: str) -> int:\n        return min(self.table[row][self._hash(row, item)] for row in range(self.depth))\n",
+   "tests": [
+    {
+     "name": "unseen item returns zero estimate in clean sketch",
+     "code": "cms = CountMinSketch(width=50, depth=4)\nassert cms.estimate(\"unseen\") == 0"
+    },
+    {
+     "name": "exact count tracking without collisions",
+     "code": "cms = CountMinSketch(width=200, depth=5, seed=42)\ncms.add(\"apple\", 10)\ncms.add(\"banana\", 25)\ncms.add(\"apple\", 5)\n\nassert cms.estimate(\"apple\") == 15\nassert cms.estimate(\"banana\") == 25"
+    },
+    {
+     "name": "frequency estimation under heavy traffic never underestimates",
+     "code": "cms = CountMinSketch(width=100, depth=4, seed=123)\ncounts = {\"reqA\": 500, \"reqB\": 200, \"reqC\": 50}\nfor item, cnt in counts.items():\n    cms.add(item, cnt)\n\n# Also inject 100 random noise items of weight 1\nfor i in range(100):\n    cms.add(f\"noise_{i}\", 1)\n\n# Count-Min sketch guarantees estimate >= true count\nassert cms.estimate(\"reqA\") >= 500\nassert cms.estimate(\"reqB\") >= 200\nassert cms.estimate(\"reqC\") >= 50\n# Error should be reasonably small relative to stream size\nassert cms.estimate(\"reqA\") <= 520"
+    }
+   ],
+   "hints": [
+    "Use a helper `_hash(self, row: int, item: str) -> int` to compute `int.from_bytes(digest[:4], 'big') % self.width`.",
+    "During `add()`, increment the counter at `self.table[row][col]` for every row `row \\in [0, self.depth - 1]`.",
+    "During `estimate()`, return `min(self.table[row][self._hash(row, item)] for row in range(self.depth))`."
+   ],
+   "explanation": "**Why Count-Min Sketch?** Unlike HyperLogLog (which only counts distinct items), Count-Min Sketch estimates individual item frequencies. Because hash collisions can only add to counters, taking the minimum over $d$ rows suppresses false positives with error bounded by $\\epsilon = e / w$ and confidence $1 - \\delta = 1 - e^{-d}$."
   },
   "count-primes": {
    "title": "Count Primes",

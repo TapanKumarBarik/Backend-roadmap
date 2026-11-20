@@ -1,0 +1,136 @@
+{
+  "title": "Production DevOps, deployment strategies, and SRE",
+  "topic": "devops",
+  "difficulty": "intermediate",
+  "module": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md",
+  "description": "Blue-Green, Canary, Rolling deployments, expand-and-contract database migrations, Kubernetes health probes, and graceful shutdown.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "In a Canary Deployment, how is traffic routed to the newly deployed software version?",
+      "options": [
+        {
+          "id": "a",
+          "text": "100% of traffic is switched to the new environment instantaneously"
+        },
+        {
+          "id": "b",
+          "text": "A tiny percentage of live user traffic (e.g. 2% to 5%) is routed to the new version while monitoring error rates and latency before gradually ramping up to 100%"
+        },
+        {
+          "id": "c",
+          "text": "Only automated synthetic test bots are permitted to access the canary version"
+        },
+        {
+          "id": "d",
+          "text": "Traffic is alternated between version A and B based on odd and even seconds"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Canary deployments expose a small subset of real user traffic to the new release. Observability monitors P99 latency and error rates; if anomalies appear, traffic is rolled back with minimal user blast radius."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "How does the 'Expand and Contract' (Parallel Run) pattern achieve zero-downtime database schema migrations during rolling deployments?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By locking the database table for 10 minutes at midnight"
+        },
+        {
+          "id": "b",
+          "text": "Phase 1: Expand by adding new columns without deleting old ones; Phase 2: Deploy code writing to both; Phase 3: Contract by dropping old columns only after all old app versions are retired"
+        },
+        {
+          "id": "c",
+          "text": "By migrating the database to a NoSQL key-value store"
+        },
+        {
+          "id": "d",
+          "text": "By creating a brand new database cluster for each deployment"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Because rolling deployments have old and new app versions running concurrently, dropping or renaming a column in-place breaks old pods. Expand-and-contract ensures backwards and forwards compatibility across deployment phases."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "What is the critical distinction between a Kubernetes Liveness Probe and a Readiness Probe?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Liveness determines if the container is running (if it fails, Kubelet restarts it); Readiness determines if the container is ready to accept traffic (if it fails, Kubelet removes it from service endpoints)"
+        },
+        {
+          "id": "b",
+          "text": "Liveness is for HTTP; Readiness is for gRPC"
+        },
+        {
+          "id": "c",
+          "text": "Liveness runs only once at startup; Readiness runs continuously"
+        },
+        {
+          "id": "d",
+          "text": "There is no difference; they are interchangeable"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "If a pod is overloaded or warming up its local cache, failing a Readiness probe cleanly removes it from load balancer routing without terminating it. Failing a Liveness probe kills and restarts the container, which can cause cascading crash loops if dependencies are down."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "When a containerized backend receives a SIGTERM signal during a rolling deployment, what should its Graceful Shutdown sequence do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Exit immediately with exit code 0"
+        },
+        {
+          "id": "b",
+          "text": "Stop accepting new incoming connections, finish processing in-flight active requests, close database connection pools and background workers, and then exit before SIGKILL arrives"
+        },
+        {
+          "id": "c",
+          "text": "Ignore the signal and continue running indefinitely"
+        },
+        {
+          "id": "d",
+          "text": "Flush all cache keys to disk synchronously"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A graceful shutdown prevents dropping client connections in-flight: the process unregisters from service discovery, stops accepting new requests, drains active HTTP requests within the termination grace period (e.g. 30s), closes DB pools, and cleanly exits."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "In a Blue-Green deployment, both environments (Blue = current live, Green = new version) run simultaneously, allowing instantaneous rollback by switching the router/load balancer back to Blue.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Blue-Green maintains two identical production environments. The new code is tested on Green in isolation; flipping the router switches 100% of user traffic to Green. If an issue is detected, switching back to Blue takes seconds."
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "title": "Site Reliability Engineering (SRE) and Incident Management",
+  "topic": "observability",
+  "difficulty": "advanced",
+  "module": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md",
+  "questions": [
+    {
+      "q": "What is the concrete difference between SLIs, SLOs, and SLAs, and how do SRE teams use Error Budgets to balance feature velocity with reliability?",
+      "a": "An SLI (Service Level Indicator) is a quantifiable metric of service performance (e.g. % of successful HTTP requests with latency < 200ms). An SLO (Service Level Objective) is the internal target reliability agreed upon by product and engineering (e.g. 99.9% over a rolling 30-day window). An SLA (Service Level Agreement) is the external contractual commitment to customers carrying financial penalties (e.g. 99.5%). The Error Budget is 100% - SLO (e.g. 0.1% = ~43 minutes downtime/month). If the error budget is healthy, developers deploy fast; if burned, feature launches are paused and engineering shifts entirely to reliability, tests, and infrastructure hardening."
+    },
+    {
+      "q": "How do you alert on SLO Error Budget Burn Rates to eliminate alert fatigue while ensuring critical outages wake up on-call engineers within minutes?",
+      "a": "Avoid static threshold alerts (e.g. CPU > 80% or 5xx > 10). Instead, alert on Multi-Window Multi-Burn-Rate alarms: (1) Paging / Critical Alert: Triggers if 2% of the 30-day error budget is consumed in a 1-hour window (14.4x burn rate, meaning total budget exhaustion in 2 days). (2) Ticket / Low Priority: Triggers if 5% of error budget is consumed over 6 hours (6x burn rate). Verifying with a secondary shorter lookback window (e.g. 5 minutes) prevents waking engineers on momentary 1-second recovery blips."
+    },
+    {
+      "q": "What are the essential phases of conducting a Blameless Postmortem after a major P0 production outage?",
+      "a": "A blameless postmortem assumes that human operators acted in good faith with the information available. Phases: (1) Timeline Reconstruction: Document minute-by-minute detection, triage, mitigation, and recovery timestamps. (2) Impact Analysis: Quantify customer downtime, failed transactions, and SLA impact. (3) 5-Whys Root Cause: Dig past proximate human error (e.g. 'engineer pushed a bad config') to systemic vulnerabilities (e.g. why didn't automated validation or CI reject the config before deploy?). (4) Action Items: Specific, assigned, tracked preventative tasks (P0/P1) with deadlines to ensure this failure mode cannot recur."
+    },
+    {
+      "q": "How does Chaos Engineering (e.g. Chaos Monkey) improve system resilience in production Kubernetes clusters?",
+      "a": "Chaos Engineering proactively injects controlled failures into staging and production (e.g. terminating random pods, injecting network latency, dropping database packets, simulating AZ power loss) to uncover architectural blind spots before real outages happen. It verifies whether retry mechanisms, circuit breakers, fallback caches, and auto-scaling groups recover automatically without human intervention."
+    }
+  ]
+}

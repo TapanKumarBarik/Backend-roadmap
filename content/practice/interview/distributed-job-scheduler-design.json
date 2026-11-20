@@ -1,0 +1,24 @@
+{
+  "title": "Designing a Distributed Job Scheduler",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+  "questions": [
+    {
+      "q": "How do you design a distributed scheduler (e.g. Distributed Cron or Temporal) that can trigger millions of scheduled jobs with millisecond precision?",
+      "a": "Architecture components: (1) Ingestion & Store: Store scheduled tasks in a distributed database partitioned by execution time: task_id, execution_time, cron_expression, payload. (2) Two-Tier Time-Wheel / Bucketing: A Dispatcher service scans upcoming tasks in 1-minute time slices into an in-memory Hierarchical Timing Wheel. (3) Task Queue: When a task is due, the scheduler publishes a trigger message to a distributed message queue (Kafka/RabbitMQ) with task metadata. (4) Worker Pool: Stateless worker nodes pull execution messages, acquire distributed execution locks, run the user task, and update status."
+    },
+    {
+      "q": "How do you ensure that a scheduled task executes exactly once and is not triggered twice by competing scheduler nodes?",
+      "a": "Use a combination of Leader Election (or Partition Sharding) and Distributed Mutex Locks. Schedulers either shard time buckets using Consistent Hashing (so only one node owns bucket T) or acquire a distributed lease using Redis Redlock or ZooKeeper/etcd leader election. When dispatching, execute an atomic compare-and-swap: UPDATE tasks SET status = 'TRIGGERED', locked_by = node_id, locked_at = now WHERE id = ? AND status = 'SCHEDULED'. If another node already updated the status, the second node aborts."
+    },
+    {
+      "q": "What is a 'Misfire Policy' and how should the scheduler handle tasks that were missed due to a scheduler outage or database lag?",
+      "a": "A misfire occurs when a task's scheduled execution time passes without being triggered (e.g. scheduler node crashed for 15 minutes). Configurable misfire policies per task: (1) Run Immediately (Fire Once): Execute one catch-up run now, and resume regular future cron schedule (typical for reporting or invoice generation). (2) Reschedule Next: Ignore all missed runs and wait for the next scheduled occurrence (typical for idempotent cleanup jobs). (3) Backfill All: Execute all missed intervals sequentially in order (critical for billing or financial ledger increments)."
+    },
+    {
+      "q": "How do you monitor worker execution and handle crashed workers that died halfway through job processing?",
+      "a": "Implement Worker Heartbeats and Visibility Timeouts. When a worker picks up a job, it sets a visibility lease (e.g. 60 seconds). While running, the worker sends periodic heartbeats (e.g. every 15s) to extend the lease. If the worker crashes or loses network connectivity, heartbeats stop. A reaper process detects expired leases, transitions the task back to 'PENDING', increments the retry counter, and re-enqueues it for another healthy worker to claim."
+    }
+  ]
+}
