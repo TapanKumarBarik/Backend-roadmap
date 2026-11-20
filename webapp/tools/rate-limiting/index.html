@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate Limiting &amp; Traffic Shaping Simulator · %SITE_NAME%</title>
+<meta name="description" content="Free interactive Rate Limiting simulator. Compare Token Bucket, Leaky Bucket, and Sliding Window algorithms under real-world bursty web traffic.">
+<link rel="canonical" href="%SITE_URL%/tools/rate-limiting/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/rate-limiting/">
+<meta property="og:title" content="Rate Limiting &amp; Traffic Shaping Simulator">
+<meta property="og:description" content="Simulate Token Bucket bursts, Leaky Bucket constant outflows, and Sliding Window throttling in an interactive browser lab.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Rate Limiting & Traffic Shaping Simulator","url":"%SITE_URL%/tools/rate-limiting/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Rate Limiting &amp; Traffic Shaping Simulator</h1>
+  <p class="tool-lead">How do API gateways, Stripe, and Cloudflare stop scrapers and traffic surges from taking down backend microservices? Compare Token Bucket, Leaky Bucket, and Sliding Window algorithms side-by-side under realistic bursty web traffic.</p>
+
+  <section aria-labelledby="sim-h" class="tool-card" id="lab">
+    <h2 id="sim-h">Interactive Simulator</h2>
+    <noscript><p class="tool-note">This simulator requires JavaScript to run the rate limiting timeline and render the chart.</p></noscript>
+
+    <form id="rl-form" class="ll-controls" novalidate>
+      <div class="ll-field">
+        <label for="rl-algo">Algorithm</label>
+        <select id="rl-algo"></select>
+      </div>
+      <div class="ll-field">
+        <label for="rl-profile">Traffic Profile</label>
+        <select id="rl-profile"></select>
+      </div>
+      <div class="ll-field">
+        <label for="rl-rate">Refill / Outflow Rate <output id="rl-rate-out" for="rl-rate"></output></label>
+        <input id="rl-rate" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="rl-burst">Burst Capacity (Bucket Size) <output id="rl-burst-out" for="rl-burst"></output></label>
+        <input id="rl-burst" type="range">
+      </div>
+    </form>
+
+    <div class="ll-summary" aria-live="polite" aria-atomic="true">
+      <div class="ll-stat"><span>Incoming requests</span><strong id="rl-total"></strong></div>
+      <div class="ll-stat"><span>Accepted requests</span><strong id="rl-accepted"></strong></div>
+      <div class="ll-stat"><span>Throttled (HTTP 429)</span><strong id="rl-rejected"></strong></div>
+      <div class="ll-stat"><span>Acceptance rate</span><strong id="rl-pct"></strong></div>
+      <div class="ll-stat"><span>Peak bucket / buffer</span><strong id="rl-buffer"></strong></div>
+    </div>
+
+    <div class="tc-chart-box">
+      <div class="tc-chart-legend">
+        <span><i class="rl-sw-acc"></i> Accepted Requests</span>
+        <span><i class="rl-sw-rej"></i> Throttled (429)</span>
+        <span><i class="rl-sw-state"></i> Token / Queue Level</span>
+        <span><i class="rl-sw-rate"></i> Sustained Rate Limit</span>
+      </div>
+      <div id="rl-chart" class="tc-chart-container"></div>
+    </div>
+
+    <ul id="rl-advice" class="ll-advice"></ul>
+
+    <details class="tool-details">
+      <summary>Second-by-second traffic log</summary>
+      <div class="ll-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col" class="is-number">Time</th>
+              <th scope="col" class="is-number">Incoming</th>
+              <th scope="col" class="is-number">Accepted</th>
+              <th scope="col" class="is-number">Throttled</th>
+              <th scope="col" class="is-number">Bucket / Queue State</th>
+            </tr>
+          </thead>
+          <tbody id="rl-table-body"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <div class="ll-share">
+      <button id="rl-copy" type="button" class="tool-btn">Copy link to this scenario</button>
+      <span id="rl-copy-note" class="tool-note" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="learn-h" class="tool-prose">
+    <h2 id="learn-h">Token Bucket vs. Leaky Bucket: Key Differences</h2>
+    <p>Both algorithms enforce rate limits, but they serve fundamentally different architectural purposes:</p>
+    <ul>
+      <li><strong>Token Bucket (Burst Tolerant):</strong> Tokens are deposited into a bucket at a fixed rate $r$ up to capacity $b$. Each incoming request consumes 1 token. If the bucket has tokens, requests are processed <em>immediately</em> with zero queuing latency. This makes Token Bucket ideal for <strong>user-facing API gateways</strong> (e.g. AWS API Gateway, Stripe) where legitimate users frequently trigger bursts (e.g. opening a dashboard that fires 8 parallel queries).</li>
+      <li><strong>Leaky Bucket (Traffic Shaper):</strong> Requests enter a FIFO queue (the bucket) of capacity $b$. The queue drains to downstream services at an unvarying, strictly constant rate $r$. If the queue is full, incoming packets are dropped. This transforms jagged spikes into a perfectly smooth stream, protecting fragile legacy databases and downstream third-party APIs from sudden concurrency surges.</li>
+      <li><strong>Sliding Window Counter:</strong> Computes the request rate over a rolling time window, eliminating boundary-burst vulnerabilities inherent in naive Fixed Window counters without requiring unbounded memory.</li>
+    </ul>
+
+    <h2>HTTP Headers &amp; Best Practices</h2>
+    <p>When an API gateway throttles a client, standard production architectures return <code>HTTP 429 Too Many Requests</code> along with RFC standard rate limiting headers:</p>
+    <ul>
+      <li><code>Retry-After: 5</code> &mdash; advises the client how many seconds to wait before retrying.</li>
+      <li><code>X-RateLimit-Limit: 100</code> &mdash; maximum allowed requests per window.</li>
+      <li><code>X-RateLimit-Remaining: 0</code> &mdash; remaining tokens/requests in current window.</li>
+      <li><code>X-RateLimit-Reset: 1732100000</code> &mdash; UTC epoch timestamp when the quota resets.</li>
+    </ul>
+
+    <h2>Explore Related Lessons</h2>
+    <p>Read <a href="/backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/">Rate Limiting &amp; Abuse Prevention</a>, dive into <a href="/lld/18-lru-lfu-cache-and-rate-limiter/">LRU/LFU Cache and Rate Limiter Design</a>, or practice coding the <a href="/practice/code/leaky-bucket-traffic-shaper/">Leaky Bucket Traffic Shaper</a> problem.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/ratelimit.js"></script>
+</body>
+</html>

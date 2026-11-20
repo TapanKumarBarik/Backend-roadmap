@@ -618,6 +618,11 @@
         "height": 2200
       },
       {
+        "name": "tool-rate-limiting",
+        "path": "/tools/rate-limiting/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -691,6 +696,11 @@
       "id": "consistent-hashing",
       "url": "/tools/consistent-hashing/",
       "entry": "tools/consistent-hashing/index.html"
+    },
+    {
+      "id": "rate-limiting",
+      "url": "/tools/rate-limiting/",
+      "entry": "tools/rate-limiting/index.html"
     }
   ]
 }

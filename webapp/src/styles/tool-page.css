@@ -376,4 +376,20 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 .hr-share-bar-fill { height: 100%; border-radius: inherit; }
 .hr-share-text { font-family: var(--mono); font-size: var(--text-xs); min-width: 3.5ch; text-align: right; }
 
+/* ---------- the Rate Limiting Lab (/tools/rate-limiting/) ---------- */
+.rl-svg { display: block; width: 100%; min-width: 600px; height: auto; font: 12px var(--sans); }
+.rl-svg text { fill: var(--fg); }
+.rl-bar-accepted { fill: var(--signal); opacity: .85; rx: 2px; }
+.rl-bar-rejected { fill: var(--danger); opacity: .85; rx: 2px; }
+.rl-path-state { stroke: var(--chart-accent); stroke-width: 2; fill: none; }
+.rl-dot-state { fill: var(--chart-accent); }
+.rl-line-rate { stroke: #e9a053; stroke-width: 1.5; stroke-dasharray: 4 3; opacity: .85; }
+.rl-label-rate { fill: #e9a053; font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
+.rl-sw-acc { background: var(--signal); }
+.rl-sw-rej { background: var(--danger); }
+.rl-sw-state { background: var(--chart-accent); }
+.rl-sw-rate { background: #e9a053; }
+.rl-row-throttled { background: rgba(220, 53, 69, 0.08); }
+
+
 
