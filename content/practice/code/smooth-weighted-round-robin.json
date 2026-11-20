@@ -1,0 +1,46 @@
+{
+  "title": "Smooth Weighted Round-Robin",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing/README.md",
+  "description": "Evenly interleave traffic across servers with different capacities using Nginx's smooth round-robin algorithm.",
+  "statement": "Implement `SmoothWeightedRoundRobin(servers)` to distribute incoming traffic across backend servers with different capacities using Nginx's **smooth weighted round-robin** selection algorithm.\n\nA naive weighted algorithm sends requests to the heaviest server in long consecutive bursts (e.g. weights `{\"a\": 4, \"b\": 1, \"c\": 1}` would select `a, a, a, a, b, c`), overloading `a`. The smooth algorithm interleaves traffic evenly: over 6 selections it yields `a, a, b, a, c, a`.\n\n### Rules\n\n1. `servers` is a dictionary mapping string server IDs to positive integer weights (e.g. `{\"a\": 4, \"b\": 1, \"c\": 1}`). If `servers` is empty or total weight is 0, `select()` returns `None`.\n2. Each server tracks an internal `current_weight`, initially `0`.\n3. On each call to `select()`:\n   - For every server `s`, increase its `current_weight` by its configured `weight`: `current_weight[s] += weight[s]`.\n   - Pick the server with the largest `current_weight`. In case of a tie, choose the server that appears first in the dictionary iteration order.\n   - For the chosen server, subtract the total weight (sum of all configured weights): `current_weight[chosen] -= total_weight`.\n   - Return the chosen server ID.\n4. `reset()` resets all servers' internal `current_weight` values back to `0`.\n\n**Example**\n\n```python\nlb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\n[lb.select() for _ in range(6)]\n# ['a', 'a', 'b', 'a', 'c', 'a']\n```",
+  "starter": "class SmoothWeightedRoundRobin:\n    def __init__(self, servers):\n        \"\"\"Configure the load balancer with a dictionary of {server_id: weight}.\"\"\"\n        ...\n\n    def select(self):\n        \"\"\"Select the next server using smooth weighted round-robin, or return None if empty.\"\"\"\n        ...\n\n    def reset(self):\n        \"\"\"Reset all internal current weights back to 0.\"\"\"\n        ...\n",
+  "tests": [
+    {
+      "name": "empty or zero weights returns None",
+      "code": "assert SmoothWeightedRoundRobin({}).select() is None\nassert SmoothWeightedRoundRobin({\"a\": 0, \"b\": 0}).select() is None"
+    },
+    {
+      "name": "a single server always returns itself",
+      "code": "lb = SmoothWeightedRoundRobin({\"web-1\": 5})\nassert [lb.select() for _ in range(4)] == [\"web-1\", \"web-1\", \"web-1\", \"web-1\"]"
+    },
+    {
+      "name": "equal weights alternate evenly in order",
+      "code": "lb = SmoothWeightedRoundRobin({\"a\": 1, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(6)] == [\"a\", \"b\", \"c\", \"a\", \"b\", \"c\"]"
+    },
+    {
+      "name": "Nginx standard test: 4:1:1 weights are interleaved smoothly",
+      "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(6)] == [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]"
+    },
+    {
+      "name": "the selection sequence repeats identically across multiple cycles",
+      "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\ncycle = [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]\nassert [lb.select() for _ in range(18)] == cycle * 3"
+    },
+    {
+      "name": "reset() restores the initial sequence",
+      "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(3)] == [\"a\", \"a\", \"b\"]\nlb.reset()\nassert [lb.select() for _ in range(6)] == [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]"
+    },
+    {
+      "name": "large weight skew: 5:2 ratio produces exact cumulative counts and smooth distribution",
+      "code": "lb = SmoothWeightedRoundRobin({\"primary\": 5, \"canary\": 2})\nseq = [lb.select() for _ in range(14)]\nassert seq.count(\"primary\") == 10\nassert seq.count(\"canary\") == 4\nassert seq[:7] == [\"primary\", \"canary\", \"primary\", \"primary\", \"primary\", \"canary\", \"primary\"]"
+    }
+  ],
+  "hints": [
+    "Track a dictionary of `current_weights` initialized to 0 for each server, along with the sum of all configured weights (`total_weight`).",
+    "On each `select()`, first add each server's configured weight to its current weight, find the max, and subtract `total_weight` from that chosen server.",
+    "Ties must be broken consistently by selecting the candidate that appears first in the dictionary iteration."
+  ],
+  "solution": "class SmoothWeightedRoundRobin:\n    def __init__(self, servers):\n        self._servers = dict(servers)\n        self._current_weights = {s: 0 for s in self._servers}\n        self._total_weight = sum(self._servers.values())\n\n    def select(self):\n        if not self._servers or self._total_weight <= 0:\n            return None\n        best = None\n        best_weight = -float('inf')\n        for s, w in self._servers.items():\n            self._current_weights[s] += w\n            if self._current_weights[s] > best_weight:\n                best_weight = self._current_weights[s]\n                best = s\n        self._current_weights[best] -= self._total_weight\n        return best\n\n    def reset(self):\n        for s in self._servers:\n            self._current_weights[s] = 0\n",
+  "explanation": "**The idea.** When distributing load across servers with varying capacities, naive round-robin assigns a contiguous block of requests to the largest server (e.g. A, A, A, A, B, C). This causes temporary spikes and queue buildup on server A. Nginx uses a smooth weighted round-robin algorithm that interleaves selections evenly (A, A, B, A, C, A) while guaranteeing exact weight proportions over each complete cycle.\n\n**The mathematics.** Each server tracks a dynamic `current_weight`, initially 0. On each selection:\n1. Every server's `current_weight` increases by its configured `weight`.\n2. The server with the maximum `current_weight` is chosen.\n3. The chosen server's `current_weight` is decremented by `total_weight` (the sum of all configured weights).\n\nBecause the sum of all increments in a step equals `total_weight` and the decrement also equals `total_weight`, the sum of all `current_weight` values remains invariant (0) after every step. Over `total_weight` steps, each server is selected exactly according to its configured weight, and all current weights return to 0, repeating the cycle smoothly.\n\n**Complexity.** O(S) time per `select()` where S is the number of servers, and O(S) memory."
+}

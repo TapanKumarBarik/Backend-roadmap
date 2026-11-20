@@ -15122,6 +15122,52 @@
    "solution": "from itertools import zip_longest\n\n\ndef compare_versions(a, b):\n    # a version with fewer parts is padded with zeros: \"1\" behaves like \"1.0.0\"\n    for x, y in zip_longest(a.split(\".\"), b.split(\".\"), fillvalue=\"0\"):\n        x, y = int(x), int(y)                 # numbers, not text: 10 > 9, and \"01\" == \"1\"\n        if x != y:\n            return -1 if x < y else 1\n    return 0\n",
    "explanation": "**The idea.** Turn each version into a list of integers and compare the two lists part by part from the left. The first part that differs decides the answer. If one list runs out first, its missing parts count as zero.\n\n**Why numbers, not text.** As text, `\"10\"` sorts before `\"9\"`; as a float, `1.10` equals `1.1`. Splitting on dots and converting each part with `int` gives the right order, and drops leading zeros for free.\n\n**Padding with zeros.** `itertools.zip_longest(..., fillvalue=\"0\")` pairs up the parts and invents zeros for the shorter version, so `\"1\"` against `\"1.0.1\"` is compared as `1/1`, `0/0`, `0/1`. Only when every pair is equal do you return `0`.\n\n**Complexity.** O(n) time for versions of n characters in total.\n\n**Usual mistakes.** Comparing the lengths first (`\"1.0.1\"` is not newer than `\"1.1\"` just because it has more parts), stopping at the shorter list (then `\"1\"` equals `\"1.0.0.1\"`), and comparing the strings directly.\n\n**Follow-up.** Real version schemes add pre-release tags (`1.0.0-rc.1` is older than `1.0.0`) and build metadata. Semantic Versioning spells out the full precedence rules; try extending the function to follow them."
   },
+  "connection-pool": {
+   "title": "Connection Pool",
+   "topic": "backend-coding",
+   "difficulty": "intermediate",
+   "module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
+   "description": "Manage a bounded pool of reusable database connections with leases, timeouts and health checks.",
+   "statement": "Implement `ConnectionPool(factory, max_size, idle_timeout, clock)` to manage a bounded pool of reusable database connections, eliminating the cost of establishing a new TCP connection on every request.\n\n### Requirements\n\n- `factory`: a parameterless callable that creates and returns a new connection object (e.g. `Connection(id)`).\n- `max_size`: maximum number of concurrent active connections allowed (integer $\\ge 1$).\n- `idle_timeout`: maximum seconds an idle connection can remain in the pool before being discarded (float).\n- `clock`: a callable returning the current time in seconds (float). Defaults to `time.monotonic`.\n\n### Methods & Properties\n\n- `acquire()`: checks out an available connection.\n  1. Examines idle connections: any connection whose idle duration exceeds `idle_timeout` (`now - last_used_at > idle_timeout`) is evicted and discarded.\n  2. Reuses the most recently used valid idle connection (LIFO order, keeping a warm connection hot).\n  3. If no valid idle connection is available and fewer than `max_size` connections are active, invokes `factory()` to create a fresh connection, marks it active, and returns it.\n  4. If `max_size` connections are already active, returns `None` (pool exhausted).\n- `release(conn, healthy=True)`: returns `conn` to the pool.\n  - Raises `ValueError` if `conn` is not currently checked out (active) in this pool.\n  - If `healthy=True`, stores `conn` in the idle pool with the current timestamp `clock()`.\n  - If `healthy=False`, permanently discards `conn` (e.g. broken socket), freeing up a slot for future `factory()` calls.\n- `stats`: returns a dictionary `{\"active\": int, \"idle\": int, \"total\": int}`, where `total = active + idle`.\n\n**Example**\n\n```python\npool = ConnectionPool(factory=create_db_conn, max_size=2, idle_timeout=30.0)\nc1 = pool.acquire()  # returns new conn from factory\nc2 = pool.acquire()  # returns new conn from factory\nc3 = pool.acquire()  # None (max_size reached)\npool.release(c1)     # c1 becomes idle\nassert pool.stats == {\"active\": 1, \"idle\": 1, \"total\": 2}\n```",
+   "starter": "import time\n\n\nclass ConnectionPool:\n    def __init__(self, factory, max_size, idle_timeout=60.0, clock=time.monotonic):\n        ...\n\n    def acquire(self):\n        \"\"\"Check out an available connection, create a new one if under max_size, or return None.\"\"\"\n        ...\n\n    def release(self, conn, healthy=True):\n        \"\"\"Return a connection to the pool, or discard it if healthy=False. Raise ValueError if not active.\"\"\"\n        ...\n\n    @property\n    def stats(self):\n        \"\"\"Return {'active': int, 'idle': int, 'total': int}.\"\"\"\n        ...\n",
+   "tests": [
+    {
+     "name": "acquire creates new connections up to max_size, then returns None",
+     "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nassert pool.acquire() == \"conn-1\"\nassert pool.acquire() == \"conn-2\"\nassert pool.acquire() is None\nassert pool.stats == {\"active\": 2, \"idle\": 0, \"total\": 2}"
+    },
+    {
+     "name": "release makes a connection available for reuse",
+     "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nc1 = pool.acquire()\nc2 = pool.acquire()\npool.release(c1)\nassert pool.stats == {\"active\": 1, \"idle\": 1, \"total\": 2}\n# c1 should be reused without invoking factory\nreused = pool.acquire()\nassert reused == \"conn-1\"\nassert count[0] == 2\nassert pool.stats == {\"active\": 2, \"idle\": 0, \"total\": 2}"
+    },
+    {
+     "name": "releasing an un-acquired connection raises ValueError",
+     "code": "pool = ConnectionPool(lambda: \"c\", max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\ntry:\n    pool.release(\"rogue-conn\")\n    assert False, \"should have raised ValueError\"\nexcept ValueError:\n    pass"
+    },
+    {
+     "name": "releasing double on the same connection raises ValueError",
+     "code": "pool = ConnectionPool(lambda: \"c\", max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nc = pool.acquire()\npool.release(c)\ntry:\n    pool.release(c)\n    assert False, \"second release should raise ValueError\"\nexcept ValueError:\n    pass"
+    },
+    {
+     "name": "unhealthy connection is discarded on release and replaced on next acquire",
+     "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=1, idle_timeout=30.0, clock=lambda: 0.0)\nc1 = pool.acquire()\nassert c1 == \"conn-1\"\npool.release(c1, healthy=False)\nassert pool.stats == {\"active\": 0, \"idle\": 0, \"total\": 0}\nc2 = pool.acquire()\nassert c2 == \"conn-2\"\nassert pool.stats == {\"active\": 1, \"idle\": 0, \"total\": 1}"
+    },
+    {
+     "name": "expired idle connection is evicted when idle_timeout is exceeded",
+     "code": "now = [0.0]\ncount = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=1, idle_timeout=15.0, clock=lambda: now[0])\nc1 = pool.acquire()\npool.release(c1)\nnow[0] = 20.0  # elapsed 20s > 15s timeout\nc_new = pool.acquire()\nassert c_new == \"conn-2\"\nassert pool.stats == {\"active\": 1, \"idle\": 0, \"total\": 1}"
+    },
+    {
+     "name": "LIFO reuse keeps the hottest connection in rotation",
+     "code": "now = [0.0]\ncount = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=3, idle_timeout=60.0, clock=lambda: now[0])\nc1, c2, c3 = pool.acquire(), pool.acquire(), pool.acquire()\npool.release(c1)\npool.release(c2)\n# LIFO: c2 was released last, so it is acquired first\nassert pool.acquire() == \"conn-2\"\nassert pool.acquire() == \"conn-1\""
+    }
+   ],
+   "hints": [
+    "Maintain a set of `_active` connections and a list of `(_conn, last_used_at)` tuples for `_idle`.",
+    "Inside `acquire()`, loop and pop from `_idle`: if `now - last_used_at > idle_timeout`, discard the connection. If valid, move to `_active` and return.",
+    "If no idle connections remain, verify `len(self._active) < self._max_size` before invoking `self._factory()`."
+   ],
+   "solution": "import time\n\n\nclass ConnectionPool:\n    def __init__(self, factory, max_size, idle_timeout=60.0, clock=time.monotonic):\n        self._factory = factory\n        self._max_size = max_size\n        self._idle_timeout = idle_timeout\n        self._clock = clock\n        self._idle = []\n        self._active = set()\n\n    def acquire(self):\n        now = self._clock()\n        while self._idle:\n            conn, last_used = self._idle.pop()\n            if now - last_used <= self._idle_timeout:\n                self._active.add(conn)\n                return conn\n\n        if len(self._active) < self._max_size:\n            conn = self._factory()\n            self._active.add(conn)\n            return conn\n\n        return None\n\n    def release(self, conn, healthy=True):\n        if conn not in self._active:\n            raise ValueError(\"Connection was not checked out from this pool\")\n        self._active.remove(conn)\n        if healthy:\n            self._idle.append((conn, self._clock()))\n\n    @property\n    def stats(self):\n        return {\n            \"active\": len(self._active),\n            \"idle\": len(self._idle),\n            \"total\": len(self._active) + len(self._idle)\n        }\n",
+   "explanation": "**The idea.** Creating a database or network connection involves a TCP handshake, TLS negotiation, authentication, and backend session allocation. Doing this on every HTTP request adds 50-200ms latency and exhausts operating system file descriptors. A connection pool keeps a bounded set of open connections alive across requests.\n\n**Lifecycle states.** A connection is either **active** (currently leased by a caller) or **idle** (parked in the pool waiting for reuse). `acquire()` reuses valid idle connections first, creates new ones up to `max_size` when demand grows, and returns `None` (or throws/blocks) when the pool is fully saturated.\n\n**LIFO vs FIFO.** Using LIFO (a stack) for the idle list means the most recently used connection is picked first. Under low-to-moderate traffic, the pool reuses a single 'hot' connection continuously while unused cold connections exceed `idle_timeout` and are naturally closed by the database, saving backend server RAM.\n\n**Health checks.** Sockets disconnect when database servers restart or network firewalls drop idle state. When a caller experiences a network error, calling `release(conn, healthy=False)` discards the dead connection so subsequent callers receive fresh connections from `factory()`.\n\n**Complexity.** O(1) amortized acquire and release, O(max_size) memory."
+  },
   "consistent-hash-ring": {
    "title": "Consistent Hash Ring",
    "topic": "backend-coding",
@@ -18867,6 +18913,48 @@
    ],
    "solution": "def parse(line):\n    \"\"\"Return (\"<method> <path>\", latency_ms) for a good line, or None for a malformed one.\"\"\"\n    parts = line.split()\n    if len(parts) != 5:\n        return None\n    _, method, path, status, latency = parts\n    digits = latency[:-2]\n    if not (status.isascii() and status.isdigit() and latency.endswith(\"ms\") and digits.isascii() and digits.isdigit()):\n        return None\n    return f\"{method} {path}\", int(digits)\n\n\ndef nearest_rank(sorted_values, percent):\n    rank = -(-percent * len(sorted_values) // 100)    # ceil(percent * n / 100) in integer arithmetic\n    return sorted_values[rank - 1]                    # ranks start at 1, list indexes at 0\n\n\ndef latency_percentiles(lines):\n    latencies = {}                                    # endpoint -> list of latencies\n    malformed = 0\n    for line in lines:\n        parsed = parse(line)\n        if parsed is None:\n            malformed += 1\n            continue\n        endpoint, latency = parsed\n        latencies.setdefault(endpoint, []).append(latency)\n\n    stats = {}\n    for endpoint, values in latencies.items():\n        values.sort()\n        stats[endpoint] = {\n            \"count\": len(values),\n            \"p50\": nearest_rank(values, 50),\n            \"p95\": nearest_rank(values, 95),\n            \"p99\": nearest_rank(values, 99),\n        }\n    return stats, malformed\n",
    "explanation": "**The idea.** Three separate jobs: parse each line into an endpoint and a latency (or reject it), group the latencies by endpoint, then take percentiles per group. Only the last one needs the values sorted, and it needs them once per endpoint, so the whole thing is O(n log n).\n\n**Nearest rank.** For `n` sorted values the `p`-th percentile is the value at 1-based position `ceil(p * n / 100)`. It always returns a value that really happened, which is what you want when you say \"95% of requests took at most this long\". Do the ceiling with integers: `-(-p * n // 100)`. The usual slips are a 0-based index (off by one), `int()` or `round()` instead of a ceiling (wrong for n = 9, or at p99), and libraries that interpolate between samples (`statistics.quantiles`, NumPy's default), which give different numbers.\n\n**Why percentiles.** Averages hide the slow tail. A service with a 50 ms median and a 2 s p99 hurts one user in a hundred badly, and the mean barely moves.\n\n**Malformed input.** A log pipeline must never crash on one bad line: count it, skip it, and surface the count so that someone notices when it grows. Validate strictly (`isdigit` also accepts some non-ASCII digits, hence `isascii`).\n\n**At scale** you cannot keep every latency. Streaming sketches (HDR histogram, t-digest) keep fixed-size summaries of the distribution and give approximate percentiles; and percentiles from several machines cannot be averaged, but their histograms can be merged. Follow-up: why is the mean of two p99 values not the p99 of the combined traffic?"
+  },
+  "leaky-bucket-traffic-shaper": {
+   "title": "Leaky Bucket Traffic Shaper",
+   "topic": "caching-and-limits",
+   "difficulty": "intermediate",
+   "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+   "description": "Smooth bursty packet arrivals into a constant-rate egress stream with drop on buffer overflow.",
+   "statement": "Implement `LeakyBucket(capacity, leak_rate, clock)` to model a network traffic shaper that smooths bursty requests into a steady, constant-rate egress stream.\n\nUnlike a Token Bucket (which permits sudden burst transmissions up to bucket size), a **Leaky Bucket** acts as a metered buffer: requests enter the bucket at arbitrary rates and leak out at a constant, fixed rate. If a burst arrives that would exceed the bucket's physical capacity, the excess is dropped (tail-dropped).\n\n### Specifications\n\n- `capacity`: maximum buffer capacity in units/bytes (number $> 0$).\n- `leak_rate`: steady drain rate in units per second (number $> 0$).\n- `clock`: a callable returning current time in seconds (float). Defaults to `time.monotonic`.\n\n### Operations\n\n- `enqueue(size=1)`: attempts to add `size` units to the bucket.\n  1. First, leaks water based on elapsed time: `leaked = (clock() - last_leak_time) * leak_rate`. The internal water level decreases by `leaked`, down to a minimum of `0.0`. Updates `last_leak_time` to current time.\n  2. If `current_water + size <= capacity`, increases water level by `size` and returns `True` (packet queued).\n  3. If adding `size` would exceed `capacity`, leaves water level unchanged and returns `False` (packet dropped).\n- `water_level`: a property returning the current water level as a float rounded to 4 decimal places.\n- `time_to_empty`: a property returning the estimated seconds until the bucket completely empties (`round(water_level / leak_rate, 4)`).\n\n**Example**\n\n```python\nnow = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(6)        # True: water = 6.0\nbucket.enqueue(4)        # True: water = 10.0 (full)\nbucket.enqueue(1)        # False: 10 + 1 > 10, dropped\nnow[0] = 2.0             # 2 seconds pass: leaks 4.0 units\nbucket.water_level       # 6.0\nbucket.time_to_empty     # 3.0\n```",
+   "starter": "import time\n\n\nclass LeakyBucket:\n    def __init__(self, capacity, leak_rate, clock=time.monotonic):\n        ...\n\n    def enqueue(self, size=1):\n        \"\"\"Attempt to add size units. Return True if accepted, or False if buffer would overflow.\"\"\"\n        ...\n\n    @property\n    def water_level(self):\n        \"\"\"Current buffer fullness in units (rounded to 4 decimal places).\"\"\"\n        ...\n\n    @property\n    def time_to_empty(self):\n        \"\"\"Estimated seconds until buffer is completely drained (rounded to 4 decimal places).\"\"\"\n        ...\n",
+   "tests": [
+    {
+     "name": "enqueue fills bucket up to capacity and drops overflow",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nassert bucket.enqueue(5) is True\nassert bucket.enqueue(5) is True\nassert bucket.enqueue(1) is False\nassert bucket.water_level == 10.0"
+    },
+    {
+     "name": "water drains over time according to leak_rate",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(8)\nnow[0] = 2.5  # 2.5s * 2 units/s = 5 units leaked\nassert bucket.water_level == 3.0\nassert bucket.time_to_empty == 1.5"
+    },
+    {
+     "name": "buffer cannot drain below zero",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(4)\nnow[0] = 100.0  # long idle duration\nassert bucket.water_level == 0.0\nassert bucket.time_to_empty == 0.0\nassert bucket.enqueue(10) is True"
+    },
+    {
+     "name": "variable packet sizes are handled correctly",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=100, leak_rate=10, clock=lambda: now[0])\nassert [bucket.enqueue(size) for size in [20, 30, 40]] == [True, True, True]\nassert bucket.water_level == 90.0\nassert bucket.enqueue(15) is False\nnow[0] = 4.0  # leaks 40 units -> 50 remaining\nassert bucket.enqueue(15) is True\nassert bucket.water_level == 65.0"
+    },
+    {
+     "name": "interleaved bursts and steady drain cycles",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=5, clock=lambda: now[0])\n# Arrival rate matches leak rate exactly (5 units every 1.0s)\nfor t in range(5):\n    now[0] = float(t)\n    assert bucket.enqueue(5) is True\n    assert bucket.water_level == 5.0"
+    },
+    {
+     "name": "fractional time intervals calculate accurate water levels",
+     "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=4, clock=lambda: now[0])\nbucket.enqueue(8)\nnow[0] = 0.25  # 0.25s * 4 = 1.0 unit leaked\nassert bucket.water_level == 7.0\nnow[0] = 0.50  # another 1.0 leaked\nassert bucket.water_level == 6.0"
+    }
+   ],
+   "hints": [
+    "Track `_water` and `_last_leak_time`. On every operation, calculate elapsed time since `_last_leak_time` and subtract `elapsed * leak_rate` from `_water`.",
+    "Make sure `_water` never drops below `0.0`. Always update `_last_leak_time = now` after computing the leak.",
+    "In `enqueue()`, check if `_water + size <= _capacity`: if yes, add `size` and return `True`; otherwise leave `_water` unchanged and return `False`."
+   ],
+   "solution": "import time\n\n\nclass LeakyBucket:\n    def __init__(self, capacity, leak_rate, clock=time.monotonic):\n        self._capacity = float(capacity)\n        self._leak_rate = float(leak_rate)\n        self._clock = clock\n        self._water = 0.0\n        self._last_leak_time = self._clock()\n\n    def _leak(self):\n        now = self._clock()\n        elapsed = now - self._last_leak_time\n        if elapsed > 0:\n            leaked = elapsed * self._leak_rate\n            self._water = max(0.0, self._water - leaked)\n            self._last_leak_time = now\n\n    def enqueue(self, size=1):\n        self._leak()\n        if self._water + size <= self._capacity:\n            self._water += size\n            return True\n        return False\n\n    @property\n    def water_level(self):\n        self._leak()\n        return round(self._water, 4)\n\n    @property\n    def time_to_empty(self):\n        current = self.water_level\n        if self._leak_rate <= 0:\n            return float(\"inf\")\n        return round(current / self._leak_rate, 4)\n",
+   "explanation": "**The idea.** Traffic arriving at a web service or network interface is bursty. If an upstream service emits 1,000 requests in 10 milliseconds, downstream databases or third-party APIs can crash under concurrency spikes. A Leaky Bucket enforces **traffic shaping**: incoming requests are held in a FIFO buffer of fixed capacity, and drain out to the downstream consumer at a constant, uniform rate.\n\n**Token Bucket vs. Leaky Bucket.**\n- A **Token Bucket** permits bursts: if 10 tokens have accumulated in the bucket, 10 requests can execute immediately in parallel without delay.\n- A **Leaky Bucket** enforces a smooth outflow: even if 10 requests arrive simultaneously, they are metered and dispatched at a fixed interval (e.g. 1 request every 100ms).\n\n**Virtual drain computation.** Real servers do not set a timer per packet. Instead, they compute the drain lazily: whenever `enqueue()` or status is called, elapsed time since the previous call is multiplied by `leak_rate`, reducing the buffer level down to a floor of 0.\n\n**Complexity.** O(1) time per `enqueue()`, O(1) memory."
   },
   "lfu-cache": {
    "title": "LFU Cache",
@@ -24083,6 +24171,52 @@
    ],
    "solution": "import time\nfrom collections import defaultdict, deque\n\n\nclass SlidingWindowRateLimiter:\n    def __init__(self, limit, window, clock=time.monotonic):\n        self._limit = limit\n        self._window = window\n        self._clock = clock\n        self._requests = defaultdict(deque)     # key -> times of its allowed requests, oldest first\n\n    def allow(self, key):\n        now = self._clock()\n        recent = self._requests[key]\n        while recent and recent[0] <= now - self._window:   # these have left the window\n            recent.popleft()\n        if len(recent) >= self._limit:\n            return False\n        recent.append(now)                      # only allowed requests are recorded\n        return True\n",
    "explanation": "**The idea.** For each key keep the times of its recent *allowed* requests, oldest first. On every request first drop the times that have left the window (`t <= now - window`), then compare how many are left with `limit`. Times only grow, so the old ones are always at the front, and a `deque` drops them in O(1) each. Every time is added once and dropped once, so a request costs O(1) on average and a key holds at most `limit` times.\n\n**Why a log, not a counter.** A fixed-window counter (\"reset every 10 seconds\") is O(1) but lets a client send `limit` requests just before the boundary and `limit` just after: twice the limit within a moment. The log is exact because the window really slides.\n\n**Usual mistakes.** Recording refused requests (a client that keeps retrying never gets back in); `<` instead of `<=` at the boundary; never dropping old times (memory grows, and counting them gets slower with every request).\n\n**Follow-up.** This dict keeps a deque for every key forever; a real service also evicts idle keys, or stores each log with a TTL (for example a Redis sorted set with `EXPIRE`). The \"sliding window counter\" trades exactness for O(1) memory by weighting two fixed windows."
+  },
+  "smooth-weighted-round-robin": {
+   "title": "Smooth Weighted Round-Robin",
+   "topic": "backend-coding",
+   "difficulty": "intermediate",
+   "module": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing/README.md",
+   "description": "Evenly interleave traffic across servers with different capacities using Nginx's smooth round-robin algorithm.",
+   "statement": "Implement `SmoothWeightedRoundRobin(servers)` to distribute incoming traffic across backend servers with different capacities using Nginx's **smooth weighted round-robin** selection algorithm.\n\nA naive weighted algorithm sends requests to the heaviest server in long consecutive bursts (e.g. weights `{\"a\": 4, \"b\": 1, \"c\": 1}` would select `a, a, a, a, b, c`), overloading `a`. The smooth algorithm interleaves traffic evenly: over 6 selections it yields `a, a, b, a, c, a`.\n\n### Rules\n\n1. `servers` is a dictionary mapping string server IDs to positive integer weights (e.g. `{\"a\": 4, \"b\": 1, \"c\": 1}`). If `servers` is empty or total weight is 0, `select()` returns `None`.\n2. Each server tracks an internal `current_weight`, initially `0`.\n3. On each call to `select()`:\n   - For every server `s`, increase its `current_weight` by its configured `weight`: `current_weight[s] += weight[s]`.\n   - Pick the server with the largest `current_weight`. In case of a tie, choose the server that appears first in the dictionary iteration order.\n   - For the chosen server, subtract the total weight (sum of all configured weights): `current_weight[chosen] -= total_weight`.\n   - Return the chosen server ID.\n4. `reset()` resets all servers' internal `current_weight` values back to `0`.\n\n**Example**\n\n```python\nlb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\n[lb.select() for _ in range(6)]\n# ['a', 'a', 'b', 'a', 'c', 'a']\n```",
+   "starter": "class SmoothWeightedRoundRobin:\n    def __init__(self, servers):\n        \"\"\"Configure the load balancer with a dictionary of {server_id: weight}.\"\"\"\n        ...\n\n    def select(self):\n        \"\"\"Select the next server using smooth weighted round-robin, or return None if empty.\"\"\"\n        ...\n\n    def reset(self):\n        \"\"\"Reset all internal current weights back to 0.\"\"\"\n        ...\n",
+   "tests": [
+    {
+     "name": "empty or zero weights returns None",
+     "code": "assert SmoothWeightedRoundRobin({}).select() is None\nassert SmoothWeightedRoundRobin({\"a\": 0, \"b\": 0}).select() is None"
+    },
+    {
+     "name": "a single server always returns itself",
+     "code": "lb = SmoothWeightedRoundRobin({\"web-1\": 5})\nassert [lb.select() for _ in range(4)] == [\"web-1\", \"web-1\", \"web-1\", \"web-1\"]"
+    },
+    {
+     "name": "equal weights alternate evenly in order",
+     "code": "lb = SmoothWeightedRoundRobin({\"a\": 1, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(6)] == [\"a\", \"b\", \"c\", \"a\", \"b\", \"c\"]"
+    },
+    {
+     "name": "Nginx standard test: 4:1:1 weights are interleaved smoothly",
+     "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(6)] == [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]"
+    },
+    {
+     "name": "the selection sequence repeats identically across multiple cycles",
+     "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\ncycle = [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]\nassert [lb.select() for _ in range(18)] == cycle * 3"
+    },
+    {
+     "name": "reset() restores the initial sequence",
+     "code": "lb = SmoothWeightedRoundRobin({\"a\": 4, \"b\": 1, \"c\": 1})\nassert [lb.select() for _ in range(3)] == [\"a\", \"a\", \"b\"]\nlb.reset()\nassert [lb.select() for _ in range(6)] == [\"a\", \"a\", \"b\", \"a\", \"c\", \"a\"]"
+    },
+    {
+     "name": "large weight skew: 5:2 ratio produces exact cumulative counts and smooth distribution",
+     "code": "lb = SmoothWeightedRoundRobin({\"primary\": 5, \"canary\": 2})\nseq = [lb.select() for _ in range(14)]\nassert seq.count(\"primary\") == 10\nassert seq.count(\"canary\") == 4\nassert seq[:7] == [\"primary\", \"canary\", \"primary\", \"primary\", \"primary\", \"canary\", \"primary\"]"
+    }
+   ],
+   "hints": [
+    "Track a dictionary of `current_weights` initialized to 0 for each server, along with the sum of all configured weights (`total_weight`).",
+    "On each `select()`, first add each server's configured weight to its current weight, find the max, and subtract `total_weight` from that chosen server.",
+    "Ties must be broken consistently by selecting the candidate that appears first in the dictionary iteration."
+   ],
+   "solution": "class SmoothWeightedRoundRobin:\n    def __init__(self, servers):\n        self._servers = dict(servers)\n        self._current_weights = {s: 0 for s in self._servers}\n        self._total_weight = sum(self._servers.values())\n\n    def select(self):\n        if not self._servers or self._total_weight <= 0:\n            return None\n        best = None\n        best_weight = -float('inf')\n        for s, w in self._servers.items():\n            self._current_weights[s] += w\n            if self._current_weights[s] > best_weight:\n                best_weight = self._current_weights[s]\n                best = s\n        self._current_weights[best] -= self._total_weight\n        return best\n\n    def reset(self):\n        for s in self._servers:\n            self._current_weights[s] = 0\n",
+   "explanation": "**The idea.** When distributing load across servers with varying capacities, naive round-robin assigns a contiguous block of requests to the largest server (e.g. A, A, A, A, B, C). This causes temporary spikes and queue buildup on server A. Nginx uses a smooth weighted round-robin algorithm that interleaves selections evenly (A, A, B, A, C, A) while guaranteeing exact weight proportions over each complete cycle.\n\n**The mathematics.** Each server tracks a dynamic `current_weight`, initially 0. On each selection:\n1. Every server's `current_weight` increases by its configured `weight`.\n2. The server with the maximum `current_weight` is chosen.\n3. The chosen server's `current_weight` is decremented by `total_weight` (the sum of all configured weights).\n\nBecause the sum of all increments in a step equals `total_weight` and the decrement also equals `total_weight`, the sum of all `current_weight` values remains invariant (0) after every step. Over `total_weight` steps, each server is selected exactly according to its configured weight, and all current weights return to 0, repeating the cycle smoothly.\n\n**Complexity.** O(S) time per `select()` where S is the number of servers, and O(S) memory."
   },
   "snowflake-id-generator": {
    "title": "Snowflake ID Generator",

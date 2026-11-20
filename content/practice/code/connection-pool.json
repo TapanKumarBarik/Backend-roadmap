@@ -1,0 +1,46 @@
+{
+  "title": "Connection Pool",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
+  "description": "Manage a bounded pool of reusable database connections with leases, timeouts and health checks.",
+  "statement": "Implement `ConnectionPool(factory, max_size, idle_timeout, clock)` to manage a bounded pool of reusable database connections, eliminating the cost of establishing a new TCP connection on every request.\n\n### Requirements\n\n- `factory`: a parameterless callable that creates and returns a new connection object (e.g. `Connection(id)`).\n- `max_size`: maximum number of concurrent active connections allowed (integer $\\ge 1$).\n- `idle_timeout`: maximum seconds an idle connection can remain in the pool before being discarded (float).\n- `clock`: a callable returning the current time in seconds (float). Defaults to `time.monotonic`.\n\n### Methods & Properties\n\n- `acquire()`: checks out an available connection.\n  1. Examines idle connections: any connection whose idle duration exceeds `idle_timeout` (`now - last_used_at > idle_timeout`) is evicted and discarded.\n  2. Reuses the most recently used valid idle connection (LIFO order, keeping a warm connection hot).\n  3. If no valid idle connection is available and fewer than `max_size` connections are active, invokes `factory()` to create a fresh connection, marks it active, and returns it.\n  4. If `max_size` connections are already active, returns `None` (pool exhausted).\n- `release(conn, healthy=True)`: returns `conn` to the pool.\n  - Raises `ValueError` if `conn` is not currently checked out (active) in this pool.\n  - If `healthy=True`, stores `conn` in the idle pool with the current timestamp `clock()`.\n  - If `healthy=False`, permanently discards `conn` (e.g. broken socket), freeing up a slot for future `factory()` calls.\n- `stats`: returns a dictionary `{\"active\": int, \"idle\": int, \"total\": int}`, where `total = active + idle`.\n\n**Example**\n\n```python\npool = ConnectionPool(factory=create_db_conn, max_size=2, idle_timeout=30.0)\nc1 = pool.acquire()  # returns new conn from factory\nc2 = pool.acquire()  # returns new conn from factory\nc3 = pool.acquire()  # None (max_size reached)\npool.release(c1)     # c1 becomes idle\nassert pool.stats == {\"active\": 1, \"idle\": 1, \"total\": 2}\n```",
+  "starter": "import time\n\n\nclass ConnectionPool:\n    def __init__(self, factory, max_size, idle_timeout=60.0, clock=time.monotonic):\n        ...\n\n    def acquire(self):\n        \"\"\"Check out an available connection, create a new one if under max_size, or return None.\"\"\"\n        ...\n\n    def release(self, conn, healthy=True):\n        \"\"\"Return a connection to the pool, or discard it if healthy=False. Raise ValueError if not active.\"\"\"\n        ...\n\n    @property\n    def stats(self):\n        \"\"\"Return {'active': int, 'idle': int, 'total': int}.\"\"\"\n        ...\n",
+  "tests": [
+    {
+      "name": "acquire creates new connections up to max_size, then returns None",
+      "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nassert pool.acquire() == \"conn-1\"\nassert pool.acquire() == \"conn-2\"\nassert pool.acquire() is None\nassert pool.stats == {\"active\": 2, \"idle\": 0, \"total\": 2}"
+    },
+    {
+      "name": "release makes a connection available for reuse",
+      "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nc1 = pool.acquire()\nc2 = pool.acquire()\npool.release(c1)\nassert pool.stats == {\"active\": 1, \"idle\": 1, \"total\": 2}\n# c1 should be reused without invoking factory\nreused = pool.acquire()\nassert reused == \"conn-1\"\nassert count[0] == 2\nassert pool.stats == {\"active\": 2, \"idle\": 0, \"total\": 2}"
+    },
+    {
+      "name": "releasing an un-acquired connection raises ValueError",
+      "code": "pool = ConnectionPool(lambda: \"c\", max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\ntry:\n    pool.release(\"rogue-conn\")\n    assert False, \"should have raised ValueError\"\nexcept ValueError:\n    pass"
+    },
+    {
+      "name": "releasing double on the same connection raises ValueError",
+      "code": "pool = ConnectionPool(lambda: \"c\", max_size=2, idle_timeout=30.0, clock=lambda: 0.0)\nc = pool.acquire()\npool.release(c)\ntry:\n    pool.release(c)\n    assert False, \"second release should raise ValueError\"\nexcept ValueError:\n    pass"
+    },
+    {
+      "name": "unhealthy connection is discarded on release and replaced on next acquire",
+      "code": "count = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=1, idle_timeout=30.0, clock=lambda: 0.0)\nc1 = pool.acquire()\nassert c1 == \"conn-1\"\npool.release(c1, healthy=False)\nassert pool.stats == {\"active\": 0, \"idle\": 0, \"total\": 0}\nc2 = pool.acquire()\nassert c2 == \"conn-2\"\nassert pool.stats == {\"active\": 1, \"idle\": 0, \"total\": 1}"
+    },
+    {
+      "name": "expired idle connection is evicted when idle_timeout is exceeded",
+      "code": "now = [0.0]\ncount = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=1, idle_timeout=15.0, clock=lambda: now[0])\nc1 = pool.acquire()\npool.release(c1)\nnow[0] = 20.0  # elapsed 20s > 15s timeout\nc_new = pool.acquire()\nassert c_new == \"conn-2\"\nassert pool.stats == {\"active\": 1, \"idle\": 0, \"total\": 1}"
+    },
+    {
+      "name": "LIFO reuse keeps the hottest connection in rotation",
+      "code": "now = [0.0]\ncount = [0]\ndef factory():\n    count[0] += 1\n    return f\"conn-{count[0]}\"\npool = ConnectionPool(factory, max_size=3, idle_timeout=60.0, clock=lambda: now[0])\nc1, c2, c3 = pool.acquire(), pool.acquire(), pool.acquire()\npool.release(c1)\npool.release(c2)\n# LIFO: c2 was released last, so it is acquired first\nassert pool.acquire() == \"conn-2\"\nassert pool.acquire() == \"conn-1\""
+    }
+  ],
+  "hints": [
+    "Maintain a set of `_active` connections and a list of `(_conn, last_used_at)` tuples for `_idle`.",
+    "Inside `acquire()`, loop and pop from `_idle`: if `now - last_used_at > idle_timeout`, discard the connection. If valid, move to `_active` and return.",
+    "If no idle connections remain, verify `len(self._active) < self._max_size` before invoking `self._factory()`."
+  ],
+  "solution": "import time\n\n\nclass ConnectionPool:\n    def __init__(self, factory, max_size, idle_timeout=60.0, clock=time.monotonic):\n        self._factory = factory\n        self._max_size = max_size\n        self._idle_timeout = idle_timeout\n        self._clock = clock\n        self._idle = []\n        self._active = set()\n\n    def acquire(self):\n        now = self._clock()\n        while self._idle:\n            conn, last_used = self._idle.pop()\n            if now - last_used <= self._idle_timeout:\n                self._active.add(conn)\n                return conn\n\n        if len(self._active) < self._max_size:\n            conn = self._factory()\n            self._active.add(conn)\n            return conn\n\n        return None\n\n    def release(self, conn, healthy=True):\n        if conn not in self._active:\n            raise ValueError(\"Connection was not checked out from this pool\")\n        self._active.remove(conn)\n        if healthy:\n            self._idle.append((conn, self._clock()))\n\n    @property\n    def stats(self):\n        return {\n            \"active\": len(self._active),\n            \"idle\": len(self._idle),\n            \"total\": len(self._active) + len(self._idle)\n        }\n",
+  "explanation": "**The idea.** Creating a database or network connection involves a TCP handshake, TLS negotiation, authentication, and backend session allocation. Doing this on every HTTP request adds 50-200ms latency and exhausts operating system file descriptors. A connection pool keeps a bounded set of open connections alive across requests.\n\n**Lifecycle states.** A connection is either **active** (currently leased by a caller) or **idle** (parked in the pool waiting for reuse). `acquire()` reuses valid idle connections first, creates new ones up to `max_size` when demand grows, and returns `None` (or throws/blocks) when the pool is fully saturated.\n\n**LIFO vs FIFO.** Using LIFO (a stack) for the idle list means the most recently used connection is picked first. Under low-to-moderate traffic, the pool reuses a single 'hot' connection continuously while unused cold connections exceed `idle_timeout` and are naturally closed by the database, saving backend server RAM.\n\n**Health checks.** Sockets disconnect when database servers restart or network firewalls drop idle state. When a caller experiences a network error, calling `release(conn, healthy=False)` discards the dead connection so subsequent callers receive fresh connections from `factory()`.\n\n**Complexity.** O(1) amortized acquire and release, O(max_size) memory."
+}

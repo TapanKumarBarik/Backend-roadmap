@@ -1,0 +1,42 @@
+{
+  "title": "Leaky Bucket Traffic Shaper",
+  "topic": "caching-and-limits",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+  "description": "Smooth bursty packet arrivals into a constant-rate egress stream with drop on buffer overflow.",
+  "statement": "Implement `LeakyBucket(capacity, leak_rate, clock)` to model a network traffic shaper that smooths bursty requests into a steady, constant-rate egress stream.\n\nUnlike a Token Bucket (which permits sudden burst transmissions up to bucket size), a **Leaky Bucket** acts as a metered buffer: requests enter the bucket at arbitrary rates and leak out at a constant, fixed rate. If a burst arrives that would exceed the bucket's physical capacity, the excess is dropped (tail-dropped).\n\n### Specifications\n\n- `capacity`: maximum buffer capacity in units/bytes (number $> 0$).\n- `leak_rate`: steady drain rate in units per second (number $> 0$).\n- `clock`: a callable returning current time in seconds (float). Defaults to `time.monotonic`.\n\n### Operations\n\n- `enqueue(size=1)`: attempts to add `size` units to the bucket.\n  1. First, leaks water based on elapsed time: `leaked = (clock() - last_leak_time) * leak_rate`. The internal water level decreases by `leaked`, down to a minimum of `0.0`. Updates `last_leak_time` to current time.\n  2. If `current_water + size <= capacity`, increases water level by `size` and returns `True` (packet queued).\n  3. If adding `size` would exceed `capacity`, leaves water level unchanged and returns `False` (packet dropped).\n- `water_level`: a property returning the current water level as a float rounded to 4 decimal places.\n- `time_to_empty`: a property returning the estimated seconds until the bucket completely empties (`round(water_level / leak_rate, 4)`).\n\n**Example**\n\n```python\nnow = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(6)        # True: water = 6.0\nbucket.enqueue(4)        # True: water = 10.0 (full)\nbucket.enqueue(1)        # False: 10 + 1 > 10, dropped\nnow[0] = 2.0             # 2 seconds pass: leaks 4.0 units\nbucket.water_level       # 6.0\nbucket.time_to_empty     # 3.0\n```",
+  "starter": "import time\n\n\nclass LeakyBucket:\n    def __init__(self, capacity, leak_rate, clock=time.monotonic):\n        ...\n\n    def enqueue(self, size=1):\n        \"\"\"Attempt to add size units. Return True if accepted, or False if buffer would overflow.\"\"\"\n        ...\n\n    @property\n    def water_level(self):\n        \"\"\"Current buffer fullness in units (rounded to 4 decimal places).\"\"\"\n        ...\n\n    @property\n    def time_to_empty(self):\n        \"\"\"Estimated seconds until buffer is completely drained (rounded to 4 decimal places).\"\"\"\n        ...\n",
+  "tests": [
+    {
+      "name": "enqueue fills bucket up to capacity and drops overflow",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nassert bucket.enqueue(5) is True\nassert bucket.enqueue(5) is True\nassert bucket.enqueue(1) is False\nassert bucket.water_level == 10.0"
+    },
+    {
+      "name": "water drains over time according to leak_rate",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(8)\nnow[0] = 2.5  # 2.5s * 2 units/s = 5 units leaked\nassert bucket.water_level == 3.0\nassert bucket.time_to_empty == 1.5"
+    },
+    {
+      "name": "buffer cannot drain below zero",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=2, clock=lambda: now[0])\nbucket.enqueue(4)\nnow[0] = 100.0  # long idle duration\nassert bucket.water_level == 0.0\nassert bucket.time_to_empty == 0.0\nassert bucket.enqueue(10) is True"
+    },
+    {
+      "name": "variable packet sizes are handled correctly",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=100, leak_rate=10, clock=lambda: now[0])\nassert [bucket.enqueue(size) for size in [20, 30, 40]] == [True, True, True]\nassert bucket.water_level == 90.0\nassert bucket.enqueue(15) is False\nnow[0] = 4.0  # leaks 40 units -> 50 remaining\nassert bucket.enqueue(15) is True\nassert bucket.water_level == 65.0"
+    },
+    {
+      "name": "interleaved bursts and steady drain cycles",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=5, clock=lambda: now[0])\n# Arrival rate matches leak rate exactly (5 units every 1.0s)\nfor t in range(5):\n    now[0] = float(t)\n    assert bucket.enqueue(5) is True\n    assert bucket.water_level == 5.0"
+    },
+    {
+      "name": "fractional time intervals calculate accurate water levels",
+      "code": "now = [0.0]\nbucket = LeakyBucket(capacity=10, leak_rate=4, clock=lambda: now[0])\nbucket.enqueue(8)\nnow[0] = 0.25  # 0.25s * 4 = 1.0 unit leaked\nassert bucket.water_level == 7.0\nnow[0] = 0.50  # another 1.0 leaked\nassert bucket.water_level == 6.0"
+    }
+  ],
+  "hints": [
+    "Track `_water` and `_last_leak_time`. On every operation, calculate elapsed time since `_last_leak_time` and subtract `elapsed * leak_rate` from `_water`.",
+    "Make sure `_water` never drops below `0.0`. Always update `_last_leak_time = now` after computing the leak.",
+    "In `enqueue()`, check if `_water + size <= _capacity`: if yes, add `size` and return `True`; otherwise leave `_water` unchanged and return `False`."
+  ],
+  "solution": "import time\n\n\nclass LeakyBucket:\n    def __init__(self, capacity, leak_rate, clock=time.monotonic):\n        self._capacity = float(capacity)\n        self._leak_rate = float(leak_rate)\n        self._clock = clock\n        self._water = 0.0\n        self._last_leak_time = self._clock()\n\n    def _leak(self):\n        now = self._clock()\n        elapsed = now - self._last_leak_time\n        if elapsed > 0:\n            leaked = elapsed * self._leak_rate\n            self._water = max(0.0, self._water - leaked)\n            self._last_leak_time = now\n\n    def enqueue(self, size=1):\n        self._leak()\n        if self._water + size <= self._capacity:\n            self._water += size\n            return True\n        return False\n\n    @property\n    def water_level(self):\n        self._leak()\n        return round(self._water, 4)\n\n    @property\n    def time_to_empty(self):\n        current = self.water_level\n        if self._leak_rate <= 0:\n            return float(\"inf\")\n        return round(current / self._leak_rate, 4)\n",
+  "explanation": "**The idea.** Traffic arriving at a web service or network interface is bursty. If an upstream service emits 1,000 requests in 10 milliseconds, downstream databases or third-party APIs can crash under concurrency spikes. A Leaky Bucket enforces **traffic shaping**: incoming requests are held in a FIFO buffer of fixed capacity, and drain out to the downstream consumer at a constant, uniform rate.\n\n**Token Bucket vs. Leaky Bucket.**\n- A **Token Bucket** permits bursts: if 10 tokens have accumulated in the bucket, 10 requests can execute immediately in parallel without delay.\n- A **Leaky Bucket** enforces a smooth outflow: even if 10 requests arrive simultaneously, they are metered and dispatched at a fixed interval (e.g. 1 request every 100ms).\n\n**Virtual drain computation.** Real servers do not set a timer per packet. Instead, they compute the drain lazily: whenever `enqueue()` or status is called, elapsed time since the previous call is multiplied by `leak_rate`, reducing the buffer level down to a floor of 0.\n\n**Complexity.** O(1) time per `enqueue()`, O(1) memory."
+}
