@@ -1,0 +1,43 @@
+{
+  "title": "SingleFlight Request Coalescer",
+  "topic": "backend-coding",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing/README.md",
+  "description": "Coalesce concurrent duplicate requests for identical keys to eliminate cache stampedes and dogpiling.",
+  "statement": "In high-concurrency backend services, when a cached key expires (or before it is ever populated), dozens of simultaneous incoming requests can hit the database at the exact same moment. This phenomenon—**cache stampede** or **dogpiling**—can overwhelm connection pools and take down primary databases.\n\nImplement `SingleFlight` (modeled after Go's standard `golang.org/x/sync/singleflight` pattern) in Python to coalesce duplicate requests for the same key into a single execution.\n\n### Requirements\n\n1. `submit(key, fn, *args, **kwargs)`:\n   - Submits a request for `key` and returns a parameterless callable (`task()`).\n   - If a call for `key` is already pending/in flight, the new request joins the existing flight and does **not** invoke `fn` again.\n   - When `task()` is called, it triggers execution if not already run, and returns a tuple `(result, shared)`:\n     - `result`: the value returned by `fn`.\n     - `shared`: `True` if more than one caller joined this key's flight, or `False` if only a single caller requested it.\n   - If `fn` raises an exception, the exact same exception must be raised when calling `task()` on any joined caller.\n   - Once resolved, the key is removed from the active registry so subsequent submissions start a new flight.\n2. `do(key, fn, *args, **kwargs)`:\n   - Convenience method equivalent to `self.submit(key, fn, *args, **kwargs)()`: submits and immediately awaits the result.\n3. `forget(key)`:\n   - Removes `key` from the active in-flight registry early, so future submissions start a fresh invocation.\n4. `in_flight_count()`:\n   - Returns the number of currently active in-flight keys.\n\n### Example\n\n```python\nsf = SingleFlight()\n\n# Multiple callers submit for the same key concurrently\ntask1 = sf.submit(\"user:42\", fetch_user, 42)\ntask2 = sf.submit(\"user:42\", fetch_user, 42)\n\n# fetch_user is called only ONCE\nr1 = task1()  # (\"user:42:data\", True)\nr2 = task2()  # (\"user:42:data\", True)\n```",
+  "starter": "class SingleFlight:\n    def __init__(self):\n        \"\"\"Initialize the singleflight registry.\"\"\"\n        ...\n\n    def submit(self, key, fn, *args, **kwargs):\n        \"\"\"Submit a request for key, returning a callable task() that yields (result, shared).\"\"\"\n        ...\n\n    def do(self, key, fn, *args, **kwargs):\n        \"\"\"Convenience helper: submit and immediately resolve (result, shared).\"\"\"\n        ...\n\n    def forget(self, key):\n        \"\"\"Drop key from the active in-flight registry.\"\"\"\n        ...\n\n    def in_flight_count(self):\n        \"\"\"Return the count of currently active in-flight keys.\"\"\"\n        ...\n",
+  "tests": [
+    {
+      "name": "isolated call via do() executes fn and returns shared=False",
+      "code": "sf = SingleFlight()\nval, shared = sf.do(\"k1\", lambda x: x * 2, 21)\nassert val == 42\nassert shared is False\nassert sf.in_flight_count() == 0"
+    },
+    {
+      "name": "multiple concurrent submissions coalesce into one single fn execution",
+      "code": "sf = SingleFlight()\ncounts = [0]\n\ndef slow_query(uid):\n    counts[0] += 1\n    return f\"user:{uid}:data\"\n\nt1 = sf.submit(\"user:42\", slow_query, 42)\nt2 = sf.submit(\"user:42\", slow_query, 42)\nt3 = sf.submit(\"user:42\", slow_query, 42)\n\nassert sf.in_flight_count() == 1\nr1 = t1()\nr2 = t2()\nr3 = t3()\n\nassert r1 == (\"user:42:data\", True)\nassert r2 == (\"user:42:data\", True)\nassert r3 == (\"user:42:data\", True)\nassert counts[0] == 1\nassert sf.in_flight_count() == 0"
+    },
+    {
+      "name": "different keys execute independently without coalescing",
+      "code": "sf = SingleFlight()\nt_a = sf.submit(\"a\", lambda: 100)\nt_b = sf.submit(\"b\", lambda: 200)\nassert sf.in_flight_count() == 2\nassert t_a() == (100, False)\nassert t_b() == (200, False)\nassert sf.in_flight_count() == 0"
+    },
+    {
+      "name": "exceptions are raised identically for all joined callers",
+      "code": "sf = SingleFlight()\ncall_count = [0]\n\ndef failing_op():\n    call_count[0] += 1\n    raise ValueError(\"database down\")\n\nt1 = sf.submit(\"fail_key\", failing_op)\nt2 = sf.submit(\"fail_key\", failing_op)\n\nfor t in [t1, t2]:\n    try:\n        t()\n        assert False, \"should have raised\"\n    except ValueError as e:\n        assert str(e) == \"database down\"\n\nassert call_count[0] == 1\nassert sf.in_flight_count() == 0"
+    },
+    {
+      "name": "forget() drops key early so subsequent calls start fresh",
+      "code": "sf = SingleFlight()\ncall_count = [0]\n\ndef my_fn(val):\n    call_count[0] += 1\n    return val\n\nt1 = sf.submit(\"k_reset\", my_fn, \"first\")\nsf.forget(\"k_reset\")\nassert sf.in_flight_count() == 0\n\nt2 = sf.submit(\"k_reset\", my_fn, \"second\")\nassert sf.in_flight_count() == 1\n\nassert t2() == (\"second\", False)\nassert call_count[0] == 1"
+    },
+    {
+      "name": "sequential calls for the same key re-execute once the previous completes",
+      "code": "sf = SingleFlight()\ncalls = [0]\ndef query(x):\n    calls[0] += 1\n    return x\n\nv1, s1 = sf.do(\"seq_key\", query, \"first\")\nv2, s2 = sf.do(\"seq_key\", query, \"second\")\nassert v1 == \"first\" and s1 is False\nassert v2 == \"second\" and s2 is False\nassert calls[0] == 2"
+    }
+  ],
+  "hints": [
+    "Track an internal dictionary `_inflight` mapping keys to an entry object containing the loader callable, a `callers` count, `resolved` boolean, and `val`/`err` slots.",
+    "`submit` increments `callers` count and returns a lambda that invokes a helper method `_resolve(key, entry)`.",
+    "`_resolve` executes the loader if not yet resolved, caches the return value or exception, cleans up `key` from `_inflight` in a `finally` block, and raises the stored exception or returns `(val, callers > 1)`.",
+    "`do` simply returns `self.submit(key, fn, *args, **kwargs)()`."
+  ],
+  "solution": "class SingleFlight:\n    def __init__(self):\n        self._inflight = {}\n\n    def submit(self, key, fn, *args, **kwargs):\n        if key not in self._inflight:\n            self._inflight[key] = {\n                'fn': lambda: fn(*args, **kwargs),\n                'callers': 0,\n                'resolved': False,\n                'val': None,\n                'err': None\n            }\n        entry = self._inflight[key]\n        entry['callers'] += 1\n        return lambda: self._resolve(key, entry)\n\n    def _resolve(self, key, entry):\n        if not entry['resolved']:\n            try:\n                entry['val'] = entry['fn']()\n            except Exception as e:\n                entry['err'] = e\n            finally:\n                entry['resolved'] = True\n                self._inflight.pop(key, None)\n        if entry['err'] is not None:\n            raise entry['err']\n        return entry['val'], entry['callers'] > 1\n\n    def do(self, key, fn, *args, **kwargs):\n        return self.submit(key, fn, *args, **kwargs)()\n\n    def forget(self, key):\n        self._inflight.pop(key, None)\n\n    def in_flight_count(self):\n        return len(self._inflight)\n",
+  "explanation": "**The problem.** When a cache key expires under high load, hundreds of simultaneous client requests experience a cache miss at the exact same moment. Every request independently queries the database for the exact same data, creating a catastrophic cache stampede (dogpiling).\n\n**The pattern.** Go's `singleflight.Group` provides a concurrency primitive that coalesces duplicate requests. Only the first in-flight request actually calls the underlying data source (`fn`). All subsequent callers requesting that key wait and subscribe to the leader's result. When the leader finishes, the value (or error) is distributed to all waiting callers.\n\n**Implementation details.**\n1. Active keys are held in a registry dictionary `_inflight`.\n2. When subsequent callers submit for an existing in-flight `key`, they attach to the active flight and increment `callers`.\n3. The first caller to evaluate the task runs the loader, storing the result or caught exception.\n4. A `finally` block removes the key from the registry immediately upon completion so subsequent requests start a fresh flight.\n\n**Complexity.** O(1) registry lookup time per request and O(W) memory where W is the number of active distinct in-flight keys."
+}

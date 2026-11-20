@@ -338,3 +338,42 @@ body.tool { margin: 0; background: var(--bg); color: var(--fg); font-family: var
 
 .tc-row-loss { background: rgba(220, 53, 69, 0.08); }
 
+/* ---------- the Consistent Hashing Lab (/tools/consistent-hashing/) ---------- */
+.hr-controls-wrapper { display: grid; gap: var(--space-4); margin: var(--space-4) 0; }
+.hr-nodes-box label { margin-bottom: var(--space-2); }
+.hr-nodes-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.hr-node-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--bg-sunken); font-size: var(--text-sm); font-weight: 600; cursor: pointer; user-select: none; }
+.hr-node-chip:hover { border-color: var(--border-strong); }
+.hr-node-chip input { accent-color: var(--chip-color, var(--signal)); cursor: pointer; }
+.hr-key-form { margin-top: var(--space-2); }
+.hr-migration-banner { padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; background: var(--signal-bg); border: 1px solid var(--signal); border-radius: var(--r-md); font-size: var(--text-sm); color: var(--signal); font-weight: 500; }
+
+.hr-visualizer-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-5); margin: var(--space-5) 0; align-items: start; }
+.hr-ring-box { display: flex; flex-direction: column; align-items: center; padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg); }
+.hr-ring-container { width: 100%; max-width: 400px; aspect-ratio: 1; }
+.hr-svg { display: block; width: 100%; height: 100%; }
+.hr-ring-track { stroke: var(--border-strong); stroke-width: 2; fill: none; }
+.hr-key-track { stroke: var(--border-subtle); stroke-width: 1; stroke-dasharray: 2 4; fill: none; }
+.hr-ring-tick { stroke: var(--fg-subtle); stroke-width: 1.5; }
+.hr-vnode-dot { stroke: var(--bg); stroke-width: 1.5; cursor: pointer; transition: transform .1s ease; }
+.hr-vnode-dot:hover { stroke-width: 2.5; stroke: var(--fg); }
+.hr-key-dot { stroke: var(--bg); stroke-width: 1; cursor: pointer; }
+.hr-center-title { font-family: var(--display); font-size: 18px; font-weight: 700; fill: var(--fg); }
+.hr-center-sub { font-family: var(--mono); font-size: 13px; fill: var(--fg-muted); }
+
+.hr-ring-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font-size: var(--text-xs); color: var(--fg-muted); }
+.hr-ring-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.hr-ring-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.hr-legend-track { background: var(--border-strong); }
+.hr-legend-key { background: var(--chart-accent); }
+.hr-legend-vnode { background: var(--signal); }
+
+.hr-details-box h3 { margin: 0 0 var(--space-3); font-family: var(--display); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
+.hr-node-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.hr-color-badge { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.hr-table-body td:last-child { display: flex; align-items: center; gap: var(--space-2); }
+.hr-share-bar-track { height: 8px; border-radius: 999px; background: var(--bg-sunken); overflow: hidden; flex: 1; min-width: 50px; }
+.hr-share-bar-fill { height: 100%; border-radius: inherit; }
+.hr-share-text { font-family: var(--mono); font-size: var(--text-xs); min-width: 3.5ch; text-align: right; }
+
+

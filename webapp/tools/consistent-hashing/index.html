@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consistent Hashing &amp; Ring Partitioning Lab · %SITE_NAME%</title>
+<meta name="description" content="Free interactive consistent hashing simulator. Explore virtual nodes (vnodes), circular hash ring partitioning, failover rebalancing, and minimal key migration in your browser.">
+<link rel="canonical" href="%SITE_URL%/tools/consistent-hashing/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/consistent-hashing/">
+<meta property="og:title" content="Consistent Hashing &amp; Partitioning Lab">
+<meta property="og:description" content="See how distributed caches and databases like Redis Cluster, DynamoDB, and Cassandra balance keys across physical servers using virtual nodes and circular hash rings.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Consistent Hashing & Partitioning Lab","url":"%SITE_URL%/tools/consistent-hashing/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Consistent Hashing &amp; Ring Partitioning Lab</h1>
+  <p class="tool-lead">How do distributed caches and storage systems like Redis, DynamoDB, and Cassandra partition millions of keys across clusters without massive cache thrashing when nodes join or leave? Explore circular hash rings, virtual nodes, and minimal key migration in your browser.</p>
+
+  <section aria-labelledby="lab-h" class="tool-card" id="lab">
+    <h2 id="lab-h">Interactive Hash Ring</h2>
+    <noscript><p class="tool-note">This simulator requires JavaScript to render the interactive hash ring and compute key distributions.</p></noscript>
+
+    <div class="ll-presets">
+      <span class="ll-presets__label">Cluster presets</span>
+      <div id="hr-presets" class="tool-row" role="group" aria-label="Cluster presets"></div>
+    </div>
+
+    <div class="hr-controls-wrapper">
+      <div class="ll-field">
+        <label for="hr-vnodes">Virtual nodes per physical server <output id="hr-vnodes-out" for="hr-vnodes"></output></label>
+        <input id="hr-vnodes" type="range">
+      </div>
+
+      <div class="hr-nodes-box">
+        <label>Active physical servers in cluster</label>
+        <div id="hr-nodes-group" class="hr-nodes-row"></div>
+      </div>
+
+      <form id="hr-add-key-form" class="hr-key-form" novalidate>
+        <label for="hr-new-key">Add a key to the ring</label>
+        <div class="tool-row">
+          <input id="hr-new-key" type="text" placeholder="e.g. order:9844 or user:sam">
+          <button type="submit" class="tool-btn tool-btn--primary">Add key</button>
+          <button id="hr-reset-keys" type="button" class="tool-btn">Reset sample keys</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="hr-migration-note" class="hr-migration-banner" hidden></div>
+
+    <div class="ll-summary" aria-live="polite" aria-atomic="true">
+      <div class="ll-stat"><span>Total keys mapped</span><strong id="hr-keys-count"></strong></div>
+      <div class="ll-stat"><span>Physical servers</span><strong id="hr-nodes-count"></strong></div>
+      <div class="ll-stat"><span>Virtual tokens on ring</span><strong id="hr-tokens-count"></strong></div>
+      <div class="ll-stat"><span>Load standard deviation</span><strong id="hr-stddev"></strong></div>
+    </div>
+
+    <div class="hr-visualizer-layout">
+      <div class="hr-ring-box">
+        <div id="hr-ring-container" class="hr-ring-container"></div>
+        <div class="hr-ring-legend">
+          <span><i class="hr-legend-track"></i> Hash Ring (0 to 2³² - 1)</span>
+          <span><i class="hr-legend-key"></i> Key Token</span>
+          <span><i class="hr-legend-vnode"></i> Server Virtual Token</span>
+        </div>
+      </div>
+
+      <div class="hr-details-box">
+        <h3>Server Traffic Allocation</h3>
+        <div class="ll-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Server</th>
+                <th scope="col" class="is-number">Tokens</th>
+                <th scope="col" class="is-number">Assigned keys</th>
+                <th scope="col">Share</th>
+              </tr>
+            </thead>
+            <tbody id="hr-table-body"></tbody>
+          </table>
+        </div>
+        <ul id="hr-advice" class="ll-advice"></ul>
+      </div>
+    </div>
+
+    <div class="ll-share">
+      <button id="hr-copy" type="button" class="tool-btn">Copy link to this cluster setup</button>
+      <span id="hr-copy-note" class="tool-note" aria-live="polite"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="learn-h" class="tool-prose">
+    <h2 id="learn-h">Why Modulo Hashing Fails at Scale</h2>
+    <p>A naive approach to distributing cached data across $N$ database or cache servers uses the modulo operator: <code>serverIndex = hash(key) % N</code>. While this works fine when the cluster never changes, adding or removing a single node changes the denominator from $N$ to $N+1$ or $N-1$. As a result, almost every existing key hashes to a completely different index&mdash;invalidating roughly <strong>$N / (N+1)$</strong> (typically 80% to 90%+) of all cached data instantly, triggering a catastrophic cache stampede on backend databases.</p>
+
+    <h2>The Consistent Hash Ring Solution</h2>
+    <p>Consistent hashing (introduced by Karger et al.) solves this by mapping both <strong>servers</strong> and <strong>keys</strong> onto a shared continuous circular integer space (such as a 32-bit integer range $[0, 2^{32} - 1)$):</p>
+    <ul>
+      <li>Each physical server is assigned one or more points on the ring using its identifier (e.g. <code>hash("server-A")</code>).</li>
+      <li>To find which server owns a key, the client hashes the key and traverses clockwise along the ring until it encounters the first server token.</li>
+      <li>When a new server joins, it only takes ownership of keys that lie in the segment immediately preceding its token. Keys on other parts of the circle remain completely untouched, ensuring that on average only <strong>$1/N$</strong> of the data needs to migrate.</li>
+    </ul>
+
+    <h2>Why Virtual Nodes (Vnodes) are Essential</h2>
+    <p>If each physical server has only <em>one</em> token on the ring, random chance causes non-uniform spacing, creating huge gaps where one server handles 50%+ of all requests while others sit idle. <strong>Virtual Nodes (vnodes)</strong> assign multiple tokens to each physical server (e.g. <code>server-A#v0</code>, <code>server-A#v1</code>, &hellip; <code>server-A#v14</code>). By interleaving hundreds of tokens around the perimeter, the law of large numbers guarantees that keys are distributed smoothly and evenly across all machines.</p>
+
+    <h2>Explore Related Lessons</h2>
+    <p>Read the in-depth system design guide in <a href="/backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store/">Designing a Distributed Cache &amp; Key-Value Store</a>, explore <a href="/tools/page-load-latency/">Page Load Latency Calculator</a>, or test your skills on <a href="/practice/code/smooth-weighted-round-robin/">Nginx Smooth Weighted Round-Robin</a> in the Practice Center.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/hashring.js"></script>
+</body>
+</html>

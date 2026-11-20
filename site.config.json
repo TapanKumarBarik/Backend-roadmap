@@ -613,6 +613,11 @@
         "height": 2400
       },
       {
+        "name": "tool-consistent-hashing",
+        "path": "/tools/consistent-hashing/",
+        "height": 2200
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -681,6 +686,11 @@
       "id": "tcp-congestion",
       "url": "/tools/tcp-congestion/",
       "entry": "tools/tcp-congestion/index.html"
+    },
+    {
+      "id": "consistent-hashing",
+      "url": "/tools/consistent-hashing/",
+      "entry": "tools/consistent-hashing/index.html"
     }
   ]
 }
