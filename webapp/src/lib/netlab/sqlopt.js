@@ -5,7 +5,7 @@
 /**
  * Analyzes execution plan and cost for a given query based on active indexes.
  *
- * @param {object} query - Query config object from SQL_OPT_CONFIG.queries
+ * @param {{ id: string, selectivity?: number }} query - Query config object from SQL_OPT_CONFIG.queries
  * @param {Set<string>|Array<string>} activeIndexList - Active index IDs
  * @returns {object} Execution plan details, costs, and I/O metrics
  */
