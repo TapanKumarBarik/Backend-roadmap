@@ -608,6 +608,11 @@
         "height": 2600
       },
       {
+        "name": "tool-tcp-congestion",
+        "path": "/tools/tcp-congestion/",
+        "height": 2400
+      },
+      {
         "name": "tool-hub",
         "path": "/tools/",
         "height": 900
@@ -671,6 +676,11 @@
       "id": "page-load-latency",
       "url": "/tools/page-load-latency/",
       "entry": "tools/page-load-latency/index.html"
+    },
+    {
+      "id": "tcp-congestion",
+      "url": "/tools/tcp-congestion/",
+      "entry": "tools/tcp-congestion/index.html"
     }
   ]
 }

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCP Congestion & Flow Control Simulator (AIMD Sawtooth) · %SITE_NAME%</title>
+<meta name="description" content="Free interactive TCP Congestion Control and AIMD Sawtooth simulator. Explore Slow Start, Congestion Avoidance, Fast Recovery, bufferbloat, and receiver flow control in your browser.">
+<link rel="canonical" href="%SITE_URL%/tools/tcp-congestion/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/tcp-congestion/">
+<meta property="og:title" content="TCP Congestion & Flow Control Simulator">
+<meta property="og:description" content="Simulate TCP AIMD Sawtooth waveforms, Slow Start exponential doubling, router bufferbloat, and receive window limits in an interactive browser lab.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"TCP Congestion & Flow Control Simulator","url":"%SITE_URL%/tools/tcp-congestion/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/tools/">Network Lab</a>
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>TCP Congestion &amp; Flow Control Simulator</h1>
+  <p class="tool-lead">How does TCP decide how fast to send data without knowing the network topology in advance? Watch TCP probe link capacity in Slow Start, climb linearly in Congestion Avoidance, halve its window on packet loss (AIMD), and manage bottleneck router buffers and flow control limits.</p>
+
+  <section aria-labelledby="sim-h" class="tool-card" id="lab">
+    <h2 id="sim-h">Interactive Simulator</h2>
+    <noscript><p class="tool-note">This simulator requires JavaScript to render the interactive chart and calculate dynamics.</p></noscript>
+
+    <div class="ll-presets">
+      <span class="ll-presets__label">Network presets</span>
+      <div id="tc-presets" class="tool-row" role="group" aria-label="Network presets"></div>
+    </div>
+
+    <form id="tc-form" class="ll-controls" novalidate>
+      <div class="ll-field">
+        <label for="tc-algo">Algorithm</label>
+        <select id="tc-algo"></select>
+      </div>
+      <div class="ll-field">
+        <label for="tc-bdp">Bandwidth-Delay Product (BDP) <output id="tc-bdp-out" for="tc-bdp"></output></label>
+        <input id="tc-bdp" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="tc-buffer">Bottleneck router buffer <output id="tc-buffer-out" for="tc-buffer"></output></label>
+        <input id="tc-buffer" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="tc-rwnd">Receiver window (rwnd) <output id="tc-rwnd-out" for="tc-rwnd"></output></label>
+        <input id="tc-rwnd" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="tc-loss">Random packet loss <output id="tc-loss-out" for="tc-loss"></output></label>
+        <input id="tc-loss" type="range">
+      </div>
+      <div class="ll-field">
+        <label for="tc-rounds">Simulation duration <output id="tc-rounds-out" for="tc-rounds"></output></label>
+        <input id="tc-rounds" type="range">
+      </div>
+    </form>
+
+    <div id="tc-summary-box">
+      <div class="ll-summary" aria-live="polite" aria-atomic="true">
+        <div class="ll-stat"><span>Delivered packets</span><strong id="tc-delivered"></strong></div>
+        <div class="ll-stat"><span>Dropped packets</span><strong id="tc-dropped"></strong></div>
+        <div class="ll-stat"><span>Average link utilization</span><strong id="tc-util"></strong></div>
+        <div class="ll-stat"><span>Congestion loss events</span><strong id="tc-events"></strong></div>
+        <div class="ll-stat"><span>Peak router queue</span><strong id="tc-queue-stat"></strong></div>
+      </div>
+
+      <div class="tc-chart-box">
+        <div class="tc-chart-legend">
+          <span><i class="tc-sw-cwnd"></i> Congestion Window (cwnd)</span>
+          <span><i class="tc-sw-ssthresh"></i> Slow Start Threshold (ssthresh)</span>
+          <span><i class="tc-sw-bdp"></i> BDP Pipe Capacity</span>
+          <span><i class="tc-sw-limit"></i> Tail Drop Ceiling</span>
+          <span><i class="tc-sw-loss"></i> Packet Loss</span>
+        </div>
+        <div id="tc-chart" class="tc-chart-container"></div>
+      </div>
+
+      <div class="tc-queue-panel">
+        <div class="tc-queue-meta">
+          <strong>Bottleneck Buffer Occupancy</strong>
+          <span id="tc-queue-desc" class="tool-note"></span>
+        </div>
+        <div class="tc-queue-track">
+          <div id="tc-queue-fill" class="tc-queue-bar"></div>
+        </div>
+      </div>
+
+      <ul id="tc-advice" class="ll-advice"></ul>
+
+      <details class="tool-details">
+        <summary>Round-by-round state transitions</summary>
+        <div class="ll-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col" class="is-number">RTT</th>
+                <th scope="col">Phase</th>
+                <th scope="col" class="is-number">cwnd</th>
+                <th scope="col" class="is-number">ssthresh</th>
+                <th scope="col" class="is-number">In flight</th>
+                <th scope="col" class="is-number">Queue</th>
+                <th scope="col" class="is-number">Link util.</th>
+                <th scope="col">Event</th>
+              </tr>
+            </thead>
+            <tbody id="tc-table-body"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <div class="ll-share">
+        <button id="tc-copy" type="button" class="tool-btn">Copy link to this scenario</button>
+        <span id="tc-copy-note" class="tool-note" aria-live="polite"></span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="learn-h" class="tool-prose">
+    <h2 id="learn-h">How TCP Congestion Control Works</h2>
+    <p>A sender on the internet cannot know the exact capacity of every switch, router, and optical cable along its path. To solve this, TCP obeys two fundamental guardrails:</p>
+    <ul>
+      <li><strong>Flow Control (<code>rwnd</code>):</strong> The receiver advertises its available buffer space in the header of every ACK packet. The sender guarantees that total bytes in flight never exceed <code>rwnd</code>, preventing a fast sender from crashing a slow consumer.</li>
+      <li><strong>Congestion Control (<code>cwnd</code>):</strong> The sender dynamically models network capacity. It begins conservatively in <strong>Slow Start</strong> (doubling its window every RTT), transitions to linear growth (+1 segment per RTT) in <strong>Congestion Avoidance</strong> once it reaches <code>ssthresh</code>, and cuts back upon detecting packet loss.</li>
+    </ul>
+
+    <h2>Additive Increase, Multiplicative Decrease (AIMD)</h2>
+    <p>In TCP Reno (RFC 5681), when a packet drop is detected via triple duplicate ACKs, TCP triggers <strong>Fast Retransmit</strong> and <strong>Fast Recovery</strong>: it sets <code>ssthresh = max(2, cwnd / 2)</code> and cuts <code>cwnd</code> in half. By climbing linearly (+1 MSS) and dropping multiplicatively (&divide;2), competing TCP flows mathematically converge to fair share bandwidth allocation while maximizing overall link throughput, creating the signature <em>sawtooth</em> waveform.</p>
+
+    <h2>Bufferbloat: When Queues Get Too Large</h2>
+    <p>Network routers maintain packet buffers to absorb temporary traffic bursts. However, if the router queue is excessively large compared to the Bandwidth-Delay Product (BDP), TCP will continue additive increase, filling the buffer with dozens of segments before dropping a packet. This phenomenon&mdash;<strong>bufferbloat</strong>&mdash;causes massive round-trip latency spikes and jitter without improving throughput.</p>
+
+    <h2>Learn More in the Course</h2>
+    <p>Dive deeper into the packet headers and networking theory in <a href="/system-design/02-networking-from-zero/10-tcp-flow-and-congestion-control/">Lesson 10: TCP Flow and Congestion Control</a>, test your knowledge in the <a href="/practice/quiz/tcp-ip-dns-ports-and-nat/">TCP/IP Quiz</a>, or explore the <a href="/tools/page-load-latency/">Page Load Latency Calculator</a> to see how handshakes and initial windows add up in live web requests.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/congestion.js"></script>
+</body>
+</html>
