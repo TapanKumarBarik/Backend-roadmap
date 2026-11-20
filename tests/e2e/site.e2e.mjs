@@ -593,7 +593,9 @@ test('the home page has something to read without JavaScript: a headline, sectio
   assert.equal((html.match(/<h1>/g) || []).length, 1);
   assert.ok((html.match(/<h2>/g) || []).length >= 4, 'it has sections');
   const description = /<meta name="description" content="([^"]*)">/.exec(html)[1];
-  assert.ok(description.includes(`${stats.modules.written} modules`), 'the description carries the real number of modules');
+  // The page writes the count with a thousands separator (webapp/src/config/landing.js: "1,150 modules"), so the test does too; without it this
+  // passed while the site had fewer than 1,000 written modules and failed the day it passed that.
+  assert.ok(description.includes(`${stats.modules.written.toLocaleString('en-US')} modules`), 'the description carries the real number of modules');
   assert.ok(description.length <= 160);
   for (const curriculum of config.content.curricula) assert.match(html, new RegExp(`<a href="/${curriculum}/">`), `it links to ${curriculum}`);
   assert.match(html, /<a href="\/backend\/[^"]+">[^<]+<\/a>: /, 'and to the first modules of the learning paths');
