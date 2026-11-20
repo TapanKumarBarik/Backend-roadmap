@@ -1,0 +1,34 @@
+{
+  "title": "Consistent Hashing with Virtual Nodes and Preference Lists",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+  "description": "Implement a Dynamo-style consistent hash ring with virtual nodes and multi-replica preference list lookup.",
+  "statement": "In distributed storage systems like Amazon DynamoDB, Apache Cassandra, and Riak, data is partitioned across storage nodes using a **Consistent Hash Ring**.\n\nTo balance traffic evenly and prevent non-uniform distribution (\"hot spots\"), each physical node is assigned $V$ virtual positions on a $2^{32}$ hash ring: `hash(f\"{node_id}#vnode{i}\")` for $i \\in [0, V-1]$.\n\nTo achieve replication factor $R$, a key is hashed to a position on the ring, and the ring is traversed clockwise to collect the first $R$ **distinct physical nodes** (called the **Preference List**). Virtual nodes belonging to a physical node already in the preference list are skipped.\n\n### Your Task\n\nImplement `ConsistentHashRing` in Python:\n- `__init__(self, vnodes: int = 3, seed: int = 0)`: Initializes empty ring with $V$ virtual nodes per physical node.\n- `add_node(self, node_id: str) -> None`: Adds physical `node_id`. Computes $V$ hashes using `hashlib.sha256(f\"{self.seed}:{node_id}#vnode{i}\".encode()).digest()`, maps each to an unsigned 32-bit integer (`int.from_bytes(digest[:4], 'big')`), and places `(hash_pos, node_id)` on the ring.\n- `remove_node(self, node_id: str) -> None`: Removes all virtual nodes associated with `node_id`.\n- `get_preference_list(self, key: str, r: int) -> list[str]`: Hashes `key` to position $H$. Finds the first virtual node at position $\\ge H$ (wrapping around to $0$ if necessary), and moves clockwise to return the first $r$ distinct physical nodes. If the total number of distinct physical nodes in the cluster is $< r$, returns all available physical nodes in order.",
+  "starter": "import bisect\nimport hashlib\n\nclass ConsistentHashRing:\n    def __init__(self, vnodes: int = 3, seed: int = 0):\n        self.vnodes = vnodes\n        self.seed = seed\n        self.ring = []  # list of (hash_pos, node_id)\n\n    def add_node(self, node_id: str) -> None:\n        pass\n\n    def remove_node(self, node_id: str) -> None:\n        pass\n\n    def get_preference_list(self, key: str, r: int) -> list[str]:\n        return []\n",
+  "solution": "import bisect\nimport hashlib\n\nclass ConsistentHashRing:\n    def __init__(self, vnodes: int = 3, seed: int = 0):\n        self.vnodes = vnodes\n        self.seed = seed\n        self.ring = []  # sorted list of (hash_pos, node_id)\n\n    def _hash(self, token: str) -> int:\n        digest = hashlib.sha256(f\"{self.seed}:{token}\".encode('utf-8')).digest()\n        return int.from_bytes(digest[:4], byteorder='big')\n\n    def add_node(self, node_id: str) -> None:\n        self.remove_node(node_id)\n        for i in range(self.vnodes):\n            token = f\"{node_id}#vnode{i}\"\n            pos = self._hash(token)\n            bisect.insort(self.ring, (pos, node_id))\n\n    def remove_node(self, node_id: str) -> None:\n        self.ring = [(pos, nid) for pos, nid in self.ring if nid != node_id]\n\n    def get_preference_list(self, key: str, r: int) -> list[str]:\n        if not self.ring:\n            return []\n\n        key_pos = self._hash(key)\n        # Find first virtual node with pos >= key_pos\n        idx = bisect.bisect_left(self.ring, (key_pos, \"\"))\n        \n        pref_list = []\n        seen = set()\n        n = len(self.ring)\n\n        for step in range(n):\n            curr_idx = (idx + step) % n\n            _, nid = self.ring[curr_idx]\n            if nid not in seen:\n                seen.add(nid)\n                pref_list.append(nid)\n                if len(pref_list) == r:\n                    break\n\n        return pref_list\n",
+  "tests": [
+    {
+      "name": "empty ring returns empty preference list",
+      "code": "ring = ConsistentHashRing()\nassert ring.get_preference_list(\"order:101\", 3) == []"
+    },
+    {
+      "name": "preference list skips duplicate physical nodes across virtual nodes",
+      "code": "ring = ConsistentHashRing(vnodes=5, seed=42)\nring.add_node(\"nodeA\")\nring.add_node(\"nodeB\")\nring.add_node(\"nodeC\")\n\npref = ring.get_preference_list(\"user:999\", r=2)\nassert len(pref) == 2\nassert len(set(pref)) == 2, \"Preference list must contain distinct physical nodes\"\nassert all(n in [\"nodeA\", \"nodeB\", \"nodeC\"] for n in pref)"
+    },
+    {
+      "name": "replication factor greater than cluster size returns all nodes",
+      "code": "ring = ConsistentHashRing(vnodes=3, seed=7)\nring.add_node(\"n1\")\nring.add_node(\"n2\")\npref = ring.get_preference_list(\"key_x\", r=5)\nassert len(pref) == 2\nassert set(pref) == {\"n1\", \"n2\"}"
+    },
+    {
+      "name": "removing node updates preference list without full reshuffle",
+      "code": "ring = ConsistentHashRing(vnodes=4, seed=123)\nring.add_node(\"storage1\")\nring.add_node(\"storage2\")\nring.add_node(\"storage3\")\n\npref_before = ring.get_preference_list(\"cart:404\", r=2)\nring.remove_node(pref_before[0])\npref_after = ring.get_preference_list(\"cart:404\", r=2)\n\nassert pref_before[0] not in pref_after\nassert len(pref_after) == 2"
+    }
+  ],
+  "hints": [
+    "Use `bisect.insort` to maintain the ring sorted by `(hash_pos, node_id)` in ascending order.",
+    "When traversing clockwise, use modulo arithmetic `(idx + step) % len(self.ring)` to wrap around from the end of the ring back to 0.",
+    "Maintain a `seen` set to avoid adding the same physical node more than once to the preference list."
+  ],
+  "explanation": "**Why Virtual Nodes & Preference Lists?** Without virtual nodes, consistent hashing produces skewed distributions where some nodes receive $2-3\\times$ average traffic. Dividing each physical server into $V$ virtual tokens smooths variance. When replicating data ($R=3$), the preference list guarantees copies land on distinct physical servers for fault tolerance."
+}

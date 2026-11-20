@@ -1,0 +1,34 @@
+{
+  "title": "Phi Accrual Adaptive Failure Detector",
+  "topic": "distributed-systems",
+  "difficulty": "advanced",
+  "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+  "description": "Implement Cassandra's adaptive heartbeat failure detector that outputs continuous suspicion probability Phi.",
+  "statement": "In large-scale distributed systems, rigid heartbeat timeouts (e.g. \"mark node dead if no ping in 5 seconds\") create frequent false positives during transient GC pauses or temporary network spikes, while making recovery slow during real crashes.\n\nThe **Phi ($\\Phi$) Accrual Failure Detector** (Hayashibara et al., 2004), used in **Apache Cassandra** and **Akka**, outputs a continuous suspicion scale $\\Phi$ rather than a binary up/down verdict:\n$$\\Phi = -\\log_{10}(P_{\\text{later}}(t - t_{\\text{last}}))$$\nwhere $t - t_{\\text{last}}$ is the elapsed time since the last heartbeat, and $P_{\\text{later}}(\\Delta)$ is the probability that a heartbeat arrives more than $\\Delta$ time units late.\n\nAssuming inter-arrival intervals follow an exponential distribution with mean $\\mu$ computed over a sliding history window:\n$$P_{\\text{later}}(\\Delta) = e^{-\\Delta / \\mu} \\implies \\Phi = -\\log_{10}(e^{-\\Delta / \\mu}) = \\frac{\\Delta}{\\mu \\cdot \\ln(10)}$$\n\nIf $\\Phi \\ge 1$, there is roughly a $10\\%$ chance the heartbeat is late. If $\\Phi \\ge 8$ (Cassandra's default threshold), the likelihood of a false positive is approximately $10^{-8}$.\n\n### Your Task\n\nImplement `PhiAccrualDetector` in Python:\n- `__init__(self, threshold: float = 8.0, max_window: int = 10)`: Initializes detector with suspicion threshold and sliding history size.\n- `heartbeat(self, timestamp: float) -> None`: Records heartbeat arrival. Computes inter-arrival delta $\\Delta = \\text{timestamp} - \\text{last\\_timestamp}$ (if a prior heartbeat exists), stores $\\Delta$ in the sliding window (capped at `max_window` most recent intervals), and updates `last_timestamp`.\n- `phi(self, now: float) -> float`: Calculates current $\\Phi$ at time `now`. If fewer than 2 heartbeats have been received, return `0.0`. If `now <= self.last_timestamp`, return `0.0`. Compute mean $\\mu$ of recorded intervals in the sliding window. Return $\\frac{now - last\\_timestamp}{\\mu \\cdot \\ln(10)}$.\n- `is_suspect(self, now: float) -> bool`: Returns `True` if `phi(now) >= threshold`, `False` otherwise.",
+  "starter": "import math\n\nclass PhiAccrualDetector:\n    def __init__(self, threshold: float = 8.0, max_window: int = 10):\n        self.threshold = threshold\n        self.max_window = max_window\n        self.intervals = []\n        self.last_ts = None\n\n    def heartbeat(self, timestamp: float) -> None:\n        pass\n\n    def phi(self, now: float) -> float:\n        return 0.0\n\n    def is_suspect(self, now: float) -> bool:\n        return False\n",
+  "solution": "import math\n\nclass PhiAccrualDetector:\n    def __init__(self, threshold: float = 8.0, max_window: int = 10):\n        self.threshold = threshold\n        self.max_window = max_window\n        self.intervals = []\n        self.last_ts = None\n\n    def heartbeat(self, timestamp: float) -> None:\n        if self.last_ts is not None:\n            interval = timestamp - self.last_ts\n            if interval > 0:\n                self.intervals.append(interval)\n                if len(self.intervals) > self.max_window:\n                    self.intervals.pop(0)\n        self.last_ts = timestamp\n\n    def phi(self, now: float) -> float:\n        if self.last_ts is None or not self.intervals or now <= self.last_ts:\n            return 0.0\n\n        delta = now - self.last_ts\n        mean = sum(self.intervals) / len(self.intervals)\n        if mean <= 0:\n            return 0.0\n\n        return delta / (mean * math.log(10))\n\n    def is_suspect(self, now: float) -> bool:\n        return self.phi(now) >= self.threshold\n",
+  "tests": [
+    {
+      "name": "initial state with fewer than 2 heartbeats has zero phi",
+      "code": "detector = PhiAccrualDetector()\nassert detector.phi(now=10.0) == 0.0\ndetector.heartbeat(10.0)\nassert detector.phi(now=11.0) == 0.0\nassert detector.is_suspect(now=11.0) is False"
+    },
+    {
+      "name": "steady heartbeats keep phi low and not suspect",
+      "code": "detector = PhiAccrualDetector(threshold=8.0)\n# Heartbeats arrive every 1.0 second: t=1, 2, 3, 4\nfor t in [1.0, 2.0, 3.0, 4.0]:\n    detector.heartbeat(t)\n\n# At t=4.5 (half an interval later), phi should be small (~0.22)\np = detector.phi(now=4.5)\nassert 0.1 <= p <= 0.5, f\"Expected low phi, got {p}\"\nassert detector.is_suspect(now=4.5) is False"
+    },
+    {
+      "name": "prolonged delay crosses threshold and marks node suspect",
+      "code": "detector = PhiAccrualDetector(threshold=6.0, max_window=5)\nfor t in [10.0, 11.0, 12.0, 13.0]:\n    detector.heartbeat(t)\n\n# Average interval is 1.0s. At delta = 15.0s, phi = 15 / (1.0 * ln(10)) = ~6.51\nassert detector.is_suspect(now=28.0) is True\nassert detector.phi(now=28.0) > 6.0"
+    },
+    {
+      "name": "arrival of new heartbeat resets phi and suspicion",
+      "code": "detector = PhiAccrualDetector(threshold=5.0)\nfor t in [1.0, 2.0, 3.0]:\n    detector.heartbeat(t)\n\nassert detector.is_suspect(now=20.0) is True\n# Node recovers and sends heartbeat at t=20.0\ndetector.heartbeat(20.0)\nassert detector.is_suspect(now=20.1) is False\nassert detector.phi(now=20.1) < 1.0"
+    }
+  ],
+  "hints": [
+    "Track `self.intervals = []` and `self.last_ts = None`.",
+    "When a heartbeat arrives, if `self.last_ts` is set, append `timestamp - self.last_ts` to `self.intervals`.",
+    "$\\Phi$ is calculated as `(now - last_ts) / (mean * math.log(10))`."
+  ],
+  "explanation": "**Why Phi Accrual?** Rather than hardcoding fixed timeouts, the Phi Accrual detector adapts dynamically to network jitter and GC pauses. Different consumers can apply different $\\Phi$ thresholds to the same node: e.g. $\\Phi=3$ for warming backup caches, and $\\Phi=8$ for committing leader failover."
+}

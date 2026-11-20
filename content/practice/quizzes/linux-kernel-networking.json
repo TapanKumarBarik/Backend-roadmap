@@ -1,0 +1,136 @@
+{
+  "title": "Linux kernel networking and socket concurrency",
+  "topic": "networking",
+  "difficulty": "advanced",
+  "module": "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3/README.md",
+  "description": "epoll edge vs level triggering, TCP TIME_WAIT states, SYN queues, SO_REUSEPORT, and socket concurrency.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the difference between Edge-Triggered (EPOLLET) and Level-Triggered (default) modes in Linux epoll?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Level-Triggered notifies as long as data remains in the buffer; Edge-Triggered notifies only when a state transition occurs (new data arrives), requiring reads until EAGAIN/EWOULDBLOCK"
+        },
+        {
+          "id": "b",
+          "text": "Level-Triggered only works with UDP sockets; Edge-Triggered only works with TCP"
+        },
+        {
+          "id": "c",
+          "text": "Edge-Triggered requires root privileges in Linux"
+        },
+        {
+          "id": "d",
+          "text": "Level-Triggered is asynchronous; Edge-Triggered is synchronous"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "In level-triggered mode, epoll_wait returns the file descriptor every loop as long as the buffer has unread bytes. In edge-triggered mode (EPOLLET), it notifies only when new data transitions the socket, so the application must loop read() until it receives EAGAIN to avoid hanging."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Why does a TCP connection enter the TIME_WAIT state (typically 60 seconds) after the active closer sends the final ACK?",
+      "options": [
+        {
+          "id": "a",
+          "text": "To allow delayed duplicate packets from the old connection to expire in the network and ensure the remote host received the final ACK"
+        },
+        {
+          "id": "b",
+          "text": "To flush disk buffers to physical storage"
+        },
+        {
+          "id": "c",
+          "text": "To wait for the operating system to garbage collect open file handles"
+        },
+        {
+          "id": "d",
+          "text": "To negotiate TLS session tickets for the next connection"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "TIME_WAIT ensures: (1) if the final ACK was lost, the peer's retransmitted FIN can be answered with another ACK; and (2) any delayed wandering duplicate segments from this connection expire (2 * MSL) so they cannot corrupt a future connection reusing the same 4-tuple (source IP, source port, dest IP, dest port)."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "What socket option allows multiple independent worker processes on a multi-core server to bind to the exact same IP and port simultaneously, with the Linux kernel load-balancing incoming SYN packets across them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SO_KEEPALIVE"
+        },
+        {
+          "id": "b",
+          "text": "SO_REUSEPORT"
+        },
+        {
+          "id": "c",
+          "text": "TCP_NODELAY"
+        },
+        {
+          "id": "d",
+          "text": "SO_LINGER"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "SO_REUSEPORT (introduced in Linux 3.9) allows multiple listening sockets to bind to the same port. The kernel evenly distributes incoming connections across worker processes using an internal 4-tuple hash, eliminating the 'thundering herd' wake-up problem on a single accept queue."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "How do TCP SYN Cookies protect a server from connection exhaustion during a SYN Flood DDoS attack?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By rejecting all incoming connection requests until the flood ceases"
+        },
+        {
+          "id": "b",
+          "text": "By encoding connection state into the initial TCP Sequence Number (ISN) sent in the SYN-ACK, avoiding allocating a half-open socket struct in the SYN backlog until the client ACK returns"
+        },
+        {
+          "id": "c",
+          "text": "By caching client IP addresses in a Redis cluster"
+        },
+        {
+          "id": "d",
+          "text": "By automatically terminating idle HTTP keep-alive connections"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "When the SYN backlog table fills up under attack, SYN cookies compute a cryptographic hash of the 4-tuple and timestamp as the server's Initial Sequence Number (ISN). No memory is allocated. When the legitimate client sends ACK (acknowledging ISN + 1), the server decodes the cookie and creates the full socket connection."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "Setting TCP_NODELAY on a socket disables Nagle's algorithm, causing small packets to be sent immediately instead of being buffered until a full MSS or ACK arrives.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Nagle's algorithm buffers small outbound payloads to reduce packet header overhead. Disabling it with TCP_NODELAY is essential for interactive low-latency protocols like SSH, WebSockets, and gaming, eliminating the 40-200ms delayed ACK interaction penalty."
+    }
+  ]
+}

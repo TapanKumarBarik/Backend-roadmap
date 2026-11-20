@@ -1,0 +1,24 @@
+{
+  "title": "Designing a Global Distributed Rate Limiter",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md",
+  "questions": [
+    {
+      "q": "Why is the Sliding Window Counter algorithm preferred over Fixed Window and Token Bucket at the API Gateway layer?",
+      "a": "Fixed Window allows a burst of 2x the limit at window boundaries (e.g. 100 requests at 00:59 and 100 at 01:01). Token Bucket requires storing timestamps and locking on refill, which adds synchronization overhead across distributed workers. The Sliding Window Counter combines low memory (just two integer counters: current window and previous window) with smooth boundary protection: calculated count = (previous_count * (1 - overlap_ratio)) + current_count, guaranteeing tight rate limits with O(1) memory per client."
+    },
+    {
+      "q": "How do you implement an atomic distributed rate limiter in Redis to avoid race conditions?",
+      "a": "Use a Redis Lua Script. Because Redis executes Lua scripts atomically on a single thread, checking the current usage count, incrementing it, and setting the TTL happens in a single network round-trip without distributed mutex locks. Example: local current = redis.call('incr', KEYS[1]); if current == 1 then redis.call('expire', KEYS[1], ARGV[1]) end; if current > tonumber(ARGV[2]) then return 0 else return 1 end."
+    },
+    {
+      "q": "If every incoming API request makes a synchronous Redis round-trip for rate limiting, Redis becomes a latency bottleneck. How do you scale this for 1,000,000 QPS?",
+      "a": "Implement Local In-Memory Token Leasing (Batching): Instead of querying Redis on every single request, gateway nodes lease a batch of tokens (e.g. 100 tokens at a time) from centralized Redis via a background thread. Local gateway workers decrement from local memory in sub-microsecond time. Only when the local batch drops below a low watermark does the node request another lease. This reduces Redis QPS by 100x at the cost of slight over-allocation across nodes."
+    },
+    {
+      "q": "In a multi-region deployment (US, EU, APAC), how do you prevent cross-region network latency from slowing down rate limit checks?",
+      "a": "Partition rate limits regionally: Distribute user quota across regions based on historical traffic (e.g. User has 1,000 req/min global quota -> 600 allocated to US-East, 300 to EU-Central, 100 to APAC). Gateway instances query their local regional Redis cluster (<1ms RTT). An asynchronous control plane periodically redistributes regional allowances based on active traffic shifts, avoiding cross-region WAN latency on the critical request path."
+    }
+  ]
+}

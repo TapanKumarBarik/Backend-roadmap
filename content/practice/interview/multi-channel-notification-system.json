@@ -1,0 +1,24 @@
+{
+  "title": "Designing a Multi-Channel Notification System",
+  "topic": "system-design",
+  "difficulty": "advanced",
+  "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+  "questions": [
+    {
+      "q": "How do you architect an event-driven notification platform that routes alerts across Email (SendGrid), SMS (Twilio), and Mobile Push (APNS/FCM)?",
+      "a": "Decouple ingestion from delivery using an Event-Driven Priority Queue architecture. Upstream microservices publish notification requests to a central Message Broker (Kafka/RabbitMQ). Notification Workers validate tenant quotas, look up user preferences from a cache, and route messages to channel-specific priority queues: (1) High Priority (Transactional: 2FA codes, password resets, fraud alerts), (2) Normal Priority (Account updates, social mentions), and (3) Low Priority (Promotions, weekly digests). Dedicated channel workers consume from these queues and invoke third-party provider APIs."
+    },
+    {
+      "q": "How do you handle third-party provider outages (e.g. Twilio 503) without dropping critical notifications or blocking workers?",
+      "a": "Implement Exponential Backoff with Jitter and a Dead Letter Queue (DLQ). When a third-party API call fails, workers retry with increasing intervals: retry_delay = min(max_delay, base * 2^attempt + random_jitter). If retries are exhausted (e.g. after 5 attempts), publish the payload and failure metadata to a DLQ for manual inspection and alerting. Additionally, wrap downstream provider calls in a Circuit Breaker: if error rate exceeds 30%, fail fast and switch traffic to a backup secondary provider (e.g. fall back from Twilio to AWS SNS)."
+    },
+    {
+      "q": "How do you respect user notification preferences and global frequency capping without running expensive database joins on every event?",
+      "a": "Cache user preferences (opt-outs, quiet hours, preferred channel per notification type) in an in-memory key-value store (Redis Hash) with read-through caching. For frequency capping (e.g. 'No more than 3 marketing push notifications per day per user'), use a Redis sliding window counter (INCR user:{id}:notifications:marketing with 24-hour TTL). If the counter exceeds the cap, silently discard or downgrade the notification before enqueueing."
+    },
+    {
+      "q": "How do you prevent duplicate notifications from reaching end users during network retries?",
+      "a": "Enforce strict end-to-end idempotency. Every notification request must include a unique idempotency key: hash(source_event_id, user_id, notification_type). Before dispatching to providers, workers execute an atomic Redis SETNX idempotency_key 'processing' EX 300. If the key already exists, the duplicate is dropped. Provider dispatch calls also pass the idempotency token to upstream APIs (e.g. Stripe/Twilio idempotency headers) so network drops during ACK transmission do not re-trigger SMS sends."
+    }
+  ]
+}

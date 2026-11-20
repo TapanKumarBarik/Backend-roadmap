@@ -1,0 +1,136 @@
+{
+  "title": "Apache Kafka and event streaming architecture",
+  "topic": "messaging",
+  "difficulty": "advanced",
+  "module": "backend/17-kafka-and-streaming/00-producer-internals-acks-idempotence-and-partitioning/README.md",
+  "description": "In-Sync Replicas (ISR), High Watermark, KRaft consensus, idempotent producer deduplication, and sticky rebalances.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "In an Apache Kafka topic with replication factor 3 and min.insync.replicas=2, how does a producer with acks=all behave?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The write succeeds only if all 3 replicas acknowledge receipt"
+        },
+        {
+          "id": "b",
+          "text": "The write succeeds as long as at least 2 in-sync replicas (including the leader) acknowledge receipt; if only 1 replica is in-sync, writes are rejected with NotEnoughReplicasException"
+        },
+        {
+          "id": "c",
+          "text": "The write is acknowledged immediately by the leader without waiting for followers"
+        },
+        {
+          "id": "d",
+          "text": "The write is stored in OS page cache on the leader and flushed to disk asynchronously"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With `acks=all`, the leader waits for all current in-sync replicas to acknowledge. If follower crashes drop the ISR size below `min.insync.replicas` (2), the broker rejects further writes to guarantee durability against leader crashes."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What is the difference between a partition's Log End Offset (LEO) and its High Watermark (HW)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "LEO is the offset of the next record to be written by the leader; High Watermark is the highest offset replicated across all in-sync replicas and visible to consumers"
+        },
+        {
+          "id": "b",
+          "text": "High Watermark is the next record written; LEO is the consumer offset"
+        },
+        {
+          "id": "c",
+          "text": "LEO is only tracked on followers; High Watermark is only tracked on the controller"
+        },
+        {
+          "id": "d",
+          "text": "There is no difference; they are aliases for the same offset integer"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "LEO represents the end of the leader's local append-only log. The High Watermark (HW) lags behind LEO until followers catch up; consumers are strictly forbidden from reading past the High Watermark to prevent dirty reads if an un-replicated leader crashes."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "How does Kafka's Idempotent Producer guarantee exactly-once message delivery per partition without duplicate records?",
+      "options": [
+        {
+          "id": "a",
+          "text": "By calculating an MD5 hash of the payload and storing it in Redis"
+        },
+        {
+          "id": "b",
+          "text": "The broker assigns a unique Producer ID (PID); each message carries a monotonically increasing Sequence Number that the broker deduplicates"
+        },
+        {
+          "id": "c",
+          "text": "By executing a Two-Phase Commit transaction with all active consumers"
+        },
+        {
+          "id": "d",
+          "text": "By delaying message acknowledgment by 5 seconds to detect duplicates"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "With `enable.idempotence=true`, the broker assigns a 64-bit Producer ID (PID). For each partition, the producer tags records with consecutive sequence numbers ($0, 1, 2, \\dots$). If a network retry occurs, the broker recognizes that sequence number $K$ was already committed and ignores the duplicate."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What major architectural improvement does the KRaft (Kafka Raft) metadata mode introduce over the legacy ZooKeeper architecture?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It eliminates the external ZooKeeper cluster, running Raft-based metadata consensus directly inside Kafka brokers for instantaneous metadata failover and support for millions of partitions"
+        },
+        {
+          "id": "b",
+          "text": "It compresses message payloads with Zstandard by default"
+        },
+        {
+          "id": "c",
+          "text": "It removes consumer groups in favor of direct socket streaming"
+        },
+        {
+          "id": "d",
+          "text": "It mandates schema validation via JSON schema"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "KRaft stores metadata in an event-sourced, append-only metadata log managed directly by controller quorum nodes running Raft. This removes the ZooKeeper synchronization bottleneck, enabling rapid controller elections and scaling to tens of millions of partitions."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "In Kafka consumer groups, the Cooperative Sticky Assignor avoids the 'stop-the-world' pause of eager rebalancing by revoking only the specific partitions being moved.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Eager rebalancing forces all consumers to revoke all partitions and stop processing during rebalances. Cooperative Sticky rebalancing uses a phased approach: consumers continue processing untouched partitions while only reassigned partitions are migrated."
+    }
+  ]
+}

@@ -5220,6 +5220,142 @@
     }
    ]
   },
+  "kafka-streaming-internals": {
+   "title": "Apache Kafka and event streaming architecture",
+   "topic": "messaging",
+   "difficulty": "advanced",
+   "module": "backend/17-kafka-and-streaming/00-producer-internals-acks-idempotence-and-partitioning/README.md",
+   "description": "In-Sync Replicas (ISR), High Watermark, KRaft consensus, idempotent producer deduplication, and sticky rebalances.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "In an Apache Kafka topic with replication factor 3 and min.insync.replicas=2, how does a producer with acks=all behave?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The write succeeds only if all 3 replicas acknowledge receipt"
+      },
+      {
+       "id": "b",
+       "text": "The write succeeds as long as at least 2 in-sync replicas (including the leader) acknowledge receipt; if only 1 replica is in-sync, writes are rejected with NotEnoughReplicasException"
+      },
+      {
+       "id": "c",
+       "text": "The write is acknowledged immediately by the leader without waiting for followers"
+      },
+      {
+       "id": "d",
+       "text": "The write is stored in OS page cache on the leader and flushed to disk asynchronously"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "With `acks=all`, the leader waits for all current in-sync replicas to acknowledge. If follower crashes drop the ISR size below `min.insync.replicas` (2), the broker rejects further writes to guarantee durability against leader crashes."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "What is the difference between a partition's Log End Offset (LEO) and its High Watermark (HW)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "LEO is the offset of the next record to be written by the leader; High Watermark is the highest offset replicated across all in-sync replicas and visible to consumers"
+      },
+      {
+       "id": "b",
+       "text": "High Watermark is the next record written; LEO is the consumer offset"
+      },
+      {
+       "id": "c",
+       "text": "LEO is only tracked on followers; High Watermark is only tracked on the controller"
+      },
+      {
+       "id": "d",
+       "text": "There is no difference; they are aliases for the same offset integer"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "LEO represents the end of the leader's local append-only log. The High Watermark (HW) lags behind LEO until followers catch up; consumers are strictly forbidden from reading past the High Watermark to prevent dirty reads if an un-replicated leader crashes."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "How does Kafka's Idempotent Producer guarantee exactly-once message delivery per partition without duplicate records?",
+     "options": [
+      {
+       "id": "a",
+       "text": "By calculating an MD5 hash of the payload and storing it in Redis"
+      },
+      {
+       "id": "b",
+       "text": "The broker assigns a unique Producer ID (PID); each message carries a monotonically increasing Sequence Number that the broker deduplicates"
+      },
+      {
+       "id": "c",
+       "text": "By executing a Two-Phase Commit transaction with all active consumers"
+      },
+      {
+       "id": "d",
+       "text": "By delaying message acknowledgment by 5 seconds to detect duplicates"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "With `enable.idempotence=true`, the broker assigns a 64-bit Producer ID (PID). For each partition, the producer tags records with consecutive sequence numbers ($0, 1, 2, \\dots$). If a network retry occurs, the broker recognizes that sequence number $K$ was already committed and ignores the duplicate."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "What major architectural improvement does the KRaft (Kafka Raft) metadata mode introduce over the legacy ZooKeeper architecture?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It eliminates the external ZooKeeper cluster, running Raft-based metadata consensus directly inside Kafka brokers for instantaneous metadata failover and support for millions of partitions"
+      },
+      {
+       "id": "b",
+       "text": "It compresses message payloads with Zstandard by default"
+      },
+      {
+       "id": "c",
+       "text": "It removes consumer groups in favor of direct socket streaming"
+      },
+      {
+       "id": "d",
+       "text": "It mandates schema validation via JSON schema"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "KRaft stores metadata in an event-sourced, append-only metadata log managed directly by controller quorum nodes running Raft. This removes the ZooKeeper synchronization bottleneck, enabling rapid controller elections and scaling to tens of millions of partitions."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "In Kafka consumer groups, the Cooperative Sticky Assignor avoids the 'stop-the-world' pause of eager rebalancing by revoking only the specific partitions being moved.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Eager rebalancing forces all consumers to revoke all partitions and stop processing during rebalances. Cooperative Sticky rebalancing uses a phased approach: consumers continue processing untouched partitions while only reassigned partitions are migrated."
+    }
+   ]
+  },
   "kubernetes-pods-probes-and-services": {
    "title": "Kubernetes pods, probes, deployments and services",
    "topic": "kubernetes",
@@ -5929,6 +6065,142 @@
       "c"
      ],
      "explanation": "Logistic regression produces a linear decision boundary with calibrated probabilities; linear SVM produces a maximum margin hyperplane; and RBF-kernel SVM yields non-linear boundaries in the original feature space."
+    }
+   ]
+  },
+  "linux-kernel-networking": {
+   "title": "Linux kernel networking and socket concurrency",
+   "topic": "networking",
+   "difficulty": "advanced",
+   "module": "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3/README.md",
+   "description": "epoll edge vs level triggering, TCP TIME_WAIT states, SYN queues, SO_REUSEPORT, and socket concurrency.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What is the difference between Edge-Triggered (EPOLLET) and Level-Triggered (default) modes in Linux epoll?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Level-Triggered notifies as long as data remains in the buffer; Edge-Triggered notifies only when a state transition occurs (new data arrives), requiring reads until EAGAIN/EWOULDBLOCK"
+      },
+      {
+       "id": "b",
+       "text": "Level-Triggered only works with UDP sockets; Edge-Triggered only works with TCP"
+      },
+      {
+       "id": "c",
+       "text": "Edge-Triggered requires root privileges in Linux"
+      },
+      {
+       "id": "d",
+       "text": "Level-Triggered is asynchronous; Edge-Triggered is synchronous"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "In level-triggered mode, epoll_wait returns the file descriptor every loop as long as the buffer has unread bytes. In edge-triggered mode (EPOLLET), it notifies only when new data transitions the socket, so the application must loop read() until it receives EAGAIN to avoid hanging."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "Why does a TCP connection enter the TIME_WAIT state (typically 60 seconds) after the active closer sends the final ACK?",
+     "options": [
+      {
+       "id": "a",
+       "text": "To allow delayed duplicate packets from the old connection to expire in the network and ensure the remote host received the final ACK"
+      },
+      {
+       "id": "b",
+       "text": "To flush disk buffers to physical storage"
+      },
+      {
+       "id": "c",
+       "text": "To wait for the operating system to garbage collect open file handles"
+      },
+      {
+       "id": "d",
+       "text": "To negotiate TLS session tickets for the next connection"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "TIME_WAIT ensures: (1) if the final ACK was lost, the peer's retransmitted FIN can be answered with another ACK; and (2) any delayed wandering duplicate segments from this connection expire (2 * MSL) so they cannot corrupt a future connection reusing the same 4-tuple (source IP, source port, dest IP, dest port)."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "What socket option allows multiple independent worker processes on a multi-core server to bind to the exact same IP and port simultaneously, with the Linux kernel load-balancing incoming SYN packets across them?",
+     "options": [
+      {
+       "id": "a",
+       "text": "SO_KEEPALIVE"
+      },
+      {
+       "id": "b",
+       "text": "SO_REUSEPORT"
+      },
+      {
+       "id": "c",
+       "text": "TCP_NODELAY"
+      },
+      {
+       "id": "d",
+       "text": "SO_LINGER"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "SO_REUSEPORT (introduced in Linux 3.9) allows multiple listening sockets to bind to the same port. The kernel evenly distributes incoming connections across worker processes using an internal 4-tuple hash, eliminating the 'thundering herd' wake-up problem on a single accept queue."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "How do TCP SYN Cookies protect a server from connection exhaustion during a SYN Flood DDoS attack?",
+     "options": [
+      {
+       "id": "a",
+       "text": "By rejecting all incoming connection requests until the flood ceases"
+      },
+      {
+       "id": "b",
+       "text": "By encoding connection state into the initial TCP Sequence Number (ISN) sent in the SYN-ACK, avoiding allocating a half-open socket struct in the SYN backlog until the client ACK returns"
+      },
+      {
+       "id": "c",
+       "text": "By caching client IP addresses in a Redis cluster"
+      },
+      {
+       "id": "d",
+       "text": "By automatically terminating idle HTTP keep-alive connections"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "When the SYN backlog table fills up under attack, SYN cookies compute a cryptographic hash of the 4-tuple and timestamp as the server's Initial Sequence Number (ISN). No memory is allocated. When the legitimate client sends ACK (acknowledging ISN + 1), the server decodes the cookie and creates the full socket connection."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "Setting TCP_NODELAY on a socket disables Nagle's algorithm, causing small packets to be sent immediately instead of being buffered until a full MSS or ACK arrives.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Nagle's algorithm buffers small outbound payloads to reduce packet header overhead. Disabling it with TCP_NODELAY is essential for interactive low-latency protocols like SSH, WebSockets, and gaming, eliminating the 40-200ms delayed ACK interaction penalty."
     }
    ]
   },
@@ -13184,6 +13456,30 @@
     }
    ]
   },
+  "distributed-rate-limiter-design": {
+   "title": "Designing a Global Distributed Rate Limiter",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md",
+   "questions": [
+    {
+     "q": "Why is the Sliding Window Counter algorithm preferred over Fixed Window and Token Bucket at the API Gateway layer?",
+     "a": "Fixed Window allows a burst of 2x the limit at window boundaries (e.g. 100 requests at 00:59 and 100 at 01:01). Token Bucket requires storing timestamps and locking on refill, which adds synchronization overhead across distributed workers. The Sliding Window Counter combines low memory (just two integer counters: current window and previous window) with smooth boundary protection: calculated count = (previous_count * (1 - overlap_ratio)) + current_count, guaranteeing tight rate limits with O(1) memory per client."
+    },
+    {
+     "q": "How do you implement an atomic distributed rate limiter in Redis to avoid race conditions?",
+     "a": "Use a Redis Lua Script. Because Redis executes Lua scripts atomically on a single thread, checking the current usage count, incrementing it, and setting the TTL happens in a single network round-trip without distributed mutex locks. Example: local current = redis.call('incr', KEYS[1]); if current == 1 then redis.call('expire', KEYS[1], ARGV[1]) end; if current > tonumber(ARGV[2]) then return 0 else return 1 end."
+    },
+    {
+     "q": "If every incoming API request makes a synchronous Redis round-trip for rate limiting, Redis becomes a latency bottleneck. How do you scale this for 1,000,000 QPS?",
+     "a": "Implement Local In-Memory Token Leasing (Batching): Instead of querying Redis on every single request, gateway nodes lease a batch of tokens (e.g. 100 tokens at a time) from centralized Redis via a background thread. Local gateway workers decrement from local memory in sub-microsecond time. Only when the local batch drops below a low watermark does the node request another lease. This reduces Redis QPS by 100x at the cost of slight over-allocation across nodes."
+    },
+    {
+     "q": "In a multi-region deployment (US, EU, APAC), how do you prevent cross-region network latency from slowing down rate limit checks?",
+     "a": "Partition rate limits regionally: Distribute user quota across regions based on historical traffic (e.g. User has 1,000 req/min global quota -> 600 allocated to US-East, 300 to EU-Central, 100 to APAC). Gateway instances query their local regional Redis cluster (<1ms RTT). An asynchronous control plane periodically redistributes regional allowances based on active traffic shifts, avoiding cross-region WAN latency on the critical request path."
+    }
+   ]
+  },
   "docker-and-deployments": {
    "title": "Docker and deployments",
    "topic": "devops",
@@ -13565,6 +13861,30 @@
     {
      "q": "How do you distinguish between High Bias (Underfitting) and High Variance (Overfitting) using learning curves?",
      "a": "Plot training error and validation error as a function of training dataset size. Underfitting (High Bias) is characterized by high training error and high validation error converging close together with a narrow gap; adding more training data will not help, and the solution is increasing model capacity (more features, non-linear models, less regularization). Overfitting (High Variance) is characterized by very low training error but significantly higher validation error with a large persistent gap between curves; the solution is adding more training data, feature selection, data augmentation, or increasing regularization penalties."
+    }
+   ]
+  },
+  "multi-channel-notification-system": {
+   "title": "Designing a Multi-Channel Notification System",
+   "topic": "system-design",
+   "difficulty": "advanced",
+   "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+   "questions": [
+    {
+     "q": "How do you architect an event-driven notification platform that routes alerts across Email (SendGrid), SMS (Twilio), and Mobile Push (APNS/FCM)?",
+     "a": "Decouple ingestion from delivery using an Event-Driven Priority Queue architecture. Upstream microservices publish notification requests to a central Message Broker (Kafka/RabbitMQ). Notification Workers validate tenant quotas, look up user preferences from a cache, and route messages to channel-specific priority queues: (1) High Priority (Transactional: 2FA codes, password resets, fraud alerts), (2) Normal Priority (Account updates, social mentions), and (3) Low Priority (Promotions, weekly digests). Dedicated channel workers consume from these queues and invoke third-party provider APIs."
+    },
+    {
+     "q": "How do you handle third-party provider outages (e.g. Twilio 503) without dropping critical notifications or blocking workers?",
+     "a": "Implement Exponential Backoff with Jitter and a Dead Letter Queue (DLQ). When a third-party API call fails, workers retry with increasing intervals: retry_delay = min(max_delay, base * 2^attempt + random_jitter). If retries are exhausted (e.g. after 5 attempts), publish the payload and failure metadata to a DLQ for manual inspection and alerting. Additionally, wrap downstream provider calls in a Circuit Breaker: if error rate exceeds 30%, fail fast and switch traffic to a backup secondary provider (e.g. fall back from Twilio to AWS SNS)."
+    },
+    {
+     "q": "How do you respect user notification preferences and global frequency capping without running expensive database joins on every event?",
+     "a": "Cache user preferences (opt-outs, quiet hours, preferred channel per notification type) in an in-memory key-value store (Redis Hash) with read-through caching. For frequency capping (e.g. 'No more than 3 marketing push notifications per day per user'), use a Redis sliding window counter (INCR user:{id}:notifications:marketing with 24-hour TTL). If the counter exceeds the cap, silently discard or downgrade the notification before enqueueing."
+    },
+    {
+     "q": "How do you prevent duplicate notifications from reaching end users during network retries?",
+     "a": "Enforce strict end-to-end idempotency. Every notification request must include a unique idempotency key: hash(source_event_id, user_id, notification_type). Before dispatching to providers, workers execute an atomic Redis SETNX idempotency_key 'processing' EX 300. If the key already exists, the duplicate is dropped. Provider dispatch calls also pass the idempotency token to upstream APIs (e.g. Stripe/Twilio idempotency headers) so network drops during ACK transmission do not re-trigger SMS sends."
     }
    ]
   },
@@ -15525,6 +15845,40 @@
    ],
    "solution": "import time\n\n\nclass ConnectionPool:\n    def __init__(self, factory, max_size, idle_timeout=60.0, clock=time.monotonic):\n        self._factory = factory\n        self._max_size = max_size\n        self._idle_timeout = idle_timeout\n        self._clock = clock\n        self._idle = []\n        self._active = set()\n\n    def acquire(self):\n        now = self._clock()\n        while self._idle:\n            conn, last_used = self._idle.pop()\n            if now - last_used <= self._idle_timeout:\n                self._active.add(conn)\n                return conn\n\n        if len(self._active) < self._max_size:\n            conn = self._factory()\n            self._active.add(conn)\n            return conn\n\n        return None\n\n    def release(self, conn, healthy=True):\n        if conn not in self._active:\n            raise ValueError(\"Connection was not checked out from this pool\")\n        self._active.remove(conn)\n        if healthy:\n            self._idle.append((conn, self._clock()))\n\n    @property\n    def stats(self):\n        return {\n            \"active\": len(self._active),\n            \"idle\": len(self._idle),\n            \"total\": len(self._active) + len(self._idle)\n        }\n",
    "explanation": "**The idea.** Creating a database or network connection involves a TCP handshake, TLS negotiation, authentication, and backend session allocation. Doing this on every HTTP request adds 50-200ms latency and exhausts operating system file descriptors. A connection pool keeps a bounded set of open connections alive across requests.\n\n**Lifecycle states.** A connection is either **active** (currently leased by a caller) or **idle** (parked in the pool waiting for reuse). `acquire()` reuses valid idle connections first, creates new ones up to `max_size` when demand grows, and returns `None` (or throws/blocks) when the pool is fully saturated.\n\n**LIFO vs FIFO.** Using LIFO (a stack) for the idle list means the most recently used connection is picked first. Under low-to-moderate traffic, the pool reuses a single 'hot' connection continuously while unused cold connections exceed `idle_timeout` and are naturally closed by the database, saving backend server RAM.\n\n**Health checks.** Sockets disconnect when database servers restart or network firewalls drop idle state. When a caller experiences a network error, calling `release(conn, healthy=False)` discards the dead connection so subsequent callers receive fresh connections from `factory()`.\n\n**Complexity.** O(1) amortized acquire and release, O(max_size) memory."
+  },
+  "consistent-hash-replication": {
+   "title": "Consistent Hashing with Virtual Nodes and Preference Lists",
+   "topic": "distributed-systems",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+   "description": "Implement a Dynamo-style consistent hash ring with virtual nodes and multi-replica preference list lookup.",
+   "statement": "In distributed storage systems like Amazon DynamoDB, Apache Cassandra, and Riak, data is partitioned across storage nodes using a **Consistent Hash Ring**.\n\nTo balance traffic evenly and prevent non-uniform distribution (\"hot spots\"), each physical node is assigned $V$ virtual positions on a $2^{32}$ hash ring: `hash(f\"{node_id}#vnode{i}\")` for $i \\in [0, V-1]$.\n\nTo achieve replication factor $R$, a key is hashed to a position on the ring, and the ring is traversed clockwise to collect the first $R$ **distinct physical nodes** (called the **Preference List**). Virtual nodes belonging to a physical node already in the preference list are skipped.\n\n### Your Task\n\nImplement `ConsistentHashRing` in Python:\n- `__init__(self, vnodes: int = 3, seed: int = 0)`: Initializes empty ring with $V$ virtual nodes per physical node.\n- `add_node(self, node_id: str) -> None`: Adds physical `node_id`. Computes $V$ hashes using `hashlib.sha256(f\"{self.seed}:{node_id}#vnode{i}\".encode()).digest()`, maps each to an unsigned 32-bit integer (`int.from_bytes(digest[:4], 'big')`), and places `(hash_pos, node_id)` on the ring.\n- `remove_node(self, node_id: str) -> None`: Removes all virtual nodes associated with `node_id`.\n- `get_preference_list(self, key: str, r: int) -> list[str]`: Hashes `key` to position $H$. Finds the first virtual node at position $\\ge H$ (wrapping around to $0$ if necessary), and moves clockwise to return the first $r$ distinct physical nodes. If the total number of distinct physical nodes in the cluster is $< r$, returns all available physical nodes in order.",
+   "starter": "import bisect\nimport hashlib\n\nclass ConsistentHashRing:\n    def __init__(self, vnodes: int = 3, seed: int = 0):\n        self.vnodes = vnodes\n        self.seed = seed\n        self.ring = []  # list of (hash_pos, node_id)\n\n    def add_node(self, node_id: str) -> None:\n        pass\n\n    def remove_node(self, node_id: str) -> None:\n        pass\n\n    def get_preference_list(self, key: str, r: int) -> list[str]:\n        return []\n",
+   "solution": "import bisect\nimport hashlib\n\nclass ConsistentHashRing:\n    def __init__(self, vnodes: int = 3, seed: int = 0):\n        self.vnodes = vnodes\n        self.seed = seed\n        self.ring = []  # sorted list of (hash_pos, node_id)\n\n    def _hash(self, token: str) -> int:\n        digest = hashlib.sha256(f\"{self.seed}:{token}\".encode('utf-8')).digest()\n        return int.from_bytes(digest[:4], byteorder='big')\n\n    def add_node(self, node_id: str) -> None:\n        self.remove_node(node_id)\n        for i in range(self.vnodes):\n            token = f\"{node_id}#vnode{i}\"\n            pos = self._hash(token)\n            bisect.insort(self.ring, (pos, node_id))\n\n    def remove_node(self, node_id: str) -> None:\n        self.ring = [(pos, nid) for pos, nid in self.ring if nid != node_id]\n\n    def get_preference_list(self, key: str, r: int) -> list[str]:\n        if not self.ring:\n            return []\n\n        key_pos = self._hash(key)\n        # Find first virtual node with pos >= key_pos\n        idx = bisect.bisect_left(self.ring, (key_pos, \"\"))\n        \n        pref_list = []\n        seen = set()\n        n = len(self.ring)\n\n        for step in range(n):\n            curr_idx = (idx + step) % n\n            _, nid = self.ring[curr_idx]\n            if nid not in seen:\n                seen.add(nid)\n                pref_list.append(nid)\n                if len(pref_list) == r:\n                    break\n\n        return pref_list\n",
+   "tests": [
+    {
+     "name": "empty ring returns empty preference list",
+     "code": "ring = ConsistentHashRing()\nassert ring.get_preference_list(\"order:101\", 3) == []"
+    },
+    {
+     "name": "preference list skips duplicate physical nodes across virtual nodes",
+     "code": "ring = ConsistentHashRing(vnodes=5, seed=42)\nring.add_node(\"nodeA\")\nring.add_node(\"nodeB\")\nring.add_node(\"nodeC\")\n\npref = ring.get_preference_list(\"user:999\", r=2)\nassert len(pref) == 2\nassert len(set(pref)) == 2, \"Preference list must contain distinct physical nodes\"\nassert all(n in [\"nodeA\", \"nodeB\", \"nodeC\"] for n in pref)"
+    },
+    {
+     "name": "replication factor greater than cluster size returns all nodes",
+     "code": "ring = ConsistentHashRing(vnodes=3, seed=7)\nring.add_node(\"n1\")\nring.add_node(\"n2\")\npref = ring.get_preference_list(\"key_x\", r=5)\nassert len(pref) == 2\nassert set(pref) == {\"n1\", \"n2\"}"
+    },
+    {
+     "name": "removing node updates preference list without full reshuffle",
+     "code": "ring = ConsistentHashRing(vnodes=4, seed=123)\nring.add_node(\"storage1\")\nring.add_node(\"storage2\")\nring.add_node(\"storage3\")\n\npref_before = ring.get_preference_list(\"cart:404\", r=2)\nring.remove_node(pref_before[0])\npref_after = ring.get_preference_list(\"cart:404\", r=2)\n\nassert pref_before[0] not in pref_after\nassert len(pref_after) == 2"
+    }
+   ],
+   "hints": [
+    "Use `bisect.insort` to maintain the ring sorted by `(hash_pos, node_id)` in ascending order.",
+    "When traversing clockwise, use modulo arithmetic `(idx + step) % len(self.ring)` to wrap around from the end of the ring back to 0.",
+    "Maintain a `seen` set to avoid adding the same physical node more than once to the preference list."
+   ],
+   "explanation": "**Why Virtual Nodes & Preference Lists?** Without virtual nodes, consistent hashing produces skewed distributions where some nodes receive $2-3\\times$ average traffic. Dividing each physical server into $V$ virtual tokens smooths variance. When replicating data ($R=3$), the preference list guarantees copies land on distinct physical servers for fault tolerance."
   },
   "consistent-hash-ring": {
    "title": "Consistent Hash Ring",
@@ -21505,6 +21859,40 @@
    ],
    "solution": "def permutations(nums):\n    result = []\n    chosen = []\n    used = [False] * len(nums)\n\n    def build():\n        if len(chosen) == len(nums):\n            result.append(chosen[:])           # every position is filled: store a copy, chosen keeps changing\n            return\n        for i in range(len(nums)):\n            if not used[i]:\n                used[i] = True                 # choose nums[i] for the next position\n                chosen.append(nums[i])\n                build()                        # fill the remaining positions\n                chosen.pop()                   # un-choose, so the next number can take this position\n                used[i] = False\n\n    build()\n    return result\n",
    "explanation": "**The idea.** Fill the positions one at a time. For each position, try every number that has not been used yet: **choose** it, **explore** by filling the remaining positions, then **un-choose** it so the next number can have the position. When every position is filled you have one permutation.\n\n**Tracking what is used.** A `used` list with one flag per index tells you in O(1) which numbers are still free. Set the flag before the recursive call and clear it after. Testing `nums[i] in chosen` also works, but it is slower.\n\n**Copy before you store,** exactly as in Subsets: `chosen[:]`, not `chosen`.\n\n**Subsets versus permutations.** In Subsets the order does not matter, so you only ever move forward through the list. Here order is the whole point, so every position may take any unused number, starting from the beginning of the list again.\n\n**Complexity.** There are n! permutations and copying each costs O(n), so O(n · n!) time and space. The output size is the lower bound. For the empty list the loop does nothing and the empty arrangement is stored once.\n\n**Follow-up.** If the numbers can repeat, sort them first and skip a number equal to the previous one when that previous one is still unused at this position."
+  },
+  "phi-accrual-failure-detector": {
+   "title": "Phi Accrual Adaptive Failure Detector",
+   "topic": "distributed-systems",
+   "difficulty": "advanced",
+   "module": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+   "description": "Implement Cassandra's adaptive heartbeat failure detector that outputs continuous suspicion probability Phi.",
+   "statement": "In large-scale distributed systems, rigid heartbeat timeouts (e.g. \"mark node dead if no ping in 5 seconds\") create frequent false positives during transient GC pauses or temporary network spikes, while making recovery slow during real crashes.\n\nThe **Phi ($\\Phi$) Accrual Failure Detector** (Hayashibara et al., 2004), used in **Apache Cassandra** and **Akka**, outputs a continuous suspicion scale $\\Phi$ rather than a binary up/down verdict:\n$$\\Phi = -\\log_{10}(P_{\\text{later}}(t - t_{\\text{last}}))$$\nwhere $t - t_{\\text{last}}$ is the elapsed time since the last heartbeat, and $P_{\\text{later}}(\\Delta)$ is the probability that a heartbeat arrives more than $\\Delta$ time units late.\n\nAssuming inter-arrival intervals follow an exponential distribution with mean $\\mu$ computed over a sliding history window:\n$$P_{\\text{later}}(\\Delta) = e^{-\\Delta / \\mu} \\implies \\Phi = -\\log_{10}(e^{-\\Delta / \\mu}) = \\frac{\\Delta}{\\mu \\cdot \\ln(10)}$$\n\nIf $\\Phi \\ge 1$, there is roughly a $10\\%$ chance the heartbeat is late. If $\\Phi \\ge 8$ (Cassandra's default threshold), the likelihood of a false positive is approximately $10^{-8}$.\n\n### Your Task\n\nImplement `PhiAccrualDetector` in Python:\n- `__init__(self, threshold: float = 8.0, max_window: int = 10)`: Initializes detector with suspicion threshold and sliding history size.\n- `heartbeat(self, timestamp: float) -> None`: Records heartbeat arrival. Computes inter-arrival delta $\\Delta = \\text{timestamp} - \\text{last\\_timestamp}$ (if a prior heartbeat exists), stores $\\Delta$ in the sliding window (capped at `max_window` most recent intervals), and updates `last_timestamp`.\n- `phi(self, now: float) -> float`: Calculates current $\\Phi$ at time `now`. If fewer than 2 heartbeats have been received, return `0.0`. If `now <= self.last_timestamp`, return `0.0`. Compute mean $\\mu$ of recorded intervals in the sliding window. Return $\\frac{now - last\\_timestamp}{\\mu \\cdot \\ln(10)}$.\n- `is_suspect(self, now: float) -> bool`: Returns `True` if `phi(now) >= threshold`, `False` otherwise.",
+   "starter": "import math\n\nclass PhiAccrualDetector:\n    def __init__(self, threshold: float = 8.0, max_window: int = 10):\n        self.threshold = threshold\n        self.max_window = max_window\n        self.intervals = []\n        self.last_ts = None\n\n    def heartbeat(self, timestamp: float) -> None:\n        pass\n\n    def phi(self, now: float) -> float:\n        return 0.0\n\n    def is_suspect(self, now: float) -> bool:\n        return False\n",
+   "solution": "import math\n\nclass PhiAccrualDetector:\n    def __init__(self, threshold: float = 8.0, max_window: int = 10):\n        self.threshold = threshold\n        self.max_window = max_window\n        self.intervals = []\n        self.last_ts = None\n\n    def heartbeat(self, timestamp: float) -> None:\n        if self.last_ts is not None:\n            interval = timestamp - self.last_ts\n            if interval > 0:\n                self.intervals.append(interval)\n                if len(self.intervals) > self.max_window:\n                    self.intervals.pop(0)\n        self.last_ts = timestamp\n\n    def phi(self, now: float) -> float:\n        if self.last_ts is None or not self.intervals or now <= self.last_ts:\n            return 0.0\n\n        delta = now - self.last_ts\n        mean = sum(self.intervals) / len(self.intervals)\n        if mean <= 0:\n            return 0.0\n\n        return delta / (mean * math.log(10))\n\n    def is_suspect(self, now: float) -> bool:\n        return self.phi(now) >= self.threshold\n",
+   "tests": [
+    {
+     "name": "initial state with fewer than 2 heartbeats has zero phi",
+     "code": "detector = PhiAccrualDetector()\nassert detector.phi(now=10.0) == 0.0\ndetector.heartbeat(10.0)\nassert detector.phi(now=11.0) == 0.0\nassert detector.is_suspect(now=11.0) is False"
+    },
+    {
+     "name": "steady heartbeats keep phi low and not suspect",
+     "code": "detector = PhiAccrualDetector(threshold=8.0)\n# Heartbeats arrive every 1.0 second: t=1, 2, 3, 4\nfor t in [1.0, 2.0, 3.0, 4.0]:\n    detector.heartbeat(t)\n\n# At t=4.5 (half an interval later), phi should be small (~0.22)\np = detector.phi(now=4.5)\nassert 0.1 <= p <= 0.5, f\"Expected low phi, got {p}\"\nassert detector.is_suspect(now=4.5) is False"
+    },
+    {
+     "name": "prolonged delay crosses threshold and marks node suspect",
+     "code": "detector = PhiAccrualDetector(threshold=6.0, max_window=5)\nfor t in [10.0, 11.0, 12.0, 13.0]:\n    detector.heartbeat(t)\n\n# Average interval is 1.0s. At delta = 15.0s, phi = 15 / (1.0 * ln(10)) = ~6.51\nassert detector.is_suspect(now=28.0) is True\nassert detector.phi(now=28.0) > 6.0"
+    },
+    {
+     "name": "arrival of new heartbeat resets phi and suspicion",
+     "code": "detector = PhiAccrualDetector(threshold=5.0)\nfor t in [1.0, 2.0, 3.0]:\n    detector.heartbeat(t)\n\nassert detector.is_suspect(now=20.0) is True\n# Node recovers and sends heartbeat at t=20.0\ndetector.heartbeat(20.0)\nassert detector.is_suspect(now=20.1) is False\nassert detector.phi(now=20.1) < 1.0"
+    }
+   ],
+   "hints": [
+    "Track `self.intervals = []` and `self.last_ts = None`.",
+    "When a heartbeat arrives, if `self.last_ts` is set, append `timestamp - self.last_ts` to `self.intervals`.",
+    "$\\Phi$ is calculated as `(now - last_ts) / (mean * math.log(10))`."
+   ],
+   "explanation": "**Why Phi Accrual?** Rather than hardcoding fixed timeouts, the Phi Accrual detector adapts dynamically to network jitter and GC pauses. Different consumers can apply different $\\Phi$ thresholds to the same node: e.g. $\\Phi=3$ for warming backup caches, and $\\Phi=8$ for committing leader failover."
   },
   "population-stability-index": {
    "title": "Population Stability Index",
