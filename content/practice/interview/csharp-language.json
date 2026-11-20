@@ -1,0 +1,82 @@
+{
+  "title": "C# Language Fundamentals and Runtime",
+  "topic": "csharp",
+  "difficulty": "intermediate",
+  "module": "lld/26-csharp-and-dotnet-interview/02-value-and-reference-types-structs-records/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What is the difference between a value type and a reference type in C#?",
+      "a": "Value types (`struct`, `enum`, numeric primitives) directly hold their data in memory where declared (on the stack or inline within enclosing heap objects) and copy their data on assignment. Reference types (`class`, `record class`, `string`, arrays, delegates) allocate an object header and fields on the managed heap, with variables holding only a memory pointer to that heap address."
+    },
+    {
+      "q": "When would you choose a struct over a class in C#?",
+      "a": "Choose a `struct` (or `readonly struct`) when the type represents a small, immutable, self-contained single value (typically $\\le 16$ bytes, e.g. `Point`, `DateTime`, `ComplexNumber`), has a short lifecycle, and is not boxed or passed through interface casts. This eliminates heap allocation overhead and Garbage Collector pressure."
+    },
+    {
+      "q": "What is boxing and unboxing, and why is it expensive?",
+      "a": "**Boxing** converts a value type to `object` or an interface type by allocating a wrapper object on the managed heap and copying the value into it. **Unboxing** extracts the value pointer from the heap object back to the stack. Boxing is expensive because it triggers heap allocations, increases GC pressure, degrades CPU cache locality, and adds type-checking overhead."
+    },
+    {
+      "q": "What is a record in C#, and how is its equality different from a class?",
+      "a": "A `record` (or `record class` / `record struct`) is a C# type designed for immutable data models. Unlike standard classes that use reference identity equality by default, records synthesize value-based equality (`Equals`, `==`, `GetHashCode` compare member values), provide non-destructive mutation via `with` expressions, and format `ToString()` outputs automatically."
+    },
+    {
+      "q": "What does the ? operator mean after a value type vs reference type?",
+      "a": "On a value type (e.g. `int?`), it is syntactic sugar for `Nullable<T>`, a struct holding a value and a `HasValue` boolean. On a reference type (e.g. `string?`), under Nullable Reference Types (NRT), it is a compile-time static analysis annotation signaling that the reference may be null; it generates no runtime type difference or memory overhead."
+    },
+    {
+      "q": "Why are strings immutable in C#?",
+      "a": "Strings are immutable for thread safety, security, and performance. Because contents cannot change after creation, strings can be safely shared across threads without synchronization, used as hash keys in dictionaries without changing hash codes, passed across security boundaries, and deduplicated in memory via runtime string interning."
+    },
+    {
+      "q": "When should you use StringBuilder instead of string concatenation?",
+      "a": "Use `StringBuilder` when concatenating strings inside loops or executing an unknown number of string modifications at runtime. In C#, repeated concatenation with `+` or interpolation in loops allocates a brand-new string on the heap for each step, generating $O(N^2)$ memory churn. `StringBuilder` uses an internal expandable buffer, minimizing allocations."
+    },
+    {
+      "q": "What is the difference between const and readonly in C#?",
+      "a": "`const` fields are compile-time constants: their values are hardcoded directly into call sites in Intermediate Language (IL) at compile time and cannot change. `readonly` fields are runtime constants: their values are resolved at runtime and can be initialized either at declaration or within a constructor, supporting instance-specific values."
+    },
+    {
+      "q": "What is the difference between ref, out, and in parameter modifiers?",
+      "a": "`ref` passes a variable by reference for bidirectional reading and writing; the caller must initialize it before passing. `out` passes by reference for returning data; the caller need not initialize it, but the callee must assign it before returning. `in` passes by reference for read-only access, preventing copying of large structs without allowing callee mutation."
+    },
+    {
+      "q": "What is a delegate in C#, and how does it differ from an event?",
+      "a": "A **delegate** is a type-safe function pointer pointing to one or more methods (multicast). An **event** is a language keyword that encapsulates a delegate: it restricts access so outside code can only subscribe (`+=`) or unsubscribe (`-=`), preventing external callers from clearing the subscriber list or invoking the event directly."
+    },
+    {
+      "q": "What is the difference between Func, Action, and Predicate delegates?",
+      "a": "`Action<T...>` encapsulates a method that accepts zero to sixteen arguments and returns `void`. `Func<T..., TResult>` encapsulates a method that accepts arguments and returns a value of type `TResult`. `Predicate<T>` is equivalent to `Func<T, bool>`, representing a method that evaluates a condition on an object."
+    },
+    {
+      "q": "What is deferred execution in LINQ, and which operations force evaluation?",
+      "a": "Deferred execution means a LINQ query is not executed when defined; it is evaluated only when iterated over (e.g. in a `foreach` loop). Operations like `Where` and `Select` yield elements on demand. Terminal operations force immediate evaluation and caching: `ToList()`, `ToArray()`, `ToDictionary()`, `Count()`, `First()`, and `Sum()`."
+    },
+    {
+      "q": "What is the difference between IEnumerable and IQueryable in .NET?",
+      "a": "`IEnumerable<T>` operates in-memory on local collections using delegates (`Func`); filtering happens on the client after data is retrieved. `IQueryable<T>` operates against external data sources (like EF Core) using expression trees (`Expression<Func>`); the query provider translates the expressions into native SQL executed on the database server."
+    },
+    {
+      "q": "What is the difference between First, FirstOrDefault, and Single in LINQ?",
+      "a": "`First()` returns the first matching element, throwing if empty. `FirstOrDefault()` returns the first matching element, or default (`null`/`0`) if empty. `Single()` returns the sole matching element, throwing if empty or if more than one matching element exists. `SingleOrDefault()` returns default if empty, but throws if more than one exists."
+    },
+    {
+      "q": "What is the difference between throw and throw ex in C# exception handling?",
+      "a": "`throw;` re-throws the existing exception while preserving the original stack trace and line number where the error occurred. `throw ex;` re-throws the exception object but resets the stack trace to the current line, obscuring the root cause and location of the original failure."
+    },
+    {
+      "q": "What does the using statement do, and how does IDisposable work?",
+      "a": "The `using` statement (or `using var`) ensures deterministic disposal of unmanaged resources. It translates into a `try / finally` block where the `finally` block invokes `IDisposable.Dispose()`, even if an exception occurs. This guarantees sockets, file handles, and database connections are freed immediately without waiting for garbage collection."
+    },
+    {
+      "q": "What does async and await do under the hood in C#?",
+      "a": "The compiler transforms an `async` method into an allocation-efficient state machine structure implementing `IAsyncStateMachine`. When code hits `await` on an incomplete task, the method yields the thread back to the ThreadPool. When the asynchronous operation finishes, the task's continuation resumes execution of the state machine at the next state."
+    },
+    {
+      "q": "Why should you avoid async void in C#?",
+      "a": "Avoid `async void` (except in event handlers). An `async void` method cannot be awaited by callers, meaning exceptions thrown inside cannot be caught with a standard `try/catch` block. Unhandled exceptions on `async void` methods crash the entire process through the `AppDomain.UnhandledException` handler."
+    }
+  ]
+}
+

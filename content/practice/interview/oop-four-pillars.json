@@ -1,0 +1,82 @@
+{
+  "title": "OOP Four Pillars and Core Principles",
+  "topic": "lld",
+  "difficulty": "beginner",
+  "module": "lld/24-oop-interview-questions/01-the-four-pillars-answered-well/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What are the four pillars of OOP? Give an example of each.",
+      "a": "The four pillars are: 1. **Encapsulation:** Bundling state and methods while protecting invariants (e.g., `BankAccount` keeping `_balance` private). 2. **Abstraction:** Exposing what an entity does rather than how (e.g., `IPaymentGateway.Process()` hiding HTTP retries). 3. **Inheritance:** An 'is-a' relationship for code reuse and subtyping (e.g., `SavingsAccount` inheriting `Account`). 4. **Polymorphism:** Uniform treatment of different concrete types through a shared interface at runtime without branching logic."
+    },
+    {
+      "q": "What is the difference between abstraction and encapsulation?",
+      "a": "**Encapsulation** is about containment and data protection: bundling data with behavior and restricting direct access to internal fields so outside code cannot bypass business invariants. **Abstraction** is about simplification and contract design: hiding background implementation complexity and exposing only a minimal, cohesive interface needed by consumers."
+    },
+    {
+      "q": "Is OOP possible without inheritance?",
+      "a": "Yes, absolutely. Modern object-oriented architecture heavily emphasizes composition over inheritance. Languages like Go and Rust are fundamentally object-oriented without supporting classical class inheritance at all. They achieve encapsulation via structs and visibility rules, abstraction via interfaces or traits, and polymorphism via structural subtyping or trait implementations."
+    },
+    {
+      "q": "Which pillar does an interface give you?",
+      "a": "An interface primarily delivers **Abstraction** and enables **Polymorphism**. It provides Abstraction by defining a pure contract (*what* an entity must do) with zero internal implementation or state. It enables Polymorphism because callers can program against the interface type (e.g., `ILogger`), substituting any concrete implementation at runtime without code changes."
+    },
+    {
+      "q": "What is the difference between a class, an object, and an instance?",
+      "a": "A **class** is the compile-time blueprint or type definition specifying fields, properties, methods, and invariants. An **object** is the physical entity allocated in memory on the heap at runtime. An **instance** describes that object's specific contextual relationship to its type (e.g., the variable `myAccount` holds a reference to an instance of `BankAccount`)."
+    },
+    {
+      "q": "What is constructor chaining and how is it implemented?",
+      "a": "Constructor chaining is the technique where one constructor invokes another constructor in the same class or base class to centralize initialization logic and prevent code duplication. In C#, it is implemented using `: this(...)` for overloaded constructors or `: base(...)` for base constructors. In Python, it is done via `super().__init__(...)`."
+    },
+    {
+      "q": "What is a static constructor and when does it execute?",
+      "a": "A static constructor (in C#, `static ClassName()`) initializes type-level static data or performs one-time initialization. It is parameterless, has no access modifiers, and cannot be invoked directly. The .NET runtime guarantees it executes exactly once per application domain before the first instance is created or any static member is referenced, with thread safety handled by the CLR."
+    },
+    {
+      "q": "What is the difference between an abstract class and an interface?",
+      "a": "An **interface** defines a pure behavioral contract (*'what an object can do'*, e.g., `IDisposable`), holds no instance fields, and supports multiple implementation per class. An **abstract class** defines a core identity (*'what an object is'*, e.g., `Stream`), can hold state and constructors, and provide template method workflows, but is restricted to single inheritance in C#."
+    },
+    {
+      "q": "When would you choose an abstract class over an interface?",
+      "a": "Choose an **interface** when defining cross-cutting capabilities across unrelated classes (e.g., `IComparable` for both `User` and `Temperature`), or for flexible dependency injection mocking. Choose an **abstract class** when derived types share common instance fields, require constructor validation of shared invariants, or need base algorithm scaffolding via the Template Method pattern."
+    },
+    {
+      "q": "Can an interface have a method body in modern languages?",
+      "a": "Yes. In C# 8+, interfaces support **Default Interface Methods** (DIM) to provide default implementations, enabling API evolution without breaking existing implementing classes (though implementing classes do not inherit interface state). In Python, abstract base classes (`abc.ABC`) can contain concrete methods that derived classes can invoke via `super()`."
+    },
+    {
+      "q": "What is the difference between method overloading and method overriding?",
+      "a": "**Method overloading** is compile-time (static) polymorphism where multiple methods in the same class share the same name with different parameter signatures. **Method overriding** is runtime (dynamic) polymorphism where a derived class provides a specialized implementation of a virtual or abstract method defined in its base class."
+    },
+    {
+      "q": "What is the difference between override and new in C#?",
+      "a": "`override` replaces the base virtual method in the virtual method table (vtable), so the derived method is executed even when called through a base-type reference. `new` (method hiding) does not alter the vtable; it hides the base method, meaning calling through a base-type reference invokes the base class implementation."
+    },
+    {
+      "q": "Does Python support method overloading by parameter types?",
+      "a": "No. Python does not support native method overloading by signature; declaring a second method with the same name replaces the first in the class dictionary. Instead, Python handles varying parameters using default arguments, variable-length arguments (`*args, **kwargs`), `@functools.singledispatch`, or `@typing.overload` for static type checking."
+    },
+    {
+      "q": "What is runtime polymorphism, and how does the runtime find the right method?",
+      "a": "Runtime polymorphism resolves the concrete target method during program execution based on the runtime type of the object. In compiled languages like C#, classes with virtual methods have a compiler-generated **vtable** (virtual table) of function pointers; each instance holds a `vptr` pointing to its type's vtable, and calls dereference the slot index corresponding to the method."
+    },
+    {
+      "q": "Can you override a static method in OOP?",
+      "a": "No. Static methods belong to the class type itself, not an individual instance, and are resolved statically at compile time. Because static calls do not involve an instance pointer (`this` or `vptr`), they cannot be placed into a virtual method table and cannot participate in runtime polymorphic dispatch."
+    },
+    {
+      "q": "Why is composition often preferred over inheritance?",
+      "a": "Inheritance creates white-box reuse with tight compile-time coupling: changes to base class implementation details can silently break subclass invariants (the Fragile Base Class problem). Composition provides black-box reuse through interfaces, allowing behaviors to be swapped at runtime, avoiding subclass explosion, and keeping components independently testable."
+    },
+    {
+      "q": "What is the Fragile Base Class problem?",
+      "a": "The Fragile Base Class problem occurs when a seemingly harmless change to a base class (such as modifying an internal method to call another method) inadvertently breaks the invariants or behavior of derived classes. For example, if a subclass overrides both `Add()` and `AddAll()`, and the base `AddAll()` changes to call `Add()` internally, items are double-counted."
+    },
+    {
+      "q": "What is the Liskov Substitution Principle and what violates it?",
+      "a": "LSP states that objects of a superclass must be replaceable with objects of a subclass without affecting program correctness. Subclasses must satisfy behavioral subtyping: they cannot strengthen preconditions, cannot weaken postconditions, and must preserve base invariants. A classic violation is `Square` inheriting from `Rectangle` where setting width alters height, breaking caller assumptions."
+    }
+  ]
+}
+

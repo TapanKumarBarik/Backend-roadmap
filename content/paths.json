@@ -325,6 +325,31 @@
       "next": "system-design-interview"
     },
     {
+      "id": "lld-interview-sprint",
+      "title": "LLD Interview Sprint",
+      "topic": "Code design",
+      "goal": "Fast-track preparation for low-level design and technical language rounds: master OOP pillars, 23 GoF design patterns, C#/.NET runtime fundamentals, and Python language internals.",
+      "audience": "Engineers preparing for LLD, object-oriented design, C#, or Python technical screening rounds.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Familiarity with at least one object-oriented language (C# or Python)",
+        "Basic knowledge of classes, interfaces, and methods"
+      ],
+      "skills": [
+        "OOP Principles & SOLID",
+        "GoF Design Patterns (Creational, Structural, Behavioral)",
+        "C# & .NET Runtime, Memory & Async",
+        "Python Internals, GIL, OOP & Web Frameworks"
+      ],
+      "steps": [
+        "lld/24-oop-interview-questions",
+        "lld/25-design-patterns-one-at-a-time",
+        "lld/26-csharp-and-dotnet-interview",
+        "lld/27-python-interview"
+      ],
+      "next": "system-design-interview"
+    },
+    {
       "id": "data-and-ml-foundations",
       "title": "Data & Machine Learning Foundations",
       "topic": "Machine Learning",

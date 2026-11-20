@@ -1,0 +1,86 @@
+{
+  "title": "Behavioral Design Patterns",
+  "topic": "lld",
+  "difficulty": "intermediate",
+  "module": "lld/25-design-patterns-one-at-a-time/15-strategy/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What is the Strategy pattern? Give an example.",
+      "a": "The Strategy pattern defines a family of interchangeable algorithms, encapsulates each one behind a common interface, and makes them swappable at runtime. For example, an e-commerce checkout accepts an `IShippingCalculator` strategy (`StandardShipping`, `ExpressShipping`, `OvernightShipping`). The order context delegates shipping fee calculation to the injected strategy without conditional branching."
+    },
+    {
+      "q": "How does Strategy help with the Open/Closed Principle?",
+      "a": "Strategy eliminates rigid conditional statements (`if/else` or `switch` on types). When business requirements introduce a new calculation or discount rule, developers add a new class implementing the strategy interface. The consuming context remains closed for modification yet open for extension, requiring zero code changes to existing classes."
+    },
+    {
+      "q": "What is the difference between Strategy and State?",
+      "a": "**Strategy** encapsulates *how* an action is performed; the client typically chooses the strategy from the outside and passes it in, and the strategy rarely changes during the object's life. **State** encapsulates *what* an object does based on its internal state; state transitions happen automatically from within the state objects or context as business operations execute."
+    },
+    {
+      "q": "Can a strategy just be a function?",
+      "a": "Yes. In modern programming languages with first-class functions (such as `Func<T, TResult>` in C# or `Callable` in Python), a full class hierarchy is often unnecessary for simple algorithms. A strategy can be passed as a lambda expression or method reference directly, reducing boilerplate while achieving identical runtime polymorphism."
+    },
+    {
+      "q": "What is the Observer pattern?",
+      "a": "The Observer pattern defines a one-to-many dependency between objects: when one subject changes state, all its registered observers are notified and updated automatically. It decouples the core domain subject from disparate subscribers, such as UI views, telemetry loggers, or email notification dispatchers."
+    },
+    {
+      "q": "How do C# events implement the Observer pattern?",
+      "a": "In C#, `event EventHandler` implements the Observer pattern natively via multicast delegates. The publisher declares an event and raises it when state changes. Observers subscribe using `+=` and unsubscribe using `-=`. Under the hood, the compiler generates thread-safe `add` and `remove` accessor methods that maintain a delegate invocation list."
+    },
+    {
+      "q": "How can an event handler cause a memory leak in .NET?",
+      "a": "When a short-lived subscriber attaches a method to an event on a long-lived publisher (`publisher.Changed += subscriber.OnChanged`), the publisher's delegate holds a strong reference to the subscriber. The Garbage Collector cannot collect the subscriber even if outside references to it are gone. To fix this, always unsubscribe via `-=` in `Dispose()`, or use weak event patterns."
+    },
+    {
+      "q": "What is the difference between Observer and Pub/Sub?",
+      "a": "**Observer** is in-process and synchronous: the subject maintains direct references to observer interfaces in memory and calls them directly. **Pub/Sub** uses an independent message broker (e.g., RabbitMQ, Kafka, Azure Service Bus): publishers emit messages to channels or topics, and subscribers consume them asynchronously without publishers and subscribers ever knowing each other."
+    },
+    {
+      "q": "What is the Command pattern?",
+      "a": "The Command pattern encapsulates a request as a standalone object containing the action, receiver, and all necessary parameters. This decoupling turns invocations into first-class citizens, enabling features like parameterizing method calls, queueing requests, scheduling background execution, logging audit trails, and implementing reversible undo/redo operations."
+    },
+    {
+      "q": "How would you implement undo using the Command pattern?",
+      "a": "Each command implements an `Execute()` method and an `Undo()` (or `Unexecute()`) method. An `Invoker` maintains a history stack of executed commands. When an operation occurs, the command saves the previous state, runs `Execute()`, and is pushed onto the stack. Calling `Undo()` pops the top command and invokes its `Undo()` method to restore prior state."
+    },
+    {
+      "q": "Where is the Command pattern used in real systems?",
+      "a": "Command is used in GUI frameworks (WPF `ICommand` binding buttons to actions), transactional sagas in distributed systems (compensating transactions for rollbacks), task queues and job processors (serializing jobs into Redis or Celery), and CQRS architectures where write commands mutate state separately from query models."
+    },
+    {
+      "q": "What is the Template Method pattern?",
+      "a": "The Template Method pattern defines the skeleton of an algorithm in an abstract base class method, deferring specific steps to subclasses via abstract or virtual methods without changing the overall algorithm structure. It enforces a fixed sequence of execution (e.g., `Authenticate() -> Validate() -> Process() -> Log()`) while allowing customization of individual hooks."
+    },
+    {
+      "q": "What is the difference between Template Method and Strategy?",
+      "a": "**Template Method** relies on inheritance and compile-time binding: the algorithm invariant lives in a base class, and subclasses override specific protected steps. **Strategy** relies on composition and runtime delegation: the context delegates the entire algorithm to an interchangeable strategy object implementing a common interface, which can be swapped at runtime."
+    },
+    {
+      "q": "What is the State pattern?",
+      "a": "The State pattern allows an object to alter its behavior when its internal state changes, appearing to change its class. The context class holds a reference to a `State` object that implements state-specific behaviors. Method invocations on the context are forwarded to the current state object, which can transition the context to the next state."
+    },
+    {
+      "q": "How would you model order status changes with the State pattern?",
+      "a": "Define an `OrderState` base class with operations like `Cancel()`, `Pay()`, and `Ship()`. Implement concrete states (`PendingPaymentState`, `PaidState`, `ShippedState`). In `PendingPaymentState`, `Cancel()` transitions the order to `CancelledState`. In `ShippedState`, calling `Cancel()` throws an invalid transition exception. The `Order` delegates actions to its `_currentState` without nested switch statements."
+    },
+    {
+      "q": "What is the Chain of Responsibility pattern?",
+      "a": "The Chain of Responsibility pattern passes a request along a sequence of handler objects. Each handler in the chain decides either to process the request, perform pre- or post-processing, and optionally pass the request to the next handler, or short-circuit and terminate the pipeline entirely. Handlers are linked dynamically via a `next` pointer or delegate."
+    },
+    {
+      "q": "How is ASP.NET Core middleware an example of Chain of Responsibility?",
+      "a": "ASP.NET Core HTTP middleware executes as a Chain of Responsibility. Each component receives `HttpContext` and a `RequestDelegate next`. A component can perform operations before `next(context)`, invoke `await next(context)` to delegate down the chain, handle responses on the way back up, or terminate the pipeline without calling `next` (short-circuiting, e.g. on auth failure)."
+    },
+    {
+      "q": "What is the Iterator pattern, and how does yield return relate to it?",
+      "a": "The Iterator pattern provides a way to access the elements of an aggregate collection sequentially without exposing its underlying representation (e.g., list, tree, hash map). In C#, `yield return` automatically generates a compiler-synthesized state machine that implements `IEnumerable` and `IEnumerator`, enabling deferred, on-demand evaluation."
+    },
+    {
+      "q": "What is the Mediator pattern, and how does it differ from Observer?",
+      "a": "The Mediator pattern centralizes complex communications between disparate objects, preventing them from referring to each other directly. In **Observer**, subjects broadcast events to many subscribers (one-to-many). In **Mediator**, communication is orchestrated centrally (many-to-many), with components (colleagues) routing all commands and notifications through the mediator (e.g., `MediatR` in .NET)."
+    }
+  ]
+}
+

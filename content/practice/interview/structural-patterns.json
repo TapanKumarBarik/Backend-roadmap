@@ -1,0 +1,78 @@
+{
+  "title": "Structural Design Patterns",
+  "topic": "lld",
+  "difficulty": "intermediate",
+  "module": "lld/25-design-patterns-one-at-a-time/08-adapter/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What is the Adapter pattern? Give a real example.",
+      "a": "The Adapter pattern converts the interface of an existing class into another interface clients expect, allowing classes with incompatible interfaces to collaborate. A real example is wrapping a legacy or third-party payment gateway that accepts XML payloads behind an application's internal `IPaymentProcessor` interface that uses modern domain types. The adapter translates calls, formats payloads, and maps return codes without altering either the third-party library or application domain code."
+    },
+    {
+      "q": "What is the difference between Adapter and Facade?",
+      "a": "An **Adapter** makes two existing, incompatible interfaces work together by wrapping one adaptee and translating its interface to match a target contract. A **Facade** creates a brand-new, simplified interface over an entire complex subsystem consisting of multiple classes. Adapter changes an interface so a client can use it; Facade provides a higher-level, easier-to-use interface to hide subsystem complexity."
+    },
+    {
+      "q": "Why wrap a third-party library behind your own interface?",
+      "a": "Wrapping third-party dependencies protects your domain model from external breaking changes and leaky abstractions. It isolates vendor-specific data structures and exceptions to a single adapter boundary, simplifies automated unit testing by allowing easy interface mocking, and permits swapping out or upgrading the underlying library without modifying business logic across the application."
+    },
+    {
+      "q": "What problem does the Bridge pattern solve?",
+      "a": "The Bridge pattern solves combinatorial class explosion by decoupling an abstraction from its implementation so both can vary independently. Instead of multiplying classes via inheritance (e.g., `VectorCircle`, `RasterCircle`, `VectorSquare`, `RasterSquare` = $M \\times N$ subclasses), the abstraction (`Shape`) holds a reference to an implementation interface (`IRenderer`). New shapes and new renderers can be added independently ($M + N$ classes)."
+    },
+    {
+      "q": "What is the difference between Bridge and Adapter?",
+      "a": "**Bridge** is designed upfront during initial architecture to let an abstraction and its implementation evolve independently across orthogonal dimensions. **Adapter** is retrofitted after classes are already written to make unrelated, incompatible interfaces collaborate together without modifying existing source code."
+    },
+    {
+      "q": "What is the Composite pattern?",
+      "a": "The Composite pattern composes objects into tree structures to represent part-whole hierarchies. It lets clients treat individual leaf objects and compositions of objects uniformly through a common component interface. Both single items and group containers implement the same operations (e.g., `GetPrice()`, `Render()`), with containers recursively delegating to their children."
+    },
+    {
+      "q": "Give an example of a Composite in a real system.",
+      "a": "A classic example is a filesystem: files and directories both implement a common `FileSystemNode` interface with operations like `GetSize()` or `Delete()`. A `File` returns its byte size directly as a leaf, while a `Directory` acts as a composite that sums `GetSize()` across all its child files and nested directories. Another example is a UI widget hierarchy where panels contain buttons, labels, and sub-panels."
+    },
+    {
+      "q": "What is the Decorator pattern?",
+      "a": "The Decorator pattern dynamically attaches additional responsibilities to an object by wrapping it. Decorators implement the same interface as the wrapped object and delegate core requests to it while adding pre- or post-processing behavior. Unlike inheritance, decorators can be stacked at runtime in arbitrary combinations without combinatorial subclass proliferation."
+    },
+    {
+      "q": "Is a Python @decorator the Decorator pattern?",
+      "a": "No, they are distinct concepts. A Python `@decorator` is syntactic sugar for a higher-order function that wraps a function or class at declaration/import time (`f = dec(f)`). The GoF Decorator pattern is an object-oriented structural pattern where an object instance is wrapped at runtime by another object implementing the same interface, allowing dynamic chaining of instance behavior."
+    },
+    {
+      "q": "Give a .NET example of the Decorator pattern.",
+      "a": "The classic .NET example is `System.IO.Stream`. `FileStream` provides base stream access to a disk file. You can wrap it with `BufferedStream` to add memory buffering, and further wrap that with `GZipStream` to add transparent compression: `new GZipStream(new BufferedStream(new FileStream(...)))`. All three classes inherit from `Stream`, preserving interface parity."
+    },
+    {
+      "q": "Decorator or inheritance: which and why?",
+      "a": "Prefer **Decorator** when responsibilities need to be added or combined dynamically at runtime, or when subclassing would cause a combinatorial explosion of classes (e.g., `LoggingCachingAuthService`). Subclassing binds behavior statically at compile time to the entire class hierarchy. Decorators adhere to the Single Responsibility Principle by isolating cross-cutting features into modular wrappers."
+    },
+    {
+      "q": "What is the Facade pattern?",
+      "a": "The Facade pattern provides a simplified, unified high-level interface to a complex subsystem of interacting classes. It shields client code from knowing about internal dependencies, configuration sequences, and protocol details. Clients interact with one simple facade method (e.g., `orderFacade.PlaceOrder(...)`), which orchestrates payment, inventory, tax, and notification subsystems internally."
+    },
+    {
+      "q": "What is the Flyweight pattern?",
+      "a": "The Flyweight pattern minimizes memory usage by sharing common, immutable state among large numbers of fine-grained objects. It divides an object's state into **intrinsic state** (shared, invariant, stored inside the flyweight) and **extrinsic state** (context-specific, variable, passed in by the client during method calls). This prevents allocating millions of duplicate objects."
+    },
+    {
+      "q": "What is string interning and how does it relate to Flyweight?",
+      "a": "String interning is a runtime optimization where the runtime maintains a single internal table of unique string instances. When multiple string literals have identical character sequences, they point to the exact same memory address on the managed heap. This is a direct implementation of the Flyweight pattern, eliminating duplicate allocations and enabling reference comparison."
+    },
+    {
+      "q": "What is the Proxy pattern?",
+      "a": "The Proxy pattern provides a surrogate or placeholder object that controls access to an underlying target object. The proxy implements the target's interface and intercepts method calls to perform auxiliary tasks, such as lazy initialization (virtual proxy), permission checking (protection proxy), logging/caching, or marshalling network calls (remote proxy)."
+    },
+    {
+      "q": "What is the difference between Proxy and Decorator?",
+      "a": "While both wrap an object and implement its exact interface, their architectural intent and lifecycles differ: a **Decorator** enhances or extends behavior dynamically, and clients create and chain multiple decorators at runtime. A **Proxy** controls access or lifecycle, usually instantiates and manages the target object itself, and is rarely composed into multi-layer chains."
+    },
+    {
+      "q": "How does lazy loading use a proxy?",
+      "a": "A virtual proxy defers the expensive creation of the real object until a client actually calls a method that needs it. In ORMs like Entity Framework Core, navigation properties are represented by generated proxy subclasses. When code accesses `order.Customer.Name`, the proxy intercepts the property access, executes a database query to load the customer row, and populates the field transparently."
+    }
+  ]
+}
+

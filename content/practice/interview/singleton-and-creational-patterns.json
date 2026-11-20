@@ -1,0 +1,78 @@
+{
+  "title": "Singleton and Creational Design Patterns",
+  "topic": "lld",
+  "difficulty": "intermediate",
+  "module": "lld/25-design-patterns-one-at-a-time/02-singleton/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "Where would you use a Singleton? Give a real example.",
+      "a": "Use a Singleton when a system requires strict centralized coordination over a shared physical or logical resource to prevent contention, socket exhaustion, or data corruption. Real examples include an in-memory cache coordinator, a database connection pool manager, or a hardware controller (such as a serial port or printer spooler). Having multiple pool objects would bypass connection throttles and overwhelm the database. In modern applications, register that coordinator with a Singleton lifetime in a Dependency Injection container rather than hardcoding static access."
+    },
+    {
+      "q": "How do you make a Singleton thread-safe in C#?",
+      "a": "The modern idiomatic way in C# is using `System.Lazy<T>`: `private static readonly Lazy<MyClass> _lazy = new Lazy<MyClass>(() => new MyClass(), isThreadSafe: true);` with `public static MyClass Instance => _lazy.Value;`. It guarantees thread safety, lazy evaluation on first access, memory barriers, and CLR optimization. Alternatively, use static initialization (`public static readonly MyClass Instance = new MyClass();`), which the CLR guarantees executes thread-safely before any static member is accessed. Double-checked locking with `volatile` and `lock` is also valid but superseded by `Lazy<T>`."
+    },
+    {
+      "q": "How do you write a Singleton in Python?",
+      "a": "There are three primary approaches in Python: 1. **Module-level singleton (most idiomatic):** Python modules are cached in `sys.modules` on first import, so a top-level instance is inherently lazy and thread-safe. 2. **Metaclass singleton:** Define a `SingletonMeta(type)` that intercepts `__call__` using a `threading.Lock` and double-checked locking, then use `class MyClass(metaclass=SingletonMeta):`. 3. **Overriding `__new__`:** Intercept instance creation in `__new__` to return a cached `cls._instance`. However, this requires guarding `__init__`, which Python calls on every instantiation."
+    },
+    {
+      "q": "What is the difference between a Singleton and a static class?",
+      "a": "A Singleton is a normal object: it can implement interfaces, be passed as an argument, be stored in collections, support lazy loading, and be injected via DI containers for unit testing. A `static class` cannot implement interfaces, cannot inherit or be inherited from, cannot be passed polymorphically, and hardcodes dependencies directly into calling code, making isolated unit testing without specialized profilers nearly impossible."
+    },
+    {
+      "q": "Why is Singleton called an anti-pattern?",
+      "a": "Singleton introduces hidden global state into an application. It violates the Single Responsibility Principle by managing both domain logic and its own process-wide lifetime. It obscures dependencies because methods call `Instance` directly instead of declaring requirements in constructors. Crucially, it breaks parallel unit test execution: concurrent tests mutating shared singleton state cause intermittent race conditions and test pollution."
+    },
+    {
+      "q": "What is the difference between the Singleton pattern and AddSingleton in ASP.NET Core?",
+      "a": "The GoF Singleton is a design pattern enforced by the class itself via a private constructor and a static `Instance` property, coupling callers directly to the concrete type. `AddSingleton` in ASP.NET Core is a service lifetime managed by the DI container. The class remains a plain, decoupled class with a public constructor and no static fields. It can be instantiated freely in unit tests, while the container guarantees a single shared instance at runtime."
+    },
+    {
+      "q": "What is the Factory pattern and why use it?",
+      "a": "The Factory pattern encapsulates object creation logic, abstracting concrete instantiation away from callers. Instead of client code calling `new ConcreteClass()`, it invokes a factory method returning an interface or abstract base class. This decouples consumers from concrete types, centralizes complex creation logic (such as configuration, dependency wiring, or caching), and supports the Open/Closed Principle."
+    },
+    {
+      "q": "What is the difference between a simple factory and the Factory Method?",
+      "a": "A **Simple Factory** is a concrete class with a method (often with a `switch` or dictionary) that constructs and returns different product instances based on input arguments. The **Factory Method** is a GoF creational pattern relying on inheritance: an abstract creator class defines an abstract factory method (`CreateProduct()`), and concrete subclasses override it to determine which concrete product class to instantiate."
+    },
+    {
+      "q": "How does a factory help with the Open/Closed Principle?",
+      "a": "When new product types are introduced, client code that depends on the factory contract does not need to change or be recompiled. With Factory Method, adding a new product only requires creating a new product class and a corresponding creator subclass. With parameter-based or DI-registered factories, registration happens at the application composition root without altering business consumers."
+    },
+    {
+      "q": "Give a .NET example of a factory.",
+      "a": "In .NET, `IHttpClientFactory` is a prominent factory example. Instead of directly instantiating `HttpClient`, consumers call `factory.CreateClient(\"namedClient\")`. The factory manages the lifetime of underlying `HttpMessageHandler` instances, pooling socket connections to prevent socket exhaustion while respecting DNS updates."
+    },
+    {
+      "q": "What is the difference between Factory Method and Abstract Factory?",
+      "a": "The **Factory Method** pattern uses inheritance to delegate the creation of a *single* product to derived subclasses via an overridden method. The **Abstract Factory** pattern uses composition: an interface defines methods to create a *family* of related or dependent objects (e.g., `CreateButton()`, `CreateCheckbox()`) without specifying their concrete classes, ensuring compatibility across the family."
+    },
+    {
+      "q": "When would you use an Abstract Factory?",
+      "a": "Use an Abstract Factory when a system must work with multiple families of related products and needs to enforce consistency across them without coupling to concrete classes. Common examples include multi-platform UI themes (e.g., `LightWidgetFactory` producing `LightButton` and `LightWindow`, vs `DarkWidgetFactory`), or cross-cloud persistence suites (AWS S3/DynamoDB vs Azure Blob/CosmosDB)."
+    },
+    {
+      "q": "What problem does the Builder pattern solve?",
+      "a": "The Builder pattern solves the 'telescoping constructor' problem, where a class requires many optional parameters, leading to confusing constructor overloads or large parameter lists. It separates the construction of a complex object from its representation, allowing the same construction process to produce different representations through readable, fluent method chaining."
+    },
+    {
+      "q": "What is the difference between Builder and Factory?",
+      "a": "A **Factory** focuses on *what* gets created, instantiating an entire object in a single method call, typically hiding the concrete type behind an interface. A **Builder** focuses on *how* a complex object is constructed, allowing callers to assemble it step-by-step with optional configurations before calling `Build()`, often producing a concrete, complex object graph."
+    },
+    {
+      "q": "Where is the Builder pattern used in ASP.NET Core?",
+      "a": "The Builder pattern is ubiquitous in ASP.NET Core startup: `WebApplication.CreateBuilder(args)` returns a `WebApplicationBuilder` used to configure services (`builder.Services.Add...`), logging, and configuration step-by-step before invoking `builder.Build()`. Other examples include `ConfigurationBuilder` and `RouteBuilder`."
+    },
+    {
+      "q": "Do you need a Builder in Python?",
+      "a": "In Python, the Builder pattern is less frequently needed because the language supports keyword arguments and default parameter values directly in `__init__` and dataclasses. However, a Builder is still valuable in Python when object construction requires a complex multi-step workflow, dependency ordering, validation across interdependent fields, or immutable object assembly."
+    },
+    {
+      "q": "What is the Prototype pattern, and why is ICloneable discouraged in .NET?",
+      "a": "The Prototype pattern creates new objects by copying an existing instance (the prototype) rather than constructing new ones from scratch, saving overhead when creation is costly. In .NET, `ICloneable` is discouraged because its contract does not specify whether the clone is shallow or deep. Callers cannot know if mutating the clone affects original nested references, leading to bugs. Instead, define custom, explicit methods like `DeepClone()`."
+    }
+  ]
+}
+

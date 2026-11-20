@@ -1,0 +1,74 @@
+{
+  "title": "ASP.NET Core Middleware and Dependency Injection",
+  "topic": "csharp",
+  "difficulty": "advanced",
+  "module": "lld/26-csharp-and-dotnet-interview/14-middleware-pipeline-use-run-map/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What is middleware in ASP.NET Core?",
+      "a": "Middleware is software assembled into an application's HTTP request pipeline to handle requests and responses. Each component can inspect incoming HTTP context, execute code before delegating to the next component via a `RequestDelegate next`, await `next(context)` to invoke subsequent pipeline stages, handle exceptions or responses on the way back up, or short-circuit the pipeline entirely."
+    },
+    {
+      "q": "What is the difference between app.Use and app.Run in ASP.NET Core?",
+      "a": "`app.Use` inserts a middleware delegate that takes `HttpContext` and `Func<Task> next`, allowing it to perform operations and invoke `await next()` to continue the pipeline. `app.Run` registers a **terminal middleware** delegate that receives only `HttpContext` without a `next` parameter; it handles the request, generates a response, and permanently stops further pipeline execution."
+    },
+    {
+      "q": "What do app.Map and app.MapWhen do in the middleware pipeline?",
+      "a": "`app.Map` branches the middleware pipeline based on a matching request URL path prefix (e.g. `app.Map(\"/api\", apiApp => ...)`). `app.MapWhen` branches the pipeline conditionally based on an arbitrary predicate predicate evaluated against the `HttpContext` (e.g. checking query strings, headers, or client IP). If the predicate matches, execution diverges into the branch."
+    },
+    {
+      "q": "Why does the order of middleware matter in ASP.NET Core? Give the standard order.",
+      "a": "Order matters because middleware executes sequentially on the incoming request and in reverse order on the outgoing response. A typical order is: 1. Exception Handling / ProblemDetails (catches errors from all downstream stages), 2. HTTPS Redirection & HSTS, 3. Static Files (short-circuits assets quickly), 4. Routing, 5. CORS, 6. Authentication (establishes identity), 7. Authorization (enforces permissions), 8. Endpoint execution."
+    },
+    {
+      "q": "How do you write custom middleware in ASP.NET Core?",
+      "a": "Two approaches exist: 1. **Convention-based middleware:** A class with a constructor accepting `RequestDelegate next` and a `public async Task InvokeAsync(HttpContext context, ...)` method where scoped dependencies can be injected directly into `InvokeAsync`. 2. **Factory-based middleware:** Implements `IMiddleware`, allowing the middleware instance itself to be registered with a scoped lifetime in DI."
+    },
+    {
+      "q": "What is the difference between middleware and filters in ASP.NET Core?",
+      "a": "**Middleware** operates at the low-level HTTP pipeline level on raw `HttpContext`, before routing chooses an action, with zero awareness of MVC controllers or endpoint models. **Filters** run inside the MVC / routing execution pipeline with rich context (ActionArguments, ModelMetadata, ModelState, Controller instances), executing before and after specific controller actions."
+    },
+    {
+      "q": "What is the difference between AddSingleton, AddScoped, and AddTransient lifetimes?",
+      "a": "`AddSingleton`: A single instance is created on first request and shared process-wide for the application lifetime. `AddScoped`: A fresh instance is created once per client HTTP request scope and shared across all dependencies within that request. `AddTransient`: A brand-new instance is created every single time the service is requested from the container."
+    },
+    {
+      "q": "What is a captive dependency in ASP.NET Core, and how do you prevent it?",
+      "a": "A captive dependency occurs when a service with a longer lifetime consumes a service with a shorter lifetime (e.g. a `Singleton` injecting a `Scoped` service). The scoped service is kept alive on the singleton for the application's duration, causing stale state, threading bugs, and memory leaks. Prevent it by enabling scope validation (`ValidateScopes = true`, default in Development)."
+    },
+    {
+      "q": "How do you safely resolve a scoped service inside a singleton or background service?",
+      "a": "Inject `IServiceScopeFactory` into the singleton or `BackgroundService`. Inside the execution loop or method, create an explicit temporary scope: `using var scope = _scopeFactory.CreateScope();`, then resolve the scoped service from the scope's provider: `var db = scope.ServiceProvider.GetRequiredService<MyDbContext>();`. The scope and its instances are disposed when exiting the block."
+    },
+    {
+      "q": "Which service lifetime should Entity Framework Core's DbContext have, and why?",
+      "a": "`DbContext` should be registered with a **Scoped** lifetime (the default in `AddDbContext`). `DbContext` is not thread-safe and tracks entity state in memory. A singleton `DbContext` would collide across concurrent HTTP request threads. A transient `DbContext` would prevent sharing unit-of-work changes and change-tracker state across multiple repositories within one request."
+    },
+    {
+      "q": "What is the difference between IOptions, IOptionsSnapshot, and IOptionsMonitor?",
+      "a": "`IOptions<T>` is registered as a **Singleton**; values are read once at startup and do not reload when config changes. `IOptionsSnapshot<T>` is **Scoped**; values are re-read once per HTTP request, reflecting config updates without restarting. `IOptionsMonitor<T>` is a **Singleton** that provides real-time notifications via `OnChange` whenever underlying configuration files change."
+    },
+    {
+      "q": "What does WebApplication.CreateBuilder do in Program.cs?",
+      "a": "`WebApplication.CreateBuilder(args)` initializes a `WebApplicationBuilder`, bootstrapping default configuration sources (appsettings.json, environment variables, command-line arguments), default logging providers (Console, Debug, EventSource), and Kestrel web server defaults, while exposing `builder.Services` for registering application dependencies."
+    },
+    {
+      "q": "What is the difference between builder.Services and app in ASP.NET Core?",
+      "a": "`builder.Services` is an `IServiceCollection` used during application startup to declare and configure service dependencies and their lifetimes before the container is built. `app` is a `WebApplication` created after calling `builder.Build()`; it represents the runtime host and is used to configure the HTTP middleware pipeline (`app.Use...`, `app.Map...`)."
+    },
+    {
+      "q": "What is Kestrel, and why is it usually deployed behind a reverse proxy?",
+      "a": "Kestrel is the cross-platform, event-driven HTTP server for ASP.NET Core. In production, it is typically fronted by a reverse proxy (Nginx, Apache, IIS, or Cloudflare) for SSL termination, public internet hardening against slow client attacks (Slowloris), static file serving, compression, and load balancing across application worker instances."
+    },
+    {
+      "q": "How does global exception handling work in ASP.NET Core with ProblemDetails?",
+      "a": "Global exception handling uses `app.UseExceptionHandler()`. In ASP.NET Core 8+, implement `IExceptionHandler` to intercept unhandled exceptions, log errors, and format standard RFC 7807/9457 `ProblemDetails` JSON responses (status, title, detail, instance URI) without leaking internal stack traces or database connection strings to API clients."
+    },
+    {
+      "q": "What is the difference between authentication and authorization middleware?",
+      "a": "**Authentication** middleware (`app.UseAuthentication()`) verifies *who* the caller is by inspecting credentials (e.g. validating a JWT Bearer token or cookie) and establishing the `ClaimsPrincipal` on `HttpContext.User`. **Authorization** middleware (`app.UseAuthorization()`) verifies *what* that caller is permitted to do against policies and roles."
+    }
+  ]
+}
+

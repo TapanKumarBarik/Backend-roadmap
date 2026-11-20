@@ -11929,6 +11929,164 @@
   }
  },
  "interview": {
+  "aspnet-core-middleware-and-di": {
+   "title": "ASP.NET Core Middleware and Dependency Injection",
+   "topic": "csharp",
+   "difficulty": "advanced",
+   "module": "lld/26-csharp-and-dotnet-interview/14-middleware-pipeline-use-run-map/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What is middleware in ASP.NET Core?",
+     "a": "Middleware is software assembled into an application's HTTP request pipeline to handle requests and responses. Each component can inspect incoming HTTP context, execute code before delegating to the next component via a `RequestDelegate next`, await `next(context)` to invoke subsequent pipeline stages, handle exceptions or responses on the way back up, or short-circuit the pipeline entirely."
+    },
+    {
+     "q": "What is the difference between app.Use and app.Run in ASP.NET Core?",
+     "a": "`app.Use` inserts a middleware delegate that takes `HttpContext` and `Func<Task> next`, allowing it to perform operations and invoke `await next()` to continue the pipeline. `app.Run` registers a **terminal middleware** delegate that receives only `HttpContext` without a `next` parameter; it handles the request, generates a response, and permanently stops further pipeline execution."
+    },
+    {
+     "q": "What do app.Map and app.MapWhen do in the middleware pipeline?",
+     "a": "`app.Map` branches the middleware pipeline based on a matching request URL path prefix (e.g. `app.Map(\"/api\", apiApp => ...)`). `app.MapWhen` branches the pipeline conditionally based on an arbitrary predicate predicate evaluated against the `HttpContext` (e.g. checking query strings, headers, or client IP). If the predicate matches, execution diverges into the branch."
+    },
+    {
+     "q": "Why does the order of middleware matter in ASP.NET Core? Give the standard order.",
+     "a": "Order matters because middleware executes sequentially on the incoming request and in reverse order on the outgoing response. A typical order is: 1. Exception Handling / ProblemDetails (catches errors from all downstream stages), 2. HTTPS Redirection & HSTS, 3. Static Files (short-circuits assets quickly), 4. Routing, 5. CORS, 6. Authentication (establishes identity), 7. Authorization (enforces permissions), 8. Endpoint execution."
+    },
+    {
+     "q": "How do you write custom middleware in ASP.NET Core?",
+     "a": "Two approaches exist: 1. **Convention-based middleware:** A class with a constructor accepting `RequestDelegate next` and a `public async Task InvokeAsync(HttpContext context, ...)` method where scoped dependencies can be injected directly into `InvokeAsync`. 2. **Factory-based middleware:** Implements `IMiddleware`, allowing the middleware instance itself to be registered with a scoped lifetime in DI."
+    },
+    {
+     "q": "What is the difference between middleware and filters in ASP.NET Core?",
+     "a": "**Middleware** operates at the low-level HTTP pipeline level on raw `HttpContext`, before routing chooses an action, with zero awareness of MVC controllers or endpoint models. **Filters** run inside the MVC / routing execution pipeline with rich context (ActionArguments, ModelMetadata, ModelState, Controller instances), executing before and after specific controller actions."
+    },
+    {
+     "q": "What is the difference between AddSingleton, AddScoped, and AddTransient lifetimes?",
+     "a": "`AddSingleton`: A single instance is created on first request and shared process-wide for the application lifetime. `AddScoped`: A fresh instance is created once per client HTTP request scope and shared across all dependencies within that request. `AddTransient`: A brand-new instance is created every single time the service is requested from the container."
+    },
+    {
+     "q": "What is a captive dependency in ASP.NET Core, and how do you prevent it?",
+     "a": "A captive dependency occurs when a service with a longer lifetime consumes a service with a shorter lifetime (e.g. a `Singleton` injecting a `Scoped` service). The scoped service is kept alive on the singleton for the application's duration, causing stale state, threading bugs, and memory leaks. Prevent it by enabling scope validation (`ValidateScopes = true`, default in Development)."
+    },
+    {
+     "q": "How do you safely resolve a scoped service inside a singleton or background service?",
+     "a": "Inject `IServiceScopeFactory` into the singleton or `BackgroundService`. Inside the execution loop or method, create an explicit temporary scope: `using var scope = _scopeFactory.CreateScope();`, then resolve the scoped service from the scope's provider: `var db = scope.ServiceProvider.GetRequiredService<MyDbContext>();`. The scope and its instances are disposed when exiting the block."
+    },
+    {
+     "q": "Which service lifetime should Entity Framework Core's DbContext have, and why?",
+     "a": "`DbContext` should be registered with a **Scoped** lifetime (the default in `AddDbContext`). `DbContext` is not thread-safe and tracks entity state in memory. A singleton `DbContext` would collide across concurrent HTTP request threads. A transient `DbContext` would prevent sharing unit-of-work changes and change-tracker state across multiple repositories within one request."
+    },
+    {
+     "q": "What is the difference between IOptions, IOptionsSnapshot, and IOptionsMonitor?",
+     "a": "`IOptions<T>` is registered as a **Singleton**; values are read once at startup and do not reload when config changes. `IOptionsSnapshot<T>` is **Scoped**; values are re-read once per HTTP request, reflecting config updates without restarting. `IOptionsMonitor<T>` is a **Singleton** that provides real-time notifications via `OnChange` whenever underlying configuration files change."
+    },
+    {
+     "q": "What does WebApplication.CreateBuilder do in Program.cs?",
+     "a": "`WebApplication.CreateBuilder(args)` initializes a `WebApplicationBuilder`, bootstrapping default configuration sources (appsettings.json, environment variables, command-line arguments), default logging providers (Console, Debug, EventSource), and Kestrel web server defaults, while exposing `builder.Services` for registering application dependencies."
+    },
+    {
+     "q": "What is the difference between builder.Services and app in ASP.NET Core?",
+     "a": "`builder.Services` is an `IServiceCollection` used during application startup to declare and configure service dependencies and their lifetimes before the container is built. `app` is a `WebApplication` created after calling `builder.Build()`; it represents the runtime host and is used to configure the HTTP middleware pipeline (`app.Use...`, `app.Map...`)."
+    },
+    {
+     "q": "What is Kestrel, and why is it usually deployed behind a reverse proxy?",
+     "a": "Kestrel is the cross-platform, event-driven HTTP server for ASP.NET Core. In production, it is typically fronted by a reverse proxy (Nginx, Apache, IIS, or Cloudflare) for SSL termination, public internet hardening against slow client attacks (Slowloris), static file serving, compression, and load balancing across application worker instances."
+    },
+    {
+     "q": "How does global exception handling work in ASP.NET Core with ProblemDetails?",
+     "a": "Global exception handling uses `app.UseExceptionHandler()`. In ASP.NET Core 8+, implement `IExceptionHandler` to intercept unhandled exceptions, log errors, and format standard RFC 7807/9457 `ProblemDetails` JSON responses (status, title, detail, instance URI) without leaking internal stack traces or database connection strings to API clients."
+    },
+    {
+     "q": "What is the difference between authentication and authorization middleware?",
+     "a": "**Authentication** middleware (`app.UseAuthentication()`) verifies *who* the caller is by inspecting credentials (e.g. validating a JWT Bearer token or cookie) and establishing the `ClaimsPrincipal` on `HttpContext.User`. **Authorization** middleware (`app.UseAuthorization()`) verifies *what* that caller is permitted to do against policies and roles."
+    }
+   ]
+  },
+  "behavioural-patterns": {
+   "title": "Behavioral Design Patterns",
+   "topic": "lld",
+   "difficulty": "intermediate",
+   "module": "lld/25-design-patterns-one-at-a-time/15-strategy/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What is the Strategy pattern? Give an example.",
+     "a": "The Strategy pattern defines a family of interchangeable algorithms, encapsulates each one behind a common interface, and makes them swappable at runtime. For example, an e-commerce checkout accepts an `IShippingCalculator` strategy (`StandardShipping`, `ExpressShipping`, `OvernightShipping`). The order context delegates shipping fee calculation to the injected strategy without conditional branching."
+    },
+    {
+     "q": "How does Strategy help with the Open/Closed Principle?",
+     "a": "Strategy eliminates rigid conditional statements (`if/else` or `switch` on types). When business requirements introduce a new calculation or discount rule, developers add a new class implementing the strategy interface. The consuming context remains closed for modification yet open for extension, requiring zero code changes to existing classes."
+    },
+    {
+     "q": "What is the difference between Strategy and State?",
+     "a": "**Strategy** encapsulates *how* an action is performed; the client typically chooses the strategy from the outside and passes it in, and the strategy rarely changes during the object's life. **State** encapsulates *what* an object does based on its internal state; state transitions happen automatically from within the state objects or context as business operations execute."
+    },
+    {
+     "q": "Can a strategy just be a function?",
+     "a": "Yes. In modern programming languages with first-class functions (such as `Func<T, TResult>` in C# or `Callable` in Python), a full class hierarchy is often unnecessary for simple algorithms. A strategy can be passed as a lambda expression or method reference directly, reducing boilerplate while achieving identical runtime polymorphism."
+    },
+    {
+     "q": "What is the Observer pattern?",
+     "a": "The Observer pattern defines a one-to-many dependency between objects: when one subject changes state, all its registered observers are notified and updated automatically. It decouples the core domain subject from disparate subscribers, such as UI views, telemetry loggers, or email notification dispatchers."
+    },
+    {
+     "q": "How do C# events implement the Observer pattern?",
+     "a": "In C#, `event EventHandler` implements the Observer pattern natively via multicast delegates. The publisher declares an event and raises it when state changes. Observers subscribe using `+=` and unsubscribe using `-=`. Under the hood, the compiler generates thread-safe `add` and `remove` accessor methods that maintain a delegate invocation list."
+    },
+    {
+     "q": "How can an event handler cause a memory leak in .NET?",
+     "a": "When a short-lived subscriber attaches a method to an event on a long-lived publisher (`publisher.Changed += subscriber.OnChanged`), the publisher's delegate holds a strong reference to the subscriber. The Garbage Collector cannot collect the subscriber even if outside references to it are gone. To fix this, always unsubscribe via `-=` in `Dispose()`, or use weak event patterns."
+    },
+    {
+     "q": "What is the difference between Observer and Pub/Sub?",
+     "a": "**Observer** is in-process and synchronous: the subject maintains direct references to observer interfaces in memory and calls them directly. **Pub/Sub** uses an independent message broker (e.g., RabbitMQ, Kafka, Azure Service Bus): publishers emit messages to channels or topics, and subscribers consume them asynchronously without publishers and subscribers ever knowing each other."
+    },
+    {
+     "q": "What is the Command pattern?",
+     "a": "The Command pattern encapsulates a request as a standalone object containing the action, receiver, and all necessary parameters. This decoupling turns invocations into first-class citizens, enabling features like parameterizing method calls, queueing requests, scheduling background execution, logging audit trails, and implementing reversible undo/redo operations."
+    },
+    {
+     "q": "How would you implement undo using the Command pattern?",
+     "a": "Each command implements an `Execute()` method and an `Undo()` (or `Unexecute()`) method. An `Invoker` maintains a history stack of executed commands. When an operation occurs, the command saves the previous state, runs `Execute()`, and is pushed onto the stack. Calling `Undo()` pops the top command and invokes its `Undo()` method to restore prior state."
+    },
+    {
+     "q": "Where is the Command pattern used in real systems?",
+     "a": "Command is used in GUI frameworks (WPF `ICommand` binding buttons to actions), transactional sagas in distributed systems (compensating transactions for rollbacks), task queues and job processors (serializing jobs into Redis or Celery), and CQRS architectures where write commands mutate state separately from query models."
+    },
+    {
+     "q": "What is the Template Method pattern?",
+     "a": "The Template Method pattern defines the skeleton of an algorithm in an abstract base class method, deferring specific steps to subclasses via abstract or virtual methods without changing the overall algorithm structure. It enforces a fixed sequence of execution (e.g., `Authenticate() -> Validate() -> Process() -> Log()`) while allowing customization of individual hooks."
+    },
+    {
+     "q": "What is the difference between Template Method and Strategy?",
+     "a": "**Template Method** relies on inheritance and compile-time binding: the algorithm invariant lives in a base class, and subclasses override specific protected steps. **Strategy** relies on composition and runtime delegation: the context delegates the entire algorithm to an interchangeable strategy object implementing a common interface, which can be swapped at runtime."
+    },
+    {
+     "q": "What is the State pattern?",
+     "a": "The State pattern allows an object to alter its behavior when its internal state changes, appearing to change its class. The context class holds a reference to a `State` object that implements state-specific behaviors. Method invocations on the context are forwarded to the current state object, which can transition the context to the next state."
+    },
+    {
+     "q": "How would you model order status changes with the State pattern?",
+     "a": "Define an `OrderState` base class with operations like `Cancel()`, `Pay()`, and `Ship()`. Implement concrete states (`PendingPaymentState`, `PaidState`, `ShippedState`). In `PendingPaymentState`, `Cancel()` transitions the order to `CancelledState`. In `ShippedState`, calling `Cancel()` throws an invalid transition exception. The `Order` delegates actions to its `_currentState` without nested switch statements."
+    },
+    {
+     "q": "What is the Chain of Responsibility pattern?",
+     "a": "The Chain of Responsibility pattern passes a request along a sequence of handler objects. Each handler in the chain decides either to process the request, perform pre- or post-processing, and optionally pass the request to the next handler, or short-circuit and terminate the pipeline entirely. Handlers are linked dynamically via a `next` pointer or delegate."
+    },
+    {
+     "q": "How is ASP.NET Core middleware an example of Chain of Responsibility?",
+     "a": "ASP.NET Core HTTP middleware executes as a Chain of Responsibility. Each component receives `HttpContext` and a `RequestDelegate next`. A component can perform operations before `next(context)`, invoke `await next(context)` to delegate down the chain, handle responses on the way back up, or terminate the pipeline without calling `next` (short-circuiting, e.g. on auth failure)."
+    },
+    {
+     "q": "What is the Iterator pattern, and how does yield return relate to it?",
+     "a": "The Iterator pattern provides a way to access the elements of an aggregate collection sequentially without exposing its underlying representation (e.g., list, tree, hash map). In C#, `yield return` automatically generates a compiler-synthesized state machine that implements `IEnumerable` and `IEnumerator`, enabling deferred, on-demand evaluation."
+    },
+    {
+     "q": "What is the Mediator pattern, and how does it differ from Observer?",
+     "a": "The Mediator pattern centralizes complex communications between disparate objects, preventing them from referring to each other directly. In **Observer**, subjects broadcast events to many subscribers (one-to-many). In **Mediator**, communication is orchestrated centrally (many-to-many), with components (colleagues) routing all commands and notifications through the mediator (e.g., `MediatR` in .NET)."
+    }
+   ]
+  },
   "caching": {
    "title": "Caching",
    "topic": "performance",
@@ -12382,6 +12540,87 @@
     {
      "q": "What are C# Source Generators, and why are they replacing runtime Reflection in modern .NET?",
      "a": "Source Generators are Roslyn compiler plugins that inspect source code and syntax trees during compilation and emit additional C# source files directly into the compilation pipeline. Runtime Reflection inspects types, invokes methods, and emits IL at runtime, incurring high memory overhead, slow execution, and blocking AOT trimming because reflection targets cannot be statically analyzed. Source Generators generate strongly typed, zero-allocation serialization (System.Text.Json source generation), dependency injection mappings, and regex compilation at compile time, guaranteeing type safety and instant startup."
+    }
+   ]
+  },
+  "csharp-language": {
+   "title": "C# Language Fundamentals and Runtime",
+   "topic": "csharp",
+   "difficulty": "intermediate",
+   "module": "lld/26-csharp-and-dotnet-interview/02-value-and-reference-types-structs-records/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What is the difference between a value type and a reference type in C#?",
+     "a": "Value types (`struct`, `enum`, numeric primitives) directly hold their data in memory where declared (on the stack or inline within enclosing heap objects) and copy their data on assignment. Reference types (`class`, `record class`, `string`, arrays, delegates) allocate an object header and fields on the managed heap, with variables holding only a memory pointer to that heap address."
+    },
+    {
+     "q": "When would you choose a struct over a class in C#?",
+     "a": "Choose a `struct` (or `readonly struct`) when the type represents a small, immutable, self-contained single value (typically $\\le 16$ bytes, e.g. `Point`, `DateTime`, `ComplexNumber`), has a short lifecycle, and is not boxed or passed through interface casts. This eliminates heap allocation overhead and Garbage Collector pressure."
+    },
+    {
+     "q": "What is boxing and unboxing, and why is it expensive?",
+     "a": "**Boxing** converts a value type to `object` or an interface type by allocating a wrapper object on the managed heap and copying the value into it. **Unboxing** extracts the value pointer from the heap object back to the stack. Boxing is expensive because it triggers heap allocations, increases GC pressure, degrades CPU cache locality, and adds type-checking overhead."
+    },
+    {
+     "q": "What is a record in C#, and how is its equality different from a class?",
+     "a": "A `record` (or `record class` / `record struct`) is a C# type designed for immutable data models. Unlike standard classes that use reference identity equality by default, records synthesize value-based equality (`Equals`, `==`, `GetHashCode` compare member values), provide non-destructive mutation via `with` expressions, and format `ToString()` outputs automatically."
+    },
+    {
+     "q": "What does the ? operator mean after a value type vs reference type?",
+     "a": "On a value type (e.g. `int?`), it is syntactic sugar for `Nullable<T>`, a struct holding a value and a `HasValue` boolean. On a reference type (e.g. `string?`), under Nullable Reference Types (NRT), it is a compile-time static analysis annotation signaling that the reference may be null; it generates no runtime type difference or memory overhead."
+    },
+    {
+     "q": "Why are strings immutable in C#?",
+     "a": "Strings are immutable for thread safety, security, and performance. Because contents cannot change after creation, strings can be safely shared across threads without synchronization, used as hash keys in dictionaries without changing hash codes, passed across security boundaries, and deduplicated in memory via runtime string interning."
+    },
+    {
+     "q": "When should you use StringBuilder instead of string concatenation?",
+     "a": "Use `StringBuilder` when concatenating strings inside loops or executing an unknown number of string modifications at runtime. In C#, repeated concatenation with `+` or interpolation in loops allocates a brand-new string on the heap for each step, generating $O(N^2)$ memory churn. `StringBuilder` uses an internal expandable buffer, minimizing allocations."
+    },
+    {
+     "q": "What is the difference between const and readonly in C#?",
+     "a": "`const` fields are compile-time constants: their values are hardcoded directly into call sites in Intermediate Language (IL) at compile time and cannot change. `readonly` fields are runtime constants: their values are resolved at runtime and can be initialized either at declaration or within a constructor, supporting instance-specific values."
+    },
+    {
+     "q": "What is the difference between ref, out, and in parameter modifiers?",
+     "a": "`ref` passes a variable by reference for bidirectional reading and writing; the caller must initialize it before passing. `out` passes by reference for returning data; the caller need not initialize it, but the callee must assign it before returning. `in` passes by reference for read-only access, preventing copying of large structs without allowing callee mutation."
+    },
+    {
+     "q": "What is a delegate in C#, and how does it differ from an event?",
+     "a": "A **delegate** is a type-safe function pointer pointing to one or more methods (multicast). An **event** is a language keyword that encapsulates a delegate: it restricts access so outside code can only subscribe (`+=`) or unsubscribe (`-=`), preventing external callers from clearing the subscriber list or invoking the event directly."
+    },
+    {
+     "q": "What is the difference between Func, Action, and Predicate delegates?",
+     "a": "`Action<T...>` encapsulates a method that accepts zero to sixteen arguments and returns `void`. `Func<T..., TResult>` encapsulates a method that accepts arguments and returns a value of type `TResult`. `Predicate<T>` is equivalent to `Func<T, bool>`, representing a method that evaluates a condition on an object."
+    },
+    {
+     "q": "What is deferred execution in LINQ, and which operations force evaluation?",
+     "a": "Deferred execution means a LINQ query is not executed when defined; it is evaluated only when iterated over (e.g. in a `foreach` loop). Operations like `Where` and `Select` yield elements on demand. Terminal operations force immediate evaluation and caching: `ToList()`, `ToArray()`, `ToDictionary()`, `Count()`, `First()`, and `Sum()`."
+    },
+    {
+     "q": "What is the difference between IEnumerable and IQueryable in .NET?",
+     "a": "`IEnumerable<T>` operates in-memory on local collections using delegates (`Func`); filtering happens on the client after data is retrieved. `IQueryable<T>` operates against external data sources (like EF Core) using expression trees (`Expression<Func>`); the query provider translates the expressions into native SQL executed on the database server."
+    },
+    {
+     "q": "What is the difference between First, FirstOrDefault, and Single in LINQ?",
+     "a": "`First()` returns the first matching element, throwing if empty. `FirstOrDefault()` returns the first matching element, or default (`null`/`0`) if empty. `Single()` returns the sole matching element, throwing if empty or if more than one matching element exists. `SingleOrDefault()` returns default if empty, but throws if more than one exists."
+    },
+    {
+     "q": "What is the difference between throw and throw ex in C# exception handling?",
+     "a": "`throw;` re-throws the existing exception while preserving the original stack trace and line number where the error occurred. `throw ex;` re-throws the exception object but resets the stack trace to the current line, obscuring the root cause and location of the original failure."
+    },
+    {
+     "q": "What does the using statement do, and how does IDisposable work?",
+     "a": "The `using` statement (or `using var`) ensures deterministic disposal of unmanaged resources. It translates into a `try / finally` block where the `finally` block invokes `IDisposable.Dispose()`, even if an exception occurs. This guarantees sockets, file handles, and database connections are freed immediately without waiting for garbage collection."
+    },
+    {
+     "q": "What does async and await do under the hood in C#?",
+     "a": "The compiler transforms an `async` method into an allocation-efficient state machine structure implementing `IAsyncStateMachine`. When code hits `await` on an incomplete task, the method yields the thread back to the ThreadPool. When the asynchronous operation finishes, the task's continuation resumes execution of the state machine at the next state."
+    },
+    {
+     "q": "Why should you avoid async void in C#?",
+     "a": "Avoid `async void` (except in event handlers). An `async void` method cannot be awaited by callers, meaning exceptions thrown inside cannot be caught with a standard `try/catch` block. Unhandled exceptions on `async void` methods crash the entire process through the `AppDomain.UnhandledException` handler."
     }
    ]
   },
@@ -12985,6 +13224,87 @@
     }
    ]
   },
+  "oop-four-pillars": {
+   "title": "OOP Four Pillars and Core Principles",
+   "topic": "lld",
+   "difficulty": "beginner",
+   "module": "lld/24-oop-interview-questions/01-the-four-pillars-answered-well/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What are the four pillars of OOP? Give an example of each.",
+     "a": "The four pillars are: 1. **Encapsulation:** Bundling state and methods while protecting invariants (e.g., `BankAccount` keeping `_balance` private). 2. **Abstraction:** Exposing what an entity does rather than how (e.g., `IPaymentGateway.Process()` hiding HTTP retries). 3. **Inheritance:** An 'is-a' relationship for code reuse and subtyping (e.g., `SavingsAccount` inheriting `Account`). 4. **Polymorphism:** Uniform treatment of different concrete types through a shared interface at runtime without branching logic."
+    },
+    {
+     "q": "What is the difference between abstraction and encapsulation?",
+     "a": "**Encapsulation** is about containment and data protection: bundling data with behavior and restricting direct access to internal fields so outside code cannot bypass business invariants. **Abstraction** is about simplification and contract design: hiding background implementation complexity and exposing only a minimal, cohesive interface needed by consumers."
+    },
+    {
+     "q": "Is OOP possible without inheritance?",
+     "a": "Yes, absolutely. Modern object-oriented architecture heavily emphasizes composition over inheritance. Languages like Go and Rust are fundamentally object-oriented without supporting classical class inheritance at all. They achieve encapsulation via structs and visibility rules, abstraction via interfaces or traits, and polymorphism via structural subtyping or trait implementations."
+    },
+    {
+     "q": "Which pillar does an interface give you?",
+     "a": "An interface primarily delivers **Abstraction** and enables **Polymorphism**. It provides Abstraction by defining a pure contract (*what* an entity must do) with zero internal implementation or state. It enables Polymorphism because callers can program against the interface type (e.g., `ILogger`), substituting any concrete implementation at runtime without code changes."
+    },
+    {
+     "q": "What is the difference between a class, an object, and an instance?",
+     "a": "A **class** is the compile-time blueprint or type definition specifying fields, properties, methods, and invariants. An **object** is the physical entity allocated in memory on the heap at runtime. An **instance** describes that object's specific contextual relationship to its type (e.g., the variable `myAccount` holds a reference to an instance of `BankAccount`)."
+    },
+    {
+     "q": "What is constructor chaining and how is it implemented?",
+     "a": "Constructor chaining is the technique where one constructor invokes another constructor in the same class or base class to centralize initialization logic and prevent code duplication. In C#, it is implemented using `: this(...)` for overloaded constructors or `: base(...)` for base constructors. In Python, it is done via `super().__init__(...)`."
+    },
+    {
+     "q": "What is a static constructor and when does it execute?",
+     "a": "A static constructor (in C#, `static ClassName()`) initializes type-level static data or performs one-time initialization. It is parameterless, has no access modifiers, and cannot be invoked directly. The .NET runtime guarantees it executes exactly once per application domain before the first instance is created or any static member is referenced, with thread safety handled by the CLR."
+    },
+    {
+     "q": "What is the difference between an abstract class and an interface?",
+     "a": "An **interface** defines a pure behavioral contract (*'what an object can do'*, e.g., `IDisposable`), holds no instance fields, and supports multiple implementation per class. An **abstract class** defines a core identity (*'what an object is'*, e.g., `Stream`), can hold state and constructors, and provide template method workflows, but is restricted to single inheritance in C#."
+    },
+    {
+     "q": "When would you choose an abstract class over an interface?",
+     "a": "Choose an **interface** when defining cross-cutting capabilities across unrelated classes (e.g., `IComparable` for both `User` and `Temperature`), or for flexible dependency injection mocking. Choose an **abstract class** when derived types share common instance fields, require constructor validation of shared invariants, or need base algorithm scaffolding via the Template Method pattern."
+    },
+    {
+     "q": "Can an interface have a method body in modern languages?",
+     "a": "Yes. In C# 8+, interfaces support **Default Interface Methods** (DIM) to provide default implementations, enabling API evolution without breaking existing implementing classes (though implementing classes do not inherit interface state). In Python, abstract base classes (`abc.ABC`) can contain concrete methods that derived classes can invoke via `super()`."
+    },
+    {
+     "q": "What is the difference between method overloading and method overriding?",
+     "a": "**Method overloading** is compile-time (static) polymorphism where multiple methods in the same class share the same name with different parameter signatures. **Method overriding** is runtime (dynamic) polymorphism where a derived class provides a specialized implementation of a virtual or abstract method defined in its base class."
+    },
+    {
+     "q": "What is the difference between override and new in C#?",
+     "a": "`override` replaces the base virtual method in the virtual method table (vtable), so the derived method is executed even when called through a base-type reference. `new` (method hiding) does not alter the vtable; it hides the base method, meaning calling through a base-type reference invokes the base class implementation."
+    },
+    {
+     "q": "Does Python support method overloading by parameter types?",
+     "a": "No. Python does not support native method overloading by signature; declaring a second method with the same name replaces the first in the class dictionary. Instead, Python handles varying parameters using default arguments, variable-length arguments (`*args, **kwargs`), `@functools.singledispatch`, or `@typing.overload` for static type checking."
+    },
+    {
+     "q": "What is runtime polymorphism, and how does the runtime find the right method?",
+     "a": "Runtime polymorphism resolves the concrete target method during program execution based on the runtime type of the object. In compiled languages like C#, classes with virtual methods have a compiler-generated **vtable** (virtual table) of function pointers; each instance holds a `vptr` pointing to its type's vtable, and calls dereference the slot index corresponding to the method."
+    },
+    {
+     "q": "Can you override a static method in OOP?",
+     "a": "No. Static methods belong to the class type itself, not an individual instance, and are resolved statically at compile time. Because static calls do not involve an instance pointer (`this` or `vptr`), they cannot be placed into a virtual method table and cannot participate in runtime polymorphic dispatch."
+    },
+    {
+     "q": "Why is composition often preferred over inheritance?",
+     "a": "Inheritance creates white-box reuse with tight compile-time coupling: changes to base class implementation details can silently break subclass invariants (the Fragile Base Class problem). Composition provides black-box reuse through interfaces, allowing behaviors to be swapped at runtime, avoiding subclass explosion, and keeping components independently testable."
+    },
+    {
+     "q": "What is the Fragile Base Class problem?",
+     "a": "The Fragile Base Class problem occurs when a seemingly harmless change to a base class (such as modifying an internal method to call another method) inadvertently breaks the invariants or behavior of derived classes. For example, if a subclass overrides both `Add()` and `AddAll()`, and the base `AddAll()` changes to call `Add()` internally, items are double-counted."
+    },
+    {
+     "q": "What is the Liskov Substitution Principle and what violates it?",
+     "a": "LSP states that objects of a superclass must be replaceable with objects of a subclass without affecting program correctness. Subclasses must satisfy behavioral subtyping: they cannot strengthen preconditions, cannot weaken postconditions, and must preserve base invariants. A classic violation is `Square` inheriting from `Rectangle` where setting width alters height, breaking caller assumptions."
+    }
+   ]
+  },
   "python-interview-questions": {
    "title": "Python internals and senior engineering",
    "topic": "python",
@@ -13038,6 +13358,160 @@
     {
      "q": "What is __slots__ in Python classes, and what are its performance and design trade-offs?",
      "a": "By default, Python instances store attributes in a dynamic dictionary (__dict__), allowing arbitrary runtime attribute assignment at the cost of dict memory overhead (~150+ bytes per instance). Specifying __slots__ = ('name', 'id') replaces __dict__ with a fixed-size C array of descriptor pointers directly inside the PyObject structure. This slashes memory usage by 60-70% and speeds up attribute access. Trade-offs: instances cannot have dynamic attributes outside the slots, multiple inheritance requires matching slots, and subclasses must define slots or they reintroduce __dict__."
+    }
+   ]
+  },
+  "python-language": {
+   "title": "Python Language Fundamentals and Internals",
+   "topic": "python",
+   "difficulty": "intermediate",
+   "module": "lld/27-python-interview/02-mutability-identity-and-copying/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What does 'everything is an object' mean in Python?",
+     "a": "In Python, every value, including functions, modules, classes, integers, and booleans, is allocated as a first-class heap object represented by a C struct (`PyObject`). Every object has a reference count, a type pointer (`ob_type`), and an identity in memory (`id()`), and can be passed as arguments, assigned to variables, and stored in collections."
+    },
+    {
+     "q": "What is the difference between is and == in Python?",
+     "a": "`==` checks for **value equality** by invoking the object's `__eq__()` method to determine if two objects contain equivalent data. `is` checks for **reference identity** (`id(a) == id(b)`), testing whether two variable names point to the exact same physical object in memory. For singletons like `None`, always use `is`."
+    },
+    {
+     "q": "Why is a mutable object like a list a bad default argument in Python?",
+     "a": "Default parameter expressions in Python are evaluated only **once**, when the function definition is executed at module load time, not when the function is called. If a mutable object like a list or dict (`def append_to(item, lst=[])`) is used, all calls that rely on the default mutate and share the exact same list instance in memory. Always use `None` as the sentinel default."
+    },
+    {
+     "q": "What is the difference between copy.copy and copy.deepcopy?",
+     "a": "`copy.copy()` performs a **shallow copy**: it creates a new container object, but populates it with references to the child objects from the original. `copy.deepcopy()` recursively duplicates the parent object and all nested child objects, generating a completely independent object graph where mutations do not affect the original."
+    },
+    {
+     "q": "Is Python pass-by-value or pass-by-reference?",
+     "a": "Python is **call-by-sharing** (or pass-by-object-reference). Function parameters receive a copy of the object reference pointer by value. Reassigning a parameter name inside the function rebinds the local name to a new object without affecting the caller's variable. However, mutating a mutable object in place modifies the caller's underlying object."
+    },
+    {
+     "q": "Can a tuple be modified in Python?",
+     "a": "A tuple itself is immutable: its length is fixed, and its internal reference slots cannot be rebound after creation. However, if a tuple contains a mutable object (such as a list: `t = (1, [2, 3])`), the nested object can be mutated in place (`t[1].append(4)`). Thus, a tuple's structure is immutable, but its contents can be mutable."
+    },
+    {
+     "q": "What are *args and **kwargs in Python functions?",
+     "a": "`*args` allows a function to accept an arbitrary number of positional arguments, packing them into an immutable tuple. `**kwargs` allows a function to accept an arbitrary number of keyword arguments, packing them into a dictionary. They are commonly used in decorators and subclassing to pass arguments to wrapped or parent functions."
+    },
+    {
+     "q": "What is a closure in Python, and what does the nonlocal keyword do?",
+     "a": "A closure is an inner function that retains access to variables from its enclosing lexical scope even after the outer function has finished executing. The `nonlocal` keyword allows the inner function to rebind and assign to a variable in an outer (enclosing) non-global scope, rather than creating a local variable of the same name."
+    },
+    {
+     "q": "What is the LEGB rule for Python variable scope lookup?",
+     "a": "LEGB defines Python's variable resolution order: 1. **Local (L):** Names assigned inside the current function. 2. **Enclosing (E):** Names in outer enclosing functions (from inner to outer). 3. **Global (G):** Names defined at the module top level or declared `global`. 4. **Built-in (B):** Predefined built-in names (`len`, `range`, `ValueError`)."
+    },
+    {
+     "q": "What is a decorator in Python, and why should you use functools.wraps?",
+     "a": "A decorator is a callable that takes a function or class as an argument, adds behavior, and returns a modified callable. `functools.wraps(fn)` is used inside decorator definitions to copy the original function's metadata (`__name__`, `__doc__`, `__module__`, `__annotations__`) onto the wrapper function, preventing introspection tools and debuggers from losing function identity."
+    },
+    {
+     "q": "What is the difference between an iterable and an iterator in Python?",
+     "a": "An **iterable** is any object implementing `__iter__()` that returns an iterator, or implementing `__getitem__()` for indexing (e.g. `list`, `dict`, `str`). An **iterator** is a stateful stream object implementing both `__iter__()` (returning itself) and `__next__()` to produce sequential items, raising `StopIteration` when exhausted."
+    },
+    {
+     "q": "What is a generator, and what does the yield keyword do?",
+     "a": "A generator is a specialized iterator produced by a function containing the `yield` keyword. Calling the generator function returns a generator object without running the body immediately. When `next()` is called, execution proceeds until `yield` produces a value and suspends local state, resuming from that exact location on subsequent calls."
+    },
+    {
+     "q": "What is the difference between __new__ and __init__ in Python classes?",
+     "a": "`__new__` is a static allocator method that is called first to physically construct and return a new instance of the class in memory (`cls`). `__init__` is an initializer method that receives the newly created instance (`self`) and configures its attributes. `__new__` is overridden in singletons, metaclasses, or subclassing immutable types like `tuple`."
+    },
+    {
+     "q": "What does __slots__ do on a Python class, and what are its trade-offs?",
+     "a": "`__slots__` explicitly declares allowed instance attributes, replacing the default per-instance `__dict__` with a fixed-size descriptor array. This dramatically reduces memory consumption (saving 40-50% RAM for millions of small objects) and speeds up attribute access. Trade-offs include inability to add dynamic attributes and complex inheritance requirements."
+    },
+    {
+     "q": "What is the Method Resolution Order (MRO), and how does Python solve the diamond problem?",
+     "a": "The MRO is the order in which Python searches for attributes and methods across class hierarchies. Python resolves multiple inheritance and the diamond problem deterministically using the **C3 Linearization algorithm**, accessible via `Class.__mro__`. It guarantees monotonicity and ensures subclasses are visited before their base classes while preserving declaration order."
+    },
+    {
+     "q": "What are dunder (magic) methods, and why must __hash__ change if __eq__ is overridden?",
+     "a": "Dunder methods (`__init__`, `__str__`, `__len__`) let custom classes integrate into Python's data model protocols. If a class overrides `__eq__` without defining `__hash__`, Python automatically sets `__hash__ = None`, making instances unhashable. If equality is customized, `__hash__` must also be defined so equal objects produce identical hash codes for dict/set keys."
+    },
+    {
+     "q": "What is the Global Interpreter Lock (GIL) in CPython, and how does it impact threading?",
+     "a": "The GIL is a mutex in CPython that prevents multiple native threads from executing Python bytecode simultaneously, ensuring thread-safe memory management with reference counts. Consequently, Python threads cannot achieve CPU parallelism across multiple cores; threading is beneficial for I/O-bound tasks, while CPU-bound tasks require multiprocessing."
+    },
+    {
+     "q": "When should you use threading vs multiprocessing vs asyncio in Python?",
+     "a": "Use **multiprocessing** for CPU-bound computations (image processing, ML data transformations) to bypass the GIL across separate OS processes. Use **asyncio** for high-concurrency, network-heavy I/O (thousands of web sockets, API gateways) via a single-threaded cooperative event loop. Use **threading** for blocking I/O with legacy libraries that lack async support."
+    }
+   ]
+  },
+  "python-web-apps": {
+   "title": "Python Web Frameworks: WSGI, ASGI, and FastAPI",
+   "topic": "python",
+   "difficulty": "intermediate",
+   "module": "lld/27-python-interview/18-web-apps-app-run-wsgi-asgi-and-fastapi/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What does app.run() do in Flask, and why should you not use it in production?",
+     "a": "`app.run()` launches Werkzeug's embedded development server in a single process without worker process supervision, rate limiting, or proper signal handling. In production, it suffers from Denial of Service under slow network connections (Slowloris), cannot perform zero-downtime rolling worker recycles (`SIGHUP`), and if `debug=True` is enabled, exposes an interactive Python debugger allowing remote code execution."
+    },
+    {
+     "q": "What is the difference between WSGI and ASGI?",
+     "a": "**WSGI** (PEP 3333) is a synchronous specification (`app(environ, start_response)`) where one worker thread/process handles one request synchronously to completion. **ASGI** is an asynchronous specification (`await app(scope, receive, send)`) that uses async/await event loops to handle thousands of concurrent requests, persistent WebSockets, and Server-Sent Events on a single thread."
+    },
+    {
+     "q": "Why can WSGI servers not handle WebSockets or long-lived streaming connections effectively?",
+     "a": "Because WSGI is synchronous and blocking, keeping a connection open ties up an entire worker thread or process for the full duration of that connection. If a server has 16 worker processes, only 16 concurrent clients can hold open connections before all incoming traffic is blocked. ASGI multiplexes thousands of idle or streaming connections on a non-blocking event loop."
+    },
+    {
+     "q": "What are Gunicorn and Uvicorn, and how are they used together in production?",
+     "a": "**Gunicorn** is a battle-tested WSGI process manager that handles process supervision, master-worker forks, graceful restarts, and worker heartbeats. **Uvicorn** is a fast ASGI server implementation. In production, they are paired: Gunicorn acts as the master process manager running Uvicorn's worker class (`gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app`)."
+    },
+    {
+     "q": "How does dependency injection work in FastAPI using Depends?",
+     "a": "FastAPI resolves dependencies at request time via `Depends()`. You declare a callable parameter in your route signature (e.g. `db: Session = Depends(get_db)`). FastAPI inspects parameter type hints, builds a Directed Acyclic Graph (DAG) of nested dependencies, resolves and caches shared dependencies per request, and injects the results into the handler."
+    },
+    {
+     "q": "What happens when a FastAPI dependency yields instead of returns?",
+     "a": "A dependency using `yield` behaves like a context manager. Code before `yield` executes before the route handler runs (setup phase, e.g. opening a database session or acquiring a lock). Code after `yield` executes after the response is sent back to the client (teardown phase, e.g. committing transactions or closing connections), even if an unhandled exception occurred."
+    },
+    {
+     "q": "How does middleware work in FastAPI and Starlette?",
+     "a": "Middleware in FastAPI follows an 'onion' pipeline pattern. Each middleware receives `request` and a `call_next` function: `async def middleware(request, call_next):`. Code executes on the incoming request, awaits `response = await call_next(request)` to pass control down the chain, and executes response post-processing (e.g. injecting headers, logging duration) before returning."
+    },
+    {
+     "q": "How does FastAPI decide whether to run an endpoint function in the event loop or a threadpool?",
+     "a": "If an endpoint is defined with `async def`, FastAPI executes it directly on the main event loop thread; it must not run blocking code. If an endpoint is defined with plain `def`, FastAPI offloads its execution to an external worker threadpool (`anyio.to_thread`), preventing synchronous blocking code from stalling the server's event loop."
+    },
+    {
+     "q": "What happens if you execute a blocking synchronous operation inside an async def FastAPI endpoint?",
+     "a": "Executing a blocking call (such as `time.sleep()`, synchronous `requests.get()`, or heavy CPU calculations) inside an `async def` endpoint blocks the single thread running the asyncio event loop. No other concurrent requests or tasks can be processed until the blocking call returns, drastically spiking latency and degrading throughput."
+    },
+    {
+     "q": "What role does Pydantic play in FastAPI request validation and serialization?",
+     "a": "Pydantic defines the schemas for request bodies and response models. FastAPI uses Pydantic to automatically parse incoming JSON, validate data types against type annotations, generate detailed 422 Unprocessable Entity error messages for validation failures, serialize outgoing objects, and generate OpenAPI (Swagger) documentation automatically."
+    },
+    {
+     "q": "What is the difference between path parameters, query parameters, and request body in FastAPI?",
+     "a": "**Path parameters** are declared in the route path URL (e.g. `/users/{user_id}`). **Query parameters** are function parameters with default scalar values not present in the URL path (e.g. `skip: int = 0`). **Request body** parameters are declared using Pydantic `BaseModel` classes, telling FastAPI to parse and validate incoming JSON payloads."
+    },
+    {
+     "q": "How do background tasks work in FastAPI, and when should you use Celery instead?",
+     "a": "FastAPI's `BackgroundTasks` executes functions in-process after returning an HTTP response, ideal for lightweight tasks like sending confirmation emails. However, if the server restarts or crashes, pending in-memory tasks are lost. For mission-critical, long-running, or retryable workloads, use an external distributed task queue like Celery or RQ backed by Redis."
+    },
+    {
+     "q": "What does CORS middleware do in a Python web API, and why is it needed?",
+     "a": "Cross-Origin Resource Sharing (CORS) middleware adds HTTP headers (`Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`) that allow browsers executing web applications hosted on different origins (domain, port, protocol) to interact with the API. Without CORS middleware, the browser's Same-Origin Policy blocks client-side API requests."
+    },
+    {
+     "q": "How do you handle global exceptions and return custom error responses in FastAPI?",
+     "a": "Register a custom exception handler using `@app.exception_handler(CustomException)`. The handler receives the `Request` and the exception instance, allowing you to log the failure, format a standardized error payload (e.g. matching RFC 7807 `ProblemDetails`), and return a `JSONResponse` with the appropriate HTTP status code (e.g. 400, 404, 500)."
+    },
+    {
+     "q": "What is the difference between a dataclass and a Pydantic BaseModel in Python web APIs?",
+     "a": "A standard Python `dataclass` is a lightweight container for storing data; it performs type hinting but does not coerce types or validate values at runtime. A Pydantic `BaseModel` enforces strict runtime data parsing, coercion (e.g. converting a string \"42\" to integer 42), field constraints, and JSON serialization, making it ideal for API boundary validation."
+    },
+    {
+     "q": "How do you implement authentication and extract the current user in FastAPI?",
+     "a": "Use a FastAPI dependency with security utilities like `OAuth2PasswordBearer`. Define a dependency function `async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:`. The function decodes and validates the JWT token, retrieves the user from the database, and raises `HTTPException(status_code=401)` if invalid."
     }
    ]
   },
@@ -13126,6 +13600,160 @@
     {
      "q": "What are the main security headers, and what does each do?",
      "a": "Strict-Transport-Security forces HTTPS; Content-Security-Policy restricts where scripts and resources may load from; X-Content-Type-Options: nosniff stops type guessing; frame-ancestors (or X-Frame-Options) blocks clickjacking; Referrer-Policy limits what is leaked in the Referer. They are defence in depth, not a replacement for fixing the bug."
+    }
+   ]
+  },
+  "singleton-and-creational-patterns": {
+   "title": "Singleton and Creational Design Patterns",
+   "topic": "lld",
+   "difficulty": "intermediate",
+   "module": "lld/25-design-patterns-one-at-a-time/02-singleton/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "Where would you use a Singleton? Give a real example.",
+     "a": "Use a Singleton when a system requires strict centralized coordination over a shared physical or logical resource to prevent contention, socket exhaustion, or data corruption. Real examples include an in-memory cache coordinator, a database connection pool manager, or a hardware controller (such as a serial port or printer spooler). Having multiple pool objects would bypass connection throttles and overwhelm the database. In modern applications, register that coordinator with a Singleton lifetime in a Dependency Injection container rather than hardcoding static access."
+    },
+    {
+     "q": "How do you make a Singleton thread-safe in C#?",
+     "a": "The modern idiomatic way in C# is using `System.Lazy<T>`: `private static readonly Lazy<MyClass> _lazy = new Lazy<MyClass>(() => new MyClass(), isThreadSafe: true);` with `public static MyClass Instance => _lazy.Value;`. It guarantees thread safety, lazy evaluation on first access, memory barriers, and CLR optimization. Alternatively, use static initialization (`public static readonly MyClass Instance = new MyClass();`), which the CLR guarantees executes thread-safely before any static member is accessed. Double-checked locking with `volatile` and `lock` is also valid but superseded by `Lazy<T>`."
+    },
+    {
+     "q": "How do you write a Singleton in Python?",
+     "a": "There are three primary approaches in Python: 1. **Module-level singleton (most idiomatic):** Python modules are cached in `sys.modules` on first import, so a top-level instance is inherently lazy and thread-safe. 2. **Metaclass singleton:** Define a `SingletonMeta(type)` that intercepts `__call__` using a `threading.Lock` and double-checked locking, then use `class MyClass(metaclass=SingletonMeta):`. 3. **Overriding `__new__`:** Intercept instance creation in `__new__` to return a cached `cls._instance`. However, this requires guarding `__init__`, which Python calls on every instantiation."
+    },
+    {
+     "q": "What is the difference between a Singleton and a static class?",
+     "a": "A Singleton is a normal object: it can implement interfaces, be passed as an argument, be stored in collections, support lazy loading, and be injected via DI containers for unit testing. A `static class` cannot implement interfaces, cannot inherit or be inherited from, cannot be passed polymorphically, and hardcodes dependencies directly into calling code, making isolated unit testing without specialized profilers nearly impossible."
+    },
+    {
+     "q": "Why is Singleton called an anti-pattern?",
+     "a": "Singleton introduces hidden global state into an application. It violates the Single Responsibility Principle by managing both domain logic and its own process-wide lifetime. It obscures dependencies because methods call `Instance` directly instead of declaring requirements in constructors. Crucially, it breaks parallel unit test execution: concurrent tests mutating shared singleton state cause intermittent race conditions and test pollution."
+    },
+    {
+     "q": "What is the difference between the Singleton pattern and AddSingleton in ASP.NET Core?",
+     "a": "The GoF Singleton is a design pattern enforced by the class itself via a private constructor and a static `Instance` property, coupling callers directly to the concrete type. `AddSingleton` in ASP.NET Core is a service lifetime managed by the DI container. The class remains a plain, decoupled class with a public constructor and no static fields. It can be instantiated freely in unit tests, while the container guarantees a single shared instance at runtime."
+    },
+    {
+     "q": "What is the Factory pattern and why use it?",
+     "a": "The Factory pattern encapsulates object creation logic, abstracting concrete instantiation away from callers. Instead of client code calling `new ConcreteClass()`, it invokes a factory method returning an interface or abstract base class. This decouples consumers from concrete types, centralizes complex creation logic (such as configuration, dependency wiring, or caching), and supports the Open/Closed Principle."
+    },
+    {
+     "q": "What is the difference between a simple factory and the Factory Method?",
+     "a": "A **Simple Factory** is a concrete class with a method (often with a `switch` or dictionary) that constructs and returns different product instances based on input arguments. The **Factory Method** is a GoF creational pattern relying on inheritance: an abstract creator class defines an abstract factory method (`CreateProduct()`), and concrete subclasses override it to determine which concrete product class to instantiate."
+    },
+    {
+     "q": "How does a factory help with the Open/Closed Principle?",
+     "a": "When new product types are introduced, client code that depends on the factory contract does not need to change or be recompiled. With Factory Method, adding a new product only requires creating a new product class and a corresponding creator subclass. With parameter-based or DI-registered factories, registration happens at the application composition root without altering business consumers."
+    },
+    {
+     "q": "Give a .NET example of a factory.",
+     "a": "In .NET, `IHttpClientFactory` is a prominent factory example. Instead of directly instantiating `HttpClient`, consumers call `factory.CreateClient(\"namedClient\")`. The factory manages the lifetime of underlying `HttpMessageHandler` instances, pooling socket connections to prevent socket exhaustion while respecting DNS updates."
+    },
+    {
+     "q": "What is the difference between Factory Method and Abstract Factory?",
+     "a": "The **Factory Method** pattern uses inheritance to delegate the creation of a *single* product to derived subclasses via an overridden method. The **Abstract Factory** pattern uses composition: an interface defines methods to create a *family* of related or dependent objects (e.g., `CreateButton()`, `CreateCheckbox()`) without specifying their concrete classes, ensuring compatibility across the family."
+    },
+    {
+     "q": "When would you use an Abstract Factory?",
+     "a": "Use an Abstract Factory when a system must work with multiple families of related products and needs to enforce consistency across them without coupling to concrete classes. Common examples include multi-platform UI themes (e.g., `LightWidgetFactory` producing `LightButton` and `LightWindow`, vs `DarkWidgetFactory`), or cross-cloud persistence suites (AWS S3/DynamoDB vs Azure Blob/CosmosDB)."
+    },
+    {
+     "q": "What problem does the Builder pattern solve?",
+     "a": "The Builder pattern solves the 'telescoping constructor' problem, where a class requires many optional parameters, leading to confusing constructor overloads or large parameter lists. It separates the construction of a complex object from its representation, allowing the same construction process to produce different representations through readable, fluent method chaining."
+    },
+    {
+     "q": "What is the difference between Builder and Factory?",
+     "a": "A **Factory** focuses on *what* gets created, instantiating an entire object in a single method call, typically hiding the concrete type behind an interface. A **Builder** focuses on *how* a complex object is constructed, allowing callers to assemble it step-by-step with optional configurations before calling `Build()`, often producing a concrete, complex object graph."
+    },
+    {
+     "q": "Where is the Builder pattern used in ASP.NET Core?",
+     "a": "The Builder pattern is ubiquitous in ASP.NET Core startup: `WebApplication.CreateBuilder(args)` returns a `WebApplicationBuilder` used to configure services (`builder.Services.Add...`), logging, and configuration step-by-step before invoking `builder.Build()`. Other examples include `ConfigurationBuilder` and `RouteBuilder`."
+    },
+    {
+     "q": "Do you need a Builder in Python?",
+     "a": "In Python, the Builder pattern is less frequently needed because the language supports keyword arguments and default parameter values directly in `__init__` and dataclasses. However, a Builder is still valuable in Python when object construction requires a complex multi-step workflow, dependency ordering, validation across interdependent fields, or immutable object assembly."
+    },
+    {
+     "q": "What is the Prototype pattern, and why is ICloneable discouraged in .NET?",
+     "a": "The Prototype pattern creates new objects by copying an existing instance (the prototype) rather than constructing new ones from scratch, saving overhead when creation is costly. In .NET, `ICloneable` is discouraged because its contract does not specify whether the clone is shallow or deep. Callers cannot know if mutating the clone affects original nested references, leading to bugs. Instead, define custom, explicit methods like `DeepClone()`."
+    }
+   ]
+  },
+  "structural-patterns": {
+   "title": "Structural Design Patterns",
+   "topic": "lld",
+   "difficulty": "intermediate",
+   "module": "lld/25-design-patterns-one-at-a-time/08-adapter/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What is the Adapter pattern? Give a real example.",
+     "a": "The Adapter pattern converts the interface of an existing class into another interface clients expect, allowing classes with incompatible interfaces to collaborate. A real example is wrapping a legacy or third-party payment gateway that accepts XML payloads behind an application's internal `IPaymentProcessor` interface that uses modern domain types. The adapter translates calls, formats payloads, and maps return codes without altering either the third-party library or application domain code."
+    },
+    {
+     "q": "What is the difference between Adapter and Facade?",
+     "a": "An **Adapter** makes two existing, incompatible interfaces work together by wrapping one adaptee and translating its interface to match a target contract. A **Facade** creates a brand-new, simplified interface over an entire complex subsystem consisting of multiple classes. Adapter changes an interface so a client can use it; Facade provides a higher-level, easier-to-use interface to hide subsystem complexity."
+    },
+    {
+     "q": "Why wrap a third-party library behind your own interface?",
+     "a": "Wrapping third-party dependencies protects your domain model from external breaking changes and leaky abstractions. It isolates vendor-specific data structures and exceptions to a single adapter boundary, simplifies automated unit testing by allowing easy interface mocking, and permits swapping out or upgrading the underlying library without modifying business logic across the application."
+    },
+    {
+     "q": "What problem does the Bridge pattern solve?",
+     "a": "The Bridge pattern solves combinatorial class explosion by decoupling an abstraction from its implementation so both can vary independently. Instead of multiplying classes via inheritance (e.g., `VectorCircle`, `RasterCircle`, `VectorSquare`, `RasterSquare` = $M \\times N$ subclasses), the abstraction (`Shape`) holds a reference to an implementation interface (`IRenderer`). New shapes and new renderers can be added independently ($M + N$ classes)."
+    },
+    {
+     "q": "What is the difference between Bridge and Adapter?",
+     "a": "**Bridge** is designed upfront during initial architecture to let an abstraction and its implementation evolve independently across orthogonal dimensions. **Adapter** is retrofitted after classes are already written to make unrelated, incompatible interfaces collaborate together without modifying existing source code."
+    },
+    {
+     "q": "What is the Composite pattern?",
+     "a": "The Composite pattern composes objects into tree structures to represent part-whole hierarchies. It lets clients treat individual leaf objects and compositions of objects uniformly through a common component interface. Both single items and group containers implement the same operations (e.g., `GetPrice()`, `Render()`), with containers recursively delegating to their children."
+    },
+    {
+     "q": "Give an example of a Composite in a real system.",
+     "a": "A classic example is a filesystem: files and directories both implement a common `FileSystemNode` interface with operations like `GetSize()` or `Delete()`. A `File` returns its byte size directly as a leaf, while a `Directory` acts as a composite that sums `GetSize()` across all its child files and nested directories. Another example is a UI widget hierarchy where panels contain buttons, labels, and sub-panels."
+    },
+    {
+     "q": "What is the Decorator pattern?",
+     "a": "The Decorator pattern dynamically attaches additional responsibilities to an object by wrapping it. Decorators implement the same interface as the wrapped object and delegate core requests to it while adding pre- or post-processing behavior. Unlike inheritance, decorators can be stacked at runtime in arbitrary combinations without combinatorial subclass proliferation."
+    },
+    {
+     "q": "Is a Python @decorator the Decorator pattern?",
+     "a": "No, they are distinct concepts. A Python `@decorator` is syntactic sugar for a higher-order function that wraps a function or class at declaration/import time (`f = dec(f)`). The GoF Decorator pattern is an object-oriented structural pattern where an object instance is wrapped at runtime by another object implementing the same interface, allowing dynamic chaining of instance behavior."
+    },
+    {
+     "q": "Give a .NET example of the Decorator pattern.",
+     "a": "The classic .NET example is `System.IO.Stream`. `FileStream` provides base stream access to a disk file. You can wrap it with `BufferedStream` to add memory buffering, and further wrap that with `GZipStream` to add transparent compression: `new GZipStream(new BufferedStream(new FileStream(...)))`. All three classes inherit from `Stream`, preserving interface parity."
+    },
+    {
+     "q": "Decorator or inheritance: which and why?",
+     "a": "Prefer **Decorator** when responsibilities need to be added or combined dynamically at runtime, or when subclassing would cause a combinatorial explosion of classes (e.g., `LoggingCachingAuthService`). Subclassing binds behavior statically at compile time to the entire class hierarchy. Decorators adhere to the Single Responsibility Principle by isolating cross-cutting features into modular wrappers."
+    },
+    {
+     "q": "What is the Facade pattern?",
+     "a": "The Facade pattern provides a simplified, unified high-level interface to a complex subsystem of interacting classes. It shields client code from knowing about internal dependencies, configuration sequences, and protocol details. Clients interact with one simple facade method (e.g., `orderFacade.PlaceOrder(...)`), which orchestrates payment, inventory, tax, and notification subsystems internally."
+    },
+    {
+     "q": "What is the Flyweight pattern?",
+     "a": "The Flyweight pattern minimizes memory usage by sharing common, immutable state among large numbers of fine-grained objects. It divides an object's state into **intrinsic state** (shared, invariant, stored inside the flyweight) and **extrinsic state** (context-specific, variable, passed in by the client during method calls). This prevents allocating millions of duplicate objects."
+    },
+    {
+     "q": "What is string interning and how does it relate to Flyweight?",
+     "a": "String interning is a runtime optimization where the runtime maintains a single internal table of unique string instances. When multiple string literals have identical character sequences, they point to the exact same memory address on the managed heap. This is a direct implementation of the Flyweight pattern, eliminating duplicate allocations and enabling reference comparison."
+    },
+    {
+     "q": "What is the Proxy pattern?",
+     "a": "The Proxy pattern provides a surrogate or placeholder object that controls access to an underlying target object. The proxy implements the target's interface and intercepts method calls to perform auxiliary tasks, such as lazy initialization (virtual proxy), permission checking (protection proxy), logging/caching, or marshalling network calls (remote proxy)."
+    },
+    {
+     "q": "What is the difference between Proxy and Decorator?",
+     "a": "While both wrap an object and implement its exact interface, their architectural intent and lifecycles differ: a **Decorator** enhances or extends behavior dynamically, and clients create and chain multiple decorators at runtime. A **Proxy** controls access or lifecycle, usually instantiates and manages the target object itself, and is rarely composed into multi-layer chains."
+    },
+    {
+     "q": "How does lazy loading use a proxy?",
+     "a": "A virtual proxy defers the expensive creation of the real object until a client actually calls a method that needs it. In ORMs like Entity Framework Core, navigation properties are represented by generated proxy subclasses. When code accesses `order.Customer.Name`, the proxy intercepts the property access, executes a database query to load the customer row, and populates the field transparently."
     }
    ]
   },

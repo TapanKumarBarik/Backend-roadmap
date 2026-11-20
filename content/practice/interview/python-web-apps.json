@@ -1,0 +1,74 @@
+{
+  "title": "Python Web Frameworks: WSGI, ASGI, and FastAPI",
+  "topic": "python",
+  "difficulty": "intermediate",
+  "module": "lld/27-python-interview/18-web-apps-app-run-wsgi-asgi-and-fastapi/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What does app.run() do in Flask, and why should you not use it in production?",
+      "a": "`app.run()` launches Werkzeug's embedded development server in a single process without worker process supervision, rate limiting, or proper signal handling. In production, it suffers from Denial of Service under slow network connections (Slowloris), cannot perform zero-downtime rolling worker recycles (`SIGHUP`), and if `debug=True` is enabled, exposes an interactive Python debugger allowing remote code execution."
+    },
+    {
+      "q": "What is the difference between WSGI and ASGI?",
+      "a": "**WSGI** (PEP 3333) is a synchronous specification (`app(environ, start_response)`) where one worker thread/process handles one request synchronously to completion. **ASGI** is an asynchronous specification (`await app(scope, receive, send)`) that uses async/await event loops to handle thousands of concurrent requests, persistent WebSockets, and Server-Sent Events on a single thread."
+    },
+    {
+      "q": "Why can WSGI servers not handle WebSockets or long-lived streaming connections effectively?",
+      "a": "Because WSGI is synchronous and blocking, keeping a connection open ties up an entire worker thread or process for the full duration of that connection. If a server has 16 worker processes, only 16 concurrent clients can hold open connections before all incoming traffic is blocked. ASGI multiplexes thousands of idle or streaming connections on a non-blocking event loop."
+    },
+    {
+      "q": "What are Gunicorn and Uvicorn, and how are they used together in production?",
+      "a": "**Gunicorn** is a battle-tested WSGI process manager that handles process supervision, master-worker forks, graceful restarts, and worker heartbeats. **Uvicorn** is a fast ASGI server implementation. In production, they are paired: Gunicorn acts as the master process manager running Uvicorn's worker class (`gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app`)."
+    },
+    {
+      "q": "How does dependency injection work in FastAPI using Depends?",
+      "a": "FastAPI resolves dependencies at request time via `Depends()`. You declare a callable parameter in your route signature (e.g. `db: Session = Depends(get_db)`). FastAPI inspects parameter type hints, builds a Directed Acyclic Graph (DAG) of nested dependencies, resolves and caches shared dependencies per request, and injects the results into the handler."
+    },
+    {
+      "q": "What happens when a FastAPI dependency yields instead of returns?",
+      "a": "A dependency using `yield` behaves like a context manager. Code before `yield` executes before the route handler runs (setup phase, e.g. opening a database session or acquiring a lock). Code after `yield` executes after the response is sent back to the client (teardown phase, e.g. committing transactions or closing connections), even if an unhandled exception occurred."
+    },
+    {
+      "q": "How does middleware work in FastAPI and Starlette?",
+      "a": "Middleware in FastAPI follows an 'onion' pipeline pattern. Each middleware receives `request` and a `call_next` function: `async def middleware(request, call_next):`. Code executes on the incoming request, awaits `response = await call_next(request)` to pass control down the chain, and executes response post-processing (e.g. injecting headers, logging duration) before returning."
+    },
+    {
+      "q": "How does FastAPI decide whether to run an endpoint function in the event loop or a threadpool?",
+      "a": "If an endpoint is defined with `async def`, FastAPI executes it directly on the main event loop thread; it must not run blocking code. If an endpoint is defined with plain `def`, FastAPI offloads its execution to an external worker threadpool (`anyio.to_thread`), preventing synchronous blocking code from stalling the server's event loop."
+    },
+    {
+      "q": "What happens if you execute a blocking synchronous operation inside an async def FastAPI endpoint?",
+      "a": "Executing a blocking call (such as `time.sleep()`, synchronous `requests.get()`, or heavy CPU calculations) inside an `async def` endpoint blocks the single thread running the asyncio event loop. No other concurrent requests or tasks can be processed until the blocking call returns, drastically spiking latency and degrading throughput."
+    },
+    {
+      "q": "What role does Pydantic play in FastAPI request validation and serialization?",
+      "a": "Pydantic defines the schemas for request bodies and response models. FastAPI uses Pydantic to automatically parse incoming JSON, validate data types against type annotations, generate detailed 422 Unprocessable Entity error messages for validation failures, serialize outgoing objects, and generate OpenAPI (Swagger) documentation automatically."
+    },
+    {
+      "q": "What is the difference between path parameters, query parameters, and request body in FastAPI?",
+      "a": "**Path parameters** are declared in the route path URL (e.g. `/users/{user_id}`). **Query parameters** are function parameters with default scalar values not present in the URL path (e.g. `skip: int = 0`). **Request body** parameters are declared using Pydantic `BaseModel` classes, telling FastAPI to parse and validate incoming JSON payloads."
+    },
+    {
+      "q": "How do background tasks work in FastAPI, and when should you use Celery instead?",
+      "a": "FastAPI's `BackgroundTasks` executes functions in-process after returning an HTTP response, ideal for lightweight tasks like sending confirmation emails. However, if the server restarts or crashes, pending in-memory tasks are lost. For mission-critical, long-running, or retryable workloads, use an external distributed task queue like Celery or RQ backed by Redis."
+    },
+    {
+      "q": "What does CORS middleware do in a Python web API, and why is it needed?",
+      "a": "Cross-Origin Resource Sharing (CORS) middleware adds HTTP headers (`Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`) that allow browsers executing web applications hosted on different origins (domain, port, protocol) to interact with the API. Without CORS middleware, the browser's Same-Origin Policy blocks client-side API requests."
+    },
+    {
+      "q": "How do you handle global exceptions and return custom error responses in FastAPI?",
+      "a": "Register a custom exception handler using `@app.exception_handler(CustomException)`. The handler receives the `Request` and the exception instance, allowing you to log the failure, format a standardized error payload (e.g. matching RFC 7807 `ProblemDetails`), and return a `JSONResponse` with the appropriate HTTP status code (e.g. 400, 404, 500)."
+    },
+    {
+      "q": "What is the difference between a dataclass and a Pydantic BaseModel in Python web APIs?",
+      "a": "A standard Python `dataclass` is a lightweight container for storing data; it performs type hinting but does not coerce types or validate values at runtime. A Pydantic `BaseModel` enforces strict runtime data parsing, coercion (e.g. converting a string \"42\" to integer 42), field constraints, and JSON serialization, making it ideal for API boundary validation."
+    },
+    {
+      "q": "How do you implement authentication and extract the current user in FastAPI?",
+      "a": "Use a FastAPI dependency with security utilities like `OAuth2PasswordBearer`. Define a dependency function `async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:`. The function decodes and validates the JWT token, retrieves the user from the database, and raises `HTTPException(status_code=401)` if invalid."
+    }
+  ]
+}
+

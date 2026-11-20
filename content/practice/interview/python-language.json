@@ -1,0 +1,82 @@
+{
+  "title": "Python Language Fundamentals and Internals",
+  "topic": "python",
+  "difficulty": "intermediate",
+  "module": "lld/27-python-interview/02-mutability-identity-and-copying/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What does 'everything is an object' mean in Python?",
+      "a": "In Python, every value, including functions, modules, classes, integers, and booleans, is allocated as a first-class heap object represented by a C struct (`PyObject`). Every object has a reference count, a type pointer (`ob_type`), and an identity in memory (`id()`), and can be passed as arguments, assigned to variables, and stored in collections."
+    },
+    {
+      "q": "What is the difference between is and == in Python?",
+      "a": "`==` checks for **value equality** by invoking the object's `__eq__()` method to determine if two objects contain equivalent data. `is` checks for **reference identity** (`id(a) == id(b)`), testing whether two variable names point to the exact same physical object in memory. For singletons like `None`, always use `is`."
+    },
+    {
+      "q": "Why is a mutable object like a list a bad default argument in Python?",
+      "a": "Default parameter expressions in Python are evaluated only **once**, when the function definition is executed at module load time, not when the function is called. If a mutable object like a list or dict (`def append_to(item, lst=[])`) is used, all calls that rely on the default mutate and share the exact same list instance in memory. Always use `None` as the sentinel default."
+    },
+    {
+      "q": "What is the difference between copy.copy and copy.deepcopy?",
+      "a": "`copy.copy()` performs a **shallow copy**: it creates a new container object, but populates it with references to the child objects from the original. `copy.deepcopy()` recursively duplicates the parent object and all nested child objects, generating a completely independent object graph where mutations do not affect the original."
+    },
+    {
+      "q": "Is Python pass-by-value or pass-by-reference?",
+      "a": "Python is **call-by-sharing** (or pass-by-object-reference). Function parameters receive a copy of the object reference pointer by value. Reassigning a parameter name inside the function rebinds the local name to a new object without affecting the caller's variable. However, mutating a mutable object in place modifies the caller's underlying object."
+    },
+    {
+      "q": "Can a tuple be modified in Python?",
+      "a": "A tuple itself is immutable: its length is fixed, and its internal reference slots cannot be rebound after creation. However, if a tuple contains a mutable object (such as a list: `t = (1, [2, 3])`), the nested object can be mutated in place (`t[1].append(4)`). Thus, a tuple's structure is immutable, but its contents can be mutable."
+    },
+    {
+      "q": "What are *args and **kwargs in Python functions?",
+      "a": "`*args` allows a function to accept an arbitrary number of positional arguments, packing them into an immutable tuple. `**kwargs` allows a function to accept an arbitrary number of keyword arguments, packing them into a dictionary. They are commonly used in decorators and subclassing to pass arguments to wrapped or parent functions."
+    },
+    {
+      "q": "What is a closure in Python, and what does the nonlocal keyword do?",
+      "a": "A closure is an inner function that retains access to variables from its enclosing lexical scope even after the outer function has finished executing. The `nonlocal` keyword allows the inner function to rebind and assign to a variable in an outer (enclosing) non-global scope, rather than creating a local variable of the same name."
+    },
+    {
+      "q": "What is the LEGB rule for Python variable scope lookup?",
+      "a": "LEGB defines Python's variable resolution order: 1. **Local (L):** Names assigned inside the current function. 2. **Enclosing (E):** Names in outer enclosing functions (from inner to outer). 3. **Global (G):** Names defined at the module top level or declared `global`. 4. **Built-in (B):** Predefined built-in names (`len`, `range`, `ValueError`)."
+    },
+    {
+      "q": "What is a decorator in Python, and why should you use functools.wraps?",
+      "a": "A decorator is a callable that takes a function or class as an argument, adds behavior, and returns a modified callable. `functools.wraps(fn)` is used inside decorator definitions to copy the original function's metadata (`__name__`, `__doc__`, `__module__`, `__annotations__`) onto the wrapper function, preventing introspection tools and debuggers from losing function identity."
+    },
+    {
+      "q": "What is the difference between an iterable and an iterator in Python?",
+      "a": "An **iterable** is any object implementing `__iter__()` that returns an iterator, or implementing `__getitem__()` for indexing (e.g. `list`, `dict`, `str`). An **iterator** is a stateful stream object implementing both `__iter__()` (returning itself) and `__next__()` to produce sequential items, raising `StopIteration` when exhausted."
+    },
+    {
+      "q": "What is a generator, and what does the yield keyword do?",
+      "a": "A generator is a specialized iterator produced by a function containing the `yield` keyword. Calling the generator function returns a generator object without running the body immediately. When `next()` is called, execution proceeds until `yield` produces a value and suspends local state, resuming from that exact location on subsequent calls."
+    },
+    {
+      "q": "What is the difference between __new__ and __init__ in Python classes?",
+      "a": "`__new__` is a static allocator method that is called first to physically construct and return a new instance of the class in memory (`cls`). `__init__` is an initializer method that receives the newly created instance (`self`) and configures its attributes. `__new__` is overridden in singletons, metaclasses, or subclassing immutable types like `tuple`."
+    },
+    {
+      "q": "What does __slots__ do on a Python class, and what are its trade-offs?",
+      "a": "`__slots__` explicitly declares allowed instance attributes, replacing the default per-instance `__dict__` with a fixed-size descriptor array. This dramatically reduces memory consumption (saving 40-50% RAM for millions of small objects) and speeds up attribute access. Trade-offs include inability to add dynamic attributes and complex inheritance requirements."
+    },
+    {
+      "q": "What is the Method Resolution Order (MRO), and how does Python solve the diamond problem?",
+      "a": "The MRO is the order in which Python searches for attributes and methods across class hierarchies. Python resolves multiple inheritance and the diamond problem deterministically using the **C3 Linearization algorithm**, accessible via `Class.__mro__`. It guarantees monotonicity and ensures subclasses are visited before their base classes while preserving declaration order."
+    },
+    {
+      "q": "What are dunder (magic) methods, and why must __hash__ change if __eq__ is overridden?",
+      "a": "Dunder methods (`__init__`, `__str__`, `__len__`) let custom classes integrate into Python's data model protocols. If a class overrides `__eq__` without defining `__hash__`, Python automatically sets `__hash__ = None`, making instances unhashable. If equality is customized, `__hash__` must also be defined so equal objects produce identical hash codes for dict/set keys."
+    },
+    {
+      "q": "What is the Global Interpreter Lock (GIL) in CPython, and how does it impact threading?",
+      "a": "The GIL is a mutex in CPython that prevents multiple native threads from executing Python bytecode simultaneously, ensuring thread-safe memory management with reference counts. Consequently, Python threads cannot achieve CPU parallelism across multiple cores; threading is beneficial for I/O-bound tasks, while CPU-bound tasks require multiprocessing."
+    },
+    {
+      "q": "When should you use threading vs multiprocessing vs asyncio in Python?",
+      "a": "Use **multiprocessing** for CPU-bound computations (image processing, ML data transformations) to bypass the GIL across separate OS processes. Use **asyncio** for high-concurrency, network-heavy I/O (thousands of web sockets, API gateways) via a single-threaded cooperative event loop. Use **threading** for blocking I/O with legacy libraries that lack async support."
+    }
+  ]
+}
+
