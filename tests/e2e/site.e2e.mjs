@@ -330,7 +330,11 @@ test('the line that opens a lesson with a time does not call it reading time und
 
 test('the heading is on screen before the text arrives, and nothing moves when it does', async () => {
   const { context, page } = await open(LESSON);
-  await context.route('**/README.md', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+  // The text is held back until the checks below have been made, not for a fixed time: on a busy machine the page can take longer than
+  // any fixed delay to get as far as the heading, and the test then looked at a page whose text had already arrived.
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await context.route('**/README.md', async (route) => { await held; await route.continue(); });
   await page.addInitScript(() => {
     window.__cls = 0;
     new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true });
@@ -339,6 +343,7 @@ test('the heading is on screen before the text arrives, and nothing moves when i
   await page.waitForSelector('h1.doc-title');
   assert.equal(await page.locator('.content-skeleton').count(), 1, 'a skeleton holds the place of the text');
   assert.equal(await page.locator('#pager').count(), 0, 'the previous/next cards wait for the text');
+  release();
   await loading;
   await page.waitForSelector('#content p');
   await page.waitForTimeout(800);
