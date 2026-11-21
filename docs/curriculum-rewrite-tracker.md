@@ -37,25 +37,25 @@ Path: `content/system-design/01-core-fundamentals/`
 
 | Lesson Slug | Title | PDF Note | Status | Commit / Notes |
 | :--- | :--- | :--- | :---: | :--- |
-| `01-what-is-system-design` | What is System Design? | `SD-A-001.pdf` | 🟡 Pending | Ready for extraction |
-| `02-client-server-and-multi-tier-architecture` | Client-Server & Multi-Tier Architecture | `SD-A-002.pdf` | 🟡 Pending | Ready for extraction |
-| `03-functional-requirements` | Functional Requirements | `SD-A-003.pdf` | 🟡 Pending | Ready for extraction |
-| `04-non-functional-requirements` | Non-Functional Requirements | `SD-A-004.pdf` | 🟡 Pending | Ready for extraction |
-| `05-trade-offs-and-how-to-justify-a-design` | Trade-offs & Design Justification | `SD-A-005.pdf` | 🟡 Pending | Ready for extraction |
-| `06-vertical-scaling` | Vertical Scaling | `SD-A-006.pdf` | 🟡 Pending | Ready for extraction |
-| `07-horizontal-scaling` | Horizontal Scaling | `SD-A-007.pdf` | 🟡 Pending | Ready for extraction |
+| `01-what-is-system-design` | What is System Design? | `SD-A-001.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `02-client-server-and-multi-tier-architecture` | Client-Server & Multi-Tier Architecture | `SD-A-002.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `03-functional-requirements` | Functional Requirements | `SD-A-003.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `04-non-functional-requirements` | Non-Functional Requirements | `SD-A-004.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `05-trade-offs-and-how-to-justify-a-design` | Trade-offs & Design Justification | `SD-A-005.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `06-vertical-scaling` | Vertical Scaling | `SD-A-006.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `07-horizontal-scaling` | Horizontal Scaling | `SD-A-007.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
 | `08-latency` | Latency: Anatomy, Budgets, and Mitigation | `SD-A-008.pdf` | 🟢 **Completed** | Commit `2f00d41` (All 16 points implemented) |
 | `09-throughput-and-littles-law` | Throughput & Little's Law | `SD-A-009.pdf` | 🟢 **Completed** | Commit `2f00d41` (All 16 points implemented) |
 | `10-availability` | Availability: Nines, MTBF vs MTTR, and Redundancy | `SD-A-010.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `0be2f1a`) |
 | `11-reliability-availability-and-durability` | Reliability, Availability, and Durability | `SD-A-011.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `0be2f1a`) |
 | `12-scalability` | Scalability Dimensions | `SD-A-012.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `0be2f1a`) |
-| `13-cap-theorem` | CAP Theorem in Practice | `SD-A-013.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
-| `14-pacelc-theorem` | PACELC Theorem | `SD-A-014.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
-| `15-consistency-models` | Consistency Models: Strong to Eventual | `SD-A-015.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
-| `16-fault-tolerance` | Fault Tolerance & Blast Radius | `SD-A-016.pdf` | 🚀 **Next Up** | Ready for immediate rewrite |
-| `17-single-point-of-failure` | Single Points of Failure (SPOF) | `SD-A-017.pdf` | 🟡 Pending | Ready for extraction |
-| `18-simple-beats-clever` | Simple Beats Clever | `SD-A-018.pdf` | 🟡 Pending | Ready for extraction |
-| `19-stateless-vs-stateful` | Stateless vs. Stateful Architecture | `SD-A-019.pdf` | 🟡 Pending | Ready for extraction |
+| `13-cap-theorem` | CAP Theorem in Practice | `SD-A-013.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `847452d`) |
+| `14-pacelc-theorem` | PACELC Theorem | `SD-A-014.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `847452d`) |
+| `15-consistency-models` | Consistency Models: Strong to Eventual | `SD-A-015.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric (Commit `847452d`) |
+| `16-fault-tolerance` | Fault Tolerance & Blast Radius | `SD-A-016.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `17-single-point-of-failure` | Single Points of Failure (SPOF) | `SD-A-017.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `18-simple-beats-clever` | Simple Beats Clever | `SD-A-018.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `19-stateless-vs-stateful` | Stateless vs. Stateful Architecture | `SD-A-019.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
 
 ---
 

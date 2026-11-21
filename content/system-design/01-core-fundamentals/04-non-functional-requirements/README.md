@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and distributed systems architects translating qualitative goals ("fast", "reliable") into measurable SLOs and quantitative design constraints.  
 > **Free PDF Notes:** [Download SD-A-004.pdf](https://backendroadmap.com/notes/system-design/SD-A-004.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Non-functional requirements are the quality targets (latency, availability, throughput, durability) that turn a generic design into an engineering architecture.
+
 > [!TIP]
 > **The Golden Rule of Non-Functional Requirements:** Functional requirements tell you what endpoints exist, but **Non-Functional Requirements (NFRs)** determine your physical architecture. Never accept vague adjectives like *"fast"* or *"never goes down"*—convert every quality attribute into concrete numbers (e.g., `p99 < 150ms at 20,000 RPS`, `99.99% availability`, `zero acknowledged write loss`), and tailor consistency levels per feature rather than imposing strong consistency universally.
 
@@ -528,6 +531,35 @@ To resolve this:
 1. **Graceful Degradation / Partial Rendering:** Categorize dependencies as Critical (Product Price/Cart) vs Non-Critical (Related Items, Ads). Enforce a strict 80ms timeout budget on non-critical calls; if Recommendations miss the deadline, omit the widget cleanly rather than stalling the entire page.
 2. **Hedged Requests:** On idempotent read calls, if a replica hasn't answered within $p_{95}$ (e.g., 25ms), immediately dispatch a duplicate request to a second healthy replica and take whichever answers first.
 </details>
+
+---
+
+## One-Page Non-Functional Requirements Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                             NON-FUNCTIONAL REQUIREMENTS MASTER CHEAT SHEET                              |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    Non-Functional Requirements (NFRs) specify HOW WELL the system performs its features.                |
+|    -> Without NFRs, "Design Twitter" could be a 5-user SQLite app or a 500M-user distributed cluster!   |
++---------------------------------------------------------------------------------------------------------+
+| 2. TURN EVERY ADJECTIVE INTO A NUMBER:                                                                  |
+|    - "It must be fast"         -> "p99 read latency < 50ms at 20,000 RPS peak."                         |
+|    - "It must be reliable"     -> "99.99% availability (< 52.6 min downtime/yr) with zero data loss."   |
+|    - "It must handle scale"    -> "5,000 writes/sec, 100,000 reads/sec, 20 TB storage growth/year."     |
+|    - "It must be durable"      -> "11 nines durability for media files (S3 standard)."                  |
++---------------------------------------------------------------------------------------------------------+
+| 3. WHY PERCENTILES, NOT AVERAGES?                                                                       |
+|    An average squashes long tails. 99 users at 10ms + 1 user at 2,000ms = 30ms average!                 |
+|    -> Only p95 and p99 reveal that power users or multi-call pages are suffering severe delays.         |
++---------------------------------------------------------------------------------------------------------+
+| 4. NUMBERS DICTATE ARCHITECTURE:                                                                        |
+|    - 100 RPS              -> Single relational database (PostgreSQL) is plenty.                         |
+|    - 100,000 RPS          -> Requires edge CDNs, Redis read-cache tier, and horizontal autoscaling fleets|
+|    - 99.0% vs 99.99%      -> Single VM vs Multi-AZ active-standby with automated healthcheck failover.  |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

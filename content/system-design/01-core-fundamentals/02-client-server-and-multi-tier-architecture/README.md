@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers, system designers, and architects structuring scalable Presentation, Application, and Data tiers.  
 > **Free PDF Notes:** [Download SD-A-002.pdf](https://backendroadmap.com/notes/system-design/SD-A-002.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** A client asks, a server answers; splitting the server side into presentation, business logic and data tiers lets you scale, deploy and secure each part independently.
+
 > [!TIP]
 > **The Golden Rule of Multi-Tier Architecture:** Isolate presentation, stateless business logic, and stateful storage behind strict network boundaries so each tier can scale, deploy, and harden independently. Never autoscale a stateless application tier to compensate for an overloaded data tier—doubling application workers multiplies database connection contention and accelerates cascading collapse.
 
@@ -505,6 +508,34 @@ A Two-Tier architecture breaks security, agility, and connection scalability:
 2. **Protocol & Pool Limits:** Direct database wire protocols do not scale to tens of thousands of untrusted open client TCP sockets across the public internet; PostgreSQL crashes under thousands of idle sockets.
 3. **Zero Schema Evolution:** Every schema migration requires simultaneously updating every distributed client binary because SQL statements are hardcoded inside the client. Inserting a stateless Application Tier behind TLS hides the database inside a private VPC, enforces authorization centrally, and isolates clients behind a stable versioned HTTP/REST contract.
 </details>
+
+---
+
+## One-Page Multi-Tier Architecture Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                               MULTI-TIER ARCHITECTURE MASTER CHEAT SHEET                                |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE TIERS:                                                                                          |
+|    - Presentation Tier (Client): Browser, mobile app, CLI. Renders UI and captures user intent.         |
+|    - Application Tier (Server): Stateless business logic, auth validation, orchestrates queries.        |
+|    - Data Tier (Database): Persistent transactional storage, indexes, locks, durability.                |
++---------------------------------------------------------------------------------------------------------+
+| 2. WHY SEPARATE TIERS?                                                                                  |
+|    - Independent Scaling: Scale the stateless API tier to 50 pods while keeping DB at 1 primary instance.|
+|    - Security Isolation: DB lives in private VPC subnets with zero public internet IP exposure.          |
+|    - Independent Deployments: Update API logic 10x/day without touching database schemas or downtime.   |
++---------------------------------------------------------------------------------------------------------+
+| 3. A REAL REQUEST LIFECYCLE:                                                                            |
+|    Mobile Client -> (WAN: 80ms) -> API Gateway -> (0.5ms) -> App Handler -> (1ms) -> PostgreSQL         |
+|    Total user latency is mostly network transit + DB execution; internal app hop is negligible!         |
++---------------------------------------------------------------------------------------------------------+
+| 4. BACKEND-FOR-FRONTEND (BFF) PATTERN:                                                                  |
+|    Instead of mobile clients making 3 slow WAN calls to 3 separate backend services:                     |
+|    -> Mobile makes 1 call to a BFF; the BFF fans out across local datacenter VPC links in parallel!      |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

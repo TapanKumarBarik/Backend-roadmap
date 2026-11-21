@@ -5,6 +5,9 @@
 > **Target Audience:** Software engineers, tech leads, and architects evaluating Total Cost of Ownership (TCO), establishing concrete scale triggers, and designing extensible clean architectural seams without premature complexity.  
 > **Free PDF Notes:** [Download SD-A-018.pdf](https://backendroadmap.com/notes/system-design/SD-A-018.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Every component costs money, operational effort and new failure modes; design for today's load plus reasonable growth, not hypothetical 100x scale.
+
 > [!TIP]
 > **The Golden Rule of Architectural Simplicity:** Every architectural box introduces not only cloud spend, but **engineering build time, operational on-call toil, distributed failure modes, and slower product iteration**. Design for your verified current load plus reasonable growth (`~10×`, not `100×`), compare options using **Total Cost of Ownership (TCO) per million requests**, and keep **clean architectural seams** (interfaces separating storage, cache, and queue evolution) so you unlock sharding, Kafka, or microservices strictly when measurable numeric thresholds demand them.
 
@@ -423,6 +426,34 @@ Only if "simpler" strips out mandatory redundancy (dropping a single database wi
 - **Evaluating architecture solely via cloud EC2 bills:** Always price engineering build, debugging, and 3 AM on-call time inside TCO.
 - **Over-optimizing latency far below human/SLA thresholds:** Moving `40ms -> 5ms` rarely pays back its massive complexity tax.
 - **Skipping interface seams in the name of speed:** Clean repository boundaries (`IOrderStore`) cost nothing today and prevent future rewrites.
+
+---
+
+## One-Page Simple Beats Clever Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    SIMPLE BEATS CLEVER MASTER CHEAT SHEET                               |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE PHILOSOPHY:                                                                                     |
+|    Every architectural box costs: Money (cloud bills) + Operational on-call toil + New failure modes!   |
+|    -> Design for current verified load plus ~5-10x growth, NOT hypothetical 100x day-one fantasies!     |
++---------------------------------------------------------------------------------------------------------+
+| 2. REALISTIC COMPLEXITY BENCHMARKS:                                                                     |
+|    - 2,000 QPS mostly reads:    Use 1 PostgreSQL primary + 1 Read Replica! (DO NOT shard into 16 DBs!). |
+|    - 50 events per second:      Use PostgreSQL transactional outbox or SQS! (DO NOT run a Kafka cluster!).|
+|    - User session state:        Use stateless signed JWTs or single-shard Redis! (DO NOT use Paxos!).  |
++---------------------------------------------------------------------------------------------------------+
+| 3. TOTAL COST OF OWNERSHIP (TCO):                                                                       |
+|    TCO = Infrastructure Spend + Engineering Maintenance Time + On-Call Incident Toil.                   |
+|    A "clever" system with 15 microservices costs $20k/month in engineer time to save $200/month in cloud|
++---------------------------------------------------------------------------------------------------------+
+| 4. THE PERFORMANCE PRICE CURVE:                                                                         |
+|    Reducing p99 from 200ms to 40ms is cheap (indexes, caching, connection reuse).                       |
+|    Reducing p99 from 40ms to 10ms costs 10x more (custom memory engines, kernel bypass, multi-region).  |
+|    -> Ask: Does this 10ms reduction meaningfully change conversion or business metrics?                 |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

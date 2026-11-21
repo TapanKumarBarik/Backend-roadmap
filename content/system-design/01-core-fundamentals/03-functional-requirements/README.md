@@ -5,6 +5,9 @@
 > **Target Audience:** Software engineers and architects transforming vague product prompts into bounded, testable system specifications.  
 > **Free PDF Notes:** [Download SD-A-003.pdf](https://backendroadmap.com/notes/system-design/SD-A-003.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Functional requirements are the features, written as user actions; pick the 3–5 that matter in the first five minutes and leave the rest out of scope.
+
 > [!TIP]
 > **The Golden Rule of Functional Scoping:** Functional requirements define **what** the system does as explicit user actions, never how fast or scalable it runs. Always bound a system design interview to **3–5 core P0 use cases** before drawing a single architectural box—explicitly park secondary features out loud so you can build deep technical rigor on the critical path instead of sketching a shallow diagram of 15 features.
 
@@ -533,6 +536,36 @@ Neither statement describes a specific user action; both are vague **Non-Functio
 1. *"Must be secure"* $\to$ Convert into concrete **Functional** actions (e.g., *"FR: Only authenticated account owners may initiate transfers; transfer requests require MFA verification"*) alongside measurable **Non-Functional** standards (e.g., *"NFR: TLS 1.3 in transit, AES-256 encryption at rest, PCI-DSS compliant audit log"*).
 2. *"Must be fast"* $\to$ Convert into concrete **Non-Functional** percentile targets paired with load (e.g., *"NFR: p99 transfer settlement latency < 250 ms at 2,000 peak TPS"*).
 </details>
+
+---
+
+## One-Page Functional Requirements Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                               FUNCTIONAL REQUIREMENTS MASTER CHEAT SHEET                                |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    Functional requirements define WHAT the system does from the user's perspective (actions and inputs).|
+|    -> Example: "A user pastes a long URL and receives a 7-character short link."                        |
++---------------------------------------------------------------------------------------------------------+
+| 2. SCOPING IN THE FIRST 5 MINUTES:                                                                      |
+|    - Never try to design every feature of a product in a 45-minute interview!                           |
+|    - Agree on exactly 3 to 5 core user actions (In Scope). Explicitly state what is OUT OF SCOPE.       |
+|    - Example (Chat App):                                                                                |
+|      * In Scope: 1-on-1 direct messaging, online status indicators, persistent message history.         |
+|      * Out of Scope: Group channels with 10k users, voice/video calls, end-to-end encrypted media.      |
++---------------------------------------------------------------------------------------------------------+
+| 3. REQUIREMENTS SHAPE ARCHITECTURE:                                                                     |
+|    - "User can edit a sent message" -> Requires mutable storage or event tombstoning.                   |
+|    - "Custom alias for short URL"   -> Precludes purely random base62 tokens; requires uniqueness check.|
+|    - "Search message history"       -> Demands an inverted search index (Elasticsearch), not just B-Tree|
++---------------------------------------------------------------------------------------------------------+
+| 4. FUNCTIONAL VS NON-FUNCTIONAL:                                                                        |
+|    - Functional:    "User uploads a profile avatar."                                                    |
+|    - Non-Functional:"Avatar upload finishes in under 200ms p99 and survives 11 nines of durability."   |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

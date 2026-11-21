@@ -506,6 +506,35 @@ Yes—regional power grid failures, backbone fiber cuts, or control-plane outage
 
 ---
 
+## One-Page Single Point of Failure Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                  SINGLE POINT OF FAILURE (SPOF) CHEAT SHEET                             |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    A Single Point of Failure (SPOF) is any component whose loss halts the entire system.               |
+|    -> Elimination requires: Redundancy + Automated Detection + Automatic Failover.                      |
++---------------------------------------------------------------------------------------------------------+
+| 2. WHERE SPOFS HIDE IN PRODUCTION:                                                                      |
+|    - DNS Provider: Single managed DNS zone (fix: secondary dual-provider DNS).                           |
+|    - Load Balancer: Single cloud ELB instance (fix: Anycast BGP / Multi-AZ NLB).                         |
+|    - In-Memory Cache: Single standalone Redis node holding sessions (fix: Redis Sentinel / Cluster).    |
+|    - Database Tier: Single primary writer (fix: Multi-AZ sync replication with Patroni/Raft failover).  |
+|    - Human / Process: Single engineer with deployment access (fix: automated CI/CD and runbooks).       |
++---------------------------------------------------------------------------------------------------------+
+| 3. REDUNDANCY ARCHITECTURES:                                                                            |
+|    - Active-Passive (Standby): Simple, 1 node takes traffic, secondary waits (warm/hot). Requires RTO. |
+|    - Active-Active: Both nodes serve traffic simultaneously. Zero RTO, but requires conflict resolution!|
++---------------------------------------------------------------------------------------------------------+
+| 4. PREVENTING SPLIT-BRAIN:                                                                              |
+|    When a network partitions, both nodes must not declare themselves primary!                           |
+|    -> Enforce Quorum consensus (majority votes: 2-of-3) and Fencing Tokens (STONITH / epoch fencing).   |
++---------------------------------------------------------------------------------------------------------+
+```
+
+---
+
 ## Further Reading & Sources
 
 - [Redis Sentinel High Availability Architecture](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/) — Quorum monitoring, primary election, and client discovery mechanics.

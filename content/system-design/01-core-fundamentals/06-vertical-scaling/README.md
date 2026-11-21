@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and database reliability architects evaluating when to scale up hardware ("bigger box") versus when to re-architect for distributed horizontal scaling.  
 > **Free PDF Notes:** [Download SD-A-006.pdf](https://backendroadmap.com/notes/system-design/SD-A-006.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Vertical scaling (scaling up) gives one machine more CPU, memory or faster storage; it's the fastest way to buy time, limited by hardware ceilings, downtime to resize, and cost curves.
+
 > [!TIP]
 > **The Golden Rule of Vertical Scaling:** Never dismiss vertical scaling ("scaling up") out of pride—resizing a stateful database from 8 vCPUs to 32 vCPUs requires zero code rewrites and frequently delivers the fastest, cheapest relief while buying months of architectural runway. However, **always know your exit trigger**: vertical scaling hits a hard silicon ceiling, follows a steep non-linear cost curve, requires careful failover to avoid resize downtime, and leaves your system with a Single Point of Failure (SPOF).
 
@@ -380,6 +383,37 @@ Anchor the justification in capacity math and engineering leverage:
 2. **Complexity & Consistency Gains:** *"Scaling vertically avoids cross-shard distributed joins, distributed transaction Sagas, and eventual consistency bugs, cutting engineering build time by 3 months."*
 3. **Explicit Exit Trigger:** *"We preserve a Multi-AZ standby for High Availability (solving the SPOF weakness of one box), and our explicit trigger to pivot to horizontal sharding is when sustained writes cross 60% disk IOPS or dataset exceeds 2 TB."*
 </details>
+
+---
+
+## One-Page Vertical Scaling Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    VERTICAL SCALING MASTER CHEAT SHEET                                  |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    Scaling Up (Vertical): Adding more CPU cores, RAM, or faster NVMe SSD storage to a SINGLE instance.   |
+|    -> The fastest way to buy engineering runway: zero code changes, single-node ACID stays intact.      |
++---------------------------------------------------------------------------------------------------------+
+| 2. THE FOUR HARD LIMITS OF VERTICAL SCALING:                                                            |
+|    1. Hardware Ceilings:    Even the largest AWS instance (e.g. 128 vCPUs, 4 TB RAM) has a hard cap.    |
+|    2. Cost Curves:          High-memory/CPU machines have exponential cost per GB (diminishing ROI).    |
+|    3. Downtime to Resize:   Resizing cloud VMs requires stopping the VM, detaching EBS, and restarting. |
+|    4. Single Point of Failure (SPOF): When that one monster machine crashes, 100% of the site goes down!|
++---------------------------------------------------------------------------------------------------------+
+| 3. HOW TO RESIZE A DB WITH ZERO DOWNTIME:                                                               |
+|    Never stop the primary database directly!                                                            |
+|    1. Provision a standby replica on the larger instance size.                                          |
+|    2. Replicate changes synchronously until lag is zero.                                                |
+|    3. Promote the standby to primary (< 5 second failover window).                                      |
+|    4. Deprovision the old smaller primary.                                                             |
++---------------------------------------------------------------------------------------------------------+
+| 4. WHEN IT IS THE RIGHT MOVE:                                                                           |
+|    Early-stage startups, databases under 20,000 QPS, or when buying 6 months of time for $500/month in  |
+|    cloud costs avoids wasting 4 engineer-months building complex distributed sharding pipelines.        |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

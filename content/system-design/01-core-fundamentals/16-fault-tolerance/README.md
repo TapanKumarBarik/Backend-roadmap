@@ -502,6 +502,36 @@ Staging environments rarely match real production concurrency, noisy data skew, 
 
 ---
 
+## One-Page Fault Tolerance Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    FAULT TOLERANCE MASTER CHEAT SHEET                                   |
++---------------------------------------------------------------------------------------------------------+
+| 1. FAULT VS FAILURE:                                                                                    |
+|    - Fault:   An internal defect or component crash (a disk dies, bad packet, process crash).           |
+|    - Failure: A user-visible outage where the entire system stops serving valid traffic.                |
+|    -> Fault tolerance means preventing internal FAULTS from escalating into user-visible FAILURES!       |
++---------------------------------------------------------------------------------------------------------+
+| 2. THE THREE KINDS OF FAULTS:                                                                           |
+|    1. Hardware Faults: Disks die, memory corrupts, power drops (mitigated by Multi-AZ replication).     |
+|    2. Software Faults: Memory leaks, unhandled exceptions, deadlock bugs (mitigated by process isolation)|
+|    3. Human / Operational: Misconfiguration, typo deploys (mitigated by canary pipelines & GitOps).     |
++---------------------------------------------------------------------------------------------------------+
+| 3. BLAST RADIUS CONTAINMENT:                                                                            |
+|    - Cell-based Architecture: Partition customers into independent "cells" so outages affect only ~5%.  |
+|    - Bulkheads: Separate worker pools so heavy reports cannot starve fast user checkout threads.        |
+|    - Canary Rollouts: Release updates to 1% traffic before rolling globally.                             |
++---------------------------------------------------------------------------------------------------------+
+| 4. MULTI-ZONE CAPACITY PLANNING:                                                                        |
+|    To survive losing 1 zone without degradation:                                                        |
+|    - Across 2 Zones: Each zone must run at <= 50% capacity (N-1 survival).                              |
+|    - Across 3 Zones: Each zone must run at <= 66% capacity (N-1 survival).                              |
++---------------------------------------------------------------------------------------------------------+
+```
+
+---
+
 ## Further Reading & Sources
 
 - [AWS Well-Architected: Reducing Blast Radius With Cellular Architecture](https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/reducing-scope-of-impact-with-cell-based-architecture.html) — Production blueprint for cell routing and isolated fault containment.

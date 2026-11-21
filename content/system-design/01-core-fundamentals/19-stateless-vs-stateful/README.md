@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and distributed systems architects separating interchangeable compute tiers from durable/connection-bound stateful tiers (sessions, databases, caches, and WebSocket hubs).  
 > **Free PDF Notes:** [Download SD-A-019.pdf](https://backendroadmap.com/notes/system-design/SD-A-019.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Stateless services keep nothing between requests, so any instance can serve any user; stateful systems store data, so they need routing, replication, and state recovery when nodes crash.
+
 > [!TIP]
 > **The Golden Rule of Stateless vs. Stateful Separation:** Keep HTTP application servers **100% stateless**—retaining zero user sessions, local file uploads, or socket routing tables inside process memory—so any instance can serve any request or disappear mid-deploy without dropping state. Push persistent state strictly into a small set of **purpose-built stateful systems** (PostgreSQL, Redis, Object Storage, Kafka) engineered specifically for **Placement**, **Replication**, and **Rebalancing**.
 
@@ -449,6 +452,36 @@ Only as an optional **performance optimization** (e.g., warmer local L1 CPU cach
 - **Using sticky sessions long-term instead of extracting state:** Turns routine rolling deployments into user outages.
 - **Broadcasting every WebSocket event to all `N` chat gateways:** Wastes network/CPU parsing at $O(N \times M)$; use targeted per-gateway channels via a connection registry.
 - **Hardcoding fixed reconnect delays without jitter:** Synchronizes millions of closed sockets into destructive reconnect herds.
+
+---
+
+## One-Page Stateless vs Stateful Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                  STATELESS VS STATEFUL MASTER CHEAT SHEET                               |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DISTINCTION:                                                                                    |
+|    - Stateless: Holds no client session memory across requests. Any instance can handle any user.       |
+|      -> Superpower: Instant horizontal autoscaling (HPA), instant rolling restarts, zero sticky load.   |
+|    - Stateful: Retains client state, connections, or persistent data across requests.                   |
+|      -> Challenges: Requires consistent routing, replica synchronization, rebalancing, and state drain.  |
++---------------------------------------------------------------------------------------------------------+
+| 2. MAKING AN API STATELESS:                                                                             |
+|    - Move user sessions: Push to external Redis or stateless signed JWT cookies.                       |
+|    - Move file uploads:  Stream directly to S3/GCS presigned URLs (NEVER local container disks).        |
+|    - Move async jobs:    Push tasks to RabbitMQ / Kafka / Celery.                                       |
++---------------------------------------------------------------------------------------------------------+
+| 3. SCALING STATEFUL WEBSOCKETS (CHAT / NOTIFICATIONS):                                                  |
+|    When User A connects to Server 1 and User B connects to Server 2:                                    |
+|    -> Servers cannot broadcast in-memory!                                                               |
+|    -> Solution: Redis Pub/Sub or Kafka backbone connecting all WebSocket gateway instances!             |
++---------------------------------------------------------------------------------------------------------+
+| 4. WHEN A STATEFUL 100K-CONNECTION NODE CRASHES:                                                        |
+|    100,000 WebSockets disconnect simultaneously -> Thundering herd reconnect storm!                     |
+|    -> Fix: Enforce exponential backoff with FULL JITTER on all client reconnect loops.                 |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

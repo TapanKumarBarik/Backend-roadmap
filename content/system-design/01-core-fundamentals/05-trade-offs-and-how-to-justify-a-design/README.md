@@ -5,6 +5,9 @@
 > **Target Audience:** Software engineers and architects moving beyond *"it depends"* to defend architectural trade-offs quantitatively in technical reviews and interviews.  
 > **Free PDF Notes:** [Download SD-A-005.pdf](https://backendroadmap.com/notes/system-design/SD-A-005.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Every design choice improves one quality and costs another; a senior answer states the choice, the reason, the accepted cost, and the mitigation.
+
 > [!TIP]
 > **The Golden Rule of Architectural Trade-offs:** There is no zero-cost decision in distributed systems—every component improves one quality attribute while degrading another. Never end an answer with *"it depends."* Commit to a clear decision using the **Four-Part Justification Formula**: **(1) State the choice, (2) Anchor it in the ranked requirement, (3) Name the exact cost accepted, and (4) Specify the technical mitigation that bounds that cost.**
 
@@ -465,6 +468,37 @@ Score the two options against the startup's dominant non-functional constraints 
 - **8 Microservices:** Gains independent team deployability—which a 4-person team doesn't need yet—at the massive cost of 8 CI/CD pipelines, distributed tracing complexity, network serialization failures, and cross-service transaction consistency (Sagas).
 - **Modular Monolith:** Gains ultra-fast single-command local debugging, sub-microsecond in-process function calls, and native ACID database joins across modules. **Mitigation for future growth:** Organize the codebase into strictly isolated internal domain packages interacting solely through explicit service interfaces (`IProjectService`). When one specific subsystem eventually faces independent scaling pressure or team ownership growth, that single module extracts cleanly into a standalone microservice.
 </details>
+
+---
+
+## One-Page Trade-Offs & Design Justification Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    TRADE-OFFS MASTER CHEAT SHEET                                        |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE PHILOSOPHY:                                                                                     |
+|    There are no solutions in system design, only trade-offs.                                            |
+|    Every technology choice improves one property while degrading another (latency, cost, complexity).   |
++---------------------------------------------------------------------------------------------------------+
+| 2. THE SENIOR 4-PART JUSTIFICATION FRAMEWORK:                                                           |
+|    1. Choice:      "We choose an asynchronous Redis cache in front of PostgreSQL..."                    |
+|    2. Because:     "...to absorb 90% of read queries and keep p99 latency under 15ms at peak."         |
+|    3. We Accept:   "...the cost of serving potentially stale data for up to 60 seconds (TTL)..."         |
+|    4. Mitigation:  "...and we mitigate this by invalidating the cache key immediately upon user edits." |
++---------------------------------------------------------------------------------------------------------+
+| 3. STOP SAYING "IT DEPENDS":                                                                            |
+|    Junior: "It depends on traffic and requirements." (Passive, vague).                                  |
+|    Senior: "If write traffic is under 2,000 QPS, I choose PostgreSQL with 1 replica because it's simple.|
+|             If writes exceed 50,000 QPS with flexible schemas, I choose Cassandra and accept eventual   |
+|             consistency." (Active, numeric, decisive).                                                  |
++---------------------------------------------------------------------------------------------------------+
+| 4. CLASSIC TRADE-OFFS:                                                                                  |
+|    - Caching:         Fast reads (< 1ms)        VS Stale data & cache invalidation complexity.          |
+|    - Microservices:   Independent deployments   VS Distributed transactions & network latency hops.     |
+|    - Async Queues:    Smooths traffic spikes    VS Higher latency per item & eventual consistency.      |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

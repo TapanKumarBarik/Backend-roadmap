@@ -5,6 +5,9 @@
 > **Target Audience:** Software engineers and architects preparing for High-Level Design (HLD) and Low-Level Design (LLD) system design interviews.  
 > **Free PDF Notes:** [Download SD-A-001.pdf](https://backendroadmap.com/notes/system-design/SD-A-001.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** System design is turning requirements into an architecture: components, the data that flows between them, and the trade-offs you chose along the way.
+
 > [!TIP]
 > **The Golden Rule of System Design:** System design is not reciting buzzwords or drawing complex distributed systems from memory—it is turning concrete functional and non-functional requirements into justified architectural choices. Never introduce a new component (cache, queue, replica, or CDN) until an explicit scale, latency, or durability number forces you to pay its operational and consistency cost.
 
@@ -560,6 +563,35 @@ To mitigate this staleness cost:
 1. **Event-Driven Cache Purge:** When deleting or updating a link, emit an asynchronous invalidation call to the CDN's Purge API (`/purge/{code}`) to evict the edge entry immediately.
 2. **Shorten the Cache Lease:** Reduce `max-age` (e.g., `60` seconds) or use `stale-while-revalidate` depending on how much stale window the business can tolerate versus origin database read load.
 </details>
+
+---
+
+## One-Page What is System Design Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    WHAT IS SYSTEM DESIGN MASTER CHEAT SHEET                             |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    System design is transforming ambiguous business requirements into a concrete, resilient architecture:|
+|    components, data flows between them, and justified trade-offs made along the way.                    |
++---------------------------------------------------------------------------------------------------------+
+| 2. HIGH-LEVEL (HLD) VS LOW-LEVEL DESIGN (LLD):                                                          |
+|    - HLD: Architecture boxes, network boundaries, databases, caches, message brokers, replication.      |
+|    - LLD: Class diagrams, concurrency locks, data structures, database schemas, API payload contracts. |
++---------------------------------------------------------------------------------------------------------+
+| 3. THE 4-STEP EVOLUTION OF AN APP:                                                                      |
+|    Step 1: One monolithic server (app + DB on 1 VM)           -> Simple, low latency, single failure.   |
+|    Step 2: Separate the database                              -> Independent CPU/RAM scaling for DB.    |
+|    Step 3: Scale the app tier horizontally (stateless + LB)   -> High availability & autoscaling.       |
+|    Step 4: Cache + CDN                                        -> Offloads 80%+ read traffic from DB.    |
++---------------------------------------------------------------------------------------------------------+
+| 4. SENIOR INTERVIEW RUBRIC (The First 5 Minutes):                                                       |
+|    1. Scope 3-5 core functional requirements (never accept "Design Instagram" blindly!).               |
+|    2. Pin down numeric non-functional targets (p99 latency, DAU, read/write ratio, availability nines). |
+|    3. Sketch end-to-end data flow before proposing exotic technologies (Kafka, Spanner).                |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 
