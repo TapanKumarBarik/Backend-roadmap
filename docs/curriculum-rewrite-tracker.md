@@ -66,7 +66,7 @@ Path: `content/system-design/02-networking-from-zero/`
 | Lesson Slug | Title | PDF Note | Status | Commit / Notes |
 | :--- | :--- | :--- | :---: | :--- |
 | `01-what-is-a-network` | What is a Network? | `SD-N-001.pdf` | 🟢 **Completed** | Full 16-point rubric, waterfall math & 12 Q&As |
-| `02-packets` | Packets: Small Pieces on the Wire | `SD-N-002.pdf` | 🟡 Pending | Pending standardization |
+| `02-packets` | Packets: Small Pieces on the Wire | `SD-N-002.pdf` | 🟢 **Completed** | Full 16-point rubric, MTU/MSS math & 12 Q&As |
 | `03-ip-addresses` | IP Addresses | `SD-N-003.pdf` | 🟡 Pending | Pending standardization |
 | `04-ports-and-sockets` | Ports and Sockets | `SD-N-004.pdf` | 🟡 Pending | Pending standardization |
 | `05-protocols-and-layers` | Protocols and Layers | `SD-N-005.pdf` | 🟡 Pending | Pending standardization |
@@ -103,7 +103,7 @@ Path: `content/system-design/02-networking-from-zero/`
 | Phase Name | PDF Note Prefix | Total PDFs | Target Content Directory | Status |
 | :--- | :---: | :---: | :--- | :---: |
 | **Phase 1: Core Fundamentals** | `SD-A-*` | 19 | `content/system-design/01-core-fundamentals/` | 🟢 **Completed (19/19)** |
-| **Phase 2: Networking From Zero** | `SD-N-*` | 30 | `content/system-design/02-networking-from-zero/` | 🔵 **In Progress (1/30)** |
+| **Phase 2: Networking From Zero** | `SD-N-*` | 30 | `content/system-design/02-networking-from-zero/` | 🔵 **In Progress (2/30)** |
 | **Phase 2: Networking & APIs (Advanced)** | `SD-B-*` | 20 | `content/system-design/02-networking-and-apis/` | 🟡 Pending |
 | **Phase 3: Databases & Storage** | `SD-C-*` | 23 | `content/system-design/03-databases-and-storage/` | 🟡 Pending |
 | **Phase 4: Estimation & Numbers** | `SD-D-*` | 14 | `content/system-design/04-estimation-and-numbers/` | 🟡 Pending |
