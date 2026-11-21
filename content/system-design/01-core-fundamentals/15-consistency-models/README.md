@@ -5,6 +5,9 @@
 > **Target Audience:** Backend and platform engineers choosing exact per-operation consistency guarantees—from strict Linearizability and Causal Ordering down to WAL-LSN Read-Your-Writes session routing.  
 > **Free PDF Notes:** [Download SD-A-015.pdf](https://backendroadmap.com/notes/system-design/SD-A-015.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Consistency is a spectrum, from linearizable (one copy, costly) to eventual (cheap, temporary disagreement); picking the weakest model your business can tolerate saves latency and cost.
+
 > [!TIP]
 > **The Golden Rule of Consistency Modeling:** Consistency is never a binary toggle—it is a costed **spectrum** running from **Linearizable** (real-time single-copy illusion, highest coordination latency) down through **Sequential**, **Causal**, and **Eventual** consistency (cheapest, highest availability). Always select the weakest model that protects business invariants **per operation**, and shield individual user UX on cheap asynchronous replicas using **session guarantees** like **Read-Your-Writes** and **Monotonic Reads**.
 
@@ -527,6 +530,39 @@ Repeated refreshes load-balanced across asynchronous replicas hit nodes with dif
 - **Round-robin load balancing user reads across un-tracked lagging replicas:** Breaks monotonic reads cleanly whenever lags diverge.
 - **Paying for linearizable consensus on likes, feeds, or star averages:** Wastes cross-node RTT where causal or eventual suffices.
 - **Applying one consistency level to an entire microservice:** Separate *browse* (eventual), *threads* (causal), and *claims/payments* (linearizable) explicitly.
+
+---
+
+## One-Page Consistency Models Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    CONSISTENCY MODELS MASTER CHEAT SHEET                                |
++---------------------------------------------------------------------------------------------------------+
+| 1. THE CONSISTENCY SPECTRUM (Strongest to Weakest):                                                     |
+|    - Linearizability (Strict): Global real-time ordering as if one single copy of data exists.          |
+|      -> Highest coordination latency; every read/write waits for consensus quorums.                     |
+|    - Sequential Consistency: Operations execute in a consistent total order respecting program order.  |
+|    - Causal Consistency: Causally related events appear in the same order everywhere.                   |
+|      -> Prevents: Comments appearing before the post they reply to! Concurrent events may differ.       |
+|    - Eventual Consistency: If updates stop, all replicas eventually converge to the identical state.    |
+|      -> Lowest latency, highest availability; temporary disagreement is allowed.                        |
++---------------------------------------------------------------------------------------------------------+
+| 2. CLIENT-CENTRIC SESSION GUARANTEES (Protecting UX on Cheap Replicas):                                 |
+|    - Read-Your-Writes: A user always immediately sees updates submitted by themselves.                  |
+|      -> Solves: User edits bio, reloads page, but sees old bio because read hit a laggy replica!        |
+|      -> Fix: Route reads to Primary for N seconds, or pass WAL-LSN session tokens in cookie/header.     |
+|    - Monotonic Reads: A user never sees time move backwards on page refreshes.                          |
+|      -> Solves: Bank balance flickers between $100 and $80 on consecutive reloads!                      |
+|    - Monotonic Writes: A user's writes are applied in the exact sequence they were submitted.          |
+|    - Writes-Follow-Reads: Updates causally based on previous reads are sequenced after that read.       |
++---------------------------------------------------------------------------------------------------------+
+| 3. LINEARIZABLE VS SERIALIZABLE:                                                                        |
+|    - Linearizable:   Recency guarantee on SINGLE objects (real-time read/write ordering).              |
+|    - Serializable:   Isolation guarantee on MULTI-OBJECT transactions (any valid serial order).        |
+|    - Strict Serializable (External Consistency): Both together! (e.g., Google Spanner).                 |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

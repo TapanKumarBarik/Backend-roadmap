@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and distributed systems architects moving beyond the *"pick two of three"* myth to design precise partition behavior, quorums, and conflict-resolution strategies.  
 > **Free PDF Notes:** [Download SD-A-013.pdf](https://backendroadmap.com/notes/system-design/SD-A-013.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** When the network splits, a distributed system must choose between answering with possibly stale data (availability) and refusing to answer (consistency). Partitions are not optional, so "CA" is not a real choice.
+
 > [!TIP]
 > **The Golden Rule of the CAP Theorem:** Because physical networks drop packets, disconnect cables, and split zones unpredictably, **Partition Tolerance (P) is mandatory**—you cannot choose "CA" in any multi-node distributed system. When a partition splits a cluster, every operation must make an explicit trade-off: **CP (refuse/error on the minority side to uphold linearizability)** or **AP (keep accepting reads/writes on every reachable node and reconcile divergent versions later via a defined merge rule)**.
 
@@ -589,6 +592,38 @@ Because $W + R = 4 > 3$, read and write replica sets always intersect, meaning r
 - **Forgetting CAP applies only during partitions:** Everyday healthy-state speed vs. freshness falls under [Lesson 14: PACELC](../14-pacelc-theorem/README.md).
 - **Selecting AP without a conflict-resolution rule:** Two sides *will* diverge during splits; decide upfront whether conflict resolution uses union/CRDTs, LWW, or manual reconciliation—otherwise the default is silent overwrite data loss.
 - **Improvising partition policy mid-outage:** Test failure behavior beforehand (see Practice Lab 3).
+
+---
+
+## One-Page CAP Theorem Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                        CAP THEOREM MASTER CHEAT SHEET                                   |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE DEFINITION:                                                                                     |
+|    When a network partition occurs, a distributed system must choose between CONSISTENCY or AVAILABILITY.|
+|    -> Network partitions are inevitable in real networks; therefore "CA" is not a real choice!         |
++---------------------------------------------------------------------------------------------------------+
+| 2. PRECISE CAP DEFINITIONS (Gilbert & Lynch 2002):                                                      |
+|    - C (Consistency):          Linearizability (every read returns latest completed write).             |
+|    - A (Availability):         Every non-failing node returns a non-error response (no timeouts).       |
+|    - P (Partition Tolerance):  System functions despite dropped/delayed messages across nodes.          |
++---------------------------------------------------------------------------------------------------------+
+| 3. CP VS AP SYSTEMS IN PRACTICE:                                                                        |
+|    - CP Systems: ZooKeeper, etcd, Consul, Google Spanner, CockroachDB                                   |
+|      -> Mechanism: Majority Quorum (Raft/Paxos). Majority side accepts writes; minority side errors out.|
+|      -> Best for: Financial balances, distributed locks, leader election, metadata catalogs.           |
+|    - AP Systems: Apache Cassandra (default), Amazon DynamoDB (eventual), CouchDB                        |
+|      -> Mechanism: Multi-master / Dynamo gossip. Every partition accepts writes; reconciles later (LWW).|
+|      -> Best for: Shopping carts, social media feeds, analytics counters, IoT telemetry.               |
++---------------------------------------------------------------------------------------------------------+
+| 4. WHAT CAP DOES NOT SAY:                                                                               |
+|    1. CAP says nothing about normal operation (when network is healthy, you have both C and A!).       |
+|    2. CAP is not a rigid database label: you can choose CP for payments and AP for carts in one app.   |
+|    3. CAP ignores latency during normal operation -> That everyday trade-off is PACELC!                |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

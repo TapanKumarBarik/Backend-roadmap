@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and architects optimizing normal-operation **Latency vs. Consistency** trade-offs across replicated databases and multi-region deployments.  
 > **Free PDF Notes:** [Download SD-A-014.pdf](https://backendroadmap.com/notes/system-design/SD-A-014.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** PACELC says: during a Partition choose Availability or Consistency; Else, when normal, choose Latency or Consistency. It describes the everyday trade-off that CAP leaves out.
+
 > [!TIP]
 > **The Golden Rule of PACELC:** Network partitions are rare, brief incidents—CAP governs less than $0.1\%$ of your cluster's lifetime. **PACELC** (Daniel Abadi, 2010) captures the $99.9\%$ everyday reality: **if Partitioned (P), trade Availability (A) vs. Consistency (C); Else (E), when the network is completely healthy, you still must trade Latency (L) vs. Consistency (C)** because coordinating replicas across network links always costs round-trip time.
 
@@ -467,6 +470,38 @@ Yes—almost all modern distributed databases tune per request (DynamoDB `Consis
 - **Treating a database product as one fixed PACELC box:** Route browse (`EL`) and ledger (`EC`) paths differently.
 - **Turning on `ConsistentRead=true` / `remote_apply` globally "just to be safe":** Doubles infrastructure costs and collapses throughput needlessly.
 - **Assuming PostgreSQL `synchronous_commit = on` prevents stale standby reads:** Disk flush is not heap visibility; use `remote_apply` if reading immediately from the synchronous standby.
+
+---
+
+## One-Page PACELC Theorem Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                       PACELC THEOREM MASTER CHEAT SHEET                                 |
++---------------------------------------------------------------------------------------------------------+
+| 1. THE IF / ELSE RULE:                                                                                  |
+|    If Partition (P) -> choose Availability (A) or Consistency (C);                                      |
+|    Else (E)         -> choose Latency (L) or Consistency (C).                                           |
+|    -> CAP describes 0.1% of life (failure); PACELC describes 99.9% of life (normal operation)!          |
++---------------------------------------------------------------------------------------------------------+
+| 2. CLASSIFYING REAL-WORLD DATABASES:                                                                    |
+|    - PC/EC (Consistent always): Google Spanner, CockroachDB, HBase                                      |
+|      -> Replicates synchronously before acking; pays cross-region RTT even during normal times.         |
+|    - PA/EL (Low latency always): Cassandra (default), DynamoDB (eventual), Couchbase                    |
+|      -> Writes locally, replicates asynchronously; fast everyday reads, reconciles partitions later.    |
+|    - PC/EL (Consistent on write, fast on read): MongoDB (primary-secondary), PostgreSQL with replicas  |
+|      -> Rejects writes on partitioned minority (PC), but allows reading from laggy async replicas (EL).|
+|    - PA/EC (Rare): Available during partition, but pays high sync latency when healthy.                 |
++---------------------------------------------------------------------------------------------------------+
+| 3. WHY CONSISTENCY COSTS LATENCY UNDER NORMAL TIMES:                                                    |
+|    Strong consistency requires waiting for round-trips to replicas (Quorum W + R > N).                  |
+|    A cross-region round trip (e.g., India <-> Europe) adds 100-150ms of speed-of-light delay per write! |
++---------------------------------------------------------------------------------------------------------+
+| 4. PER-QUERY TUNING:                                                                                    |
+|    PACELC is not a fixed database box! With DynamoDB/Cassandra, you can choose strong consistency (EC)  |
+|    for payment settlement, and eventual consistency (EL) for user comments within the same application! |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 
