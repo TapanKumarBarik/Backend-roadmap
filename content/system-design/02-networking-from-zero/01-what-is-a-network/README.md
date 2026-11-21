@@ -5,6 +5,9 @@
 > **Target Audience:** Developers starting networking from scratch and backend engineers connecting high-level system design trade-offs to physical request/response mechanics, round-trip math, timeouts, and safe retries.  
 > **Free PDF Notes:** [Download SD-N-001.pdf](https://backendroadmap.com/notes/system-design/SD-N-001.pdf)
 
+> [!NOTE]
+> **In one line:** A network links devices so they can send messages; a client asks with a request, a server does the work and answers with a response, and every round trip costs time.
+
 > [!TIP]
 > **The Golden Rule of Networks:** Every network interaction is an asynchronous conversation between a **client** that initiates a **request** and a **server** that does the work and returns a **response** across an unreliable wire. Because responses can be delayed or lost, reliable systems bound every call with explicit **timeouts**, cap concurrent round trips, and use **idempotent retries with backoff and jitter**.
 
@@ -95,6 +98,29 @@ Latency is governed primarily by **round trips (RTT)** rather than raw bandwidth
 ![Figure 4. Real numbers: a 3 MB page of about 40 files, at 50 ms per round trip.](images/figure-4.svg)
 
 *Figure 4. Real numbers: a 3 MB page of about 40 files, at 50 ms per round trip.*
+
+### Mathematical Model: Round-Trip Waterfalls & Concurrency
+
+The total latency $T_{\text{total}}$ to load $N$ network assets of combined payload size $S$ over an available bandwidth $B$ with a round-trip time $\text{RTT}$ depends strictly on the concurrency model:
+
+1. **Sequential Fetch (HTTP/1.0 / Unpipelined):**
+   $$T_{\text{seq}} = N \cdot \text{RTT} + \frac{S}{B}$$
+   For $N = 40$ files, $\text{RTT} = 50\text{ ms}$, $S = 3\text{ MB} = 24\text{ Mb}$, and $B = 20\text{ Mbps}$:
+   $$T_{\text{seq}} = (40 \times 0.050\text{ s}) + \frac{24\text{ Mb}}{20\text{ Mbps}} = 2.0\text{ s} + 1.2\text{ s} = 3.2\text{ s}$$
+   *Notice that round-trip serialization accounts for $62.5\%$ of the total load time!*
+
+2. **Parallel Connections (HTTP/1.1 with $C = 6$ Sockets):**
+   $$T_{\text{par}} = \left\lceil \frac{N}{C} \right\rceil \cdot \text{RTT} + \frac{S}{B}$$
+   $$T_{\text{par}} = \left\lceil \frac{40}{6} \right\rceil \times 0.050\text{ s} + 1.2\text{ s} = (7 \times 0.050\text{ s}) + 1.2\text{ s} = 0.35\text{ s} + 1.2\text{ s} = 1.55\text{ s}$$
+   *Opening 6 connections drops RTT idle waiting from $2,000\text{ ms}$ to $350\text{ ms}$ ($5.7\times$ speedup).*
+
+3. **Multiplexed Streams (HTTP/2 & HTTP/3 over 1 Connection):**
+   $$T_{\text{mux}} = 1 \cdot \text{RTT} + \frac{S}{B} = 0.050\text{ s} + 1.2\text{ s} = 1.25\text{ s}$$
+   *All 40 streams are interleaved concurrently over a single connection, completely eliminating head-of-line connection queuing.*
+
+4. **Full Jitter Exponential Backoff Equation:**
+   To prevent clients from synchronizing retry storms against an overloaded origin, clients calculate backoff interval $t_{\text{wait}}$ for attempt $k$:
+   $$t_{\text{wait}}(k) = \text{Uniform}\left(0, \min\left(t_{\text{max}}, t_{\text{base}} \cdot 2^k\right)\right)$$
 
 ### Latency vs. Bandwidth Math Comparison
 
@@ -486,52 +512,142 @@ Each hop has its own independent request, response, RTT budget, and timeout cont
 Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
 <details>
-<summary><strong>1. What makes a device a client and another a server? (Basic)</strong></summary>
+<summary><strong>1. What is a network, and what are a client and a server? [BASIC]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-A **client** starts a conversation by sending a **request**; a **server** waits for requests, processes them, and returns a **response**. It is a role in that specific exchange, not fixed hardware—one backend process often serves incoming requests while simultaneously acting as a client to databases, caches, and third-party APIs.
+A **network** is devices connected so they can exchange messages. In the client-server model, the **client** starts the conversation by sending a **request**, and the **server**, a program that waits for requests, processes the work and sends back a **response**. Client and server describe ephemeral roles in a specific conversation, not fixed hardware.
 
 </details>
 
 <details>
-<summary><strong>2. What is a round trip, and why do we care about it? (Basic)</strong></summary>
+<summary><strong>2. Is a server a special kind of machine? [BASIC]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-A **round trip (RTT)** is one complete message out to the server and one answer back (`~50 ms` on healthy mobile links). Even when payloads are tiny, each sequential round trip adds a full `RTT` floor of delay (`40` sequential requests = `2,000 ms`). Keeping round trips low often improves user-perceived speed far more than adding raw Mbps bandwidth.
+No. A server is any computer running a program that listens and waits for incoming requests; even your local laptop can be a server. "Client" and "server" describe communication roles (who asks, and who answers), not physical machinery or cloud specs.
 
 </details>
 
 <details>
-<summary><strong>3. You load a page over a 20 Mbps line and a 100 Mbps line, and both take about 2 seconds. Why? (Scenario)</strong></summary>
+<summary><strong>3. What is a round trip (RTT), and why do we care about it more than raw bandwidth for small requests? [BASIC]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-The page is **latency-bound (round-trip bound)** rather than **bandwidth-bound**. Suppose the page fetches `40` small resources one after another at `50 ms` per round trip: `40 × 50 ms = 2 seconds` of pure RTT waiting regardless of whether pipe capacity is `20 Mbps` or `100 Mbps`. To cut load time, reduce round-trip depth (concurrency, bundling, HTTP/2 multiplexing, edge caching closer to users).
+A **round trip (RTT)** is the elapsed time for a request to travel from the client to the server plus the time for the response to travel back (`~50 ms` on typical mobile LTE). For web pages requiring dozens of small assets, the cumulative round-trip waiting time ($N \times \text{RTT}$) dominates latency far more than raw wire transmission speed ($\text{Size} / \text{Mbps}$).
 
 </details>
 
 <details>
-<summary><strong>4. Your app waits on a checkout request and gets no reply. What should happen next, and how do you avoid charging the customer twice? (Scenario)</strong></summary>
+<summary><strong>4. What is the difference between a connect timeout, read timeout, and an overall call deadline? [BASIC]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-Enforce an explicit **timeout** (`2–10 s`) so workers and UI spinners don't stall forever. Retry transient timeouts with **exponential backoff and jitter** so recoveries don't spike traffic—and attach a unique **`Idempotency-Key`** per checkout attempt so if the first call actually succeeded before the reply was lost, the server returns the stored result without double-charging.
+- **Connect Timeout:** Max duration permitted to establish the initial TCP/TLS handshake with the server (typically short, e.g. `200–500 ms`).
+- **Read Timeout:** Max duration permitted between receiving consecutive data chunks once connected (e.g. `1,000–3,000 ms`).
+- **Overall Call Deadline:** Hard cap on the end-to-end elapsed time of the entire operation including DNS, handshakes, queueing, and all retries (e.g. `5,000 ms`).
 
 </details>
 
 <details>
-<summary><strong>5. Can one machine be both a client and a server at the same time? Give an example. (Tricky)</strong></summary>
+<summary><strong>5. A page needs 40 files and a round trip is 50 ms. How long does it wait if it fetches them one by one, or six at a time? [SCENARIO]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-Yes—nearly every production backend microservice is both simultaneously. An API server acts as a **server** to mobile browsers hitting `POST /checkout` while simultaneously acting as a **client** opening outbound connections to PostgreSQL, Redis, and payment gateways.
+- **One by one (sequential):** $40 \times 50\text{ ms} = 2,000\text{ ms}$ (2.0 seconds) of pure round-trip waiting before transferring data.
+- **Six at a time (HTTP/1.1 parallel):** $\lceil 40 / 6 \rceil = 7$ rounds; $7 \times 50\text{ ms} = 350\text{ ms}$ (0.35 seconds).
+This explains why modern architectures aggressively bundle assets, employ parallel sockets, and migrate to HTTP/2/HTTP/3 multiplexing.
 
 </details>
 
 <details>
-<summary><strong>6. Your peer-to-peer game claims there is no server — both phones talk directly. Does the client/server idea still apply? (Tricky)</strong></summary>
+<summary><strong>6. Tatkal booking opens on IRCTC and the server is overloaded. What should the client do? [SCENARIO]</strong></summary>
 
 <strong>What a strong answer covers:</strong>
-Yes. First, a central signaling/matchmaking **server** typically introduces the phones so they can discover and reach each other. Second, once direct exchange starts, every individual message still has one peer **initiating a request** (client role for that turn) and the other **replying** (server role), or one phone designated as authoritative match host (**listen server**).
+The client must:
+1. Enforce an explicit timeout (e.g. `5–10 s`) so the UI and network threads never freeze indefinitely.
+2. Avoid immediate retries; wait using exponential backoff with full jitter so millions of phones don't hammer the origin in synchronized lockstep.
+3. Only retry safe (read-only / idempotent) requests. Mutating requests must attach an idempotency key so retry attempts never trigger duplicate bookings or double charges.
 
 </details>
+
+<details>
+<summary><strong>7. Your app waits on a checkout request and gets no reply before timeout. What should happen next, and how do you avoid charging the customer twice? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A timeout indicates the client stopped waiting, but gives zero information about server state—the server may have completed the charge and only the response was dropped. The client must attach a unique, persistent client-generated `Idempotency-Key` (UUIDv4) to the checkout request. When retrying after a timeout, the client sends the identical key. The server looks up the key in a persistent transactions table and returns the previously processed receipt without charging again.
+
+</details>
+
+<details>
+<summary><strong>8. A client experiences 503 Service Unavailable errors during a backend rolling restart. How should the client and server cooperate to survive? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+- **Server:** Emits `503 Service Unavailable` with a `Retry-After: <seconds>` HTTP header indicating when capacity will return, while shedding load early rather than queueing until memory runs out.
+- **Client:** Reads the `Retry-After` header or applies truncated exponential backoff with full random jitter, and caps total retry attempts to avoid exhausting thread pools.
+
+</details>
+
+<details>
+<summary><strong>9. When you message a friend on WhatsApp, is your friend's phone the server? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+No. Both phones are clients. Mobile phones do not run permanently open public server ports due to carrier NAT, IP changes, battery saving, and sleep states. Your phone sends the message as a client to WhatsApp's central server cluster. The server holds the message in an inbox queue and delivers it to your friend's phone when their client establishes an outbound connection.
+
+</details>
+
+<details>
+<summary><strong>10. Why must retries be safe (idempotent), and why is a timeout unable to tell you if the server executed the write? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A network conversation involves three distinct vulnerability points: (1) request lost going out, (2) server stalled or crashed mid-execution, (3) response lost returning back. Because a client timeout fires in all three cases, the client cannot distinguish between a dropped request and a dropped response. Retrying without idempotency guarantees means an operation that actually executed during case (3) will execute a second time, duplicating money transfers or order reservations.
+
+</details>
+
+<details>
+<summary><strong>11. If two laptops are connected directly via an Ethernet crossover cable without any router, switch, or internet, does the client-server model still apply? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Yes. Client-server is an architectural protocol relationship, not a physical network topology. Even over a direct point-to-point cable with no routers or DNS, one machine must bind to a port and listen for connections (`server`), while the other initiates the connection by transmitting a SYN packet (`client`).
+
+</details>
+
+<details>
+<summary><strong>12. Why can't a client prevent a retry storm purely by implementing exponential backoff without random jitter? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Pure exponential backoff without jitter scales delays deterministically ($200\text{ ms}, 400\text{ ms}, 800\text{ ms}$). When a server hiccup causes 10,000 clients to fail simultaneously at time $t=0$, all 10,000 clients retry together at $t=200\text{ ms}$, then all retry together again at $t=600\text{ ms}$, creating devastating synchronized traffic spikes (thundering herds). Adding random jitter uniformly scatters retry arrivals across the time interval, smoothing the traffic wave into manageable background noise.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                        WHAT IS A NETWORK? — CLIENT, SERVER & CONVERSATION CHEAT SHEET
+====================================================================================================
+CORE ROLES & RELATIONSHIPS
+  * Client        : Conversational initiator. Sends requests. Ephemeral, untrusted, drives traffic.
+  * Server        : The listener. Binds to port, accepts sockets, executes logic, returns response.
+  * Role Dynamic  : Microservices are simultaneously servers (to upstreams) and clients (to downstreams).
+
+ROUND-TRIP ECONOMICS & CONCURRENCY
+  * Request-Response  : 1 request + 1 response = 1 Round Trip Time (RTT) across an unreliable wire.
+  * Mobile RTT Floor  : ~40ms - 60ms per round trip on 4G/LTE/5G.
+  * Sequential Fallacy: 40 sequential assets @ 50ms RTT = 2,000ms pure waiting, regardless of 500 Mbps fiber.
+  * Parallel H1.1     : 6 conns per origin = ceil(40/6) = 7 rounds * 50ms = 350ms RTT wait.
+  * Multiplexed H2/H3 : 1 connection, 0 head-of-line RTT waterfalls = 1 round * 50ms = 50ms RTT wait.
+
+THE THREE NETWORK FAILURE MODES
+  1. Request dropped on the wire    -> Server never received it, nothing executed.
+  2. Server crashed or hung in queue -> Work may be partially or completely done.
+  3. Response dropped on return wire -> Server SUCCEEDED, but client received NOTHING!
+  * Golden Rule: A client timeout NEVER tells you whether the server did the work.
+
+PRODUCTION RESILIENCE DEFENSES
+  1. Explicit Timeouts    : Connect timeout (e.g. 500ms) + Read timeout (e.g. 2,000ms). Never wait indefinitely.
+  2. Idempotency Keys     : Unique UUID header on mutating calls (POST /orders). Eliminates duplicate charging.
+  3. Full Jitter Backoff  : Wait = Uniform(0, min(max_wait, base * 2^attempt)). Prevents synchronized retry herds.
+  4. Horizontal Scale     : Add stateless backend replicas behind load balancers to distribute spikes.
+====================================================================================================
+```
 
 ---
 
