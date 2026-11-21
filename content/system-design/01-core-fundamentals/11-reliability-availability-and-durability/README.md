@@ -5,6 +5,9 @@
 > **Target Audience:** Software engineers and architects distinguishing uptime metrics from correctness guarantees and zero-data-loss storage engineering.  
 > **Free PDF Notes:** [Download SD-A-011.pdf](https://backendroadmap.com/notes/system-design/SD-A-011.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Availability is "is it up?", reliability is "is it right over time?", and durability is "does the data survive?"; a system can be fully up and still wrong.
+
 > [!TIP]
 > **The Golden Rule of Operational Guarantees:** Availability measures whether a service **responds** right now; reliability measures whether those responses stay **correct over time**; durability measures whether **acknowledged data survives hardware and site loss**. Never equate a `99.99%` HTTP `200 OK` dashboard with a reliable or durable system—an application can return `200 OK` in `2ms` while corrupting balances or silently dropping every write.
 
@@ -537,6 +540,73 @@ Only if they are recent (bounded RPO), stored in an isolated failure domain (sep
 <strong>What a strong answer covers:</strong>
 No. Replication protects against physical hardware or AZ loss, but instantly propagates logical corruption, bugs, and accidental `DELETE`/`DROP` commands to every replica. You need both replication **and** immutable point-in-time backups with tested restores.
 </details>
+
+<details>
+<summary><strong>9. How do you detect and heal silent data corruption (bit rot) on disk before data loss occurs? (Tricky)</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+1. **End-to-End Checksums:** Compute cryptographic or CRC32/xxHash checksums at write time and store them alongside data blocks (or in metadata headers).
+2. **Read Validation:** On every read, recalculate the checksum against the retrieved payload. If they mismatch, throw a checksum verification error rather than returning corrupted data.
+3. **Background Scrubbing:** Run automated background scrubbing daemons (e.g. ZFS scrub, Ceph scrub, S3 background verifier) that read and verify checksums across idle data blocks periodically, repairing corrupted replicas automatically from healthy peers.
+</details>
+
+<details>
+<summary><strong>10. Why does asynchronous replication maximize availability at the expense of durability? (Tricky)</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+In asynchronous replication, the primary database acknowledges writes to the client as soon as they are committed locally to its own write-ahead log (WAL), before replicas receive or persist the write.
+- **Availability Gain:** Writes complete in $< 1\text{ ms}$ regardless of replica network latency or replica outages.
+- **Durability Risk:** If the primary crashes before WAL frames replicate across the network, an automated failover promotes a secondary that lacks the latest writes, causing **silent data loss** (unrecoverable committed transactions).
+</details>
+
+<details>
+<summary><strong>11. In an active-active multi-region deployment, how do you handle conflicting concurrent writes to preserve reliability? (Tricky)</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+1. **Single-Leader Partitioning:** Shard primary write ownership by user ID or home region, so concurrent writes to the same account never hit two regions simultaneously.
+2. **CRDTs (Conflict-Free Replicated Data Types):** Use state-based or operation-based CRDTs (e.g. PN-Counters, LWW-Element-Sets) for collaborative or commutative operations where mathematically guaranteed merge rules resolve concurrent edits without data loss.
+3. **Optimistic Concurrency Control (OCC) with Version Vectors:** Track version vectors per record; reject out-of-order stale writes and trigger deterministic application-level conflict resolution.
+</details>
+
+<details>
+<summary><strong>12. How do you design an automated nightly reconciliation engine to catch discrepancies between internal ledgers and payment providers? (Tricky)</strong></summary>
+
+**What a strong answer covers:**
+1. **Ingest Normalized Bank Statements:** Ingest daily bank clearing files (CAMT.053, MT940, BAI2) via SFTP into object storage.
+2. **Three-Way Matching:** Run a batch processing job (PySpark / SQL) joining three independent sources: `internal_orders`, `internal_ledger_entries`, and `external_bank_settlements` using idempotent transaction UUIDs.
+3. **Exception Partitioning (Breaks):** Automatically isolate unmatched records into reconciliation "breaks" categorized by root cause: timing differences ($T+2$ clearing delays), currency conversion variance, or dropped webhook confirmations.
+4. **Automated Compensating Transactions:** Issue automated compensating ledger entries or alert finance operations with full audit logs.
+</details>
+
+---
+
+## One-Page Reliability, Availability, and Durability Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                               RAD (RELIABILITY, AVAILABILITY, DURABILITY) CHEAT SHEET                   |
++---------------------------------------------------------------------------------------------------------+
+| 1. THREE DIFFERENT QUESTIONS:                                                                           |
+|    - Availability:  "Is it up?"           -> Responds to requests right now.                            |
+|    - Reliability:   "Is it right?"        -> Returns correct, uncorrupted answers over time.            |
+|    - Durability:    "Does data survive?"  -> Acknowledged writes are never lost, even across crashes.   |
+|    -> A system can return HTTP 200 OK in 2ms and still be completely broken (stale cache, wrong prices)!|
++---------------------------------------------------------------------------------------------------------+
+| 2. AMAZON S3 GOLDEN BENCHMARK:                                                                          |
+|    - 99.99% Availability (4 Nines)        -> May briefly experience ~52 min downtime per year.          |
+|    - 99.999999999% Durability (11 Nines) -> 1 in 10,000,000 objects lost once every 10,000 years!        |
++---------------------------------------------------------------------------------------------------------+
+| 3. CORE ARCHITECTURAL TOOLS PER PROPERTY:                                                               |
+|    - Availability: Multi-AZ redundancy, healthchecks, auto-failover, circuit breakers, load shedding.   |
+|    - Reliability:  Idempotency keys, input validation, canary deploys, reconciliation jobs, retries.    |
+|    - Durability:   Sync WAL quorum replication, CRC32 checksums, immutable snapshots, restore drills.   |
++---------------------------------------------------------------------------------------------------------+
+| 4. REPLICATION VS BACKUPS:                                                                              |
+|    - Replication protects against HARDWARE loss (disk/zone death), but replicates bugs instantly!       |
+|    - Backups protect against LOGICAL loss (accidental DROP/DELETE), but must be regularly tested!       |
+|    -> You need BOTH sync quorum replication AND immutable restore-tested point-in-time backups.        |
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 

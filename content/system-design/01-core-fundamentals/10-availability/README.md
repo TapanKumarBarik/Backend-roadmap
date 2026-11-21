@@ -1,34 +1,115 @@
 # Lesson 10: Availability
 
 > **Prerequisites:** [Lesson 09: Throughput and Little's Law](../09-throughput-and-littles-law/README.md).  
-> **Estimated Reading Time:** 26 minutes  
+> **Estimated Reading Time:** 32 minutes  
 > **Target Audience:** Backend engineers, reliability engineers (SREs), and architects calculating availability SLAs, designing Multi-AZ failover systems, and eliminating correlated failure domains.  
 > **Free PDF Notes:** [Download SD-A-010.pdf](https://backendroadmap.com/notes/system-design/SD-A-010.pdf) · [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf)
 
+> [!NOTE]
+> **In one line:** Availability is the share of time a system serves requests successfully; it depends on how often things break (MTBF) and how fast you recover (MTTR), and it multiplies down in series and up with redundancy.
+
 > [!TIP]
-> **The Golden Rule of High Availability:** Availability ($\frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}$) drops cumulatively for every synchronous service added in **series** and compounds dramatically only when **independent** redundant replicas operate in **parallel**. Cutting Mean Time to Recovery (**MTTR**) from 60 minutes to 3 minutes delivers $10\times$ higher availability far more cheaply than trying to prevent hardware from ever failing—provided your redundant zones do not share correlated failures (shared config, shared power, or shared DNS).
+> **The Golden Rule of High Availability:** Availability ($\frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}$) drops cumulatively for every synchronous service added in **series** and compounds dramatically only when **independent** redundant replicas operate in **parallel**. Cutting Mean Time to Recovery (**MTTR**) from 60 minutes to 6 minutes delivers $10\times$ higher availability far more cheaply than trying to prevent hardware from ever failing—provided your redundant zones do not share correlated failures (shared config, shared power, or shared DNS).
 
 ---
 
-## Visual Mental Models & Architecture
+## 1. What Availability Is: The Table of "Nines"
 
-### Recovery Velocity Leverage: MTBF vs. MTTR
+Availability is the proportion of time a system remains operational and capable of fulfilling user requests. In industry Service Level Agreements (SLAs), availability is stated in "nines":
 
-Because hardware disks, switches, and fiber cables inevitably degrade, optimizing **MTTR** (automatic failover and instant rollback) produces orders of magnitude larger uptime gains than futilely chasing infinite MTBF.
+| Availability Level | Common Industry Name | Allowed Downtime per Year | Allowed Downtime per Month | Allowed Downtime per Week | Typical Architecture Level |
+| :---: | :--- | :---: | :---: | :---: | :--- |
+| **$99.0\%$** | "Two Nines" | $\sim 3.65\text{ days}$ | $\sim 7.30\text{ hours}$ | $\sim 1.68\text{ hours}$ | Single-instance VM, no auto-recovery, manual SSH fixes. |
+| **$99.9\%$** | "Three Nines" | $\sim 8.76\text{ hours}$ | $\sim 43.8\text{ minutes}$ | $\sim 10.1\text{ minutes}$ | Multi-AZ web tier, single cloud DB with auto-restart. |
+| **$99.99\%$** | "Four Nines" | $\sim 52.6\text{ minutes}$ | $\sim 4.38\text{ minutes}$ | $\sim 1.01\text{ minutes}$ | Multi-AZ active-standby database, auto-failover, zero-downtime deploys. |
+| **$99.999\%$** | "Five Nines" | $\sim 5.26\text{ minutes}$ | $\sim 25.9\text{ seconds}$ | $\sim 6.05\text{ seconds}$ | Multi-region active-active clusters, telecom switches, Spanner/CockroachDB. |
+
+---
+
+## 2. MTBF and MTTR: The Two True Levers of Uptime
+
+Two fundamental metrics govern availability:
+1. **MTBF (Mean Time Between Failures):** How long the system runs cleanly between unexpected outages.
+2. **MTTR (Mean Time to Recovery):** How long it takes your engineering platform to detect, diagnose, fail over, and restore operational service.
+
+$$\text{Availability} = \frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}$$
 
 ![Recovering ten times faster gives ten times less downtime, with the same number of failures.](images/figure-1.svg)
 
 *Figure 1. Recovering ten times faster gives ten times less downtime, with the same number of failures.*
 
-### Series Dependency Degradation vs. Parallel Redundancy Multiplication
+### Numerical Sensitivity: Why MTTR Is Your Highest-Leverage Investment
+
+Consider a microservice that experiences one unexpected failure per month ($\text{MTBF} = 30\text{ days} = 43,200\text{ minutes}$):
+
+* **Manual Intervention (MTTR = 60 minutes):** An engineer wakes up to a pager, logs into AWS, inspects logs, and reboots the primary database:
+  $$\text{Availability} = \frac{43,200}{43,200 + 60} = \frac{43,200}{43,260} \approx \mathbf{99.86\%} \quad (\sim 12\text{ hours downtime/year})$$
+* **Automated Healthcheck & Failover (MTTR = 6 minutes):** A consensus cluster (Raft/ZooKeeper) detects heartbeats stopping and automatically promotes a standby replica in 6 minutes:
+  $$\text{Availability} = \frac{43,200}{43,200 + 6} = \frac{43,200}{43,206} \approx \mathbf{99.986\%} \quad (\sim 1.2\text{ hours downtime/year})$$
+
+> [!IMPORTANT]
+> **Cutting recovery time from 60 minutes to 6 minutes reduced yearly downtime by $10\times$ without preventing a single hardware crash.** In distributed systems, hardware *will* fail. Automated failover, canary rollbacks, and fast detection beats hoping code and servers never crash.
+
+---
+
+## 3. Series vs. Parallel Availability Math
+
+In distributed architecture, request flows are combinations of **Series Chains** and **Parallel Redundancies**.
 
 ![Dependencies in a chain multiply availability down; independent replicas multiply the failure chance down.](images/figure-2.svg)
 
 *Figure 2. Dependencies in a chain multiply availability down; independent replicas multiply the failure chance down.*
 
-### Shortening the Critical Path With Circuit Breakers & Graceful Fallbacks
+### Series Chains: Availability Multiplies Down
+If a user request requires Service A **and** Service B to succeed synchronously, the system is available only when **both** are available:
 
-Adding optional synchronous services (e.g., Fraud Scoring or Personalized Recommendations) directly onto the Checkout critical path erodes overall system availability via series multiplication. Wrapping optional dependencies inside fast Circuit Breakers with cached defaults isolates their failure cleanly.
+$$A_{\text{series}} = A_1 \times A_2 \times \dots \times A_N$$
+
+Every single extra synchronous dependency added to your critical path **strictly degrades** overall system availability. If you chain five services that each boast $99.9\%$ uptime:
+
+$$A_{\text{total}} = (0.999)^5 \approx \mathbf{99.50\%} \quad (\sim 43.8\text{ hours of downtime/year!})$$
+
+### Parallel Redundancy: Failure Probabilities Multiply Down
+If a user request can be served by Replica 1 **or** Replica 2, the system only fails when **both** replicas fail simultaneously:
+
+$$A_{\text{parallel}} = 1 - \prod_{i=1}^{N} (1 - A_i)$$
+
+If you provision two independent servers that each offer only mediocre $99.0\%$ availability ($1\%$ failure rate):
+
+$$A_{\text{total}} = 1 - (0.01 \times 0.01) = 1 - 0.0001 = \mathbf{99.99\%} \quad (\text{"Four Nines"}!)$$
+
+Two cheap $99\%$ servers combined with automated healthcheck failover outperform a single $99.9\%$ expensive bare-metal server!
+
+> [!WARNING]
+> **The Correlated Failure Trap:** Parallel math holds **only if failures are truly statistically independent**. If both replicas reside in the same server rack, run on the same power strip, share the same EBS storage volume, or execute an identical buggy code deployment, they fail simultaneously ($P(A \cap B) \approx P(A)$), reducing your multi-node cluster to single-node availability.
+
+---
+
+## 4. Worked Production Example: The Weakest Link
+
+Consider a checkout flow that synchronously calls three components in series:
+- **API Gateway:** $99.95\%$ availability
+- **Payment Gateway:** $99.90\%$ availability
+- **PostgreSQL Database:** $99.95\%$ availability
+
+$$A_{\text{checkout}} = 0.9995 \times 0.9990 \times 0.9995 \approx \mathbf{99.80\%} \quad (\sim 17.5\text{ hours downtime/year})$$
+
+### Upgrading the Database to Multi-AZ Standby
+We deploy PostgreSQL as a primary in Zone A with a hot standby in Zone B, each with $99.95\%$ individual availability ($0.0005$ failure chance):
+
+$$A_{\text{DB\_pair}} = 1 - (0.0005)^2 = 1 - 0.00000025 = \mathbf{99.999975\%}$$
+
+Now recalculate the checkout series chain:
+
+$$A_{\text{checkout}} = 0.9995 \times 0.9990 \times 0.99999975 \approx \mathbf{99.85\%}$$
+
+Notice that despite the database achieving "six nines", overall checkout availability improved only marginally (from $99.80\%$ to $99.85\%$). **The Payment Service ($99.90\%$) is now the dominant bottleneck.** To break past $99.9\%$, you must either add fallback payment processors or make payments asynchronous.
+
+---
+
+## 5. Shortening the Critical Path: Circuit Breakers & Graceful Fallbacks
+
+The most effective architectural technique for raising availability is **shortening the synchronous critical path**. Remove non-essential enrichments (recommendations, fraud scoring, analytics) from the blocking series chain:
 
 ```mermaid
 flowchart TD
@@ -49,85 +130,68 @@ flowchart TD
 
 ---
 
-## Systematic Taxonomic Reference Grids
+## 6. How to Improve System Availability
 
-### The Availability "Nines" & Downtime Reference Matrix
-
-| Target Availability | Verbal Name | Max Annual Downtime | Max Monthly Downtime | Max Weekly Downtime | Fault Domain Topology Required |
-| :---: | :--- | :---: | :---: | :---: | :--- |
-| **$99.0\%$** | Two Nines | $3.65\text{ days}$ | $7.30\text{ hours}$ | $1.68\text{ hours}$ | Single instance + manual VM recovery. |
-| **$99.9\%$** | Three Nines | $8.76\text{ hours}$ | $43.8\text{ minutes}$ | $10.1\text{ minutes}$ | Stateless multi-node app + single managed DB backup. |
-| **$99.95\%$** | Three-and-a-half | $4.38\text{ hours}$ | $21.9\text{ minutes}$ | $5.04\text{ minutes}$ | Active-Standby DB failover across Availability Zones. |
-| **$99.99\%$** | Four Nines | $52.6\text{ minutes}$ | $4.38\text{ minutes}$ | $1.01\text{ minutes}$ | Multi-AZ active-active compute + automated DB promotion + health probes. |
-| **$99.999\%$** | Five Nines | $5.26\text{ minutes}$ | $26.3\text{ seconds}$ | $6.05\text{ seconds}$ | Multi-region active-active replication + Global Anycast BGP failover. |
-
-### Series vs. Parallel Reliability Formulas
-
-| Topology Pattern | Mathematical Formula | Worked Numeric Example | Architectural Engineering Action |
-| :--- | :--- | :--- | :--- |
-| **Series Chain** *(All required)* | $A_{\text{total}} = A_1 \times A_2 \times \dots \times A_n$ | Three $99.9\%$ services in series: $0.999^3 = \mathbf{99.70\%}$ ($26.2\text{ hr}$ down/yr!) | Minimize synchronous dependencies; push analytics, notifications, and logs async. |
-| **Parallel Redundancy** *(Either works)* | $A_{\text{total}} = 1 - \prod (1 - A_i)$ | Two **independent** $99.5\%$ replicas: $1 - (0.005)^2 = \mathbf{99.9975\%}$ | Deploy across physically separate Availability Zones (independent power/cooling/fiber). |
-| **Correlated Replicas** *(False safety)* | Drops to $A_{\text{shared}}$ | Bad global config pushed simultaneously to 10 zones crashes all 10! | Use progressive canary deploys (1% $\to$ 10% $\to$ 100%) to preserve true failure independence. |
+1. **Multi-AZ and Multi-Region Redundancy:** Deploy replicas across physically isolated failure domains (independent power, cooling, and networking).
+2. **Eliminate Single Points of Failure (SPOFs):** Identify and duplicate any component whose loss halts traffic (load balancers, DNS providers, primary databases).
+3. **Automate Fast Detection & Failover (Minimize MTTR):** Use aggressive health checks (e.g. 3 consecutive failed probes over 3 seconds) and automated leader promotion (Raft, Patroni, Sentinel) to cut MTTR from hours to seconds.
+4. **Timeouts, Retries with Jitter, and Circuit Breakers:** Wrap every remote call in a tight timeout budget so a hung downstream dependency cannot monopolize worker pools.
+5. **Decouple Asynchronously (Event-Driven Architecture):** Move non-critical work (email confirmations, search indexing, analytics logging) to background worker queues (`202 Accepted`).
 
 ---
 
-## Production War Stories: Incident Post-Mortem
+## 7. Production War Story: Incident Post-Mortem
 
-### SEV-1 Post-Mortem: The Correlated Multi-AZ Global Config Push & Synthetic Green Healthcheck Illusion
+### SEV-1 Post-Mortem: The Correlated Multi-AZ Outage from Shared Configuration
 
 #### Incident Overview
-* **Severity:** SEV-1 (100% Global API Failure Despite Green "Uptime" Dashboard)
-* **Detection Time:** 28 minutes (Alerted via Twitter/Customers while synthetic ping probes stayed green!)
-* **Resolution Time:** 1 hour 15 minutes
-* **Impact:** Every authenticated API endpoint returned `500 Internal Server Error` across all three Availability Zones simultaneously.
+* **Severity:** SEV-1 (100% Platform Outage Across All 3 Availability Zones)
+* **Detection Time:** 2 minutes post-configuration merge
+* **Resolution Time:** 48 minutes
+* **Impact:** 2.4 million users unable to access accounts or process payments during peak morning trading.
 
 #### What Happened
-A cloud SaaS architecture prided itself on **"Four Nines" Multi-AZ Redundancy**: running 30 stateless API pods spread equally across 3 separate AWS Availability Zones (`us-east-1a`, `1b`, `1c`), mathematically expecting $1 - (0.001)^3 \approx 99.9999999\%$ availability!
+A financial trading platform was engineered for high availability with identical active application fleets distributed evenly across `us-east-1a`, `us-east-1b`, and `us-east-1c`. The architecture team calculated theoretical availability at $1 - (0.001)^3 = \mathbf{99.9999999\%}$ ("Nine Nines").
 
-At 11:05 UTC, an operator updated a shared environment configuration feature flag inside Consul/Parameter Store—accidentally inserting a malformed trailing space inside an encryption secret regex. Within 4 seconds:
-1. All 30 pods across all **3 Availability Zones** fetched the updated bad config simultaneously and threw unhandled decryption exceptions on every user request.
-2. Why didn't PagerDuty fire instantly? Because the Load Balancer health check probed `GET /healthz`, which simply returned hardcoded `200 OK` without executing any actual decryption or database test!
-3. The public status page proudly displayed **"100.0% Green Operational"** for 28 minutes while 100% of real customer requests failed!
+At 08:30 EST, an engineer updated a database connection pool timeout setting in a centralized Git repository. An automated continuous deployment pipeline simultaneously pushed the new config to **all three zones simultaneously**:
+1. The config contained a typo: `pool_timeout_seconds: "none"` instead of an integer.
+2. The application framework threw an unhandled parse exception on boot and terminated the process.
+3. Because the deployment was applied globally rather than in staggered canary stages, all pods across Zone A, Zone B, and Zone C crashed within 15 seconds.
+4. Theoretical parallel availability of $99.9999999\%$ evaporated into a total system blackout.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Operator as Ops Config Push
-    actor Users as Production API Traffic
-    participant Consul as Global Shared Config
-    participant AZ_A as Zone A Replicas
-    participant AZ_B as Zone B Replicas
-    participant AZ_C as Zone C Replicas
-    participant LB as Load Balancer Health Probe
+    actor Dev as Ops Engineer
+    participant CD as Global CI/CD Pipeline
+    participant ZoneA as App Fleet (Zone A: 99.9%)
+    participant ZoneB as App Fleet (Zone B: 99.9%)
+    participant ZoneC as App Fleet (Zone C: 99.9%)
 
-    Operator->>Consul: Push Corrupted Secret Config Simultaneously!
-    Consul-->>AZ_A: Propagates immediately (< 2s)
-    Consul-->>AZ_B: Propagates immediately (< 2s)
-    Consul-->>AZ_C: Propagates immediately (< 2s)
-
-    Note over AZ_A,AZ_C: Correlated Failure! Multi-AZ Redundancy Defeated!
-
-    LB->>AZ_A: GET /healthz -> Returns hardcoded 200 OK! (Lies!)
-    Users->>AZ_A: POST /checkout -> 500 Internal Server Error!
-    Users->>AZ_B: POST /checkout -> 500 Internal Server Error!
-    Users->>AZ_C: POST /checkout -> 500 Internal Server Error!
+    Dev->>CD: Commit bad config (pool_timeout: "none")
+    Note over CD: ERROR: Deployed to ALL zones at once!
+    par Global Simultaneous Rollout
+        CD->>ZoneA: Apply Config -> Process Crash!
+    and
+        CD->>ZoneB: Apply Config -> Process Crash!
+    and
+        CD->>ZoneC: Apply Config -> Process Crash!
+    end
+    Note over ZoneA,ZoneC: All 3 zones dead in 15 seconds! Correlated Failure destroyed parallel math!
 ```
 
-#### Root Cause Analysis
-1. **Correlated Single-Point Config Propagation:** Multi-AZ hardware isolation cannot survive a simultaneous synchronized bad software or config rollout across all zones.
-2. **Shallow Health Checks vs. Request-Based SLIs:** Relying on static `200 OK` process heartbeat checks measured whether the Python/Go process ran—not whether it could successfully serve real business logic.
-
 #### The Fix & Architectural Hardening
-1. **Request-Level Success Rate SLIs (Server-Side Metrics):** Replaced "uptime ping %" with real HTTP success ratio SLIs ($\frac{\text{2xx + 4xx Requests}}{\text{Total Valid Requests}}$) firing multi-burn-rate alerts within 90 seconds of any 5xx elevation.
-2. **Progressive Staged Config Rollouts (Cell/Canary Rings):** Config and secret changes now roll out sequentially—1 canary pod $\to$ 1 AZ (`10%`) $\to$ pause & verify error rates for 5 minutes $\to$ remaining zones—preventing correlated multi-zone wipeouts cleanly.
+1. **Canary Phased Deployments:** Enforced strict rollout waves: deploy to Canary Pod (1%) $\to$ wait 10 minutes $\to$ deploy to Zone A $\to$ wait 30 minutes $\to$ deploy remaining zones.
+2. **Schema & Config Validation in CI:** Added pre-merge validation tests rejecting non-integer config variables before CD deployment.
+3. **Automated Rollback on Probe Failure:** Ingress proxies automatically rollback to the previous release image if health check error rates spike above $1\%$ within 60 seconds.
 
 ---
 
-## Multi-Language Production Code Tabs
+## 8. Multi-Language Production Code Tabs
 
 The implementations below demonstrate **Critical-Path Availability Protection**:
-1. **Circuit Breaker + Fallback Degradation:** Removing a flaky non-critical dependency (Recommendations) from the synchronous series chain so Checkout maintains $99.99\%$ availability even when Recommendations goes $100\%$ offline!
-2. **Real Dependency Readiness vs. Liveness Health Endpoints:** Distinguishing shallow process liveness from true dependency readiness.
+1. **Circuit Breaker + Fallback Degradation:** Isolating a failing non-critical service (Recommendations) so Checkout preserves $99.99\%$ availability even during complete downstream outages!
+2. **Readiness vs. Liveness Probes:** Deep healthcheck validation preventing unhealthy nodes from receiving user traffic.
 
 ### Critical-Path Circuit Breaker & Graceful Fallback Implementations
 
@@ -374,99 +438,250 @@ app.Run("http://0.0.0.0:8000");
 
 ---
 
-## Practical Hands-On Verification CLI Workflows
+## 9. Practical Hands-On Verification CLI Workflows
 
-Verify MTBF/MTTR arithmetic, series/parallel composite reliability math, and observe Circuit Breaker open/fallback behavior in terminal output.
+Empirically calculate series and parallel availability math and measure MTBF/MTTR sensitivity using command-line scripts.
 
-### Step 1: Calculate Composite Series vs. Parallel Chain Availability via CLI
-
-Execute this script to calculate exact series availability degradation and verify how adding redundancy upgrades a weak link:
+### Step 1: Calculate Series vs. Parallel Availability in Python
+Simulate the worked example from Section 4:
 
 ```bash
-python -c "
+python3 -c "
 api, pay, db = 0.9995, 0.9990, 0.9995
-series_total = api * pay * db
-print(f'1. Baseline Series Chain:       {series_total*100:.4f}% (~{(1-series_total)*525600:.1f} min down/yr)')
 
-# Add active-standby redundancy across zones for DB and Pay
-db_parallel = 1 - (1 - 0.9995)**2
-pay_parallel = 1 - (1 - 0.9990)**2
-hardened_total = api * pay_parallel * db_parallel
-print(f'2. With Multi-AZ DB + Pay:      {hardened_total*100:.4f}% (~{(1-hardened_total)*525600:.1f} min down/yr)')
+# 1. Baseline Series Chain
+series_avail = api * pay * db
+downtime_min = (1 - series_avail) * 525600
+print(f'1. Baseline Series Chain:       {series_avail*100:.4f}% (~{downtime_min:.1f} min down/yr)')
+
+# 2. Database with Multi-AZ Standby
+db_redundant = 1 - (1 - db)**2
+improved_series = api * pay * db_redundant
+improved_down = (1 - improved_series) * 525600
+print(f'2. With Multi-AZ Standby DB:    {improved_series*100:.4f}% (~{improved_down:.1f} min down/yr)')
 "
 ```
 
-**Expected Output:**
-```text
-1. Baseline Series Chain:       99.8001% (~1050.6 min down/yr)
-2. With Multi-AZ DB + Pay:      99.9499% (~263.4 min down/yr)
-```
-
-### Step 2: Calculate MTBF vs. MTTR Uptime Sensitivity
-
-Compare cutting failure frequency vs cutting automated recovery speed:
+### Step 2: Calculate MTBF vs. MTTR Sensitivity
+Compare the impact of cutting failure frequency vs cutting automated recovery speed:
 
 ```bash
-python -c "
-def avail(mtbf_min, mttr_min): return mtbf_min / (mtbf_min + mttr_min)
+python3 -c "
+def avail(mtbf_min, mttr_min):
+    return mtbf_min / (mtbf_min + mttr_min)
+
 print(f'Manual 60m recovery once/mo:    {avail(43200, 60)*100:.4f}%')
-print(f'Auto-failover 2m recovery/mo:   {avail(43200, 2)*100:.4f}%')
+print(f'Auto-failover 6m recovery/mo:   {avail(43200, 6)*100:.4f}%')
+print(f'Auto-failover 1m recovery/mo:   {avail(43200, 1)*100:.4f}%')
 "
 ```
-
-**Expected Output:**
-```text
-Manual 60m recovery once/mo:    99.8613%
-Auto-failover 2m recovery/mo:   99.9954%
-```
-
-Automated failover pushed uptime past **99.995%** without reducing how often hardware breaks!
 
 ---
 
-## Operational Validation Checkpoints (Scenario Quizzes)
+## 10. Common Mistakes to Avoid
+
+1. **Adding Dependencies Without Counting Series Availability:** Chaining 10 microservices that each claim $99.9\%$ uptime yields $(0.999)^{10} \approx 99.0\%$, creating over 3.6 days of downtime!
+2. **Assuming Replicas Fail Independently:** Placing two database replicas in the same AWS Availability Zone or same server rack provides zero protection against power or networking failures.
+3. **Focusing Solely on Preventing Failures (MTBF) While Ignoring MTTR:** Spending \$500k on ultra-redundant hardware while leaving failover as a 2-hour manual runbook.
+4. **Measuring Availability Via Synthetic Liveness Healthchecks:** Counting a service as "up" because `GET /health` returns 200, while actual customer database mutations fail with `500 Internal Server Error`.
+5. **Ignoring Network and Ingress Availability:** Sizing application servers for $99.99\%$ while running them behind a single, un-replicated load balancer instance.
+
+---
+
+## 11. Key Terms Glossary
+
+| Key Term | Clear Architectural Definition |
+| :--- | :--- |
+| **Availability** | The proportion of time a system is up, operational, and successfully serving valid user requests. |
+| **MTBF** | Mean Time Between Failures: average operational duration elapsed between system breakdowns. |
+| **MTTR** | Mean Time to Recovery: average duration required to diagnose, fail over, and restore a failed service. |
+| **Series Chain** | An architectural dependency model where every component must succeed; total availability is the product ($A = \prod A_i$). |
+| **Parallel Redundancy** | An architectural model where any available replica can serve the request; failure chances multiply ($1 - \prod (1 - A_i)$). |
+| **Correlated Failure** | When multiple redundant components fail simultaneously due to a shared dependency (power, DNS, config bug). |
+| **Critical Path** | The minimal synchronous sequence of operations strictly required to fulfill a core user transaction. |
+| **Circuit Breaker** | A proxy pattern that detects downstream failures and fails fast immediately, protecting upstream callers. |
+| **Graceful Degradation** | Returning partial or cached results when a non-essential dependency fails, allowing the core request to succeed. |
+
+---
+
+## 12. System Design Interview Questions & Answers
+
+### Basic Conceptual Questions
 
 <details>
-<summary><strong>Checkpoint 1: Removing Weak Links from a Long Synchronous Series Chain</strong></summary>
+<summary><strong>Q1: Two services at 99.9% each, in series. What's the total availability? [BASIC]</strong></summary>
 
-**Scenario:** A user profile update triggers 6 synchronous calls in series before returning `200 OK`: Gateway ($99.99\%$), Profile DB ($99.95\%$), Search Indexer ($99.8\%$), Audit Logger ($99.5\%$), Analytics Collector ($99.0\%$), and Email Notifier ($99.2\%$). What is the approximate overall endpoint availability, and what architecture fix instantly jumps it above $99.9\%$?
+**Answer:**
+About **$99.80\%$**, because in series you multiply individual availabilities:
 
-<strong>Answer:</strong>
-- **Current Availability:** Multiplying all 6 synchronous dependencies in series ($0.9999 \times 0.9995 \times 0.998 \times 0.995 \times 0.990 \times 0.992 \approx \mathbf{97.46\%}$ — over **9 days of downtime per year**!).
-- **Architectural Fix:** Shorten the critical path! Only **Gateway** and **Profile DB** are strictly mandatory to commit the profile change ($0.9999 \times 0.9995 \approx \mathbf{99.94\%}$). Commit the profile update to PostgreSQL along with an **Outbox Event** inside the same local transaction, then return `200 OK` immediately. Background workers read the outbox and asynchronously feed Search, Audit, Analytics, and Email—removing 4 fragile dependencies cleanly from user-facing availability!
+$$A_{\text{total}} = 0.999 \times 0.999 \approx \mathbf{0.998001} \quad (99.80\%)$$
+
+While $99.9\%$ allows $\sim 8.76\text{ hours}$ of downtime per year, combining two in series doubles downtime to **$\sim 17.5\text{ hours per year}$**.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Why Correlated Failures Shatter Parallel Redundancy Math</strong></summary>
+<summary><strong>Q2: What do MTBF and MTTR mean, and how do they determine availability? [BASIC]</strong></summary>
 
-**Scenario:** Your architecture team calculates that running 2 redundant database nodes ($99.9\%$ uptime each) achieves $1 - (0.001)^2 = \mathbf{99.9999\%}$ ("Six Nines"!). Yet during a routine OS patch Tuesday evening, the entire site goes completely offline for 20 minutes. Explain what assumption inside the parallel formula failed.
+**Answer:**
+- **MTBF (Mean Time Between Failures):** How long the system runs cleanly between unexpected outages.
+- **MTTR (Mean Time to Recovery):** How fast your engineering team detects, diagnoses, and restores operational service.
 
-<strong>Answer:</strong>
-The parallel availability formula $1 - \prod (1 - A_i)$ relies mathematically on **statistical independence** ($P(A \cap B) = P(A) \cdot P(B)$).
-If both replicas live on the same physical power rack, share the same single network router, receive an OS patch simultaneously via Ansible, or execute the exact same buggy database migration at the exact same millisecond, their failure probability becomes **completely correlated** ($P(A \cap B) \approx P(A)$). True parallel availability requires isolating power, Availability Zones, and deploying updates in staggered rolling waves (Canary $\to$ Zone A $\to$ pause $\to$ Zone B).
+$$\text{Availability} = \frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}$$
+
+Because hardware and networks will inevitably fail, cutting recovery time (e.g., via automated failover and instant rollback) is far more cost-effective than attempting to prevent all failures.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: Detecting Synthetic Healthcheck Blindness</strong></summary>
+<summary><strong>Q3: Two independent replicas at 99% each in parallel. What is the total availability? [BASIC]</strong></summary>
 
-**Scenario:** Your SLA status page monitors `GET /health` across all 10 application pods and logs `100.00%` availability over 30 days. However, enterprise customers demand SLA credit refunds because 18% of actual API write mutations returned `500 Internal Server Error` during a 3-hour DNS outage affecting your internal database hostname. Why did the health check miss a real SEV-1 outage?
+**Answer:**
+**$99.99\%$ ("Four Nines")**.
+In parallel, the system only fails if **both** replicas fail simultaneously. Multiply the individual failure probabilities:
 
-<strong>Answer:</strong>
-Static `/health` (liveness) endpoints confirm only that the web framework HTTP process hasn't crashed (`return {"status": "ok"}`). Because the check never parsed an auth token, resolved internal database DNS, or ran `SELECT 1`, it reported healthy even when the application couldn't reach its primary data store!
-Monitor user-facing **SLIs (Service Level Indicators)** derived directly from real request metrics ($\frac{\text{Successful HTTP Requests}}{\text{Total Valid Requests}}$) measured at the ingress load balancer—never mistake simple process liveness pings for true business availability.
+$$P(\text{Both Fail}) = (1 - 0.99) \times (1 - 0.99) = 0.01 \times 0.01 = 0.0001$$
+$$A_{\text{total}} = 1 - 0.0001 = \mathbf{0.9999} \quad (99.99\%)$$
 </details>
+
+<details>
+<summary><strong>Q4: What is the difference between fault tolerance and high availability? [BASIC]</strong></summary>
+
+**Answer:**
+- **High Availability (HA):** Aims to minimize downtime so that when a failure occurs, the system recovers rapidly (low MTTR, e.g. within seconds or minutes). Users might experience a brief retry or dropped connection.
+- **Fault Tolerance (FT):** Zero degradation. The system continues operating seamlessly through hardware or component failures without a single dropped request or measurable interruption (e.g. dual-lockstep hardware, Raft consensus quorums). FT is far more expensive to design and operate.
+</details>
+
+### Scenario-Based Architecture Questions
+
+<details>
+<summary><strong>Q5: A service fails once a month and takes 60 minutes to fix. What is the fastest way to improve its availability? [SCENARIO]</strong></summary>
+
+**Answer:**
+**Cut MTTR via automated failover and monitoring.**
+- Current: $\text{MTBF} = 43,200\text{ min}$, $\text{MTTR} = 60\text{ min} \implies \text{Availability} = \mathbf{99.86\%}$.
+- If you automate healthchecks and leader failover so recovery takes **6 minutes**:
+  $$\text{Availability} = \frac{43,200}{43,200 + 6} = \mathbf{99.986\%}$$
+You achieve a **$10\times$ reduction in yearly downtime** without changing application code or reducing failure frequency.
+</details>
+
+<details>
+<summary><strong>Q6: You need 99.99% availability, but each individual server provides only 99.5%. What architecture do you design? [SCENARIO]</strong></summary>
+
+**Answer:**
+Run multiple redundant replicas in parallel across independent Availability Zones behind an HA load balancer:
+- Two $99.5\%$ replicas: $1 - (0.005)^2 = 1 - 0.000025 = \mathbf{99.9975\%}$ (surpasses the $99.99\%$ target!).
+- Ensure strict independence: distribute nodes across different AZs, deploy an active-standby or active-active database, and enforce healthcheck routing so failed instances are removed from traffic within 3 seconds.
+</details>
+
+<details>
+<summary><strong>Q7: Your webpage calls 8 services in series. How do you raise its overall availability? [SCENARIO]</strong></summary>
+
+**Answer:**
+1. **Shorten the Synchronous Critical Path:** Identify non-mandatory dependencies (recommendations, ads, reviews, analytics) and decouple them.
+2. **Circuit Breakers with Fallbacks:** Wrap non-critical calls in circuit breakers. If Recommendations fails, return static cached popular items so checkout succeeds.
+3. **Asynchronous Decoupling:** Move post-processing (audit logs, emails, analytics) to asynchronous message queues (Kafka, SQS) so they do not block the HTTP response.
+4. **Parallel Fan-Out:** Execute independent queries concurrently (`Promise.all`, `asyncio.gather`) so timeout budgets overlap.
+</details>
+
+<details>
+<summary><strong>Q8: A database cluster has automated failover, but failover takes 45 seconds. How do you handle client traffic during failover? [SCENARIO]</strong></summary>
+
+**Answer:**
+1. **Connection Pooling with Retry Queueing:** In-flight queries should not immediately throw 500 errors. Application connection pools (e.g. HikariCP, PgBouncer) buffer incoming requests and retry with exponential backoff and randomized jitter for up to 50 seconds.
+2. **Graceful Read Fallback:** Route read queries to read-only replicas in secondary zones while the primary failover election completes.
+3. **Idempotency Keys:** Ensure write mutations carry idempotency keys so that when clients retry their post-failover write, duplicate operations are safely ignored.
+</details>
+
+### Advanced & Tricky Interview Questions
+
+<details>
+<summary><strong>Q9: Why does running replicas in 2 availability zones sometimes fail to give parallel availability? [TRICKY]</strong></summary>
+
+**Answer:**
+Because of **Correlated Failure Domains**:
+1. **Shared Configuration / Bad Deploys:** If a broken code release or database migration is applied globally to both zones simultaneously, all instances crash together.
+2. **Shared Networking / DNS:** If your route53 record or cloud edge load balancer misconfigures, both zones become unreachable.
+3. **Capacity Cascades:** If each zone runs at $75\%$ capacity, losing Zone A shifts all traffic to Zone B, which instantly overloads to $150\%$ and crashes—turning a single-zone issue into a total cluster failure.
+</details>
+
+<details>
+<summary><strong>Q10: Can adding redundancy actually decrease overall system availability? [TRICKY]</strong></summary>
+
+**Answer:**
+**Yes!** Adding redundancy introduces **coordination complexity**:
+1. **Consensus Quorum Overhead:** Adding nodes to a Raft or Paxos cluster increases consensus latency and network serialization points.
+2. **Split-Brain Risk:** If network partitions occur, misconfigured failover mechanisms can promote two primaries simultaneously, corrupting data and forcing a complete manual shutdown.
+3. **Cascading Healthcheck Flapping:** Aggressive healthcheck probes can mark healthy but busy nodes as dead, triggering failover storms that overload surviving nodes.
+</details>
+
+<details>
+<summary><strong>Q11: How do you measure true availability if health check probes return 200 OK while real user mutations fail? [TRICKY]</strong></summary>
+
+**Answer:**
+Never rely exclusively on shallow process liveness probes (`GET /health`). Instead, compute user-centric **Service Level Indicators (SLIs)** measured at the ingress load balancer:
+
+$$\text{SLI}_{\text{availability}} = \frac{\text{Count of Successful User Requests (HTTP 2xx, 3xx, 4xx)}}{\text{Total Valid User Requests (Excluding Bad Client 4xx)}}$$
+
+Additionally, run **Synthetic Canaries (Probers)** that execute end-to-end user transactions (e.g., login, add to cart, checkout) every 30 seconds and alert immediately when synthetic transactions fail.
+</details>
+
+<details>
+<summary><strong>Q12: Why is 99.999% ("five nines") rarely achievable or cost-effective for typical web backend services? [TRICKY]</strong></summary>
+
+**Answer:**
+Five nines allows only **$5.26\text{ minutes}$ of total downtime per year** across all scheduled maintenance, unexpected bugs, hardware crashes, and network reconfigurations.
+Achieving it requires:
+- Multi-region active-active database replication with zero data loss (e.g. Google Spanner atomic clocks).
+- Redundant multi-cloud networking and independent DNS providers.
+- Fully automated canary deployments and instant automated rollbacks in $< 10\text{ seconds}$.
+- The cost to jump from $99.99\%$ to $99.999\%$ often scales **$10\times$ in infrastructure and engineering budget**, which is wasteful if the client accessing the site is on a mobile cellular network that experiences $99\%$ availability at best.
+</details>
+
+---
+
+## 13. One-Page Availability Master Cheat Sheet
+
+```
++---------------------------------------------------------------------------------------------------------+
+|                                    AVAILABILITY MASTER CHEAT SHEET                                      |
++---------------------------------------------------------------------------------------------------------+
+| 1. CORE FORMULA:                                                                                        |
+|    Availability = MTBF / (MTBF + MTTR)                                                                  |
+|    -> Cutting MTTR (recovery time) from 60m to 6m yields 10x less downtime far more cheaply than MTBF!  |
++---------------------------------------------------------------------------------------------------------+
+| 2. THE TABLE OF NINES:                                                                                  |
+|    99.0%   (2 nines) -> 3.65 days downtime/year   | 7.30 hours/month                                    |
+|    99.9%   (3 nines) -> 8.76 hours downtime/year  | 43.8 minutes/month                                  |
+|    99.99%  (4 nines) -> 52.6 minutes downtime/year| 4.38 minutes/month                                  |
+|    99.999% (5 nines) -> 5.26 minutes downtime/year| 25.9 seconds/month                                  |
++---------------------------------------------------------------------------------------------------------+
+| 3. SERIES VS PARALLEL:                                                                                  |
+|    Series (both needed):   A = A1 * A2 * ... * An     -> Multiplies DOWN! Every dependency hurts.       |
+|    Parallel (either works):A = 1 - (1-A1)*(1-A2)      -> Multiplies FAILURES DOWN! Redundancy wins.     |
+|    -> Example: Two 99% replicas give 1 - (0.01)^2 = 99.99%! (Requires failure independence).            |
++---------------------------------------------------------------------------------------------------------+
+| 4. CORRELATED FAILURES BREAK PARALLEL MATH:                                                             |
+|    Replicas sharing the same rack, power, AZ, DNS, or simultaneous code deployment fail together!       |
+|    -> Always enforce Canary deployments, separate AZs, and automated rollback triggers.                |
++---------------------------------------------------------------------------------------------------------+
+| 5. TOP TECHNIQUES TO RAISE AVAILABILITY:                                                                |
+|    1. Shorten critical path: move optional enrichments off the synchronous request path.                |
+|    2. Circuit breakers & graceful fallbacks: return cached data when dependencies fail.                 |
+|    3. Automated fast failover: healthcheck probes + automatic leader promotion to crush MTTR.           |
+|    4. Retries with full jitter & timeouts: prevent slow downstream services from exhausting worker pools.|
++---------------------------------------------------------------------------------------------------------+
+```
 
 ---
 
 ## Further Reading & Sources
 
-- [Google SRE Book: Availability & MTBF/MTTR Modeling](https://sre.google/sre-book/service-level-objectives/) — Practical definitions of request-based vs time-based availability.
-- [Azure Well-Architected Framework: Reliability & Redundancy](https://learn.microsoft.com/en-us/azure/well-architected/reliability/redundancy) — Designing multi-zone and multi-region failure independence.
-- [Martin Fowler: Circuit Breaker Pattern](https://martinfowler.com/bliki/CircuitBreaker.html) — Isolating flaky downstream services cleanly.
+- Google SRE Book, *Service Level Objectives & Addressing Cascading Failures*.
+- AWS Well-Architected Framework, *Reliability Pillar: Fault Isolation & Redundancy*.
+- Michael T. Nygard, *Release It!: Design and Deploy Production-Ready Software* (Circuit Breakers & Bulkheads).
 
 ---
 
-## Free PDF notes
+## Free PDF Notes
 
 Download these notes as a printable PDF, with every diagram: [SD-A-010.pdf](https://backendroadmap.com/notes/system-design/SD-A-010.pdf). All Phase 1 notes in one file: [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf).
 
@@ -474,4 +689,4 @@ Download these notes as a printable PDF, with every diagram: [SD-A-010.pdf](http
 
 ## Next
 
-Continue with [Lesson 11: Reliability, Availability and Durability](../11-reliability-availability-and-durability/README.md) to distinguish *"up and running"* from *"returning correct answers"* from *"never losing committed data."*
+Continue with [Lesson 11: Reliability, Availability and Durability](../11-reliability-availability-and-durability/README.md) to discover why an all-green $99.99\%$ uptime dashboard can still hide catastrophic data corruption.

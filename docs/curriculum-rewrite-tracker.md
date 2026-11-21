@@ -46,10 +46,10 @@ Path: `content/system-design/01-core-fundamentals/`
 | `07-horizontal-scaling` | Horizontal Scaling | `SD-A-007.pdf` | 🟡 Pending | Ready for extraction |
 | `08-latency` | Latency: Anatomy, Budgets, and Mitigation | `SD-A-008.pdf` | 🟢 **Completed** | Commit `2f00d41` (All 16 points implemented) |
 | `09-throughput-and-littles-law` | Throughput & Little's Law | `SD-A-009.pdf` | 🟢 **Completed** | Commit `2f00d41` (All 16 points implemented) |
-| `10-availability` | Availability: Nines, MTBF vs MTTR, and Redundancy | `SD-A-010.pdf` | 🚀 **Next Up** | Ready for immediate rewrite |
-| `11-reliability-availability-and-durability` | Reliability, Availability, and Durability | `SD-A-011.pdf` | 🟡 Pending | Ready for extraction |
-| `12-scalability` | Scalability Dimensions | `SD-A-012.pdf` | 🟡 Pending | Ready for extraction |
-| `13-cap-theorem` | CAP Theorem in Practice | `SD-A-013.pdf` | 🟡 Pending | Ready for extraction |
+| `10-availability` | Availability: Nines, MTBF vs MTTR, and Redundancy | `SD-A-010.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `11-reliability-availability-and-durability` | Reliability, Availability, and Durability | `SD-A-011.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `12-scalability` | Scalability Dimensions | `SD-A-012.pdf` | 🟢 **Completed** | Upgraded with full 16-point rubric |
+| `13-cap-theorem` | CAP Theorem in Practice | `SD-A-013.pdf` | 🚀 **Next Up** | Ready for immediate rewrite |
 | `14-pacelc-theorem` | PACELC Theorem | `SD-A-014.pdf` | 🟡 Pending | Ready for extraction |
 | `15-consistency-models` | Consistency Models: Strong to Eventual | `SD-A-015.pdf` | 🟡 Pending | Ready for extraction |
 | `16-fault-tolerance` | Fault Tolerance & Blast Radius | `SD-A-016.pdf` | 🟡 Pending | Ready for extraction |
