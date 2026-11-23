@@ -1,5 +1,6 @@
 import { LabIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LabAnimation from './LabAnimation.jsx';
+import '../../styles/lab-card.css';
 
 export default function LabCard({ tools }) {
   if (!tools || !tools.length) return null;
