@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 01](../01-strings-and-text/README.md): indexing and slicing, which work the same way here.  
 > **Estimated Reading Time:** 25 minutes  
-> **Who this is for:** Anyone who wants the three everyday collections clear in their head, and a rule for choosing between them.
+> **Who this is for:** Anyone who wants the three everyday collections clear in their head, and a rule for choosing between them.  
+> **Interview relevance:** Choosing a collection and knowing its costs is a standard interview question.
 
 > [!key]
 > A **list** is an ordered collection you can change. A **tuple** is an ordered collection you cannot change. A **set** is an unordered collection with no duplicates. Choosing between them is mostly one question: *does order matter, and will it change?*
+
+> [!note]
+> List, tuple and set differ in order, mutability and cost; the traps are `None` returns, shared references from `*`, and editing a list while looping.
+
+> [!tip]
+> Say the complexity out loud: append O(1), `in list` O(n), `in set` O(1). Interviewers listen for it.
 
 ## What you will be able to do
 
@@ -518,6 +525,151 @@ print(items[1:] + items[:1])
 Slice from 1 to the end, then add the slice before position 1.
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **Methods that change a list return `None`, `*` copies references not objects, and a one-item tuple needs a comma.** Add "removing while looping" and you have the four classic list traps.
+
+```python
+nums = [3, 1, 2]
+print(nums.sort(), nums)
+print(sorted([3, 1, 2]), type((1)), type((1,)))
+
+grid = [[0] * 2] * 2
+grid[0][0] = 9
+print(grid)
+good = [[0] * 2 for _ in range(2)]
+good[0][0] = 9
+print(good)
+```
+
+```text
+None [1, 2, 3]
+[1, 2, 3] <class 'int'> <class 'tuple'>
+[[9, 0], [9, 0]]
+[[9, 0], [0, 0]]
+```
+
+- `list.sort()`, `append`, `extend`, `remove` and `reverse` change the list and return `None`. `x = x.sort()` therefore destroys your list.
+- `[[0] * 2] * 2` makes **two references to one inner list**. Build rows with a comprehension so each row is a separate list.
+- `(1)` is just `1` in brackets; the comma makes the tuple.
+
+Removing items while looping over the same list skips elements, because the positions shift under the loop (below, the second `2` is never looked at):
+
+```python
+nums = [1, 2, 2, 3, 4]
+for n in nums:
+    if n % 2 == 0:
+        nums.remove(n)
+print(nums)
+
+nums = [1, 2, 2, 3, 4]
+print([n for n in nums if n % 2 != 0])
+```
+
+```text
+[1, 2, 3]
+[1, 3]
+```
+
+`append` adds one item, `extend` adds each item of an iterable, and `+=` on a list extends **in place** (so it is visible through every name for that list):
+
+```python
+a = [1, 2]
+a.append([3, 4])
+b = [1, 2]
+b.extend([3, 4])
+print(a, b)
+
+x = [1]
+y = x
+y += [2]
+print(x)
+z = x
+z = z + [3]
+print(x, z)
+```
+
+```text
+[1, 2, [3, 4]] [1, 2, 3, 4]
+[1, 2]
+[1, 2] [1, 2, 3]
+```
+
+A tuple is immutable, but if it *contains* a mutable object, that object can still change. Only hashable things can go in a set:
+
+```python
+t = ([1], 2)
+t[0].append(99)
+print(t)
+
+print({1, 2, 2, 3}, {1, 2} | {2, 3}, {1, 2} & {2, 3}, {1, 2} - {2, 3})
+```
+
+```text
+([1, 99], 2)
+{1, 2, 3} {1, 2, 3} {2} {1}
+```
+
+```python
+# raises
+{[1, 2], 3}
+```
+
+```text
+TypeError: unhashable type: 'list'
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. List vs tuple: when do you use which? [BASIC]</strong></summary>
+
+A list is a growable, changeable sequence of similar items. A tuple is a fixed-shape record, such as `(lat, lon)` or a function returning several values. Tuples are immutable, so they can be dictionary keys and set members (if their items are hashable), and signal "this does not change".
+
+</details>
+
+<details>
+<summary><strong>2. What is the cost of common list operations? [TRICKY]</strong></summary>
+
+Index and `append` are O(1) (append amortised); `insert(0, x)`, `pop(0)`, `remove`, `x in lst` and slicing are O(n); `sort` is O(n log n). If you need a fast front-pop use `collections.deque`; for fast membership use a `set`.
+
+</details>
+
+<details>
+<summary><strong>3. How do you remove duplicates and keep the order? [SCENARIO]</strong></summary>
+
+`list(dict.fromkeys(items))`. Dictionaries remember insertion order, and keys are unique. `list(set(items))` also removes duplicates but loses the order.
+
+</details>
+
+<details>
+<summary><strong>4. <code>sort()</code> vs <code>sorted()</code>? [BASIC]</strong></summary>
+
+`sort()` changes the list in place and returns `None`; `sorted()` accepts any iterable and returns a new list. Both are stable (equal items keep their original order) and accept `key=` and `reverse=`.
+
+</details>
+
+<details>
+<summary><strong>5. Why is <code>x in a_set</code> faster than <code>x in a_list</code>? [BASIC]</strong></summary>
+
+A set uses a hash table, so membership is O(1) on average, while a list scans every element, O(n). The price: set items must be hashable and have no order.
+
+</details>
+
+## Cheat sheet
+
+```text
+list    [1, 2, 3]   ordered, mutable      append extend insert pop remove sort reverse
+tuple   (1, 2) / (1,)  ordered, immutable   records, dict keys, multiple returns
+set     {1, 2}   unordered, unique         | union  & intersection  - difference  ^ symmetric
+None    sort() append() extend() remove() reverse() all return None
+Copy    [x] * n repeats REFERENCES          [[0]*c for _ in range(r)] for grids
+Loops   never remove from the list you are iterating -> build a new list
+Costs   index/append O(1) | insert(0) pop(0) in O(n) | sort O(n log n) | set in O(1)
+Unpack  a, b = b, a     first, *rest = items     for i, x in enumerate(items, 1)
+```
 
 ## Check yourself
 

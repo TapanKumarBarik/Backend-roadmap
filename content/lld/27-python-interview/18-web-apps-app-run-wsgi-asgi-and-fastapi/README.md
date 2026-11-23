@@ -1,566 +1,557 @@
-# Lesson 18: Web Apps: app.run, WSGI, ASGI, Middleware and FastAPI Depends
+# Lesson 18: Web Apps — `app.run`, WSGI, ASGI and FastAPI
 
-> **Prerequisites:** [Modules, Packages and Imports](../17-modules-packages-and-imports/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18-20 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 15: asyncio in Depth](../15-asyncio-in-depth/README.md) · [Lesson 17: Modules and Imports](../17-modules-packages-and-imports/README.md) · [Lesson 04: Decorators](../04-decorators/README.md)  
+> **Reading time:** ~25 minutes  
+> **Audience:** Candidates asked "what does `app.run()` do?", "WSGI vs ASGI?", "why not use the Flask dev server in production?", "how does FastAPI dependency injection work?"
+
+> [!NOTE]
+> **In one line:** A Python web framework is just a **callable** that follows a protocol — **WSGI** `app(environ, start_response)` (sync) or **ASGI** `async app(scope, receive, send)` (async) — and a **server** (gunicorn, uvicorn) calls it for every request; `app.run()` merely starts a *development* server around that callable.
 
 > [!TIP]
-> **The One Rule of Python Web Architecture:** Production Python web applications separate OS socket and process management from application business logic through standardized calling conventions: **WSGI** (`environ, start_response`) for synchronous request-response lifecycles, and **ASGI** (`scope, receive, send`) for event-driven asynchronous pipelines. Never call `app.run()` in production; front your WSGI apps with a pre-fork server like **Gunicorn** and ASGI apps with **Uvicorn**, intercept cross-cutting concerns via onion-layered middleware (`call_next`), and isolate resource lifecycles through FastAPI's graph-resolved `Depends()`.
+> **Golden rule:** `app.run()` / `flask run` / `uvicorn --reload` are for development. In production run the app under a real server (gunicorn with workers, or uvicorn/gunicorn+uvicorn workers) behind a reverse proxy (nginx / cloud LB), with the `if __name__ == "__main__"` guard around any `app.run`.
+
+> [!TIP]
+> **Try it:** Run the section 3 file — sections 1–4 need only the standard library; section 5 needs `pip install fastapi httpx` (and `pydantic`, which FastAPI pulls in). Then run the [web lab](#try-it--web-lab-runnable) below: it serves a WSGI app with the stdlib's `wsgiref` (that is all `app.run()` is), writes an ASGI middleware, and **measures** a blocking call inside `async def` against a plain `def` on a real uvicorn server. Draw request flow through proxy → server → middleware → handler in [LLD Studio](/tools/lld-studio/).
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"How does Python serve web requests, what does `app.run()` actually do, and why can't we run it in production?" is one of the most reliable filters between junior developers who only run tutorials locally and senior engineers who have operated services under real-world production load.
-
-A typical junior candidate replies:
-- *"Flask uses `app.run()` to start a web server on port 5000. In production, we don't use it because it's slow and single-threaded. We use Gunicorn because it adds workers, and FastAPI is faster because it uses ASGI."*
-
-This answer is superficial. It fails to explain what `app.run()` does under the hood, why the Werkzeug development server fails under load, how the WSGI specification functions, why ASGI was invented, or how modern frameworks manage dependency lifetimes.
-
-A senior engineer answers with **protocol mechanics and production failure modes**:
-- **What `app.run()` does:** It invokes Werkzeug's embedded development server (`werkzeug.serving.run_simple`). It binds a single OS TCP socket, often enables the interactive in-browser debugger and auto-reloader, and runs in a single process. By default, it lacks worker process supervision, rate limiting, connection pooling, and resilient signal handling.
-- **Why it is hazardous in production:**
-  1. *Resource exhaustion & DoS:* It does not handle slow HTTP client attacks (Slowloris). A handful of stalled connections will exhaust the server socket backlog and starve incoming traffic.
-  2. *Security vulnerability:* If `debug=True` is accidentally active, any 500 exception serves the Werkzeug interactive debugger directly to the user's browser, permitting arbitrary Python code execution on the production host through the web console.
-  3. *Zero-downtime deployments:* It has no master-worker architecture to perform graceful restarts (`SIGHUP`), rolling worker recycles, or socket handover during deployments.
-- **The Protocol Evolution (WSGI to ASGI):**
-  - **WSGI (PEP 3333):** Designed in 2003 as a synchronous standard interface. A WSGI server receives an HTTP request and calls an application callable: `response_body = app(environ, start_response)`. Because WSGI assumes a single synchronous request-response turnaround, it cannot natively handle persistent bi-directional WebSockets, HTTP/2 multiplexing, server-sent events (SSE), or non-blocking async coroutines.
-  - **ASGI (Asynchronous Server Gateway Interface):** Designed to succeed WSGI. An ASGI application is an asynchronous coroutine: `await app(scope, receive, send)`. The app communicates with the server via event dictionaries over two asynchronous message channels (`receive()` and `send()`), enabling high-concurrency async I/O, WebSockets, and background tasks within an event-driven loop.
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The Production Python Web Request Lifecycle
+- *"What does `app.run()` do? Why `if __name__ == '__main__'`?"*
+- *"What is WSGI? ASGI? Why did ASGI appear?"*
+- *"Flask vs FastAPI vs Django?"*
+- *"Why shouldn't you use `debug=True` in production?"*
+- *"`def` vs `async def` endpoints in FastAPI?"*
+- *"How does FastAPI's `Depends` work? How would you test it?"*
+- *"How many workers? Where does the GIL fit?"*
 
 ```mermaid
-flowchart TD
-    Client["Client / Browser"] -->|HTTPS / TCP| ReverseProxy["Reverse Proxy: Nginx / Cloudflare\n- SSL Termination\n- Static Assets\n- Slowloris Protection"]
-    ReverseProxy -->|Unix Domain Socket / TCP| MasterProcess["ASGI Master Process: Gunicorn / Uvicorn\n- Process Supervision\n- Signal Handling (SIGTERM/SIGHUP)\n- Worker Scaling"]
-
-    subgraph WorkerProcess["Worker Process: Uvicorn / Event Loop"]
-        WorkerSocket["Worker Socket Reader"] --> ASGIBridge["ASGI Server Engine (Scope / Receive / Send)"]
-        
-        subgraph MiddlewareStack["Starlette Middleware Pipeline (Onion Model)"]
-            MW1["CorrelationIdMiddleware\nInject X-Request-ID"]
-            MW2["TimingMiddleware\nCalculate latency"]
-            MW3["AuthMiddleware\nValidate JWT / Session"]
-            MW1 --> MW2 --> MW3
-        end
-        
-        ASGIBridge --> MiddlewareStack
-        
-        subgraph FastAPIInternal["FastAPI Application"]
-            Router["APIRouter: Match URL & Method"]
-            
-            subgraph DIDAG["Dependency Injection Resolution (DAG)"]
-                DepDB["Depends(get_db_session)\nYields Session Context"]
-                DepUser["Depends(get_current_user)\nDepends on DB + Token"]
-                DepDB --> DepUser
-            end
-            
-            Handler["Route Handler: async def get_profile(...)"]
-            
-            Router --> DIDAG --> Handler
-        end
-        
-        MiddlewareStack --> FastAPIInternal
-    end
-
-    MasterProcess --> WorkerProcess
+flowchart LR
+  C["Client"] --> P["Reverse proxy<br/>(nginx / LB: TLS, buffering)"]
+  P --> S["App server<br/>gunicorn / uvicorn (workers)"]
+  S -->|"WSGI: app(environ, start_response)<br/>ASGI: await app(scope, receive, send)"| M["Middleware chain"]
+  M --> F["Framework router<br/>(Flask / FastAPI / Django)"]
+  F --> H["Your handler"]
+  H --> D[("DB / cache")]
 ```
 
-### Protocol & Architectural Comparison
-
-| Dimension | WSGI (PEP 3333) | ASGI (Async Gateway) | ASP.NET Core Kestrel |
-| :--- | :--- | :--- | :--- |
-| **Interface Signature** | `app(environ, start_response)` | `async def app(scope, receive, send)` | `RequestDelegate(HttpContext context)` |
-| **Execution Paradigm** | Synchronous, blocking per request | Asynchronous, event-driven coroutine | Asynchronous, task-based pipeline |
-| **Concurrency Model** | Multi-process (pre-fork) or multi-threaded | Single-thread event loop per worker process | ThreadPool work-stealing multi-threading |
-| **Supported Protocols** | HTTP/1.0, HTTP/1.1 (sync request/response) | HTTP/1.1, HTTP/2, WebSockets, Lifespan events | HTTP/1.1, HTTP/2, HTTP/3, WebSockets, gRPC |
-| **Production Servers** | Gunicorn (sync workers), uWSGI, Waitress | Uvicorn, Hypercorn, Granian | Kestrel (Built-in high-performance web server) |
-| **Middleware Pattern** | Nested callable decorators wrapping `environ` | `BaseHTTPMiddleware` wrapping `call_next(request)` | `app.Use(async (context, next) => { ... })` |
-| **Dependency Injection** | Third-party or manual (Flask `g`, Injector) | Framework-native hierarchical DAG (`Depends`) | Framework-native `IServiceProvider` (Transient/Scoped/Singleton) |
+```mermaid
+sequenceDiagram
+  participant S as Server (uvicorn)
+  participant A as ASGI app
+  S->>A: scope = {type: "http", path, method, headers}
+  S->>A: receive() → request body events
+  A->>S: send({"type": "http.response.start", status, headers})
+  A->>S: send({"type": "http.response.body", body})
+```
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The carousel below demonstrates:
-1. **Python:** A bare-metal ASGI app to demystify the protocol, followed by a production FastAPI app featuring custom latency middleware and a full `Depends` dependency graph with database transaction cleanup (`yield`).
-2. **C#:** An equivalent ASP.NET Core Minimal API demonstrating raw middleware pipelines, scoped dependency injection, and automatic resource disposal.
+| | **WSGI** (PEP 3333) | **ASGI** |
+| :--- | :--- | :--- |
+| Signature | `app(environ, start_response) → iterable[bytes]` | `async app(scope, receive, send)` |
+| Concurrency | One request per worker thread/process | Many on one event loop |
+| Protocols | HTTP only | HTTP, WebSocket, lifespan, SSE |
+| Servers | gunicorn, uWSGI, waitress | uvicorn, hypercorn, daphne |
+| Frameworks | Flask, Django (sync), Bottle | FastAPI, Starlette, Django (async), Quart |
+| Blocking calls | Fine (that's the model) | Must not block the loop |
+
+| Framework | Style | Notes |
+| :--- | :--- | :--- |
+| **Flask** | Micro, sync, decorators; `app.run()` dev server | Add extensions for ORM/auth |
+| **FastAPI** | ASGI, type hints → validation (pydantic) + OpenAPI docs + `Depends` DI | `async def` on loop, `def` in a threadpool |
+| **Django** | Batteries-included (ORM, admin, auth) | Sync-first, async support growing |
+
+---
+
+## 3. Walkthrough: the protocols with no framework, then FastAPI
+
+**Requirements:** show what a WSGI app and an ASGI app really are, how middleware is function composition, how a `Depends`-style injector works, and how to test a FastAPI app without a server.
+
+1. Write a WSGI app and call it with a fake `environ`/`start_response` (that *is* the server's job).
+2. Wrap it with middleware (a callable that returns a callable).
+3. Write an ASGI app and drive it with fake `receive`/`send`.
+4. Build a 15-line `Depends` to see the idea.
+5. Use FastAPI's `TestClient`, and override a dependency in tests.
 
 ````carousel
 ```python
 import asyncio
-import time
-from typing import AsyncGenerator, Dict, Generator
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.testclient import TestClient
-
-# ============================================================================
-# 1. UNDER THE HOOD: Raw Bare-Metal ASGI Application
-# ============================================================================
-async def raw_asgi_app(scope: Dict, receive, send):
-  """Demonstrates the pure ASGI 3.0 specification without frameworks.
-
-  An ASGI app is simply a callable taking (scope, receive, send).
-  """
-  if scope["type"] == "http":
-    # Wait for the client request body event
-    request_event = await receive()
-
-    # Send response start header event
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [[b"content-type", b"text/plain"]],
-    })
-
-    # Send response body event
-    await send({
-        "type": "http.response.body",
-        "body": b"Hello from Bare Metal ASGI!",
-    })
+import inspect
+import json
+from io import BytesIO
 
 
-# ============================================================================
-# 2. PRODUCTION ARCHITECTURE: FastAPI + Middleware + Depends
-# ============================================================================
-app = FastAPI(title="Production Web Engine")
+# ---------- 1) WSGI: a plain function
+def wsgi_app(environ, start_response):
+    name = environ["QUERY_STRING"].split("=")[-1] or "world"
+    body = f"hello {name}".encode()
+    start_response("200 OK", [("Content-Type", "text/plain"), ("Content-Length", str(len(body)))])
+    return [body]
 
 
-# --- A. Custom Middleware (Onion Pattern) ---
-class TimingAndCorrelationMiddleware(BaseHTTPMiddleware):
-  """Wraps request execution: calculates latency and injects headers."""
+def call_wsgi(app, path="/", query=""):
+    """What a WSGI server (gunicorn) does for each request."""
+    captured = {}
 
-  async def dispatch(self, request: Request, call_next) -> Response:
-    start_time = time.perf_counter()
+    def start_response(status, headers):
+        captured["status"], captured["headers"] = status, dict(headers)
 
-    # Pass request down the middleware chain to the route handler
-    response: Response = await call_next(request)
-
-    process_time = time.perf_counter() - start_time
-    response.headers["X-Process-Time"] = f"{process_time:.6f}"
-    response.headers["X-Correlation-ID"] = "corr-uuid-98765"
-    return response
+    environ = {"REQUEST_METHOD": "GET", "PATH_INFO": path, "QUERY_STRING": query,
+               "wsgi.input": BytesIO(b"")}
+    body = b"".join(app(environ, start_response))
+    return captured["status"], captured["headers"], body.decode()
 
 
-app.add_middleware(TimingAndCorrelationMiddleware)
+# ---------- 2) middleware = callable wrapping a callable
+def header_middleware(app):
+    def wrapped(environ, start_response):
+        def sr(status, headers, exc_info=None):
+            return start_response(status, headers + [("X-Powered-By", "wsgi-demo")])
+        return app(environ, sr)
+    return wrapped
 
 
-# --- B. Dependency Injection: Database Session with Lifecycle Cleanup ---
-class MockDbSession:
-
-  def __init__(self):
-    self.is_active = True
-    print("[DB] Connection acquired from pool.")
-
-  def query_user(self, user_id: str) -> dict:
-    return {"id": user_id, "username": "ada_lovelace", "role": "admin"}
-
-  def commit(self):
-    print("[DB] Transaction committed.")
-
-  def close(self):
-    self.is_active = False
-    print("[DB] Connection closed & returned to pool.")
+print("WSGI:", call_wsgi(wsgi_app, query="name=Ada"))
+print("WSGI+middleware header:", call_wsgi(header_middleware(wsgi_app))[1]["X-Powered-By"])
 
 
-def get_db() -> Generator[MockDbSession, None, None]:
-  """FastAPI 'yield' dependency: code before yield runs on request arrival;
-
-  code after yield guarantees resource disposal after response delivery.
-  """
-  db = MockDbSession()
-  try:
-    yield db
-    db.commit()
-  finally:
-    db.close()
+# ---------- 3) ASGI: an async callable with scope/receive/send
+async def asgi_app(scope, receive, send):
+    assert scope["type"] == "http"
+    body = json.dumps({"path": scope["path"], "method": scope["method"]}).encode()
+    await send({"type": "http.response.start", "status": 200,
+                "headers": [(b"content-type", b"application/json")]})
+    await send({"type": "http.response.body", "body": body})
 
 
-# --- C. Sub-Dependency: Authentication validating token & using DB ---
-def get_current_user(
-    request: Request, db: MockDbSession = Depends(get_db)
-) -> dict:
-  """Hierarchical dependency: resolves get_db first, then validates credentials."""
-  auth_header = request.headers.get("Authorization")
-  if not auth_header or not auth_header.startswith("Bearer "):
-    raise HTTPException(status_code=401, detail="Missing or invalid token")
+async def call_asgi(app, path="/"):
+    """What uvicorn does for each request."""
+    sent = []
 
-  token = auth_header.split(" ")[1]
-  if token != "secret-token-123":
-    raise HTTPException(status_code=403, detail="Forbidden: Bad token")
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
 
-  # Use the injected DB session
-  return db.query_user("user-001")
+    async def send(message):
+        sent.append(message)
+
+    await app({"type": "http", "path": path, "method": "GET", "headers": []}, receive, send)
+    return sent[0]["status"], sent[1]["body"].decode()
 
 
-# --- D. Route Handlers Consuming Dependencies ---
-@app.get("/users/me")
-async def read_current_user(current_user: dict = Depends(get_current_user)):
-  """Route handler has ZERO database or auth boilerplate; completely decoupled."""
-  return {"user": current_user, "status": "authenticated"}
+print("ASGI:", asyncio.run(call_asgi(asgi_app, "/items")))
 
 
-# ============================================================================
-# 3. VERIFICATION RUN USING TEST CLIENT
-# ============================================================================
-if __name__ == "__main__":
-  client = TestClient(app)
+# ---------- 4) a mini Depends: inspect signature, resolve callables, call handler
+class Depends:
+    def __init__(self, dependency):
+        self.dependency = dependency
 
-  print("--- 1. Request with Valid Token ---")
-  resp = client.get(
-      "/users/me", headers={"Authorization": "Bearer secret-token-123"}
-  )
-  print(f"Status: {resp.status_code}")
-  print(f"Payload: {resp.json()}")
-  print(f"Header X-Correlation-ID: {resp.headers.get('x-correlation-id')}")
 
-  print("\n--- 2. Request with Missing Token (401 Trapped) ---")
-  resp_fail = client.get("/users/me")
-  print(f"Status: {resp_fail.status_code}")
-  print(f"Payload: {resp_fail.json()}")
-```
-<!-- slide -->
-```csharp
-using System;
-using System.Diagnostics;
-using System.Security.Claims;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+def resolve(handler, overrides=None):
+    overrides = overrides or {}
+    kwargs = {}
+    for name, param in inspect.signature(handler).parameters.items():
+        dep = param.default
+        if isinstance(dep, Depends):
+            fn = overrides.get(dep.dependency, dep.dependency)
+            kwargs[name] = resolve(fn, overrides)            # dependencies of dependencies
+    return handler(**kwargs)
 
-public class Program
-{
-    // ========================================================================
-    // 1. SCOPED DEPENDENCY: Database Session with IDisposable Cleanup
-    // ========================================================================
-    public interface IDbSession : IDisposable
-    {
-        object QueryUser(string userId);
-        void Commit();
-    }
 
-    public class MockDbSession : IDbSession
-    {
-        public bool IsActive { get; private set; } = true;
+def get_settings():
+    return {"db": "prod-db"}
 
-        public MockDbSession()
-        {
-            Console.WriteLine("[DB] Connection acquired from pool.");
-        }
 
-        public object QueryUser(string userId)
-        {
-            return new { id = userId, username = "ada_lovelace", role = "admin" };
-        }
+def get_repo(settings=Depends(get_settings)):
+    return f"repo@{settings['db']}"
 
-        public void Commit()
-        {
-            Console.WriteLine("[DB] Transaction committed.");
-        }
 
-        public void Dispose()
-        {
-            IsActive = false;
-            Console.WriteLine("[DB] Connection closed & returned to pool.");
-        }
-    }
+def endpoint(repo=Depends(get_repo)):
+    return f"using {repo}"
 
-    public static void Main(string[] args)
-    {
-        var builder = WebApplication.CreateBuilder(args);
 
-        // Register Scoped Service: automatically disposed at end of HTTP request
-        builder.Services.AddScoped<IDbSession, MockDbSession>();
+print("Depends:", resolve(endpoint))
+print("Depends (test override):", resolve(endpoint, {get_settings: lambda: {"db": "test-db"}}))
 
-        var app = builder.Build();
 
-        // ====================================================================
-        // 2. MIDDLEWARE PIPELINE (Onion Pattern equivalent to Starlette)
-        // ====================================================================
-        app.Use(async (context, next) =>
-        {
-            var sw = Stopwatch.StartNew();
-            context.Response.OnStarting(() =>
-            {
-                sw.Stop();
-                context.Response.Headers["X-Process-Time"] = sw.Elapsed.TotalSeconds.ToString("F6");
-                context.Response.Headers["X-Correlation-ID"] = "corr-uuid-98765";
-                return Task.CompletedTask;
-            });
+# ---------- 5) FastAPI: real framework, tested in-process (no server)
+from fastapi import Depends as FDepends, FastAPI
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
-            await next(context);
-        });
 
-        // ====================================================================
-        // 3. MINIMAL API ENDPOINT: Dependency Injection via [FromServices]
-        // ====================================================================
-        app.MapGet("/users/me", (HttpContext context, IDbSession db) =>
-        {
-            string? auth = context.Request.Headers["Authorization"];
-            if (string.IsNullOrEmpty(auth) || !auth.StartsWith("Bearer secret-token-123"))
-            {
-                return Results.Json(new { detail = "Missing or invalid token" }, statusCode: 401);
-            }
+class Item(BaseModel):
+    name: str
+    price: float
 
-            var user = db.QueryUser("user-001");
-            db.Commit();
-            return Results.Ok(new { user, status = "authenticated" });
-        });
-
-        Console.WriteLine("ASP.NET Core Kestrel pipeline configured successfully.");
-    }
-}
-```
-````
-
-**Expected Output (Both Languages):**
-
-```text
---- 1. Request with Valid Token ---
-[DB] Connection acquired from pool.
-[DB] Transaction committed.
-[DB] Connection closed & returned to pool.
-Status: 200
-Payload: {'user': {'id': 'user-001', 'username': 'ada_lovelace', 'role': 'admin'}, 'status': 'authenticated'}
-Header X-Correlation-ID: corr-uuid-98765
-
---- 2. Request with Missing Token (401 Trapped) ---
-Status: 401
-Payload: {'detail': 'Missing or invalid token'}
-```
-
----
-
-## 4. Where You Already Use It
-
-- **In Python:**
-  - **`wsgiref` & `gunicorn`:** Gunicorn is the standard WSGI container for Django and Flask. It uses a master process to fork worker processes and bind listening sockets, managing worker signals like `SIGHUP` (graceful reload) and `SIGTERM` (graceful shutdown).
-  - **`uvicorn` & `FastAPI` / `Starlette`:** Uvicorn acts as the ASGI HTTP server, handling TCP parsing, SSL, and WebSockets over `asyncio`. FastAPI sits on top as the ASGI routing and DI framework.
-  - **`BaseHTTPMiddleware` & Starlette Middleware Stack:** Standard libraries for CORS (`CORSMiddleware`), GZip compression (`GZipMiddleware`), and Session cookies (`SessionMiddleware`) wrap the request in an onion model around `call_next`.
-  - **`fastapi.Depends`:** Powers authentication, RBAC authorization, pagination parameters, and SQLAlchemy/AsyncPG database session pooling across enterprise microservices.
-
-- **In .NET / C#:**
-  - **`Microsoft.AspNetCore.Http.RequestDelegate`:** The core delegate `Task RequestDelegate(HttpContext context)` is the .NET direct equivalent of an ASGI callable.
-  - **`app.UseRouting()` and `app.UseAuthentication()`:** Native middleware chain in ASP.NET Core matching Starlette's dispatch pipeline.
-  - **`IServiceProvider` (Dependency Injection):** Scoped lifetime services (`builder.Services.AddScoped<MyDbContext>()`) mirror FastAPI's `Depends(get_db)` yield behavior, binding database context lifecycles strictly to the scope of a single incoming HTTP request.
-
----
-
-## 5. Pitfalls and When Not to Use It
-
-### 1. Blocking the Event Loop in ASGI Endpoints
-In a synchronous Flask/Gunicorn app, a blocking call (`time.sleep(5)` or `requests.get(...)`) only blocks the single worker thread handling that request. Other worker processes continue serving clients.  
-In an asynchronous FastAPI/Uvicorn app, if an engineer writes `async def` and places a blocking synchronous call inside it:
-```python
-@app.get("/slow")
-async def slow_endpoint():
-  time.sleep(5)  # DISASTER: Freezes the entire single-threaded event loop!
-  return {"status": "done"}
-```
-Because the handler is marked `async def`, FastAPI executes it directly on the main event loop thread without offloading it. The entire worker freezes, stalling every other concurrent request.
-- *Fix:* If you must call blocking synchronous functions, either define the route handler as standard `def` (FastAPI will automatically dispatch it to an external thread pool: `anyio.to_thread.run_sync`), or use `await asyncio.to_thread(...)`.
-
-### 2. Leaking Resources in FastAPI `yield` Dependencies
-When using `yield` for database transactions:
-```python
-def get_db():
-  db = SessionLocal()
-  try:
-    yield db
-    db.commit()
-  except Exception:
-    db.rollback()
-    raise
-  finally:
-    db.close()
-```
-If an unhandled exception occurs inside a route handler or response streaming fails midway, execution must hit the `except` or `finally` block. If the developer forgets the `finally: db.close()`, connections remain checked out, resulting in database connection pool starvation under production traffic.
-
-### 3. Misconfiguring Worker Sizing in Production
-Running Gunicorn with 1 worker on an 8-core server wastes 87% of available CPU capacity. Conversely, configuring 64 workers on a 2-core 2 GB RAM virtual machine results in severe memory swapping, high OS context switching overhead, and kernel Out-Of-Memory (OOM) killer terminations.
-- *The Golden Formula:*
-  $$\text{Workers} = (2 \times \text{CPU Cores}) + 1$$
-  For asynchronous ASGI workloads (`uvicorn`), a smaller worker count (often 1 worker per core) with an event loop handling high connection concurrency is standard practice.
-
-### 4. Running Flask `debug=True` in Production
-The Werkzeug debugger uses an algorithmic PIN printed in terminal logs to unlock execution. Exposing `debug=True` to the public internet allows attackers to inspect stack frames, view production environment secrets, and execute arbitrary shell commands via the interactive console.
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: Spot the Latency Killer
-Identify the architectural flaw in this production FastAPI service:
-```python
-import requests  # synchronous library
-from fastapi import FastAPI
 
 app = FastAPI()
 
 
-@app.get("/catalog/{item_id}")
-async def get_catalog_item(item_id: str):
-  # External HTTP call to inventory service
-  response = requests.get(
-      f"https://inventory.internal/items/{item_id}", timeout=2.0
-  )
-  return response.json()
+def get_db() -> dict:
+    return {"items": []}
+
+
+@app.post("/items", status_code=201)
+def create(item: Item, db: dict = FDepends(get_db)):          # sync def → runs in a threadpool
+    db["items"].append(item.model_dump())
+    return {"count": len(db["items"]), "item": item}
+
+
+@app.get("/health")
+async def health():                                           # async def → runs on the event loop
+    return {"status": "ok"}
+
+
+with TestClient(app) as client:
+    print("health:", client.get("/health").json())
+    r = client.post("/items", json={"name": "pen", "price": 1.5})
+    print("create:", r.status_code, r.json())
+    bad = client.post("/items", json={"name": "pen", "price": "free"})
+    print("validation:", bad.status_code, bad.json()["detail"][0]["loc"])
+
+    # swap a dependency for a test
+    fake = {"items": ["seeded"]}
+    app.dependency_overrides[get_db] = lambda: fake
+    print("overridden db:", client.post("/items", json={"name": "x", "price": 1}).json()["count"])
+    app.dependency_overrides.clear()
+
+print("openapi paths:", sorted(app.openapi()["paths"]))
+
+
+# ---------- the dev server idiom (snippet; not executed here)
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)   # dev only
+# Flask:  app.run(debug=True)   # dev only; production: gunicorn -w 4 app:app
 ```
-Under a benchmark of 500 concurrent requests, response latency degrades from 50 milliseconds to 10+ seconds, and requests begin timing out. Why? How do you fix it without changing the third-party library?
+<!-- slide -->
+```csharp
+// ASP.NET Core is the same idea: a request delegate pipeline hosted by Kestrel.
+// Middleware = Func<RequestDelegate, RequestDelegate>; DI container built in; minimal APIs ≈ FastAPI.
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<IClock, SystemClock>();           // ≈ Depends(get_clock)
+var app = builder.Build();
+
+app.Use(async (ctx, next) => { ctx.Response.Headers["X-Powered-By"] = "demo"; await next(); });  // middleware
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/time", (IClock clock) => clock.Now);               // injected parameter
+
+// app.Run();   // ≈ uvicorn.run: starts Kestrel (production-grade, unlike Flask's dev server)
+
+interface IClock { DateTime Now { get; } }
+class SystemClock : IClock { public DateTime Now => DateTime.UtcNow; }
+```
+````
+
+Expected output of the Python tab (FastAPI 0.141 / pydantic 2.13; the dict key order and `loc` shape are stable across 0.100+):
+
+```text
+WSGI: ('200 OK', {'Content-Type': 'text/plain', 'Content-Length': '9'}, 'hello Ada')
+WSGI+middleware header: wsgi-demo
+ASGI: (200, '{"path": "/items", "method": "GET"}')
+Depends: using repo@prod-db
+Depends (test override): using repo@test-db
+health: {'status': 'ok'}
+create: 201 {'count': 1, 'item': {'name': 'pen', 'price': 1.5}}
+validation: 422 ['body', 'price']
+overridden db: 2
+openapi paths: ['/health', '/items']
+```
+
+Read `overridden db: 2` carefully: the override returned a dict that already held `"seeded"`, so appending one item gives a count of 2 — proof that the endpoint used the fake, not the real `get_db`.
+
+---
+
+## 4. Edges
+
+- **`app.run()` is a dev server.** Single process (Flask's is threaded), no hardening, `debug=True` enables the interactive debugger = **remote code execution** if exposed. Never in production.
+- **`if __name__ == "__main__": app.run()`** keeps imports (by gunicorn, tests, the reloader) from starting a server. With the reloader, the module is imported **twice** (parent and child).
+- **Workers.** gunicorn spawns *processes* (`-w N`, ~`2×cores+1` for sync apps); each has its own memory (no shared globals/caches!) and its own GIL. Use Redis/DB for shared state.
+- **`async def` in FastAPI + a blocking call** (sync DB driver, `requests`, `time.sleep`) freezes the loop for all clients. Use a plain `def` (threadpool), async drivers, or `await run_in_threadpool`. In the lab, four parallel requests that each block 0.2 s take about 0.8 s through `async def` and about 0.2 s through `def`.
+- **`def` endpoints run in a limited threadpool** (default ~40 threads); saturation queues requests.
+- **Middleware order matters** (outermost first on the way in, reversed on the way out). CORS/auth/timing placement bugs are common.
+- **Lifespan events** (startup/shutdown) create/dispose pools: use FastAPI `lifespan`, not import-time connections.
+- **`Depends` is cached per request** by default (same dependency evaluated once; opt out with `Depends(fn, use_cache=False)`); `dependency_overrides` swaps implementations in tests (lab probes 5 and 7).
+- **Validation is automatic** (pydantic) → `422` with a structured `detail`; map domain errors to HTTP errors with exception handlers.
+- **Sync WSGI with long I/O** needs many workers/threads; ASGI handles many idle connections cheaply. CPU-bound work still needs processes/queues either way.
+- **Behind a proxy:** trust `X-Forwarded-*` headers deliberately (`--proxy-headers`, `ProxyFix`), set body-size and timeout limits.
+- **Graceful shutdown:** servers send SIGTERM; finish in-flight requests, close pools.
+
+### Try it — web lab (runnable)
+
+The follow-ups interviewers use after "what is WSGI?". Save as ``web_lab.py`` (keep that name: the multiprocessing probe re-imports it). Probes 1-4 are stdlib-only; probes 5-8 need ``pip install fastapi httpx uvicorn`` and are skipped with a message if those are missing. Probe 8 starts a real uvicorn server on a free local port and stops it.
+
+```python
+import asyncio, importlib.util, json, socket, threading, time, urllib.request
+from io import BytesIO
+from wsgiref.simple_server import WSGIRequestHandler, make_server
+
+HAVE_FASTAPI = all(importlib.util.find_spec(m) for m in ("fastapi", "httpx", "uvicorn"))
+
+def wsgi_app(environ, start_response):
+    body = f"hello {environ['PATH_INFO']}".encode()
+    start_response("200 OK", [("Content-Type", "text/plain"), ("Content-Length", str(len(body)))])
+    return [body]
+
+class Quiet(WSGIRequestHandler):
+    def log_message(self, *a): pass
+
+def main():
+    # 1) `app.run()` is just a server calling your callable: stdlib's wsgiref does the same job
+    server = make_server("127.0.0.1", 0, wsgi_app, handler_class=Quiet)
+    port = server.server_address[1]
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/ping") as r:
+        assert r.status == 200 and r.read() == b"hello /ping"
+    server.shutdown(); server.server_close(); t.join()
+
+    # 2) WSGI middleware order: outermost runs first on the way in, last on the way out
+    trail = []
+    def mw(name):
+        def deco(app):
+            def wrapped(environ, start_response):
+                trail.append(f"{name}:in")
+                result = app(environ, start_response)
+                trail.append(f"{name}:out")
+                return result
+            return wrapped
+        return deco
+    stacked = mw("auth")(mw("timing")(wsgi_app))
+    stacked({"PATH_INFO": "/"}, lambda s, h: None)
+    assert trail == ["auth:in", "timing:in", "timing:out", "auth:out"]
+
+    # 3) ASGI middleware: wrap `send` to add a header
+    async def asgi_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"x-a", b"1")]})
+        await send({"type": "http.response.body", "body": b"ok"})
+    def add_header(app):
+        async def wrapped(scope, receive, send):
+            async def send2(message):
+                if message["type"] == "http.response.start":
+                    message = {**message, "headers": message["headers"] + [(b"x-powered-by", b"asgi-demo")]}
+                await send(message)
+            await app(scope, receive, send2)
+        return wrapped
+    sent = []
+    async def collect(m): sent.append(m)
+    async def rcv(): return {"type": "http.request", "body": b""}
+    asyncio.run(add_header(asgi_app)({"type": "http"}, rcv, collect))
+    assert (b"x-powered-by", b"asgi-demo") in sent[0]["headers"]
+
+    # 4) Each worker PROCESS has its own memory: a "global cache" is not shared
+    import multiprocessing as mp
+    with mp.get_context("spawn").Pool(2) as pool:
+        counts = pool.map(_bump_in_worker, [1, 1, 1, 1])
+    assert sum(1 for _ in counts) == 4 and _counter == 0   # workers bumped THEIR copies; ours is untouched
+    print("4: parent's counter is still", _counter, "- worker memory is separate")
+
+    if not HAVE_FASTAPI:
+        print("FastAPI probes skipped (pip install fastapi httpx uvicorn)")
+        return
+    from fastapi import Depends, FastAPI, HTTPException, Request
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+    from pydantic import BaseModel
+    import httpx, uvicorn
+
+    app = FastAPI()
+    calls = {"db": 0}
+
+    def get_db():
+        calls["db"] += 1
+        return object()
+
+    def svc_a(db=Depends(get_db)): return db
+    def svc_b(db=Depends(get_db)): return db
+    def svc_c(db=Depends(get_db, use_cache=False)): return db
+
+    @app.get("/cached")
+    def cached(a=Depends(svc_a), b=Depends(svc_b)):
+        return {"same_db": a is b}
+
+    @app.get("/uncached")
+    def uncached(a=Depends(svc_a), c=Depends(svc_c)):
+        return {"same_db": a is c}
+
+    class DomainError(Exception): pass
+    @app.exception_handler(DomainError)
+    async def handle(request: Request, exc: DomainError):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+    @app.get("/boom")
+    def boom(): raise DomainError("conflict")
+
+    class Item(BaseModel):
+        qty: int
+    @app.post("/items")
+    def items(item: Item): return item
+
+    @app.get("/block-async")
+    async def block_async():
+        time.sleep(0.2)                     # blocks the event loop
+        return {"ok": True}
+    @app.get("/block-sync")
+    def block_sync():
+        time.sleep(0.2)                     # runs in the threadpool
+        return {"ok": True}
+
+    with TestClient(app) as c:
+        # 5) Depends is cached per request unless use_cache=False
+        calls["db"] = 0
+        assert c.get("/cached").json() == {"same_db": True} and calls["db"] == 1
+        calls["db"] = 0
+        assert c.get("/uncached").json() == {"same_db": False} and calls["db"] == 2
+        # 6) validation -> 422 with structured detail; domain error -> your handler's status
+        r = c.post("/items", json={"qty": "many"})
+        assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "qty"]
+        assert c.get("/boom").status_code == 409
+        # 7) dependency_overrides swaps a dependency without monkeypatching
+        sentinel = object()
+        app.dependency_overrides[get_db] = lambda: sentinel
+        assert c.get("/cached").json() == {"same_db": True}
+        app.dependency_overrides.clear()
+
+    # 8) The key trap, measured on a real uvicorn server: 4 parallel requests, 0.2 s of blocking each
+    sock = socket.socket(); sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]; sock.close()
+    srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    th = threading.Thread(target=srv.run, daemon=True); th.start()
+    while not srv.started: time.sleep(0.01)
+    def burst(path):
+        t0 = time.perf_counter()
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as cl:
+            ts = [threading.Thread(target=cl.get, args=(path,)) for _ in range(4)]
+            [x.start() for x in ts]; [x.join() for x in ts]
+        return time.perf_counter() - t0
+    t_async, t_sync = burst("/block-async"), burst("/block-sync")
+    srv.should_exit = True; th.join(timeout=5)
+    print(f"8: async def + blocking call is serial: {t_async > 0.7}; plain def overlaps: {t_sync < 0.6}")
+    assert t_async > 0.7 and t_sync < 0.6
+    print("web lab ok")
+
+_counter = 0
+def _bump_in_worker(_):
+    global _counter
+    _counter += 1
+    return _counter
+
+if __name__ == "__main__":
+    main()
+```
+
+Expected output:
+
+```text
+4: parent's counter is still 0 - worker memory is separate
+8: async def + blocking call is serial: True; plain def overlaps: True
+web lab ok
+```
+
+---
+
+## 5. What you'd say in two minutes
+
+> "A Python web app is a callable that implements a protocol. WSGI is the synchronous one — `app(environ, start_response)` returning an iterable of bytes — and ASGI is its async successor, `await app(scope, receive, send)`, which also covers WebSockets and lifespan events. An application server such as gunicorn or uvicorn calls that callable for each request; middleware is just a callable wrapping another. `app.run()` in Flask, or `uvicorn.run`, only starts a convenience development server, which is why it sits under `if __name__ == "__main__"` and why `debug=True` must never reach production, since the debugger allows code execution. In production I run several worker processes behind nginx or a load balancer — each has its own GIL and memory, so shared state goes to Redis or the database. I'd pick FastAPI for typed APIs: pydantic validation, OpenAPI docs and `Depends` for dependency injection, which I override in tests with `dependency_overrides`. The key trap is a blocking call inside an `async def` endpoint; I either use async clients or write a plain `def` so FastAPI runs it in a threadpool."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `app.run(debug=True)` in production | Debugger = RCE, single process | gunicorn/uvicorn workers + proxy |
+| Blocking calls in `async def` handlers | Stalls every request | Async drivers / plain `def` / `to_thread` |
+| In-process global state with many workers | Each worker has its own copy | Redis/DB, or externalise state |
+| DB connection at import time | Side effects, forks share sockets | `lifespan` / per-request dependency |
+| Business logic inside route functions | Untestable, duplicated | Service layer; routes are thin |
+| Catch-all `except Exception: return 200` | Hides failures | Exception handlers with proper status codes |
+| Hard-wiring dependencies in handlers | Can't swap in tests | `Depends` + `dependency_overrides` |
+| No timeouts on outbound calls | Workers pinned forever | Client timeouts, circuit breakers |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. What does `app.run()` do? [BASIC]</strong></summary>
 
-**The Flaw:**
-The endpoint is declared `async def`, which signals to FastAPI that the coroutine is non-blocking and safe to run directly on the single-threaded event loop. However, `requests.get()` is a synchronous, blocking socket call. During the 50ms to 2-second external HTTP call, the entire worker's event loop is completely blocked. No other concurrent coroutine can process packets, serialize JSON, or accept connections.
+It starts the framework's built-in development server (Werkzeug for Flask) that calls the WSGI app for each request, optionally with a reloader and debugger. Production uses gunicorn/uvicorn; the call is guarded by `if __name__ == "__main__":` so importing the module doesn't start a server.
 
-**Fix 1 (Non-blocking async client - Recommended):**
-Replace `requests` with an asynchronous HTTP client like `httpx`:
-```python
-import httpx
-
-
-@app.get("/catalog/{item_id}")
-async def get_catalog_item(item_id: str):
-  async with httpx.AsyncClient() as client:
-    resp = await client.get(
-        f"https://inventory.internal/items/{item_id}", timeout=2.0
-    )
-    return resp.json()
-```
-
-**Fix 2 (Threadpool dispatch - If keeping `requests`):**
-Simply change `async def` to regular `def`:
-```python
-@app.get("/catalog/{item_id}")
-def get_catalog_item(item_id: str):
-  # FastAPI recognizes synchronous 'def' and automatically dispatches
-  # it to a background thread pool, preventing event loop starvation!
-  return requests.get(
-      f"https://inventory.internal/items/{item_id}", timeout=2.0
-  ).json()
-```
 </details>
-
-### Exercise 2: Implementing a Scoped Transaction Dependency
-Design a reusable FastAPI dependency `get_uow` (Unit of Work) that:
-1. Instantiates a database transaction.
-2. Yields the transaction to the route handler.
-3. Automatically commits the transaction if the route completes with a 2xx status code.
-4. Automatically rolls back the transaction if an unhandled exception is raised in the route.
-5. Always closes and returns the connection to the pool in all circumstances.
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. WSGI vs ASGI? [BASIC]</strong></summary>
 
-```python
-from typing import Generator
-from fastapi import Depends, FastAPI, HTTPException
+WSGI: synchronous `app(environ, start_response)`, one request per worker thread/process, HTTP only. ASGI: async `app(scope, receive, send)`, many concurrent requests per loop, plus WebSockets, SSE and lifespan events.
 
+</details>
 
-class UnitOfWork:
+<details>
+<summary><strong>3. `def` or `async def` for a FastAPI endpoint? [TRICKY]</strong></summary>
 
-  def __init__(self):
-    print("Beginning DB transaction...")
+`async def` runs on the event loop — only use it when everything inside is awaited/non-blocking. Plain `def` runs in a threadpool, so blocking libraries are fine. Putting blocking code in `async def` is the classic performance bug.
 
-  def commit(self):
-    print("Transaction committed.")
+</details>
 
-  def rollback(self):
-    print("Transaction rolled back!")
+<details>
+<summary><strong>4. How would you deploy a Flask app? [SCENARIO]</strong></summary>
 
-  def close(self):
-    print("Connection closed.")
+gunicorn with N sync (or gthread) workers behind nginx/LB, containerised, health endpoint, env-based config, structured logs to stdout, graceful shutdown, timeouts; scale horizontally; shared state in Redis/DB.
 
+</details>
 
-def get_uow() -> Generator[UnitOfWork, None, None]:
-  uow = UnitOfWork()
-  try:
-    yield uow
-    uow.commit()  # Reached only if route handler does not raise an unhandled exception
-  except Exception:
-    uow.rollback()
-    raise  # Re-raise so FastAPI's error handlers can generate the HTTP 500 response
-  finally:
-    uow.close()  # Guaranteed execution
-```
+<details>
+<summary><strong>5. How does `Depends` work and how do you test with it? [SCENARIO]</strong></summary>
+
+FastAPI inspects the handler's signature, builds a dependency graph, resolves each per request (cached within the request) and injects results. Tests set `app.dependency_overrides[real] = fake` — no monkeypatching needed.
+
+</details>
+
+<details>
+<summary><strong>6. Why is the dev server unsafe? [TRICKY]</strong></summary>
+
+Not hardened/performance-tuned, handles limited concurrency, and with `debug=True` exposes the Werkzeug console that can execute arbitrary Python (PIN-protected, but still a major risk).
+
+</details>
+
+<details>
+<summary><strong>7. How do workers relate to the GIL? [TRICKY]</strong></summary>
+
+Each gunicorn/uvicorn worker is a separate process with its own interpreter and GIL, so multiple workers use multiple cores. Threads within a worker share one GIL; async shares one thread. Memory/cache isn't shared across workers.
+
+</details>
+
+<details>
+<summary><strong>8. How is ASP.NET Core similar? [BASIC]</strong></summary>
+
+Kestrel hosts a request-delegate pipeline of middleware; DI is built in; minimal APIs resemble FastAPI. Async is the default model, so "don't block the thread pool" mirrors "don't block the event loop".
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What does app.run do in Flask?**  
-> **Strong Answer:**  
-> "In Flask, `app.run()` launches a local development HTTP server built on top of Werkzeug (`werkzeug.serving.run_simple`).  
-> 
-> Internally, it resolves the configured host and port (defaulting to `127.0.0.1:5000`), binds a single TCP listening socket, and enters an event loop or basic thread-per-request listener that dispatches incoming HTTP connections to the Flask application's WSGI interface. If enabled, it also initializes Werkzeug's file-system reloader (which forks a child process to watch for Python code changes) and the interactive debugging middleware.  
-> 
-> It is designed exclusively for local development convenience, completely decoupled from production process management, reverse proxying, and high-concurrency connection pooling."
-
-> [!interview]
-> **Question 2: Why should you not use app.run in production?**  
-> **Strong Answer:**  
-> "You should never invoke `app.run()` in production for four critical operational reasons:  
-> 
-> 1. **Lack of Process Supervision and Concurrency:** The development server runs in a single operating system process. It lacks a master-worker process manager to scale across multiple CPU cores, recycle failing workers, or distribute load evenly.  
-> 2. **Vulnerability to Resource Starvation (Slowloris):** It lacks connection buffering and request-timeout protections. A few slow or stalled network clients can occupy all available socket descriptors and starve legitimate traffic.  
-> 3. **Critical Security Hazards:** If `debug=True` is accidentally active in production, any unhandled application exception renders the interactive Werkzeug console directly in the browser, allowing arbitrary remote code execution (RCE) on the server.  
-> 4. **No Zero-Downtime Deployment Support:** It cannot handle POSIX signals like `SIGHUP` or `SIGTERM` for graceful socket handover and rolling code updates. Production deployments require a battle-tested WSGI/ASGI application server such as **Gunicorn** or **Uvicorn** fronted by a reverse proxy like **Nginx** or AWS ALB."
-
-> [!interview]
-> **Question 3: What is the difference between WSGI and ASGI?**  
-> **Strong Answer:**  
-> "The fundamental difference between WSGI and ASGI lies in their **calling convention, concurrency model, and protocol support**:  
-> 
-> - **WSGI (PEP 3333):** A synchronous, blocking standard. The application is a synchronous callable: `response_iterable = app(environ, start_response)`. The server parses HTTP headers into a dictionary (`environ`), and the application returns a response. Concurrency must be achieved by running multiple OS processes (e.g., Gunicorn workers) or OS threads. Because it assumes a strict, single request-response cycle, it cannot natively handle WebSockets, Server-Sent Events, or HTTP/2 multiplexing.  
-> - **ASGI:** An asynchronous, event-driven successor. The application is an asynchronous coroutine: `await app(scope, receive, send)`. Instead of passing everything synchronously, ASGI models the connection lifetime through two asynchronous message queues (`receive` and `send`) operating within an `asyncio` event loop. This enables native support for persistent WebSockets, streaming responses, background tasks, and high-concurrency non-blocking network I/O on a single thread."
-
-> [!interview]
-> **Question 4: How does middleware work in FastAPI?**  
-> **Strong Answer:**  
-> "In FastAPI (built on top of Starlette), middleware operates on the **onion model** as an ASGI application wrapper.  
-> 
-> When using `BaseHTTPMiddleware`, you implement an async `dispatch(request, call_next)` method. When an HTTP request arrives:  
-> 1. It enters the outermost middleware first, allowing pre-processing (such as parsing custom headers, initiating distributed tracing spans, or checking rate limits).  
-> 2. The middleware yields execution to the inner application layer by calling `response = await call_next(request)`.  
-> 3. Execution travels down through subsequent middlewares to the router and route handler.  
-> 4. Once the route handler returns, the response bubbles back *up* through each middleware layer, enabling post-processing (such as injecting correlation ID headers, calculating wall-clock execution time, or compressing the payload).  
-> 
-> At the lowest ASGI level, middleware is simply an ASGI callable that intercepts the `scope`, `receive`, and `send` primitives, selectively rewriting events before passing them to the downstream application."
-
-> [!interview]
-> **Question 5: How does dependency injection work in FastAPI?**  
-> **Strong Answer:**  
-> "FastAPI's dependency injection system uses parameter type annotations declared with the `Depends()` marker to dynamically resolve and inject dependencies into route handlers and middleware.  
-> 
-> When an endpoint is invoked, FastAPI inspects its function signature via Python's `inspect` module:  
-> 1. **DAG Resolution:** FastAPI constructs a Directed Acyclic Graph (DAG) of all declared dependencies. If Dependency B depends on Dependency A (e.g., `get_current_user` depends on `get_db`), FastAPI resolves Dependency A first and passes it to B.  
-> 2. **Request-Scoped Caching:** By default (`use_cache=True`), if multiple sub-dependencies request `get_db` during the same HTTP request, FastAPI evaluates the dependency callable only once and shares the resulting instance across the entire request graph.  
-> 3. **Resource Lifecycle Management via `yield`:** If a dependency is defined as a generator using `yield` (or an `async` generator), FastAPI executes the code prior to `yield` before entering the route handler, injects the yielded value, and guarantees that code after `yield` (e.g., closing database connections, rolling back transactions) executes immediately after the response is generated, even if an exception occurs."
+```text
+WSGI   app(environ, start_response) -> [bytes]      sync, HTTP only      gunicorn / uWSGI / waitress
+ASGI   await app(scope, receive, send)              async, HTTP+WS+lifespan   uvicorn / hypercorn
+app.run() / flask run / uvicorn --reload   = DEV server.  Guard with  if __name__ == "__main__".
+Prod:  nginx/LB -> gunicorn (-w N processes) [+ uvicorn workers]; env config; logs to stdout; SIGTERM graceful
+Workers = processes (own GIL & memory)  -> shared state in Redis/DB
+FastAPI: type hints -> pydantic validation (422) + OpenAPI;  Depends (per-request cache);  dependency_overrides in tests
+   async def -> event loop (never block)       def -> threadpool
+Middleware = callable wrapping callable; order matters; lifespan for pools
+Never: debug=True in prod | blocking in async def | global state across workers | work at import time
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [PEP 3333 – Python Web Server Gateway Interface v1.0.1 (WSGI)](https://peps.python.org/pep-3333/)
-- [ASGI Specification Documentation](https://asgi.readthedocs.io/en/latest/)
-- [FastAPI Documentation: Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/)
-- [FastAPI Documentation: Advanced Middleware](https://fastapi.tiangolo.com/tutorial/middleware/)
-- [Flask Documentation: Deploying to Production](https://flask.palletsprojects.com/en/stable/deploying/)
-- [Microsoft Learn: ASP.NET Core Middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/)
-- [Microsoft Learn: Dependency injection in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/dependency-injection)
-
----
+- [PEP 3333: WSGI](https://peps.python.org/pep-3333/) · [ASGI spec](https://asgi.readthedocs.io/en/latest/)
+- [FastAPI: Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) · [Concurrency and async/await](https://fastapi.tiangolo.com/async/)
+- [Flask: Deploying to production](https://flask.palletsprojects.com/en/stable/deploying/)
 
 Previous: [Modules, Packages and Imports](../17-modules-packages-and-imports/README.md) · Next: [Testing: pytest, Fixtures and Mocking](../19-testing-pytest-fixtures-and-mocking/README.md)

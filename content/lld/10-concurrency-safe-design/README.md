@@ -1,721 +1,834 @@
-# Concurrency-Safe Design & Thread-Safe Architecture
+# Concurrency-Safe Design — Races, Locks, Deadlock & Lock Striping
 
-> **Prerequisites**: [06: Creational Patterns](../06-creational-patterns/README.md), [08: Behavioral Patterns I](../08-behavioral-patterns-i/README.md), OS Process & Threading Fundamentals.  
-> **Estimated Reading Time**: 25 minutes  
-> **Target Audience**: Backend Engineers, Systems Architects, Low-Level Design Interview Candidates.
+> **Prerequisites:** [01 · Classes & Objects](../01-classes-objects-and-oop-building-blocks/README.md) (invariants), [06 · Creational Patterns](../06-creational-patterns/README.md) (Singleton), basic threads (what a thread is, what "shared memory" means).  
+> **Reading time:** ~30 minutes  
+> **Audience:** LLD / machine-coding candidates. Every "two gates / two users / two threads" follow-up lands here — parking lot, booking, wallet, cache, rate limiter
+
+> [!NOTE]
+> **In one line:** Concurrency bugs come from **shared mutable state touched by more than one thread** — fix them by sharing less (immutability, confinement), then by putting a **small lock inside the class that owns the invariant**, acquiring multiple locks in **one global order**, and **striping** locks by key when one lock becomes the bottleneck.
 
 > [!TIP]
-> **Golden Rule of Concurrency**: Concurrency bugs cannot be reliably reproduced or unit tested into non-existence. Design for thread safety by default through **immutability**, **thread confinement**, or by **encapsulating locks strictly inside data structures**. Never leak raw synchronization primitives to external callers or allow un-synchronized read-modify-write operations on shared mutable state.
+> **Golden rule:** Make **check-then-act** and **read-modify-write** atomic, protect each invariant with exactly one lock, keep critical sections tiny, and never call out to unknown code (I/O, callbacks, other locks) while holding a lock — unless the order is defined.
+
+> [!TIP]
+> **Try it:** In [LLD Studio](/tools/lld-studio/), draw `Bank` → `Account` and mark which class owns the lock. Then run the Python demo below and watch the broken counter oversell.
 
 ---
 
-## 1. Visual Mental Models & Core Concepts
+## 1. When this shows up in an interview
 
-Every object-oriented design pattern assumes single-threaded execution unless explicitly architected otherwise. In modern backend architectures—web servers handling concurrent HTTP requests, background job workers processing streams, or distributed caches synchronizing memory—unprotected shared state leads to silent data corruption, lost updates, and catastrophic deadlocks.
+You finish the class diagram, the interviewer smiles, then: *"Two gates enter at the same time. Two users book the last seat. Two transfers touch the same account. What breaks?"*
 
-### 1.1 The Anatomy of a Race Condition
+**Smells that cost you points:**
 
-A **race condition** occurs when two or more concurrent execution contexts access shared mutable memory, and the final state depends unpredictably on CPU scheduling and thread interleaving.
+- No mention of concurrency until prompted.
+- `if available: book()` as two separate steps (**check-then-act**).
+- One global lock around the whole system — correct but serialized.
+- Believing a thread-safe collection makes compound operations safe.
+- Locking `A` then `B` in one path and `B` then `A` in another.
+- "Python has the GIL so I'm fine."
+- Holding a lock while doing network I/O or calling a callback.
+- In-process locks as the only protection for a service running on several machines.
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant T1 as Thread 1 (Reader/Writer)
-    participant Memory as Shared Memory (counter=100)
-    participant T2 as Thread 2 (Reader/Writer)
-
-    Note over T1, T2: Both threads execute: counter += 1 (3 CPU Instructions: READ, ADD, WRITE)
-    T1->>Memory: 1. Read counter (Gets 100)
-    T2->>Memory: 2. Read counter (Gets 100 - Interleaved!)
-    Note over T1: Computes 100 + 1 = 101
-    Note over T2: Computes 100 + 1 = 101
-    T1->>Memory: 3. Write back 101
-    T2->>Memory: 4. Write back 101 (Overwrites T1 update!)
-    Note over Memory: CRITICAL ERROR: Counter is 101 instead of 102 (Lost Update)
+  participant A as Thread A
+  participant S as seats_left = 1
+  participant B as Thread B
+  A->>S: read 1, check passes
+  B->>S: read 1, check passes
+  A->>S: write 0, booked
+  B->>S: write 0, booked again
+  Note over S: Two bookings for one seat. No exception. No log.
 ```
-
-### 1.2 Deadlocks & Coffman Conditions
-
-A **deadlock** occurs when two or more threads are permanently blocked, each holding a lock that the other needs. Deadlock requires all four **Coffman conditions** to hold simultaneously:
-1. **Mutual Exclusion**: Resources cannot be shared simultaneously.
-2. **Hold and Wait**: Threads hold allocated resources while waiting for additional ones.
-3. **No Preemption**: Resources cannot be forcibly confiscated from a thread.
-4. **Circular Wait**: A closed chain of threads exists such that each thread holds at least one resource needed by the next.
 
 ```mermaid
 flowchart TD
-    subgraph DL["Circular Wait Deadlock Condition"]
-        T1["Thread 1"] -->|Holds Lock A| ResA["Mutex A (Resource 1)"]
-        ResA -.->|Waited on by| T2["Thread 2"]
-        T2 -->|Holds Lock B| ResB["Mutex B (Resource 2)"]
-        ResB -.->|Waited on by| T1
-    end
-
-    subgraph Sol["Architectural Solution: Global Lock Hierarchy"]
-        Ord1["Acquire Lock Min(ID_A, ID_B)"] --> Ord2["Acquire Lock Max(ID_A, ID_B)"]
-        Ord2 --> Execute["Execute Critical Section"]
-        Execute --> Rel["Release Locks in Reverse Order"]
-    end
-
-    style DL fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style Sol fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  Q["Shared mutable state?"] --> I{"Can it be immutable?"}
+  I -->|yes| IM["Immutable object, swap the reference atomically"]
+  I -->|no| C{"Can one thread own it?"}
+  C -->|yes| CO["Confine: queue + single worker, or per-thread copy"]
+  C -->|no| A{"Single counter or flag?"}
+  A -->|yes| AT["Atomic / Interlocked / CAS loop"]
+  A -->|no| L{"One lock enough?"}
+  L -->|yes| LK["Private lock inside the owning class"]
+  L -->|no, contention| ST["Lock striping by key, or read-write lock"]
 ```
+
+Read the second diagram top to bottom: **the best lock is the one you don't need.**
 
 ---
 
-## 2. Taxonomic Reference Grids
+## 2. Vocabulary (use these words precisely)
 
-### 2.1 Concurrency & Synchronization Primitives
+| Term | Meaning |
+| :--- | :--- |
+| **Race condition** | Result depends on timing/interleaving of threads. A *logic* bug. |
+| **Data race** | Two threads access the same memory, at least one writes, no synchronization. Undefined/unspecified behavior in many languages. |
+| **Critical section** | Code that touches shared state and must not run concurrently with itself. |
+| **Atomicity** | An operation appears indivisible — no one sees a half-done state. |
+| **Visibility** | A write by one thread becomes visible to others (needs a lock, `volatile`, or atomic to guarantee). |
+| **Mutual exclusion** | At most one thread in a critical section. |
+| **Deadlock** | Threads wait on each other's locks forever. |
+| **Livelock / starvation** | Threads keep running without progress / a thread never gets its turn. |
+| **Contention** | Threads queue for the same lock. Throughput limiter. |
 
-| Primitive | Mechanism | Read Overhead | Write Overhead | Contention Behavior | Best Architectural Use Case |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mutual Exclusion (Mutex)** | Binary sleep lock / futex | Moderate (Kernel sys-call on contention) | Moderate | Serializes all access; threads sleep | Exclusive write-heavy state, short critical sections |
-| **Read-Write Lock (RWMutex)** | Shared read / Exclusive write counter | Very Low (Shared concurrent readers) | High (Must drain active readers) | Multiple readers concurrent; writers blocked | Read-heavy caches, routing tables, config lookups |
-| **Atomic Operations (CAS)** | Hardware CPU instructions (`CMPXCHG`) | Negligible (L1 cache line bounce) | Negligible (Bus locking/cache coherency) | Spin/retry on failure; lock-free | Monotonic counters, metrics, lock-free ring buffers |
-| **Counting Semaphore** | Integer permit counter | Low | Low | Blocks when permits reach 0 | Resource pooling (DB connections, worker pools) |
-| **Synchronized Channel / Queue** | Bounded buffer with wait-notify condition | Moderate | Moderate | Pushes block when full; pops block when empty | Producer-Consumer pipelines, actor decoupling |
+### The three classic bugs
 
-### 2.2 Thread-Safety Strategies Comparison
-
-| Strategy | Invariant Preserved | Lock Contention | Failure Mode | Language Idioms |
-| :--- | :--- | :--- | :--- | :--- |
-| **Immutability** | State cannot change post-construction | Zero (Lock-free) | Memory allocation churn | C# `record`, Python `frozen=True`, Go value receivers |
-| **Thread Confinement** | State is owned strictly by a single thread | Zero (Lock-free) | Context-switching overhead | Node.js Event Loop, Go worker actors, ThreadLocal storage |
-| **Encapsulated Locking** | Mutex is private inside class methods | High under contention | Deadlock if locks nest irregularly | Go `sync.RWMutex`, C# `lock(this._sync)`, Python `threading.RLock` |
-| **Optimistic Concurrency (OCC)** | Read without locks; check version on write | Zero on reads | High retry overhead under high write contention | Distributed DB versioning, Atomic CAS loops |
+1. **Lost update (read-modify-write):** `count += 1` is read, add, write. Two threads read the same value.
+2. **Check-then-act:** `if seat_free: take()` — the world changes between the check and the act.
+3. **Broken compound invariant:** debit one account and credit another as two steps; an observer sees money missing (or two threads both pass the balance check).
 
 ---
 
-## 3. Production War Stories: Incident Post-Mortem
+## 3. Tools: what exists in each language
 
-### The $1.4M Dual-Booking Disaster: Deadlock via Lock Order Inversion Under Peak Flash-Sale Load
+| Need | Python | C# | Notes |
+| :--- | :--- | :--- | :--- |
+| Mutual exclusion | `threading.Lock` | `lock (obj)` / `Monitor` | `Lock` is **not** reentrant; `Monitor` **is** |
+| Reentrant lock | `threading.RLock` | `lock` (already reentrant) | Reentrancy hides design smells; prefer a design that doesn't need it |
+| Read-mostly | No stdlib RW lock | `ReaderWriterLockSlim` | Many readers, one writer. Beware writer starvation and upgrade deadlocks |
+| Atomic counter / flag | No true atomics (use a lock) | `Interlocked.Increment`, `CompareExchange` | CAS = lock-free, but loops under contention |
+| Permits / pool | `threading.Semaphore` | `SemaphoreSlim` | Bounded concurrency; async-friendly (`WaitAsync`) |
+| Wait for condition | `threading.Condition` | `Monitor.Wait/Pulse`, `SemaphoreSlim` | Always loop on the predicate |
+| Producer-consumer | `queue.Queue` (thread-safe) | `Channel<T>`, `BlockingCollection<T>` | Hand off, don't share |
+| Concurrent map | `dict` ops are atomic individually under the GIL | `ConcurrentDictionary<K,V>` | Single operations safe; **compound ones are not** |
+| Async mutual exclusion | `asyncio.Lock` | `SemaphoreSlim(1,1)` + `WaitAsync` | You cannot `await` inside C# `lock` |
 
-```
-SEVERITY LEVEL: SEV-1 (Platform Freeze & Critical Revenue Loss)
-DETECTION TIME: 4 Minutes
-TOTAL OUTAGE DURATION: 47 Minutes
-FINANCIAL IMPACT: $1,420,000 in dropped transactions & compensatory vouchers
-```
+---
 
-#### Incident Background
-During Black Friday 2024, an international travel and hospitality platform launched an exclusive flash sale offering 50% discounts on premium hotel suites. To prevent overbooking, backend engineers wrote a high-performance in-memory reservation service in C#/.NET Core deployed across 24 stateless Kubernetes pods with sticky session routing.
+## 4. Deadlock
 
-#### What Happened
-At 00:00:01 UTC, concurrent booking and inventory-release requests flooded the cluster (over 85,000 requests/second). Within 180 seconds, response latency skyrocketed from 18ms to 30,000ms (timeout). Thread pool exhaustion triggered HTTP 504 Gateway Timeouts across all payment and checkout gateways. 18 of the 24 pods became completely unresponsive, failing Kubernetes liveness probes and entering a cyclic crash loop.
+Deadlock needs **all four** Coffman conditions at once:
+
+| Condition | Meaning | Practical way to break it |
+| :--- | :--- | :--- |
+| **Mutual exclusion** | The resource can't be shared | Use immutable data or lock-free structures |
+| **Hold and wait** | Hold one lock while waiting for another | Acquire all up front, or `try_lock` with timeout and back off |
+| **No preemption** | Can't take a lock away | Timeouts: give up, release, retry |
+| **Circular wait** | A waits for B, B waits for A | **Global lock order** — the standard fix |
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant Gateway as API Gateway
-    participant T1 as Thread 1 (Checkout Flow)
-    participant ResUser as Lock(User_942)
-    participant ResInv as Lock(Suite_88)
-    participant T2 as Thread 2 (Inventory Reallocation)
-
-    Gateway->>T1: POST /checkout (User 942 booking Suite 88)
-    Gateway->>T2: POST /reallocate (Releasing Suite 88 for User 942)
-    
-    T1->>ResUser: Acquire Lock(User_942) [GRANTED]
-    T2->>ResInv: Acquire Lock(Suite_88) [GRANTED]
-    
-    Note over T1: T1 needs Suite_88 to decrement stock
-    T1->>ResInv: Attempt to Acquire Lock(Suite_88)... [BLOCKED]
-    
-    Note over T2: T2 needs User_942 to refund reservation
-    T2->>ResUser: Attempt to Acquire Lock(User_942)... [BLOCKED]
-    
-    Note over T1, T2: DEADLOCK! Both threads sleep indefinitely holding required locks.
-    Note over Gateway: Connection Pool Depletion -> Thread Pool Starvation -> OOM / Crash
+flowchart LR
+  subgraph Bad["Opposite order: deadlock"]
+    T1["Thread 1: lock A, then B"] --- T2["Thread 2: lock B, then A"]
+  end
+  subgraph Good["One global order: no cycle"]
+    G1["Thread 1: lock min(A,B), then max"] --- G2["Thread 2: lock min(A,B), then max"]
+  end
 ```
 
-#### Root Cause Analysis
-Two engineering teams developed interdependent workflows with opposing lock acquisition orders:
-- **Checkout Service**: Acquired `UserLock` first, then invoked `InventoryService.DeductStock()` which acquired `InventoryLock`.
-- **Inventory Reconciliation Service**: Acquired `InventoryLock` first, then invoked `UserService.VerifyLoyaltyPoints()` which acquired `UserLock`.
+**Transfer is the canonical example.** `transfer(A→B)` and `transfer(B→A)` at the same moment: each locks its source first and waits for the other. **Fix:** always lock in a canonical order (e.g. by account ID, or by stripe index when striping).
 
-Under normal load, the critical sections completed in microseconds, making lock collisions virtually impossible. Under the 85,000 req/s flash sale, thread interleaving reliably triggered cyclic circular wait conditions across multiple pods, exhausting all worker threads in the .NET runtime.
+### War story (compressed)
 
-#### The Architectural Fix
-1. **Global Lock Hierarchy Enforcement**: Enforced strict deterministic lock ordering using canonical string/integer resource IDs:
-   $$\text{LockOrder}(A, B) = \min(\text{ID}_A, \text{ID}_B) \rightarrow \max(\text{ID}_A, \text{ID}_B)$$
-2. **Deadlock-Resistant Lock Acquisition with Timeouts**: Replaced blocking `Monitor.Enter` / `lock()` primitives with `SemaphoreSlim.WaitAsync(TimeSpan.FromMilliseconds(500))`. If a lock cannot be acquired within 500ms, the transaction aborts cleanly, rolls back, and returns HTTP 429 / 503 instead of hanging threads.
-3. **Transition to Single-Threaded Actor Pipelines**: Refactored hot inventory partitions into Go-style channel-driven actor queues, removing shared memory locking entirely.
+A checkout path locked the *user* then the *inventory* record; a reconciliation job locked *inventory* then *user*. Fine at normal load — critical sections were microseconds. During a flash sale both ran thousands of times a second, pairs interleaved, every worker thread ended up blocked, and health checks failed. **Fix:** one global order (inventory ID, then user ID), lock timeouts that abort cleanly and return 503, and moving the hot path to a single-writer queue.
 
 ---
 
-## 4. Multi-Language Production Implementations
+## 5. Lock striping
 
-Below are four enterprise-grade implementations demonstrating thread-safe concurrency control: encapsulated synchronization, read-write locking, double-checked locking, and lock-free thread safety.
+One lock around a whole map is correct but serializes every key. **Lock striping** keeps an array of *N* locks and maps each key to one: `lock[hash(key) mod N]`. Operations on different stripes run in parallel; operations on the same key always share a stripe, so they stay mutually exclusive.
 
-### 4.1 Go: Thread-Safe In-Memory Sharded Cache with RWMutex & Atomics
-
-```go
-package main
-
-import (
-	"crypto/sha256"
-	"encoding/binary"
-	"errors"
-	"fmt"
-	"sync"
-	"sync/atomic"
-	"time"
-)
-
-var (
-	ErrKeyNotFound = errors.New("cache: key not found")
-	ErrKeyExpired  = errors.New("cache: key has expired")
-)
-
-type cacheItem struct {
-	value      any
-	expiresAt  time.Time
-	hasExpires bool
-}
-
-type cacheShard struct {
-	mu    sync.RWMutex
-	items map[string]cacheItem
-}
-
-// ShardedCache encapsulates locking per shard to reduce mutex contention.
-type ShardedCache struct {
-	shardCount uint32
-	shards     []*cacheShard
-	hitCount   uint64 // Lock-free atomic counter
-	missCount  uint64 // Lock-free atomic counter
-}
-
-func NewShardedCache(shardCount uint32) *ShardedCache {
-	if shardCount == 0 {
-		shardCount = 32
-	}
-	sc := &ShardedCache{
-		shardCount: shardCount,
-		shards:     make([]*cacheShard, shardCount),
-	}
-	for i := uint32(0); i < shardCount; i++ {
-		sc.shards[i] = &cacheShard{
-			items: make(map[string]cacheItem),
-		}
-	}
-	return sc
-}
-
-func (sc *ShardedCache) getShard(key string) *cacheShard {
-	h := sha256.Sum256([]byte(key))
-	idx := binary.BigEndian.Uint32(h[:4]) % sc.shardCount
-	return sc.shards[idx]
-}
-
-// Get reads from the cache using a shared Read-Lock (RWMutex).
-func (sc *ShardedCache) Get(key string) (any, error) {
-	shard := sc.getShard(key)
-
-	shard.mu.RLock()
-	item, exists := shard.items[key]
-	shard.mu.RUnlock()
-
-	if !exists {
-		atomic.AddUint64(&sc.missCount, 1)
-		return nil, ErrKeyNotFound
-	}
-
-	if item.hasExpires && time.Now().After(item.expiresAt) {
-		atomic.AddUint64(&sc.missCount, 1)
-		// Lazy eviction via write lock
-		shard.mu.Lock()
-		delete(shard.items, key)
-		shard.mu.Unlock()
-		return nil, ErrKeyExpired
-	}
-
-	atomic.AddUint64(&sc.hitCount, 1)
-	return item.value, nil
-}
-
-// Set writes to the cache using an exclusive Write-Lock.
-func (sc *ShardedCache) Set(key string, val any, ttl time.Duration) {
-	shard := sc.getShard(key)
-
-	var expires time.Time
-	hasExpires := false
-	if ttl > 0 {
-		expires = time.Now().Add(ttl)
-		hasExpires = true
-	}
-
-	shard.mu.Lock()
-	defer shard.mu.Unlock()
-
-	shard.items[key] = cacheItem{
-		value:      val,
-		expiresAt:  expires,
-		hasExpires: hasExpires,
-	}
-}
-
-// Metrics retrieves telemetry counters atomically without blocking readers or writers.
-func (sc *ShardedCache) Metrics() (hits, misses uint64) {
-	return atomic.LoadUint64(&sc.hitCount), atomic.LoadUint64(&sc.missCount)
-}
-
-func main() {
-	cache := NewShardedCache(16)
-	var wg sync.WaitGroup
-
-	// Concurrently write from 50 goroutines
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			k := fmt.Sprintf("user:session:%d", id%10)
-			cache.Set(k, fmt.Sprintf("token_payload_%d", id), 5*time.Second)
-		}(i)
-	}
-
-	// Concurrently read from 200 goroutines
-	for i := 0; i < 200; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			k := fmt.Sprintf("user:session:%d", id%10)
-			_, _ = cache.Get(k)
-		}(i)
-	}
-
-	wg.Wait()
-	hits, misses := cache.Metrics()
-	fmt.Printf("Thread-Safe Cache Verified: Hits=%d, Misses=%d\n", hits, misses)
-}
+```mermaid
+flowchart LR
+  K1["key: acct-17"] --> H["hash(key) mod N"]
+  K2["key: acct-42"] --> H
+  K3["key: acct-99"] --> H
+  H --> S0["lock 0"]
+  H --> S1["lock 1"]
+  H --> S2["lock 2"]
+  H --> SN["lock N-1"]
 ```
+
+**Rules that make striping correct**
+
+1. **Same key → same stripe, always.** Use a stable hash and a fixed *N*.
+2. **Multi-key operations take the *set of stripes*, de-duplicated, in ascending index order.** Two accounts can hash to the same stripe — locking it twice with a non-reentrant lock **deadlocks yourself**; de-duplicate.
+3. **Stripes protect values, not structure.** Don't add or remove keys from the underlying map under only a stripe lock; build the map once, or use a concurrent map.
+4. **Choose *N* from contention, not data size.** A few times the number of concurrent threads (16–64) is typical.
+5. **Whole-structure operations** (total, snapshot) take **all** stripes in order.
+
+Striping is how `ConcurrentHashMap` (originally) and many caches and rate limiters scale.
 
 ---
 
-### 4.2 TypeScript: AsyncMutex with Promise-Chained Task Serialization
+## 6. Walkthrough
 
-In single-threaded Node.js, race conditions still occur across async suspension points (`await`). The `AsyncMutex` ensures strictly serialized critical sections across asynchronous I/O.
+**Requirements (tiny):** (A) sell *N* tickets to many concurrent buyers without overselling; (B) move money between accounts concurrently without deadlock, with no money created or lost.
 
-```typescript
-export class AsyncMutex {
-  private queue: Array<() => void> = [];
-  private locked: boolean = false;
+**Invariants:** tickets sold ≤ *N*; `sum(balances)` is constant; a failed transfer changes nothing.
 
-  public async acquire(): Promise<() => void> {
-    return new Promise<() => void>((resolve) => {
-      const release = () => {
-        if (this.queue.length > 0) {
-          const next = this.queue.shift()!;
-          next();
-        } else {
-          this.locked = false;
-        }
-      };
+### Step A — check-then-act: broken, then fixed
 
-      if (!this.locked) {
-        this.locked = true;
-        resolve(release);
-      } else {
-        this.queue.push(() => resolve(release));
-      }
-    });
-  }
-
-  public async runExclusive<T>(callback: () => Promise<T>): Promise<T> {
-    const release = await this.acquire();
-    try {
-      return await callback();
-    } finally {
-      release();
-    }
-  }
-}
-
-// High-contention account balance manager
-export class BankAccountManager {
-  private balances = new Map<string, number>();
-  private accountLocks = new Map<string, AsyncMutex>();
-
-  private getLock(accountId: string): AsyncMutex {
-    let lock = this.accountLocks.get(accountId);
-    if (!lock) {
-      lock = new AsyncMutex();
-      this.accountLocks.set(accountId, lock);
-    }
-    return lock;
-  }
-
-  public setInitialBalance(accountId: string, amount: number): void {
-    this.balances.set(accountId, amount);
-  }
-
-  public async transfer(fromId: string, toId: string, amount: number): Promise<boolean> {
-    // Prevent deadlocks by enforcing deterministic global lock acquisition order
-    const firstId = fromId < toId ? fromId : toId;
-    const secondId = fromId < toId ? toId : fromId;
-
-    const firstLock = this.getLock(firstId);
-    const secondLock = this.getLock(secondId);
-
-    const releaseFirst = await firstLock.acquire();
-    const releaseSecond = await secondLock.acquire();
-
-    try {
-      const fromBal = this.balances.get(fromId) ?? 0;
-      if (fromBal < amount) {
-        return false;
-      }
-
-      // Simulate async network/database latency
-      await new Promise((r) => setTimeout(r, 10));
-
-      this.balances.set(fromId, fromBal - amount);
-      const toBal = this.balances.get(toId) ?? 0;
-      this.balances.set(toId, toBal + amount);
-      return true;
-    } finally {
-      releaseSecond();
-      releaseFirst();
-    }
-  }
-
-  public getBalance(accountId: string): number {
-    return this.balances.get(accountId) ?? 0;
-  }
-}
-```
-
----
-
-### 4.3 Python: Thread-Safe Singleton with Double-Checked Locking & Bounded Blocking Queue
-
+````carousel
 ```python
 import threading
 import time
-from typing import Generic, TypeVar, Optional, List
-
-T = TypeVar("T")
 
 
-class ThreadSafeSingletonMeta(type):
-    """
-    Thread-safe Singleton implementation utilizing the Double-Checked Locking Pattern.
-    Guarantees exactly one instance is created regardless of thread interleaving.
-    """
-    _instances = {}
-    _lock: threading.Lock = threading.Lock()
+class TicketsBroken:
+    def __init__(self, total: int) -> None:
+        self.left = total
 
-    def __call__(cls, *args, **kwargs):
-        # First Check (Unsynchronized fast path to avoid lock overhead)
-        if cls not in cls._instances:
-            with cls._lock:
-                # Second Check (Synchronized check under lock)
-                if cls not in cls._instances:
-                    instance = super().__call__(*args, **kwargs)
-                    cls._instances[cls] = instance
-        return cls._instances[cls]
+    def buy(self) -> bool:
+        if self.left > 0:          # CHECK
+            time.sleep(0.001)      # a context switch can land anywhere; this makes it visible
+            self.left -= 1         # ACT, based on a stale check
+            return True
+        return False
 
 
-class DatabaseConnectionPool(metaclass=ThreadSafeSingletonMeta):
-    def __init__(self, pool_size: int = 10):
-        self.pool_size = pool_size
-        self.created_at = time.time()
-        print(f"[Init] DatabaseConnectionPool initialized with capacity={pool_size}")
+class Tickets:
+    def __init__(self, total: int) -> None:
+        self._left = total
+        self._lock = threading.Lock()      # protects _left; private, never exposed
 
-
-class ThreadSafeBoundedQueue(Generic[T]):
-    """
-    Thread-safe Bounded Producer-Consumer Queue implemented using Condition Variables.
-    """
-    def __init__(self, capacity: int):
-        if capacity <= 0:
-            raise ValueError("Capacity must be positive")
-        self._capacity = capacity
-        self._items: List[T] = []
-        self._lock = threading.Lock()
-        self._not_empty = threading.Condition(self._lock)
-        self._not_full = threading.Condition(self._lock)
-
-    def put(self, item: T, timeout: Optional[float] = None) -> bool:
-        with self._not_full:
-            end_time = time.time() + timeout if timeout else None
-            while len(self._items) >= self._capacity:
-                if timeout is not None:
-                    remaining = end_time - time.time()
-                    if remaining <= 0 or not self._not_full.wait(remaining):
-                        return False
-                else:
-                    self._not_full.wait()
-            
-            self._items.append(item)
-            self._not_empty.notify() # Notify blocked consumers
+    def buy(self) -> bool:
+        with self._lock:                   # check and act under one lock
+            if self._left <= 0:
+                return False
+            self._left -= 1
             return True
 
-    def get(self, timeout: Optional[float] = None) -> Optional[T]:
-        with self._not_empty:
-            end_time = time.time() + timeout if timeout else None
-            while len(self._items) == 0:
-                if timeout is not None:
-                    remaining = end_time - time.time()
-                    if remaining <= 0 or not self._not_empty.wait(remaining):
-                        return None
-                else:
-                    self._not_empty.wait()
-            
-            item = self._items.pop(0)
-            self._not_full.notify() # Notify blocked producers
-            return item
 
-    def size(self) -> int:
-        with self._lock:
-            return len(self._items)
+def sell(tickets, buyers: int = 50) -> int:
+    start = threading.Barrier(buyers)      # release all threads at the same moment
+    sold = []
+
+    def worker() -> None:
+        start.wait()
+        sold.append(tickets.buy())         # list.append is atomic in CPython
+
+    threads = [threading.Thread(target=worker) for _ in range(buyers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return sum(sold)
+
+
+if __name__ == "__main__":
+    print("broken sold:", sell(TicketsBroken(10)), "of 10")   # typically > 10
+    print("fixed  sold:", sell(Tickets(10)), "of 10")         # always 10
 ```
-
----
-
-### 4.4 C#: High-Throughput Resource Pool with SemaphoreSlim & Interlocked
-
+<!-- slide -->
 ```csharp
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 
-namespace Architecture.Concurrency
+public sealed class TicketsBroken
 {
-    /// <summary>
-    /// Thread-safe bounded object pool utilizing SemaphoreSlim and Lock-Free Interlocked counters.
-    /// </summary>
-    public sealed class ThreadSafeResourcePool<T> : IDisposable where T : class
+    private int _left;
+    public TicketsBroken(int total) => _left = total;
+
+    public bool Buy()
     {
-        private readonly ConcurrentBag<T> _resources;
-        private readonly Func<T> _factory;
-        private readonly Action<T>? _resetAction;
-        private readonly SemaphoreSlim _semaphore;
-        private readonly int _maxCapacity;
-        private long _activeLeases = 0;
-        private bool _disposed = false;
-
-        public ThreadSafeResourcePool(Func<T> factory, int maxCapacity, Action<T>? resetAction = null)
+        if (_left > 0)                 // CHECK
         {
-            _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-            _maxCapacity = maxCapacity > 0 ? maxCapacity : throw new ArgumentOutOfRangeException(nameof(maxCapacity));
-            _resetAction = resetAction;
-            _resources = new ConcurrentBag<T>();
-            _semaphore = new SemaphoreSlim(maxCapacity, maxCapacity);
-
-            // Pre-seed initial resources
-            for (int i = 0; i < maxCapacity; i++)
-            {
-                _resources.Add(_factory());
-            }
+            Thread.Sleep(1);           // widen the race window for the demo
+            _left--;                   // ACT on a stale check
+            return true;
         }
-
-        public async Task<ResourceLease<T>> AcquireAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
-        {
-            ThrowIfDisposed();
-
-            bool acquired = await _semaphore.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
-            if (!acquired)
-            {
-                throw new TimeoutException($"Failed to acquire pooled resource within {timeout.TotalMilliseconds}ms.");
-            }
-
-            if (!_resources.TryTake(out T? item))
-            {
-                // Fallback instantiation if bag was depleted
-                item = _factory();
-            }
-
-            Interlocked.Increment(ref _activeLeases);
-            return new ResourceLease<T>(this, item);
-        }
-
-        internal void Release(T item)
-        {
-            if (_disposed)
-            {
-                (item as IDisposable)?.Dispose();
-                return;
-            }
-
-            _resetAction?.Invoke(item);
-            _resources.Add(item);
-            Interlocked.Decrement(ref _activeLeases);
-            _semaphore.Release();
-        }
-
-        public (int MaxCapacity, long ActiveLeases, int AvailableSlots) GetMetrics()
-        {
-            return (_maxCapacity, Interlocked.Read(ref _activeLeases), _semaphore.CurrentCount);
-        }
-
-        private void ThrowIfDisposed()
-        {
-            if (_disposed) throw new ObjectDisposedException(nameof(ThreadSafeResourcePool<T>));
-        }
-
-        public void Dispose()
-        {
-            if (_disposed) return;
-            _disposed = true;
-            _semaphore.Dispose();
-
-            while (_resources.TryTake(out T? item))
-            {
-                (item as IDisposable)?.Dispose();
-            }
-        }
+        return false;
     }
+}
 
-    public readonly struct ResourceLease<T> : IDisposable where T : class
+public sealed class Tickets
+{
+    private readonly object _gate = new();     // private lock, never lock(this)
+    private int _left;
+    public Tickets(int total) => _left = total;
+
+    public bool Buy()
     {
-        private readonly ThreadSafeResourcePool<T> _pool;
-        public T Resource { get; }
-
-        internal ResourceLease(ThreadSafeResourcePool<T> pool, T resource)
+        lock (_gate)                           // check and act under one lock
         {
-            _pool = pool;
-            Resource = resource;
-        }
-
-        public void Dispose()
-        {
-            _pool.Release(Resource);
+            if (_left <= 0) return false;
+            _left--;
+            return true;
         }
     }
 }
+
+// Lock-free alternative for a single counter: compare-and-swap loop.
+public sealed class AtomicTickets
+{
+    private int _left;
+    public AtomicTickets(int total) => _left = total;
+
+    public bool Buy()
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _left);
+            if (current <= 0) return false;
+            if (Interlocked.CompareExchange(ref _left, current - 1, current) == current) return true;
+            // someone else changed it first: retry with the fresh value
+        }
+    }
+}
+
+public static class Program
+{
+    private static int Sell(Func<bool> buy, int buyers = 50)
+    {
+        var gate = new Barrier(buyers);
+        var sold = 0;
+        var threads = Enumerable.Range(0, buyers).Select(_ => new Thread(() =>
+        {
+            gate.SignalAndWait();
+            if (buy()) Interlocked.Increment(ref sold);
+        })).ToList();
+        threads.ForEach(t => t.Start());
+        threads.ForEach(t => t.Join());
+        return sold;
+    }
+
+    public static void Main()
+    {
+        Console.WriteLine($"broken sold: {Sell(new TicketsBroken(10).Buy)} of 10");   // typically > 10
+        Console.WriteLine($"locked sold: {Sell(new Tickets(10).Buy)} of 10");         // always 10
+        Console.WriteLine($"atomic sold: {Sell(new AtomicTickets(10).Buy)} of 10");    // always 10
+    }
+}
 ```
+````
 
----
+### Step B — striped locks + ordered multi-lock transfer
 
-## 5. Practical Hands-On Verification Workflows
+**Design:** the map of accounts is built once and never changes shape; each `Account` holds a mutable balance; a `StripedLocks` guards balances; `transfer` takes the stripes for both accounts in ascending order.
 
-### 5.1 Detecting Data Races with Go Race Detector
+````carousel
+```python
+from __future__ import annotations
 
-To verify that an implementation is completely free of data races, execute the test suite with the compiler race instrumentor enabled:
-
-```bash
-# 1. Run race detection across all concurrency packages
-go test -race -v -count=1 ./...
-
-# Expected Output when thread-safety is preserved:
-# === RUN   TestShardedCacheConcurrentReadsAndWrites
-# === PAUSE TestShardedCacheConcurrentReadsAndWrites
-# === CONT  TestShardedCacheConcurrentReadsAndWrites
-# --- PASS: TestShardedCacheConcurrentReadsAndWrites (1.24s)
-# PASS
-# ok      github.com/backend/concurrency   1.412s
-```
-
-If an unsynchronized read-write occurred, Go's race detector outputs the exact memory address and stack traces:
-
-```
-==================
-WARNING: DATA RACE
-Write at 0x00c0000ba030 by goroutine 7:
-  github.com/backend/concurrency.(*UnsafeCounter).Inc()
-      /workspace/counter.go:14 +0x44
-
-Previous Read at 0x00c0000ba030 by goroutine 6:
-  github.com/backend/concurrency.(*UnsafeCounter).Value()
-      /workspace/counter.go:18 +0x38
-==================
-```
-
-### 5.2 Python High-Concurrency Lost-Update Stress Test
-
-Run this terminal command to observe Python GIL subtleties:
-
-```bash
-python3 -c "
+import random
 import threading
+from contextlib import contextmanager
+from typing import Iterator
 
-val = 0
-def worker():
-    global val
-    for _ in range(100_000):
-        val += 1
 
-threads = [threading.Thread(target=worker) for _ in range(4)]
-for t in threads: t.start()
-for t in threads: t.join()
+class StripedLocks:
+    def __init__(self, stripes: int = 16) -> None:
+        if stripes <= 0:
+            raise ValueError("stripes must be positive")
+        self._locks = tuple(threading.Lock() for _ in range(stripes))
 
-print(f'Final Value: {val} (Expected: 400000, Lost Updates: {400000 - val})')
-"
+    def index(self, key: str) -> int:
+        return hash(key) % len(self._locks)
+
+    @contextmanager
+    def hold(self, *keys: str) -> Iterator[None]:
+        order = sorted({self.index(k) for k in keys})   # de-duplicate AND global order
+        taken: list[int] = []
+        try:
+            for i in order:
+                self._locks[i].acquire()
+                taken.append(i)
+            yield
+        finally:
+            for i in reversed(taken):
+                self._locks[i].release()
+
+
+class _Account:
+    __slots__ = ("cents",)
+
+    def __init__(self, cents: int) -> None:
+        self.cents = cents
+
+
+class Bank:
+    def __init__(self, opening: dict[str, int], stripes: int = 16) -> None:
+        # Built once; the dict's shape never changes, so concurrent reads are safe.
+        self._accounts = {k: _Account(v) for k, v in opening.items()}
+        self._locks = StripedLocks(stripes)
+
+    def _get(self, account_id: str) -> _Account:
+        try:
+            return self._accounts[account_id]
+        except KeyError:
+            raise KeyError(f"unknown account {account_id!r}") from None
+
+    def balance(self, account_id: str) -> int:
+        with self._locks.hold(account_id):
+            return self._get(account_id).cents
+
+    def transfer(self, src: str, dst: str, cents: int) -> bool:
+        if cents <= 0:
+            raise ValueError("cents must be positive")
+        if src == dst:
+            raise ValueError("cannot transfer to the same account")
+        a, b = self._get(src), self._get(dst)
+        with self._locks.hold(src, dst):          # both stripes, ascending order
+            if a.cents < cents:
+                return False                      # nothing changed
+            a.cents -= cents
+            b.cents += cents
+            return True
+
+    def total(self) -> int:
+        with self._locks.hold(*self._accounts):   # all stripes: consistent snapshot
+            return sum(a.cents for a in self._accounts.values())
+
+
+if __name__ == "__main__":
+    ids = [f"acct-{i}" for i in range(6)]
+    bank = Bank({i: 10_000 for i in ids}, stripes=4)     # few stripes -> collisions on purpose
+    before = bank.total()
+
+    def worker(seed: int) -> None:
+        rng = random.Random(seed)
+        for _ in range(5_000):
+            src, dst = rng.sample(ids, 2)
+            bank.transfer(src, dst, rng.randint(1, 500))
+
+    threads = [threading.Thread(target=worker, args=(s,)) for s in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert not any(t.is_alive() for t in threads), "deadlock!"
+    assert bank.total() == before, "money was created or destroyed"
+    print("ok, total =", bank.total())
 ```
-
-Expected Terminal Output:
-```
-Final Value: 278142 (Expected: 400000, Lost Updates: 121858)
-```
-
----
-
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
-
-<details>
-<summary><strong>Checkpoint 1: The Subtle "Double-Checked Locking" Memory Visibility Bug</strong></summary>
-
-**Scenario**: A software engineer writes a lazy-initialized singleton in Java/C++ without declaring the instance variable `volatile`:
+<!-- slide -->
 ```csharp
-if (_instance == null) {
-    lock (_lock) {
-        if (_instance == null) {
-            _instance = new HeavyweightService();
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+
+public sealed class StripedLocks
+{
+    private readonly object[] _locks;
+
+    public StripedLocks(int stripes = 16)
+    {
+        if (stripes <= 0) throw new ArgumentOutOfRangeException(nameof(stripes));
+        _locks = Enumerable.Range(0, stripes).Select(_ => new object()).ToArray();
+    }
+
+    public int IndexOf(string key) => (key.GetHashCode() & int.MaxValue) % _locks.Length;
+
+    /// <summary>Takes the distinct stripes in ascending order. Dispose on the SAME thread.</summary>
+    public IDisposable Hold(params string[] keys)
+    {
+        var order = keys.Select(IndexOf).Distinct().OrderBy(i => i).ToArray();
+        var taken = 0;
+        try
+        {
+            foreach (var i in order) { Monitor.Enter(_locks[i]); taken++; }
+        }
+        catch
+        {
+            for (var k = taken - 1; k >= 0; k--) Monitor.Exit(_locks[order[k]]);
+            throw;
+        }
+        return new Releaser(_locks, order);
+    }
+
+    private sealed class Releaser : IDisposable
+    {
+        private readonly object[] _locks;
+        private readonly int[] _order;
+        private int _released;
+
+        public Releaser(object[] locks, int[] order) { _locks = locks; _order = order; }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 1) return;
+            for (var k = _order.Length - 1; k >= 0; k--) Monitor.Exit(_locks[_order[k]]);
         }
     }
 }
-return _instance;
+
+public sealed class Bank
+{
+    private sealed class Account { public long Cents; }
+
+    private readonly Dictionary<string, Account> _accounts;   // shape never changes after construction
+    private readonly StripedLocks _locks;
+
+    public Bank(IReadOnlyDictionary<string, long> opening, int stripes = 16)
+    {
+        _accounts = opening.ToDictionary(kv => kv.Key, kv => new Account { Cents = kv.Value });
+        _locks = new StripedLocks(stripes);
+    }
+
+    private Account Get(string id) =>
+        _accounts.TryGetValue(id, out var a) ? a : throw new KeyNotFoundException($"unknown account '{id}'");
+
+    public long Balance(string id)
+    {
+        using (_locks.Hold(id)) return Get(id).Cents;
+    }
+
+    public bool Transfer(string from, string to, long cents)
+    {
+        if (cents <= 0) throw new ArgumentOutOfRangeException(nameof(cents));
+        if (from == to) throw new ArgumentException("cannot transfer to the same account");
+        var src = Get(from);
+        var dst = Get(to);
+        using (_locks.Hold(from, to))              // both stripes, ascending order
+        {
+            if (src.Cents < cents) return false;   // nothing changed
+            src.Cents -= cents;
+            dst.Cents += cents;
+            return true;
+        }
+    }
+
+    public long Total()
+    {
+        using (_locks.Hold(_accounts.Keys.ToArray()))   // all stripes: consistent snapshot
+            return _accounts.Values.Sum(a => a.Cents);
+    }
+}
+
+public static class Program
+{
+    public static void Main()
+    {
+        var ids = Enumerable.Range(0, 6).Select(i => $"acct-{i}").ToArray();
+        var bank = new Bank(ids.ToDictionary(i => i, _ => 10_000L), stripes: 4);   // collisions on purpose
+        var before = bank.Total();
+
+        var threads = Enumerable.Range(0, 8).Select(seed => new Thread(() =>
+        {
+            var rng = new Random(seed);
+            for (var n = 0; n < 5_000; n++)
+            {
+                var a = rng.Next(ids.Length);
+                var b = (a + 1 + rng.Next(ids.Length - 1)) % ids.Length;   // b != a
+                bank.Transfer(ids[a], ids[b], rng.Next(1, 501));
+            }
+        })).ToList();
+
+        threads.ForEach(t => t.Start());
+        foreach (var t in threads)
+            if (!t.Join(TimeSpan.FromSeconds(30))) throw new Exception("deadlock!");
+
+        if (bank.Total() != before) throw new Exception("money was created or destroyed");
+        Console.WriteLine($"ok, total = {bank.Total()}");
+    }
+}
 ```
-During a load test, one in every 500,000 requests throws a `NullReferenceException` inside `HeavyweightService` methods, even though `_instance` is not null. Why?
+````
 
-<strong>Answer:</strong>
-CPU instruction reordering and compiler optimization! The statement `_instance = new HeavyweightService()` involves three low-level steps:
-1. Allocate memory block.
-2. Run constructor `HeavyweightService()` to initialize fields.
-3. Assign pointer address to `_instance`.
+**Why this design holds up**
 
-Compilers and out-of-order execution CPUs are permitted to reorder step 3 before step 2. If Thread A assigns the pointer to `_instance` before the constructor finishes, Thread B can execute the outer unsynchronized check `if (_instance == null)`, find it false, and return a reference to a partially initialized object whose internal fields are still null. In C#, `Lazy<T>` solves this; in Java/C++, the reference must be marked `volatile`.
+| Decision | Reason |
+| :--- | :--- |
+| Lock is **private** and lives inside `Bank` / `Tickets` | Callers cannot forget it or take it in the wrong order |
+| Check and act in one critical section | Removes the check-then-act window |
+| `hold(*keys)` de-duplicates and sorts stripe indexes | No cycle between transfers; no self-deadlock when two accounts share a stripe |
+| Account map built once | Stripe locks protect balances; no one resizes the dict under them |
+| `total()` takes **all** stripes | A consistent snapshot, not a sum of half-finished transfers |
+| Failed transfer returns before mutating | Atomicity of failure: no partial debit |
+
+**Cost model to say aloud:** with one global lock, throughput ≈ one transfer at a time. With *N* stripes and random keys, roughly *N* transfers can proceed in parallel; `total()` is the slow operation (it briefly blocks everyone), so keep it rare or maintain it incrementally.
+
+---
+
+## 7. Edges interviewers push on
+
+| Edge | What to say |
+| :--- | :--- |
+| **GIL (CPython)** | It makes single bytecode-level operations like `list.append` and `d[k] = v` atomic, but `x += 1` and check-then-act are **not** atomic. Free-threaded builds remove the GIL entirely — write correct code anyway |
+| **`asyncio` is not threads** | One thread, but every `await` is a yield point: check, `await`, act is still a race. Use `asyncio.Lock` |
+| **C# `lock` + `await`** | You cannot `await` inside `lock`. Use `SemaphoreSlim.WaitAsync()` and `try/finally Release()` |
+| **Locking on `this` / a string / a type** | Others can lock the same object. Lock a **private** `readonly object` |
+| **Reentrancy** | Python `Lock` self-deadlocks if you re-acquire it; `RLock` and C# `Monitor` allow it — which can hide a re-entrancy bug |
+| **Compound ops on thread-safe maps** | `if key not in d: d[key] = v` is still check-then-act. Use `setdefault`, `ConcurrentDictionary.GetOrAdd`, `TryAdd` |
+| **`GetOrAdd(key, factory)`** | The factory can run more than once under contention; wrap values in `Lazy<T>` if construction must happen once |
+| **Calling out while holding a lock** | Callbacks, events, I/O, or other locks can deadlock or stall everyone. Copy data out, release, then call |
+| **Double-checked locking** | Needs `volatile` / `Lazy<T>` in C# (reordering). In Python, create at import time or use a lock |
+| **Reader-writer locks** | Great for read-heavy, rarely-written data; watch writer starvation and don't upgrade read→write in place |
+| **Visibility** | Without a lock/atomic/volatile, a thread may never see another's write. Locks give both exclusion and visibility |
+| **`hash(str)` is salted per process (Python)** | Fine for in-process striping — same key, same stripe, within one run. Never use it to pick a shard that must be stable across processes or restarts; use `zlib.crc32` / a real hash |
+| **Hash collisions in striping** | Only cost throughput (false sharing of a stripe), never correctness — as long as multi-key ops lock the distinct stripe set |
+| **Fairness** | Standard locks aren't FIFO; a hot thread can starve others. Mention if SLAs matter |
+| **In-process locks across machines** | A lock protects one process. Several app instances need a **database** guard: row lock (`SELECT … FOR UPDATE`), optimistic version column, unique constraint, or an exclusion constraint |
+| **Testing** | You can't prove absence of races by running tests once. Stress with barriers, many iterations, race detectors, and review invariants by reasoning |
+
+### Try it — concurrency lab (5 minutes, runnable)
+
+Four probes, one per bug class from §2 and §4. Save as `concurrency_lab.py` and run it a few times; it asserts the *bug is visible* before it asserts the *fix works*, so a passing run proves both.
+
+```python
+"""Concurrency lab: every probe is deterministic or has a loud failure message."""
+import queue
+import threading
+import time
+
+
+# 1) Lost update: split `+=` into read / yield / write so the race is not a coin-flip
+class Counter:
+    def __init__(self) -> None:
+        self.n = 0
+        self._lock = threading.Lock()
+
+    def bump_unsafe(self) -> None:
+        tmp = self.n          # read
+        time.sleep(0.0001)    # a context switch can land here in real code
+        self.n = tmp + 1      # write based on stale read
+
+    def bump_safe(self) -> None:
+        with self._lock:      # read-modify-write is ONE critical section
+            self.n += 1
+
+
+def hammer(fn, threads: int = 8, each: int = 100) -> None:
+    def run() -> None:
+        for _ in range(each):
+            fn()
+    ts = [threading.Thread(target=run) for _ in range(threads)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+
+
+c = Counter()
+hammer(c.bump_unsafe)
+assert c.n < 8 * 100, "lost updates expected (rerun if the scheduler was kind)"
+c = Counter()
+hammer(c.bump_safe)
+assert c.n == 8 * 100
+print("1) lost update:", "unsafe lost updates, safe exact")
+
+
+# 2) Deadlock, detected with a timeout instead of hanging forever
+def try_transfer(first, second, hold: threading.Barrier, results: list) -> None:
+    with first:
+        hold.wait(timeout=2)                      # both threads now hold their first lock
+        got = second.acquire(timeout=0.3)         # try-lock + timeout = back off, do not hang
+        results.append(got)
+        if got:
+            second.release()
+
+
+a, b = threading.Lock(), threading.Lock()
+res: list[bool] = []
+bar = threading.Barrier(2)
+t1 = threading.Thread(target=try_transfer, args=(a, b, bar, res))
+t2 = threading.Thread(target=try_transfer, args=(b, a, bar, res))     # OPPOSITE order
+t1.start(); t2.start(); t1.join(); t2.join()
+assert False in res, res                        # a cycle: at least one had to give up
+print("2) opposite lock order: a try-lock timed out (a plain `with` would hang forever)")
+
+ordered = sorted([a, b], key=id)                # one global order, here by id()
+res.clear()
+bar = threading.Barrier(2)
+
+
+def ordered_transfer() -> None:
+    first, second = ordered
+    with first:
+        with second:
+            res.append(True)
+
+
+ts = [threading.Thread(target=ordered_transfer) for _ in range(2)]
+[t.start() for t in ts]; [t.join(timeout=2) for t in ts]
+assert res == [True, True]
+print("   global order: both finished, no timeout needed")
+
+
+# 3) Check-then-act on a "thread-safe" dict: compute-once needs a lock (or a Lazy)
+calls = 0
+cache: dict[str, int] = {}
+cache_lock = threading.Lock()
+
+
+def expensive(key: str) -> int:
+    global calls
+    calls += 1
+    time.sleep(0.01)
+    return len(key)
+
+
+def get_racy(key: str) -> int:
+    if key not in cache:                  # CHECK
+        cache[key] = expensive(key)       # ACT: several threads can all get here
+    return cache[key]
+
+
+def get_once(key: str) -> int:
+    with cache_lock:                      # one coarse lock is fine for a cold path;
+        if key not in cache:              # stripe it per key if compute is slow
+            cache[key] = expensive(key)
+        return cache[key]
+
+
+gate = threading.Barrier(6)
+
+
+def call(fn) -> None:
+    gate.wait()
+    fn("hello")
+
+
+ts = [threading.Thread(target=call, args=(get_racy,)) for _ in range(6)]
+[t.start() for t in ts]; [t.join() for t in ts]
+racy_calls = calls
+cache.clear(); calls = 0
+gate = threading.Barrier(6)
+ts = [threading.Thread(target=call, args=(get_once,)) for _ in range(6)]
+[t.start() for t in ts]; [t.join() for t in ts]
+assert calls == 1 and racy_calls > 1, (racy_calls, calls)
+print(f"3) compute-once: racy ran {racy_calls}x, locked ran {calls}x")
+
+
+# 4) Confinement instead of locking: one worker owns the state, others send messages
+inbox: "queue.Queue[tuple[str, int] | None]" = queue.Queue()
+balances = {"a": 0, "b": 0}                # touched ONLY by the worker thread
+
+
+def owner() -> None:
+    while (msg := inbox.get()) is not None:
+        who, delta = msg
+        balances[who] += delta
+
+
+w = threading.Thread(target=owner)
+w.start()
+senders = [threading.Thread(target=lambda: [inbox.put(("a", 1)) for _ in range(1000)]) for _ in range(4)]
+[s.start() for s in senders]; [s.join() for s in senders]
+inbox.put(None); w.join()
+assert balances["a"] == 4000
+print("4) confinement: no lock, still exact:", balances)
+print("lab ok")
+
+
+```
+
+What each probe proves, and what to try next:
+
+| Probe | Proves | Then try |
+| :--- | :--- | :--- |
+| 1. Lost update | `+=` is read → add → write; a switch in the middle loses increments | Remove the `sleep` and raise `each` to 1,000,000 — does it still lose updates on your Python version? (Free-threaded builds: yes, quickly.) |
+| 2. Deadlock | Opposite order forms a cycle; a try-lock timeout converts a hang into a handled failure; one global order removes the cycle | Replace `sorted(..., key=id)` with a fixed lock ranking (`A=1`, `B=2`) and explain why `id()` is acceptable here but not across processes |
+| 3. Compute-once | A "safe" dict still has check-then-act; one lock fixes it | Stripe `cache_lock` by key (reuse `StripedLocks` from Step B) so different keys compute in parallel |
+| 4. Confinement | One owner thread plus a `queue.Queue` needs **no lock** on the state it owns | Add a `("transfer", a, b, n)` message and notice the lock-order problem disappears entirely |
+
+Then draw `Bank → Account` in [LLD Studio](/tools/lld-studio/) and put a padlock on the class that owns each invariant.
+
+---
+
+## 8. What you'd say in two minutes
+
+> "First I'd shrink shared mutable state: immutable value objects, and hand-offs through a queue where possible. What remains are invariants — seats left, balances — and I'd give each one exactly one owner and one private lock *inside* that class, so callers can't forget it. Check-then-act and read-modify-write both sit inside a single critical section. For money movement I'd lock both accounts in a **global order** — by account ID, or by stripe index if I stripe — which breaks circular wait, the one Coffman condition I can control cheaply. If a single lock became the bottleneck I'd use **lock striping**: an array of N locks, key hashed to a stripe, multi-key operations take the *de-duplicated, sorted* set of stripes, and whole-structure reads take them all. Read-heavy data could take a reader-writer lock or a copy-on-write snapshot. I'd say out loud that Python's GIL doesn't make compound operations atomic and `await` is a yield point, and that in-process locks don't protect multiple instances — there I'd use a database row lock or optimistic version check."
+
+---
+
+## 9. Anti-patterns
+
+1. **Check-then-act without a lock** — `if free: take()`.
+2. **One global lock around everything** — correct, but turns a multi-core service into a single-lane road.
+3. **Locks in callers** — leaking raw synchronization so every caller must remember it. Encapsulate.
+4. **Inconsistent lock order** — the root of most production deadlocks. Define and document one order.
+5. **Locking on `this`, a `string`, or a public object** — someone else can take your lock.
+6. **Holding a lock across I/O or callbacks** — latency spikes and deadlocks.
+7. **Assuming thread-safe collection = thread-safe logic** — compound operations still race.
+8. **Sleeping to "fix" a race**, or catching and retrying forever — masks the bug, adds latency.
+9. **Lock striping with mutable structure** — resizing the map under per-stripe locks corrupts it.
+10. **Singletons with mutable state and no lock** — a shared, unguarded global.
+
+---
+
+## 10. Interview questions
+
+<details>
+<summary><strong>1. Race condition vs data race vs deadlock? [BASIC]</strong></summary>
+
+A **race condition** is any bug where the outcome depends on thread timing (check-then-act). A **data race** is the low-level version: unsynchronized conflicting accesses to the same memory. A **deadlock** is threads waiting on each other's locks forever. You can have a race condition with no data race (everything locked, but the check and the act are in different critical sections).
+
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Reader-Writer Lock Starvation</strong></summary>
+<summary><strong>2. Name the Coffman conditions and the one you break in practice. [BASIC]</strong></summary>
 
-**Scenario**: You deploy a high-throughput Read-Write Lock (`RWMutex`) to protect an in-memory configuration table. Read operations occur at 50,000 req/sec across 64 threads. A writer thread attempts to update a feature toggle via `Lock()`, but the operation hangs indefinitely, and the feature toggle never updates. What happened and how do you resolve it?
+Mutual exclusion, hold-and-wait, no preemption, circular wait. All four must hold for deadlock. In practice, break **circular wait** with a global lock order (sort by ID), and add **timeouts / try-lock** so a thread can back off instead of waiting forever.
 
-<strong>Answer:</strong>
-**Writer Starvation (Reader Preference)**. Many standard reader-writer lock implementations allow incoming readers to acquire the lock as long as at least one reader already holds it. Under heavy read traffic, readers overlap continuously, meaning the reader count never drops to zero. Consequently, the writer is indefinitely starved.
-**Resolution**:
-1. Use a **Writer-Preference Read-Write Lock** (e.g., standard in modern Go `sync.RWMutex` and C# `ReaderWriterLockSlim`), where a pending writer blocks subsequent incoming readers until the writer has acquired and released the lock.
-2. Alternatively, use **Copy-On-Write (COW)**: Readers read an immutable pointer without any locks; the writer creates an updated shallow clone of the configuration dictionary and atomically swaps the pointer via CPU CAS (`atomic.StorePointer`).
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: The Fork-Join Deadlock Trap</strong></summary>
+<summary><strong>3. Does the GIL make Python code thread-safe? [BASIC]</strong></summary>
 
-**Scenario**: A microservice processes batch items using a fixed thread pool of 8 threads. To process a parent item, the thread submits 4 child tasks to the *same* fixed thread pool and blocks waiting for their results using `Future.get()` or `Task.WaitAll()`. When 8 parent requests arrive simultaneously, the entire service permanently hangs at 0% CPU utilization. Diagnose the failure and provide the architectural pattern to prevent it.
+No. The GIL prevents two threads from executing Python bytecode simultaneously in CPython and makes single operations like `list.append` atomic. But `x += 1` is several bytecodes, and any check-then-act spans several, so a thread switch between them still loses updates. Also, free-threaded Python removes the GIL. You still need locks for compound invariants.
 
-<strong>Answer:</strong>
-**Thread Pool Starvation Deadlock (Hierarchical Dependency Deadlock)**.
-1. **Diagnosis**: When 8 parent tasks are picked up, all 8 worker threads in the pool become occupied. Each parent task submits 4 child sub-tasks to the pool's work queue. However, the child tasks can never begin execution because all 8 threads are blocked waiting for the child tasks to complete. Since the parents hold the threads and wait for the children, and the children wait for available threads, the pool deadlocks permanently.
-2. **Architectural Fixes**:
-   - **Pool Segregation**: Execute child sub-tasks on a separate, dedicated thread pool.
-   - **Work-Stealing Pool**: Utilize a fork-join work-stealing pool (like Java `ForkJoinPool` or Go goroutines), where idle workers can steal pending sub-tasks and execute them in-place rather than blocking.
-   - **Asynchronous Continuation**: Never synchronously block a thread pool thread (`.Result`, `Task.Wait()`); use non-blocking asynchronous composition (`await Task.WhenAll()`), releasing the execution thread back to the runtime pool while sub-tasks run.
+</details>
+
+<details>
+<summary><strong>4. When would you pick a lock, an atomic, or immutability? [BASIC]</strong></summary>
+
+**Immutability:** shared read-only config or snapshots — no synchronization at all (swap the reference to publish a new version). **Atomic / CAS:** one counter or flag, high contention, simple update. **Lock:** an invariant spanning several fields or objects, or a compound operation. Pick the weakest tool that preserves the invariant.
+
+</details>
+
+<details>
+<summary><strong>5. 100 users try to book the last seat. [SCENARIO]</strong></summary>
+
+Inside one process: the seat (or its show) owns a lock; `book()` checks and marks under it; exactly one succeeds, others get a clear "sold out" result. Across several app instances the in-memory lock is useless, so move the guarantee to the database: `UPDATE seats SET status='BOOKED' WHERE id=? AND status='FREE'` and check rows affected, or a unique constraint on `(show_id, seat_id)`, or a version column with retry.
+
+</details>
+
+<details>
+<summary><strong>6. `transfer(A,B)` and `transfer(B,A)` hang once a day. [SCENARIO]</strong></summary>
+
+Classic lock-order inversion: thread 1 holds A waiting for B, thread 2 holds B waiting for A. Fix by acquiring locks in a canonical order — sort the two account IDs (or stripe indexes) — and lock the lower first. Add a timeout/abort path for defense in depth and log the pair that timed out.
+
+</details>
+
+<details>
+<summary><strong>7. A cache behind one lock can't keep up with 64 cores. [SCENARIO]</strong></summary>
+
+Stripe it: `N` locks (say 16–64), `lock[hash(key) % N]`, each stripe guarding its own sub-map or its entries. Different keys proceed in parallel; the same key remains serialized. Multi-key operations lock the sorted distinct stripe set; whole-cache operations (clear, size, snapshot) lock all stripes in order. Don't resize the structure under per-stripe locks; use a concurrent map or pre-size. Consider read-write locks or a copy-on-write snapshot if reads dominate.
+
+</details>
+
+<details>
+<summary><strong>8. Is `if key not in map: map[key] = compute(key)` safe on a concurrent map? [TRICKY]</strong></summary>
+
+No. Each call may be individually thread-safe, but the pair is check-then-act: two threads can both miss and both compute. Use the map's atomic primitive — `setdefault`, `ConcurrentDictionary.GetOrAdd`, `TryAdd`. Note `GetOrAdd`'s factory can still run more than once and only one result is kept; if `compute` is expensive or has side effects, store a `Lazy<T>` (or a future) in the map so computation happens once.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 11. One-page cheat sheet
 
-- [Go Concurrency Patterns & sync/atomic](https://go.dev/blog/race-detector) - Official reference on Go data race diagnostics and concurrency primitives.
-- [Microsoft Learn: Threading & Synchronization Primitives](https://learn.microsoft.com/en-us/dotnet/standard/threading/overview-of-synchronization-primitives) - In-depth guide to `SemaphoreSlim`, `ReaderWriterLockSlim`, and `Interlocked`.
-- [Python Documentation: `threading` & Condition Variables](https://docs.python.org/3/library/threading.html) - Official standard library documentation for Python synchronization.
-- [Real Python: The Python GIL and Threading Behavior](https://realpython.com/python-gil/) - Detailed breakdown of bytecode execution and atomicity under the GIL.
+```text
+Three bugs    Lost update (read-modify-write) · Check-then-act · Broken multi-field invariant
+Order of use  Immutable -> confine to one thread -> atomic -> private lock -> striped / RW lock
+Lock design   One lock per invariant, private, INSIDE the owning class. Short critical sections.
+              No I/O, callbacks, or foreign locks while holding it (unless order is defined).
+Deadlock      Mutual excl + hold&wait + no preemption + circular wait.
+              Break circular wait: ONE global lock order. Add timeouts / try-lock.
+Striping      lock[hash(key) % N]. Multi-key: distinct stripes, ascending. All-keys: all stripes.
+              Locks guard values, not map structure.
+Python        GIL != safe. += and check-then-act race. await = yield point (asyncio.Lock).
+C#            lock(private object), Interlocked, SemaphoreSlim for async, Lazy<T> for once-only.
+Beyond 1 proc DB row lock, version column, unique/exclusion constraint.
+
+Interview opener: "Which invariant is shared, who owns it, and what is the one lock order?"
+```
 
 ---
 
-## Next Steps
+## Further reading
 
-Advance to [Module 11: Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md) to master the systematic 7-step blueprint for translating ambiguous interview problem statements into robust UML architectures and sequence diagrams.
+- [Python `threading`](https://docs.python.org/3/library/threading.html) and [the GIL](https://docs.python.org/3/glossary.html#term-global-interpreter-lock)
+- [Python FAQ — what kinds of global value mutation are thread-safe?](https://docs.python.org/3/faq/library.html#what-kinds-of-global-value-mutation-are-thread-safe)
+- [C# `lock` statement](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/statements/lock) and [`Interlocked`](https://learn.microsoft.com/en-us/dotnet/api/system.threading.interlocked)
+- [Managed threading best practices](https://learn.microsoft.com/en-us/dotnet/standard/threading/managed-threading-best-practices) and [`ConcurrentDictionary`](https://learn.microsoft.com/en-us/dotnet/api/system.collections.concurrent.concurrentdictionary-2)
+- [*Java Concurrency in Practice*](https://jcip.net/) — the clearest treatment of confinement, lock ordering, and visibility (concepts apply to any language)
+- [PostgreSQL — exclusion constraints](https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-EXCLUSION) for database-level "no overlap" guarantees
+
+## Next
+
+**[11 · Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md)** — turn an ambiguous prompt into actors, classes, and a UML diagram on the whiteboard.

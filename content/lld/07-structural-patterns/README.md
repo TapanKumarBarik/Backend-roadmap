@@ -1,401 +1,503 @@
-# Module 07: Structural Design Patterns
+# Structural Design Patterns
 
-> **Prerequisites:** Module 02 (OOP Foundations and UML), Module 04 (SOLID Principles).  
-> **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend Developers, Software Architects, Technical Interview Candidates.
+> **Prerequisites:** [02 · OOP & UML](../02-oop-foundations-and-uml/README.md), [04 · SOLID](../04-solid-principles/README.md), [06 · Creational](../06-creational-patterns/README.md)  
+> **Reading time:** ~30 minutes (plus ~10 to run the demos)  
+> **Audience:** LLD / machine-coding rounds — especially “wrap this without rewriting the client”
+
+> [!NOTE]
+> **In one line:** Structural patterns compose objects into larger structures — **Adapter** changes an interface, **Decorator** adds behavior with the *same* interface, **Facade** simplifies many APIs into one, **Proxy** controls access with the *same* interface, **Composite** treats trees uniformly.
 
 > [!TIP]
-> **The Golden Rule of Structural Patterns:** Structural patterns answer: *"How do classes and objects assemble into larger, flexible structures?"* **Adapter** changes an interface to make incompatible classes work together; **Decorator** enhances behavior dynamically without subclassing; **Facade** provides a simplified high-level interface over a complex subsystem; **Proxy** controls and gates access to an underlying object. Never confuse them: understand what is being wrapped and *why*.
+> **Golden rule:** Before you wrap anything, say *why*: compatibility (Adapter), features (Decorator), simplification (Facade), or control (Proxy). Same shape, different intent — interviewers grade the intent.
+
+> [!TIP]
+> **Try it:** Draw the four wrapper shapes in [LLD Studio](/tools/lld-studio/), then run the Python Adapter + Decorator example below.
 
 ---
 
-## 1. Architectural Mental Model: The Structural Wrapper Taxonomy
+## 1. Interview pressure
 
-A common source of confusion in Low-Level Design interviews is differentiating the "wrapper" patterns. They all use composition to enclose an inner object, but their **architectural intent** is fundamentally different:
+Interviewer: *"We must call Stripe’s SDK, but our checkout only knows `PaymentGateway.charge(userId, cents)`. Also add timing logs without editing the repository class."*
+
+You need **Adapter** (foreign interface → ours) and **Decorator** (same interface + telemetry). Mixing them up is a common fail.
 
 ```mermaid
 flowchart TD
-    subgraph Adapter["1. Adapter Pattern (Interface Conversion)"]
-        ClientA["Client (Expects XML)"] --> Adp["Adapter"] --> ServiceA["Legacy API (JSON)"]
-        NoteA["Intent: Convert incompatible interfaces without modifying existing code"]
-    end
-
-    subgraph Decorator["2. Decorator Pattern (Behavior Augmentation)"]
-        ClientB["Client"] --> Dec1["LoggingDecorator"] --> Dec2["CompressionDecorator"] --> BaseB["BaseStream"]
-        NoteB["Intent: Add responsibilities dynamically at runtime; same interface!"]
-    end
-
-    subgraph Facade["3. Facade Pattern (Subsystem Simplification)"]
-        ClientC["Client"] --> Fac["PaymentFacade"]
-        Fac --> Sub1["FraudDetector"]
-        Fac --> Sub2["CardProcessor"]
-        Fac --> Sub3["TaxCalculator"]
-        NoteC["Intent: Provide a single high-level macro method to hide subsystem complexity"]
-    end
-
-    subgraph Proxy["4. Proxy Pattern (Access Control / Virtualization)"]
-        ClientD["Client"] --> Prx["CachingProxy"] --> Real["HeavyDatabaseService"]
-        NoteD["Intent: Control access, lazy-load, cache, or authenticate; identical interface!"]
-    end
-
-    classDef pattern fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    class Adapter,Decorator,Facade,Proxy pattern;
+  subgraph Adapter["Adapter — change the interface"]
+    C1["Client"] --> A["Adapter"] --> L["Legacy / vendor SDK"]
+  end
+  subgraph Decorator["Decorator — same interface, more behavior"]
+    C2["Client"] --> D1["Logging"] --> D2["Metrics"] --> Core["RealSubject"]
+  end
+  subgraph Facade["Facade — one door to many"]
+    C3["Client"] --> F["CheckoutFacade"]
+    F --> Inv["Inventory"]
+    F --> Bill["Billing"]
+    F --> Ship["Shipping"]
+  end
+  subgraph Proxy["Proxy — same interface, gated access"]
+    C4["Client"] --> P["CachingProxy"] --> R["HeavyService"]
+  end
 ```
 
 ---
 
-## 2. Taxonomic Reference: Structural Patterns Compared
+## 2. Comparison matrix (memorize this)
 
-| Pattern | Architectural Intent | Interface Relationship | Runtime Dynamics | Example Production Use Case |
-| :--- | :--- | :--- | :--- | :--- |
-| **Adapter** | Translate one interface into another interface the client expects | **Changes interface** (Target $\neq$ Adaptee) | Static wrapper | Integrating a third-party Stripe payment gateway into your custom internal `IPaymentProcessor`. |
-| **Decorator** | Add responsibilities dynamically without subclass explosion | **Preserves interface** (Decorator implements same interface as Target) | Dynamic chaining | HTTP request middleware pipelines (Logging, Authentication, Rate Limiting, Compression). |
-| **Facade** | Provide a simple, unified interface to a complex subsystem | **New, simplified interface** | Static macro interface | A one-click `checkoutOrder()` method orchestrating inventory, billing, tax, and shipping services. |
-| **Proxy** | Control and manage access to a resource | **Preserves interface** (Proxy has exact same interface as RealSubject) | Intercepts calls | Lazy-loading heavy database records, caching expensive query results, RBAC security gates. |
-| **Composite** | Compose objects into tree structures to represent part-whole hierarchies | **Uniform interface** for leaf nodes and branches | Recursive tree traversal | File systems (Files and Directories), UI components, Organization hierarchies. |
-| **Bridge** | Decouple an abstraction from its implementation so both can vary independently | Orthogonal interfaces | Two independent dimensions | Database drivers (Abstraction: `SQLClient`, Implementation: `PostgresDriver`, `MySQLDriver`). |
-| **Flyweight** | Share fine-grained immutable state to support millions of small objects | Intrinsic vs Extrinsic state | Central memory cache | Text editors (sharing glyph font data across 500,000 characters in RAM). |
+| Pattern | Intent | Interface vs inner | Classic smell it fixes |
+| :--- | :--- | :--- | :--- |
+| **Adapter** | Make incompatible APIs work together | **Different** (Target ≠ Adaptee) | `if vendor == stripe: call differently` |
+| **Decorator** | Add responsibilities dynamically | **Same** | Subclass explosion (`LoggedCachedRepo`) |
+| **Facade** | Hide a subsystem behind one API | **New, simpler** | God client calling 8 services |
+| **Proxy** | Control access (cache, lazy, auth, remote) | **Same** | Clients construct expensive objects eagerly |
+| **Composite** | Part–whole trees, uniform API | Leaf and composite share type | `if isDirectory: … else …` everywhere |
+| **Bridge** | Vary abstraction ⊥ implementation | Two hierarchies | `WindowsButton`, `MacButton`, `WindowsCheckbox`… |
+| **Flyweight** | Share immutable intrinsic state | Shared + extrinsic context | Millions of identical glyph/style objects |
+
+### Wrapper cheat (say this out loud)
+
+```text
+Adapter   incompatible → compatible     (translate)
+Decorator same → same + extras          (stack features)
+Facade    many → one simple             (orchestrate)
+Proxy     same → same + gate            (control / virtualize)
+```
+
+**Decorator vs Proxy:** both keep the interface. Decorator *adds* behavior the client wants; Proxy *restricts or defers* access (cache miss, auth, lazy load). If the client asked for “logging around every call,” that is Decorator. If the client should not know a remote stub exists, that is Proxy.
 
 ---
 
-## 3. Systematic Breakdown: Adapter vs. Facade vs. Proxy vs. Decorator
+## 3. Walkthrough — Adapter + Decorator in one checkout path
 
-To ace low-level design evaluations, memorize the signature difference between the four primary wrapper patterns:
+**Requirements**
 
-```
-  ┌───────────┬───────────────────────────────────┬────────────────────────────────────────┐
-  │ Pattern   │ Interface Transformation          │ Core Architectural Objective           │
-  ├───────────┼───────────────────────────────────┼────────────────────────────────────────┤
-  │ Adapter   │ Incompatible ➔ Compatible         │ Compatibility (Translate calls)       │
-  │ Decorator │ Same Interface ➔ Same Interface   │ Augmentation (Add features in layers)  │
-  │ Facade    │ Many Interfaces ➔ One Easy API    │ Simplification (Hide complexity)       │
-  │ Proxy     │ Same Interface ➔ Same Interface   │ Protection / Control (Gate access)     │
-  └───────────┴───────────────────────────────────┴────────────────────────────────────────┘
-```
-
----
-
-## 4. Production War Story: The Decorator Recursion Stack Overflow Outage
-
-```mermaid
-sequenceDiagram
-    actor Client as API Consumer
-    participant Retry as RetryDecorator (Layer 1)
-    participant Auth as AuthTokenDecorator (Layer 2)
-    participant ClientCore as HttpClient Core
-
-    Note over Retry,Auth: Pipeline configured: RetryDecorator wraps AuthTokenDecorator!
-    Client->>Retry: ExecuteRequest("GET /orders")
-    Retry->>Auth: ExecuteRequest()
-    Note over Auth: Token expired! Refreshing token...
-    Note over Auth: Junior dev wrote: "if (tokenRefreshFails) return _pipeline.ExecuteRequest()#59;"
-    Auth->>Retry: ExecuteRequest() (Calls outer decorator!)
-    Retry->>Auth: ExecuteRequest()
-    Auth->>Retry: ExecuteRequest()
-    Note over Retry,Auth: Infinite recursive decorator loop!
-    Note over ClientCore: Call stack depth reaches 15,000 frames!
-    Note over ClientCore: 💥 java.lang.StackOverflowError / Thread crash!
-    Note over Client: Service crashes with 500 Internal Error#59; cluster node dies!
-```
-
-### The Incident
-An enterprise payments integration platform utilized the Decorator pattern to wrap outgoing HTTP calls: `LoggingDecorator -> RateLimitDecorator -> AuthTokenDecorator -> HttpClient`. 
-
-During an automated token rotation failure, an engineer added a fallback clause inside `AuthTokenDecorator`: if the auth token refresh failed, it re-invoked the outer pipeline to trigger an automatic retry. 
-
-When upstream auth servers suffered a 10-second hiccup, the circular decoration triggered an infinite recursive loop. The JVM thread call stack blew past its limit, throwing `StackOverflowError` and crashing all 12 payment pods.
-
-### The Post-Mortem Data
-* **Severity:** SEV-1 (Critical Payment Gateway Failure)
-* **Mean Time to Detect (MTTD):** 15 minutes
-* **Mean Time to Resolution (MTTR):** 30 minutes
-
-### The Root Cause
-**Circular Decorator Coupling:** Decorators must remain strictly **downstream directed** and acyclic. An inner decorator must never call an outer decorator; doing so introduces non-terminating recursion under error conditions.
-
-### The Fix & Hardening
-1. **Linear Middleware Architecture:** Replace deeply nested recursive decorator wrappers with a linear, iterative array-based middleware pipeline (like Express, ASP.NET Core, or Go Gin middleware).
-2. **Circuit Breaker on Decorator Depth:** Ensure decorator chains cannot exceed a depth of 5 layers.
-
----
-
-## 5. Multi-Language Production Code: Adapter and Decorator Patterns
-
-Below are production implementations of the **Adapter** (adapting a third-party payment vendor) and **Decorator** (transparently adding logging and metrics to a data repository).
+1. Domain depends on `PaymentGateway.charge(user_id, amount_cents) -> bool`.  
+2. Vendor SDK exposes `make_transaction(token, dollars) -> str`.  
+3. `UserRepository.get_user` must log latency **without** editing the SQL class.
 
 ````carousel
 ```python
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import time
 
-# --- Adapter Pattern: Adapting Third-Party Legacy API ---
+
+# ── Adapter: vendor shape → domain shape ─────────────────────────────
 class PaymentGateway(ABC):
     @abstractmethod
-    def charge(self, user_id: str, amount_cents: int) -> bool: pass
+    def charge(self, user_id: str, amount_cents: int) -> bool: ...
 
-# Incompatible 3rd-party vendor library
+
 class StripeLegacyApi:
+    """Third-party shape we do not own."""
+
     def make_transaction(self, customer_token: str, dollars: float) -> str:
-        print(f"💳 Stripe Legacy API charged ${dollars:.2f} to token {customer_token}")
+        print(f"stripe charged ${dollars:.2f} to {customer_token}")
         return "tx_success_99"
 
-# Adapter translates PaymentGateway calls into StripeLegacyApi calls
+
 class StripeAdapter(PaymentGateway):
-    def __init__(self, stripe_service: StripeLegacyApi):
-        self._stripe = stripe_service
+    def __init__(self, stripe: StripeLegacyApi) -> None:
+        self._stripe = stripe
 
     def charge(self, user_id: str, amount_cents: int) -> bool:
-        customer_token = f"tok_{user_id}"
-        dollars = amount_cents / 100.0
-        result = self._stripe.make_transaction(customer_token, dollars)
+        token = f"tok_{user_id}"
+        result = self._stripe.make_transaction(token, amount_cents / 100.0)
         return result.startswith("tx_success")
 
-# --- Decorator Pattern: Adding Telemetry to Data Store ---
+
+# ── Decorator: same interface, add timing ────────────────────────────
 class UserRepository(ABC):
     @abstractmethod
-    def get_user(self, user_id: str) -> dict: pass
+    def get_user(self, user_id: str) -> dict: ...
+
 
 class SqlUserRepository(UserRepository):
     def get_user(self, user_id: str) -> dict:
-        time.sleep(0.02) # Simulate SQL latency
+        time.sleep(0.01)  # stand-in for I/O
         return {"id": user_id, "name": "Asha"}
 
-class TimedUserRepositoryDecorator(UserRepository):
-    def __init__(self, inner: UserRepository):
+
+class TimedUserRepository(UserRepository):
+    def __init__(self, inner: UserRepository) -> None:
         self._inner = inner
 
     def get_user(self, user_id: str) -> dict:
         start = time.perf_counter()
         data = self._inner.get_user(user_id)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"⏱️ [Telemetry] UserRepository.get_user executed in {elapsed_ms:.2f}ms")
+        ms = (time.perf_counter() - start) * 1000
+        print(f"telemetry get_user={ms:.2f}ms")
         return data
 
+
 if __name__ == "__main__":
-    adapter = StripeAdapter(StripeLegacyApi())
-    adapter.charge("usr_42", 5000)
-
-    repo = TimedUserRepositoryDecorator(SqlUserRepository())
-    u = repo.get_user("usr_42")
+    assert StripeAdapter(StripeLegacyApi()).charge("42", 5000)
+    print(TimedUserRepository(SqlUserRepository()).get_user("42"))
 ```
-
 <!-- slide -->
-
 ```csharp
-using System;
-using System.Diagnostics;
-
-// --- Adapter Pattern ---
 public interface IPaymentProcessor
 {
     bool ProcessPayment(string accountId, decimal amount);
 }
 
-// Incompatible Vendor SDK
-public class PayPalSdk
+public sealed class PayPalSdk
 {
     public int SendMoney(decimal usd, string email)
     {
         Console.WriteLine($"[PayPal] Sent ${usd} to {email}");
-        return 200; // HTTP Status
+        return 200;
     }
 }
 
-public class PayPalAdapter : IPaymentProcessor
+public sealed class PayPalAdapter : IPaymentProcessor
 {
     private readonly PayPalSdk _sdk;
     public PayPalAdapter(PayPalSdk sdk) => _sdk = sdk;
 
-    public bool ProcessPayment(string accountId, decimal amount)
+    public bool ProcessPayment(string accountId, decimal amount) =>
+        _sdk.SendMoney(amount, $"{accountId}@example.com") == 200;
+}
+
+public interface IUserRepository
+{
+    UserDto GetUser(string userId);
+}
+
+public sealed class LoggingUserRepository : IUserRepository
+{
+    private readonly IUserRepository _inner;
+    public LoggingUserRepository(IUserRepository inner) => _inner = inner;
+
+    public UserDto GetUser(string userId)
     {
-        string email = $"{accountId}@example.com";
-        return _sdk.SendMoney(amount, email) == 200;
+        Console.WriteLine($"get_user {userId}");
+        return _inner.GetUser(userId);
     }
-}
-
-// --- Decorator Pattern ---
-public interface IDataService
-{
-    string FetchData(string query);
-}
-
-public class DatabaseService : IDataService
-{
-    public string FetchData(string query) => "Database Result for: " + query;
-}
-
-public class LoggingDataServiceDecorator : IDataService
-{
-    private readonly IDataService _inner;
-    public LoggingDataServiceDecorator(IDataService inner) => _inner = inner;
-
-    public string FetchData(string query)
-    {
-        Console.WriteLine($"[LOG] Executing query: {query}");
-        var result = _inner.FetchData(query);
-        Console.WriteLine($"[LOG] Query completed successfully.");
-        return result;
-    }
-}
-```
-
-<!-- slide -->
-
-```go
-package main
-
-import (
-	"fmt"
-	"time"
-)
-
-// Component Interface
-type OrderService interface {
-	CreateOrder(orderID string) error
-}
-
-type RealOrderService struct{}
-
-func (s *RealOrderService) CreateOrder(orderID string) error {
-	fmt.Printf("📦 Order %s created in database\n", orderID)
-	return nil
-}
-
-// Decorator in Go: Embeds interface
-type MetricsDecorator struct {
-	inner OrderService
-}
-
-func (m *MetricsDecorator) CreateOrder(orderID string) error {
-	start := time.Now()
-	err := m.inner.CreateOrder(orderID)
-	fmt.Printf("📊 Metrics: CreateOrder took %v\n", time.Since(start))
-	return err
-}
-
-func main() {
-	var service OrderService = &RealOrderService{}
-	// Decorate at runtime
-	service = &MetricsDecorator{inner: service}
-	_ = service.CreateOrder("ORD-101")
-}
-```
-
-<!-- slide -->
-
-```typescript
-// Facade Pattern: Simplifying a complex multi-system checkout process
-class InventorySystem { checkStock(sku: string): boolean { return true; } }
-class BillingSystem { chargeCard(cents: number): boolean { return true; } }
-class ShippingSystem { scheduleCourier(sku: string): string { return 'TRACK_123'; } }
-
-export class OrderCheckoutFacade {
-  private inventory = new InventorySystem();
-  private billing = new BillingSystem();
-  private shipping = new ShippingSystem();
-
-  // Simple macro method
-  public checkout(sku: string, priceCents: number): { success: boolean; trackingNumber?: string } {
-    if (!this.inventory.checkStock(sku)) return { success: false };
-    if (!this.billing.chargeCard(priceCents)) return { success: false };
-    const tracking = this.shipping.scheduleCourier(sku);
-    return { success: true, trackingNumber: tracking };
-  }
 }
 ```
 ````
 
+**Extension points:** new vendor → new Adapter; new cross-cutting concern → new Decorator wrapping the same interface. Checkout never imports Stripe types (DIP).
+
 ---
 
-## 6. Practical Hands-On Verification CLI Workflows
+## 4. Facade, Proxy, Composite — runnable
 
-Verify Composite pattern tree traversal in your Ubuntu terminal:
+One block, three patterns. Run it; the expected output is under the code.
 
-### Workflow 1: Execute Composite Pattern File Hierarchy
-```bash
-python3 -c '
+```python
+from __future__ import annotations
+
+import threading
+import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable, Optional
 
-class FileSystemItem(ABC):
+
+# ── Composite: leaf and group share one interface ─────────────────────
+class FsNode(ABC):
     @abstractmethod
-    def get_size(self) -> int: pass
+    def size(self) -> int: ...
 
-class File(FileSystemItem):
-    def __init__(self, size: int): self.size = size
-    def get_size(self) -> int: return self.size
 
-class Directory(FileSystemItem):
-    def __init__(self): self.children = []
-    def add(self, item: FileSystemItem): self.children.append(item)
-    def get_size(self) -> int: return sum(c.get_size() for c in self.children)
+class File(FsNode):
+    def __init__(self, name: str, size_bytes: int) -> None:
+        self.name, self._size = name, size_bytes
 
-root = Directory()
-root.add(File(100))
-sub = Directory()
-sub.add(File(250))
-sub.add(File(50))
-root.add(sub)
+    def size(self) -> int:
+        return self._size
 
-print("Total Composite Tree Size:", root.get_size())
-assert root.get_size() == 400
-print("✅ Composite pattern recursive structure verified.")
-'
+
+class Directory(FsNode):
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._children: list[FsNode] = []
+
+    def add(self, node: FsNode) -> "Directory":
+        if node is self:
+            raise ValueError("a directory cannot contain itself")   # cycles → infinite recursion
+        self._children.append(node)
+        return self
+
+    def size(self) -> int:
+        return sum(child.size() for child in self._children)       # client never branches on leaf/node
+
+
+# ── Proxy: same interface, controlled access (cache with TTL) ─────────
+class ProductService(ABC):
+    @abstractmethod
+    def get(self, product_id: str) -> dict: ...
+
+
+class SlowProductService(ProductService):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get(self, product_id: str) -> dict:
+        self.calls += 1                                   # stand-in for a slow DB / network hop
+        return {"id": product_id, "price_cents": 1999}
+
+
+class CachingProductProxy(ProductService):
+    def __init__(self, inner: ProductService, ttl_s: float = 30.0,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self._inner, self._ttl, self._clock = inner, ttl_s, clock
+        self._cache: dict[str, tuple[float, dict]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, product_id: str) -> dict:
+        now = self._clock()
+        with self._lock:
+            hit = self._cache.get(product_id)
+            if hit and now - hit[0] < self._ttl:
+                return dict(hit[1])                       # copy: callers can't corrupt the cache
+        value = self._inner.get(product_id)               # slow call OUTSIDE the lock
+        with self._lock:
+            self._cache[product_id] = (now, value)
+        return dict(value)
+
+
+# ── Facade: one door to inventory + billing + shipping ────────────────
+class Inventory:
+    def in_stock(self, sku: str) -> bool:
+        return sku != "sold-out"
+
+
+class Billing:
+    def __init__(self) -> None:
+        self.refunds = 0
+
+    def charge(self, cents: int) -> bool:
+        return cents > 0
+
+    def refund(self, cents: int) -> None:
+        self.refunds += 1
+
+
+class Shipping:
+    def schedule(self, sku: str) -> str:
+        if sku == "bulky":
+            raise RuntimeError("no carrier")
+        return f"trk-{sku}"
+
+
+@dataclass(frozen=True)
+class CheckoutResult:
+    ok: bool
+    tracking: Optional[str] = None
+    reason: str = ""
+
+
+class CheckoutFacade:
+    """Thin orchestration. Business rules stay in the subsystems."""
+
+    def __init__(self, inventory: Inventory, billing: Billing, shipping: Shipping) -> None:
+        self._inventory, self._billing, self._shipping = inventory, billing, shipping
+
+    def checkout(self, sku: str, cents: int) -> CheckoutResult:
+        if not self._inventory.in_stock(sku):
+            return CheckoutResult(False, reason="out of stock")
+        if not self._billing.charge(cents):
+            return CheckoutResult(False, reason="payment declined")
+        try:
+            return CheckoutResult(True, tracking=self._shipping.schedule(sku))
+        except Exception:                                  # a facade is NOT a transaction
+            self._billing.refund(cents)                    # so compensate explicitly
+            return CheckoutResult(False, reason="shipping failed, refunded")
+
+
+if __name__ == "__main__":
+    root = Directory("root").add(File("a.txt", 100)).add(Directory("docs").add(File("b.md", 50)))
+    print("composite size:", root.size())                  # 150
+
+    slow = SlowProductService()
+    fake_now = [0.0]
+    cached = CachingProductProxy(slow, ttl_s=30, clock=lambda: fake_now[0])
+    cached.get("p1"); cached.get("p1")                     # 2nd call is a cache hit
+    fake_now[0] = 31.0                                     # TTL expired
+    cached.get("p1")
+    print("backend calls:", slow.calls)                    # 2
+
+    billing = Billing()
+    shop = CheckoutFacade(Inventory(), billing, Shipping())
+    print(shop.checkout("book", 1500))
+    print(shop.checkout("sold-out", 1500))
+    print(shop.checkout("bulky", 1500), "refunds:", billing.refunds)
 ```
-**Expected Output:**
+
+Expected output:
+
 ```text
-Total Composite Tree Size: 400
-✅ Composite pattern recursive structure verified.
+composite size: 150
+backend calls: 2
+CheckoutResult(ok=True, tracking='trk-book', reason='')
+CheckoutResult(ok=False, tracking=None, reason='out of stock')
+CheckoutResult(ok=False, tracking=None, reason='shipping failed, refunded') refunds: 1
+```
+
+### Facade — one macro for a subsystem
+
+`CheckoutFacade.checkout` is one product action over inventory, billing, and shipping. **Edges:** a Facade is *not* a transaction — if billing succeeds and shipping throws, you must compensate (the refund above). Facades also drift into God objects: keep them thin orchestration and put rules in the subsystems. Don't use a Facade when you only need one adapter.
+
+### Proxy — same interface, controlled access
+
+| Proxy kind | Behavior |
+| :--- | :--- |
+| Virtual | Lazy-create expensive subject on first use |
+| Cache | Return stored result; refresh on miss / TTL (the demo) |
+| Protection | AuthZ before forwarding |
+| Remote | Local stub talks over the network |
+
+Client code still calls `service.get(id)` and never learns a cache exists. **Edges in the demo:** TTL via an injectable clock (testable without `sleep`), a lock around the map, the slow call *outside* the lock, and a defensive copy so callers can't mutate cached data. What it still lacks (say so in the interview): cache-stampede protection (many threads miss at once) and a max size/eviction policy — see [18 · LRU/LFU Cache](../18-lru-lfu-cache-and-rate-limiter/README.md).
+
+### Composite — uniform trees
+
+Files and directories both implement `size()`; directories sum children. UI widgets and org charts use the same idea. **Interview line:** *"Client recurses on the component interface; it never branches on leaf vs node."* **Edge:** guard against cycles (a directory containing its ancestor recurses forever) and decide whether `add`/`remove` live on the shared interface or only on the group (transparency vs safety).
+
+---
+
+## 5. Bridge & Flyweight (when they earn a mention)
+
+**Bridge:** when two axes vary independently (e.g. `Notification` channel × delivery transport). Prefer Bridge over a Cartesian product of subclasses.
+
+**Flyweight:** share immutable intrinsic state (glyph metrics, tile textures) and pass extrinsic state (position) into methods. Wrong use: sharing *mutable* user entities.
+
+---
+
+## 6. War story — Decorator recursion
+
+A payments HTTP stack was `Retry → AuthToken → HttpClient`. On token refresh failure, Auth called the *outer* pipeline again → infinite recursion → `StackOverflowError` across pods.
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Retry
+  participant Auth
+  participant Http as HttpClient
+  Client->>Retry: execute
+  Retry->>Auth: execute
+  Note over Auth: refresh fails; wrongly calls outer pipeline
+  Auth->>Retry: execute
+  Retry->>Auth: execute
+  Note over Retry,Auth: stack grows until crash
+```
+
+**Fix:** decorators only call **inward** (toward the core). Retries belong in an outer policy or a linear middleware pipeline with explicit `next()`, never “call the whole chain again” from the inside. Cap chain depth in review.
+
+---
+
+## 7. Anti-patterns
+
+| Smell | Fix |
+| :--- | :--- |
+| Adapter that also logs, caches, and retries | Split: Adapter for shape; Decorators/Proxy for concerns |
+| Decorator that changes method meaning | LSP break — keep the contract; add parallel APIs if needed |
+| Facade that exposes every subsystem method | Not a facade — it’s a pass-through; redesign |
+| Proxy that adds unrelated features | That’s a Decorator wearing a Proxy name |
+| Shared Flyweight with mutable fields | Race bugs; keep intrinsic state immutable |
+
+---
+
+## 8. What you’d say in two minutes
+
+> "I'd start from intent. Stripe’s method names don’t match our `PaymentGateway`, so an Adapter translates cents and tokens without leaking the SDK into checkout. Timing logs keep the same `UserRepository` interface, so a Decorator wraps the SQL implementation — Open/Closed without a subclass per concern. If we needed a single `checkout()` over inventory, billing, and shipping, that’s a Facade. A CachingProxy would keep the repository interface but gate the real call. Decorators only call inward so we never recurse the way that SEV-1 stack overflow did."
+
+---
+
+## 9. Interview questions
+
+<details>
+<summary><strong>1. Adapter vs Facade? [BASIC]</strong></summary>
+
+Adapter makes **one** foreign interface match yours. Facade gives a **simple API over many** objects. Adapter changes shape; Facade reduces surface area.
+
+</details>
+
+<details>
+<summary><strong>2. Decorator vs Proxy? [BASIC]</strong></summary>
+
+Both preserve the interface. Decorator adds client-visible behavior; Proxy controls access, lifetime, or location of the real subject.
+
+</details>
+
+<details>
+<summary><strong>3. When is Composite the right model? [BASIC]</strong></summary>
+
+When clients should treat individual objects and groups the same (file trees, UI, org charts) via one component interface.
+
+</details>
+
+<details>
+<summary><strong>4. Why can Decorators break LSP? [TRICKY]</strong></summary>
+
+If a decorator weakens guarantees (throws new checked failures, drops results), subtypes are not substitutable. Keep postconditions; document additive behavior only.
+
+</details>
+
+<details>
+<summary><strong>5. Wrap a legacy SOAP client for a modern port. [SCENARIO]</strong></summary>
+
+Define the port interface your app owns; implement an Adapter that maps DTOs and errors. Do not let SOAP types escape the adapter package.
+
+</details>
+
+<details>
+<summary><strong>6. Add auth + metrics + retries around an HTTP client. [SCENARIO]</strong></summary>
+
+Prefer a linear middleware pipeline or ordered Decorators that only call `inner`. Put Retry outermost; never let an inner layer invoke the outer chain.
+
+</details>
+
+<details>
+<summary><strong>7. Cache expensive reads without changing callers. [SCENARIO]</strong></summary>
+
+CachingProxy implementing the same interface; define TTL/invalidation. Callers keep using `get(id)`.
+
+</details>
+
+<details>
+<summary><strong>8. Bridge vs Adapter? [TRICKY]</strong></summary>
+
+Adapter usually wraps an *existing* foreign type after the fact. Bridge is a deliberate split so abstraction and implementation evolve independently from day one.
+
+</details>
+
+---
+
+## 10. Try it
+
+1. Run the Adapter + Decorator block in section 3 and the Facade/Proxy/Composite block in section 4.
+2. Write `CachingUserRepository` as a *Decorator* around `UserRepository`. Then ask: is it a Decorator or a Proxy? (Same shape — defend your answer by intent.)
+3. Add a `PayPalAdapter` to the Python example without touching `PaymentGateway` callers.
+4. Add `Directory.remove(name)` and decide where it belongs (interface vs group).
+5. Practice the wrappers in a full problem: [Library & Vending Machine](../13-library-and-vending-machine/README.md); draw the four shapes in [LLD Studio](/tools/lld-studio/).
+
+---
+
+## 11. One-page cheat sheet
+
+```text
+Adapter    foreign API → your interface          (compatibility)
+Decorator  same interface + stacked behavior     (features)
+Facade     many collaborators → one method       (simplification)
+Proxy      same interface + gate/lazy/cache      (control)
+Composite  leaf + group share component API      (trees)
+Bridge     abstraction ⊥ implementation          (two axes)
+Flyweight  share immutable intrinsic state       (memory)
+
+Interview test: “What changes — the interface, the behavior, the surface area, or the access?”
+Decorator rule: call inward only. Never re-enter the outer chain.
 ```
 
 ---
 
-## 7. Operational Validation Checkpoint
+## Further reading
 
-<details>
-<summary><strong>Question 1: Adapter vs. Proxy</strong></summary>
+- GoF: Adapter, Decorator, Facade, Proxy, Composite, Bridge, Flyweight  
+- ASP.NET / Express middleware as industrial Decorator/pipeline cousins  
 
-**Scenario:** Both the Adapter pattern and the Proxy pattern wrap another object. 
-What is the definitive criterion that determines whether a wrapper is an **Adapter** or a **Proxy**?
+## Next
 
-**Answer:**
-Inspect the **Interface of the Wrapper vs. the Interface of the Wrapped Object**:
-* **Adapter CHANGES the interface:** The wrapper implements Interface A (which the client expects) and wraps an adaptee with Interface B. Its sole purpose is to translate between two incompatible interfaces.
-* **Proxy PRESERVES the interface:** The wrapper implements the **exact same interface** as the underlying real subject. The client does not know or care that it is talking to a proxy. Its purpose is to control access, lazy-load, cache, or monitor without altering the contract.
-</details>
-
-<details>
-<summary><strong>Question 2: Decorator Pattern vs. Class Inheritance Explosion</strong></summary>
-
-**Scenario:** You are designing a Coffee Shop beverage system. Beverages have a base (`Espresso`, `DarkRoast`), and can have optional condiments: `Milk`, `Soy`, `Mocha`, `Caramel`, `Whip`. 
-If you use class inheritance, how many classes do you need to represent all possible combinations? How does Decorator solve this?
-
-**Answer:**
-With class inheritance, you suffer from **Combinatorial Class Explosion**: with 2 base beverages and 5 optional condiments, you need $2 \times 2^5 = 64$ distinct subclass combinations (`EspressoWithMilk`, `EspressoWithMilkAndMocha`, etc.). 
-
-With the **Decorator Pattern**, you need only **7 classes total** (2 base beverages + 5 condiment decorators). Condiments wrap beverages dynamically at runtime:
-```csharp
-IBeverage drink = new WhipDecorator(new MochaDecorator(new Espresso()));
-```
-New condiments can be added without modifying or creating beverage subclasses.
-</details>
-
-<details>
-<summary><strong>Question 3: When to Use the Flyweight Pattern</strong></summary>
-
-**Scenario:** In a multiplayer game, a forest contains 1,000,000 trees. Each tree has a 3D mesh (5 MB of polygon data), texture (10 MB), and a specific `(x, y, z)` coordinate on the map. 
-
-If every tree is instantiated as an independent object, the game requires 15 Terabytes of RAM and crashes. How does Flyweight solve this?
-
-**Answer:**
-The Flyweight pattern splits object state into two parts:
-1. **Intrinsic State (Shared, Immutable):** The 3D polygon mesh and texture data. This is stored **once in a single Flyweight object** in memory (15 MB total).
-2. **Extrinsic State (Unique, Context-dependent):** The coordinates `(x, y, z)` and health of each specific tree. Stored as lightweight 12-byte structs.
-
-The game creates 1,000,000 tiny coordinate records that all point to the **single shared Flyweight mesh instance**, reducing memory consumption from 15 TB to under 25 MB!
-</details>
-
----
-
-## Next Step
-
-Now that you understand structural design patterns, proceed to **[08 · Behavioral Patterns I: Strategy, Observer, Command, State, and Template Method](../08-behavioral-patterns-i/README.md)** to master dynamic algorithm swapping, event systems, and state machines.
+**[08 · Behavioral Patterns I](../08-behavioral-patterns-i/README.md)** — Strategy, Observer, Command, State, Template Method.

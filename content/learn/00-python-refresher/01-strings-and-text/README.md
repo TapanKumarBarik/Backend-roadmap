@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 00](../00-running-python-values-and-types/README.md): values, variables and f-strings.  
 > **Estimated Reading Time:** 20 minutes  
-> **Who this is for:** Anyone who has used strings before and wants the rules and the everyday methods back in their head.
+> **Who this is for:** Anyone who has used strings before and wants the rules and the everyday methods back in their head.  
+> **Interview relevance:** Strings come up in nearly every coding screen: slicing, immutability, `join`, Unicode.
 
 > [!key]
 > A string is an **ordered** sequence of characters that you **never change**. Ordered means every character has a position you can ask for. Never changed means every "change" makes a *new* string and leaves the old one alone.
+
+> [!note]
+> Strings are immutable ordered sequences; every method returns a new string, slices never raise, and `len` counts characters, not bytes.
+
+> [!tip]
+> When asked to build a string in a loop, answer "collect and `join`". It is the one-line answer that shows you understand immutability.
 
 ## What you will be able to do
 
@@ -431,6 +438,112 @@ print("*" * (len(card) - 4) + card[-4:])
 ```
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **`len` counts characters, not bytes; slices never raise; `split()` and `split(" ")` are different; `strip("ab")` strips a *set* of characters.** Each of these has caught experienced programmers.
+
+```python
+s = "héllo 🙂"
+print(len(s), len(s.encode("utf-8")))
+print("  a  b ".split(), "  a  b ".split(" "))
+print("xxhixx".strip("x"), "abcba".lstrip("ba"))
+print(repr("abc"[5:]), repr("abc"[-10:2]))
+```
+
+```text
+7 11
+['a', 'b'] ['', '', 'a', '', 'b', '']
+hi cba
+'' 'ab'
+```
+
+- `len` is the number of **characters** (code points); the UTF-8 encoding is longer because accents and emoji need several bytes. This matters for file sizes, network limits and database columns.
+- `split()` with no argument splits on any run of whitespace and drops empties; `split(" ")` keeps an empty string for every extra space.
+- `strip`, `lstrip` and `rstrip` take a **set of characters** to remove, not a prefix. Use `removeprefix`/`removesuffix` (3.9+) to cut an exact piece.
+- Out-of-range *slices* quietly give a shorter result; an out-of-range *index* raises `IndexError`.
+
+Strings are immutable, so "changing" one always builds a new one:
+
+```python
+# raises
+word = "cat"
+word[0] = "b"
+```
+
+```text
+TypeError: 'str' object does not support item assignment
+```
+
+```python
+word = "cat"
+shout = word.upper()
+print(word, shout)
+print("b" + word[1:])
+print("a" < "B", "a" < "b", sorted(["b", "A", "a"]))
+print(sorted(["b", "A", "a"], key=str.lower))
+```
+
+```text
+cat CAT
+bat
+False True ['A', 'a', 'b']
+['A', 'a', 'b']
+```
+
+> [!tip]
+> Comparison is by code point, so every capital letter sorts before every lowercase one. For human-friendly ordering use `key=str.lower` (or `str.casefold` for international text).
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. Are strings mutable? What does that imply? [BASIC]</strong></summary>
+
+No. Every "modification" (`upper`, `replace`, `+`) returns a **new** string. They are therefore hashable (usable as dict keys) and safe to share, but building a big string with `+=` in a loop copies repeatedly. Collect the pieces in a list and `"".join(pieces)` once.
+
+</details>
+
+<details>
+<summary><strong>2. How do slices work, and what does <code>s[::-1]</code> do? [BASIC]</strong></summary>
+
+`s[start:stop:step]`: `start` is included, `stop` is excluded, both default to the ends, and negative numbers count from the end. `s[::-1]` is a step of -1 over the whole string, so it reverses it (as a copy).
+
+</details>
+
+<details>
+<summary><strong>3. f-string, <code>format()</code> or <code>%</code>? [BASIC]</strong></summary>
+
+f-strings: clearest and fastest, and they accept expressions and format specs (`{x:.2f}`, `{n:,}`). `str.format` helps when the template is stored separately from the values. `%` is legacy. For logging, pass arguments to the logger instead of pre-formatting.
+
+</details>
+
+<details>
+<summary><strong>4. How do you check whether a string is a palindrome ignoring case and punctuation? [SCENARIO]</strong></summary>
+
+Normalise first, then compare with the reverse: `clean = "".join(c.lower() for c in s if c.isalnum())` and `clean == clean[::-1]`. Mention the cost: O(n) time and O(n) extra space; a two-pointer loop avoids the copy.
+
+</details>
+
+<details>
+<summary><strong>5. What is the difference between <code>str</code> and <code>bytes</code>? [TRICKY]</strong></summary>
+
+`str` is text (Unicode code points); `bytes` is raw 8-bit data. Convert with `.encode("utf-8")` and `.decode("utf-8")`. Always pass an explicit encoding when opening text files, because the default depends on the machine.
+
+</details>
+
+## Cheat sheet
+
+```text
+Index / slice   s[0] s[-1] s[a:b] s[::2] s[::-1]      slices never raise, indexes do
+Immutable       every method returns a NEW string      join pieces: "".join(list)
+Everyday        upper lower strip split join replace find startswith endswith in
+Exact cuts      removeprefix / removesuffix            strip(chars) removes a SET of chars
+split()         any whitespace run, no empties         split(" ") keeps empties
+f-string        f"{x:.2f}" f"{n:,}" f"{x!r}" f"{a+b}" f"{name:>10}"
+Unicode         len = characters, not bytes            .encode("utf-8") / .decode("utf-8")
+Sort text       sorted(words, key=str.lower)           capitals sort before lowercase
+```
 
 ## Check yourself
 

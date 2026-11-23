@@ -1,16 +1,149 @@
 # Track 25: Design Patterns, One at a Time
 
-One lesson for each pattern, in Python and in C#: the problem it solves, where to use it, how to build it, when not to, and where you already use it in .NET and in the Python standard library. Modules 06 to 09 survey the patterns family by family; this track goes deep on each one, because interviewers ask about one pattern at a time ("where would you use a Singleton? how do you make it thread-safe?").
+> **Prerequisites:** [04 · SOLID](../04-solid-principles/README.md), [06 · Creational](../06-creational-patterns/README.md), [07 · Structural](../07-structural-patterns/README.md), [08 · Behavioral I](../08-behavioral-patterns-i/README.md) (the family surveys)  
+> **Reading time:** ~15 minutes for this overview; ~15–20 minutes per pattern lesson  
+> **Audience:** Candidates who get single-pattern questions ("Where would you use a Singleton? Make it thread-safe.") and need depth, not a catalogue
 
-## How this track works
+> [!NOTE]
+> **In one line:** One lesson per pattern, in Python and C#: the symptom that calls for it, the smallest correct code, when **not** to use it, where the standard library and ASP.NET Core already use it, and the interview questions that follow.
+
+> [!TIP]
+> **Golden rule:** Start from the **symptom**, not the pattern name. "I keep adding `elif kind == …`" → Strategy / polymorphism. "Callers know too much about a subsystem" → Facade. Naming a pattern without the symptom sounds memorised; naming the symptom first sounds like experience.
+
+> [!TIP]
+> **Try it:** Run the symptom → pattern example in section 2, then open [LLD Studio](/tools/lld-studio/) and redraw it as Strategy. Do that once per lesson and the track sticks.
+
+---
+
+## 1. The smell: how pattern questions are asked
+
+- **Direct:** "Explain the Decorator pattern." (needs intent + example + trade-off)
+- **Symptom-based:** "Checkout has a growing `if payment_type == …`. How would you change it?"
+- **Confusable pairs:** "Strategy vs State?" "Decorator vs Proxy?" "Factory Method vs Abstract Factory?"
+- **Framework-spotting:** "Where is Chain of Responsibility in ASP.NET Core?"
+- **Critique:** "Is Singleton an anti-pattern?"
+
+```mermaid
+flowchart TD
+  Q["Interview symptom"] --> C{"What hurts?"}
+  C -->|"Creating objects is awkward"| Cr["Creational\nFactory · Builder · Singleton · Prototype · Pool"]
+  C -->|"Pieces don't fit / too many pieces"| St["Structural\nAdapter · Facade · Decorator · Proxy · Composite · Bridge · Flyweight"]
+  C -->|"Objects must collaborate / vary behaviour"| Be["Behavioral\nStrategy · Observer · Command · State · Template · Chain · Iterator · Mediator · Memento · Visitor"]
+  C -->|"Wiring & data access"| Ar["Architectural helpers\nDI · Repository · Unit of Work · Null Object · Specification"]
+```
+
+---
+
+## 2. The five-step answer, with a symptom → pattern example
+
+Use the same five steps for every pattern (lesson 01 drills this):
+
+1. **Intent** in one sentence.  
+2. **Problem** (the symptom).  
+3. **Structure** (say the two or three classes).  
+4. **Example** (tiny, real).  
+5. **Trade-off / when not to.**
+
+Here are steps 2–4 for **Strategy**, start to finish:
+
+````carousel
+```python
+from typing import Callable, Protocol
+
+
+# Symptom: this grows a branch for every new payment type (violates Open/Closed)
+def fee_bad(kind: str, cents: int) -> int:
+    if kind == "card":
+        return round(cents * 0.029) + 30
+    elif kind == "upi":
+        return 0
+    raise ValueError(kind)
+
+
+# Pattern: each algorithm is a class (or just a function); the caller picks one
+class FeePolicy(Protocol):
+    def fee(self, cents: int) -> int: ...
+
+
+class CardFee:
+    def fee(self, cents: int) -> int:
+        return round(cents * 0.029) + 30
+
+
+class UpiFee:
+    def fee(self, cents: int) -> int:
+        return 0
+
+
+class Checkout:
+    def __init__(self, policy: FeePolicy) -> None:
+        self._policy = policy
+
+    def total(self, cents: int) -> int:
+        return cents + self._policy.fee(cents)
+
+
+# In Python a "strategy" is often just a callable — the pattern is lighter than the Java/C# form
+def flat_fee(cents: int) -> int:
+    return 100
+
+
+def total_with(fee: Callable[[int], int], cents: int) -> int:
+    return cents + fee(cents)
+
+
+if __name__ == "__main__":
+    print(Checkout(CardFee()).total(10_000))   # 10320
+    print(Checkout(UpiFee()).total(10_000))    # 10000
+    print(total_with(flat_fee, 10_000))        # 10100
+    print(fee_bad("card", 10_000))             # 320
+```
+<!-- slide -->
+```csharp
+public interface IFeePolicy { int Fee(int cents); }
+
+public sealed class CardFee : IFeePolicy
+{
+    public int Fee(int cents) => (int)Math.Round(cents * 0.029) + 30;
+}
+
+public sealed class UpiFee : IFeePolicy
+{
+    public int Fee(int cents) => 0;
+}
+
+public sealed class Checkout(IFeePolicy policy)
+{
+    public int Total(int cents) => cents + policy.Fee(cents);
+}
+
+// Or, with delegates: Func<int,int> is already a strategy.
+```
+````
+
+**Reading it like an interviewer:** the *symptom* is the `if/elif` on `kind`; the *pattern* moves each branch behind one interface; the *trade-off* is more types — worth it only when branches keep growing or need independent tests.
+
+---
+
+## 3. How this track works
 
 - Every pattern lesson has the same sections: intent, the problem, when to use it, when not to, the structure as a diagram, the code in Python and in C#, where the frameworks already use it, variants and pitfalls, and the interview questions.
-- Start with lesson 01: a template for answering any pattern question. Then Singleton, Factory, Strategy, Observer and Decorator, the five asked most often.
+- Start with lesson 01: a template for answering any pattern question. Then Singleton, Factory, Strategy, Observer and Decorator — the five asked most often.
 - Lesson 29 compares the patterns that are easy to confuse; lesson 30 maps the patterns inside ASP.NET Core and Python frameworks.
 - Every example is written twice, in Python and in C#, as switchable tabs.
-- The track has thirty lessons. Lessons whose text is not ready yet are marked *Soon* in the sidebar; their page already lists what they will cover and the interview questions they will answer.
+- The track has thirty lessons. Lessons whose text is not ready yet are marked *Soon* in the sidebar; their page already lists what they will cover and the questions they will answer.
 
-## Lessons
+### Suggested plans
+
+| Time you have | Do this |
+| :--- | :--- |
+| **Night before** | 01, 02, 03, 15, 16, 11, then 29 (comparison drills) |
+| **One week** | 01–09 (creational + structural) days 1–3, 10–19 days 4–6, 20–30 day 7 |
+| **Deep prep** | One pattern a day; for each, code it from memory and name one framework that uses it |
+
+---
+
+## 4. Lessons
 
 | # | Lesson | What you'll be able to do |
 |---|--------|---------------------------|
@@ -44,6 +177,127 @@ One lesson for each pattern, in Python and in C#: the problem it solves, where t
 | 28 | [Null Object and Specification](28-null-object-and-specification/README.md) | Remove null checks with a Null Object, and compose business rules with specifications |
 | 29 | [Pattern Comparison Drills](29-pattern-comparison-drills/README.md) | Tell apart the patterns interviewers like to confuse, with one sentence and one example each |
 | 30 | [Patterns Inside ASP.NET Core and Python](30-patterns-inside-aspnet-core-and-python/README.md) | Point to the patterns inside the frameworks you use every day, the best way to show you understand them |
+
+---
+
+## 5. Symptom → pattern lookup (the fast table)
+
+| You notice… | Reach for | Lesson |
+| :--- | :--- | :--- |
+| `if kind == …` ladder choosing an algorithm | Strategy | 15 |
+| `if kind == …` ladder choosing *which object to build* | Factory Method / Simple Factory | 03 |
+| Families of objects that must match (UI theme, DB vendor) | Abstract Factory | 04 |
+| Constructor with eight optional parameters | Builder | 05 |
+| One shared instance needed | Singleton (prefer DI lifetime) | 02 |
+| Third-party API doesn't match my interface | Adapter | 08 |
+| Subsystem too complex for callers | Facade | 12 |
+| Add behaviour without subclassing | Decorator | 11 |
+| Gate / cache / lazy-load an object | Proxy | 14 |
+| Tree of parts and wholes | Composite | 10 |
+| Notify many listeners | Observer | 16 |
+| Undo / queue / retry an action | Command | 17 |
+| Behaviour depends on lifecycle status | State | 19 |
+| Steps fixed, details vary | Template Method | 18 |
+| Request passes through ordered handlers | Chain of Responsibility | 20 |
+
+---
+
+## 6. Edges
+
+- **Patterns are a vocabulary, not a goal.** Three classes and one call site don't need a `Factory`. Say "I'd wait for the second use."
+- **Language features replace patterns.** Python callables replace many Strategy/Command classes; generators replace hand-written Iterators; `@decorator` is not the GoF Decorator; modules are already singletons.
+- **Thread safety** is a recurring follow-up for Singleton, Object Pool, Flyweight caches and Observer — be ready to say what you'd lock.
+- **Confusable pairs** (State/Strategy, Decorator/Proxy/Adapter, Factory Method/Abstract Factory) are judged on *intent*, not structure — the UML often looks identical.
+- **Frameworks already did it:** if you can point at middleware (Chain), DI container (Factory + Registry), `IEnumerable` (Iterator), you show mastery.
+
+---
+
+## 7. What you'd say in two minutes (the meta-answer)
+
+> "For any pattern I give five things: the intent in one line, the symptom that makes me reach for it, the two or three classes involved, a small example, and when I wouldn't use it. For Strategy: the symptom is an if/elif ladder choosing an algorithm; I move each branch behind an interface, inject the one I need, and the checkout never changes when a new fee rule appears. I wouldn't use it for two stable cases — a plain `if` is clearer — and in Python I'd often pass a function instead of a class. Then I'd mention where it already lives: `sorted(key=…)` is Strategy."
+
+---
+
+## 8. Anti-patterns when answering
+
+| Mistake | Better |
+| :--- | :--- |
+| Reciting the GoF definition word for word | Intent in your own words + a concrete symptom |
+| Forcing a pattern onto a trivial problem | "A plain function is enough here; if rules grow I'd extract a Strategy" |
+| Calling every wrapper a Decorator | Say the *intent*: add behaviour (Decorator), control access (Proxy), convert interface (Adapter) |
+| Singleton with a global mutable state and no thread safety | Prefer DI lifetime; if you must, show the thread-safe version |
+| Ignoring language idioms | Mention callables, generators, context managers, events |
+
+---
+
+## 9. Interview questions
+
+<details>
+<summary><strong>1. Strategy vs State? [TRICKY]</strong></summary>
+
+Same shape, different intent. Strategy: the **caller** chooses an algorithm, usually fixed for the request. State: the **object itself** transitions between behaviours as events occur. If the implementation flips on its own, it's State.
+
+</details>
+
+<details>
+<summary><strong>2. Decorator vs Proxy vs Adapter? [TRICKY]</strong></summary>
+
+All wrap an object. Decorator adds behaviour with the *same* interface; Proxy controls access (lazy, cache, auth) with the same interface; Adapter changes the interface to a different one.
+
+</details>
+
+<details>
+<summary><strong>3. Factory Method vs Abstract Factory? [BASIC]</strong></summary>
+
+Factory Method creates **one** product through an overridable method. Abstract Factory creates a **family** of related products that must be used together (e.g., `PostgresConnection` + `PostgresCommand`).
+
+</details>
+
+<details>
+<summary><strong>4. Is Singleton an anti-pattern? [TRICKY]</strong></summary>
+
+The *global mutable access* is the problem: hidden dependency, hard testing. A single instance is fine when it's created and injected by a container (DI singleton lifetime). In Python, a module-level object is the natural singleton.
+
+</details>
+
+<details>
+<summary><strong>5. Name three patterns inside Python's standard library. [BASIC]</strong></summary>
+
+Iterator (`iter`/`next`, generators), Strategy (`sorted(key=…)`), Decorator-ish wrappers (`functools.wraps`, `contextlib`), Observer (`signal`, `logging` handlers), Flyweight (interned small ints and strings), Template Method (`unittest.TestCase.setUp/tearDown`).
+
+</details>
+
+<details>
+<summary><strong>6. A checkout has three `if payment == …` blocks across the code base. [SCENARIO]</strong></summary>
+
+Extract a `PaymentMethod` interface with one class per type, build them in a factory (or registry), and have checkout call the interface. The three branches collapse to one polymorphic call; new payment = new class.
+
+</details>
+
+<details>
+<summary><strong>7. When would you *not* use a pattern? [SCENARIO]</strong></summary>
+
+When there's one implementation, no change pressure, and no test pain. Patterns trade simplicity for flexibility; pay only when the flexibility is likely to be used.
+
+</details>
+
+---
+
+## 10. One-page cheat sheet
+
+```text
+CREATIONAL   Singleton(one) Factory(which) AbstractFactory(family) Builder(steps) Prototype(clone) Pool(reuse)
+STRUCTURAL   Adapter(convert) Bridge(2 axes) Composite(tree) Decorator(add) Facade(simplify) Flyweight(share) Proxy(control)
+BEHAVIORAL   Strategy(algo) Observer(notify) Command(act-as-object) State(mode) Template(skeleton) Chain(pipeline)
+             Iterator(walk) Mediator(hub) Memento(snapshot) Visitor(new op) Interpreter(grammar)
+HELPERS      DI/IoC  Repository  Unit of Work  Null Object  Specification
+
+Answer shape   intent -> symptom -> structure -> tiny example -> when not
+Confusables    Strategy/State (who flips?)  Decorator/Proxy/Adapter (add/control/convert)
+Python hints   callables = Strategy/Command   generators = Iterator   module = Singleton
+```
+
+---
 
 ## Sources
 

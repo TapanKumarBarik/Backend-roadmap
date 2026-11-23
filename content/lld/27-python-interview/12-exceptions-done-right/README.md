@@ -1,558 +1,560 @@
 # Lesson 12: Exceptions Done Right
 
-> **Prerequisites:** [Context Managers and with](../11-context-managers/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 11: Context Managers](../11-context-managers/README.md) · [Refresher: Errors, files and modules](../../../learn/00-python-refresher/07-errors-files-and-modules/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked about `try/except/else/finally`, `raise ... from`, custom exceptions, EAFP vs LBYL, or "what's wrong with `except Exception: pass`?"
+
+> [!NOTE]
+> **In one line:** Raise **specific** exceptions at the point of failure, catch only what you can **handle**, translate low-level errors into domain errors with `raise NewError(...) from err` (so the cause is kept), and let everything else propagate to one boundary that logs and responds.
 
 > [!TIP]
-> **The One Rule of Exceptions:** Treat exceptions as true disruptions to normal control flow, never as routine conditional branching; write minimal `try` blocks, isolate happy-path follow-ups in `else`, chain root causes with `raise ... from`, and catch `Exception` instead of `BaseException` so control signals like `KeyboardInterrupt` and `SystemExit` never get swallowed.
+> **Golden rule:** Never `except:` or `except Exception: pass` in business code. Each `except` clause should answer: *what do I do about this here that the caller can't?* If the answer is "nothing", don't catch it.
+
+> [!TIP]
+> **Try it:** Run the section 3 file — it prints `__cause__` for the translated errors and `__context__` vs `__cause__` for an implicit chain — then run the [exceptions lab](#try-it--exceptions-lab-runnable) below (14 asserted probes, including a deterministic EAFP-vs-LBYL race). The section 3 code needs Python 3.11+ (`except*`, `add_note`). Then design the exception tree for your own service in [LLD Studio](/tools/lld-studio/): one base `AppError`, a few domain subclasses, and a single boundary handler.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"When should you use EAFP versus LBYL in Python, and why should you never catch a bare `except`?" is a cornerstone question in senior Python interviews. It cuts through superficial syntax knowledge and evaluates whether you understand concurrency, runtime internals, and fault tolerance.
+- *"What's the difference between `else` and `finally` in `try`?"*
+- *"`raise` vs `raise e` vs `raise X from e`?"*
+- *"EAFP vs LBYL — which is Pythonic and why?"*
+- *"Design exceptions for a payment service."*
+- *"What's wrong with a bare `except`?"*
 
-### The Junior vs. Senior Contrast
+```mermaid
+flowchart TD
+  T["try:\n  risky()"] --> OK{"raised?"}
+  OK -- no --> E["else:\n  runs only if NO exception"]
+  OK -- yes --> X["except SpecificError as e:\n  handle / translate"]
+  E --> F
+  X --> F["finally:\n  ALWAYS runs (cleanup)"]
+  F --> N["continue / propagate"]
+```
 
-**The Junior Answer:**
-> *"EAFP means 'Easier to Ask for Forgiveness than Permission', so you use `try...except`. LBYL means 'Look Before You Leap', so you use `if...else`. Python prefers EAFP because it's Pythonic. And you shouldn't use bare `except:` because linters flag it as bad style."*
+Exception hierarchy (the bits that matter):
 
-**The Senior Answer:**
-> *"LBYL (`if key in dict: ...`) performs a defensive pre-check before acting, which introduces severe **TOCTOU (Time-Of-Check to Time-Of-Use)** race conditions in multi-threaded and distributed environments—such as checking whether a file or cache key exists before opening or fetching it. EAFP attempts the atomic operation directly and handles failure in an `except` block, guaranteeing atomicity.*  
-> 
-> *From a performance perspective, CPython 3.11+ introduced table-driven **zero-cost exceptions**: entering a `try` block incurs virtually zero CPU cycles when no exception is raised. However, if an exception is raised, unwinding the call stack and building traceback objects is significantly more expensive than a simple conditional branch. Therefore, LBYL is preferred when the missing state is a frequent, expected condition in hot loops, whereas EAFP is optimal for exceptional occurrences and concurrent resources.*  
-> 
-> *Finally, catching a bare `except:` or `except BaseException:` intercepts critical runtime signals—specifically `KeyboardInterrupt` (SIGINT / Ctrl+C), `SystemExit` (`sys.exit()`), and `GeneratorExit`—preventing graceful process termination, Kubernetes container shutdowns, and generator cleanups."*
+```mermaid
+classDiagram
+  BaseException <|-- SystemExit
+  BaseException <|-- KeyboardInterrupt
+  BaseException <|-- Exception
+  Exception <|-- ValueError
+  Exception <|-- LookupError
+  LookupError <|-- KeyError
+  LookupError <|-- IndexError
+  Exception <|-- OSError
+  OSError <|-- FileNotFoundError
+  Exception <|-- AppError
+  AppError <|-- PaymentError
+  PaymentError <|-- CardDeclined
+```
 
-### Core Architectural Dimensions
+---
 
-| Dimension | EAFP ("Forgiveness") | LBYL ("Permission") |
+## 2. Reference
+
+| Statement | Meaning |
+| :--- | :--- |
+| `raise Err("msg")` | Raise a new exception |
+| `raise` (bare, in `except`) | Re-raise the current one, **preserving the traceback** |
+| `raise New(...) from err` | Translate; sets `__cause__` (explicit chaining) |
+| `raise New(...) from None` | Translate and **hide** the original (use sparingly) |
+| `__cause__` | Set by `from`; shown as "The above exception was the direct cause…" |
+| `__context__` | Set implicitly when raised while handling another; "During handling…" |
+| `try/except*` (3.11) | Handle parts of an `ExceptionGroup` (TaskGroup, concurrency) |
+| `err.add_note("…")` (3.11) | Attach extra context without changing the type |
+
+| Style | Idea | Example |
 | :--- | :--- | :--- |
-| **Philosophical Premise** | Assume success; handle failures when they occur. | Check all preconditions explicitly before attempting an action. |
-| **Typical Python Syntax** | `try: value = data[key] except KeyError: ...` | `if key in data: value = data[key] else: ...` |
-| **Concurrency Safety** | **Race-condition safe**: Action is attempted atomically. | **Vulnerable to TOCTOU**: State can change between the `if` check and the action. |
-| **CPython Performance (Happy Path)** | **Zero overhead** in Python 3.11+ (table-driven zero-cost exceptions). | Requires evaluating condition bytecode on every execution. |
-| **CPython Performance (Failure Path)** | Slower (stack unwinding and traceback object creation). | Fast (standard conditional branch jump). |
-| **C# / .NET Analogy** | `try { ... } catch (KeyNotFoundException) { ... }` | `dict.TryGetValue(key, out var val)` / `int.TryParse` |
+| **EAFP** (Python) | Easier to Ask Forgiveness than Permission — try, handle failure | `try: d[k] except KeyError:` |
+| **LBYL** | Look Before You Leap — check first | `if k in d:` |
+
+EAFP wins when checks are racy (file exists → deleted before open) or duplicate the operation's own validation; LBYL wins when failure is *common* and checking is cheap and non-racy.
 
 ---
 
-## 2. Visual Mental Model / Taxonomic Comparison
+## 3. Walkthrough: a payment service's error design
 
-### The Python Exception Hierarchy
+**Requirements:** a `charge()` that talks to a flaky gateway (raises low-level `TimeoutError`/`ConnectionError`), must expose domain errors (`PaymentError` family), keep the cause for debugging, always release a lock/resource, and let the top-level handler map errors to HTTP codes.
 
-In Python, all exceptions derive from `BaseException`. Application errors derive from `Exception`. System-level control signals inherit directly from `BaseException` specifically to avoid being caught by standard application handlers.
-
-```mermaid
-flowchart TD
-    Base["BaseException (Root of all exceptions)"]
-    
-    Base --> SysExit["SystemExit (CLI exit / sys.exit)"]
-    Base --> KeybInt["KeyboardInterrupt (Ctrl+C / SIGINT)"]
-    Base --> GenExit["GeneratorExit (Generator .close called)"]
-    Base --> ExRoot["Exception (Root of application errors)"]
-    
-    ExRoot --> Arith["ArithmeticError"]
-    Arith --> ZeroDiv["ZeroDivisionError"]
-    Arith --> OverFlow["OverflowError"]
-    
-    ExRoot --> Lookup["LookupError"]
-    Lookup --> KeyErr["KeyError"]
-    Lookup --> IdxErr["IndexError"]
-    
-    ExRoot --> ValueErr["ValueError"]
-    ExRoot --> TypeErr["TypeError"]
-    
-    ExRoot --> OSErr["OSError"]
-    OSErr --> FNF["FileNotFoundError"]
-    OSErr --> Perm["PermissionError"]
-    
-    ExRoot --> ExGroup["ExceptionGroup (Python 3.11+ TaskGroup)"]
-    ExRoot --> CustomApp["Custom App Exceptions (e.g., BankingError)"]
-```
-
-### The `try...except...else...finally` Execution Lifecycle
-
-The `else` clause in a `try` statement is one of Python's most misunderstood features. It executes **only if no exception was raised** in the `try` block.
-
-```mermaid
-flowchart TD
-    Start(["Enter try Block"]) --> ExecTry["Execute Protected Code"]
-    ExecTry --> CheckError{"Exception Raised?"}
-    
-    CheckError -- "Yes" --> MatchExcept{"Matches except Type?"}
-    MatchExcept -- "Yes" --> ExecExcept["Execute except Block"]
-    MatchExcept -- "No" --> Unhandled["Bubble Exception to Caller"]
-    
-    CheckError -- "No" --> ExecElse["Execute else Block (Happy-Path Operations)"]
-    
-    ExecExcept --> ExecFinally["Execute finally Block (Cleanup / Resource Release)"]
-    ExecElse --> ExecFinally
-    Unhandled --> ExecFinally
-    
-    ExecFinally --> Done(["Exit Statement"])
-```
-
-### Why Use `else` Instead of Stuffing Code into `try`?
-
-Consider this classic anti-pattern:
-```python
-# ANTI-PATTERN: The try block is too large
-try:
-  data = fetch_record_from_db(record_id)  # Can raise DatabaseConnectionError
-  render_html_template(data)  # Can raise KeyError or TemplateError
-except DatabaseConnectionError:
-  logger.error("DB connection failed")
-```
-
-If `render_html_template` has a bug and raises a `KeyError`, but an inexperienced developer caught a generic error or `Exception`, the template bug would be misreported as a database connection failure!
-
-With `else`:
-```python
-# CLEAN & PRECISE: Only the risky I/O is guarded
-try:
-  data = fetch_record_from_db(record_id)
-except DatabaseConnectionError:
-  logger.error("DB connection failed")
-else:
-  # Runs ONLY if the DB query succeeded.
-  # If render_html_template fails, it bubbles up cleanly!
-  render_html_template(data)
-finally:
-  release_connection_pool_slot()
-```
-
----
-
-## 3. Code Implementation: Resilient Domain Processing
-
-The following example implements a production-grade banking transaction service in both Python and C#. It highlights:
-1. A structured custom domain exception hierarchy.
-2. Exception chaining (`raise ... from ...` in Python, `innerException` in C#).
-3. The precise behavior of `try...except...else...finally`.
-4. Atomic EAFP lookup semantics.
+1. Define `AppError` → `PaymentError` → `CardDeclined` / `GatewayUnavailable`.
+2. Catch the *specific* low-level errors; translate with `from`.
+3. Use `else` for success-only code, `finally` for cleanup.
+4. A single boundary function maps exception types to status codes.
+5. Show EAFP and `ExceptionGroup`.
 
 ````carousel
 ```python
-import sys
+import logging
+
+logging.basicConfig(level=logging.CRITICAL)
 
 
-# 1. Custom Domain Exception Hierarchy
-class BankingError(Exception):
-  """Base class for all banking domain exceptions."""
-
-  pass
+class AppError(Exception):
+    """Base for every error this service raises on purpose."""
 
 
-class AccountNotFoundError(BankingError):
-
-  def __init__(self, account_id: str) -> None:
-    super().__init__(f"Account '{account_id}' does not exist.")
-    self.account_id = account_id
+class PaymentError(AppError):
+    pass
 
 
-class InsufficientFundsError(BankingError):
-
-  def __init__(self, account_id: str, balance: float, required: float) -> None:
-    super().__init__(
-        f"Account '{account_id}' has insufficient funds: balance={balance:.2f},"
-        f" required={required:.2f}."
-    )
-    self.account_id = account_id
-    self.balance = balance
-    self.required = required
+class CardDeclined(PaymentError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"card declined: {reason}")
+        self.reason = reason
 
 
-class BankService:
+class GatewayUnavailable(PaymentError):
+    pass
 
-  def __init__(self) -> None:
-    self._accounts: dict[str, float] = {
-        "ACC-101": 150.00,
-        "ACC-102": 25.00,
-    }
 
-  def process_payment(self, account_id: str, amount: float) -> str:
-    transaction_closed = False
-    print(f"--- Processing {account_id} for ${amount:.2f} ---")
+def gateway_call(amount: int) -> str:
+    if amount > 1000:
+        raise ValueError("limit exceeded")
+    if amount == 13:
+        raise TimeoutError("gateway timed out")
+    return f"tx-{amount}"
+
+
+released: list[str] = []
+
+
+def charge(amount: int) -> str:
     try:
-      # 1. EAFP approach to account lookup
-      try:
-        balance = self._accounts[account_id]
-      except KeyError as err:
-        # Explicit Exception Chaining (PEP 3134): preserves original KeyError in __cause__
-        raise AccountNotFoundError(account_id) from err
-
-      # 2. Invariant validation
-      if balance < amount:
-        raise InsufficientFundsError(account_id, balance, amount)
-
-      # State update
-      self._accounts[account_id] -= amount
-      receipt = (
-          f"Success: Debited ${amount:.2f} from {account_id}. New balance:"
-          f" ${self._accounts[account_id]:.2f}"
-      )
-
-    except InsufficientFundsError as exc:
-      print(f"[REJECTED] Invariant violation: {exc}")
-      return "FAILED_INSUFFICIENT_FUNDS"
-
-    except AccountNotFoundError as exc:
-      # Inspecting the chained root cause
-      cause_type = type(exc.__cause__).__name__ if exc.__cause__ else "None"
-      print(
-          f"[ERROR] Account lookup failed: {exc} (Original cause: {cause_type})"
-      )
-      return "FAILED_NOT_FOUND"
-
+        tx = gateway_call(amount)
+    except TimeoutError as err:
+        raise GatewayUnavailable("payment gateway unavailable") from err   # keep the cause
+    except ValueError as err:
+        raise CardDeclined(str(err)) from err
     else:
-      # Runs ONLY if the try block completed with zero exceptions
-      print("[AUDIT] Emitting success event for transaction.")
-      return receipt
-
+        return tx                       # only reached when NO exception happened
     finally:
-      # ALWAYS runs: release locks, commit transaction context
-      transaction_closed = True
-      print(f"[CLEANUP] Transaction context closed: {transaction_closed}")
+        released.append(f"lock for {amount}")   # always runs, even on return/raise
 
 
-def run_demo() -> None:
-  service = BankService()
+def to_http(err: Exception) -> int:       # the ONE boundary mapping
+    match err:
+        case CardDeclined():
+            return 402
+        case GatewayUnavailable():
+            return 503
+        case AppError():
+            return 400
+        case _:
+            return 500
 
-  # Case 1: Success path -> triggers try, else, finally
-  res1 = service.process_payment("ACC-101", 50.00)
-  print(f"Result 1: {res1}\n")
 
-  # Case 2: Invariant failure -> triggers try, except InsufficientFundsError, finally
-  res2 = service.process_payment("ACC-102", 100.00)
-  print(f"Result 2: {res2}\n")
+def retrieve(d: dict, key: str, default=None):
+    try:                                   # EAFP
+        return d[key]
+    except KeyError:
+        return default
 
-  # Case 3: Chained exception -> triggers try, except KeyError -> raise from -> catch AccountNotFoundError, finally
-  res3 = service.process_payment("ACC-999", 10.00)
-  print(f"Result 3: {res3}")
+
+def main() -> None:
+    print(charge(50))
+
+    for amount in (5000, 13):
+        try:
+            charge(amount)
+        except PaymentError as err:
+            cause = err.__cause__
+            print(type(err).__name__, "|", err, "| cause:", type(cause).__name__, "| http:", to_http(err))
+    print(released)
+
+    # __context__ (implicit) vs __cause__ (explicit)
+    try:
+        try:
+            1 / 0
+        except ZeroDivisionError:
+            raise RuntimeError("while handling")          # no `from`
+    except RuntimeError as err:
+        print("context:", type(err.__context__).__name__, "| cause:", err.__cause__)
+
+    # `from None` hides the original
+    try:
+        try:
+            int("x")
+        except ValueError:
+            raise AppError("bad input") from None
+    except AppError as err:
+        print("suppressed:", err.__suppress_context__)
+
+    print(retrieve({"a": 1}, "b", "default"))
+
+    # Exception groups (3.11+)
+    try:
+        raise ExceptionGroup("batch", [ValueError("a"), KeyError("b"), ValueError("c")])
+    except* ValueError as grp:
+        print("values:", [str(e) for e in grp.exceptions])
+    except* KeyError as grp:
+        print("keys:", len(grp.exceptions))
+
+    # Add context without changing the type (3.11+)
+    try:
+        try:
+            int("z")
+        except ValueError as err:
+            err.add_note("while parsing row 42")
+            raise
+    except ValueError as err:
+        print(err.__notes__)
+
+    print(to_http(KeyError("x")))                                  # 500: unknown => server bug
 
 
 if __name__ == "__main__":
-  run_demo()
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-
-// 1. Custom Domain Exception Hierarchy
-public class BankingException : Exception
+// C#: same ideas. `throw;` preserves the stack; `throw ex;` resets it. InnerException = __cause__.
+static string Charge(int amount)
 {
-    public BankingException(string message) : base(message) { }
-    public BankingException(string message, Exception innerException) : base(message, innerException) { }
-}
-
-public class AccountNotFoundException : BankingException
-{
-    public string AccountId { get; }
-
-    public AccountNotFoundException(string accountId, Exception innerException)
-        : base($"Account '{accountId}' does not exist.", innerException)
+    try
     {
-        AccountId = accountId;
+        return amount == 13 ? throw new TimeoutException() : $"tx-{amount}";
+    }
+    catch (TimeoutException ex)
+    {
+        throw new GatewayUnavailable(ex);          // wrap with inner (like `from`)
+    }
+    finally
+    {
+        Console.WriteLine("release lock");         // always runs
     }
 }
 
-public class InsufficientFundsException : BankingException
+try { Charge(13); }
+catch (GatewayUnavailable e) when (e.InnerException is TimeoutException)   // exception filter
 {
-    public string AccountId { get; }
-    public decimal Balance { get; }
-    public decimal Required { get; }
-
-    public InsufficientFundsException(string accountId, decimal balance, decimal required)
-        : base($"Account '{accountId}' has insufficient funds: balance={balance:F2}, required={required:F2}.")
-    {
-        AccountId = accountId;
-        Balance = balance;
-        Required = required;
-    }
+    Console.WriteLine($"{e.Message} <- {e.InnerException!.GetType().Name}");
 }
 
-public class BankService
-{
-    private readonly Dictionary<string, decimal> _accounts = new()
-    {
-        ["ACC-101"] = 150.00m,
-        ["ACC-102"] = 25.00m
-    };
-
-    public string ProcessPayment(string accountId, decimal amount)
-    {
-        bool transactionClosed = false;
-        string? receipt = null;
-        Console.WriteLine($"--- Processing {accountId} for ${amount:F2} ---");
-
-        try
-        {
-            // 1. EAFP approach to account lookup
-            decimal balance;
-            try
-            {
-                balance = _accounts[accountId];
-            }
-            catch (KeyNotFoundException ex)
-            {
-                // Exception chaining: preserves original KeyNotFoundException in InnerException
-                throw new AccountNotFoundException(accountId, ex);
-            }
-
-            // 2. Invariant validation
-            if (balance < amount)
-            {
-                throw new InsufficientFundsException(accountId, balance, amount);
-            }
-
-            // State update
-            _accounts[accountId] -= amount;
-            receipt = $"Success: Debited ${amount:F2} from {accountId}. New balance: ${_accounts[accountId]:F2}";
-
-            // Equivalent to Python's else block: runs ONLY if try block executed without any exception
-            Console.WriteLine("[AUDIT] Emitting success event for transaction.");
-            return receipt;
-        }
-        catch (InsufficientFundsException exc)
-        {
-            Console.WriteLine($"[REJECTED] Invariant violation: {exc.Message}");
-            return "FAILED_INSUFFICIENT_FUNDS";
-        }
-        catch (AccountNotFoundException exc)
-        {
-            // Inspection of InnerException
-            string causeType = exc.InnerException?.GetType().Name.Replace("Exception", "") ?? "None";
-            if (causeType == "KeyNotFound") causeType = "KeyError";
-            Console.WriteLine($"[ERROR] Account lookup failed: {exc.Message} (Original cause: {causeType})");
-            return "FAILED_NOT_FOUND";
-        }
-        finally
-        {
-            // ALWAYS runs: release locks, close audit handles
-            transactionClosed = true;
-            Console.WriteLine($"[CLEANUP] Transaction context closed: {transactionClosed}");
-        }
-    }
-}
-
-public class Program
-{
-    public static void Main()
-    {
-        var service = new BankService();
-
-        // Case 1: Success path -> triggers try, (else), finally
-        string res1 = service.ProcessPayment("ACC-101", 50.00m);
-        Console.WriteLine($"Result 1: {res1}\n");
-
-        // Case 2: Invariant failure -> triggers try, catch InsufficientFundsException, finally
-        string res2 = service.ProcessPayment("ACC-102", 100.00m);
-        Console.WriteLine($"Result 2: {res2}\n");
-
-        // Case 3: Chained exception -> triggers try, catch KeyNotFoundException -> throw AccountNotFoundException, finally
-        string res3 = service.ProcessPayment("ACC-999", 10.00m);
-        Console.WriteLine($"Result 3: {res3}");
-    }
-}
+public class AppException(string message, Exception? inner = null) : Exception(message, inner);
+public sealed class GatewayUnavailable(Exception inner)
+    : AppException("payment gateway unavailable", inner);
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab:
 
 ```text
---- Processing ACC-101 for $50.00 ---
-[AUDIT] Emitting success event for transaction.
-[CLEANUP] Transaction context closed: True
-Result 1: Success: Debited $50.00 from ACC-101. New balance: $100.00
+tx-50
+CardDeclined | card declined: limit exceeded | cause: ValueError | http: 402
+GatewayUnavailable | payment gateway unavailable | cause: TimeoutError | http: 503
+['lock for 50', 'lock for 5000', 'lock for 13']
+context: ZeroDivisionError | cause: None
+suppressed: True
+default
+values: ['a', 'c']
+keys: 1
+['while parsing row 42']
+500
+```
 
---- Processing ACC-102 for $100.00 ---
-[REJECTED] Invariant violation: Account 'ACC-102' has insufficient funds: balance=25.00, required=100.00.
-[CLEANUP] Transaction context closed: True
-Result 2: FAILED_INSUFFICIENT_FUNDS
+Note `released` has three entries for three calls — `finally` ran on the success path (`return tx`) and both failure paths.
 
---- Processing ACC-999 for $10.00 ---
-[ERROR] Account lookup failed: Account 'ACC-999' does not exist. (Original cause: KeyError)
-[CLEANUP] Transaction context closed: True
-Result 3: FAILED_NOT_FOUND
+---
+
+## 4. Edges
+
+- **Bare `except:`** also catches `KeyboardInterrupt` and `SystemExit`; `except Exception:` is the widest you should ever go, and only at a boundary that logs it.
+- **Swallowing.** `except Exception: pass` hides bugs. If you must ignore, ignore *one specific* error, with a comment.
+- **Order matters.** `except` clauses are checked top to bottom; put subclasses before bases or the subclass clause is unreachable.
+- **`return` in `finally`** overrides any in-flight exception or return value — never do it (Python 3.14 emits a `SyntaxWarning` for it, PEP 765; probe 2).
+- **`except ... as e` deletes `e`** when the block ends; save it to another name if you need it later (probe 5).
+- **`str(KeyError("user"))` is `'user'`** (with quotes) because `KeyError` shows the repr of the key — surprising in logs (probe 6).
+- **Any `from` sets `__suppress_context__`.** `from err` and `from None` both hide the implicit "During handling…" text; they differ in `__cause__` (the error vs `None`) (probe 8).
+- **`raise e` vs `raise`.** Inside `except`, bare `raise` re-raises with the original traceback; `raise e` adds a new traceback entry (Python 3 keeps the original too, but bare `raise` is idiomatic).
+- **Don't use exceptions for ordinary control flow in hot loops** — raising is slower than a check; but `StopIteration`, `KeyError` for missing keys in EAFP are normal.
+- **Custom exception design.** Subclass `Exception` (not `BaseException`); keep a base per library/service; include structured fields (`reason`, `code`), not only a message; don't force callers to parse strings.
+- **Resource safety.** Use `with` / `finally` for cleanup — not `except`.
+- **Concurrency.** In threads, an uncaught exception ends only that thread (printed to stderr); in `asyncio` tasks it's stored until awaited — log or `await` them (lesson 15). Use `ExceptionGroup`/`TaskGroup` for concurrent failures.
+- **Logging.** `logger.exception("msg")` inside `except` logs the traceback; don't log *and* re-raise at every layer (duplicate noise) — log once at the boundary.
+- **Retry only transient, idempotent failures** (timeouts), with limits and backoff; never retry a `CardDeclined`.
+
+### Try it — exceptions lab (runnable)
+
+The follow-ups interviewers use after `try/except/else/finally` and `raise ... from`. Save as `exceptions_lab.py`; every probe is an `assert`, so a wrong claim fails loudly.
+
+```python
+import asyncio, io, logging, os, tempfile, threading, traceback, warnings
+
+# 1) else is NOT protected by the except; code in try is
+def parse(s):
+    try:
+        n = int(s)
+    except ValueError:
+        return "bad"
+    else:
+        return 10 // n           # ZeroDivisionError here is NOT caught by the clause above
+assert parse("x") == "bad"
+try:
+    parse("0")
+except ZeroDivisionError:
+    pass
+
+# 2) finally runs on return; a return INSIDE finally swallows the in-flight exception
+trail = []
+def runs_on_return():
+    try:
+        return "value"
+    finally:
+        trail.append("cleanup")
+assert runs_on_return() == "value" and trail == ["cleanup"]
+def swallows():
+    try:
+        raise RuntimeError("lost")
+    finally:
+        return "finally won"                  # SyntaxWarning on Python 3.14+ (PEP 765)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    assert swallows() == "finally won"
+
+# 3) Clause order: a base class listed first makes the subclass clause unreachable (no warning!)
+def which(exc):
+    try:
+        raise exc
+    except LookupError:
+        return "LookupError clause"
+    except KeyError:                          # never reached
+        return "KeyError clause"
+assert which(KeyError("k")) == "LookupError clause"
+
+# 4) Bare except catches Ctrl-C and sys.exit(); `except Exception` does not
+def swallow_bare(exc):
+    try:
+        raise exc
+    except:                                   # noqa: E722  (the anti-pattern, on purpose)
+        return "caught"
+assert swallow_bare(KeyboardInterrupt()) == swallow_bare(SystemExit()) == "caught"
+try:
+    try:
+        raise KeyboardInterrupt
+    except Exception:
+        raise AssertionError("should not be caught here")
+except KeyboardInterrupt:
+    pass
+
+# 5) The `as e` name is deleted when the except block ends
+try:
+    raise ValueError("v")
+except ValueError as e:
+    kept = e
+try:
+    e
+except NameError:
+    pass
+assert str(kept) == "v"                        # save it yourself if you need it later
+
+# 6) str(KeyError) shows the repr of the key: a classic logging surprise
+assert str(KeyError("user")) == "'user'" and str(ValueError("user")) == "user"
+
+# 7) bare raise keeps the traceback frames; raising a NEW exception without from sets __context__ only
+def inner(): raise ValueError("deep")
+def middle():
+    try:
+        inner()
+    except ValueError:
+        raise
+try:
+    middle()
+except ValueError as err:
+    names = [f.name for f in traceback.extract_tb(err.__traceback__)]
+    assert names[-1] == "inner" and "middle" in names
+
+# 8) Translate with `from`: cause is explicit; `from None` hides it from the traceback
+class DomainError(Exception): pass
+try:
+    try: {}["k"]
+    except KeyError as k:
+        raise DomainError("missing") from k
+except DomainError as d:
+    assert isinstance(d.__cause__, KeyError) and d.__suppress_context__   # any `from` sets the flag; __cause__ is what differs
+try:
+    try: {}["k"]
+    except KeyError:
+        raise DomainError("missing") from None
+except DomainError as d:
+    assert d.__cause__ is None and d.__suppress_context__ and isinstance(d.__context__, KeyError)
+
+# 9) except* handles matching parts; the rest is re-raised as a new group
+try:
+    try:
+        raise ExceptionGroup("batch", [ValueError("a"), KeyError("b")])
+    except* ValueError:
+        pass
+except ExceptionGroup as rest:
+    assert [type(e) for e in rest.exceptions] == [KeyError]
+
+# 10) Threads: an uncaught exception kills only that thread (and goes to excepthook)
+seen = []
+threading.excepthook = lambda args: seen.append(args.exc_type.__name__)
+t = threading.Thread(target=lambda: 1 / 0); t.start(); t.join()
+assert seen == ["ZeroDivisionError"]
+
+# 11) asyncio: a failed task stays silent until awaited
+async def fail(): raise RuntimeError("quiet")
+async def main():
+    task = asyncio.create_task(fail())
+    await asyncio.sleep(0)                     # task has failed by now, nobody noticed
+    assert task.done() and task.exception() is not None
+    try:
+        await task                              # raised only when awaited
+    except RuntimeError:
+        return "surfaced on await"
+assert asyncio.run(main()) == "surfaced on await"
+
+# 12) EAFP beats LBYL when the world changes between check and use (deterministic simulation)
+fd, path = tempfile.mkstemp(); os.close(fd)
+def lbyl_read(p):
+    if os.path.exists(p):                      # check...
+        os.remove(p)                           # ...someone else deletes it (simulated)...
+        return open(p).read()                  # ...use: FileNotFoundError despite the check
+    return None
+try:
+    lbyl_read(path)
+except FileNotFoundError:
+    pass
+def eafp_read(p):
+    try:
+        with open(p) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None                            # one atomic attempt, one place to handle it
+assert eafp_read(path) is None
+
+# 13) Log once at the boundary: logger.exception includes the traceback
+buf = io.StringIO()
+lg = logging.getLogger("lab"); lg.addHandler(logging.StreamHandler(buf)); lg.propagate = False
+try:
+    1 / 0
+except ZeroDivisionError:
+    lg.exception("charge failed")
+assert "Traceback" in buf.getvalue() and "ZeroDivisionError" in buf.getvalue()
+
+# 14) Structured fields beat parsing str(err)
+class CardDeclined(Exception):
+    def __init__(self, reason): super().__init__(f"card declined: {reason}"); self.reason = reason
+try:
+    raise CardDeclined("insufficient_funds")
+except CardDeclined as c:
+    assert c.reason == "insufficient_funds"
+print("exceptions lab ok")
+```
+
+Expected output:
+
+```text
+exceptions lab ok
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 5. What you'd say in two minutes
 
-Production backend frameworks and language runtimes rely extensively on these exception patterns:
-
-- **In Python:**
-  - **Iteration Protocol:** Python's standard `for item in iterator:` loop does not perform a count check (LBYL). It calls `next(iterator)` repeatedly until it receives a `StopIteration` exception (EAFP).
-  - **Asyncio Task Cancellation:** `asyncio.CancelledError` inherits from `BaseException` (since Python 3.8) rather than `Exception`. This architectural choice guarantees that standard application catch blocks (`except Exception:`) do not accidentally swallow cancellation signals sent to coroutines.
-  - **Structured Concurrency (PEP 654):** In Python 3.11+, `asyncio.TaskGroup` raises an `ExceptionGroup` containing all errors raised across concurrent tasks. Developers handle them using the specialized `except*` syntax (e.g., `except* ValueError as eg:`).
-  - **Dynamic Imports:** Modern plugin architectures use `try: import orjson as json except ImportError: import json` to transparently fall back to standard libraries.
-
-- **In .NET / C#:**
-  - **Dictionary and Parsing Patterns:** The .NET BCL balances both philosophies: `dict[key]` throws `KeyNotFoundException` (EAFP), while `dict.TryGetValue(key, out var val)` provides the optimized LBYL alternative. Similarly, `int.Parse` throws `FormatException`, while `int.TryParse` returns a `bool`.
-  - **Task Parallel Library (TPL):** When multiple concurrent tasks fail under `Task.WhenAll`, the runtime wraps individual failures inside an `AggregateException` (the C# precursor to Python's `ExceptionGroup`).
-  - **Preserving Stack Traces:** When re-throwing in C#, using `throw;` preserves the original stack trace, whereas `throw ex;` resets the stack trace to the catch site. Python solves this via `__cause__` and `__context__`.
+> "I raise specific exceptions where the failure happens and catch only what I can meaningfully handle. In `try/except/else/finally`, `else` runs only on success and `finally` always runs for cleanup — though for resources I prefer `with`. When a low-level error crosses a layer, I translate it into a domain exception with `raise PaymentError(...) from err` so the original stays in `__cause__`; implicit chaining sets `__context__`, and `from None` hides it. I'd define one base `AppError` with a few domain subclasses carrying structured fields, and map them to HTTP status codes in a single boundary handler — anything unexpected becomes a 500 and gets logged with the traceback once. I avoid bare `except` and `except Exception: pass`. Pythonic style is EAFP — try the operation and handle the failure — because checks are racy, but I use LBYL when failure is common and the check is cheap."
 
 ---
 
-## 5. Pitfalls and When Not to Use It
+## 6. Anti-patterns
 
-### 1. The Pokémon Anti-Pattern ("Gotta Catch 'Em All")
-Catching bare `except:` or `except Exception:` and doing nothing (`pass`) is one of the most hazardous anti-patterns in backend engineering:
-```python
-# CATASTROPHIC: Silently conceals typos, memory errors, and killed connections
-try:
-  execute_critical_database_migration()
-except:
-  pass
-```
-*Impact:* Typos like `NameError: name 'conection' is not defined` or database connection timeouts are silenced. The system enters a corrupted, untraceable state.
-
-### 2. Silencing Exceptions via `return` in `finally`
-A `return` or `break` statement inside a `finally` block **discards any active exception** that was raised in the `try` block:
-```python
-def calculate_metrics() -> int:
-  try:
-    return 100 // 0  # Raises ZeroDivisionError
-  finally:
-    return 42  # Silently annihilates ZeroDivisionError!
-
-
-# Calling calculate_metrics() returns 42 with NO error!
-```
-*Rule:* Never place a `return` or `break` statement inside a `finally` block.
-
-### 3. Re-raising Without Exception Chaining
-When translating a low-level error into a domain error, re-raising without `from` severs the debugging audit trail:
-```python
-# POOR: Loses original traceback context
-try:
-  res = requests.get("https://api.stripe.com/charges")
-except requests.exceptions.Timeout:
-  raise PaymentGatewayError("Stripe timed out")  # Original root cause lost!
-
-# CLEAN: Explicit chaining preserves the causal chain
-try:
-  res = requests.get("https://api.stripe.com/charges")
-except requests.exceptions.Timeout as err:
-  raise PaymentGatewayError("Stripe timed out") from err
-```
-
-### 4. Excessive `try` Scope
-Placing 60 lines of business logic inside a single `try` block masks unintended exceptions. If your `try` block catches `KeyError` to handle a missing user ID, but downstream helper code raises a `KeyError` due to a missing configuration key, the bug will be misdiagnosed. Keep `try` blocks bounded to the single line of code capable of failing.
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `except: pass` / `except Exception: pass` | Hides bugs, swallows Ctrl-C (bare) | Catch specific errors; log; re-raise |
+| `raise Exception("something broke")` | Callers can't distinguish | Specific/custom exception types |
+| Parsing `str(err)` to decide behaviour | Brittle | Types + structured fields |
+| Catch-log-reraise at every layer | Duplicate logs | Log once at the boundary |
+| `return` inside `finally` | Swallows exceptions | Never |
+| Wrapping without `from` | Loses clear cause | `raise New(...) from err` |
+| Using exceptions as return codes in hot paths | Slow, obscure | Normal returns / `Optional` |
 
 ---
 
-## 6. Exercises & Practical Drills
-
-### Drill 1: TOCTOU File Race Condition
-Review this file caching snippet:
-```python
-import os
-
-
-def read_cached_payload(cache_path: str) -> str:
-  if os.path.exists(cache_path):
-    with open(cache_path, "r") as f:
-      return f.read()
-  return "{}"
-```
-**Problem:** In a multi-process web server, between the `os.path.exists()` check and the `open()` call, a background garbage collection worker could delete the file, causing an unhandled `FileNotFoundError`.  
-**Task:** Refactor this function to follow the EAFP principle.
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. `else` vs `finally` in `try`? [BASIC]</strong></summary>
 
-```python
-def read_cached_payload(cache_path: str) -> str:
-  try:
-    with open(cache_path, "r") as f:
-      return f.read()
-  except FileNotFoundError:
-    return "{}"
-```
-*Explanation:* The `open()` call attempts the read directly and atomically. If the file is absent or deleted concurrently, `FileNotFoundError` is caught safely without any race window.
+`else` runs only if the `try` block raised nothing — for code that shouldn't be protected by the `except`. `finally` always runs — for cleanup — even on `return` or an uncaught exception.
+
+</details>
+
+<details>
+<summary><strong>2. `raise`, `raise e`, `raise X from e`? [BASIC]</strong></summary>
+
+Bare `raise` re-raises the current exception, keeping the traceback. `raise X from e` raises a new exception and records `e` as `__cause__` (explicit chain). Raising a new exception inside `except` without `from` records `__context__` implicitly.
+
+</details>
+
+<details>
+<summary><strong>3. EAFP vs LBYL? [BASIC]</strong></summary>
+
+EAFP: try and handle the exception — avoids race conditions between check and use, and is idiomatic Python. LBYL: check first — better when failure is frequent or the check is cheap and atomic.
+
+</details>
+
+<details>
+<summary><strong>4. Why is `except Exception: pass` bad? [BASIC]</strong></summary>
+
+It hides programming errors and operational failures alike, leaving the program in an unknown state with no log. Catch only what you can handle; otherwise let it propagate to a boundary that logs.
+
+</details>
+
+<details>
+<summary><strong>5. How would you design exceptions for a service? [SCENARIO]</strong></summary>
+
+A base `AppError`; subclasses per domain concern (`PaymentError`, `NotFound`, `Conflict`); structured attributes; translate infrastructure errors at the adapter boundary using `from`; one top-level handler mapping to HTTP codes and logging unexpected errors.
+
+</details>
+
+<details>
+<summary><strong>6. What does `return` inside `finally` do? [TRICKY]</strong></summary>
+
+It overrides any pending `return` and *swallows* any in-flight exception. Avoid it.
+
+</details>
+
+<details>
+<summary><strong>7. What are `ExceptionGroup` and `except*`? [TRICKY]</strong></summary>
+
+Python 3.11 feature to raise several unrelated exceptions at once (used by `asyncio.TaskGroup`). `except* T` handles the matching sub-exceptions and re-raises the rest.
+
+</details>
+
+<details>
+<summary><strong>8. C# `throw;` vs `throw ex;`? [TRICKY]</strong></summary>
+
+`throw;` preserves the original stack trace; `throw ex;` resets it to the current line. Python's analogue: bare `raise` is the safe re-raise; use `from` to wrap.
+
 </details>
 
 ---
 
-### Drill 2: Exception Group Decomposition (Python 3.11+)
-Suppose you invoke two concurrent microservices using `asyncio.TaskGroup`. Both services fail: Service A raises `ValueError("Invalid ID")` and Service B raises `TimeoutError("Gateway timeout")`. The event loop raises an `ExceptionGroup("task group failed", [ValueError(...), TimeoutError(...)])`.
+## 8. One-page cheat sheet
 
-How do you handle only the `ValueError` while letting the `TimeoutError` bubble up?
-
-<details>
-<summary>Answer</summary>
-
-```python
-try:
-  async with asyncio.TaskGroup() as tg:
-    tg.create_task(call_service_a())
-    tg.create_task(call_service_b())
-except* ValueError as eg:
-  # Handles only the ValueError slice of the group
-  for exc in eg.exceptions:
-    logger.warning(f"Handled invalid argument: {exc}")
-# The TimeoutError is not matched by except* ValueError,
-# so Python automatically re-raises a filtered ExceptionGroup containing TimeoutError!
+```text
+try:        risky                    except Specific as e:  handle/translate
+else:       success-only code        finally:               cleanup (ALWAYS)
+raise                      re-raise, keep traceback
+raise New(..) from err     explicit cause  (__cause__)       raise New(..) from None   hide
+__context__                implicit chain (raised while handling)
+Hierarchy   BaseException > Exception > ...   never catch BaseException; bare except = bad
+Design      AppError > DomainError > Specific;   structured fields;  one boundary handler -> HTTP
+EAFP        try/except KeyError  (Pythonic)       LBYL if failure common & check atomic
+3.11        ExceptionGroup / except* ; err.add_note("ctx")
+Never       except: pass | return in finally | parse str(err) | log+raise at every layer
 ```
-*Explanation:* The `except*` clause selectively matches and extracts sub-exceptions of a given type from the `ExceptionGroup`. Unmatched exceptions are automatically grouped and propagated.
-</details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## Further reading
 
-> [!interview]
-> **Question 1: What is the difference between EAFP and LBYL?**  
-> **Strong Answer:**  
-> "EAFP stands for *'Easier to Ask for Forgiveness than Permission'*, which means attempting an operation directly and catching the corresponding exception if it fails (e.g., `try: d[k] except KeyError:`). LBYL stands for *'Look Before You Leap'*, which tests preconditions explicitly before acting (e.g., `if k in d: d[k]`).  
-> 
-> In concurrent systems, LBYL introduces **TOCTOU (Time-Of-Check to Time-Of-Use)** race conditions because the state can change between the pre-check and the operation. EAFP avoids this by performing the action atomically.  
-> 
-> Furthermore, in Python 3.11+, zero-cost exception tables ensure that entering a `try` block incurs zero runtime overhead when no exception is thrown. However, raising an exception is relatively slow because the interpreter builds traceback objects and unwinds the call stack. Therefore, LBYL is preferred when missing values are routine and expected in performance-critical inner loops, whereas EAFP is preferred for exceptional events, file/network I/O, and concurrent resource access."
-
-> [!interview]
-> **Question 2: What does the `else` clause of `try` do?**  
-> **Strong Answer:**  
-> "The `else` clause of a `try...except` statement executes **only if the code inside the `try` block ran to completion without raising any exceptions**.  
-> 
-> It provides two crucial engineering benefits:  
-> 1. **Scoping and Clarity:** It separates code that might legitimately throw a specific caught exception from code that follows upon success, preventing unintended exceptions in downstream logic from being mistakenly captured by the `except` block.  
-> 2. **Execution Timing:** Unlike code placed after the entire `try...except` block, the `else` block will not execute if an exception was caught and handled in `except` (unless re-raised), nor will it run if an unhandled exception bubbles up. It runs immediately before `finally`."
-
-> [!interview]
-> **Question 3: What does `raise ... from` do?**  
-> **Strong Answer:**  
-> "`raise ... from ...` implements explicit exception chaining, introduced in **PEP 3134**.  
-> 
-> When wrapping a low-level error into a high-level domain exception (for example, converting a `sqlite3.OperationalError` into a `DatabaseUnavailableError`), writing `raise DatabaseUnavailableError(...) from err` sets the `__cause__` attribute on the new exception to the original error. The interpreter prints both tracebacks, clearly displaying: *'The above exception was the direct cause of the following exception:'*.  
-> 
-> In contrast, raising an exception inside an `except` block without `from` sets the `__context__` attribute (implicit chaining). If you explicitly want to hide internal implementation details (such as preventing internal database connection strings from leaking to API consumers), you write `raise CustomError(...) from None`, which sets `__suppress_context__ = True` and suppresses the underlying traceback."
-
-> [!interview]
-> **Question 4: Why should you not catch a bare `except`?**  
-> **Strong Answer:**  
-> "Catching a bare `except:` is equivalent to `except BaseException:`. In Python's exception hierarchy, `BaseException` is the direct ancestor not only of application errors (`Exception`), but also of system-level runtime control signals:  
-> 1. `KeyboardInterrupt`: Sent when the user or container runner sends `SIGINT` (Ctrl+C).  
-> 2. `SystemExit`: Raised by `sys.exit()` to shut down the Python process.  
-> 3. `GeneratorExit`: Raised inside a generator when `.close()` is called.  
-> 
-> If you catch bare `except:`, your application intercepts these control signals. A backend process will ignore SIGINT/SIGTERM from orchestrators like Kubernetes, refusal to terminate gracefully, and generator cleanup logic will silently fail. Application code must always catch `Exception` or, ideally, specific concrete subtypes (e.g., `ValueError`, `KeyError`, `BankingError`)."
-
----
-
-## 8. Sources & Further Reading
-
-- [Python Documentation: Built-in Exceptions Hierarchy](https://docs.python.org/3/library/exceptions.html)
-- [PEP 3134: Exception Chaining and Embedded Tracebacks](https://peps.python.org/pep-3134/)
-- [PEP 654: Exception Groups and except*](https://peps.python.org/pep-0654/)
-- [Microsoft Learn: Best Practices for Exceptions in .NET](https://learn.microsoft.com/en-us/dotnet/standard/exceptions/best-practices-for-exceptions)
-- [Microsoft Learn: Handling and Throwing Exceptions in C#](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/exceptions/)
-
----
+- [Python tutorial: errors and exceptions](https://docs.python.org/3/tutorial/errors.html)
+- [Built-in exceptions](https://docs.python.org/3/library/exceptions.html)
+- [PEP 654: Exception Groups and `except*`](https://peps.python.org/pep-0654/)
 
 Previous: [Context Managers and with](../11-context-managers/README.md) · Next: [Memory, Garbage Collection and Performance](../13-memory-garbage-collection-and-performance/README.md)

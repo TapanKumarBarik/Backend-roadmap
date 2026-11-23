@@ -1,435 +1,542 @@
-# Module 08: Behavioral Design Patterns I — Strategy, Observer, Command, State, and Template Method
+# Behavioral Patterns I — Strategy, Observer, Command, State, Template Method
 
-> **Prerequisites:** Module 02 (OOP Foundations), Module 04 (SOLID Principles).  
-> **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend Developers, Low-Level Design Candidates, Systems Architects.
+> **Prerequisites:** [02 · OOP & UML](../02-oop-foundations-and-uml/README.md), [04 · SOLID](../04-solid-principles/README.md), [07 · Structural](../07-structural-patterns/README.md)  
+> **Reading time:** ~30 minutes (plus ~10 to run the demos)  
+> **Audience:** LLD rounds — pricing, workflows, undo, and FSMs without `if` soup
+
+> [!NOTE]
+> **In one line:** Behavioral patterns decide *how objects collaborate* — **Strategy** swaps algorithms, **Observer** broadcasts changes, **Command** turns actions into objects (queue/undo), **State** makes behavior follow an FSM, **Template Method** locks an algorithm skeleton and varies the steps.
 
 > [!TIP]
-> **The Golden Rule of Behavioral Patterns:** Behavioral patterns govern how objects **distribute responsibilities, communicate, and manage runtime state**. Use **Strategy** to swap algorithms at runtime; use **Observer** to decouple event producers from multiple consumers; use **Command** to turn actions into first-class invokable data objects (enabling queues and undo); and use **State** to model finite state machines cleanly without nested `if/else` ladders.
+> **Golden rule:** Strategy is chosen by the **caller**; State is advanced by the **machine**. If the UML looks the same, ask who flips the implementation.
+
+> [!TIP]
+> **Try it:** Model Strategy + State in [LLD Studio](/tools/lld-studio/), then run the Python Strategy + Command example below.
 
 ---
 
-## 1. Architectural Mental Model: Communication & Control Flow
+## 1. Interview pressure
 
-Behavioral patterns characterize the ways in which classes and objects interact and apportion responsibility:
+Interviewer: *"Support card, UPI, and wallet pricing without editing the checkout class every time. Also add undo for the last seat booking."*
+
+That is **Strategy** (payment/pricing algorithm) + **Command** (book/undo as objects). If they add *"elevator Idle → Moving → DoorOpen,"* bring **State**.
 
 ```mermaid
 flowchart TD
-    subgraph StrategyPattern["1. Strategy Pattern (Interchangeable Algorithms)"]
-        ContextA["PaymentContext"] -->|Uses| IStrat["<<interface>>\nPaymentStrategy"]
-        IStrat -.->|Implements| S1["CreditCardStrategy"]
-        IStrat -.->|Implements| S2["CryptoStrategy"]
-        IStrat -.->|Implements| S3["PayPalStrategy"]
-    end
-
-    subgraph ObserverPattern["2. Observer Pattern (1-to-Many Event Pub/Sub)"]
-        Subject["MarketDataFeed (Subject)"] -->|notifies| Obs1["TraderUI (Observer)"]
-        Subject -->|notifies| Obs2["RiskEngine (Observer)"]
-        Subject -->|notifies| Obs3["AuditLogger (Observer)"]
-    end
-
-    subgraph CommandPattern["3. Command Pattern (Actions as Objects)"]
-        Invoker["Button / Scheduler"] --> Cmd["<<interface>>\nCommand\n+execute()\n+undo()"]
-        Cmd -.->|Implements| ConcreteCmd["ExecuteTradeCommand"]
-        ConcreteCmd --> Receiver["TradingEngine (Receiver)"]
-    end
-
-    classDef pattern fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    class ContextA,Subject,Invoker pattern;
+  subgraph Strategy["Strategy — swap algorithm"]
+    Ctx["Checkout"] --> S["PaymentStrategy"]
+    S -.-> Card["Card"]
+    S -.-> Upi["UPI"]
+    S -.-> Wallet["Wallet"]
+  end
+  subgraph Observer["Observer — 1→N notify"]
+    Feed["Subject"] --> UI["UI"]
+    Feed --> Risk["Risk"]
+    Feed --> Audit["Audit"]
+  end
+  subgraph Command["Command — action as object"]
+    Btn["Invoker"] --> Cmd["Command"]
+    Cmd --> Eng["Receiver"]
+  end
 ```
 
 ---
 
-## 2. Taxonomic Reference: Behavioral Patterns I Comparison
+## 2. Comparison matrix
 
-| Pattern | Problem Solved | Core Mechanics | State / Invariant Dynamics | Production Example |
-| :--- | :--- | :--- | :--- | :--- |
-| **Strategy** | Need different variants of an algorithm selectable at runtime. | Context delegates task to an injected `IStrategy` interface. | Strategy is typically stateless. | Navigation routes (Fastest, Avoid Tolls, Walking). |
-| **Observer** | When one object changes state, multiple dependent objects must update automatically. | Subject maintains subscriber list (`Attach()`, `Detach()`, `Notify()`). | Loosely coupled 1-to-many notifications. | Real-time chat notifications, stock ticker feeds, UI data binding. |
-| **Command** | Parameterize objects with operations, queue requests, or support undo/redo. | Encapsulates receiver, action, and arguments into an object with `execute()`. | First-class object representing a deferred action. | Background job queues (Celery/BullMQ), CLI command runners, transaction rollbacks. |
-| **State** | Object must alter its behavior when internal state changes without nested `switch`. | Context delegates state-specific methods to a current `IState` object that transitions itself. | **Internal state machine** transitions dynamically. | Vending machine states (`NoCoin`, `HasCoin`, `Dispensing`, `SoldOut`). |
-| **Template Method** | Multiple classes follow the same invariant algorithm steps, but vary specific details. | Base class defines invariant algorithm skeleton (`final`); subclasses override primitive hooks. | Compile-time class inheritance. | Data pipeline ETL: `Extract()` -> `Transform()` -> `Load()`. |
+| Pattern | Problem | Who picks behavior? | Production cue |
+| :--- | :--- | :--- | :--- |
+| **Strategy** | Many algorithms, same job | **Client / DI** injects strategy | Shipping rates, sort, compression |
+| **Observer** | Many listeners on one change | Subject notifies all | Domain events, UI binding, market ticks |
+| **Command** | Queue, log, undo, schedule | Invoker runs `execute`/`undo` | Job queues, editors, macros |
+| **State** | Behavior depends on mode | **States transition** the context | Orders, elevators, TCP-ish machines |
+| **Template Method** | Same steps, different hooks | Base class owns the skeleton | ETL pipelines, report generators |
 
----
+### State vs Strategy (high-yield)
 
-## 3. Systematic Breakdown: State Pattern vs. Strategy Pattern
-
-Because the UML diagrams for State and Strategy look almost identical, interviewers frequently test this distinction:
-
-```
-  ┌──────────┬─────────────────────────────────┬────────────────────────────────────────┐
-  │ Pattern  │ Who Selects the Implementation? │ Does the State Change at Runtime?     │
-  ├──────────┼─────────────────────────────────┼────────────────────────────────────────┤
-  │ Strategy │ The **External Caller / Client** │ No. Injected upfront to solve a task.  │
-  │ State    │ The **State Objects Themselves** │ **Yes.** Self-transitions as events    │
-  │          │ (or Context internal logic)     │ alter the personality of the Context.  │
-  └──────────┴─────────────────────────────────┴────────────────────────────────────────┘
+```text
+Strategy  External caller selects algorithm. Usually stable for the request.
+State     Current state object (or context) transitions after events. Personality changes.
 ```
 
 ---
 
-## 4. Production War Story: The Observer "Lapsed Listener" Memory Leak Outage
+## 3. Walkthrough — Strategy + Command
 
-```mermaid
-sequenceDiagram
-    actor User as Trading Client Session
-    participant Feed as MarketDataFeed (Global Singleton)
-    participant Session as UserDashboard (Observer)
-    participant GC as Garbage Collector (JVM / CLR Heap)
-
-    Note over Feed: MarketDataFeed is long-lived singleton: List<IObserver> subscribers;
-    User->>Feed: Subscribe user dashboard (session 101)
-    Feed->>Feed: subscribers.add(dashboard101) (Strong reference!)
-    Note over User: User logs out / closes browser tab!
-    Note over User: Application drops local dashboard101 variable!
-    GC->>GC: Run Mark-and-Sweep Garbage Collection
-    Note over GC: Dashboard101 is STILL reachable via Feed.subscribers collection!
-    Note over GC: GC CANNOT reclaim Dashboard101 memory!
-    Note over User,Feed: After 3 days, 180,000 dead user sessions accumulate in Feed!
-    Note over GC: Heap memory hits 100% full (32 GB exhausted)!
-    Note over Feed: 💥 OutOfMemoryError! Production market data halts globally!
-```
-
-### The Incident
-A high-throughput electronic trading dashboard experienced memory bloat. Over three days of market activity, the platform's JVM heap climbed steadily from 4 GB to 32 GB, triggering frequent 5-second Stop-The-World garbage collection pauses that froze real-time market data.
-
-### The Post-Mortem Data
-* **Severity:** SEV-1 (Platform Memory Exhaustion & Feed Lag)
-* **Mean Time to Detect (MTTD):** 4 hours
-* **Mean Time to Resolution (MTTR):** 45 minutes
-
-### The Root Cause
-**The Lapsed Listener Problem:** The application used the Observer pattern:
-```csharp
-MarketDataFeed.Instance.Subscribe(this);
-```
-When short-lived user websocket sessions disconnected, the application discarded the session references. However, the session objects were **never unsubscribed from `MarketDataFeed`**. 
-
-Because `MarketDataFeed` held **strong references** to each observer in its internal list, the garbage collector could not reclaim any session object or its associated buffer memory, causing 180,000 orphaned observers to leak into RAM.
-
-### The Fix & Hardening
-1. **Mandatory Unsubscription via `IDisposable`:**
-```csharp
-public class UserDashboard : IObserver, IDisposable {
-    public void Dispose() {
-        MarketDataFeed.Instance.Unsubscribe(this);
-    }
-}
-```
-2. **Use Weak References:** In languages with weak pointer support (`WeakReference<T>` in C#, `WeakSet` / `WeakRef` in JS, `weakref` in Python), the Subject stores weak pointers so subscribers can be garbage collected automatically when all other references drop.
-
----
-
-## 5. Multi-Language Production Code: Command & State Patterns
-
-Below are production implementations of the **Command Pattern** (with undo capability) and the **State Pattern** (Finite State Machine).
+**Requirements:** charge via pluggable strategy; support undoable “reserve seat.”
 
 ````carousel
 ```python
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List
 
-# 1. Receiver
-class TextDocument:
-    def __init__(self):
-        self.text: str = ""
 
-    def append(self, text: str) -> None:
-        self.text += text
+# ── Strategy ─────────────────────────────────────────────────────────
+class PaymentStrategy(ABC):
+    @abstractmethod
+    def pay(self, amount_cents: int) -> bool: ...
 
-    def erase_last(self, length: int) -> None:
-        self.text = self.text[:-length]
 
-# 2. Command Interface
+class CardStrategy(PaymentStrategy):
+    def pay(self, amount_cents: int) -> bool:
+        print(f"card charged {amount_cents}")
+        return True
+
+
+class UpiStrategy(PaymentStrategy):
+    def pay(self, amount_cents: int) -> bool:
+        print(f"upi charged {amount_cents}")
+        return True
+
+
+class Checkout:
+    def __init__(self, strategy: PaymentStrategy) -> None:
+        self._strategy = strategy
+
+    def set_strategy(self, strategy: PaymentStrategy) -> None:
+        self._strategy = strategy
+
+    def complete(self, amount_cents: int) -> bool:
+        return self._strategy.pay(amount_cents)
+
+
+# ── Command (with undo) ──────────────────────────────────────────────
+class SeatMap:
+    def __init__(self) -> None:
+        self.reserved: set[str] = set()
+
+    def reserve(self, seat: str) -> None:
+        if seat in self.reserved:
+            raise ValueError(f"{seat} taken")
+        self.reserved.add(seat)
+
+    def release(self, seat: str) -> None:
+        self.reserved.discard(seat)
+
+
 class Command(ABC):
     @abstractmethod
-    def execute(self) -> None: pass
-    @abstractmethod
-    def undo(self) -> None: pass
+    def execute(self) -> None: ...
 
-# 3. Concrete Command
-class AppendTextCommand(Command):
-    def __init__(self, doc: TextDocument, text_to_append: str):
-        self._doc = doc
-        self._text = text_to_append
+    @abstractmethod
+    def undo(self) -> None: ...
+
+
+class ReserveSeatCommand(Command):
+    def __init__(self, seats: SeatMap, seat: str) -> None:
+        self._seats = seats
+        self._seat = seat
 
     def execute(self) -> None:
-        self._doc.append(self._text)
+        self._seats.reserve(self._seat)
 
     def undo(self) -> None:
-        self._doc.erase_last(len(self._text))
+        self._seats.release(self._seat)
 
-# 4. Invoker
-class CommandHistory:
-    def __init__(self):
-        self._history: List[Command] = []
 
-    def execute_command(self, cmd: Command) -> None:
+class CommandBus:
+    def __init__(self) -> None:
+        self._history: list[Command] = []
+
+    def run(self, cmd: Command) -> None:
         cmd.execute()
         self._history.append(cmd)
 
-    def undo(self) -> None:
-        if self._history:
-            cmd = self._history.pop()
-            cmd.undo()
+    def undo_last(self) -> None:
+        if not self._history:
+            return
+        self._history.pop().undo()
+
 
 if __name__ == "__main__":
-    doc = TextDocument()
-    history = CommandHistory()
+    Checkout(CardStrategy()).complete(2500)
+    Checkout(UpiStrategy()).complete(999)
 
-    history.execute_command(AppendTextCommand(doc, "Hello "))
-    history.execute_command(AppendTextCommand(doc, "World!"))
-    print("Document:", doc.text) # "Hello World!"
-
-    history.undo()
-    print("After Undo:", doc.text) # "Hello "
+    seats, bus = SeatMap(), CommandBus()
+    bus.run(ReserveSeatCommand(seats, "A1"))
+    print("reserved", seats.reserved)
+    bus.undo_last()
+    print("after undo", seats.reserved)
 ```
-
 <!-- slide -->
-
 ```csharp
-using System;
-
-// 1. State Interface
-public interface IOrderState
+public interface IPaymentStrategy
 {
-    void ProcessPayment(OrderContext context);
-    void Ship(OrderContext context);
-    void Cancel(OrderContext context);
+    bool Pay(int amountCents);
 }
 
-// 2. Context
-public class OrderContext
+public sealed class Checkout
 {
-    public IOrderState CurrentState { get; set; }
+    private IPaymentStrategy _strategy;
+    public Checkout(IPaymentStrategy strategy) => _strategy = strategy;
+    public void SetStrategy(IPaymentStrategy strategy) => _strategy = strategy;
+    public bool Complete(int amountCents) => _strategy.Pay(amountCents);
+}
 
-    public OrderContext()
+public interface ICommand
+{
+    void Execute();
+    void Undo();
+}
+
+public sealed class ReserveSeatCommand : ICommand
+{
+    private readonly SeatMap _seats;
+    private readonly string _seat;
+    public ReserveSeatCommand(SeatMap seats, string seat)
     {
-        CurrentState = new CreatedState();
+        _seats = seats;
+        _seat = seat;
     }
-
-    public void ProcessPayment() => CurrentState.ProcessPayment(this);
-    public void Ship() => CurrentState.Ship(this);
-    public void Cancel() => CurrentState.Cancel(this);
-}
-
-// 3. Concrete States
-public class CreatedState : IOrderState
-{
-    public void ProcessPayment(OrderContext context)
-    {
-        Console.WriteLine("💳 Payment processed. Moving to Paid state.");
-        context.CurrentState = new PaidState();
-    }
-    public void Ship(OrderContext context) => 
-        throw new InvalidOperationException("Cannot ship an unpaid order.");
-    public void Cancel(OrderContext context)
-    {
-        Console.WriteLine("❌ Order cancelled.");
-        context.CurrentState = new CancelledState();
-    }
-}
-
-public class PaidState : IOrderState
-{
-    public void ProcessPayment(OrderContext context) => 
-        throw new InvalidOperationException("Order is already paid.");
-    public void Ship(OrderContext context)
-    {
-        Console.WriteLine("🚚 Order shipped! Moving to Shipped state.");
-        context.CurrentState = new ShippedState();
-    }
-    public void Cancel(OrderContext context) => 
-        Console.WriteLine("Refund initiated. Order cancelled.");
-}
-
-public class ShippedState : IOrderState
-{
-    public void ProcessPayment(OrderContext context) => throw new InvalidOperationException();
-    public void Ship(OrderContext context) => throw new InvalidOperationException("Already shipped.");
-    public void Cancel(OrderContext context) => 
-        throw new InvalidOperationException("Cannot cancel an order that has already shipped!");
-}
-
-public class CancelledState : IOrderState
-{
-    public void ProcessPayment(OrderContext context) => throw new InvalidOperationException();
-    public void Ship(OrderContext context) => throw new InvalidOperationException();
-    public void Cancel(OrderContext context) => throw new InvalidOperationException();
-}
-```
-
-<!-- slide -->
-
-```go
-package main
-
-import "fmt"
-
-type CompressionStrategy interface {
-	Compress(data []byte) []byte
-}
-
-type ZipCompression struct{}
-
-func (z ZipCompression) Compress(data []byte) []byte {
-	fmt.Println("🗜️ Compressed using ZIP algorithm")
-	return data
-}
-
-type GzipCompression struct{}
-
-func (g GzipCompression) Compress(data []byte) []byte {
-	fmt.Println("🗜️ Compressed using GZIP algorithm")
-	return data
-}
-
-type Archiver struct {
-	strategy CompressionStrategy
-}
-
-func (a *Archiver) SetStrategy(s CompressionStrategy) {
-	a.strategy = s
-}
-
-func (a *Archiver) Archive(data []byte) []byte {
-	return a.strategy.Compress(data)
-}
-
-func main() {
-	archiver := &Archiver{strategy: ZipCompression{}}
-	_ = archiver.Archive([]byte("payload"))
-
-	// Swap at runtime
-	archiver.SetStrategy(GzipCompression{})
-	_ = archiver.Archive([]byte("payload"))
-}
-```
-
-<!-- slide -->
-
-```typescript
-interface Observer<T> {
-  update(data: T): void;
-}
-
-export class EventEmitterSubject<T> {
-  private observers: Set<Observer<T>> = new Set();
-
-  public subscribe(obs: Observer<T>): () => void {
-    this.observers.add(obs);
-    // Returns unsubscription cleanup function!
-    return () => this.observers.delete(obs);
-  }
-
-  public notify(data: T): void {
-    for (const obs of this.observers) {
-      obs.update(data);
-    }
-  }
+    public void Execute() => _seats.Reserve(_seat);
+    public void Undo() => _seats.Release(_seat);
 }
 ```
 ````
 
+**OCP win:** new payment rail = new Strategy class. Checkout stays closed. Commands make undo and audit trails natural.
+
+**Edges that matter here:**
+
+- `CommandBus.run` appends to history **after** `execute()` succeeds. If `reserve("A1")` raises `seat taken`, nothing is recorded and nothing can be wrongly undone.
+- Undo must reverse what `execute` *actually did*. If you later make `reserve` idempotent (no error when the seat is already held), `undo` would release a seat this command never took — record what changed inside the command.
+- `SeatMap` is not thread-safe. Two concurrent `reserve("A1")` calls can both pass the membership check; see [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md) or lock inside `reserve`.
+- `Checkout.complete` returns `bool`: a declined card is a normal outcome, not an exception. Decide that contract up front (see LSP in [04](../04-solid-principles/README.md)).
+
 ---
 
-## 6. Practical Hands-On Verification CLI Workflows
+## 4. Observer — publish without knowing subscribers
 
-Verify the State machine transitions in your Ubuntu terminal:
-
-### Workflow 1: Execute State Pattern FSM
-```bash
-python3 -c '
-from abc import ABC, abstractmethod
-
-class State(ABC):
-    @abstractmethod
-    def handle(self, context): pass
-
-class StateA(State):
-    def handle(self, context):
-        print("State A handling -> transitioning to State B")
-        context.state = StateB()
-
-class StateB(State):
-    def handle(self, context):
-        print("State B handling -> transitioning to State A")
-        context.state = StateA()
-
-class Context:
-    def __init__(self): self.state = StateA()
-    def request(self): self.state.handle(self)
-
-c = Context()
-c.request()
-c.request()
-c.request()
-'
-```
-**Expected Output:**
 ```text
-State A handling -> transitioning to State B
-State B handling -> transitioning to State A
-State A handling -> transitioning to State B
+Subject: attach / detach / notify
+Observer: update(event)
+```
+
+**Edges (must mention in interviews):**
+
+| Risk | Mitigation |
+| :--- | :--- |
+| Lapsed listener leak | Unsubscribe on dispose; weak refs or scoped lifetimes |
+| Notify during mutation | Copy subscriber list before iterating |
+| Slow observers block feed | Async queue / fan-out workers |
+| Ordering assumptions | Document “no order guarantee” or use priority bus |
+
+### War story (compressed)
+
+A market feed kept strong references to dashboards. Users closed tabs; observers stayed subscribed. Heap grew for days → OOM. **Fix:** explicit detach on session end + weak events / DI scoped lifetimes.
+
+---
+
+## 5. State — behavior is the mode
+
+Vending / order / elevator: replace `switch(status)` with state objects that accept events and return (or set) the next state.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Moving: request
+  Moving --> DoorOpen: arrived
+  DoorOpen --> Idle: closed
+  DoorOpen --> Moving: next_request
+```
+
+**Interview line:** *"Strategy: I inject FastestRoute. State: DoorOpen decides what happens on Close — the object changes how it responds over time."*
+
+---
+
+## 6. Template Method — skeleton in the base class
+
+Base defines `final run(): extract → transform → load`; subclasses override hooks. Prefer composition (Strategy pipeline) when inheritance gets awkward — say that trade-off out loud.
+
+---
+
+## 7. Code — Observer, State, Template Method (runnable)
+
+The three patterns above without code are just vocabulary. Run this block:
+
+```python
+from __future__ import annotations
+
+import threading
+from abc import ABC, abstractmethod
+from typing import Callable, final
+
+
+# ── Observer: subscribe returns an unsubscribe handle ─────────────────
+Listener = Callable[[str, int], None]
+
+
+class PriceFeed:
+    def __init__(self) -> None:
+        self._subs: list[Listener] = []
+        self._lock = threading.Lock()
+
+    def subscribe(self, fn: Listener) -> Callable[[], None]:
+        with self._lock:
+            self._subs.append(fn)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if fn in self._subs:
+                    self._subs.remove(fn)
+        return unsubscribe
+
+    def publish(self, symbol: str, cents: int) -> None:
+        with self._lock:
+            snapshot = list(self._subs)          # copy: listeners may unsubscribe while we notify
+        for fn in snapshot:                      # (call outside the lock: slow listeners don't block subscribe)
+            try:
+                fn(symbol, cents)
+            except Exception as exc:             # one bad listener must not starve the others
+                print(f"  listener failed: {exc!r}")
+
+
+# ── State: behavior depends on the current state object ──────────────
+class IllegalTransition(Exception):
+    pass
+
+
+class ElevatorState:
+    def request(self, e: "Elevator", floor: int) -> None: ...
+    def arrived(self, e: "Elevator") -> None:
+        raise IllegalTransition(f"{type(self).__name__} cannot handle 'arrived'")
+    def door_closed(self, e: "Elevator") -> None:
+        raise IllegalTransition(f"{type(self).__name__} cannot handle 'door_closed'")
+
+
+class Idle(ElevatorState):
+    def request(self, e: "Elevator", floor: int) -> None:
+        if floor == e.floor:
+            e.set_state(DoorOpen())
+        else:
+            e.target = floor
+            e.set_state(Moving())
+
+
+class Moving(ElevatorState):
+    def request(self, e: "Elevator", floor: int) -> None:
+        e.pending.append(floor)                  # queue, don't teleport
+    def arrived(self, e: "Elevator") -> None:
+        e.floor = e.target
+        e.set_state(DoorOpen())
+
+
+class DoorOpen(ElevatorState):
+    def request(self, e: "Elevator", floor: int) -> None:
+        e.pending.append(floor)
+    def door_closed(self, e: "Elevator") -> None:
+        if e.pending:
+            e.target = e.pending.pop(0)
+            e.set_state(Moving())
+        else:
+            e.set_state(Idle())
+
+
+class Elevator:
+    def __init__(self) -> None:
+        self.state: ElevatorState = Idle()
+        self.floor, self.target = 0, 0
+        self.pending: list[int] = []
+
+    def set_state(self, s: ElevatorState) -> None:
+        print(f"  {type(self.state).__name__} -> {type(s).__name__}")
+        self.state = s
+
+    def request(self, floor: int) -> None: self.state.request(self, floor)
+    def arrived(self) -> None: self.state.arrived(self)
+    def door_closed(self) -> None: self.state.door_closed(self)
+
+
+# ── Template Method: fixed skeleton, variable steps ──────────────────
+class Etl(ABC):
+    @final
+    def run(self) -> int:                        # skeleton: subclasses fill steps, never reorder
+        rows = [self.transform(r) for r in self.extract()]
+        self.load(rows)
+        return len(rows)
+
+    @abstractmethod
+    def extract(self) -> list[str]: ...
+    @abstractmethod
+    def transform(self, raw: str) -> dict: ...
+    @abstractmethod
+    def load(self, rows: list[dict]) -> None: ...
+
+
+class CsvEtl(Etl):
+    def __init__(self) -> None:
+        self.sink: list[dict] = []
+    def extract(self) -> list[str]:
+        return ["a,1", "b,2"]
+    def transform(self, raw: str) -> dict:
+        name, qty = raw.split(",")
+        return {"name": name, "qty": int(qty)}
+    def load(self, rows: list[dict]) -> None:
+        self.sink.extend(rows)
+
+
+if __name__ == "__main__":
+    print("observer:")
+    feed, log = PriceFeed(), []
+    feed.subscribe(lambda s, c: log.append((s, c)))
+    feed.subscribe(lambda s, c: 1 / 0)                     # bad listener
+    unsub_once = None
+    def once(s: str, c: int) -> None:
+        log.append(("once", c)); unsub_once()              # unsubscribes during notify
+    unsub_once = feed.subscribe(once)
+    feed.publish("ACME", 1000)
+    feed.publish("ACME", 1010)
+    print(" ", log)   # [('ACME',1000),('once',1000),('ACME',1010)]
+
+    print("state:")
+    e = Elevator()
+    e.request(3); e.arrived(); e.request(1); e.door_closed(); e.arrived(); e.door_closed()
+    print("  floor", e.floor)
+    try:
+        e.door_closed()
+    except IllegalTransition as ex:
+        print("  rejected:", ex)
+
+    print("template:", CsvEtl().run())
+```
+
+Expected output:
+
+```text
+observer:
+  listener failed: ZeroDivisionError('division by zero')
+  listener failed: ZeroDivisionError('division by zero')
+  [('ACME', 1000), ('once', 1000), ('ACME', 1010)]
+state:
+  Idle -> Moving
+  Moving -> DoorOpen
+  DoorOpen -> Moving
+  Moving -> DoorOpen
+  DoorOpen -> Idle
+  floor 1
+  rejected: Idle cannot handle 'door_closed'
+template: 2
+```
+
+What to point at when you present it:
+
+- **Observer:** `subscribe` returns the unsubscribe handle (kills the lapsed-listener leak at the API level); `publish` iterates a *copy* (a listener removing itself mid-notify is safe, see `once`); the bad listener is isolated so it can't starve the others; the lock is not held while listeners run.
+- **State:** each state object owns its own legal events; an illegal event (`door_closed` while `Idle`) raises instead of silently corrupting the machine. Requests that arrive while moving are queued, not dropped.
+- **Template Method:** `run()` is `@final` — subclasses fill `extract/transform/load` but can't reorder them. In C#, mark it non-virtual (or `sealed override`).
+
+---
+
+## 8. When *not* to use these
+
+| Temptation | Better |
+| :--- | :--- |
+| Strategy for one algorithm | Plain function / method |
+| Observer for two hard-wired collaborators | Direct call or domain event once |
+| Command for every method | Only when queue/undo/log needed |
+| State for two booleans | Enum + clear transitions may suffice |
+| Deep Template Method hierarchy | Strategy hooks or pipeline stages |
+
+---
+
+## 9. What you’d say in two minutes
+
+> "I'd inject a `PaymentStrategy` so checkout doesn't grow a switch — Open/Closed. Seat booking becomes a `Command` with `execute`/`undo` so the invoker can stack history. If behavior depends on mode, I'd model an explicit State machine instead of nested ifs — and I'd stress that Strategy is chosen outside, State transitions inside. For fan-out updates I'd use Observer but always unsubscribe to avoid lapsed-listener leaks."
+
+---
+
+## 10. Anti-patterns
+
+1. **God Observer** doing UI + persistence + email in `update` — split listeners.  
+2. **Command without receiver clarity** — keep domain logic on the receiver; command wires intent.  
+3. **State objects that know every other state** — centralize transition table if the graph is large.  
+4. **Template Method with 12 overridable hooks** — you’ve built a fragile inheritance API.
+
+---
+
+## 11. Interview questions
+
+<details>
+<summary><strong>1. Strategy vs State? [BASIC]</strong></summary>
+
+Strategy: caller selects algorithm, usually for one task. State: current state changes after events and alters subsequent behavior.
+
+</details>
+
+<details>
+<summary><strong>2. What problem does Command solve? [BASIC]</strong></summary>
+
+Treat an operation as an object — queue it, log it, undo it, or send it across a process boundary.
+
+</details>
+
+<details>
+<summary><strong>3. Observer failure mode in long-lived subjects? [BASIC]</strong></summary>
+
+Lapsed listeners: forgotten unsubscribe → memory growth and notifying dead UI. Always detach; prefer scoped lifetimes.
+
+</details>
+
+<details>
+<summary><strong>4. Template Method vs Strategy? [BASIC]</strong></summary>
+
+Template Method: inheritance skeleton with hooks. Strategy: compose replaceable algorithms. Prefer Strategy when reuse is across unrelated types.
+
+</details>
+
+<details>
+<summary><strong>5. Add crypto payments without editing Checkout. [SCENARIO]</strong></summary>
+
+`CryptoStrategy` implementing `PaymentStrategy`; inject or select at runtime. Checkout only calls `pay`.
+
+</details>
+
+<details>
+<summary><strong>6. Elevator Idle/Moving/DoorOpen. [SCENARIO]</strong></summary>
+
+State pattern (or explicit transition table). Events `Request`, `Arrived`, `DoorClosed` handled by current state.
+
+</details>
+
+<details>
+<summary><strong>7. Undo last three editor ops. [SCENARIO]</strong></summary>
+
+Stack of Commands with `undo`. Redo = second stack or reversible history.
+
+</details>
+
+<details>
+<summary><strong>8. Can Observer replace a message queue? [TRICKY]</strong></summary>
+
+In-process Observer ≠ durable cross-service messaging. Queues add persistence, backpressure, and competing consumers. Use Observer inside a process; queues between services.
+
+</details>
+
+---
+
+## 12. Try it
+
+1. Run the Strategy + Command block (section 3) and the Observer/State/Template block (section 7).
+2. Add `redo` to `CommandBus` with a second stack; clear it when a new command runs.
+3. Add a `CryptoStrategy` without editing `Checkout`. Then write a `FailingStrategy` and decide: should `Checkout.complete` retry, or let the caller decide?
+4. Add an `Overloaded` state to the elevator that rejects new requests. How many existing state classes did you touch?
+5. Model Strategy vs State side by side in [LLD Studio](/tools/lld-studio/), then use them in [Movie Ticket Booking](../16-movie-ticket-booking/README.md) and [Library & Vending Machine](../13-library-and-vending-machine/README.md).
+
+---
+
+## 13. One-page cheat sheet
+
+```text
+Strategy     Swap algorithm; caller injects. OCP for “how”.
+Observer     1→N notify; always unsubscribe; copy list on notify.
+Command      Action as object; execute / undo / queue / audit.
+State        FSM; states transition; don’t confuse with Strategy.
+Template     Base skeleton + hooks; prefer composition if deep.
+
+Say aloud: “Who chooses the next behavior — the client or the state machine?”
 ```
 
 ---
 
-## 7. Operational Validation Checkpoint
+## Next
 
-<details>
-<summary><strong>Question 1: Command Pattern in Distributed Task Queues</strong></summary>
-
-**Scenario:** In background job frameworks like Celery or BullMQ, how does the architecture leverage the **Command Pattern**?
-
-**Answer:**
-A task invocation (`send_email.delay(user_id=42, template="welcome")`) encapsulates:
-1. The **Receiver** (`EmailService`)
-2. The **Action** (`send_email`)
-3. The **Parameters** (`user_id`, `template`)
-
-This command is serialized into a JSON message and stored in Redis/RabbitMQ. A background worker dequeues the payload and invokes `command.execute()`. 
-
-The caller does not need to know *when* or *on which machine* the task runs; the request is treated as a first-class data object that can be queued, retried with exponential backoff, or routed to a Dead-Letter Queue.
-</details>
-
-<details>
-<summary><strong>Question 2: State Pattern vs. Giant Switch Statements</strong></summary>
-
-**Scenario:** A junior developer implements an Order state machine with an enum:
-```csharp
-public void CancelOrder(Order order) {
-    switch (order.Status) {
-        case OrderStatus.Created: ... break;
-        case OrderStatus.Paid: ... break;
-        case OrderStatus.Shipped: ... break;
-        case OrderStatus.Delivered: ... break;
-    }
-}
-```
-Every operation (`Cancel`, `Ship`, `Refund`) duplicates this exact 6-way `switch` statement across 10 methods.
-
-Why does the **State Pattern** improve maintainability?
-
-**Answer:**
-1. **Eliminates Code Duplication:** With the State pattern, state-specific behavior is encapsulated inside dedicated classes (`CreatedState`, `PaidState`, `ShippedState`).
-2. **Enforces Open/Closed Principle (OCP):** Adding a new state (e.g. `PartiallyRefundedState`) requires creating one new class implementing `IOrderState`, rather than searching through 10 methods and editing 10 giant `switch` statements.
-3. **Eliminates Illegal Transitions:** Each state explicitly governs which transitions are allowed and throws clear domain errors for illegal actions.
-</details>
-
-<details>
-<summary><strong>Question 3: How to Prevent Observer Memory Leaks in Event-Driven Systems</strong></summary>
-
-**Scenario:** A web application uses an in-memory event bus. Subscribers listen to `UserRegisteredEvent`. 
-What two design techniques prevent the Lapsed Listener memory leak?
-
-**Answer:**
-1. **Lifecycle Binding / Disposables:** Whenever an observer subscribes, return an unsubscription token or implement `IDisposable`. Callers must explicitly unsubscribe in `finally` blocks or during component unmount.
-2. **Weak References:** The event bus subject stores subscribers using **Weak References** (`WeakReference<T>` / `WeakSet`). A weak reference does not increment the target object's reference count, allowing the garbage collector to reclaim the subscriber as soon as its owning view/session falls out of scope.
-</details>
-
----
-
-## Next Step
-
-Now that you understand Strategy, Observer, Command, and State, proceed to **[09 · Behavioral Patterns II: Chain of Responsibility, Iterator, Mediator, Memento, and Visitor](../09-behavioral-patterns-ii/README.md)** to complete the behavioral catalog.
+**[09 · Behavioral Patterns II](../09-behavioral-patterns-ii/README.md)** — Iterator, Chain of Responsibility, Mediator, Memento, Visitor.

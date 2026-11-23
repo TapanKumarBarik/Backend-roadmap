@@ -1,622 +1,418 @@
-# Public API & Library Design: Fluent Interfaces & Dependency Injection
+# Public API & Library Design: Builders, Options and Dependency Injection
 
-> **Prerequisites**: [04: SOLID Principles](../04-solid-principles/README.md), [06: Creational Patterns](../06-creational-patterns/README.md), [18: LRU/LFU Cache & Rate Limiter](../18-lru-lfu-cache-and-rate-limiter/README.md).  
-> **Estimated Reading Time**: 25 minutes  
-> **Target Audience**: Backend Engineers, Platform SDK Maintainers, Systems Architects.
+> **Prerequisites:** [04 · SOLID](../04-solid-principles/README.md), [06 · Creational Patterns](../06-creational-patterns/README.md), [18 · LRU/LFU Cache & Rate Limiter](../18-lru-lfu-cache-and-rate-limiter/README.md)  
+> **Reading time:** ~25 minutes  
+> **Audience:** Anyone asked to "design an SDK / client library / shared service" in an LLD round, or who owns code that other teams import
+
+> [!NOTE]
+> **In one line:** A public API is a promise to strangers — make objects hard to construct wrongly (builders / options objects, required things in the constructor), hand them their collaborators from outside (constructor injection), and change the surface only with a version number that tells the truth.
 
 > [!TIP]
-> **Golden Rule of Library Architecture**: A public API is an immutable contract. Never force consumers to manage telescoping constructors with positional boolean parameters. Use **fluent builders** or **functional options** to produce immutable configuration objects. Furthermore, **never instantiate dependencies internally with `new`**; enforce Inversion of Control via **constructor injection** so every collaborator can be mocked deterministically in automated tests.
+> **Golden rule:** Required collaborators go in the **constructor**; optional settings go in a **named, immutable options object**; the concrete wiring happens in **one composition root**. If a caller must remember to call `set_x()` before `do_y()`, or a library `new`s its own HTTP client, the design is leaking.
+
+> [!TIP]
+> **Try it:** Sketch `BillingService → PaymentGateway / Metrics` in [LLD Studio](/tools/lld-studio/), then run the Python example below and swap the fake for a second fake.
 
 ---
 
-## 1. Visual Mental Models & Architectural Pipelines
+## 1. The smell: when this topic shows up
 
-When authoring libraries, SDKs, or shared platform frameworks, design failures break hundreds of downstream services. Two foundational techniques govern robust library engineering:
-1. **Fluent Builders & Options**: Ergonomic, backward-compatible object construction.
-2. **Dependency Injection (DI)**: Inversion of Control for decoupled, testable business services.
+Interviewer: *"Design a small HTTP client library other teams will import. It needs timeouts, retries, headers, and it must be easy to test."*
 
-### 1.1 Fluent Builder vs. Telescoping Constructor
+They are probing three things at once:
 
-Telescoping constructors become unreadable as optional flags multiply. Fluent builders allow callers to chain self-documenting configuration steps in any order.
+1. **Construction ergonomics** — can I build it without a 9-argument constructor and a `true, false, null` call that nobody can read?
+2. **Dependency direction** — does my business class create its own network client, or receive one?
+3. **Evolvability** — if you add a setting next quarter, do 300 services break?
+
+Smells that give it away:
+
+```text
+HttpClient("https://api", "POST", None, 30, 3, True, False, "{}")   # boolean blindness
+class Billing:  def __init__(self): self.gw = StripeGateway()        # hidden concrete dependency
+client = PaymentClient(); client.charge(100)                          # forgot set_api_key() -> crash
+```
 
 ```mermaid
-flowchart TD
-    subgraph Bad["Telescoping Constructor Anti-Pattern"]
-        C1["HttpClient('https://api.com', 'POST', null, 30, 3, true, false, '{}')"]
-        C1 --> Chaos["Error-Prone Positional Arguments<br/>Boolean blindness: What does true, false mean?"]
-    end
-
-    subgraph Good["Fluent Builder Pattern"]
-        B1["HttpClientBuilder.create('https://api.com')"]
-        B1 --> B2[".method('POST')"]
-        B2 --> B3[".timeout(Duration.ofSeconds(30))"]
-        B3 --> B4[".retries(3)"]
-        B4 --> B5[".build() -> Immutable HttpClient"]
-    end
-
-    style Bad fill:#ffebee,stroke:#c62828,stroke-width:2px
-    style Good fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+flowchart LR
+  subgraph Root["Composition root (main / container)"]
+    Cfg["ClientOptions (frozen)"]
+    Stripe["StripeGateway"]
+    Dd["DatadogMetrics"]
+  end
+  Root -->|"constructs & injects"| Billing["BillingService"]
+  Billing --> GwI["PaymentGateway (interface)"]
+  Billing --> MI["Metrics (interface)"]
+  Stripe -.->|implements| GwI
+  Dd -.->|implements| MI
+  Fake["FakeGateway (tests)"] -.->|implements| GwI
 ```
+
+`BillingService` only knows two interfaces. Production wires Stripe + Datadog; tests wire fakes. Nothing inside `BillingService` changes.
 
 ---
 
-### 1.2 Constructor Dependency Injection Architecture
+## 2. Which tool for which problem
 
-Dependency Injection separates the **assembly** of an application from its **execution**. Business services depend exclusively on abstract interfaces injected at creation.
+| Problem | Tool | Why |
+| :--- | :--- | :--- |
+| Many optional settings | **Options object** (frozen dataclass) or **fluent builder** | Self-documenting, order-free, add a field without breaking callers |
+| Settings must be validated together | Builder with `build()` that validates | Object can never exist half-configured |
+| Business class needs a network / DB / clock | **Constructor injection** of an interface | Visible dependencies, trivially fakeable |
+| Many collaborators (6+) in one constructor | Split the class (SRP) — **not** a service locator | Long constructor is a smell, not a reason to hide dependencies |
+| Library must keep working for old callers | **SemVer** + deprecation window | Breaking change = MAJOR, additive = MINOR |
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Boot as Composition Root (IoC Container)
-    participant Svc as OrderProcessor
-    participant Gateway as IPaymentGateway (Stripe / Mock)
-    participant Email as IEmailSender (SES / Fake)
+### DI flavors compared
 
-    Note over Boot: 1. Instantiate Concrete Dependencies
-    Boot->>Gateway: new StripePaymentGateway(apiKey)
-    Boot->>Email: new AwsSesEmailSender(region)
-
-    Note over Boot: 2. Inject Dependencies into Service Constructor
-    Boot->>Svc: new OrderProcessor(Gateway, Email)
-    
-    Note over Svc: 3. Execution Phase
-    Svc->>Gateway: ChargeAsync(amount)
-    Gateway-->>Svc: PaymentSuccess
-    Svc->>Email: SendReceiptAsync(email, receipt)
-    Email-->>Svc: EmailDispatched
-```
+| Flavor | How | Verdict |
+| :--- | :--- | :--- |
+| **Constructor injection** | Dependencies are `__init__` parameters | Default choice: object is valid from the first instant |
+| **Setter / method injection** | `set_gateway(g)` after construction | Temporal coupling; use only for truly optional collaborators |
+| **Service Locator** | `Locator.get(IGateway)` inside the class | Hidden dependencies, runtime-only failure — avoid |
+| **Container (framework)** | Registers types, builds the graph | Fine, as long as classes stay container-agnostic |
 
 ---
 
-## 2. Taxonomic Reference Grids
+## 3. Walkthrough: a small payments client
 
-### 2.1 Dependency Injection Mechanisms Comparison
+**Requirements (keep tiny):** a `BillingService` charges invoices through a gateway, records a metric, and takes `timeout` / `retries` / `user_agent` settings. Tomorrow we add `idempotency_prefix`; yesterday's callers must not break.
 
-| DI Mechanism | Implementation Technique | Null Safety | Immutability | Testability | Tradeoff / Risk |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Constructor Injection** | Pass all dependencies via constructor | Compile-time guarantee (cannot instantiate with missing dependencies) | Fully preserved (`readonly` / `final` fields) | Highest (trivial to pass fakes in unit tests) | Constructor parameter list can grow if SRP is violated |
-| **Setter / Method Injection** | Provide public `setPaymentGateway(g)` | Risky (Temporal coupling: object can exist in half-configured state) | Broken (fields remain mutable post-construction) | Moderate | Risk of invoking methods before setters are called |
-| **Interface Injection** | Classes implement `IInjectPaymentGateway` | High | Moderate | High | Heavy ceremony, rarely used in modern frameworks |
-| **Service Locator Pattern** | `Locator.get<IPaymentGateway>()` | Low (Hidden dependencies not visible in constructor) | Moderate | Poor (Requires mocking static locator state) | Considered an anti-pattern in modern OOP |
+**Entities:**
 
-### 2.2 Semantic Versioning (SemVer 2.0) Evolution Matrix
+- `ClientOptions` — immutable settings with defaults.
+- `PaymentGateway` (Protocol) — what billing needs, nothing more.
+- `Metrics` (Protocol) — `increment(name)`.
+- `BillingService` — orchestrates; receives both via constructor.
+- `ClientOptionsBuilder` — optional fluent façade that validates in `build()`.
 
-| Version Increment | API Modification Category | Consumer Compatibility | Deprecation Policy | Example |
-| :--- | :--- | :--- | :--- | :--- |
-| **PATCH (x.y.Z)** | Bug fix, internal optimization, doc updates | 100% Backward-Compatible | None | Fix thread-safety bug in `LRUCache.Get()` |
-| **MINOR (x.Y.z)** | Additive changes: new optional builder method or interface | Backward-Compatible | Mark old methods `@deprecated` with migration path | Add `.withCompression()` to `HttpClientBuilder` |
-| **MAJOR (X.y.z)** | Breaking changes: deleted method, altered signature, changed return types | **Incompatible**: Callers must update source code | Remove previously deprecated methods | Change `charge(int amount)` to `charge(Money amount)` |
+**Key methods:** `ClientOptions.replace(...)` (copy-with-change, since the object is frozen), `BillingService.process_invoice(...)`.
 
----
+**Extension point:** add a field to `ClientOptions` with a default → existing callers compile and run unchanged. Add a second gateway → new class implementing `PaymentGateway`; `BillingService` untouched.
 
-## 3. Production War Stories: Incident Post-Mortem
-
-### The $1.2M SDK Breaking Change: How an Unversioned Constructor Broke 300 Microservices
-
-```
-SEVERITY LEVEL: SEV-1 (Global Build Pipeline Gridlock)
-DETECTION TIME: 10 Minutes
-RECOVERY TIME: 180 Minutes
-FINANCIAL & LABOR COST: $1,200,000 in blocked CI/CD pipelines and hotfix rollouts
-```
-
-#### Incident Background
-A central platform infrastructure team maintained `platform-auth-client`, a shared Java/TypeScript SDK used by 40 engineering teams across 300 production microservices for OAuth2 token validation.
-
-#### What Happened
-To support multi-region tenant routing, a platform developer added a required `RegionEndpoint` parameter to the primary client constructor:
-```typescript
-// BEFORE (v1.4.2)
-new AuthClient(clientId: string, clientSecret: string);
-
-// AFTER (Pushed as v1.4.3 MINOR release!)
-new AuthClient(clientId: string, clientSecret: string, region: RegionEndpoint);
-```
-The developer published this change as a **PATCH** (`v1.4.3`) instead of a **MAJOR** (`v2.0.0`), believing it was a minor bug fix. Overnight, automated Dependabot PRs and continuous deployment builds pulled `^1.4.0`. 240 microservices suffered build and deployment failures simultaneously. Services that restarted in Kubernetes crash-looped due to missing constructor arguments, halting payments and checkout flows globally.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant SDK as platform-auth-client (v1.4.3)
-    participant CI as Microservice CI/CD Build
-    participant Svc as Production Microservice
-
-    Note over SDK: Developer adds required 3rd param: 'region'
-    Note over SDK: Incorrectly published as PATCH v1.4.3
-    
-    CI->>SDK: npm install platform-auth-client@^1.4.0
-    SDK-->>CI: Pulls v1.4.3
-    CI->>CI: Compile Typescript
-    Note over CI: FATAL COMPILE ERROR: Expected 3 arguments, but got 2!
-    Note over CI: 300 Pipelines Fail Simultaneously!
-    
-    par Existing Pods Restarting in K8s
-        Svc->>SDK: new AuthClient(id, secret)
-        Note over Svc: Runtime TypeError: Cannot read property 'url' of undefined
-        Note over Svc: CrashLoopBackOff!
-    end
-```
-
-#### Root Cause Analysis
-1. **Violation of Semantic Versioning**: A breaking signature change was released under a PATCH version increment.
-2. **Brittle Constructor-Based Configuration**: The SDK relied on direct positional parameters instead of a fluent options/builder object.
-3. **Absence of Deprecation Lifecycle**: The team failed to retain the 2-argument constructor while introducing the new regional endpoint.
-
-#### The Architectural Hardening
-1. **Adoption of Fluent Options Pattern**: Refactored the SDK to accept an options object with sensible defaults:
-   ```typescript
-   AuthClient.builder().clientId(id).clientSecret(secret).region(Region.US_EAST).build();
-   ```
-2. **Automated SemVer Breaking-Change Guard in CI**: Integrated `api-extractor` and `ts-prune` in the SDK repository to block git merges if public API signatures change without a major version bump.
-3. **Mandatory 6-Month Deprecation Grace Period**: Breaking changes must be marked `@deprecated` for at least two minor release cycles before deletion.
-
----
-
-## 4. Multi-Language Production Implementations
-
-Below are four enterprise implementations demonstrating fluent builder APIs, functional options, and constructor dependency injection.
-
-### 4.1 Go: Functional Options Pattern with Constructor Injection
-
-In Go, the **Functional Options Pattern** is the idiomatic gold standard for constructing configurable clients cleanly without breaking binary compatibility when new settings are added.
-
-```go
-package main
-
-import (
-	"context"
-	"errors"
-	"fmt"
-	"time"
-)
-
-// IPaymentGateway defines the dependency abstraction (DIP).
-type IPaymentGateway interface {
-	Charge(ctx context.Context, amountCents int64) (string, error)
-}
-
-type MockStripeGateway struct{}
-
-func (m *MockStripeGateway) Charge(ctx context.Context, amountCents int64) (string, error) {
-	return fmt.Sprintf("ch_mock_%d", time.Now().UnixNano()), nil
-}
-
-// ClientConfig holds internal configuration options.
-type ClientConfig struct {
-	timeout    time.Duration
-	maxRetries int
-	userAgent  string
-}
-
-// Option represents a functional configuration mutator.
-type Option func(*ClientConfig)
-
-func WithTimeout(d time.Duration) Option {
-	return func(c *ClientConfig) {
-		if d > 0 {
-			c.timeout = d
-		}
-	}
-}
-
-func WithMaxRetries(retries int) Option {
-	return func(c *ClientConfig) {
-		if retries >= 0 {
-			c.maxRetries = retries
-		}
-	}
-}
-
-func WithUserAgent(ua string) Option {
-	return func(c *ClientConfig) {
-		c.userAgent = ua
-	}
-}
-
-// OrderService uses Constructor Injection to receive its dependencies.
-type OrderService struct {
-	gateway IPaymentGateway // Injected abstraction
-	config  ClientConfig
-}
-
-// NewOrderService constructs the service with required dependencies and optional overrides.
-func NewOrderService(gateway IPaymentGateway, opts ...Option) (*OrderService, error) {
-	if gateway == nil {
-		return nil, errors.New("gateway dependency cannot be nil")
-	}
-
-	// Default configuration
-	cfg := ClientConfig{
-		timeout:    30 * time.Second,
-		maxRetries: 3,
-		userAgent:  "OrderService/v1.0",
-	}
-
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
-	return &OrderService{
-		gateway: gateway,
-		config:  cfg,
-	}, nil
-}
-
-func (s *OrderService) Checkout(ctx context.Context, amountCents int64) error {
-	ctx, cancel := context.WithTimeout(ctx, s.config.timeout)
-	defer cancel()
-
-	txID, err := s.gateway.Charge(ctx, amountCents)
-	if err != nil {
-		return fmt.Errorf("checkout failed: %w", err)
-	}
-
-	fmt.Printf("[Success] Charged $%.2f. TxID: %s (UserAgent: %s)\n",
-		float64(amountCents)/100.0, txID, s.config.userAgent)
-	return nil
-}
-
-func main() {
-	gateway := &MockStripeGateway{}
-
-	// Fluent, readable configuration via Functional Options
-	svc, err := NewOrderService(
-		gateway,
-		WithTimeout(5*time.Second),
-		WithMaxRetries(2),
-		WithUserAgent("CheckoutWorker/2.4"),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	_ = svc.Checkout(context.Background(), 9900)
-}
-```
-
----
-
-### 4.2 TypeScript: Fluent Request Builder & Dependency Inversion
-
-```typescript
-export interface IEmailSender {
-  sendEmail(to: string, subject: string, body: string): Promise<boolean>;
-}
-
-export class MockEmailSender implements IEmailSender {
-  public sentEmails: Array<{ to: string; subject: string }> = [];
-
-  async sendEmail(to: string, subject: string): Promise<boolean> {
-    this.sentEmails.push({ to, subject });
-    console.log(`[MockEmail] Dispatched to ${to}: ${subject}`);
-    return true;
-  }
-}
-
-export class HttpRequest {
-  constructor(
-    public readonly url: string,
-    public readonly method: string,
-    public readonly headers: Record<string, string>,
-    public readonly timeoutMs: number,
-    public readonly retries: number,
-    public readonly body?: string
-  ) {}
-}
-
-export class HttpRequestBuilder {
-  private _method: string = "GET";
-  private _headers: Record<string, string> = {};
-  private _timeoutMs: number = 30000;
-  private _retries: number = 0;
-  private _body?: string;
-
-  constructor(private readonly _url: string) {
-    if (!_url) throw new Error("URL must be provided");
-  }
-
-  public method(method: "GET" | "POST" | "PUT" | "DELETE"): this {
-    this._method = method;
-    return this;
-  }
-
-  public header(key: string, value: string): this {
-    this._headers[key] = value;
-    return this;
-  }
-
-  public timeout(ms: number): this {
-    this._timeoutMs = ms;
-    return this;
-  }
-
-  public retries(count: number): this {
-    this._retries = count;
-    return this;
-  }
-
-  public body(body: string): this {
-    this._body = body;
-    return this;
-  }
-
-  public build(): HttpRequest {
-    return new HttpRequest(
-      this._url,
-      this._method,
-      Object.freeze({ ...this._headers }),
-      this._timeoutMs,
-      this._retries,
-      this._body
-    );
-  }
-}
-
-// Consumer using Constructor Injection
-export class UserNotificationService {
-  constructor(private readonly emailSender: IEmailSender) {}
-
-  public async notifyWelcome(email: string, name: string): Promise<boolean> {
-    return this.emailSender.sendEmail(
-      email,
-      "Welcome to Platform!",
-      `Hello ${name}, welcome aboard!`
-    );
-  }
-}
-```
-
----
-
-### 4.3 Python: Injected Services with Pluggable Test Fakes
-
+````carousel
 ```python
-from abc import ABC, abstractmethod
-from typing import Optional
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Protocol
 
 
-class IMetricsPublisher(ABC):
-    @abstractmethod
-    def increment(self, metric_name: str, value: int = 1) -> None:
-        pass
+# ── Options object: immutable, defaults for everything optional ─────────
+@dataclass(frozen=True)
+class ClientOptions:
+    timeout_s: float = 30.0
+    retries: int = 3
+    user_agent: str = "billing/1.0"
+
+    def __post_init__(self) -> None:
+        if self.timeout_s <= 0:
+            raise ValueError("timeout_s must be > 0")
+        if self.retries < 0:
+            raise ValueError("retries must be >= 0")
+
+    def with_(self, **changes) -> "ClientOptions":
+        return replace(self, **changes)  # re-runs validation
 
 
-class FakeMetricsPublisher(IMetricsPublisher):
-    def __init__(self):
-        self.counts = {}
+# ── Optional fluent builder over the options (nice for many settings) ───
+class ClientOptionsBuilder:
+    def __init__(self) -> None:
+        self._values: dict = {}
 
-    def increment(self, metric_name: str, value: int = 1) -> None:
-        self.counts[metric_name] = self.counts.get(metric_name, 0) + value
-
-
-class HttpClientConfig:
-    def __init__(self, url: str):
-        self.url = url
-        self.timeout = 30.0
-        self.retries = 3
-        self.headers = {}
-
-    def with_timeout(self, seconds: float) -> "HttpClientConfig":
-        self.timeout = seconds
+    def timeout(self, seconds: float) -> "ClientOptionsBuilder":
+        self._values["timeout_s"] = seconds
         return self
 
-    def with_header(self, key: str, value: str) -> "HttpClientConfig":
-        self.headers[key] = value
+    def retries(self, count: int) -> "ClientOptionsBuilder":
+        self._values["retries"] = count
         return self
 
-    def with_retries(self, count: int) -> "HttpClientConfig":
-        self.retries = count
-        return self
+    def build(self) -> ClientOptions:
+        return ClientOptions(**self._values)  # validation happens here
+
+
+# ── Abstractions the business code depends on (DIP) ─────────────────────
+class PaymentGateway(Protocol):
+    def charge(self, amount_cents: int, options: ClientOptions) -> str: ...
+
+
+class Metrics(Protocol):
+    def increment(self, name: str, value: int = 1) -> None: ...
 
 
 class BillingService:
-    """
-    Demonstrates Constructor Injection (DIP).
-    Depends entirely on IMetricsPublisher abstraction, never concrete DataDog / CloudWatch.
-    """
-    def __init__(self, metrics: IMetricsPublisher, config: Optional[HttpClientConfig] = None):
+    """Receives collaborators; never constructs them."""
+
+    def __init__(
+        self,
+        gateway: PaymentGateway,
+        metrics: Metrics,
+        options: ClientOptions | None = None,
+    ) -> None:
+        self._gateway = gateway
         self._metrics = metrics
-        self._config = config or HttpClientConfig("https://billing.internal")
+        self._options = options or ClientOptions()
 
-    def process_invoice(self, invoice_id: str, amount: float) -> bool:
-        print(f"[Billing] Processed invoice {invoice_id} for ${amount:.2f}")
-        self._metrics.increment("invoices.processed", 1)
-        return True
+    def process_invoice(self, invoice_id: str, amount_cents: int) -> str:
+        tx = self._gateway.charge(amount_cents, self._options)
+        self._metrics.increment("invoices.processed")
+        return f"{invoice_id}:{tx}"
+
+
+# ── Test doubles (fakes) ────────────────────────────────────────────────
+class FakeGateway:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, ClientOptions]] = []
+
+    def charge(self, amount_cents: int, options: ClientOptions) -> str:
+        self.calls.append((amount_cents, options))
+        return f"tx_{len(self.calls)}"
+
+
+class FakeMetrics:
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+
+    def increment(self, name: str, value: int = 1) -> None:
+        self.counts[name] = self.counts.get(name, 0) + value
+
+
+if __name__ == "__main__":
+    # Composition root: the ONLY place that knows concrete types.
+    gateway, metrics = FakeGateway(), FakeMetrics()
+    opts = ClientOptionsBuilder().timeout(5).retries(2).build()
+    billing = BillingService(gateway, metrics, opts)
+
+    print(billing.process_invoice("inv-1", 9900))
+    print(metrics.counts)
+    print(gateway.calls[0][1])
+
+    try:
+        ClientOptionsBuilder().timeout(-1).build()
+    except ValueError as err:
+        print("rejected:", err)
+
+    # Frozen: mutation is impossible, copy-with-change is the way
+    try:
+        opts.retries = 9  # type: ignore[misc]
+    except Exception as err:
+        print("frozen:", type(err).__name__)
+    print(opts.with_(retries=5).retries, opts.retries)
 ```
-
----
-
-### 4.4 C#: Fluent API Builder with Microsoft DI ServiceCollection Extension
-
+<!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using Microsoft.Extensions.DependencyInjection;
-
-namespace Architecture.ApiDesign
+public sealed record ClientOptions
 {
-    public interface ITokenValidator
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
+    public int Retries { get; init; } = 3;
+    public string UserAgent { get; init; } = "billing/1.0";
+}
+
+public sealed class ClientOptionsBuilder
+{
+    private TimeSpan _timeout = TimeSpan.FromSeconds(30);
+    private int _retries = 3;
+
+    public ClientOptionsBuilder WithTimeout(TimeSpan t)
     {
-        bool Validate(string token);
+        if (t <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(t));
+        _timeout = t;
+        return this;
     }
 
-    public class JwtTokenValidator : ITokenValidator
+    public ClientOptionsBuilder WithRetries(int n)
     {
-        public bool Validate(string token) => !string.IsNullOrEmpty(token);
+        if (n < 0) throw new ArgumentOutOfRangeException(nameof(n));
+        _retries = n;
+        return this;
     }
 
-    public class PlatformClientOptions
+    public ClientOptions Build() => new() { Timeout = _timeout, Retries = _retries };
+}
+
+public interface IPaymentGateway
+{
+    Task<string> ChargeAsync(int amountCents, ClientOptions options);
+}
+
+public interface IMetrics
+{
+    void Increment(string name, int value = 1);
+}
+
+public sealed class BillingService
+{
+    private readonly IPaymentGateway _gateway;
+    private readonly IMetrics _metrics;
+    private readonly ClientOptions _options;
+
+    public BillingService(IPaymentGateway gateway, IMetrics metrics, ClientOptions? options = null)
     {
-        public string BaseUrl { get; set; } = "https://api.internal";
-        public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
-        public int MaxRetries { get; set; } = 3;
+        _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+        _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        _options = options ?? new ClientOptions();
     }
 
-    public class PlatformClientOptionsBuilder
+    public async Task<string> ProcessInvoiceAsync(string invoiceId, int amountCents)
     {
-        private readonly PlatformClientOptions _options = new();
-
-        public PlatformClientOptionsBuilder WithBaseUrl(string url)
-        {
-            _options.BaseUrl = url ?? throw new ArgumentNullException(nameof(url));
-            return this;
-        }
-
-        public PlatformClientOptionsBuilder WithTimeout(TimeSpan timeout)
-        {
-            _options.Timeout = timeout;
-            return this;
-        }
-
-        public PlatformClientOptionsBuilder WithMaxRetries(int retries)
-        {
-            _options.MaxRetries = retries;
-            return this;
-        }
-
-        public PlatformClientOptions Build() => _options;
+        var tx = await _gateway.ChargeAsync(amountCents, _options);
+        _metrics.Increment("invoices.processed");
+        return $"{invoiceId}:{tx}";
     }
+}
 
-    // Idiomatic .NET Dependency Injection Extension
-    public static class ServiceCollectionExtensions
+// Composition root (Program.cs) — idiomatic .NET exposes one extension method:
+public static class BillingRegistration
+{
+    public static IServiceCollection AddBilling(
+        this IServiceCollection services, Action<ClientOptionsBuilder>? configure = null)
     {
-        public static IServiceCollection AddPlatformClient(
-            this IServiceCollection services,
-            Action<PlatformClientOptionsBuilder>? configure = null)
-        {
-            var builder = new PlatformClientOptionsBuilder();
-            configure?.Invoke(builder);
-            var options = builder.Build();
-
-            services.AddSingleton(options);
-            services.AddScoped<ITokenValidator, JwtTokenValidator>();
-            return services;
-        }
+        var builder = new ClientOptionsBuilder();
+        configure?.Invoke(builder);
+        services.AddSingleton(builder.Build());
+        services.AddScoped<BillingService>();
+        return services;
     }
 }
 ```
+````
+
+**What this buys you**
+
+| Decision | Payoff |
+| :--- | :--- |
+| `frozen=True` options | Safe to share across threads; no caller can mutate shared config |
+| Validation in `__post_init__` / `Build()` | An invalid `ClientOptions` can never exist |
+| Protocols for gateway and metrics | Tests inject fakes; no mocking framework needed |
+| One composition root | Swapping Stripe for Adyen is a one-line change in `main` |
+| Defaulted fields | New option = MINOR release; old callers untouched |
 
 ---
 
-## 5. Practical Hands-On Verification Workflows
+## 4. Edges: where this goes wrong
 
-### 5.1 CLI Verification of Dependency Inversion via Unit Tests
+- **Setter injection and temporal coupling.** `client = PaymentClient(); client.charge(100)` with a forgotten `set_api_key` fails at the *worst* time. Mandatory things go in the constructor; if there are too many, the class has too many jobs.
+- **Service Locator.** `Locator.get(IDatabase)` inside a method hides dependencies and fails at runtime, not at construction. Tests must set global state, which breaks parallel test runs.
+- **Mutable default arguments.** `def __init__(self, headers={})` shares one dict across all instances. Use `None` or a frozen options object.
+- **Captive dependency (containers).** Registering a *scoped* service inside a *singleton* freezes the first request's instance forever. Rule: a service may only depend on services with the same or a longer lifetime — a singleton must never depend on a scoped one.
+- **Optional parameters are not binary-safe (C#).** Adding `compress = false` to `Export(path)` is source-compatible but changes the compiled signature; already-built callers throw `MissingMethodException`. Keep the old overload and delegate.
+- **Over-abstraction.** One implementation and no test pain? A plain class is fine. Add the interface when you have a second implementation *or* need to fake it.
+- **Leaky builders.** A builder whose `build()` can return a half-valid object is just a setter bag with extra steps.
 
-Verify that substituting mock dependencies allows 100% deterministic test execution without network calls:
+### SemVer in one table
 
-```bash
-# Run unit tests validating Constructor Injection
-npm test -- test/di-notification.spec.ts
+| Change | Bump | Example |
+| :--- | :--- | :--- |
+| Bug fix, internals only | PATCH `1.4.x` | Fix a race inside the cache |
+| Backward-compatible addition | MINOR `1.x.0` | New optional `idempotency_prefix` with a default |
+| Remove / rename / change signature or semantics | MAJOR `x.0.0` | `charge(int)` → `charge(Money)` |
 
-# Expected Output:
-# PASS test/di-notification.spec.ts
-#   UserNotificationService
-#     ✓ Successfully receives MockEmailSender via constructor
-#     ✓ Dispatches email without triggering network requests
-#     ✓ Verifies sent email list length equals 1
-#
-# Test Suites: 1 passed, 1 total
-# Tests:       3 passed, 3 total
-```
-
-### 5.2 Python Inline Fluent Builder Verification Script
-
-Run the fluent builder verification from the terminal:
-
-```bash
-python3 -c "
-class B:
-    def __init__(self): self.cfg = {}
-    def set_timeout(self, t): self.cfg['timeout'] = t; return self
-    def set_auth(self, a): self.cfg['auth'] = a; return self
-    def build(self): return self.cfg
-
-req = B().set_timeout(10).set_auth('Bearer xxx').build()
-print('Built Request Configuration successfully:')
-print(req)
-assert req['timeout'] == 10 and req['auth'] == 'Bearer xxx'
-"
-```
-
-Expected Terminal Output:
-```
-Built Request Configuration successfully:
-{'timeout': 10, 'auth': 'Bearer xxx'}
-```
+**War story (compressed):** a shared auth SDK added a *required* `region` constructor argument and shipped it as a PATCH. Every service on `^1.4.0` picked it up on the next build; ~240 pipelines failed at once and restarting pods crash-looped. Fixes: options object with defaults, a CI check that diffs the public API against the last release, and a deprecation window (mark old surface `@deprecated` for two minors before removal).
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 5. What you'd say in two minutes
+
+> "I'd make construction impossible to get wrong. Required collaborators — the gateway and metrics — are constructor parameters typed as small interfaces, so the service is valid the moment it exists and tests can inject fakes. Optional settings live in an immutable options object with defaults, optionally built through a fluent builder that validates in `build()`. That way adding a setting is additive. All concrete wiring happens in one composition root — `main` or the DI container — not inside the library. I'd avoid a service locator because it hides dependencies, and avoid setter injection for anything mandatory because of temporal coupling. For evolution, I'd follow SemVer: additive is minor, breaking is major with a deprecation window, and I'd diff the public API in CI so nobody ships a breaking change as a patch."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it hurts | Fix |
+| :--- | :--- | :--- |
+| Telescoping constructor with positional booleans | Unreadable, order-sensitive, breaks on every new flag | Options object / builder with named setters |
+| `self.gw = StripeGateway()` inside the service | Untestable, welded to one vendor | Inject `PaymentGateway` |
+| Service Locator in domain code | Hidden dependencies, runtime failures | Constructor injection |
+| Mutable shared config | One caller changes timeouts for everyone | `frozen=True` + `with_()` |
+| Breaking change in a PATCH | Mass build failures | SemVer + API-diff gate in CI |
+| Interface for every noun | Noise, indirection | Interface at real boundaries only |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The Service Locator Antipattern</strong></summary>
+<summary><strong>1. Why prefer constructor injection over setter injection? [BASIC]</strong></summary>
 
-**Scenario**: A team refactors their codebase to use a static `ServiceLocator`:
-```csharp
-public class OrderProcessor {
-    public void Process() {
-        var db = ServiceLocator.Resolve<IDatabase>();
-        var mailer = ServiceLocator.Resolve<IMailer>();
-        db.Save();
-        mailer.Send();
-    }
-}
-```
-Why is this widely classified as an architectural anti-pattern compared to constructor injection?
+Constructor injection makes the object valid from the first instant and makes dependencies visible in the signature. Setter injection allows half-configured objects and temporal coupling (`charge()` before `set_api_key()`). Use setters only for genuinely optional collaborators.
 
-<strong>Answer:</strong>
-**Hidden Dependencies & Runtime Failure Vulnerability**:
-1. **Hidden Contract**: Looking at `new OrderProcessor()`, a developer cannot see what dependencies it requires.
-2. **Broken Compile-Time Safety**: If `IDatabase` is not registered in the locator, failure occurs at **runtime** with a crash during method execution rather than at compile time during object instantiation.
-3. **Hard to Unit Test**: Unit tests must configure global static state (`ServiceLocator.Register(...)`) before each test, risking cross-test contamination and preventing parallel test execution.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: The Binary Incompatibility Trap</strong></summary>
+<summary><strong>2. DIP vs IoC vs DI? [BASIC]</strong></summary>
 
-**Scenario**: In a shared Java/C# library, version 1.0 has `public void Export(string path)`. In version 1.1, you change it to `public void Export(string path, bool compress = false)`. You recompile the library and deploy it. Existing client applications (which were compiled against v1.0) crash with `MissingMethodException` at runtime, even though `compress` has a default value. Why?
+**DIP** is the design rule: depend on abstractions. **IoC** means a framework or caller owns the control flow / object creation. **DI** is the technique that supplies the concrete collaborators, usually through the constructor.
 
-<strong>Answer:</strong>
-**Compiler Default Parameters vs. Runtime Binary Signatures**:
-- In C# and Kotlin, optional parameters with default values (`bool compress = false`) are a **compiler syntax feature**, not a runtime method signature. The compiler bakes `Export(path, false)` into the *call site*.
-- An existing binary compiled against v1.0 is looking for the exact IL method symbol `Export(string)`. When it links against v1.1, that symbol no longer exists (it was replaced by `Export(string, bool)`).
-- **Correct Fix for Backward Compatibility**:
-  - Keep the original method as an overload that delegates:
-    ```csharp
-    public void Export(string path) => Export(path, false);
-    public void Export(string path, bool compress) { ... }
-    ```
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: Temporal Coupling in Setter Injection</strong></summary>
+<summary><strong>3. When do you pick a builder vs an options object? [BASIC]</strong></summary>
 
-**Scenario**: A developer refactors a class to use setter injection to avoid a constructor with 4 parameters:
-```typescript
-const client = new PaymentClient();
-// Developer forgets: client.setApiKey("sec_123");
-await client.charge(100); // Throws NullReferenceException: ApiKey is null!
-```
-How does this violate core object-oriented principles, and what pattern resolves it?
+Options object (frozen dataclass or record) when settings are independent and defaulted. Builder when you need ordering, cross-field validation, or a readable multi-step construction. They compose: a builder can produce an options object.
 
-<strong>Answer:</strong>
-**Temporal Coupling & Breach of Invariant Protection**:
-- **Violation**: The object is allowed to exist in an invalid, incomplete state. The caller must know that `setApiKey()` *must* precede `charge()` in time.
-- **Resolution**:
-  - Enforce **Constructor Injection**: All mandatory dependencies required for the object to function must be passed to the constructor.
-  - If optional configurations exist, use a **Builder** or **Options Object** where `.build()` validates that all required parameters are non-null before releasing the instance.
+</details>
+
+<details>
+<summary><strong>4. Why is Service Locator considered an anti-pattern? [TRICKY]</strong></summary>
+
+The class's constructor no longer reveals what it needs, missing registrations fail at runtime inside a method rather than at construction, and tests must mutate global state. Constructor injection fixes all three.
+
+</details>
+
+<details>
+<summary><strong>5. You must add a required setting to a published SDK. How? [SCENARIO]</strong></summary>
+
+Don't make it required in a minor. Add it as an optional field with a sensible default (MINOR). If it truly must be required, ship a MAJOR, keep the old path with a `DeprecationWarning` / `[Obsolete]` for at least two minors, and publish a migration note.
+
+</details>
+
+<details>
+<summary><strong>6. A singleton service depends on a scoped DB context and returns stale data. Why? [SCENARIO]</strong></summary>
+
+Captive dependency: the singleton captured the first scope's instance and keeps it forever. Make the consumer scoped, or inject a factory (`IServiceScopeFactory` / a `Callable`) and create a short-lived instance per operation.
+
+</details>
+
+<details>
+<summary><strong>7. Python: why does `def __init__(self, tags=[])` bite library authors? [TRICKY]</strong></summary>
+
+The default list is created once at function-definition time and shared by every instance. Use `tags: list | None = None` and build a fresh list inside, or a frozen options object.
+
+</details>
+
+<details>
+<summary><strong>8. Your constructor now takes seven collaborators. What do you do? [SCENARIO]</strong></summary>
+
+Treat it as an SRP smell: split the class by responsibility, or group cohesive collaborators behind a facade. Hiding them behind a service locator doesn't fix the design, it just hides the symptom.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 8. One-page cheat sheet
 
-- [Semantic Versioning 2.0.0 Specification](https://semver.org/) - Official standard for API version numbers and compatibility.
-- [Martin Fowler: Inversion of Control Containers and Dependency Injection](https://martinfowler.com/articles/injection.html) - Foundational essay on IoC and constructor injection.
-- [Dave Cheney: Functional Options for Friendly APIs (Go)](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) - The canonical guide to Go functional options.
+```text
+Required deps     -> constructor, typed as small interfaces (Protocol / interface)
+Optional settings -> frozen options object with defaults; builder only if validation/ordering
+Wiring            -> ONE composition root (main / container). Domain never news collaborators.
+Immutability      -> frozen=True / record; copy with replace()/with
+Avoid             -> setter-injection for mandatory deps, Service Locator, mutable defaults
+SemVer            -> PATCH fix, MINOR additive, MAJOR breaking (+ deprecate first)
+C# trap           -> optional params are call-site constants; keep old overloads
+Containers        -> singleton must not depend on scoped (captive dependency)
+
+Opener: "Required in the constructor, optional in an options object, wired at the root."
+```
 
 ---
 
-## Next Steps
+## Further reading
 
-Advance to [Module 20: Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md) to master identifying and eliminating God Objects, anemic models, and train-wreck law-of-demeter violations.
+- [Semantic Versioning 2.0.0](https://semver.org/)
+- [Martin Fowler — Inversion of Control Containers and the Dependency Injection pattern](https://martinfowler.com/articles/injection.html)
+- [Mark Seemann — Service Locator is an Anti-Pattern](https://blog.ploeh.dk/2010/02/03/ServiceLocatorisanAnti-Pattern/)
+
+## Next
+
+**[20 · Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md)** — God objects, anemic models, train wrecks, and how to name the principle you're fixing.

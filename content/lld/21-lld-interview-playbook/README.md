@@ -1,449 +1,572 @@
-# LLD Interview Playbook: The 45-Minute Clock & Communication Protocol
+# LLD Interview Playbook — The 45-Minute Protocol
 
-> **Prerequisites**: [11: Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [12: Parking Lot & Elevator](../12-parking-lot-and-elevator/README.md), [20: Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md).  
-> **Estimated Reading Time**: 25 minutes  
-> **Target Audience**: Backend Engineers, Technical Leads, LLD & System Design Interview Candidates.
+> **Prerequisites:** [11 · Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [12 · Parking Lot & Elevator](../12-parking-lot-and-elevator/README.md), [20 · Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md)  
+> **Reading time:** ~25 minutes (plus ~10 to run the timer simulator and one timed dry run)  
+> **Audience:** Anyone with an LLD / machine-coding round in the next few weeks
+
+> [!NOTE]
+> **In one line:** A 45-minute LLD round is won by **pace and narration**: clarify (5) → model (7) → code the core (18) → extend (8) → edges and tests (5) → wrap (2) — talking the whole time, with working code by about minute 12–15.
 
 > [!TIP]
-> **Golden Rule of the LLD Interview**: An LLD interview evaluates **structured thought, disciplined scoping, and transparent communication**, not raw typing speed. An interviewer can only grade what they hear. Allocate your 45-minute budget strictly across the 5 phases: Clarification (0–5m), Entity Extraction (5–10m), Diagramming (10–20m), Compressed Implementation (20–35m), and Tradeoffs (35–42m). Narrate your design decisions and name your simplifications out loud at every step.
+> **Golden rule:** The interviewer cannot grade thinking they cannot hear. A good design explained badly scores below a decent design explained well. If you are silent for more than ~30 seconds, say what you are weighing.
+
+> [!TIP]
+> **Try it:** Draw your next practice problem in [LLD Studio](/tools/lld-studio/) in 7 minutes flat, then run the timer simulator below and do one full dry run from the [LLD practice sheet](../PRACTICE.md).
 
 ---
 
-## 1. Visual Mental Models & The 45-Minute Time Budget
+## 1. Interview pressure
 
-In a 45-minute technical interview, poor time management is the most common failure mode. Candidates who jump straight into code often solve the wrong problem; candidates who spend 25 minutes drawing UML run out of time to prove they can write working code.
+You know SOLID, you know Strategy, you can code an LRU. And you still fail, because:
 
-### 1.1 The 45-Minute Clock Allocation
+- You spent **22 minutes** on a beautiful UML diagram and wrote 15 lines of code.
+- You asked no questions, built the wrong thing, and discovered it at minute 30.
+- You coded in silence; the interviewer wrote "unclear communication."
+- The extension arrived ("now add surge pricing") and your only plan was to edit three classes.
+- At minute 44 you had no tests, no concurrency answer, and no summary.
+
+None of these are knowledge gaps. They are **clock gaps**. This module is the clock.
+
+---
+
+## 2. Mental model
 
 ```mermaid
-flowchart LR
-    P1["0-5 min<br/>Phase 1: Clarify Requirements<br/>(Scope, NFRs, Concurrency)"] --> P2["5-10 min<br/>Phase 2: Actors & Entities<br/>(Noun Analysis, State vs Value)"]
-    P2 --> P3["10-20 min<br/>Phase 3: Class & Sequence Diagrams<br/>(Relationships, Narrate live)"]
-    P3 --> P4["20-35 min<br/>Phase 4: Compressed Implementation<br/>(Core classes, Lock placement)"]
-    P4 --> P5["35-42 min<br/>Phase 5: Tradeoffs & Extensions<br/>(Named simplifications, Scale)"]
-    P5 --> P6["42-45 min<br/>Buffer & Questions<br/>(Wrap-up)"]
-
-    style P1 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style P2 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style P3 fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style P4 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style P5 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style P6 fill:#ede7f6,stroke:#512da8,stroke-width:2px
+gantt
+  title 45-minute LLD round (minute marks)
+  dateFormat HH:mm
+  axisFormat %H:%M
+  section Talk
+  Clarify requirements        :a1, 00:00, 5m
+  Model entities and API      :a2, after a1, 7m
+  section Code
+  Code the core path          :a3, after a2, 18m
+  section Grow
+  Handle the extension        :a4, after a3, 8m
+  Edges and one test          :a5, after a4, 5m
+  Wrap up                     :a6, after a5, 2m
 ```
+
+Checkpoints you can glance at:
+
+| Minute | You should have |
+| :--- | :--- |
+| **5** | A short written requirements list and 1–2 stated assumptions |
+| **12** | Classes/interfaces named, one diagram, one pattern you can justify |
+| **15** | You are typing real code (hard stop for "still drawing") |
+| **30** | The main use case runs end to end on one example |
+| **38** | The extension is in, without editing the old classes much |
+| **43** | You've said concurrency, invalid input, and shown one test |
+
+When you are behind, you do not speed up everything — you **cut scope out loud** (see section 5).
 
 ---
 
-### 1.2 Candidate & Interviewer Communication Protocol
+## 3. Walkthrough — the protocol, phase by phase
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Interviewer
-    actor Candidate
-    participant Board as Shared Whiteboard / IDE
+### Phase 1 · Clarify (0–5 min)
 
-    Interviewer->>Candidate: "Design a Rate Limiter system."
-    Candidate->>Interviewer: Phase 1: "Before writing code, let me clarify: Is this in-memory or distributed? What is the concurrency model?"
-    Interviewer-->>Candidate: "In-memory, multi-threaded web server."
-    Candidate->>Board: List Stated Assumptions & Scope
-    
-    Candidate->>Interviewer: Phase 2: "Extracting entities: TokenBucket, ClientIdentifier, Clock abstraction."
-    Candidate->>Board: Sketch Class Relationships (Composition vs Association)
-    
-    Candidate->>Interviewer: Phase 3: "Let's trace request ingress with a sequence diagram. Notice lock placement on the bucket."
-    Candidate->>Board: Draw UML & Ingress Sequence
-    
-    Candidate->>Interviewer: Phase 4: "Moving to implementation. Writing compressed core logic focusing on atomic lock acquisition."
-    Candidate->>Board: Write Clean Production Core Code
-    
-    Candidate->>Interviewer: Phase 5: "Named simplification: We used a local mutex. With more time, I would swap this with Redis Lua for distributed scaling."
-    Interviewer-->>Candidate: "Strong hire signal on process, concurrency, and architecture."
-```
+**Goal:** agree on a *small* problem. Ask 4–6 questions, then restate.
 
----
+**Checklist**
 
-## 2. Taxonomic Reference Grids
+- [ ] 3–4 core use cases (the "must haves")
+- [ ] Actors (who calls the system)
+- [ ] Single process vs. distributed; concurrent callers?
+- [ ] Explicitly out of scope (payments, auth, persistence...)
+- [ ] One example input/output you'll code against
 
-### 2.1 The 5 Interview Phases Matrix
+**What to say**
 
-| Phase | Time Window | Primary Deliverable | What to Say Out Loud (Script) | Fatal Candidate Pitfall |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. Clarify Requirements** | 0–5 Min | Functional boundaries, scale, and stated assumptions | *"Let me verify the core use cases and state my non-functional assumptions regarding scale and concurrency before we model."* | Jumping straight to coding based on unverified assumptions |
-| **2. Actors & Entities** | 5–10 Min | Actor table and domain entity list | *"Filtering our domain nouns: User and Account are core entities, while Currency is an immutable Value Object."* | Making every noun a class; creating anemic models |
-| **3. UML & Diagrams** | 10–20 Min | Class diagram + key use case sequence flow | *"I'm using Composition here because Level cannot exist without ParkingLot, and injecting a Strategy for dynamic pricing."* | Drawing silently without narrating design intent |
-| **4. Core Code** | 20–35 Min | Compressed, working object-oriented code | *"Notice the lock is encapsulated strictly inside this class; callers never manage synchronization primitives."* | Writing endless boilerplate/docstrings and running out of time |
-| **5. Tradeoffs & Q&A** | 35–42 Min | Discussion of scale, edge cases, and simplifications | *"I intentionally simplified date range overlaps. Here is the concrete extension I would implement next..."* | Claiming the design is 100% complete with zero tradeoffs |
+> "Before I design, let me make sure I'm solving the right problem. Core flows I'll cover are A, B, C. I'll assume single process with multiple threads, in-memory storage, and I'll leave out auth and payments — shout if you want any of those in."
 
-### 2.2 Study Code vs. Interview-Paced Code Comparison
+### Phase 2 · Model (5–12 min)
 
-| Aspect | Study-Detail Code (Repository README) | Interview-Compressed Code (Live Whiteboard) |
-| :--- | :--- | :--- |
-| **Docstrings & Comments** | Full multi-line Sphinx/JSDoc annotations | Omitted entirely; supplied verbally out loud |
-| **Error Handling** | Exhaustive custom error hierarchies | Guard clauses throwing standard exceptions |
-| **Boilerplate** | Full getters, setters, serializations | Clean fields with direct property access |
-| **Concurrency Detail** | Full sharded reader-writer locks | Encapsulated mutex around the critical section |
-| **Execution Pacing** | Written for asynchronous reading | Written in 15 minutes live under a timer |
+**Goal:** nouns → classes, verbs → methods, who owns the state, one pattern with a reason.
 
----
+**Checklist**
 
-## 3. Production War Stories: Incident Post-Mortem
+- [ ] Nouns become entities; verbs become methods on the entity that owns the data
+- [ ] One box-and-arrow diagram (not a UML essay)
+- [ ] Interfaces only where a second implementation is plausible
+- [ ] Name the pattern **and the reason** ("Strategy because pricing varies")
 
-### The $350K Offer Rejection: How Silent Whiteboarding Lost an L5/L6 Senior Backend Loop
+**What to say**
 
-```
-CANDIDATE LEVEL: Staff / Senior Backend Engineer (L5/L6 Target)
-OUTCOME: Reject (Consensus: "Strong individual coder, poor architectural communication")
-CORE FEEDBACK: "Spent 30 minutes writing code in absolute silence. Made unverified assumptions."
-OPPORTUNITY LOSS: $350,000 Total Compensation Offer
-```
+> "The nouns are Vehicle, Spot, Ticket, and a Lot that owns the spots. Pricing varies, so `PricingStrategy` is an interface; everything else stays concrete. I'll start with the entry flow: find spot, issue ticket."
 
-#### Incident Background
-A talented backend engineer with 8 years of distributed systems experience interviewed at a tier-1 tech firm for a Senior Systems Engineer position. The prompt was: *"Design a multi-tier in-memory Cache with eviction."*
+### Phase 3 · Code the core (12–30 min)
 
-#### What Happened
-The candidate nodded, opened the coding window, and began typing instantly. For 28 uninterrupted minutes, the candidate typed complex, syntactically perfect C++ code implementing a thread-safe LRU cache with sentinel nodes. When the 35-minute mark arrived, the interviewer interrupted: *"How does this scale across multiple servers?"* The candidate was caught off-guard, having assumed a single-machine embedded cache. Because the candidate had not stated assumptions, clarified requirements, or drawn a diagram, the interviewer had zero insight into the candidate's architectural decision-making process.
+**Goal:** the main use case working end to end. Interfaces first, then the happy path, then one example.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Interviewer
-    actor Candidate
-    participant Screen as Shared Editor
+**Checklist**
 
-    Interviewer->>Candidate: "Design a Cache system."
-    Note over Candidate: Mentally assumes single-node in-memory LRU
-    Note over Candidate: Types silently for 28 minutes...
-    Candidate->>Screen: [Writes 250 lines of complex C++ code in complete silence]
-    
-    Note over Interviewer: Evaluation: "I don't know why they chose LRU over LFU, what concurrency model this is, or if they understand distributed caching."
-    
-    Interviewer->>Candidate: (At 35 min mark): "How would you handle Redis cache stampedes?"
-    Candidate->>Interviewer: "Oh, I built an in-memory embedded cache, not a distributed cache."
-    Note over Interviewer: RESULT: REJECT. "Candidate failed to clarify scope and worked in a vacuum."
-```
+- [ ] Signatures/interfaces first (30 seconds — shows the design)
+- [ ] Happy path fully written, not pseudocode
+- [ ] Invariants enforced in one place (constructor / one method)
+- [ ] Walk one example through the code out loud
 
-#### Root Cause Analysis
-1. **Zero Clarification Phase**: Skipped Phase 1 entirely, guessing the requirements rather than negotiating them.
-2. **Silent Coding Anti-Pattern**: Worked in isolation without verbalizing architectural trade-offs or rationale.
-3. **Missing Architectural Diagrams**: No high-level diagram was produced, making it impossible to evaluate structural modeling capabilities.
+**What to say**
 
-#### The Architectural Hardening (Interview Success Blueprint)
-1. **The 3-Question Clarification Habit**: Always ask 2–3 targeted questions upfront:
-   - *"What is our expected read vs. write concurrency ratio?"*
-   - *"Are we designing a single-process in-memory component or a distributed network service?"*
-   - *"Are there specific eviction or persistence policies you want me to focus on?"*
-2. **Continuous Verbal Narration**: Treat the interview as a collaborative design review. Speak at every transition: *"Now I am encapsulating the doubly linked list pointers to preserve our $\mathcal{O}(1)$ invariant."*
-3. **The Named Simplification Strategy**: Explicitly state what you are deferring to turn an omission into evidence of senior engineering judgment.
+> "I'll write the interface first so you can see the contract, then the happy path. I'm keeping validation in the constructor so no one can build an invalid ticket. Let me trace `park(car)` with an empty lot..."
+
+### Phase 4 · Extend (30–38 min)
+
+**Goal:** show the design bends. The extension should be a **new class**, not edits to three old ones.
+
+**Checklist**
+
+- [ ] Restate the new requirement in one sentence
+- [ ] Say where it plugs in *before* typing
+- [ ] Add it; count how many existing classes you touched
+- [ ] Name the principle (OCP, Strategy, DIP)
+
+**What to say**
+
+> "Surge pricing is just another `PricingStrategy`. I add one class and inject it. Nothing in `Lot` or `Ticket` changes — that's the Open/Closed payoff."
+
+### Phase 5 · Edges and a test (38–43 min)
+
+**Goal:** show you think about failure, not just success.
+
+**Checklist**
+
+- [ ] Concurrency: where is the lock / atomic step?
+- [ ] Invalid input and "not found" behavior (exception vs result)
+- [ ] One concrete test or example run, including a failure case
+
+**What to say**
+
+> "Two cars could claim the last spot, so claiming is one atomic step under a lock. Invalid plate raises at construction. Here's a quick test: fill the lot, the next car gets `LotFull`."
+
+### Phase 6 · Wrap (43–45 min)
+
+**Checklist**
+
+- [ ] 30-second recap of the design
+- [ ] Trade-offs and what you'd do with more time (persistence, distribution)
+- [ ] Ask the interviewer something real
+
+**What to say**
+
+> "Summary: entities own their state, pricing is a Strategy, claiming is atomic. With more time I'd add persistence behind a repository interface and an event for ticket issued. Anything you'd like me to go deeper on?"
 
 ---
 
-## 4. Multi-Language Production Implementations
+## 4. Code — a timer you can rehearse with
 
-Below is the **Interview-Paced Compressed Implementation** of an In-Memory Token Bucket Rate Limiter, written across four languages without verbose ceremony.
+Run a mock round against a fake clock. It tracks budget vs. actual per phase, checklist coverage, live advice ("you're 3 minutes over — start coding"), and the red flags an interviewer would write down.
 
-### 4.1 Go: Interview-Compressed Token Bucket Rate Limiter
-
-```go
-package main
-
-import (
-	"fmt"
-	"math"
-	"sync"
-	"time"
-)
-
-// Clock abstraction for deterministic testing (DIP)
-type Clock interface {
-	Now() time.Time
-}
-
-type RealClock struct{}
-func (RealClock) Now() time.Time { return time.Now() }
-
-type TokenBucket struct {
-	mu           sync.Mutex
-	capacity     float64
-	refillRate   float64 // tokens per second
-	tokens       float64
-	lastRefill   time.Time
-	clock        Clock
-}
-
-func NewTokenBucket(cap, rate float64, clk Clock) *TokenBucket {
-	if clk == nil { clk = RealClock{} }
-	return &TokenBucket{
-		capacity:   cap,
-		refillRate: rate,
-		tokens:     cap,
-		lastRefill: clk.Now(),
-		clock:      clk,
-	}
-}
-
-// Allow executes the critical check-then-consume sequence under encapsulated lock.
-func (tb *TokenBucket) Allow() bool {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-
-	now := tb.clock.Now()
-	elapsed := now.Sub(tb.lastRefill).Seconds()
-	if elapsed > 0 {
-		tb.tokens = math.Min(tb.capacity, tb.tokens+(elapsed*tb.refillRate))
-		tb.lastRefill = now
-	}
-
-	if tb.tokens >= 1.0 {
-		tb.tokens -= 1.0
-		return true
-	}
-	return false
-}
-
-func main() {
-	tb := NewTokenBucket(2, 1, nil)
-	fmt.Printf("Req 1 allowed? %v\n", tb.Allow())
-	fmt.Printf("Req 2 allowed? %v\n", tb.Allow())
-	fmt.Printf("Req 3 allowed? %v (Expected false - bucket depleted)\n", tb.Allow())
-}
-```
-
----
-
-### 4.2 TypeScript: Interview-Compressed Rate Limiter
-
-```typescript
-export interface IClock {
-  now(): number;
-}
-
-export class TokenBucket {
-  private tokens: number;
-  private lastRefill: number;
-
-  constructor(
-    private readonly capacity: number,
-    private readonly refillRatePerSec: number,
-    private readonly clock: IClock = { now: () => Date.now() }
-  ) {
-    this.tokens = capacity;
-    this.lastRefill = this.clock.now();
-  }
-
-  public allow(): boolean {
-    const now = this.clock.now();
-    const elapsedSec = (now - this.lastRefill) / 1000;
-
-    if (elapsedSec > 0) {
-      this.tokens = Math.min(this.capacity, this.tokens + elapsedSec * this.refillRatePerSec);
-      this.lastRefill = now;
-    }
-
-    if (this.tokens >= 1.0) {
-      this.tokens -= 1.0;
-      return true;
-    }
-    return false;
-  }
-}
-```
-
----
-
-### 4.3 Python: Interview-Compressed Concurrency-Safe Cache
-
+````carousel
 ```python
-import threading
-from typing import Optional
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable
 
 
-class Node:
-    def __init__(self, key: int = 0, val: int = 0):
-        self.key, self.val = key, val
-        self.prev: Optional["Node"] = None
-        self.next: Optional["Node"] = None
+@dataclass(frozen=True)
+class Phase:
+    key: str
+    title: str
+    minutes: int
+    checklist: tuple[str, ...]
+    say: str
 
 
-class LRUCache:
-    def __init__(self, capacity: int):
-        self.cap = capacity
-        self.cache = {}
-        self.head, self.tail = Node(), Node()
-        self.head.next, self.tail.prev = self.tail, self.head
-        self.lock = threading.Lock()
+PHASES: tuple[Phase, ...] = (
+    Phase("clarify", "Clarify", 5,
+          ("core use cases", "actors", "scale and threads", "out of scope", "example io"),
+          "Core flows are A, B, C. I assume single process, in-memory. Shout if you want more."),
+    Phase("model", "Model", 7,
+          ("nouns to classes", "owner of state", "one diagram", "pattern with reason"),
+          "Pricing varies, so Strategy. Everything else stays concrete."),
+    Phase("code", "Code core", 18,
+          ("interfaces first", "happy path", "invariant in one place", "trace one example"),
+          "Contract first, then the happy path. Tracing park(car) on an empty lot."),
+    Phase("extend", "Extension", 8,
+          ("restate requirement", "say where it plugs in", "count touched classes", "name principle"),
+          "Surge pricing is one new Strategy. Lot and Ticket do not change."),
+    Phase("edges", "Edges + test", 5,
+          ("concurrency point", "invalid input", "one test with a failure"),
+          "Claiming the last spot is atomic. Full lot raises LotFull."),
+    Phase("wrap", "Wrap up", 2,
+          ("recap", "trade-offs", "ask a question"),
+          "Entities own state, pricing is a Strategy, claiming is atomic."),
+)
+BY_KEY = {p.key: p for p in PHASES}
+TOTAL_MINUTES = sum(p.minutes for p in PHASES)
 
-    def _remove(self, node: Node):
-        node.prev.next, node.next.prev = node.next, node.prev
 
-    def _insert_front(self, node: Node):
-        node.next, node.prev = self.head.next, self.head
-        self.head.next.prev = node
-        self.head.next = node
+def deadlines() -> dict[str, int]:
+    """Minute by which each phase should be finished."""
+    t, out = 0, {}
+    for p in PHASES:
+        t += p.minutes
+        out[p.key] = t
+    return out
 
-    def get(self, key: int) -> int:
-        with self.lock:
-            if key not in self.cache:
-                return -1
-            node = self.cache[key]
-            self._remove(node)
-            self._insert_front(node)
-            return node.val
 
-    def put(self, key: int, val: int) -> None:
-        with self.lock:
-            if key in self.cache:
-                self._remove(self.cache[key])
-            elif len(self.cache) >= self.cap:
-                lru = self.tail.prev
-                self._remove(lru)
-                del self.cache[lru.key]
+DEADLINE = deadlines()
 
-            new_node = Node(key, val)
-            self.cache[key] = new_node
-            self._insert_front(new_node)
+
+class Clock:
+    """Fake clock in minutes so a mock round runs instantly."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, minutes: float) -> None:
+        self.t += minutes
+
+
+class Coach:
+    def __init__(self, clock: Callable[[], float]) -> None:
+        self._clock = clock
+        self._t0 = clock()
+        self._current: str | None = None
+        self._start: dict[str, float] = {}
+        self._end: dict[str, float] = {}
+        self._done: dict[str, set[str]] = {p.key: set() for p in PHASES}
+
+    def now(self) -> float:
+        return self._clock() - self._t0
+
+    def start(self, key: str) -> None:
+        if key not in BY_KEY:
+            raise KeyError(f"unknown phase {key!r}")
+        if self._current is not None:
+            self.end()
+        self._current = key
+        self._start[key] = self.now()
+
+    def tick(self, item: str) -> None:
+        if self._current is None:
+            raise RuntimeError("no active phase")
+        if item not in BY_KEY[self._current].checklist:
+            raise ValueError(f"{item!r} is not on the {self._current} checklist")
+        self._done[self._current].add(item)
+
+    def end(self) -> None:
+        if self._current is not None:
+            self._end[self._current] = self.now()
+            self._current = None
+
+    def advice(self) -> str:
+        if self._current is None:
+            return "no active phase"
+        key = self._current
+        late = self.now() - DEADLINE[key]
+        if late <= 0:
+            return f"on pace ({max(0.0, -late):.0f} min of slack to the {key} deadline)"
+        if key == "model":
+            return f"{late:.0f} min over: stop drawing. Say 'I'll start coding the core now.'"
+        if key == "code":
+            return f"{late:.0f} min over: stub the rest and move to the extension."
+        return f"{late:.0f} min over: wrap this phase now."
+
+    def report(self) -> list[str]:
+        lines = []
+        for p in PHASES:
+            if p.key not in self._start:
+                lines.append(f"{p.title:<14} not reached  (budget {p.minutes} min)")
+                continue
+            spent = self._end.get(p.key, self.now()) - self._start[p.key]
+            done = len(self._done[p.key])
+            flag = "OVER" if spent > p.minutes + 1 else "ok"
+            lines.append(f"{p.title:<14} {spent:3.0f}/{p.minutes:<2} min  "
+                         f"{done}/{len(p.checklist)} items  {flag}")
+        return lines
+
+    def red_flags(self) -> list[str]:
+        flags = []
+        if "code" not in self._start or self._start["code"] > 15:
+            flags.append("coding started after minute 15 (or never)")
+        if "extend" not in self._start:
+            flags.append("never reached the extension")
+        if not self._done["edges"]:
+            flags.append("no edge cases or tests mentioned")
+        if not self._done["clarify"]:
+            flags.append("no clarifying questions")
+        return flags
+
+
+def simulate(title: str, plan: list[tuple[str, float, int]]) -> Coach:
+    """plan = [(phase_key, minutes_spent, checklist_items_covered)]"""
+    clock = Clock()
+    coach = Coach(clock)
+    print(title)
+    for key, spend, covered in plan:
+        coach.start(key)
+        for item in BY_KEY[key].checklist[:covered]:
+            coach.tick(item)
+        clock.advance(spend)
+        print(f"  min {coach.now():4.0f}  [{key:<7}] {coach.advice()}")
+    coach.end()
+    for line in coach.report():
+        print("   ", line)
+    print("    red flags:", coach.red_flags() or "none")
+    return coach
+
+
+if __name__ == "__main__":
+    assert TOTAL_MINUTES == 45
+    print("Deadlines (minute):", DEADLINE)
+
+    rushed = simulate("A) Over-drew the diagram, skipped edges", [
+        ("clarify", 1, 1), ("model", 16, 4), ("code", 17, 3), ("extend", 8, 1), ("wrap", 3, 1),
+    ])
+    assert len(rushed.red_flags()) == 2
+
+    paced = simulate("B) On pace, all checklists covered", [
+        ("clarify", 5, 5), ("model", 7, 4), ("code", 18, 4),
+        ("extend", 8, 4), ("edges", 5, 3), ("wrap", 2, 3),
+    ])
+    assert paced.red_flags() == []
+
+    try:
+        paced.tick("make coffee")
+    except RuntimeError as exc:
+        print("guard:", exc)
+    print("OK")
 ```
-
----
-
-### 4.4 C#: Interview-Compressed Thread-Safe Rate Limiter
-
+<!-- slide -->
 ```csharp
 using System;
-using System.Threading;
+using System.Collections.Generic;
+using System.Linq;
 
-namespace Architecture.Interview
+public sealed record Phase(string Key, string Title, int Minutes);
+
+public static class Playbook
 {
-    public class TokenBucket
+    public static readonly IReadOnlyList<Phase> Phases = new[]
     {
-        private readonly double _capacity;
-        private readonly double _refillPerSec;
-        private double _tokens;
-        private DateTime _lastRefill = DateTime.UtcNow;
-        private readonly object _lock = new();
+        new Phase("clarify", "Clarify", 5),
+        new Phase("model",   "Model",   7),
+        new Phase("code",    "Code core", 18),
+        new Phase("extend",  "Extension", 8),
+        new Phase("edges",   "Edges + test", 5),
+        new Phase("wrap",    "Wrap up", 2),
+    };
 
-        public TokenBucket(double capacity, double refillPerSec)
+    public static int Total => Phases.Sum(p => p.Minutes);
+
+    /// Minute by which the phase should be finished.
+    public static int Deadline(string key)
+    {
+        int t = 0;
+        foreach (var p in Phases)
         {
-            _capacity = capacity;
-            _refillPerSec = refillPerSec;
-            _tokens = capacity;
+            t += p.Minutes;
+            if (p.Key == key) return t;
         }
+        throw new ArgumentException($"unknown phase {key}");
+    }
 
-        public bool Allow()
+    public static string Advice(string key, double elapsedMinutes)
+    {
+        double late = elapsedMinutes - Deadline(key);
+        if (late <= 0) return $"on pace ({Math.Max(0, -late):0} min slack)";
+        return key switch
         {
-            lock (_lock)
-            {
-                var now = DateTime.UtcNow;
-                var elapsed = (now - _lastRefill).TotalSeconds;
+            "model" => $"{late:0} min over: stop drawing, start coding.",
+            "code"  => $"{late:0} min over: stub the rest, move to the extension.",
+            _       => $"{late:0} min over: wrap this phase now.",
+        };
+    }
+}
 
-                if (elapsed > 0)
-                {
-                    _tokens = Math.Min(_capacity, _tokens + (elapsed * _refillPerSec));
-                    _lastRefill = now;
-                }
-
-                if (_tokens >= 1.0)
-                {
-                    _tokens -= 1.0;
-                    return true;
-                }
-                return false;
-            }
-        }
+public static class Demo
+{
+    public static void Main()
+    {
+        Console.WriteLine($"Total: {Playbook.Total} min");                       // 45
+        Console.WriteLine($"Code core deadline: {Playbook.Deadline("code")}");   // 30
+        Console.WriteLine(Playbook.Advice("model", 15));                          // 3 min over
+        Console.WriteLine(Playbook.Advice("code", 28));                           // on pace
     }
 }
 ```
+````
+
+Expected Python output (verified, exit code 0):
+
+```text
+Deadlines (minute): {'clarify': 5, 'model': 12, 'code': 30, 'extend': 38, 'edges': 43, 'wrap': 45}
+A) Over-drew the diagram, skipped edges
+  min    1  [clarify] on pace (4 min of slack to the clarify deadline)
+  min   17  [model  ] 5 min over: stop drawing. Say 'I'll start coding the core now.'
+  min   34  [code   ] 4 min over: stub the rest and move to the extension.
+  min   42  [extend ] 4 min over: wrap this phase now.
+  min   45  [wrap   ] on pace (0 min of slack to the wrap deadline)
+    Clarify          1/5  min  1/5 items  ok
+    Model           16/7  min  4/4 items  OVER
+    Code core       17/18 min  3/4 items  ok
+    Extension        8/8  min  1/4 items  ok
+    Edges + test   not reached  (budget 5 min)
+    Wrap up          3/2  min  1/3 items  ok
+    red flags: ['coding started after minute 15 (or never)', 'no edge cases or tests mentioned']
+B) On pace, all checklists covered
+  min    5  [clarify] on pace (0 min of slack to the clarify deadline)
+  min   12  [model  ] on pace (0 min of slack to the model deadline)
+  min   30  [code   ] on pace (0 min of slack to the code deadline)
+  min   38  [extend ] on pace (0 min of slack to the extend deadline)
+  min   43  [edges  ] on pace (0 min of slack to the edges deadline)
+  min   45  [wrap   ] on pace (0 min of slack to the wrap deadline)
+    Clarify          5/5  min  5/5 items  ok
+    Model            7/7  min  4/4 items  ok
+    Code core       18/18 min  4/4 items  ok
+    Extension        8/8  min  4/4 items  ok
+    Edges + test     5/5  min  3/3 items  ok
+    Wrap up          2/2  min  3/3 items  ok
+    red flags: none
+guard: no active phase
+OK
+```
+
+What to notice:
+
+- The **fake clock** makes a 45-minute round run in milliseconds — the same trick as an injected clock in a rate limiter ([18](../18-lru-lfu-cache-and-rate-limiter/README.md)).
+- `advice()` encodes the **recovery moves**: over on *model* → stop drawing; over on *code* → stub and move on.
+- `red_flags()` is what a hiring committee writes down: coding late, no extension, no edges, no questions.
+- Real practice: use your phone timer with phase alarms at **5, 12, 30, 38, 43** and compare against your own checklist.
 
 ---
 
-## 5. Practical Hands-On Verification Workflows
+## 5. Edges — when the plan breaks
 
-### 5.1 CLI Execution of Compressed Implementation
+| Situation | Move |
+| :--- | :--- |
+| **You blank on the design** | Say it: "Two options: A is simpler, B is more extensible. I'll start with A and keep a seam for B." Then write code. |
+| **You're behind at minute 12** | Cut scope out loud: "I'll cover booking and cancel; I'll leave waitlists as a bullet." |
+| **Interviewer says "just code it"** | Skip the diagram. Write interfaces → code. Keep the narration. |
+| **Extension arrives at minute 10** | Note it ("I'll make sure this plugs in"), finish the model, handle it in Phase 4 — or earlier if they insist. |
+| **Interviewer interrupts with a different design** | Don't defend, evaluate: "That works if X. The trade-off I see is Y. Happy to go that way." |
+| **Language/syntax slip** | Say "pseudo-Python here" and move on; correctness of idea > semicolon. |
+| **Running out of time at minute 40** | Skip new code; verbally cover concurrency + tests, then wrap. A clean ending beats a half-finished feature. |
+| **60-minute or 90-minute format** | Same shape, scale code and edges up; keep clarify at ~10% and wrap at ~5%. |
 
-Execute the unit verification test suite:
-
-```bash
-# Verify interview-compressed Token Bucket logic
-python3 -c "
-import time
-
-class TB:
-    def __init__(self, cap, rate):
-        self.cap, self.rate = cap, rate
-        self.tokens = cap
-        self.last = time.time()
-    def allow(self):
-        now = time.time()
-        self.tokens = min(self.cap, self.tokens + (now - self.last) * self.rate)
-        self.last = now
-        if self.tokens >= 1:
-            self.tokens -= 1
-            return True
-        return False
-
-tb = TB(1, 10)
-print(f'Immediate request allowed: {tb.allow()}')
-print(f'Burst request immediately after allowed: {tb.allow()}')
-time.sleep(0.15) # Wait for refill
-print(f'Request after 150ms refill allowed: {tb.allow()}')
-"
-```
-
-Expected Terminal Output:
-```
-Immediate request allowed: True
-Burst request immediately after allowed: False
-Request after 150ms refill allowed: True
-```
+**When *not* to follow this exactly:** a machine-coding round (runnable program, 90+ min, graded on tests) shifts the weight to code and tests. A design-discussion-only round shifts it to diagrams and trade-offs. Ask the format in the first 30 seconds.
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 6. What you'd say in two minutes (the opener)
+
+> "Thanks — before I jump in I'd like to confirm scope. I'll restate: we're designing a [system] that supports [use cases A, B, C]. I'll assume in-memory, single process, multiple threads, and I'll leave out [auth, payments]. If that's right, I'll spend about five minutes on requirements, seven on the model, then write the core flow, and leave time for an extension and edge cases at the end. I'll narrate as I go — please interrupt whenever you want a different direction. The nouns I'm seeing are [X, Y, Z]; I'll start with a Strategy for [the thing that varies] and keep everything else concrete."
+
+Then the **closer**:
+
+> "To recap: [entities] own their state, [varying behavior] is a Strategy so new variants are new classes, and [critical operation] is atomic. If I had more time I'd add persistence behind a repository and events for [X]. What would you like to dig into?"
+
+---
+
+## 7. Common fails (anti-patterns)
+
+1. **Silent whiteboarding** — you think for 3 minutes and write nothing. Fix: narrate options, even half-formed.
+2. **The 20-minute UML** — a diagram with 14 classes and no code. Fix: 7-minute cap; start typing by minute 15.
+3. **Skipping clarification** — you solve the wrong problem confidently. Fix: five questions, then restate.
+4. **Pattern name-dropping** — "I'll use Abstract Factory" with no reason. Fix: *"Because X varies and I want Y closed."*
+5. **Everything is an interface** — `IUserService` with one implementation and no plan for a second. Fix: interface when a second implementation is plausible.
+6. **Over-engineering up front** — microservices and Kafka for an in-memory parking lot. Fix: simplest design that handles the stated scope; mention scale as a follow-up.
+7. **Concurrency as an afterthought** — "oh, and we'd add a lock." Fix: name the *critical section* in the model phase.
+8. **No test, no summary** — the round ends mid-sentence. Fix: protect the last 5 minutes.
+
+---
+
+## 8. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The Mid-Interview Surprise Twist</strong></summary>
+<summary><strong>1. How do you split 45 minutes? [BASIC]</strong></summary>
 
-**Scenario**: At minute 28, you have just implemented an in-memory Elevator dispatch algorithm. The interviewer smiles and says: *"Now suppose the building installs VIP Express Elevators that can only be summoned by penthouse residents with biometric cards. How does your design handle this?"* What is your immediate verbal response and architectural move?
+About 5 clarify, 7 model, 18 code, 8 extension, 5 edges/tests, 2 wrap. Code should start by minute 12–15 at the latest.
 
-<strong>Answer:</strong>
-1. **Stay Calm & Validate the Seam**: Do **not** wipe the whiteboard or panic. A senior engineer identifies the existing seam where polymorphism or Strategy fits.
-2. **Scripted Verbal Response**:
-   *"This is a classic authorization and dispatch policy extension. Because we encapsulated our dispatch logic behind the `IElevatorDispatchStrategy` interface, our core `ElevatorController` does not need to change at all. We will introduce a `VipCardReader` decorator or a `PriorityDispatchStrategy` that evaluates passenger credentials before dispatching the VIP car."*
-3. **Execution**: Add 1 new strategy class implementing the existing interface in under 3 minutes.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Running Out of Time at Minute 35</strong></summary>
+<summary><strong>2. What do you ask first? [BASIC]</strong></summary>
 
-**Scenario**: You look at the clock and realize 35 minutes have passed. You have finished the class diagram and half of the `ParkingLot` methods, but you haven't implemented payment processing or exit ticket calculation. How do you manage the remaining 10 minutes to maximize your hiring signal?
+Scope and constraints: the 3–4 core use cases, who the actors are, single process vs distributed, concurrency expectations, what's explicitly out of scope, and one concrete example. Then restate before designing.
 
-<strong>Answer:</strong>
-**Pace Transition to Named Simplification & Trade-Off Narration**:
-1. Stop writing line-by-line boilerplate.
-2. Tell the interviewer:
-   *"Looking at the clock, I want to make sure we cover the exit flow and architectural tradeoffs. Rather than writing the full payment math line by line, let me outline the method signature for `ExitVehicle()` and highlight the critical concurrency invariant: releasing the spot and marking the ticket paid must happen in an atomic transaction. With the remaining time, I'd like to discuss the distributed scaling tradeoffs."*
-3. This displays time management and prioritization.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: The Interviewer Disagrees with Your Pattern Choice</strong></summary>
+<summary><strong>3. Why narrate while coding? [BASIC]</strong></summary>
 
-**Scenario**: You chose the Strategy Pattern for spot allocation. The interviewer challenges: *"Why did you use Strategy? Isn't a simple `switch` statement in `Level` faster and easier to read?"* How do you defend your choice diplomatically without being defensive?
+The interviewer grades reasoning and collaboration, not just the final code. Narration shows design intent, lets them redirect you early, and turns a bug into a visible, recoverable moment.
 
-<strong>Answer:</strong>
-**Acknowledge Tradeoffs & Ground in SOLID / OCP**:
-*"That is a valid point: for a static system that will only ever have one allocation rule, a `switch` statement is simpler (YAGNI). I chose the Strategy Pattern because in real parking architectures, allocation policies often change based on business needs—such as nearest-gate allocation during morning rush hour vs. load-balancing across floors at night. The Strategy pattern satisfies the Open-Closed Principle (OCP), allowing us to introduce a `PeakHourAllocator` without modifying or regression-testing the core `Level` class. However, if this system is strictly static, I agree the `switch` statement has lower ceremony."*
+</details>
+
+<details>
+<summary><strong>4. You have 10 minutes left and the core isn't done. [SCENARIO]</strong></summary>
+
+Stub the rest explicitly ("`cancel()` is the same shape — I'll leave it"), get one path runnable, then spend two minutes on concurrency and a test, and one on the summary. A working, narrated core beats a complete, untested sprawl.
+
+</details>
+
+<details>
+<summary><strong>5. Mid-round the interviewer adds "now support surge pricing." [SCENARIO]</strong></summary>
+
+Restate it, say where it plugs in (a new `PricingStrategy`), add one class, inject it, and point out nothing else changed. If you can't plug it in cleanly, say so and describe the refactor that would make it clean — that's also a good answer.
+
+</details>
+
+<details>
+<summary><strong>6. The interviewer proposes a design you think is worse. [SCENARIO]</strong></summary>
+
+Don't argue; evaluate. "That works well if X. The trade-off I'd flag is Y. I can go with it — here's how I'd mitigate Y." Disagreeing with data and staying flexible is a senior signal.
+
+</details>
+
+<details>
+<summary><strong>7. Class diagram first, or code first? [TRICKY]</strong></summary>
+
+A small diagram (or just a list of classes and one-line responsibilities) first — cap it at ~7 minutes — then code. A giant UML with no code scores badly; code with no model risks restructuring at minute 30. If the interviewer says "show me code," go to interfaces immediately.
+
+</details>
+
+<details>
+<summary><strong>8. How many patterns should I use? [TRICKY]</strong></summary>
+
+As few as the problem demands — usually one or two, each with a stated reason. Forcing five patterns signals pattern-hunting. The best answer names the thing that varies, picks the simplest seam for it, and leaves everything else concrete.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 9. Try it
 
-- [Gayle Laakmann McDowell: Cracking the Coding Interview](https://www.crackingthecodinginterview.com/) - Essential playbook on technical interview communication and pacing.
-- [Refactoring.Guru: Design Patterns Quick Reference](https://refactoring.guru/design-patterns) - Rapid pattern lookup under interview conditions.
-- [Martin Fowler: Patterns of Enterprise Application Architecture](https://martinfowler.com/books/eaa.html) - Structural patterns for senior and staff engineering rounds.
+1. Run the Python simulator. Change the "rushed" plan so it still passes all red-flag checks — what's the minimum you must change?
+2. Pick one problem — [Parking Lot](../12-parking-lot-and-elevator/README.md), [Library & Vending Machine](../13-library-and-vending-machine/README.md), [Splitwise](../15-splitwise-expense-sharing/README.md), or [LRU & Rate Limiter](../18-lru-lfu-cache-and-rate-limiter/README.md) — and do a **real timed dry run**: phone timer, alarms at 5/12/30/38/43, talk out loud, record yourself.
+3. In [LLD Studio](/tools/lld-studio/), draw the model for your problem in 7 minutes. Stop when the timer stops.
+4. Replay your recording and count: seconds of silence over 30, number of clarifying questions, minute you started coding, whether you mentioned concurrency and a test.
+5. Work the speed-run checklist and drills in the [LLD practice sheet](../PRACTICE.md), then finish with the [Capstone](../22-capstone-project/README.md).
 
 ---
 
-## Next Steps
+## 10. One-page cheat sheet
 
-Advance to [Module 22: Capstone Project - Independent Design](../22-capstone-project/README.md) to put your full end-to-end design and coding playbook into practice across an unguided real-world system.
+```text
+CLOCK     0-5 clarify | 5-12 model | 12-30 code | 30-38 extend | 38-43 edges+test | 43-45 wrap
+CHECKS    min 5: requirements list | min 12: classes + 1 diagram | min 15: typing code
+          min 30: core runs on 1 example | min 38: extension in | min 43: concurrency + test said
+ASK       use cases (3-4) / actors / threads? / out of scope / one example -> restate
+MODEL     nouns -> classes, verbs -> owner's methods, ONE pattern + reason, interface only if a 2nd impl is plausible
+CODE      interfaces first -> happy path -> invariant in one place -> trace one example aloud
+EXTEND    restate -> where it plugs in -> new class -> count touched classes -> name the principle
+EDGES     critical section / lock | invalid input | one failing test
+BEHIND?   cut scope OUT LOUD. Stub the rest. Protect the last 5 minutes.
+STUCK?    "Two options: A simple, B extensible. Starting with A, leaving a seam for B."
+NEVER     silent > 30s | UML > 7 min | pattern without a reason | no summary
+
+Say aloud: "Here's what I'm assuming, here's what I'm building first, here's where it plugs in next."
+```
+
+---
+
+## Next
+
+**[22 · Capstone Project](../22-capstone-project/README.md)** — a full end-to-end design under the clock you just practiced.

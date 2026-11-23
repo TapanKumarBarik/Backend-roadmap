@@ -1,419 +1,351 @@
-# Lesson 01: How Python Runs Your Code: Objects, Names and Bytecode
+# Lesson 01: How Python Runs Your Code — Objects, Names and Bytecode
 
-> **Prerequisites:** [Track 27 Overview](../README.md) and [Low-Level Design Track](../../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Python Refresher: names, references and mutability](../../../learn/00-python-refresher/06-names-references-and-mutability/README.md) · [Track 27 overview](../README.md)  
+> **Reading time:** ~20 minutes  
+> **Audience:** Candidates who get "what happens when you run `python app.py`?" or "is Python compiled or interpreted?"
+
+> [!NOTE]
+> **In one line:** CPython compiles your source to **bytecode**, a virtual machine runs it, and at run time everything — numbers, functions, classes, modules — is an **object**, with variables being just **names bound to objects**.
 
 > [!TIP]
-> **The One Rule of Python's Execution Model:** Python is **compiled to bytecode first**, then interpreted by a stack-based virtual machine (`ceval.c`). In this runtime, **variables are not memory buckets that hold values; they are names bound to heap-allocated `PyObject` instances**. Assignment (`a = b`) never copies data; it binds a new name to an existing object pointer.
+> **Golden rule:** Say "compiled to bytecode, then interpreted by a VM" — never just "interpreted." And say "names bound to objects" — never "variables are boxes holding values." Those two phrases fix 80% of Python-internals questions.
+
+> [!TIP]
+> **Try it:** Run the example below, then run the four-probe lab in section 4 (small-int identity, `LOAD_FAST` vs `LOAD_GLOBAL`, import caching, constant folding). Disassemble your own function with `python -m dis yourfile.py`. For the LLD side, sketch `Name → Object → Type` in [LLD Studio](/tools/lld-studio/).
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"Is Python interpreted or compiled, and what actually happens in memory when you assign `a = b`?" is the single most common warm-up question in Python technical interviews. Candidates who answer casually immediately reveal whether their mental model stops at scripting syntax or extends to systems-level runtime architecture.
+- *"Is Python compiled or interpreted?"* (both, and the question is a bit loose)
+- *"What's in a `.pyc` file? Why is there a `__pycache__`?"*
+- *"What's the difference between a variable in Python and in C?"*
+- *"Why is a local variable faster than a global one?"*
+- *"What does `import` do the first time, and the second time?"*
 
-### The Weak Answer
-> *"Python is an interpreted language. It reads your `.py` script line by line from top to bottom and runs it directly on the CPU without compiling. When you write `a = b`, Python copies the value of `b` into a new variable `a` so you can use it."*
-
-### The Senior Strong Answer
-> *"CPython is neither a pure interpreter nor an AOT native compiler: it is a **bytecode-compiled, virtual-machine-interpreted** language. 
-> 
-> When you invoke `python app.py`, CPython executes a multi-stage pipeline:
-> 1. **Tokenization and Parsing:** The source code is parsed into an Abstract Syntax Tree (AST).
-> 2. **Bytecode Compilation:** The AST compiler emits platform-independent Python bytecode instructions packed into a `codeobject` (and cached as `.pyc` files in `__pycache__`).
-> 3. **Virtual Machine Evaluation:** The bytecode is evaluated inside CPython's evaluation loop (`ceval.c` / Python 3.11+ specializing adaptive interpreter), which simulates a stack-based machine executing opcodes like `LOAD_FAST`, `BINARY_OP`, and `STORE_FAST`.
-> 
-> Furthermore, in CPython, **everything is a heap-allocated `PyObject`**. Variables are merely string names stored in symbol tables (such as a frame's `f_locals` or a module's `__dict__`) pointing to these objects. When you write `a = b`, Python does **not copy data**; it reads the memory pointer bound to name `b`, increments that `PyObject`'s reference counter (`ob_refcnt`), and binds name `a` to that same pointer."*
-
-### Execution Model Taxonomy
-
-| Dimension | CPython (Standard Python) | PyPy (JIT Python) | C# (.NET CLR) | C / C++ |
-| :--- | :--- | :--- | :--- | :--- |
-| **Source to Intermediate** | Compiles `.py` to Python Bytecode (`.pyc`) | Compiles `.py` to Bytecode | Compiles `.cs` to Common Intermediate Language (CIL) | None (compiles direct to native object code) |
-| **Intermediate to Machine** | VM loop interprets bytecode opcodes (`ceval.c`) | Tracing JIT compiles hot loops to native x86/ARM | RyuJIT compiles CIL to native machine code at startup/tiering | Direct AOT native compilation via LLVM/GCC/MSVC |
-| **Variable Model** | Names bound to heap `PyObject*` pointers | Names bound to optimized RPython objects | Value types on stack/inline; reference types on managed heap | Typed memory addresses (stack, heap, static) |
-| **Type Checking** | Purely dynamic at runtime per opcode dispatch | Dynamic at runtime with speculative JIT guards | Static at compile time; runtime type metadata | Static at compile time; erased at runtime |
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The CPython Execution Pipeline
-
-When you run a Python program, source code never executes directly. It traverses lexing, parsing, code object generation, and virtual machine execution:
-
-```mermaid
-flowchart TD
-    subgraph CompilationStage["1. Compilation Stage (Frontend)"]
-        Source[".py Source Code"] --> Tokenizer["Tokenizer / Lexer"]
-        Tokenizer --> Parser["Parser (PEG Parser)"]
-        Parser --> AST["Abstract Syntax Tree (AST)"]
-        AST --> Compiler["Bytecode Compiler"]
-        Compiler --> CodeObj["Code Object: PyCodeObject"]
-        CodeObj -.->|"Serialized via marshal"| PYC[".pyc Cache File (__pycache__)"]
-    end
-
-    subgraph RuntimeStage["2. Execution Stage (Python Virtual Machine)"]
-        CodeObj --> EvalLoop["Evaluation Loop (ceval.c)"]
-        EvalLoop --> Frame["Execution Frame (PyFrameObject)"]
-        Frame --> ValueStack["Value Evaluation Stack"]
-        Frame --> LocalDict["Locals / Fast Array"]
-        ValueStack --> CPU["OS / Native CPU Execution"]
-    end
-```
-
-### The PyObject Anatomy and Name Binding
-
-Every Python entity—from an integer `42` to a class or module—is represented internally as a C struct derived from `PyObject`:
-
-```text
-typedef struct _object {
-    _PyObject_HEAD_EXTRA // Double-linked list pointers for GC tracking
-    Py_ssize_t ob_refcnt; // Reference counter for automatic memory management
-    struct _typeobject *ob_type; // Pointer to the type object (e.g., &PyLong_Type)
-} PyObject;
-```
-
-When you write `a = [1, 2, 3]` followed by `b = a`:
+The weak answer is a one-word label ("interpreted"). The strong answer walks the pipeline and mentions the object model.
 
 ```mermaid
 flowchart LR
-    subgraph FrameNamespace["Stack Frame / Scope Names"]
-        NameA["Name: 'a'"]
-        NameB["Name: 'b'"]
-    end
-
-    subgraph HeapMemory["CPython Managed Heap"]
-        ListObj["PyListObject (id: 0x104A)
-        -----------------------
-        ob_refcnt: 2
-        ob_type: &PyList_Type
-        ob_item: [ptr0, ptr1, ptr2]"]
-        
-        Item0["PyLongObject: 1"]
-        Item1["PyLongObject: 2"]
-        Item2["PyLongObject: 3"]
-        
-        ListObj --> Item0
-        ListObj --> Item1
-        ListObj --> Item2
-    end
-
-    NameA -->|"Points to (0x104A)"| ListObj
-    NameB -->|"Points to (0x104A)"| ListObj
+  Src["app.py\nsource"] --> Parse["Parser\n→ AST"]
+  Parse --> Comp["Compiler\n→ code object"]
+  Comp --> Pyc["bytecode\n(cached in __pycache__/*.pyc)"]
+  Pyc --> VM["CPython VM\nevaluation loop"]
+  VM --> Obj["Objects on the heap\n(refcounted)"]
 ```
 
-### CPython vs C# .NET CLR Comparison Matrix
+Names are *labels* stuck onto objects:
 
-| Runtime Concept | Python (CPython) | C# (.NET CLR) |
-| :--- | :--- | :--- |
-| **Intermediate Representation** | Python Bytecode (e.g., `LOAD_FAST`, `BINARY_OP`) | Common Intermediate Language (CIL, e.g., `ldarg.0`, `add`) |
-| **Execution Engine** | Stack-based C interpreter (`ceval.c`) | Stack-based VM with JIT compilation (RyuJIT) to native machine code |
-| **Object Header Overhead** | Standard 16 bytes on 64-bit (`ob_refcnt` 8B + `ob_type` 8B) | Standard 16 bytes on 64-bit (`SyncBlockIndex` 8B + `TypeHandle` 8B) |
-| **Primitive Representation** | Boxed on the heap as `PyLongObject`, `PyFloatObject` | Primitive unboxed value types (`int`, `double`) allocated on stack/inline |
-| **Variable Binding** | Assignment binds a string symbol to a pointer | Assignment copies value bits (value types) or copies reference pointer (reference types) |
-| **Code Representation** | `types.CodeType` (`func.__code__`) | `System.Reflection.MethodBody` / IL byte array |
+```mermaid
+flowchart LR
+  a["name: a"] --> L["list object\n[1, 2]"]
+  b["name: b"] --> L
+  c["name: c"] --> I["int object 10"]
+```
+
+`a` and `b` are two names for the **same** list; `c` points to an int. Assignment never copies; it only attaches a label.
 
 ---
 
-## 3. Code Implementation
+## 2. The model in a table
 
-The following carousel provides twin demonstrations in Python and C#. Both examples inspect:
-1. Object identity and verifying that assignment binds names rather than copying data.
-2. The foundational principle that primitive values, functions, and types are all first-class objects.
-3. Introspection into bytecode instructions, parameter counts, and compiled metadata.
+| Question | Answer |
+| :--- | :--- |
+| What runs my code? | **CPython** (the reference implementation, in C). PyPy, Jython and others differ. |
+| Compiled or interpreted? | Compiled to **bytecode** (a code object), then **interpreted** by the VM. |
+| What is `__pycache__`? | Cached bytecode of *imported* modules, keyed by source mtime/hash and Python version. The script you run directly isn't cached. |
+| What is a variable? | A **name** in a namespace (a dict) that refers to an object. |
+| What is an object? | Identity (`id`), type (`type`), value, and a reference count in CPython. |
+| What is a function? | An object (a `function` with a `__code__`). `def` is an *executable statement* that creates it. |
+| What is a module? | An object, created on first import, cached in `sys.modules`. |
+
+| Property | `id(x)` | `type(x)` | `x == y` | `x is y` |
+| :--- | :--- | :--- | :--- | :--- |
+| Meaning | identity (address in CPython) | the class | equal values (`__eq__`) | same object |
+
+---
+
+## 3. Walkthrough: from `python app.py` to output
+
+1. **Start-up:** the interpreter initialises built-in types, `sys`, `sys.path`.
+2. **Compile:** the file is tokenised, parsed into an **AST**, and compiled to a **code object** (bytecode + constants + names).
+3. **Execute the module body** top to bottom in a fresh namespace (`__main__`). Each `def` and `class` statement runs *now*, creating function/class objects and binding names.
+4. **Calls** push a **frame**; the VM executes bytecode instructions (`LOAD_FAST`, `CALL`, …).
+5. **Imports** look in `sys.modules`; on a miss they find the file, compile (or load `.pyc`), execute the module body once, and cache the module object.
+
+Why locals are faster: locals live in a fixed array in the frame (`LOAD_FAST`, index lookup); globals/builtins are dictionary lookups (`LOAD_GLOBAL`). Hot loops sometimes copy a global into a local for exactly this reason.
 
 ````carousel
 ```python
 import dis
-from typing import List
+import sys
 
 
-def add(x: int, y: int) -> int:
-    """A simple binary addition function."""
-    return x + y
+def area(width, height):
+    scale = 2
+    return width * height * scale
 
 
-def run_demonstration() -> None:
-    # 1. Object Identity & Name Binding
-    print("1. Object Identity & Name Binding:")
-    a: List[int] = [1, 2, 3]
-    b: List[int] = a  # Assignment binds name b to the same heap object
-    b.append(4)       # Mutating b affects a because both names point to the same object
-    print(f"Same object after mutation: {a is b}, a contents: {a}")
+def main() -> None:
+    # 1) Everything is an object
+    for thing in (42, "hi", [1], area, sys, int):
+        print(f"{type(thing).__name__:<10} -> has attributes: {len(dir(thing)) > 5}")
 
-    b = [99]          # Rebinding b creates a new object; a remains unchanged
-    print(f"Same object after rebind: {a is b}, a contents: {a}")
+    # 2) Names are labels: assignment never copies
+    a = [1, 2]
+    b = a
+    b.append(3)
+    print("a:", a, "| same object:", a is b)
 
-    # 2. Everything is an Object
-    print("2. Everything is an Object:")
-    print(f"int is object: {isinstance(42, object)}")
-    print(f"function is object: {isinstance(add, object)}")
-    print(f"type is object: {isinstance(int, object)}")
+    # 3) Rebinding vs mutation
+    n = 10
+    m = n
+    n += 1                      # ints are immutable: n is rebound to a NEW object
+    print("n, m:", n, m)
 
-    # 3. Code Introspection & Execution Model
-    print("3. Code Introspection & Execution Model:")
-    code_obj = add.__code__
-    instructions = list(dis.get_instructions(add))
-    print(f"Code Unit: {code_obj.co_name}")
-    print(f"Parameter Count: {code_obj.co_argcount}")
-    print(f"Instructions Present: {len(instructions) > 0}")
-    print(f"Execution Result (10 + 20): {add(10, 20)}")
+    # 4) A function is an object with a code object
+    print("name:", area.__name__, "| args:", area.__code__.co_varnames)
+
+    # 5) Reference counts (CPython detail; getrefcount adds one temporary reference)
+    lst = []
+    before = sys.getrefcount(lst)
+    alias = lst
+    print("refcount grew by:", sys.getrefcount(lst) - before)
+    del alias
+
+    # 6) Bytecode: locals use LOAD_FAST
+    ops = [i.opname for i in dis.get_instructions(area)]
+    print("uses LOAD_FAST:", any(o.startswith("LOAD_FAST") for o in ops))
+
+    # 7) def runs at definition time: the default is built ONCE
+    def f(x=print("default evaluated")):
+        return x
+    print("defined, not yet called")
+    f()
 
 
 if __name__ == "__main__":
-    run_demonstration()
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Reflection;
+// C#: a variable IS a storage location with a static type.
+int x = 10;           // the box holds the value 10
+int y = x;            // copies the value
+x++;                  // y is still 10
 
-public class Program
-{
-    // A simple binary addition function
-    public static int Add(int x, int y)
-    {
-        return x + y;
-    }
+var list = new List<int> { 1, 2 };
+var alias = list;     // copies the *reference* (like Python names)
+alias.Add(3);
+Console.WriteLine(list.Count);  // 3
 
-    public static void Main()
-    {
-        // 1. Object Identity & Name Binding
-        Console.WriteLine("1. Object Identity & Name Binding:");
-        var a = new List<int> { 1, 2, 3 };
-        var b = a;  // Copies reference; b points to the exact same list instance on the heap
-        b.Add(4);   // Mutating b affects a
-        Console.WriteLine($"Same object after mutation: {object.ReferenceEquals(a, b)}, a contents: [{string.Join(", ", a)}]");
-
-        b = new List<int> { 99 };  // Rebinding b re-points local pointer; a remains untouched
-        Console.WriteLine($"Same object after rebind: {object.ReferenceEquals(a, b)}, a contents: [{string.Join(", ", a)}]");
-
-        // 2. Everything is an Object
-        Console.WriteLine("2. Everything is an Object:");
-        Console.WriteLine($"int is object: {42 is object}");
-        Func<int, int, int> addFunc = Add;
-        Console.WriteLine($"function is object: {addFunc is object}");
-        Console.WriteLine($"type is object: {typeof(int) is object}");
-
-        // 3. Code Introspection & Execution Model
-        Console.WriteLine("3. Code Introspection & Execution Model:");
-        MethodInfo method = typeof(Program).GetMethod(nameof(Add), BindingFlags.Public | BindingFlags.Static)!;
-        byte[]? ilBytes = method.GetMethodBody()?.GetILAsByteArray();
-        Console.WriteLine($"Code Unit: {method.Name.ToLower()}");
-        Console.WriteLine($"Parameter Count: {method.GetParameters().Length}");
-        Console.WriteLine($"Instructions Present: {ilBytes != null && ilBytes.Length > 0}");
-        Console.WriteLine($"Execution Result (10 + 20): {Add(10, 20)}");
-    }
-}
+// Compile step: C# -> IL (assembly) -> JIT -> machine code (see Track 26, lesson 01)
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output (the refcount line and ordering are CPython-specific):
 
 ```text
-1. Object Identity & Name Binding:
-Same object after mutation: True, a contents: [1, 2, 3, 4]
-Same object after rebind: False, a contents: [1, 2, 3, 4]
-2. Everything is an Object:
-int is object: True
-function is object: True
-type is object: True
-3. Code Introspection & Execution Model:
-Code Unit: add
-Parameter Count: 2
-Instructions Present: True
-Execution Result (10 + 20): 30
+int        -> has attributes: True
+str        -> has attributes: True
+list       -> has attributes: True
+function   -> has attributes: True
+module     -> has attributes: True
+type       -> has attributes: True
+a: [1, 2, 3] | same object: True
+n, m: 11 10
+name: area | args: ('width', 'height', 'scale')
+refcount grew by: 1
+uses LOAD_FAST: True
+default evaluated
+defined, not yet called
 ```
+
+The key lines: `n, m: 11 10` (rebinding), `same object: True` (aliasing), and `default evaluated` printing **before** `defined, not yet called` — `def` runs a default-argument expression at definition time.
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges and traps
 
-- **In Python:**
-  - **`dis` Module:** The standard library disassembler converts Python bytecode inside code objects into human-readable opcode listings. Profilers and debuggers (e.g., `cProfile`, `pdb`) inspect frame execution states via bytecode offsets.
-  - **`__pycache__` and `.pyc` Compilation:** Every imported module is automatically parsed and compiled to bytecode on disk, prefixed with magic numbers indicating Python version compatibility (e.g., `cpython-313.pyc`). On subsequent executions, CPython skips tokenizing and parsing if source modification timestamps or hashes match (PEP 552).
-  - **`sys.getrefcount()`:** Used to audit garbage collector references and detect circular leaks by inspecting the underlying `ob_refcnt`.
-  - **Dynamic Code Generation (`ast`, `compile`, `eval`):** Metaprogramming libraries like Pydantic, SQLAlchemy, and Pytest manipulate Abstract Syntax Trees at runtime, compiling custom validator and assertion functions directly to bytecode via Python's built-in `compile()` function.
+- **Small-integer and string interning.** `a = 256; b = 256; a is b` is `True` in CPython (cached small ints, −5…256), but `1000 is 1000` may be `False`. It's an implementation detail — never use `is` for values.
+- **Compile-time constant folding.** `x = "a" + "b"` may be folded and interned, so `is` results vary between REPL and script.
+- **`.pyc` files don't make scripts faster at runtime** — only import/start-up. The main script is recompiled every run.
+- **"Interpreted" ≠ "no compile errors."** Syntax errors surface at compile time, before any code runs; name errors only when the line executes.
+- **Import side effects.** A module body runs at first import; a second `import` is a dict lookup. Heavy top-level work slows start-up, so keep it in functions.
+- **Reference counting is CPython-specific.** PyPy uses a tracing GC; don't rely on `__del__` timing.
+- **`id()` is "address" only in CPython.** In an interview, say "identity".
+- **Threads and the GIL** come from the same implementation (lesson 14) — they are not part of the *language*.
 
-- **In C# / .NET:**
-  - **CIL (Common Intermediate Language):** When `dotnet build` executes, Roslyn compiles C# code to CIL assemblies (`.dll`), containing metadata tables and MSIL instructions.
-  - **`System.Reflection.Emit`:** Dynamic serializers (like protobuf-net and Dapper) generate CIL opcodes on the fly at runtime to bypass reflection overhead for high-performance object mapping.
-  - **RyuJIT Tiered Compilation:** The .NET runtime monitors method invocation frequency; cold methods are JITted quickly with minimal optimization, while hot methods are re-JITted into heavily optimized machine code.
+### Try it — four probes (runnable)
 
----
+Save as `runs_your_code.py`. Each probe backs one answer from section 7, and each `assert` fails loudly if your mental model is wrong.
 
-## 5. Pitfalls and When Not to Use It
-
-1. **The "Assignment Copies Objects" Fallacy:**
-   - Writing `config_copy = active_config` does not create a backup. Any mutation on `config_copy["timeout"] = 50` modifies the production configuration dictionary immediately.
-   - *Fix:* Explicitly construct a shallow copy (`dict(active_config)` or `list.copy()`) or a deep copy (`copy.deepcopy()`).
-
-2. **The "Interpreted Means No Compilation" Myth:**
-   - Syntax errors in Python are detected **before a single line of code runs**. When you execute `python script.py`, the entire file is tokenized and parsed into an AST. If line 500 contains a `SyntaxError`, line 1 never executes. Only runtime errors (such as `TypeError` or `NameError`) occur during virtual machine opcode dispatch.
-
-3. **`sys.getrefcount()` Reading Trap:**
-   - Passing an object to `sys.getrefcount(x)` temporarily creates a new local reference inside the function parameter frame. Therefore, `sys.getrefcount(x)` always returns a value that is **at least 1 higher** than the real reference count in your calling scope.
-
-4. **Assuming Small Integer Interning Applies Universally:**
-   - In CPython, small integers in the range `[-5, 256]` are pre-allocated global singletons. Evaluating `a = 100; b = 100; a is b` yields `True`. However, `a = 1000; b = 1000; a is b` may yield `False` depending on whether code runs in an interactive REPL or is compiled together in a single code object block. Never use `is` to check numerical equality.
-
-5. **Confusing Bytecode (`.pyc`) with Native Binaries:**
-   - A `.pyc` file cannot execute independently on an operating system CPU. It is a marshaled representation of Python's virtual machine instructions. Running it requires the CPython runtime binary matching the bytecode format.
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: Bytecode Reverse Engineering
-Inspect the following bytecode disassembled output from `dis.dis(mystery_func)`. What Python code produced this bytecode, and what does the function do?
-
-```text
-  2           0 LOAD_FAST                0 (items)
-              2 LOAD_CONST               1 (0)
-              4 BINARY_SUBSCR
-              6 LOAD_CONST               2 (2)
-              8 BINARY_OP                5 (*)
-             10 RETURN_VALUE
-```
-
-<details>
-<summary>Answer</summary>
-
-**Equivalent Python Code:**
 ```python
-def mystery_func(items):
-    return items[0] * 2
-```
-
-**Step-by-Step Bytecode Trace:**
-1. `LOAD_FAST 0 (items)`: Pushes the local variable `items` onto the evaluation stack.
-2. `LOAD_CONST 1 (0)`: Pushes constant `0` onto the stack.
-3. `BINARY_SUBSCR`: Pops index `0` and container `items`, resolves `items[0]`, and pushes the result onto the stack.
-4. `LOAD_CONST 2 (2)`: Pushes constant `2` onto the stack.
-5. `BINARY_OP 5 (*)`: Pops the two top values, multiplies them, and pushes the product.
-6. `RETURN_VALUE`: Pops the product and returns it to the caller frame.
-</details>
-
-### Exercise 2: Name Binding vs Object Mutation
-Predict the printed output of this script:
-```python
-x = [10, 20]
-y = x
-x = x + [30]
-y += [40]
-
-print("x:", x)
-print("y:", y)
-```
-
-<details>
-<summary>Answer</summary>
-
-**Output:**
-```text
-x: [10, 20, 30]
-y: [10, 20, 40]
-```
-
-**Explanation:**  
-1. `x = [10, 20]`: Heap list `L1` created; `x` points to `L1`.
-2. `y = x`: `y` points to `L1` (refcount = 2).
-3. `x = x + [30]`: The binary `+` operator on lists creates a **brand-new list object** `L2` containing `[10, 20, 30]`. `x` is rebound to `L2`. `y` remains bound to `L1`.
-4. `y += [40]`: The augmented assignment operator `+=` on a mutable list calls `y.extend([40])`, mutating `L1` in place.
-5. Therefore, `x` is `[10, 20, 30]` and `y` is `[10, 20, 40]`.
-</details>
-
-### Exercise 3: Reference Count Calculations
-Given the code below, what is the expected reference count of the list `data` reported at step A?
-```python
+import dis
+import importlib
 import sys
+import types
 
-data = ["alpha", "beta"]
-alias = data
-holder = [data, data]
-# Step A:
-count = sys.getrefcount(data)
+# 1) Small-int caching: build the ints at run time so constant folding cannot interfere
+a, b = int("256"), int("256")
+c, d = int("1000"), int("1000")
+print("256 is 256 ->", a is b)                     # True  (cached singleton in CPython)
+print("1000 is 1000 ->", c is d, "| ==", c == d)   # False | True
+
+# 2) LOAD_FAST (local) vs LOAD_GLOBAL (global): the same loop, two different opcodes
+LIMIT = 3
+
+
+def uses_global():
+    total = 0
+    for _ in range(1000):
+        total += LIMIT            # global: dictionary lookup on every iteration
+    return total
+
+
+def uses_local(limit=LIMIT):      # default evaluated ONCE at def time -> becomes a local
+    total = 0
+    for _ in range(1000):
+        total += limit            # local: slot in the frame's array
+    return total
+
+
+def count(fn, prefix):
+    return sum(1 for ins in dis.get_instructions(fn) if ins.opname.startswith(prefix))
+
+
+g_global, g_local = count(uses_global, "LOAD_GLOBAL"), count(uses_local, "LOAD_GLOBAL")
+print("LOAD_GLOBAL in uses_global:", g_global, "| in uses_local:", g_local)   # 2 | 1
+assert g_global > g_local and uses_global() == uses_local()
+
+# 3) A module body runs once; the second import is a sys.modules lookup
+mod = types.ModuleType("demo_mod")
+exec("print('demo_mod body ran'); VALUE = 41", mod.__dict__)
+sys.modules["demo_mod"] = mod
+first = importlib.import_module("demo_mod")
+second = importlib.import_module("demo_mod")
+assert first is second is mod                      # the body does not run a second time
+
+# 4) The compile step is visible: source -> code object -> exec
+code = compile("answer = 6 * 7", "<demo>", "exec")
+print("constants in the code object:", code.co_consts)   # 42 is already folded in
+ns: dict = {}
+exec(code, ns)
+assert ns["answer"] == 42
+print("ok")
 ```
 
+Expected output:
+
+```text
+256 is 256 -> True
+1000 is 1000 -> False | == True
+LOAD_GLOBAL in uses_global: 2 | in uses_local: 1
+demo_mod body ran
+constants in the code object: (42, None)
+ok
+```
+
+What to notice and try next:
+
+1. **Why `int("1000")` and not `1000`?** The compiler folds identical constants inside one code object, so `x = 1000; y = 1000; x is y` can be `True` in a script and `False` in the REPL. Building the values at run time removes that noise.
+2. **`LOAD_GLOBAL` count 2 vs 1.** The first is `range`; the second is `LIMIT` read on *every* iteration. Run `python -m dis` on each function and find `LOAD_FAST` in the second. Then time both with `timeit` — expect a modest gain, not a rewrite-worthy one (3.11+ caches global lookups).
+3. **`co_consts` is `(42, None)`.** `6 * 7` was computed at compile time. Change it to `a * b` with names and watch `42` vanish from the constants.
+4. **Delete the `sys.modules[...] = mod` line** and the lookup fails with `ModuleNotFoundError`; that dict *is* the import cache.
+
+---
+
+## 5. What you'd say in two minutes
+
+> "CPython first compiles source into bytecode — an AST becomes a code object — and caches imported modules as `.pyc` in `__pycache__`. A virtual machine then interprets that bytecode, so it's both compiled and interpreted. At run time everything is an object with an identity, a type and a value; a variable isn't a box but a name bound to an object, which is why `b = a` makes an alias and why mutating through one name is visible through the other. `def` and `class` are executable statements that run when the module body runs, which is why default arguments are evaluated once, at definition time. Locals are array slots (`LOAD_FAST`) and globals are dict lookups, so local access is faster. Imports are cached in `sys.modules`, so a module body runs once."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Better |
+| :--- | :--- | :--- |
+| `if x is 1000:` | Depends on caching; `SyntaxWarning` since 3.8 | `==` |
+| Doing heavy work at import time | Slows start-up, hidden side effects, breaks tests | Put it in a function / lazy init |
+| Relying on `__del__` for cleanup | Timing is implementation-defined | `with` / `try-finally` |
+| Treating `id()` as meaningful data | Reused after objects die | Use your own IDs |
+| "It's interpreted, so it's slow" | Imprecise | Profile; use the right tool (C extensions, asyncio, processes) |
+
+---
+
+## 7. Interview questions
+
 <details>
-<summary>Answer</summary>
+<summary><strong>1. Is Python compiled or interpreted? [BASIC]</strong></summary>
 
-**Expected Result:** `5`
+Both. CPython compiles source to bytecode (a code object), and a virtual machine interprets that bytecode. `.pyc` files cache the bytecode for imported modules.
 
-**Reference Breakdown:**
-1. `data = ...`: Global name `data` holds 1 reference.
-2. `alias = data`: Name `alias` holds 1 reference (total = 2).
-3. `holder = [data, data]`: List `holder` contains two elements pointing to the list (total = 4).
-4. `sys.getrefcount(data)`: Passing `data` as an argument to the function temporarily binds the parameter inside the function frame (total = 5).
+</details>
+
+<details>
+<summary><strong>2. What is a variable in Python? [BASIC]</strong></summary>
+
+A name in a namespace bound to an object. Assignment binds (or rebinds) the name; it doesn't copy the object. Types belong to objects, not names.
+
+</details>
+
+<details>
+<summary><strong>3. What's in `__pycache__`? [BASIC]</strong></summary>
+
+Compiled bytecode for imported modules, named like `module.cpython-313.pyc`, validated against the source's timestamp/hash. It speeds up *loading*, not execution.
+
+</details>
+
+<details>
+<summary><strong>4. Why is `def f(x=[])` dangerous? [TRICKY]</strong></summary>
+
+`def` executes when the module body runs, evaluating the default **once**; every call without `x` shares that one list. Use `None` and create a new list inside the function.
+
+</details>
+
+<details>
+<summary><strong>5. What happens on the second `import foo`? [BASIC]</strong></summary>
+
+Python finds `foo` in `sys.modules` and returns the cached module object; the module body doesn't run again. `importlib.reload` forces re-execution.
+
+</details>
+
+<details>
+<summary><strong>6. Why is accessing a local faster than a global? [TRICKY]</strong></summary>
+
+Locals compile to `LOAD_FAST`, an index into the frame's array. Globals and builtins compile to `LOAD_GLOBAL`, which does dictionary lookups (with caching in newer versions, but still more work).
+
+</details>
+
+<details>
+<summary><strong>7. `a = 256; b = 256; a is b` → True, but with 1000 → maybe False. Why? [TRICKY]</strong></summary>
+
+CPython preallocates small ints (−5…256) as singletons. Larger ints are separate objects unless the compiler folds identical constants in one code object. It's an implementation detail — compare with `==`.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: Is Python interpreted or compiled?**  
-> **Strong Answer:**  
-> "Python is both: it is **compiled to bytecode and then executed by an interpreter**.  
-> 
-> When source code is executed, CPython does not run it line by line directly on the CPU. First, a frontend compiler lexes, parses, and converts the Python syntax into an Abstract Syntax Tree (AST), which is then compiled into a sequence of bytecode instructions encapsulated within a code object (`PyCodeObject`). These compiled bytecode artifacts are cached on disk as `.pyc` files in the `__pycache__` directory to accelerate subsequent imports.  
-> 
-> Second, CPython's virtual machine—a stack-based interpreter implemented in C (`ceval.c`)—iterates through the bytecode instructions in an evaluation loop, executing operations by manipulating a value stack and frame locals. In Python 3.11+, this includes a specializing adaptive interpreter that optimizes common opcode patterns at runtime. Alternative implementations like PyPy take this a step further by using a Just-In-Time (JIT) compiler to compile hot bytecode loops directly into native machine instructions."
-
-> [!interview]
-> **Question 2: What does "everything is an object" mean?**  
-> **Strong Answer:**  
-> "In Python, 'everything is an object' means that every entity in the language—including primitive integers, floating-point numbers, strings, boolean values, functions, class definitions, modules, and even the `object` type itself—is a **first-class heap object** derived from the C-level `PyObject` structure.  
-> 
-> Every object possesses three fundamental invariants:
-> 1. An **Identity** (`id(x)`): Representing its unique memory address on the heap.
-> 2. A **Type** (`type(x)`): A pointer to its type object (e.g., `PyLong_Type`, `PyFunction_Type`), which defines its attributes, methods, and memory layout.
-> 3. A **Value**: The underlying data payload stored in memory (e.g., an array of digits for integers, or an array of pointers for lists).
-> 
-> Because everything is a first-class object, functions and classes can be assigned to variables, passed as arguments to other functions, stored in data structures, and introspected dynamically at runtime. This contrasts with languages like C++ or Java, where primitive types (such as `int` or `char`) are raw stack-allocated memory bits that do not possess object headers, method tables, or dynamic dispatch."
-
-> [!interview]
-> **Question 3: What happens when you write a = b?**  
-> **Strong Answer:**  
-> "When you execute `a = b` in Python:
-> 
-> 1. The runtime evaluates the right-hand side expression `b`. It resolves the symbol `b` in the current namespace (e.g., local frame or global dictionary) to retrieve the pointer to the underlying heap-allocated `PyObject`.
-> 2. It increments that object's internal reference count (`Py_INCREF(obj)` or atomic equivalent).
-> 3. It binds the name `a` in the current namespace dictionary or fast locals array to that exact same memory pointer.
-> 4. If the name `a` was previously bound to another object, that prior object's reference counter is decremented (`Py_DECREF`), potentially triggering garbage collection if its count reaches zero.
-> 
-> Crucially, `a = b` **never creates a copy of the object**. It simply establishes an additional name alias pointing to the existing object. If the referenced object is mutable (such as a `list` or `dict`) and modified in place via either name, the changes are visible through all aliases."
-
-> [!interview]
-> **Question 4: What is a .pyc file, and what triggers its invalidation or recompilation?**  
-> **Strong Answer:**  
-> "A `.pyc` file is a compiled bytecode cache file generated automatically by CPython when a module is imported. It contains a 16-byte header followed by the serialized `PyCodeObject` marshaled to disk.
-> 
-> The header contains:
-> 1. A 4-byte magic number representing the exact CPython compiler version.
-> 2. A bit field indicating the validation mode (timestamp-based or hash-based).
-> 3. Validation metadata: either the source file's last modified timestamp and size, or a cryptographic SIPHASH-2-4 hash of the source code (introduced in PEP 552).
-> 
-> CPython recompiles the source file and updates the `.pyc` file whenever:
-> - The source file's modification timestamp or size has changed relative to the header.
-> - The source file hash does not match the cached hash.
-> - The Python interpreter version has changed (the magic number does not match).
-> - The `.pyc` file is missing or corrupted."
+```text
+Pipeline   source -> AST -> code object (bytecode) -> VM loop       (.pyc cache for imports)
+Object     identity (id) + type + value (+ refcount in CPython)
+Variable   name -> object. Assignment = bind, never copy.
+Function   object; `def` executes at definition time (defaults evaluated once)
+Module     object; body runs once; cached in sys.modules
+Fast/slow  LOAD_FAST (local) < LOAD_GLOBAL (global/builtin)
+Tools      dis.dis(f), sys.getrefcount(x), id(x), python -X importtime
+Say        "compiled to bytecode, interpreted by a VM"; "names bound to objects"
+Never      use `is` to compare values (only None/singletons)
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [CPython Internal Execution Model (Python 3 Documentation)](https://docs.python.org/3/reference/executionmodel.html)
-- [Python Data Model (Python 3 Documentation)](https://docs.python.org/3/reference/datamodel.html)
-- [Python `dis` Module - Disassembler for Python Bytecode](https://docs.python.org/3/library/dis.html)
-- [PEP 552: Deterministic pycs](https://peps.python.org/pep-0552/)
-- [Microsoft Learn: Common Language Runtime (CLR) Architecture and Execution Overview](https://learn.microsoft.com/en-us/dotnet/standard/clr)
-- [Inside the Python Virtual Machine by Obi Ike-Nwosu](https://leanpub.com/insidethepythonvirtualmachine)
+- [Python reference: execution model](https://docs.python.org/3/reference/executionmodel.html)
+- [`dis` — disassembler for Python bytecode](https://docs.python.org/3/library/dis.html)
+- [Ned Batchelder — Facts and myths about Python names and values](https://nedbatchelder.com/text/names.html)
 
----
-
-Track overview: [Track 27: Python Interview Questions](../README.md) · Next: [Mutability, Identity and Copying](../02-mutability-identity-and-copying/README.md)
+Next: [Mutability, Identity and Copying](../02-mutability-identity-and-copying/README.md)

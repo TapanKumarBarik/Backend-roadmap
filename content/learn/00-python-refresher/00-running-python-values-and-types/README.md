@@ -2,10 +2,17 @@
 
 > **Prerequisites:** None. If you have written code in any language, this will feel familiar.  
 > **Estimated Reading Time:** 20 minutes  
-> **Who this is for:** Anyone who wants Python fresh in their head before moving on to classes and larger programs.
+> **Who this is for:** Anyone who wants Python fresh in their head before moving on to classes and larger programs.  
+> **Interview relevance:** Phone-screen warm-ups: dynamic vs strong typing, `/` vs `//`, float traps, truthiness.
 
 > [!key]
 > A Python program is a list of instructions run from top to bottom. Each one either **gives a name to a value** (`age = 30`) or **does something with values** (`print(age + 1)`). Almost everything in this track is a variation on those two moves.
+
+> [!note]
+> Python values have types, names do not; numbers, text and `bool` behave in a few precise ways that interviewers love to probe (`0.1 + 0.2`, `round(2.5)`, `bool` as `int`).
+
+> [!tip]
+> Predict each output *before* pressing Run. Then read the edge cases and say the one-line answer aloud, as you would in an interview.
 
 ## What you will be able to do
 
@@ -370,6 +377,101 @@ print("5" * 3)
 `10 / 4` is 2.5 and `10 // 4` is 2. `2 ** 3 ** 2` is `2 ** 9`, because `**` works right to left. And `"5" * 3` repeats the text three times, which is a different thing from multiplying numbers.
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **`bool` is an `int`, integers never overflow, and "falsy" is wider than `False`.** These three facts produce most of the "what does this print?" questions about basic types.
+
+```python
+print(True + True, isinstance(True, int))
+print(2 ** 100)
+print(-7 // 2, -7 % 2, int(-3.9))
+print(bool(0), bool(""), bool([]), bool(None), bool("0"))
+```
+
+```text
+2 True
+1267650600228229401496703205376
+-4 1 -3
+False False False False True
+```
+
+- `True + True` is `2` because `bool` is a subclass of `int`.
+- Python integers grow as large as memory allows, so there is no overflow to worry about (unlike C, Java or C#).
+- `//` rounds **down** (towards minus infinity), so `-7 // 2` is `-4`, while `int()` **truncates** towards zero. `%` takes the sign of the right-hand number.
+- The string `"0"` is truthy: only *empty* text is false.
+
+For money and exact decimals, reach for `decimal`; for "close enough" float comparisons use `math.isclose`:
+
+```python
+import math
+from decimal import Decimal
+
+print(Decimal("0.1") + Decimal("0.2") == Decimal("0.3"))
+print(math.isclose(0.1 + 0.2, 0.3))
+print(0.1 + 0.2 == 0.3)
+```
+
+```text
+True
+True
+False
+```
+
+> [!tip]
+> Build a `Decimal` from a **string** (`Decimal("0.1")`). `Decimal(0.1)` faithfully copies the float's error.
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. Is Python statically or dynamically typed? Strongly or weakly? [BASIC]</strong></summary>
+
+**Dynamically and strongly typed.** Types belong to values, not names (`x = 5` then `x = "five"` is allowed), but Python will not silently mix incompatible types: `"1" + 1` raises `TypeError`. Type hints are optional and are checked by tools such as mypy, not by Python itself.
+
+</details>
+
+<details>
+<summary><strong>2. Why is <code>0.1 + 0.2 != 0.3</code>, and what do you do about it? [BASIC]</strong></summary>
+
+Floats are binary approximations; 0.1 and 0.2 have no exact binary form. Compare with `math.isclose`, round before comparing, or use `Decimal` or integer cents for money.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between <code>/</code>, <code>//</code> and <code>%</code>? [BASIC]</strong></summary>
+
+`/` is true division and always returns a `float`. `//` is floor division (rounds down, even for negatives). `%` is the remainder, so `a == (a // b) * b + a % b` always holds.
+
+</details>
+
+<details>
+<summary><strong>4. Which values are falsy? [TRICKY]</strong></summary>
+
+`None`, `False`, zero of any numeric type, and empty containers or strings (`""`, `[]`, `()`, `{}`, `set()`). Everything else is truthy, including `"0"` and `"False"`. Test for `None` specifically with `is None`, because `0` and `""` are falsy too and may be valid values.
+
+</details>
+
+<details>
+<summary><strong>5. Why does <code>round(2.5)</code> give 2? [TRICKY]</strong></summary>
+
+Python uses banker's rounding (round half to even) so repeated rounding does not drift upwards. `round(2.5) == 2` and `round(3.5) == 4`. Use `Decimal.quantize` if you need "half up".
+
+</details>
+
+## Cheat sheet
+
+```text
+Run it       python file.py | python (REPL) | python -m module
+Types        int (unbounded) | float (binary approx) | str | bool (is an int) | NoneType
+Divide       /  float   //  floor (down)   %  remainder    **  power (right to left)
+Convert      int("42")  float("3.5")  str(42)   int(3.9) -> 3 (truncates)   round() half-to-even
+Falsy        None False 0 0.0 "" [] () {} set()      "0" is truthy
+None         test with  is None / is not None
+Floats       never ==  ->  math.isclose | Decimal("0.1") | integer cents
+f-string     f"{x:.2f}"  f"{n:,}"  f"{expr}"
+Names        = binds a name to a value (not "equals"); snake_case; never shadow list/str/max/sum
+```
 
 ## Check yourself
 

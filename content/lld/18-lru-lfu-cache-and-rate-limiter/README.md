@@ -1,608 +1,628 @@
-# Classic Systems: LRU/LFU Cache & Token Bucket Rate Limiter
+# LRU / LFU Cache & Rate Limiter
 
-> **Prerequisites**: [10: Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [11: Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), Hash Tables & Doubly Linked List Fundamentals.  
-> **Estimated Reading Time**: 25 minutes  
-> **Target Audience**: Backend Engineers, Systems Architects, Low-Level Design Interview Candidates.
+> **Prerequisites:** [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [11 · Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [08 · Behavioral Patterns I](../08-behavioral-patterns-i/README.md) (Strategy)  
+> **Reading time:** ~30 minutes (plus ~10 to run the demos)  
+> **Audience:** LLD rounds — "implement an LRU cache in O(1)" and "design a rate limiter," the two most-asked data-structure-flavored designs
+
+> [!NOTE]
+> **In one line:** **LRU** = a hash map for lookup + a doubly linked list for recency order, so `get` and `put` are O(1); **LFU** = the same idea with one recency list *per frequency*; a **token bucket** refills at a steady rate and spends one token per request, which allows controlled bursts.
 
 > [!TIP]
-> **Golden Rule of Algorithmic Caching & Throttling**: To achieve strict $\mathcal{O}(1)$ time complexity for cache operations, combine two complementary data structures: a **Hash Map** for $\mathcal{O}(1)$ key lookup and a **Doubly Linked List** for $\mathcal{O}(1)$ node reordering and eviction. In rate limiting, never couple algorithms to the system clock; inject a clock interface to enable deterministic, non-flaky automated testing.
+> **Golden rule:** Neither structure alone is O(1). The map finds the node fast but cannot reorder; the list reorders fast but cannot find. Say *"hash map points into the list"* in the first minute — it is the answer they are waiting for. For limiters: **inject the clock**, or you cannot test any of it.
+
+> [!TIP]
+> **Try it:** Sketch `Cache → EvictionPolicy` in [LLD Studio](/tools/lld-studio/), then play with the four algorithms in the [Rate Limiting simulator](/tools/rate-limiting/) and run the Python demo below.
 
 ---
 
-## 1. Visual Mental Models & System Architecture
+## 1. Interview pressure
 
-### 1.1 LRU Cache: Hash Table + Doubly Linked List Architecture
+Two prompts, same family:
 
-A standard hash table provides $\mathcal{O}(1)$ key lookup but lacks ordering. A linked list provides $\mathcal{O}(1)$ insertion/deletion but $\mathcal{O}(N)$ lookup. Combining them achieves $\mathcal{O}(1)$ for both operations.
+1. *"Implement an LRU cache with `get(key)` and `put(key, value)`, both O(1), fixed capacity."*
+2. *"Design a rate limiter: 100 requests per minute per user. Which algorithm, and how do you test it?"*
+
+Wrong first answers that cost points:
+
+- `dict` + "scan for the oldest" on eviction → O(n). Python's `OrderedDict` makes it O(1) but interviewers usually say *"pretend that doesn't exist"* — know the manual version.
+- Calling `time.time()` inside the limiter → tests that sleep, flaky CI, and a limiter that breaks when the wall clock jumps.
+- Fixed-window counter and calling it done → a user fires 100 requests at `12:00:59` and 100 more at `12:01:00`: **200 in two seconds**, "within the limit."
+
+---
+
+## 2. Mental model
+
+LRU: the map gives you the node; the list keeps the order. Head = most recently used, tail = next to evict. Sentinel head/tail nodes mean no `if node is None` special cases.
 
 ```mermaid
 flowchart LR
-    subgraph Lookup["Hash Map (O(1) Direct Pointer Access)"]
-        H1["'user:10' -> Node A"]
-        H2["'user:20' -> Node B"]
-        H3["'user:30' -> Node C"]
-    end
-
-    subgraph DLL["Doubly Linked List (Recency Ordering)"]
-        Head["Sentinel HEAD<br/>(Most Recently Used)"] <--> NodeC["Node C<br/>(Key: user:30)"]
-        NodeC <--> NodeA["Node A<br/>(Key: user:10)"]
-        NodeA <--> NodeB["Node B<br/>(Key: user:20)"]
-        NodeB <--> Tail["Sentinel TAIL<br/>(Least Recently Used)"]
-    end
-
-    H1 -.-> NodeA
-    H2 -.-> NodeB
-    H3 -.-> NodeC
-
-    style Lookup fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
-    style DLL fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  subgraph Map["dict: key → node"]
+    ka["'a'"]
+    kb["'b'"]
+    kc["'c'"]
+  end
+  H(["HEAD sentinel"]) <--> Nc["c : 3"] <--> Na["a : 1"] <--> Nb["b : 2"] <--> T(["TAIL sentinel"])
+  ka -.-> Na
+  kb -.-> Nb
+  kc -.-> Nc
 ```
 
----
+> `get('a')` → look up node, unlink it, push it behind HEAD. `put('d', 4)` at capacity → evict `TAIL.prev` (`b`), delete `'b'` from the map, insert `d` behind HEAD.
 
-### 1.2 LFU Cache: Frequency Buckets with Incremental Minimum Pointer
-
-Least Frequently Used (LFU) maintains an access counter per key. Ties at the same frequency are broken via LRU recency. A pointer `minFreq` tracks the lowest frequency bucket in $\mathcal{O}(1)$.
+Token bucket: tokens drip in at `rate` per second up to `capacity`; each request spends one.
 
 ```mermaid
 flowchart TD
-    subgraph MinPtr["Incremental Min Frequency Pointer"]
-        MF["minFreq = 1"]
-    end
-
-    subgraph Buckets["Frequency Hash Map (Freq -> Doubly Linked List)"]
-        F1["Freq 1"] --> DLL1["[HEAD] <-> Node('k1', v=1) <-> [TAIL]"]
-        F2["Freq 2"] --> DLL2["[HEAD] <-> Node('k2', v=2) <-> Node('k3', v=2) <-> [TAIL]"]
-        F5["Freq 5"] --> DLL5["[HEAD] <-> Node('k9', v=5) <-> [TAIL]"]
-    end
-
-    MF --> F1
-
-    style MinPtr fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style Buckets fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+  R["request arrives at time t"] --> Refill["tokens = min(capacity, tokens + (t − last) × rate)<br/>last = t"]
+  Refill --> Q{"tokens ≥ 1 ?"}
+  Q -->|yes| Spend["tokens −= 1 → ALLOW"]
+  Q -->|no| Deny["DENY (429, Retry-After)"]
 ```
 
----
+### Pick the right one
 
-### 1.3 Token Bucket Rate Limiter
+| Eviction policy | Evicts | Wins when | Weakness |
+| :--- | :--- | :--- | :--- |
+| **LRU** | Least recently used | Recent access predicts next access (most apps) | One big scan flushes the whole cache |
+| **LFU** | Least frequently used (ties → LRU) | Stable "hot set" (CDN, popular products) | Old hot items stay forever unless you age counts |
+| **FIFO** | Oldest inserted | Dead simple, small caches | Ignores access entirely |
 
-Tokens refill continuously at a rate $R$ tokens/second up to a maximum burst capacity $C$. Arriving requests consume 1 token. If no tokens exist, the request is throttled.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Ingress : Request Arrives
-    
-    Ingress --> Refill : Compute Elapsed Time (t - lastRefill)
-    Refill --> Refill : tokens = min(capacity, tokens + elapsed * rate)
-    
-    Refill --> Allowed : tokens >= 1.0 (Consume 1 token)
-    Refill --> Rejected : tokens < 1.0 (Drop or 429 Throttle)
-    
-    Allowed --> [*] : Pass Request to Upstream
-    Rejected --> [*] : Return HTTP 429 Too Many Requests
-```
-
----
-
-## 2. Taxonomic Reference Grids
-
-### 2.1 Cache Eviction Policies Matrix
-
-| Policy | Mechanism | Eviction Candidate | Time Complexity | Memory Overhead | Best Use Case |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **LRU (Least Recently Used)** | Doubly Linked List + Hash Map | Oldest accessed key | $\mathcal{O}(1)$ get, $\mathcal{O}(1)$ put | 2 pointers per node | General web application caches, session stores |
-| **LFU (Least Frequently Used)** | Frequency Hash Map + DLL per bucket | Lowest access count; LRU tie-break | $\mathcal{O}(1)$ get, $\mathcal{O}(1)$ put | 2 pointers + freq counter per node | Content delivery networks (CDNs), static asset caches |
-| **FIFO (First In First Out)** | Queue + Hash Map | Oldest inserted key | $\mathcal{O}(1)$ | 1 pointer per node | Write-heavy ingestion logs, time-series windows |
-| **ARC (Adaptive Replacement Cache)** | Self-tuning balance between LRU and LFU | Dynamically adapts based on recency vs frequency | $\mathcal{O}(1)$ | 4 linked lists | High-performance database buffer pools (Postgres, ZFS) |
-
-### 2.2 Rate Limiting Algorithms Matrix
-
-| Algorithm | Mechanism | Handles Bursts? | Boundary Burst Vulnerability? | State Storage Overhead |
+| Limiter | Idea | Memory | Burst behavior | Say this |
 | :--- | :--- | :--- | :--- | :--- |
-| **Token Bucket** | Continuous fractional refill over time | Yes (Up to bucket capacity) | No boundary anomalies | Minimal: `tokens` (float) + `lastRefill` (timestamp) |
-| **Leaky Bucket** | FIFO queue processed at constant output rate | Smoothes bursts into steady output stream | No | Queue capacity + worker thread |
-| **Fixed Window Counter** | Counter reset every $N$ seconds | Yes | **Severe**: Allows $2\times$ limit across window boundaries | Single integer counter per window |
-| **Sliding Window Log** | Timestamps stored in sorted set | Yes | None | High: Stores every request timestamp ($\mathcal{O}(K)$ memory) |
+| **Fixed window** | Counter per time bucket | O(1) | 2× limit at the boundary | "Cheap but leaky at edges" |
+| **Sliding window log** | Timestamps in a deque | O(limit) per key | Exact | "Precise, costs memory" |
+| **Sliding window counter** | Weighted blend of 2 windows | O(1) | Approximate, smooth | "Good balance at scale" |
+| **Token bucket** | Refill + spend | O(1) | Allows bursts up to `capacity` | "What most APIs use" |
+| **Leaky bucket** | Queue drained at fixed rate | O(queue) | Smooths output, no bursts | "Traffic shaping" |
 
 ---
 
-## 3. Production War Stories: Incident Post-Mortem
+## 3. Walkthrough
 
-### The $950K Redis Thundering Herd & Unbounded LFU Memory Leak
+**Requirements (LRU):** fixed capacity; `get` returns value or "missing" and marks it recently used; `put` inserts/updates and evicts the least recently used when full; both O(1); thread-safe.
 
-```
-SEVERITY LEVEL: SEV-1 (Database Meltdown & Core API Outage)
-DETECTION TIME: 6 Minutes
-RECOVERY TIME: 110 Minutes
-FINANCIAL PENALTY: $950,000 in SLA breaches and lost customer purchases
-```
+**Entities:**
 
-#### Incident Background
-An e-commerce giant deployed an in-memory LFU cache microservice to hold hot product catalog items during a Black Friday flash sale. The cache was designed to evict rarely accessed products while keeping viral trending deals hot in memory.
+| Entity | Responsibility |
+| :--- | :--- |
+| `_Node` | `key, value, prev, next`. Stores the **key** too — eviction must delete it from the map |
+| `LRUCache` | `dict[key → node]`, sentinel `head`/`tail`, `get`, `put`, private `_unlink` / `_push_front` |
+| `LFUCache` | `key → value`, `key → freq`, `freq → OrderedDict[key]` (recency inside a frequency), `min_freq` |
+| `TokenBucket` | `capacity`, `rate`, `tokens`, `last`, injected `clock` |
+| `SlidingWindowLog` | `deque` of timestamps; drop the old ones, count the rest |
+| `PerKeyLimiter` | One limiter per user id, *held in an LRU cache* so idle users don't leak memory |
 
-#### What Happened
-At 00:00 UTC, the catalog service began throwing HTTP 503 errors. The custom LFU implementation had an algorithmic memory leak: frequency buckets (`Map<int, DoublyLinkedList>`) were created as frequency counts increased ($1, 2, \dots, 500,000$), but empty frequency bucket keys were never cleaned up when all nodes moved to higher tiers. Furthermore, the `minFreq` tracker was calculated by scanning the bucket keys ($\mathcal{O}(F)$) whenever an eviction occurred. Under peak eviction load, `put()` latency degraded from $10\mu s$ to $1,800\text{ms}$. Pods ran out of memory, cascaded into crash loops, and sent 100% of un-cached traffic directly to the primary Aurora database cluster, triggering a catastrophic thundering herd collapse.
+**Order you'd code it:** node → `_unlink` / `_push_front` → `get` → `put` (update path, evict path, insert path) → capacity check → lock. Then say "same shape, extra bookkeeping" for LFU.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant App as API Gateway
-    participant Cache as Faulty LFU Cache
-    participant DB as Postgres Primary DB
+**LFU sketch (how to explain it in 30 seconds):** on every access, move the key from bucket `f` to bucket `f+1`. If bucket `f` was the minimum and is now empty, `min_freq` becomes `f+1`. A new key always goes to bucket 1 and resets `min_freq = 1`. To evict, pop the **oldest** key from bucket `min_freq` (ties broken by LRU). Everything is O(1).
 
-    App->>Cache: Put("prod:991", item) [Capacity Exceeded]
-    Note over Cache: Eviction required!
-    Note over Cache: Bug: minFreq scans 500,000 empty frequency buckets! (1800ms)
-    Note over Cache: Thread Blocked! Memory allocation fails!
-    Cache-->>App: HTTP 500 / Timeout (Crash Loop)
-    
-    par Thundering Herd Attack
-        App->>DB: SELECT * FROM products WHERE id=991 (Direct fallback)
-        App->>DB: SELECT * FROM products WHERE id=992 (Direct fallback)
-        App->>DB: SELECT * FROM products WHERE id=993 (Direct fallback)
-    end
-
-    Note over DB: Database CPU hits 100% -> Connection Pool Exhausted -> SYSTEM CRASH!
-```
-
-#### Root Cause Analysis
-1. **Unbounded Frequency Bucket Growth**: Empty doubly linked list bucket entries were never garbage-collected or deleted from the outer map when nodes graduated to higher frequencies.
-2. **Failure of $\mathcal{O}(1)$ Min-Frequency Tracking**: Instead of updating `minFreq` incrementally ($\mathcal{O}(1)$) when the current minimum bucket became empty, the code scanned all dictionary keys.
-3. **Absence of Cache Stampede Guard**: The application lacked a mutex or single-flight coordinator around cache misses, hammering the relational database with identical concurrent queries.
-
-#### The Architectural Hardening
-1. **Strict Bucket Clean-Up Invariant**: When unlinking a node leaves a frequency bucket empty, the bucket is immediately deleted from the hash map.
-2. **Deterministic $\mathcal{O}(1)$ MinFreq Update**: If `node.freq == minFreq` and that bucket becomes empty post-promotion, `minFreq` is incremented by exactly 1:
-   $$\text{if } \text{isEmpty}(\text{buckets}[\text{minFreq}]) \implies \text{minFreq} \leftarrow \text{minFreq} + 1$$
-3. **SingleFlight Grouping**: Wrapped cache misses in Go `singleflight.Group` so only one upstream database query executes for duplicate missed keys.
+**Extension point:** an `EvictionPolicy` strategy (`on_access`, `on_insert`, `victim`) lets the same `Cache` class host LRU, LFU, or FIFO. Mention it; don't build it unless asked.
 
 ---
 
-## 4. Multi-Language Production Implementations
+## 4. Code
 
-Below are four enterprise implementations of the **LRU Cache**, **LFU Cache**, and **Token Bucket Rate Limiter**.
-
-### 4.1 Go: High-Performance O(1) LRU Cache with Sentinel Nodes
-
-```go
-package main
-
-import (
-	"errors"
-	"fmt"
-	"sync"
-)
-
-type node struct {
-	key   string
-	value any
-	prev  *node
-	next  *node
-}
-
-// LRUCache achieves strict O(1) get and put using a Hash Map and Doubly Linked List.
-type LRUCache struct {
-	capacity int
-	mu       sync.Mutex
-	items    map[string]*node
-	head     *node // Sentinel MRU node
-	tail     *node // Sentinel LRU node
-}
-
-func NewLRUCache(capacity int) (*LRUCache, error) {
-	if capacity <= 0 {
-		return nil, errors.New("capacity must be positive")
-	}
-
-	c := &LRUCache{
-		capacity: capacity,
-		items:    make(map[string]*node),
-		head:     &node{},
-		tail:     &node{},
-	}
-	c.head.next = c.tail
-	c.tail.prev = c.head
-	return c, nil
-}
-
-func (c *LRUCache) remove(n *node) {
-	n.prev.next = n.next
-	n.next.prev = n.prev
-}
-
-func (c *LRUCache) insertAtFront(n *node) {
-	n.next = c.head.next
-	n.prev = c.head
-	c.head.next.prev = n
-	c.head.next = n
-}
-
-func (c *LRUCache) Get(key string) (any, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	n, exists := c.items[key]
-	if !exists {
-		return nil, false
-	}
-
-	// Move accessed node to front (MRU)
-	c.remove(n)
-	c.insertAtFront(n)
-	return n.value, true
-}
-
-func (c *LRUCache) Put(key string, val any) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if n, exists := c.items[key]; exists {
-		n.value = val
-		c.remove(n)
-		c.insertAtFront(n)
-		return
-	}
-
-	if len(c.items) >= c.capacity {
-		// Evict least recently used (node before tail sentinel)
-		lru := c.tail.prev
-		c.remove(lru)
-		delete(c.items, lru.key)
-	}
-
-	newNode := &node{key: key, value: val}
-	c.items[key] = newNode
-	c.insertAtFront(newNode)
-}
-
-func main() {
-	cache, _ := NewLRUCache(2)
-	cache.Put("k1", 100)
-	cache.Put("k2", 200)
-
-	val, _ := cache.Get("k1") // Access k1 (k2 becomes LRU)
-	fmt.Printf("Get k1: %v\n", val)
-
-	cache.Put("k3", 300) // Evicts k2
-
-	_, exists := cache.Get("k2")
-	fmt.Printf("k2 exists? %v (Expected: false)\n", exists)
-}
-```
-
----
-
-### 4.2 TypeScript: Token Bucket Rate Limiter with Pluggable Clock
-
-```typescript
-export interface IClock {
-  nowMs(): number;
-}
-
-export class SystemClock implements IClock {
-  nowMs(): number {
-    return Date.now();
-  }
-}
-
-export class MockClock implements IClock {
-  private currentTime: number;
-  constructor(initialTimeMs: number = 0) {
-    this.currentTime = initialTimeMs;
-  }
-  nowMs(): number {
-    return this.currentTime;
-  }
-  advance(ms: number): void {
-    this.currentTime += ms;
-  }
-}
-
-export class TokenBucketRateLimiter {
-  private tokens: number;
-  private lastRefillTimestamp: number;
-
-  constructor(
-    public readonly capacity: number,
-    public readonly refillRatePerSec: number,
-    private clock: IClock = new SystemClock()
-  ) {
-    this.tokens = capacity;
-    this.lastRefillTimestamp = this.clock.nowMs();
-  }
-
-  public allowRequest(tokensToConsume: number = 1): boolean {
-    this.refill();
-
-    if (this.tokens >= tokensToConsume) {
-      this.tokens -= tokensToConsume;
-      return true;
-    }
-    return false;
-  }
-
-  private refill(): void {
-    const now = this.clock.nowMs();
-    const elapsedSec = (now - this.lastRefillTimestamp) / 1000.0;
-
-    if (elapsedSec > 0) {
-      const addedTokens = elapsedSec * this.refillRatePerSec;
-      this.tokens = Math.min(this.capacity, this.tokens + addedTokens);
-      this.lastRefillTimestamp = now;
-    }
-  }
-
-  public getAvailableTokens(): number {
-    this.refill();
-    return this.tokens;
-  }
-}
-```
-
----
-
-### 4.3 Python: Strict O(1) LFU Cache with Doubly Linked Buckets
-
+````carousel
 ```python
-from typing import Dict, Optional
+from __future__ import annotations
+
+import threading
+import time
+from collections import OrderedDict, defaultdict, deque
+from typing import Callable, Generic, Hashable, TypeVar
+
+K = TypeVar("K", bound=Hashable)
+V = TypeVar("V")
 
 
-class LFUNode:
-    def __init__(self, key: int, value: int):
-        self.key = key
-        self.value = value
-        self.freq = 1
-        self.prev: Optional["LFUNode"] = None
-        self.next: Optional["LFUNode"] = None
+# ── LRU: dict + doubly linked list, sentinels, O(1) ────────────────────
+class _Node(Generic[K, V]):
+    __slots__ = ("key", "val", "prev", "next")
+
+    def __init__(self, key: K | None, val: V | None) -> None:
+        self.key, self.val = key, val
+        self.prev: _Node | None = None
+        self.next: _Node | None = None
 
 
-class DoublyLinkedList:
-    def __init__(self):
-        self.head = LFUNode(0, 0)
-        self.tail = LFUNode(0, 0)
-        self.head.next = self.tail
-        self.tail.prev = self.head
-        self.size = 0
+class LRUCache(Generic[K, V]):
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
+        self._cap = capacity
+        self._map: dict[K, _Node[K, V]] = {}
+        self._head: _Node = _Node(None, None)       # MRU side
+        self._tail: _Node = _Node(None, None)       # LRU side
+        self._head.next, self._tail.prev = self._tail, self._head
+        self._lock = threading.Lock()                # get() mutates order, so reads need the lock too
 
-    def append(self, node: LFUNode) -> None:
-        node.next = self.head.next
-        node.prev = self.head
-        self.head.next.prev = node
-        self.head.next = node
-        self.size += 1
+    def _unlink(self, n: _Node) -> None:
+        n.prev.next, n.next.prev = n.next, n.prev
 
-    def remove(self, node: LFUNode) -> None:
-        node.prev.next = node.next
-        node.next.prev = node.prev
-        self.size -= 1
+    def _push_front(self, n: _Node) -> None:
+        n.prev, n.next = self._head, self._head.next
+        self._head.next.prev = n
+        self._head.next = n
 
-    def pop_tail(self) -> Optional[LFUNode]:
-        if self.size == 0:
-            return None
-        lru_node = self.tail.prev
-        self.remove(lru_node)
-        return lru_node
+    def get(self, key: K, default=None):
+        with self._lock:
+            node = self._map.get(key)
+            if node is None:
+                return default
+            self._unlink(node)
+            self._push_front(node)
+            return node.val
+
+    def put(self, key: K, val: V) -> None:
+        with self._lock:
+            node = self._map.get(key)
+            if node is not None:                      # update: refresh value AND recency
+                node.val = val
+                self._unlink(node)
+                self._push_front(node)
+                return
+            if len(self._map) == self._cap:           # evict BEFORE inserting
+                victim = self._tail.prev
+                self._unlink(victim)
+                del self._map[victim.key]             # this is why nodes store their key
+            node = _Node(key, val)
+            self._map[key] = node
+            self._push_front(node)
+
+    def keys_mru_first(self) -> list[K]:
+        with self._lock:
+            out, n = [], self._head.next
+            while n is not self._tail:
+                out.append(n.key)
+                n = n.next
+            return out
+
+    def __len__(self) -> int:
+        return len(self._map)
 
 
-class LFUCache:
-    def __init__(self, capacity: int):
-        self.capacity = capacity
-        self.key_map: Dict[int, LFUNode] = {}
-        self.freq_map: Dict[int, DoublyLinkedList] = {}
-        self.min_freq = 0
+# ── LFU: frequency buckets, each an OrderedDict for LRU tie-break ──────
+class LFUCache(Generic[K, V]):
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
+        self._cap = capacity
+        self._vals: dict[K, V] = {}
+        self._freq: dict[K, int] = {}
+        self._buckets: dict[int, OrderedDict[K, None]] = defaultdict(OrderedDict)
+        self._min = 0
+        self._lock = threading.Lock()
 
-    def _update_freq(self, node: LFUNode) -> None:
-        freq = node.freq
-        self.freq_map[freq].remove(node)
+    def _touch(self, key: K) -> None:
+        f = self._freq[key]
+        del self._buckets[f][key]
+        if not self._buckets[f]:
+            del self._buckets[f]
+            if self._min == f:
+                self._min = f + 1                    # bucket f is gone, next smallest is f+1
+        self._freq[key] = f + 1
+        self._buckets[f + 1][key] = None
 
-        if self.freq_map[freq].size == 0:
-            del self.freq_map[freq]
-            if self.min_freq == freq:
-                self.min_freq += 1
+    def get(self, key: K, default=None):
+        with self._lock:
+            if key not in self._vals:
+                return default
+            self._touch(key)
+            return self._vals[key]
 
-        node.freq += 1
-        new_freq = node.freq
-        if new_freq not in self.freq_map:
-            self.freq_map[new_freq] = DoublyLinkedList()
-        self.freq_map[new_freq].append(node)
+    def put(self, key: K, val: V) -> None:
+        with self._lock:
+            if key in self._vals:
+                self._vals[key] = val
+                self._touch(key)
+                return
+            if len(self._vals) == self._cap:
+                victim, _ = self._buckets[self._min].popitem(last=False)   # oldest in lowest freq
+                if not self._buckets[self._min]:
+                    del self._buckets[self._min]
+                del self._vals[victim], self._freq[victim]
+            self._vals[key] = val
+            self._freq[key] = 1
+            self._buckets[1][key] = None
+            self._min = 1                            # a new key is always the least frequent
 
-    def get(self, key: int) -> int:
-        if key not in self.key_map:
-            return -1
-        node = self.key_map[key]
-        self._update_freq(node)
-        return node.value
+    def keys(self) -> list[K]:
+        with self._lock:
+            return sorted(self._vals)
 
-    def put(self, key: int, value: int) -> None:
-        if self.capacity <= 0:
-            return
 
-        if key in self.key_map:
-            node = self.key_map[key]
-            node.value = value
-            self._update_freq(node)
-            return
+# ── Rate limiters: the clock is injected ───────────────────────────────
+Clock = Callable[[], float]
 
-        if len(self.key_map) >= self.capacity:
-            # Evict from min_freq bucket
-            evicted = self.freq_map[self.min_freq].pop_tail()
-            if evicted:
-                del self.key_map[evicted.key]
 
-        new_node = LFUNode(key, value)
-        self.key_map[key] = new_node
-        self.min_freq = 1
-        if 1 not in self.freq_map:
-            self.freq_map[1] = DoublyLinkedList()
-        self.freq_map[1].append(new_node)
+class FakeClock:
+    def __init__(self, t: float = 0.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
+class TokenBucket:
+    def __init__(self, capacity: float, refill_per_sec: float, clock: Clock = time.monotonic) -> None:
+        self._cap, self._rate, self._clock = capacity, refill_per_sec, clock
+        self._tokens, self._last = float(capacity), clock()
+        self._lock = threading.Lock()
+
+    def allow(self, cost: float = 1.0) -> bool:
+        with self._lock:
+            now = self._clock()
+            elapsed = max(0.0, now - self._last)          # never refill backwards if the clock hiccups
+            self._tokens = min(self._cap, self._tokens + elapsed * self._rate)
+            self._last = now
+            if self._tokens >= cost:
+                self._tokens -= cost
+                return True
+            return False
+
+
+class FixedWindow:
+    def __init__(self, limit: int, window: float, clock: Clock = time.monotonic) -> None:
+        self._limit, self._window, self._clock = limit, window, clock
+        self._bucket_id, self._count = None, 0
+
+    def allow(self) -> bool:
+        b = int(self._clock() // self._window)
+        if b != self._bucket_id:
+            self._bucket_id, self._count = b, 0
+        if self._count < self._limit:
+            self._count += 1
+            return True
+        return False
+
+
+class SlidingWindowLog:
+    def __init__(self, limit: int, window: float, clock: Clock = time.monotonic) -> None:
+        self._limit, self._window, self._clock = limit, window, clock
+        self._hits: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def allow(self) -> bool:
+        with self._lock:
+            now = self._clock()
+            while self._hits and self._hits[0] <= now - self._window:   # drop expired
+                self._hits.popleft()
+            if len(self._hits) < self._limit:
+                self._hits.append(now)
+                return True
+            return False
+
+
+class PerKeyLimiter:
+    """One bucket per user. Buckets live in an LRU cache so idle users get evicted."""
+
+    def __init__(self, capacity: int, rate: float, max_keys: int, clock: Clock) -> None:
+        self._cap, self._rate, self._clock = capacity, rate, clock
+        self._buckets: LRUCache[str, TokenBucket] = LRUCache(max_keys)
+        self._create_lock = threading.Lock()
+
+    def allow(self, user: str) -> bool:
+        bucket = self._buckets.get(user)
+        if bucket is None:
+            with self._create_lock:                       # two first requests must share ONE bucket
+                bucket = self._buckets.get(user)
+                if bucket is None:
+                    bucket = TokenBucket(self._cap, self._rate, self._clock)
+                    self._buckets.put(user, bucket)
+        return bucket.allow()
+
+
+if __name__ == "__main__":
+    print("LRU (capacity 2)")
+    lru: LRUCache[str, int] = LRUCache(2)
+    lru.put("a", 1); lru.put("b", 2)
+    print("  get a ->", lru.get("a"), "| order (MRU first):", lru.keys_mru_first())
+    lru.put("c", 3)                                       # evicts b, the least recently used
+    print("  put c  -> b evicted:", lru.get("b") is None, "| order:", lru.keys_mru_first())
+    lru.put("a", 10)                                      # update refreshes recency too
+    print("  put a=10 -> order:", lru.keys_mru_first(), "| a =", lru.get("a"))
+    assert lru.keys_mru_first() == ["a", "c"] and len(lru) == 2
+
+    print("LFU (capacity 2)")
+    lfu: LFUCache[str, int] = LFUCache(2)
+    lfu.put("a", 1); lfu.put("b", 2)
+    lfu.get("a")                                          # a: freq 2, b: freq 1
+    lfu.put("c", 3)                                       # evicts b (lowest freq)
+    print("  after put c   :", lfu.keys())
+    lfu.get("c")                                          # now a: freq 2, c: freq 2 (tie)
+    lfu.put("d", 4)                                       # tie on freq -> evict the LEAST RECENT of them: a
+    print("  after put d   :", lfu.keys(), "(a and c tied at freq 2; a was older)")
+    assert lfu.keys() == ["c", "d"]
+
+    print("Token bucket (capacity 5, 2 tokens/sec, fake clock)")
+    clock = FakeClock()
+    tb = TokenBucket(5, 2, clock)
+    burst = [tb.allow() for _ in range(7)]
+    print("  burst of 7 at t=0     :", burst)
+    clock.advance(1.0)
+    print("  after +1s (2 refilled):", [tb.allow() for _ in range(3)])
+    clock.advance(100.0)
+    print("  after +100s (capped)  :", sum(tb.allow() for _ in range(10)), "of 10 allowed (capacity 5)")
+    assert burst == [True] * 5 + [False] * 2
+
+    print("Fixed window vs sliding window log (limit 3 per 10s) at the boundary")
+    c1, c2 = FakeClock(9.0), FakeClock(9.0)
+    fw, sw = FixedWindow(3, 10, c1), SlidingWindowLog(3, 10, c2)
+    fw_hits = sum(fw.allow() for _ in range(3)); sw_hits = sum(sw.allow() for _ in range(3))
+    c1.advance(2.0); c2.advance(2.0)                      # t = 11: new fixed window, old hits still in range
+    fw_hits += sum(fw.allow() for _ in range(3)); sw_hits += sum(sw.allow() for _ in range(3))
+    print(f"  fixed: {fw_hits} allowed in 2s | sliding log: {sw_hits} allowed in 2s")
+    assert fw_hits == 6 and sw_hits == 3
+
+    print("Per-user limiter backed by an LRU of buckets")
+    pk = PerKeyLimiter(capacity=2, rate=1, max_keys=2, clock=FakeClock())
+    print("  alice x3:", [pk.allow("alice") for _ in range(3)], "| bob x1:", pk.allow("bob"))
+    print("OK")
 ```
-
----
-
-### 4.4 C#: Concurrency-Safe Sliding Window Rate Limiter
-
+<!-- slide -->
 ```csharp
 using System;
-using System.Collections.Concurrent;
-using System.Threading;
+using System.Collections.Generic;
 
-namespace Architecture.RateLimiter
+public sealed class LruCache<TKey, TValue> where TKey : notnull
 {
-    public interface ISystemClock
+    private readonly int _capacity;
+    private readonly Dictionary<TKey, LinkedListNode<(TKey Key, TValue Value)>> _map = new();
+    private readonly LinkedList<(TKey Key, TValue Value)> _order = new();   // First = MRU, Last = LRU
+    private readonly object _gate = new();
+
+    public LruCache(int capacity)
     {
-        DateTime UtcNow { get; }
+        if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
+        _capacity = capacity;
     }
 
-    public class RealSystemClock : ISystemClock
+    public bool TryGet(TKey key, out TValue value)
     {
-        public DateTime UtcNow => DateTime.UtcNow;
+        lock (_gate)                                   // reads reorder the list, so they lock too
+        {
+            if (!_map.TryGetValue(key, out var node)) { value = default!; return false; }
+            _order.Remove(node);
+            _order.AddFirst(node);
+            value = node.Value.Value;
+            return true;
+        }
     }
 
-    public class TokenBucketRateLimiter
+    public void Put(TKey key, TValue value)
     {
-        private readonly double _capacity;
-        private readonly double _refillRatePerSec;
-        private readonly ISystemClock _clock;
-        private double _tokens;
-        private DateTime _lastRefill;
-        private readonly object _lock = new();
-
-        public TokenBucketRateLimiter(double capacity, double refillRatePerSec, ISystemClock? clock = null)
+        lock (_gate)
         {
-            _capacity = capacity;
-            _refillRatePerSec = refillRatePerSec;
-            _clock = clock ?? new RealSystemClock();
-            _tokens = capacity;
-            _lastRefill = _clock.UtcNow;
-        }
-
-        public bool TryAcquire(double tokensRequired = 1.0)
-        {
-            lock (_lock)
+            if (_map.TryGetValue(key, out var existing))
             {
-                Refill();
-
-                if (_tokens >= tokensRequired)
-                {
-                    _tokens -= tokensRequired;
-                    return true;
-                }
-                return false;
+                _order.Remove(existing);
+                _map.Remove(key);
             }
-        }
-
-        private void Refill()
-        {
-            var now = _clock.UtcNow;
-            var elapsedSec = (now - _lastRefill).TotalSeconds;
-
-            if (elapsedSec > 0)
+            else if (_map.Count == _capacity)
             {
-                _tokens = Math.Min(_capacity, _tokens + (elapsedSec * _refillRatePerSec));
-                _lastRefill = now;
+                var victim = _order.Last!;
+                _order.RemoveLast();
+                _map.Remove(victim.Value.Key);
             }
+            _map[key] = _order.AddFirst((key, value));
         }
     }
 }
+
+public sealed class TokenBucket
+{
+    private readonly double _capacity, _ratePerSec;
+    private readonly Func<double> _clock;               // seconds; inject for tests
+    private double _tokens, _last;
+    private readonly object _gate = new();
+
+    public TokenBucket(double capacity, double ratePerSec, Func<double> clock)
+    {
+        _capacity = capacity; _ratePerSec = ratePerSec; _clock = clock;
+        _tokens = capacity; _last = clock();
+    }
+
+    public bool Allow(double cost = 1)
+    {
+        lock (_gate)
+        {
+            var now = _clock();
+            _tokens = Math.Min(_capacity, _tokens + Math.Max(0, now - _last) * _ratePerSec);
+            _last = now;
+            if (_tokens < cost) return false;
+            _tokens -= cost;
+            return true;
+        }
+    }
+}
+
+public static class Demo
+{
+    public static void Main()
+    {
+        var cache = new LruCache<string, int>(2);
+        cache.Put("a", 1); cache.Put("b", 2);
+        cache.TryGet("a", out _);
+        cache.Put("c", 3);                                   // evicts b
+        Console.WriteLine($"b present: {cache.TryGet("b", out _)}");   // False
+
+        double now = 0;
+        var bucket = new TokenBucket(5, 2, () => now);
+        int allowed = 0;
+        for (int i = 0; i < 7; i++) if (bucket.Allow()) allowed++;
+        Console.WriteLine($"burst allowed: {allowed}");      // 5
+        now += 1.0;
+        Console.WriteLine($"after +1s: {bucket.Allow()} {bucket.Allow()} {bucket.Allow()}");   // True True False
+    }
+}
 ```
+````
+
+Expected Python output (verified, exit code 0):
+
+```text
+LRU (capacity 2)
+  get a -> 1 | order (MRU first): ['a', 'b']
+  put c  -> b evicted: True | order: ['c', 'a']
+  put a=10 -> order: ['a', 'c'] | a = 10
+LFU (capacity 2)
+  after put c   : ['a', 'c']
+  after put d   : ['c', 'd'] (a and c tied at freq 2; a was older)
+Token bucket (capacity 5, 2 tokens/sec, fake clock)
+  burst of 7 at t=0     : [True, True, True, True, True, False, False]
+  after +1s (2 refilled): [True, True, False]
+  after +100s (capped)  : 5 of 10 allowed (capacity 5)
+Fixed window vs sliding window log (limit 3 per 10s) at the boundary
+  fixed: 6 allowed in 2s | sliding log: 3 allowed in 2s
+Per-user limiter backed by an LRU of buckets
+  alice x3: [True, True, False] | bob x1: True
+OK
+```
+
+What to point at when you present it:
+
+- **Sentinels** (`_head`, `_tail`) remove every "is this the first/last node?" branch from `_unlink` and `_push_front`.
+- **Nodes store their key**, so evicting `tail.prev` can `del self._map[victim.key]`. Forgetting this is the classic bug: the list shrinks, the map leaks.
+- **`get` takes the lock** because it reorders. A read-only lock (`RWLock`) is wrong here.
+- **Evict before insert** at capacity, and the update path never evicts.
+- **LFU `_min`** is only ever reset to 1 on insert, or bumped by one when its bucket empties — that is why everything stays O(1) with no scanning.
+- **Limiters take a `Clock`**: the fake clock turns "wait 1 second" into `clock.advance(1.0)` and the test is instant and exact.
+- **`PerKeyLimiter`** reuses the LRU: idle users' buckets age out, so the limiter's memory is bounded by `max_keys`, not by how many users ever hit you.
 
 ---
 
-## 5. Practical Hands-On Verification Workflows
+## 5. Edges
 
-### 5.1 Deterministic Rate Limiter Testing with Mock Clock
+| Risk | What to say / do |
+| :--- | :--- |
+| **Reads mutate order** | `get` must be under the same lock as `put`. This is the #1 concurrency question on LRU. |
+| **`None` as a value** | `get(key, default=None)` can't tell "cached `None`" from "missing." Pass a private sentinel as `default` (or return a `(hit, value)` pair / `TryGet` in C#). |
+| **Capacity 0 or negative** | Reject in the constructor. |
+| **Lock contention at scale** | Shard: `hash(key) % N` independent LRUs, each with its own lock. Accept that eviction is per-shard approximate. |
+| **Cache stampede** | 1000 requests miss the same key at once and all hit the DB. Fix: per-key single-flight, TTL jitter, or serve stale while refreshing. |
+| **LFU never forgets** | A once-hot key outlives its usefulness. Fix: periodic halving of counts (aging), or TinyLFU-style admission. |
+| **TTL** | Store `expires_at` on the node; check on `get`; evict lazily plus a background sweep. |
+| **Clock for limiters** | Use a monotonic clock. Wall-clock jumps (NTP) would refill tokens wrongly or freeze them. |
+| **Distributed limiting** | In-process buckets give N× the limit across N servers. Use a shared store (Redis: atomic script or `INCR` + `EXPIRE`) or accept per-node limits with a lower number. |
+| **Limiter state growth** | One bucket per user id grows forever. Bound it (LRU of buckets, as above) or expire idle keys. |
 
-Demonstrate instant, non-flaky rate limiter verification without real-time sleep:
-
-```bash
-# Execute unit tests for Token Bucket with Mock Clock
-npm test -- test/rate-limiter.spec.ts
-
-# Expected Output:
-# PASS test/rate-limiter.spec.ts
-#   TokenBucketRateLimiter
-#     ✓ Disallows 6th request when capacity is 5
-#     ✓ Refills 2 tokens after advancing mock clock by 2000ms
-#     ✓ Does not exceed max burst capacity during long idle period
-#
-# Test Suites: 1 passed, 1 total
-# Tests:       3 passed, 3 total
-```
-
-### 5.2 Python Inline LFU Cache Verification Script
-
-Run the inline LFU test checking that frequency tie-breaking respects recency:
-
-```bash
-python3 -c "
-# Testing LRU eviction tie-break on same frequency
-print('Verifying LFU Cache frequency graduation and recency tie-breaking:')
-print('Key 1 accessed 3x, Key 2 accessed 2x, Key 3 accessed 2x')
-print('-> Eviction candidate at capacity: Key 2 (Lowest frequency, oldest recency)')
-"
-```
-
-Expected Terminal Output:
-```
-Verifying LFU Cache frequency graduation and recency tie-breaking:
-Key 1 accessed 3x, Key 2 accessed 2x, Key 3 accessed 2x
--> Eviction candidate at capacity: Key 2 (Lowest frequency, oldest recency)
-```
+**When *not* to hand-roll:** in production use the platform cache (`functools.lru_cache`, `MemoryCache`, Caffeine, Redis) and a gateway/limiter library. Hand-rolling is the interview — and the way to learn what those libraries do.
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 6. What you'd say in two minutes
+
+> "For an O(1) LRU I combine a hash map and a doubly linked list. The map goes from key to node, so lookup is O(1); the list keeps recency order — head is most recent, tail is next to evict. `get` finds the node, unlinks it, and pushes it to the front. `put` updates in place or, at capacity, evicts `tail.prev` and deletes its key from the map — so nodes store their key. I use sentinel head and tail nodes to avoid null checks. Because `get` reorders the list, it takes the same lock as `put`. LFU is the same idea with a frequency-to-ordered-bucket map and a `min_freq` pointer: touching a key moves it from bucket `f` to `f+1`; evicting pops the oldest key from the lowest bucket. For rate limiting I'd use a token bucket — refill by elapsed time times rate, capped at capacity, spend one per request — because it allows controlled bursts and is O(1) per key. I'd inject the clock so tests are deterministic, and hold per-user buckets in an LRU so memory is bounded. If I need exact limits I'd use a sliding window log; at scale, a sliding window counter or Redis."
+
+---
+
+## 7. Anti-patterns
+
+1. **Scan-for-oldest eviction** (`min(cache, key=last_used)`) — O(n). Fix: linked list, or `OrderedDict.move_to_end`.
+2. **Singly linked list** — removing a middle node needs the previous pointer. Fix: doubly linked.
+3. **Node without a key** — you cannot delete the victim from the map. Fix: store `key` in the node.
+4. **`get` without a lock** — "reads are safe" is false when reads reorder. Fix: one lock for both.
+5. **`time.time()` in the limiter** — untestable and NTP-sensitive. Fix: injected monotonic clock.
+6. **Fixed window as "the" answer** — boundary double burst. Fix: sliding window or token bucket; say why.
+7. **Unbounded per-user limiter map** — memory grows with every user ever seen. Fix: LRU/TTL of limiter state.
+
+---
+
+## 8. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The LFU Cache Cold-Start Blind Spot</strong></summary>
+<summary><strong>1. Why a doubly linked list and not a singly linked one? [BASIC]</strong></summary>
 
-**Scenario**: A database cache runs LFU eviction. A set of historical records were accessed 10,000 times during a morning report. In the afternoon, a new trending product is added (frequency count = 1). Every time memory pressure triggers an eviction, the new trending product is immediately evicted because its count ($1$) is lower than the stale historical records ($10,000$). What is this problem and how is it solved?
+You jump to a node via the map, then must unlink it in O(1). Unlinking needs the node's `prev` pointer; with a singly linked list you would have to walk from the head to find it.
 
-<strong>Answer:</strong>
-**Frequency Starvation / Cache Pollution (Stale Bias)**:
-- **Root Cause**: LFU has no natural frequency decay over time. Stale records that accumulated high frequency historically cannot be replaced by active, newly inserted items.
-- **Architectural Solution**:
-  1. **LFU with Aging / Half-Life Decay**: Periodically (e.g., every $K$ minutes or accesses), divide all frequency counters by 2 ($\text{freq} \leftarrow \lfloor \text{freq} / 2 \rfloor$).
-  2. **Window-TinyLFU (W-TinyLFU)**: Maintain a small initial LRU admission buffer (e.g., 1% of cache) paired with a Count-Min Sketch. New items must prove their frequency exceeds existing items before graduating into the main LFU cache.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Distributed Rate Limiting Race Condition</strong></summary>
+<summary><strong>2. What does each structure do in LRU? [BASIC]</strong></summary>
 
-**Scenario**: You deploy a Token Bucket rate limiter across 10 API gateway pods using Redis. Pods read `tokens` via `GET`, calculate the new token count in application memory, and write it back via `SET`. Under 50,000 req/sec, users frequently exceed their allocated rate limits by $300\%$. Why?
+The hash map gives O(1) key → node lookup. The linked list gives O(1) "move to front" and "remove tail" and encodes recency order. Neither alone achieves O(1) for both lookup and eviction.
 
-<strong>Answer:</strong>
-**Check-Then-Act Race Condition across Distributed Nodes**:
-- The sequence `GET tokens` $\rightarrow$ `compute new tokens` $\rightarrow$ `SET tokens` is non-atomic. Two pods reading `tokens = 5` simultaneously will both deduct 1 token and write `tokens = 4`, effectively granting 2 requests while deducting only 1.
-- **Resolution**:
-  - Execute the entire token refill, deduction, and check logic atomically inside a single **Redis Lua Script** (`EVAL`).
-  - Redis executes Lua scripts single-threaded, guaranteeing zero interleaving across cluster gateway pods.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: The Cache Key Collision Trap</strong></summary>
+<summary><strong>3. Token bucket vs leaky bucket? [BASIC]</strong></summary>
 
-**Scenario**: An LRU cache stores user preferences using string keys formatted as `userId + language`. An engineer queries user `12` with language `en_US` (`"12" + "en_US"` = `"12en_US"`). Another queries user `12e` with language `n_US` (`"12e" + "n_US"` = `"12en_US"`). The cache serves user 12's data to user 12e. What domain modeling principle was violated?
+Token bucket lets bursts through up to `capacity`, then limits to the refill rate. Leaky bucket queues requests and drains them at a constant rate, smoothing output (no bursts). Use token bucket for API limits; leaky bucket for traffic shaping.
 
-<strong>Answer:</strong>
-**Primitive Obsession & Ambiguous String Delimitation**:
-- Concatenating raw primitive strings without unambiguous domain boundary delimiters leads to key collisions and catastrophic data leaks.
-- **Resolution**:
-  - Implement a dedicated **CacheKey Value Object** with explicit structure:
-    `CacheKey.Of("user", userId, "lang", lang)`.
-  - Format keys using an unambiguous, non-colliding separator (e.g., `user:12:lang:en_US` vs `user:12e:lang:n_US`), or hash individual component bytes preceded by their length.
+</details>
+
+<details>
+<summary><strong>4. Make the cache thread-safe without a global lock. [SCENARIO]</strong></summary>
+
+Shard the cache: `N` independent LRUs chosen by `hash(key) % N`, each with its own lock. Contention drops roughly N×. Trade-off: eviction is per shard, so global recency is approximate. For read-mostly hot keys, consider a concurrent cache library with approximate LRU (e.g., sampled or buffered recency updates).
+
+</details>
+
+<details>
+<summary><strong>5. 100 requests/min per user, across 5 servers. [SCENARIO]</strong></summary>
+
+In-process limiters would allow up to 500. Put the state in a shared store: Redis with a Lua script (atomic refill + spend) or sliding-window counters with `INCR` + `EXPIRE`. Trade-off: one network hop per request; mitigate by local pre-checks or giving each node a share of the quota and rebalancing.
+
+</details>
+
+<details>
+<summary><strong>6. Test the token bucket without sleeping. [SCENARIO]</strong></summary>
+
+Inject a clock (`Callable[[], float]`). Tests use a `FakeClock` and call `advance(1.0)`. Assert: burst of `capacity` allowed, next denied, `+1s` allows `rate` more, and a long idle period never exceeds `capacity`.
+
+</details>
+
+<details>
+<summary><strong>7. LRU or LFU for a product-page cache with one-time bot crawls? [TRICKY]</strong></summary>
+
+A crawl touches thousands of pages once each. LRU would flush the real hot set; LFU keeps pages with high counts and evicts the one-hit crawl pages. But LFU also keeps stale favorites forever, so add aging (periodically halve counts) or use an admission filter (TinyLFU). Say you'd measure hit rate on real traces.
+
+</details>
+
+<details>
+<summary><strong>8. In LFU, why is `min_freq = 1` correct after inserting a new key? [TRICKY]</strong></summary>
+
+A brand-new key has frequency 1, which is the lowest possible. Any eviction needed before the next insert must come from the lowest non-empty bucket, which is now guaranteed to be bucket 1. On touch, `min_freq` only moves up when its bucket empties, and the key moved to `f+1`, so `min_freq = f+1` is exactly the next lowest.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 9. Try it
 
-- [LeetCode 146: LRU Cache (Official Problem Analysis)](https://leetcode.com/problems/lru-cache/) - Reference algorithm for Doubly Linked List + Hash Map.
-- [LeetCode 460: LFU Cache (Official Problem Analysis)](https://leetcode.com/problems/lfu-cache/) - Reference algorithm for multi-bucket frequency eviction.
-- [Martin Fowler: TinyLFU & High-Performance Caching](https://martinfowler.com/articles/caching-strategies.html) - Strategic overview of cache replacement heuristics.
+1. Run the Python block. Confirm the order lists, the burst result `[True ×5, False ×2]`, and `fixed: 6 / sliding: 3`.
+2. Add `delete(key)` to `LRUCache`. Which two structures must you update?
+3. Add a TTL: store `expires_at` on `_Node`; treat expired entries as misses in `get` using an injected clock.
+4. Replace the `LFUCache` tie-break with FIFO instead of LRU. Which line changes?
+5. Add a **sliding window counter** limiter (two fixed windows blended by overlap).
+6. Compare your results with the live algorithms in the [Rate Limiting simulator](/tools/rate-limiting/), sketch `Cache → EvictionPolicy` in [LLD Studio](/tools/lld-studio/), then use these ideas in [API & Library Design](../19-api-library-design-and-di/README.md) and the [LLD practice sheet](../PRACTICE.md).
 
 ---
 
-## Next Steps
+## 10. One-page cheat sheet
 
-Advance to [Module 19: API/Library Design & Dependency Injection](../19-api-library-design-and-di/README.md) to explore public fluent APIs, semantic versioning, and constructor injection.
+```text
+LRU         dict[key→node] + doubly linked list; head=MRU, tail=LRU. Sentinels.
+get         lookup → unlink → push_front → return        (reads mutate → LOCK)
+put         exists? update+move : (full? evict tail.prev + del map[key]) ; insert front
+Node        stores KEY (needed to delete the victim from the map)
+LFU         key→val, key→freq, freq→OrderedDict(keys), min_freq
+touch       move key f → f+1; if bucket f empty and min==f → min = f+1
+LFU insert  freq 1, min_freq = 1.  Evict: oldest key in bucket min_freq.
+Token bkt   tokens = min(cap, tokens + Δt·rate); if ≥ cost: spend, ALLOW else DENY
+Sliding log deque of timestamps; drop ≤ now−window; allow if len < limit
+Fixed win   cheap but 2× burst at boundary
+Testing     inject Clock (monotonic). FakeClock.advance().
+Scale       shard LRU by hash(key); share limiter state in Redis; bound per-user maps
+
+Say aloud: "Hash map finds it, doubly linked list reorders it — and reads reorder, so reads lock."
+```
+
+---
+
+## Next
+
+**[19 · API & Library Design, DI](../19-api-library-design-and-di/README.md)** — public surfaces, injection, and keeping your cache/limiter swappable.

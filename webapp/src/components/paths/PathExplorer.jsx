@@ -31,7 +31,7 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
             className="explore-search-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tracks by skill (Kafka, Redis, SQL), target role, or milestone..."
+            placeholder="Search paths by skill (Kafka, Redis, SQL), role, or milestone…"
             aria-label="Search learning paths"
           />
         </div>
@@ -64,7 +64,7 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
       </div>
 
       <div className="explore-section-header">
-        <h2 id="pe-title">{domain || level || q ? 'Filtered Paths' : 'Curriculum Paths & Flagship Tracks'}</h2>
+        <h2 id="pe-title">{domain || level || q ? 'Filtered paths' : 'Learning paths'}</h2>
         <span className="explore-section-count">{shown.length} {shown.length === 1 ? 'path' : 'paths'}</span>
       </div>
 
@@ -86,8 +86,8 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
                 <div className="explore-card-head">
                   <div className="explore-card-badges">
                     <span className="explore-pill">{DIFFICULTY[p.difficulty]}</span>
-                    {p.flagship && <span className="explore-pill explore-pill--flagship">★ Flagship Track</span>}
-                    {p.id === activeId && <span className="explore-pill explore-pill--current">Active Track</span>}
+                    {p.flagship && <span className="explore-pill explore-pill--flagship">★ Flagship path</span>}
+                    {p.id === activeId && <span className="explore-pill explore-pill--current">Your path</span>}
                     {isCompleted && <span className="explore-pill explore-pill--done">✓ Completed</span>}
                   </div>
                   <span className="explore-card-topic">{p.topic}</span>
@@ -123,7 +123,7 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
                     href={pathUrl(p.id)}
                     onClick={(e) => { e.preventDefault(); onOpenPath(p.id); }}
                   >
-                    {isStarted ? 'Continue Track' : 'Explore Track'} <ArrowRightIcon />
+                    {isStarted ? 'Continue this path' : 'Start this path'} <ArrowRightIcon />
                   </a>
                 </div>
 

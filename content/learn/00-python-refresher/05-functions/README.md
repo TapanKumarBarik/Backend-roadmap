@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 04](../04-decisions-and-loops/README.md): loops and decisions, which most function bodies contain.  
 > **Estimated Reading Time:** 25 minutes  
-> **Who this is for:** Anyone who wants to write functions confidently, and understand the few rules that surprise people.
+> **Who this is for:** Anyone who wants to write functions confidently, and understand the few rules that surprise people.  
+> **Interview relevance:** Mutable defaults, scope and closures are among the most frequently asked Python questions.
 
 > [!key]
 > A function is a named piece of code you can run as many times as you like. It takes **inputs** (parameters), does some work, and hands back **one result** with `return`. If it never reaches a `return`, the result is `None`.
+
+> [!note]
+> A function is an object with its own scope; defaults are evaluated once, assignment makes a name local, and closures capture variables, not values.
+
+> [!tip]
+> If the interviewer shows `def f(x, items=[])`, name the bug ("defaults are evaluated once") before you fix it.
 
 ## What you will be able to do
 
@@ -502,6 +509,201 @@ print(result)
 The function printed the value but never returned it. Replacing `print(total)` with `return total` gives the caller something to use.
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **A default value is built once, a function without `return` gives `None`, assigning to a name makes it local for the whole function, and closures in loops all see the *last* value.**
+
+```python
+def add_item(item, bucket=[]):
+    bucket.append(item)
+    return bucket
+
+print(add_item("a"))
+print(add_item("b"))          # surprise: the same list again
+
+
+def add_item_safe(item, bucket=None):
+    if bucket is None:
+        bucket = []
+    bucket.append(item)
+    return bucket
+
+print(add_item_safe("a"))
+print(add_item_safe("b"))
+```
+
+```text
+['a']
+['a', 'b']
+['a']
+['b']
+```
+
+The default `[]` is created **once**, when `def` runs, and shared by every call that does not pass its own. The fix is `None` plus a fresh list inside.
+
+```python
+def shout(text):
+    text.upper()              # forgot to return it
+
+print(shout("hi"))
+```
+
+```text
+None
+```
+
+```python
+# raises
+counter = 0
+
+def bump():
+    counter += 1              # makes `counter` local, then reads it before it exists
+
+bump()
+```
+
+```text
+UnboundLocalError: cannot access local variable 'counter' where it is not associated with a value
+```
+
+```python
+counter = 0
+
+def bump():
+    global counter            # allowed, but prefer returning a value instead
+    counter += 1
+
+bump()
+print(counter)
+
+funcs = [lambda: n for n in range(3)]
+print([f() for f in funcs])
+funcs = [lambda n=n: n for n in range(3)]
+print([f() for f in funcs])
+```
+
+```text
+1
+[2, 2, 2]
+[0, 1, 2]
+```
+
+> [!tip]
+> Closures remember the **variable**, not its value at the time. Pass the value in as a default argument (`n=n`) or use `functools.partial` to freeze it.
+
+Keyword-only parameters (after `*`) and positional-only parameters (before `/`) make call sites clearer and APIs safer to change:
+
+```python
+def connect(host, *, timeout=5, retries=3):
+    return f"{host} timeout={timeout} retries={retries}"
+
+print(connect("db", timeout=10))
+
+def power(base, exp, /):
+    return base ** exp
+
+print(power(2, 5))
+```
+
+```text
+db timeout=10 retries=3
+32
+```
+
+```python
+# raises
+def connect(host, *, timeout=5, retries=3):
+    return f"{host} timeout={timeout} retries={retries}"
+
+connect("db", 10)
+```
+
+```text
+TypeError: connect() takes 1 positional argument but 2 were given
+```
+
+Python does not optimise recursion, so very deep recursion fails:
+
+```python
+import sys
+
+def depth(n):
+    return 0 if n == 0 else 1 + depth(n - 1)
+
+print(sys.getrecursionlimit())
+print(depth(500))
+```
+
+```text
+1000
+500
+```
+
+```python
+# raises
+def depth(n):
+    return 0 if n == 0 else 1 + depth(n - 1)
+
+depth(5000)
+```
+
+```text
+RecursionError: maximum recursion depth exceeded
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. Why is a mutable default argument dangerous? [TRICKY]</strong></summary>
+
+Defaults are evaluated **once at definition time**, so a default list or dict is one shared object across calls and keeps its changes. Use `None` as the default and create the object inside the function.
+
+</details>
+
+<details>
+<summary><strong>2. What do <code>*args</code> and <code>**kwargs</code> do? [BASIC]</strong></summary>
+
+In a definition they **collect** extra positional arguments into a tuple and extra keyword arguments into a dictionary. In a call they **unpack**: `f(*items, **options)`. They let wrappers and decorators forward arguments without knowing them.
+
+</details>
+
+<details>
+<summary><strong>3. Explain Python's scope rules (LEGB). [BASIC]</strong></summary>
+
+A name is looked up in the **L**ocal scope, then any **E**nclosing function, then **G**lobal (module), then **B**uilt-ins. Assigning to a name inside a function makes it local for that whole function, so use `global` or `nonlocal` deliberately, or better, pass values in and return results.
+
+</details>
+
+<details>
+<summary><strong>4. Does Python pass by value or by reference? [TRICKY]</strong></summary>
+
+Neither exactly: it passes **a reference to the object, by value** ("pass by assignment"). Rebinding the parameter inside the function does not affect the caller; changing a mutable object that was passed in does. Module 06 draws this out.
+
+</details>
+
+<details>
+<summary><strong>5. What does it mean that functions are first-class? [BASIC]</strong></summary>
+
+Functions are objects: you can store them in variables and data structures, pass them to other functions (`sorted(words, key=len)`), and return them. This is the basis for callbacks, decorators and closures.
+
+</details>
+
+## Cheat sheet
+
+```text
+def f(a, b=1, *args, key, **kwargs):      return value  (no return -> None)
+Defaults        evaluated ONCE -> use None for lists/dicts/sets
+Markers         def f(a, /, b, *, c)      a positional-only, c keyword-only
+*args / **kwargs   collect in a def, unpack in a call:  f(*xs, **opts)
+Scope           LEGB: Local -> Enclosing -> Global -> Built-in
+                assigning makes a name local; global / nonlocal rebind outer names
+Closures        capture the VARIABLE (late binding) -> lambda n=n: n
+Arguments       passed by object reference: rebinding is invisible, mutation is visible
+Functions       are values: sorted(xs, key=len)  map/filter  callbacks  decorators
+Recursion       needs a base case; depth limit ~1000, no tail-call optimisation
+```
 
 ## Check yourself
 

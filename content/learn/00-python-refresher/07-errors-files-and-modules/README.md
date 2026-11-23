@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 06](../06-names-references-and-mutability/README.md): names and objects, and [Module 05](../05-functions/README.md): functions.  
 > **Estimated Reading Time:** 30 minutes  
-> **Who this is for:** Anyone who wants to read error messages calmly, handle problems on purpose, and have programs that read and write real files.
+> **Who this is for:** Anyone who wants to read error messages calmly, handle problems on purpose, and have programs that read and write real files.  
+> **Interview relevance:** Interviewers ask about exceptions, context managers and the import system to judge production habits.
 
 > [!key]
 > An **error** is Python telling you exactly what went wrong and where. Read it, from the bottom up. When you *expect* something to go wrong, such as a missing file or text that is not a number, **catch** that one error and carry on. When something is not your function's job to fix, **raise** an error so the caller knows.
+
+> [!note]
+> Catch narrow exceptions, clean up with `with`, chain errors with `raise ... from`, and remember that imports run a module once.
+
+> [!tip]
+> Never write `except: pass` in an interview answer. If you must catch broadly, log it and say why.
 
 ## What you will be able to do
 
@@ -644,6 +651,174 @@ print([item["task"] for item in loaded if not item["done"]])
 ```
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **Catch the narrowest error you can handle, in the right order; `finally` always runs (even over a `return`); JSON quietly changes tuples and integer keys; and open files with `with` and an explicit encoding.**
+
+```python
+def parse_age(text):
+    try:
+        age = int(text)
+    except ValueError:
+        print(f"{text!r} is not a number")
+        return None
+    else:
+        print("parsed fine")       # runs only when no exception happened
+        return age
+    finally:
+        print("finally always runs")
+
+print(parse_age("42"))
+print(parse_age("abc"))
+```
+
+```text
+parsed fine
+finally always runs
+42
+'abc' is not a number
+finally always runs
+None
+```
+
+- Put only the code that can fail inside `try`; use `else` for what should happen on success, so a bug there is not hidden by the `except`.
+- Order `except` clauses from most specific to most general, because the first match wins.
+- A bare `except:` or `except Exception: pass` hides real bugs, including typos. Catch what you can handle, and let everything else crash loudly.
+
+```python
+try:
+    {}["missing"]
+except LookupError as e:                 # parent of KeyError and IndexError
+    print("caught", type(e).__name__)
+
+
+def read_config(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError as e:
+        raise RuntimeError(f"config {path!r} is required") from e
+
+try:
+    read_config("definitely-missing.cfg")
+except RuntimeError as e:
+    print(e, "| caused by", type(e.__cause__).__name__)
+```
+
+```text
+caught KeyError
+config 'definitely-missing.cfg' is required | caused by FileNotFoundError
+```
+
+`raise ... from e` keeps the original error attached, so the traceback tells the whole story.
+
+Files and JSON with a temporary directory (nothing is left behind):
+
+```python
+import json
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "data.json"
+    original = {"point": (1, 2), 1: "one"}
+    path.write_text(json.dumps(original), encoding="utf-8")
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    print(loaded)
+    print(loaded == original)
+```
+
+```text
+{'point': [1, 2], '1': 'one'}
+False
+```
+
+JSON has no tuples and only text keys, so the tuple came back as a list and `1` as `"1"`. If you need exact types, convert explicitly on load.
+
+```python
+import io
+
+with io.StringIO("line one\nline two\n") as f:     # stands in for a file
+    for line in f:                                  # lazy: one line at a time
+        print(repr(line.rstrip("\n")))
+print(f.closed)
+```
+
+```text
+'line one'
+'line two'
+True
+```
+
+> [!tip]
+> `with` closes the file even if an exception happens inside the block. Iterate over the file object instead of calling `read()` when the file might be large.
+
+Imports run a module **once**; `if __name__ == "__main__":` keeps demo code from running when the file is imported:
+
+```python
+import math
+import math as m
+from math import sqrt
+
+print(math is m, sqrt(16), __name__)
+```
+
+```text
+True 4.0 __main__
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. How do <code>try</code>, <code>except</code>, <code>else</code> and <code>finally</code> fit together? [BASIC]</strong></summary>
+
+`try` holds the risky code; `except` handles a matching error; `else` runs only if nothing was raised; `finally` always runs, for cleanup. Prefer `with` for cleanup of files and locks, since it does the same job with less code.
+
+</details>
+
+<details>
+<summary><strong>2. Why not write <code>except Exception: pass</code>? [BASIC]</strong></summary>
+
+It swallows every error, including programming mistakes (`NameError`, `TypeError`), so failures turn into silent wrong behaviour. Catch specific exceptions, log or re-raise anything you cannot handle, and let the rest surface.
+
+</details>
+
+<details>
+<summary><strong>3. When should a function raise instead of returning an error value? [SCENARIO]</strong></summary>
+
+When it cannot do its job and the caller is in the best position to decide what to do. Returning `None` or `-1` is easy to ignore; an exception cannot be ignored by accident. Use a custom exception class when callers need to tell your failures apart.
+
+</details>
+
+<details>
+<summary><strong>4. What does <code>with open(...) as f</code> do? [BASIC]</strong></summary>
+
+It is a **context manager**: the file is opened on entering the block and closed on leaving it, whether normally or through an exception. Always pass `encoding="utf-8"` for text so behaviour does not depend on the machine.
+
+</details>
+
+<details>
+<summary><strong>5. What happens when you import a module twice? [TRICKY]</strong></summary>
+
+Nothing the second time: Python caches the module in `sys.modules`, so the file runs **once** per program and every `import` shares that one module object. That is why top-level code in a module should be definitions, not actions, and why scripts use `if __name__ == "__main__":`.
+
+</details>
+
+## Cheat sheet
+
+```text
+Traceback       read from the BOTTOM: error type + message, then the line in YOUR code
+try / except E as e / else / finally      specific first; else = success path; finally = cleanup
+Never           bare except:   except Exception: pass
+raise ValueError("why")       raise NewError(...) from e      custom: class MyError(Exception)
+Files           with open(path, encoding="utf-8") as f:      "r" "w" "a"      for line in f
+                pathlib.Path(p).read_text(encoding="utf-8") / write_text(...)
+JSON            json.dumps / loads / dump / load   -> tuples become lists, keys become strings
+Imports         import x | import x as y | from x import name      run ONCE (sys.modules)
+Scripts         if __name__ == "__main__":  main()
+```
 
 ## Check yourself
 

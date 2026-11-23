@@ -54,7 +54,7 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
 
       {path.milestone && (
         <section className="path-milestone-banner" aria-label="Capstone milestone project">
-          <div className="path-milestone-badge"><TrophyIcon className="milestone-trophy" aria-hidden="true" /> Track Capstone Milestone</div>
+          <div className="path-milestone-badge"><TrophyIcon className="milestone-trophy" aria-hidden="true" /> Path capstone</div>
           <h3 className="path-milestone-title">{path.milestone.title}</h3>
           <p className="path-milestone-desc">{path.milestone.description}</p>
           {path.milestone.deliverables?.length > 0 && (

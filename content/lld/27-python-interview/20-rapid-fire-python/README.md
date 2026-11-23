@@ -1,703 +1,557 @@
-# Lesson 20: Rapid Fire: the Python Revision Sheet
+# Lesson 20: Rapid-Fire Python
 
-> **Prerequisites:** [Testing: pytest, Fixtures and Mocking](../19-testing-pytest-fixtures-and-mocking/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 20-25 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** Lessons [01](../01-how-python-runs-your-code/README.md)–[19](../19-testing-pytest-fixtures-and-mocking/README.md) of this track (this is the revision sheet)  
+> **Reading time:** ~30 minutes (then re-read the tables the night before)  
+> **Audience:** Candidates facing a phone screen full of one-liner questions: "`is` vs `==`?", "list vs tuple?", "what does `*args` do?", "what's printed here?"
+
+> [!NOTE]
+> **In one line:** Rapid-fire rounds reward a **short, correct, one-sentence answer plus one example or caveat** — this lesson condenses the whole track into ~80 such answers, plus the "what does this print?" traps interviewers love.
 
 > [!TIP]
-> **The One Rule of Python Rapid Fire:** In Python, variables are pointer labels bound to heap-allocated objects; execution is dictionary-driven attribute resolution (`__dict__`) evaluated by the CPython bytecode loop under the GIL; and language protocols are realized through double-underscore (dunder) methods. In rapid-fire rounds, answer in two crisp sentences: state the underlying memory/runtime mechanism first, then state the invariant or production trade-off.
+> **Golden rule:** Answer in the shape **definition → tiny example → the gotcha** (15 seconds). Interviewers follow up on the gotcha, so volunteer it. Say "it depends" only when followed by *on what*.
+
+> [!TIP]
+> **Try it:** Cover the right-hand column of each table and answer aloud, then run the section 3 "prove it" block (it prints `every trick confirmed` or fails with the line that disproves you) and the [rapid-fire lab](#try-it--rapid-fire-lab-runnable) that checks the table claims the block does not cover. Time yourself — 80 answers in 20 minutes is the target.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-The rapid-fire or technical screening round is designed to test your reflexes and depth under time pressure. Interviewers fire 15 to 20 foundational questions in rapid succession.
-
-Junior candidates fall into two traps:
-1. **The Rambling Narrative:** Taking three minutes to tell a story about a project bug instead of defining the concept. By question four, the 30-minute interview has elapsed.
-2. **Textbook Vagueness:** Using imprecise colloquialisms like *"Python passes variables by reference"* or *"The GIL makes Python single-threaded."* These answers trigger immediate follow-up traps that expose superficial memorization.
-
-A senior engineer answers with **speed, precision, and architectural vocabulary**:
-- **Formula:** `[Exact Definition / CPython Mechanism] + [Direct Consequence / Edge Case]`.
-- *Example:* "Is Python pass-by-value or pass-by-reference?"  
-  *Senior response:* "Python is call-by-sharing (or pass-by-object-reference): the function receives a copy of the object reference pointer by value. Reassigning the parameter name inside the function leaves the caller's variable unchanged, but mutating a mutable object in-place directly alters the caller's object."
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The Unified CPython Runtime Mental Model
+- Machine-gun rounds: *"list vs tuple? dict ordering? `is` vs `==`? mutable default? GIL? decorators? generators?"*
+- "What does this print?" snippets (aliasing, late binding, `finally`, `+=` on tuples).
+- "Explain like I'm a Java/C# dev" — contrast with value types, interfaces, checked exceptions.
+- Follow-ups that test depth: *"…and why?"*, *"…what's the complexity?"*, *"…how would you change it?"*
 
 ```mermaid
-flowchart TD
-    subgraph Layer1["1. Object Model & Memory"]
-        PyObject["PyObject Header\n(ob_refcnt, ob_type)"]
-        MemoryMgr["Reference Counting + Generational GC\n(Small Object Allocator: PyMalloc)"]
-        PyObject --- MemoryMgr
-    end
-
-    subgraph Layer2["2. Execution & Bytecode"]
-        Names["Names (Variables in LEGB Scope)"] -->|Pointers| PyObject
-        Bytecode["Bytecode Evaluator Loop\n(ceval.c)"]
-        GIL["Global Interpreter Lock (GIL)\n(Serializes Bytecode Execution)"]
-        Bytecode --- GIL
-    end
-
-    subgraph Layer3["3. OOP & Protocols"]
-        Dunder["Data Model (Dunder Protocols)\n__iter__, __enter__, __getitem__"]
-        MRO["C3 Linearization (MRO)\nsuper() Dynamic Dispatch"]
-        Dunder --- MRO
-    end
-
-    subgraph Layer4["4. Web & Concurrency"]
-        SyncWSGI["WSGI (gunicorn)\nSync callable: app(environ, start_response)"]
-        AsyncASGI["ASGI (uvicorn)\nAsync coroutine: app(scope, receive, send)"]
-        Loop["asyncio Event Loop\n(Cooperative Multiplexing)"]
-    end
-
-    Layer1 --> Layer2 --> Layer3 --> Layer4
+flowchart LR
+  Q["Question"] --> D["1 sentence: definition"]
+  D --> E["1 example (3 lines)"]
+  E --> G["1 gotcha / trade-off"]
+  G --> F{"follow-up?"}
+  F -->|yes| X["go one level deeper: internals / complexity / alternative"]
+  F -->|no| N["next question"]
 ```
-
-### High-Frequency Architectural Contrasts
-
-| Concept A | Concept B | Core Technical Distinction |
-| :--- | :--- | :--- |
-| `is` | `==` | `is` checks memory identity (`id(a) == id(b)`); `==` invokes `__eq__` to check equality of value. |
-| `__new__` | `__init__` | `__new__` is the static constructor that creates and returns the object instance; `__init__` is the initializer that configures attributes on the newly created instance. |
-| `copy()` | `deepcopy()` | Shallow copy creates a new container holding references to original child objects; deep copy recursively copies the container and all nested objects. |
-| `abc.ABC` | `typing.Protocol` | `ABC` requires nominal inheritance and checks abstract methods at instantiation; `Protocol` enables structural subtyping (static duck typing) verified by static type checkers. |
-| `threading` | `multiprocessing` | `threading` uses OS threads constrained by a single GIL (ideal for I/O); `multiprocessing` spawns separate OS processes with independent GILs and memory spaces (ideal for CPU tasks). |
-| WSGI | ASGI | WSGI is a synchronous request-response callable; ASGI is an asynchronous coroutine supporting WebSockets, HTTP/2, and persistent streaming. |
-| EAFP | LBYL | "Easier to Ask for Forgiveness than Permission" relies on `try/except` (idiomatic Python); "Look Before You Leap" checks preconditions with `if` statements prior to execution. |
-| List Comprehension | Generator Expression | List comprehension eagerly constructs the entire list in memory `[x for x in data]`; generator expression lazily yields items on demand `(x for x in data)`. |
 
 ---
 
-## 3. Code Implementation
+## 2. Reference: one-liners by area
 
-The carousel below demonstrates diagnostic test cases for the top five rapid-fire traps in both Python and C#:
+### Language basics
+
+| Q | A |
+| :--- | :--- |
+| Mutable vs immutable? | Mutable can change in place (`list`, `dict`, `set`, most classes); immutable can't (`int`, `float`, `str`, `tuple`, `frozenset`, `bytes`). |
+| `is` vs `==`? | `is` = same object (identity); `==` = equal value (`__eq__`). Use `is` for `None`/singletons only. |
+| What is `None`? | The single `NoneType` instance meaning "no value"; functions without `return` give `None`. |
+| Truthy/falsy values? | Falsy: `None`, `False`, `0`, `0.0`, `""`, `[]`, `()`, `{}`, `set()`, `range(0)`, objects with `__bool__`→False or `__len__`→0. |
+| `bool` and `int`? | `bool` subclasses `int`: `True + True == 2`. |
+| Integer size? | Arbitrary precision; no overflow. |
+| `//` and `%` with negatives? | Floor division: `-7 // 2 == -4`, `-7 % 2 == 1` (sign follows divisor). |
+| `round(2.5)`? | `2` — banker's rounding (half to even). |
+| Float equality? | `0.1 + 0.2 != 0.3`; use `math.isclose` / `Decimal`. `nan != nan`. |
+| Is Python compiled or interpreted? | Compiled to bytecode, run by a VM (CPython); `.pyc` caches it. |
+| Dynamic vs strong typing? | Dynamic (types on objects) and strong (no silent `"1" + 1`). |
+| Type hints enforced? | No — only by tools (mypy/pyright); pydantic validates at runtime. |
+| `pass`, `...`, `NotImplemented`? | No-op statement; Ellipsis placeholder; sentinel returned by binary dunders to say "try the other operand". |
+| Ternary? | `a if cond else b`. |
+| Walrus? | `if (n := len(x)) > 3:` assigns inside an expression (3.8+). |
+| `for … else`? | `else` runs when the loop finished **without** `break`. |
+
+### Strings, numbers, sequences
+
+| Q | A |
+| :--- | :--- |
+| Are strings mutable? | No; concatenation in a loop is O(n²) — use `"".join(parts)`. |
+| f-string vs `format` vs `%`? | f-strings are fastest/clearest (3.6+); `format` for templates; `%` legacy. |
+| Slicing? | `s[start:stop:step]`, stop exclusive, never raises on out-of-range; `s[::-1]` reverses; makes a copy. |
+| list vs tuple? | list mutable, variable-length; tuple immutable, hashable if elements are, lighter, good for fixed records / dict keys. |
+| list vs array vs deque? | `list` dynamic array (O(1) append, O(n) insert-front); `array` typed compact; `deque` O(1) both ends. |
+| Complexity of list ops? | index O(1), append O(1) amortised, insert/pop(0)/`in` O(n), sort O(n log n). |
+| `sort()` vs `sorted()`? | `sort` in place returns `None`; `sorted` returns a new list; both stable (Timsort), accept `key=`. |
+| Unpacking? | `a, b = b, a`; `first, *rest = xs`; `{**d1, **d2}`; `f(*args, **kwargs)`. |
+| `range` memory? | Lazy sequence: `len(range(10**12))` is instant. |
+| `enumerate` / `zip`? | Index+item pairs; parallel iteration (stops at shortest; `strict=True` raises, 3.10+). |
+| List comprehension vs generator expression? | `[...]` builds the list now; `(...)` is lazy, single-use, constant memory. |
+| `any([])` / `all([])`? | `False` / `True`. |
+| Shallow vs deep copy? | `copy.copy` copies the container only; `deepcopy` recursively copies elements. `[:]`, `list()`, `.copy()` are shallow. |
+| `[[0]*3]*3` trap? | Three references to **one** inner list; use `[[0]*3 for _ in range(3)]`. |
+
+### Dicts and sets
+
+| Q | A |
+| :--- | :--- |
+| How does a dict work? | Hash table with open addressing; average O(1) get/set; keys must be hashable. |
+| Dict ordering? | Insertion-ordered (guaranteed since 3.7). |
+| Hashable? | Has stable `__hash__` consistent with `__eq__`; immutable built-ins are, list/dict/set aren't. |
+| `d[k]` vs `d.get(k)`? | `KeyError` vs `None`/default. |
+| `setdefault` / `defaultdict` / `Counter`? | Insert-if-missing; auto-create values via factory; multiset counter with `most_common`. |
+| Merge dicts? | `a \| b` (3.9+), `{**a, **b}`; later keys win. |
+| Delete while iterating? | `RuntimeError: dictionary changed size`; iterate over `list(d)` or build a new dict. |
+| set operations? | `\|`, `&`, `-`, `^`; membership O(1); no order, no duplicates. |
+| `1`, `1.0`, `True` as keys? | They are equal and hash equally → one key. |
+| `frozenset`? | Immutable, hashable set (usable as dict key). |
+
+### Functions and scope
+
+| Q | A |
+| :--- | :--- |
+| `*args` / `**kwargs`? | Collect extra positional args into a tuple / keyword args into a dict. |
+| Mutable default argument? | `def f(x=[])` evaluates once at definition → shared across calls; use `None` and create inside. |
+| Positional-only / keyword-only? | `def f(a, /, b, *, c)`: `a` positional-only, `c` keyword-only. |
+| LEGB? | Local → Enclosing → Global → Built-in name lookup. |
+| `global` vs `nonlocal`? | Rebind a module-level / enclosing-function variable. |
+| Closure? | Inner function capturing enclosing variables (by cell, not value) → late binding in loops. |
+| Lambda? | Anonymous single-expression function; no statements. |
+| First-class functions? | Functions are objects: pass, return, store, attach attributes. |
+| `map`/`filter`/`reduce`? | Lazy iterators (3.x) / `functools.reduce`; comprehensions usually clearer. |
+| Pass-by-what? | Pass by object reference (assignment): rebinding the parameter doesn't affect the caller; mutating the object does. |
+| `functools` favourites? | `lru_cache`/`cache`, `partial`, `wraps`, `reduce`, `cached_property`, `singledispatch`. |
+
+### OOP and the data model
+
+| Q | A |
+| :--- | :--- |
+| `__init__` vs `__new__`? | `__new__` creates the instance (static, returns it); `__init__` initialises it. |
+| `@staticmethod` / `@classmethod` / instance method? | No implicit arg / gets `cls` (alternative constructors) / gets `self`. |
+| `__str__` vs `__repr__`? | Readable for users vs unambiguous for developers (fallback for `str`). |
+| `__eq__` and `__hash__`? | Defining `__eq__` sets `__hash__` to `None` unless you define it; equal objects must hash equally. |
+| Private attributes? | Convention `_x`; `__x` is name-mangled to `_Class__x` (avoid clashes, not security). |
+| Properties? | `@property` exposes computed/validated attributes with attribute syntax (a descriptor). |
+| MRO? | C3 linearisation order for attribute lookup; `Class.__mro__`; `super()` follows it. |
+| Multiple inheritance? | Supported; use cooperative `super()` and mixins; diamond resolved by MRO. |
+| ABC vs Protocol? | Nominal (must inherit, `@abstractmethod` enforced) vs structural (shape-compatible, checked by type checkers). |
+| `__slots__`? | Fixed attribute set, no per-instance `__dict__` → less memory, no dynamic attributes. |
+| dataclass? | Generates `__init__`/`__repr__`/`__eq__` from annotations; `frozen=True`, `slots=True`, `order=True`. |
+| Duck typing? | "If it quacks": use objects by behaviour, not class (EAFP). |
+| Metaclass? | The class of a class (`type`); customises class creation — rarely needed. |
+| Operator overloading? | Implement dunders (`__add__`, `__lt__`, `__len__`, `__getitem__`, `__iter__`, `__enter__`…). |
+
+### Iterators, generators, context managers, decorators
+
+| Q | A |
+| :--- | :--- |
+| Iterable vs iterator? | Iterable has `__iter__` (returns an iterator); iterator also has `__next__` and is exhausted once. |
+| Generator? | Function with `yield`; lazy, resumable, keeps local state; `yield from` delegates. |
+| `return` in a generator? | Ends iteration (`StopIteration(value)`). |
+| Decorator? | A callable that takes a function and returns a replacement; `@d` is `f = d(f)`; use `functools.wraps`. |
+| Context manager? | `with` uses `__enter__`/`__exit__` (or `@contextmanager`) for guaranteed cleanup. |
+| EAFP vs LBYL? | Try/except (ask forgiveness) vs check first; Python prefers EAFP. |
+| `try/except/else/finally`? | `else` runs if no exception; `finally` always; a `return` in `finally` overrides. |
+| Exception chaining? | `raise X from e` sets `__cause__`; implicit `__context__`; `from None` hides. |
+| Custom exceptions? | Subclass `Exception` (not `BaseException`); build a hierarchy per library. |
+
+### Concurrency, memory, tooling
+
+| Q | A |
+| :--- | :--- |
+| GIL? | CPython lock allowing one thread to run Python bytecode at a time; hurts CPU-bound threads, not I/O-bound ones. |
+| Threads vs processes vs asyncio? | Threads/async for I/O, `multiprocessing`/`ProcessPoolExecutor` for CPU; asyncio is single-threaded cooperative. |
+| Is `+=` on an int thread-safe? | No — read-modify-write; use a `Lock`. |
+| Memory management? | Reference counting + cyclic garbage collector; `weakref` for non-owning refs. |
+| `del x`? | Removes the name binding; the object dies when its refcount hits 0. |
+| Recursion limit? | Default ~1000 (`sys.setrecursionlimit`); no tail-call optimisation. |
+| venv / pip / poetry / uv? | Isolated environments / installer / dependency + build managers (uv is the fast modern one). |
+| `if __name__ == "__main__"`? | Run-only guard: code skipped when imported. |
+| `__init__.py`? | Marks a regular package; runs on first import of the package. |
+| Testing? | pytest (fixtures, parametrize), `unittest.mock`; patch where looked up. |
+| Profiling? | `timeit`, `cProfile`, `tracemalloc`, `py-spy`. |
+| Style tools? | `ruff`/`black` format+lint, `mypy`/`pyright` types, PEP 8. |
+
+---
+
+## 3. Walkthrough: prove the trick questions
+
+**Requirements:** every "what does this print?" classic in one runnable block, with the answer asserted so you can't fool yourself.
+
+1. Aliasing and mutable defaults.
+2. Late-binding closures.
+3. `finally` overriding `return`.
+4. The tuple `+=` paradox.
+5. Dict-key equality and float traps.
 
 ````carousel
 ```python
 import copy
+from collections import Counter, defaultdict
+from decimal import Decimal
 
 
-def test_python_rapid_fire_traps():
-  print("--- Python Rapid-Fire Traps & Diagnostics ---")
-
-  # 1. Mutable Default Argument Trap
-  def append_to_list(val, target=[]):
-    target.append(val)
-    return target
-
-  print(
-      f"Mutable Default Trap: {append_to_list(1)} -> {append_to_list(2)}"
-  )  # Evaluated once at definition!
-
-  # 2. Late Binding Closures in Loops
-  funcs = [lambda: i for i in range(3)]
-  print(
-      f"Late-Binding Lambda: {[f() for f in funcs]}"
-  )  # All return 2 because 'i' is looked up at call time
-
-  # Fix: Default argument capture
-  fixed_funcs = [lambda i=i: i for i in range(3)]
-  print(f"Fixed Lambda Closure: {[f() for f in fixed_funcs]}")
-
-  # 3. Tuple Containing Mutable List
-  nested_tuple = ([1, 2], "immutable")
-  nested_tuple[0].append(3)  # Mutating the contained list in-place succeeds!
-  print(f"Tuple with Mutable Child: {nested_tuple}")
-
-  # 4. Identity vs Equality & Small Integer Caching
-  x = 256
-  y = 256
-  print(f"Cached Integers (256 is 256): {x is y}")  # True: CPython interns -5..256
-
-  # 5. Overriding __eq__ without __hash__ breaks dict/set insertion
-  class BadKey:
-
-    def __init__(self, val):
-      self.val = val
-
-    def __eq__(self, other):
-      return isinstance(other, BadKey) and self.val == other.val
-    # Note: Defining __eq__ automatically sets __hash__ = None in Python 3!
-
-  bk = BadKey(10)
-  try:
-    s = {bk}
-  except TypeError as e:
-    print(f"Unhashable Type Trap: {type(e).__name__}: {e}")
+# 1) aliasing and mutable default
+a = b = []
+a.append(1)
+assert b == [1]                                   # same object
+grid = [[0] * 2] * 2
+grid[0][0] = 9
+assert grid == [[9, 0], [9, 0]]                   # rows alias
+good = [[0] * 2 for _ in range(2)]
+good[0][0] = 9
+assert good == [[9, 0], [0, 0]]
 
 
-if __name__ == "__main__":
-  test_python_rapid_fire_traps()
+def bad_default(x, acc=[]):
+    acc.append(x)
+    return acc
+
+
+bad_default(1)
+assert bad_default(2) == [1, 2]                   # state leaked between calls
+
+
+def good_default(x, acc=None):
+    acc = [] if acc is None else acc
+    acc.append(x)
+    return acc
+
+
+good_default(1)
+assert good_default(2) == [2]
+
+# 2) late binding
+fs = [lambda: i for i in range(3)]
+assert [f() for f in fs] == [2, 2, 2]             # all see the final i
+fixed = [lambda i=i: i for i in range(3)]
+assert [f() for f in fixed] == [0, 1, 2]          # default arg captures now
+
+
+# 3) finally wins
+def f():
+    try:
+        return "try"
+    finally:
+        return "finally"                          # swallows the earlier return (and exceptions!)
+
+
+assert f() == "finally"
+
+# 4) tuple += paradox: raises TypeError AND mutates
+t = ([1],)
+try:
+    t[0] += [2]
+except TypeError:
+    pass
+assert t == ([1, 2],)
+
+# 5) numbers and keys
+assert 0.1 + 0.2 != 0.3 and Decimal("0.1") + Decimal("0.2") == Decimal("0.3")
+nan = float("nan")
+assert nan != nan
+assert {1: "a", 1.0: "b", True: "c"} == {1: "c"}  # one key (value of the last write)
+assert -7 // 2 == -4 and -7 % 2 == 1
+assert round(2.5) == 2 and round(3.5) == 4        # banker's rounding
+assert True + True == 2 and isinstance(True, int)
+assert any([]) is False and all([]) is True
+assert len(range(10**12)) == 10**12               # lazy
+
+# 6) copies
+orig = [[1], [2]]
+shallow, deep = copy.copy(orig), copy.deepcopy(orig)
+orig[0].append(99)
+assert shallow[0] == [1, 99] and deep[0] == [1]
+
+# 7) sorting and stability
+people = [("bob", 25), ("amy", 30), ("cat", 25)]
+assert sorted(people, key=lambda p: p[1]) == [("bob", 25), ("cat", 25), ("amy", 30)]   # stable
+assert [3, 1, 2].sort() is None
+
+# 8) dict/set helpers
+assert Counter("banana").most_common(1) == [("a", 3)]
+dd = defaultdict(list)
+dd["x"].append(1)
+assert dict(dd) == {"x": [1]}
+assert {"a": 1} | {"a": 2, "b": 3} == {"a": 2, "b": 3}
+
+# 9) for/else, walrus, unpacking
+for n in range(3):
+    if n == 5:
+        break
+else:
+    found = False                                 # no break → else runs
+assert found is False
+first, *rest = [1, 2, 3]
+assert (first, rest) == (1, [2, 3])
+assert (m := 5) == 5
+
+# 10) strings
+assert "abc"[::-1] == "cba" and "abc"[10:] == ""
+assert "".join(["a", "b"]) == "ab"
+
+# 11) generator is single-use
+g = (x for x in range(3))
+assert list(g) == [0, 1, 2] and list(g) == []
+
+print("every trick confirmed")
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
-public class Program
-{
-    // 1. C# forbids non-constant default arguments at compile time!
-    // void AppendToList(int val, List<int> target = new List<int>()) -> Compiler Error CS1736
-
-    public static void Main()
-    {
-        Console.WriteLine("--- C# Rapid-Fire Diagnostics ---");
-
-        // 2. Closure Variable Capture (Fixed in C# 5 for foreach, but still applies to for loops!)
-        var funcs = new List<Func<int>>();
-        for (int i = 0; i < 3; i++)
-        {
-            int captured = i; // Explicit local copy prevents loop capture bug
-            funcs.Add(() => captured);
-        }
-        Console.WriteLine($"C# Closure Capture: [{string.Join(", ", funcs.Select(f => f()))}]");
-
-        // 3. ReadOnly Struct / Value Tuple holding mutable reference
-        var tuple = (List: new List<int> { 1, 2 }, Label: "immutable");
-        tuple.List.Add(3); // Mutating inner reference succeeds
-        Console.WriteLine($"Tuple with Mutable Child: ([{string.Join(", ", tuple.List)}], {tuple.Label})");
-
-        // 4. ReferenceEquals vs Equals & String Interning
-        string s1 = "hello";
-        string s2 = string.Intern("hel" + "lo");
-        Console.WriteLine($"String Interning (ReferenceEquals): {object.ReferenceEquals(s1, s2)}");
-
-        // 5. Overriding Equals without GetHashCode emits compiler warning CS0659
-        var badKey = new BadKey(10);
-        var set = new HashSet<BadKey> { badKey };
-        Console.WriteLine($"C# HashSet addition succeeded: {set.Contains(badKey)}");
-    }
-
-    public class BadKey
-    {
-        public int Val { get; }
-        public BadKey(int val) => Val = val;
-        public override bool Equals(object? obj) => obj is BadKey other && Val == other.Val;
-        public override int GetHashCode() => Val.GetHashCode(); // Explicitly implemented
-    }
-}
+// C# contrasts interviewers like to probe (explain the difference, not the syntax):
+// - value types (struct) copy on assignment; classes alias. Python: names always alias objects.
+// - no mutable-default trap: defaults are compile-time constants.
+// - `==` on strings compares values; Python `==` also values, `is` identity.
+// - closures capture variables: foreach captures a fresh variable per iteration (since C# 5);
+//   Python's closures capture the variable itself (late binding).
+var fs = new List<Func<int>>();
+for (int i = 0; i < 3; i++) fs.Add(() => i);          // for-loop shares ONE i → 3,3,3 (same trap as Python)
+Console.WriteLine(string.Join(",", fs.Select(f => f())));
+var gs = new List<Func<int>>();
+foreach (var j in Enumerable.Range(0, 3)) gs.Add(() => j);   // fresh variable per iteration → 0,1,2
+Console.WriteLine(string.Join(",", gs.Select(f => f())));
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab: the single line `every trick confirmed` (everything else is an `assert`). Two version notes: Python 3.14 compiles the `return` inside `finally` with a `SyntaxWarning` (PEP 765) — the behaviour is unchanged, which is the point of the trap — and the C# tab prints `3,3,3` then `0,1,2`.
+
+---
+
+## 4. Edges
+
+- **Don't memorise syntax — memorise the *why*.** "`__hash__` is `None` once you define `__eq__`" is a better answer than "use `@dataclass(frozen=True)`" — then mention the fix.
+- **Version-specific answers:** `dict` order guaranteed 3.7+, walrus 3.8, positional-only 3.8, `|` merge 3.9, `match` 3.10, `ExceptionGroup`/`TaskGroup`/`tomllib` 3.11, free-threaded build optional in 3.13. Say which version you assume.
+- **CPython vs the language:** small-int/string interning, refcount GC and the GIL are CPython implementation details — say so.
+- **"It depends" must be followed by the axis** (CPU vs I/O, read vs write, memory vs latency).
+- **Complexity follow-ups:** `x in list` O(n) vs `x in set` O(1) average; `list.insert(0)` O(n); `str +=` in loop O(n²) (CPython sometimes optimises); `sorted` O(n log n).
+- **Admit and reason:** if you don't know, state what you'd check (`dis`, `sys.getsizeof`, docs, a quick REPL test) — interviewers value that.
+- **Code-reading questions:** trace names → objects, not values. Draw boxes and arrows for aliasing questions.
+- **Avoid absolutes** ("Python is slow", "never use global"): quantify or qualify.
+- **Don't recite the GIL as "Python can't do threads"** — I/O threads work; CPU needs processes (or C extensions releasing the GIL).
+
+### Try it — rapid-fire lab (runnable)
+
+The table answers above are one-liners, so most were never executed. This lab asserts the ones the "prove it" block does not cover. Save as ``rapid_fire_lab.py``; a wrong claim fails loudly. One probe is a timing comparison and asserts direction only.
+
+```python
+import math, sys, time
+from collections import deque, Counter
+from decimal import Decimal
+from functools import lru_cache
+
+# 1) Deleting from a dict while iterating raises; iterate over a snapshot instead
+d = {"a": 1, "b": 2, "c": 3}
+try:
+    for k in d:
+        if d[k] == 2:
+            del d[k]
+except RuntimeError as e:
+    print("1:", e)
+for k in list(d):
+    if d[k] == 2:
+        del d[k]
+assert d == {"a": 1, "c": 3}
+
+# 2) zip stops at the shortest silently; strict=True makes the mismatch loud (3.10+)
+assert list(zip([1, 2, 3], "ab")) == [(1, "a"), (2, "b")]
+try:
+    list(zip([1, 2, 3], "ab", strict=True))
+except ValueError as e:
+    print("2:", e)
+
+# 3) A tuple is hashable only if all its elements are
+assert hash((1, "a")) is not None
+try:
+    hash((1, [2]))
+except TypeError as e:
+    print("3:", e)
+
+# 4) Slicing never raises on out-of-range bounds; indexing does
+s = [1, 2, 3]
+assert s[10:] == [] and s[-100:2] == [1, 2]
+try:
+    s[10]
+except IndexError:
+    pass
+
+# 5) Defining __eq__ sets __hash__ to None; name mangling renames, it does not hide
+class P:
+    def __eq__(self, o): return True
+assert P.__hash__ is None
+class V:
+    def __init__(self): self.__x = 1
+assert V()._V__x == 1 and "_V__x" in vars(V())
+
+# 6) Pass by object reference: rebinding a parameter is invisible, mutation is visible
+def rebind(lst): lst = [99]
+def mutate(lst): lst.append(99)
+data = [1]
+rebind(data); assert data == [1]
+mutate(data); assert data == [1, 99]
+
+# 7) Truthiness and `bool` as int
+assert not any([None, False, 0, 0.0, "", [], (), {}, set(), range(0)])
+assert bool("False") is True and bool([0]) is True
+assert sum([True, True, False]) == 2
+
+# 8) Chained comparisons and int/float equality
+assert 1 < 2 < 3 and not (1 < 3 < 2)
+assert 1 == 1.0 and hash(1) == hash(1.0) and "1" != 1
+
+# 9) Decimal from a float inherits the float's error; from a string it is exact
+assert Decimal(0.1) != Decimal("0.1")
+total = 0.0
+for _ in range(10): total += 0.1                 # (3.12+ made sum() itself compensated, so loop by hand)
+assert math.isclose(0.1 + 0.2, 0.3) and total != 1.0 and math.fsum([0.1] * 10) == 1.0
+
+# 10) sorted(): stable, reverse=True keeps the original order of equal items
+rows = [("a", 1), ("b", 1), ("c", 2)]
+assert sorted(rows, key=lambda r: r[1], reverse=True) == [("c", 2), ("a", 1), ("b", 1)]
+
+# 11) Dict order: re-inserting a deleted key moves it to the end; updating keeps the position
+od = {"x": 1, "y": 2}
+od["x"] = 10
+assert list(od) == ["x", "y"]
+del od["x"]; od["x"] = 1
+assert list(od) == ["y", "x"]
+
+# 12) Complexity, measured by direction only: list.insert(0) vs deque.appendleft
+N = 20_000
+t0 = time.perf_counter(); l = []
+for i in range(N): l.insert(0, i)
+t_list = time.perf_counter() - t0
+t0 = time.perf_counter(); dq = deque()
+for i in range(N): dq.appendleft(i)
+t_deque = time.perf_counter() - t0
+assert t_deque < t_list
+
+# 13) Positional-only / keyword-only markers
+def f(a, /, b, *, c): return (a, b, c)
+assert f(1, 2, c=3) == f(1, b=2, c=3)
+for bad in (lambda: f(a=1, b=2, c=3), lambda: f(1, 2, 3)):
+    try:
+        bad()
+    except TypeError:
+        pass
+
+# 14) lru_cache memoises and exposes statistics
+@lru_cache(maxsize=None)
+def fib(n): return n if n < 2 else fib(n - 1) + fib(n - 2)
+assert fib(80) == 23416728348467685 and fib.cache_info().hits > 0
+
+# 15) Counter arithmetic and most_common ties keep first-seen order
+c = Counter("aabbc")
+assert c.most_common(2) == [("a", 2), ("b", 2)]
+assert (Counter("aab") + Counter("bc")) == Counter({"a": 2, "b": 2, "c": 1})
+
+# 16) Recursion limit and big integers
+assert sys.getrecursionlimit() >= 1000 and 2 ** 200 > 10 ** 60
+assert (-7) // 2 == -4 and (-7) % 2 == 1 and int(-7 / 2) == -3
+
+# 17) Dedupe preserving order
+assert list(dict.fromkeys([3, 1, 3, 2, 1])) == [3, 1, 2]
+print("rapid-fire lab ok")
+```
+
+Expected output:
 
 ```text
---- Python Rapid-Fire Traps & Diagnostics ---
-Mutable Default Trap: [1] -> [1, 2]
-Late-Binding Lambda: [2, 2, 2]
-Fixed Lambda Closure: [0, 1, 2]
-Tuple with Mutable Child: ([1, 2, 3], 'immutable')
-Cached Integers (256 is 256): True
-Unhashable Type Trap: TypeError: unhashable type: 'BadKey'
+1: dictionary changed size during iteration
+2: zip() argument 2 is shorter than argument 1
+3: unhashable type: 'list'
+rapid-fire lab ok
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 5. What you'd say in two minutes
 
-Every major framework and standard library module in Python relies on these underlying rules:
-- **`collections.defaultdict` & `functools.partial`:** Leverage closures, first-class callables, and dynamic default factories.
-- **`dataclasses` & `pydantic`:** Generate `__init__`, `__repr__`, `__eq__`, and `__hash__` automatically by inspecting class annotations via the data model.
-- **`SQLAlchemy` & `Django ORM`:** Use descriptors, metaclasses, and `__getattr__` to intercept database column access and translate Python attribute lookups into SQL queries.
-- **`pytest`:** Exploits Python's AST manipulation and bytecode inspection to provide rich assertion introspection without custom helper assertions.
+> "If you asked me to sum up Python in a minute: everything is an object and names are references, so assignment aliases and mutable defaults or `[[0]*3]*3` bite; `is` is identity, `==` is value. Built-ins are chosen by complexity — list for ordered data, dict and set for O(1) lookups, tuple for fixed records, deque for queues. Functions are first-class, closures capture variables late, decorators are functions that return functions, and generators give lazy, constant-memory pipelines. The data model — `__init__`, `__repr__`, `__eq__`/`__hash__`, `__iter__`, `__enter__` — is how my classes join the language, with dataclasses for boilerplate and Protocols for structural typing. Errors are handled EAFP with specific exceptions, chained with `from`. Under the hood CPython compiles to bytecode, frees memory by reference counting plus a cycle collector, and the GIL means CPU-bound parallelism needs processes while I/O concurrency works with threads or asyncio. In production I use pytest, type hints with mypy or pyright, ruff for linting, and run apps under gunicorn or uvicorn behind a proxy."
 
 ---
 
-## 5. Pitfalls and When Not to Use It
+## 6. Anti-patterns (in the interview itself)
 
-### Top 5 Rapid-Fire Traps Set by Interviewers
-1. **"Is Python pass-by-value or pass-by-reference?"**  
-   *The Trap:* Saying pass-by-reference.  
-   *The Truth:* It is **call-by-sharing** (pass-by-object-reference). Function parameters receive a copy of the pointer address by value.
-2. **"Does the GIL eliminate the need for thread synchronization locks?"**  
-   *The Trap:* Saying yes because only one thread executes at a time.  
-   *The Truth:* No. The GIL only guarantees atomic execution of individual CPython bytecode instructions. Multi-bytecode statements (like `counter += 1`) can be preempted mid-operation, causing race conditions.
-3. **"Are tuples always immutable?"**  
-   *The Trap:* Saying yes unconditionally.  
-   *The Truth:* The tuple's internal pointer table is immutable, meaning you cannot add, remove, or replace references. However, if a tuple contains a mutable object (such as a `list` or `dict`), that nested object can be mutated in-place.
-4. **"Does `__del__` guarantee that resources are cleaned up immediately?"**  
-   *The Trap:* Relying on `__del__` like a C++ destructor.  
-   *The Truth:* No. `__del__` is only executed when an object's reference count reaches zero. Circular references or delayed garbage collection mean `__del__` may be deferred indefinitely or skipped during interpreter shutdown. Always use context managers (`with`).
-5. **"Are type hints checked at runtime by CPython?"**  
-   *The Trap:* Assuming Python throws a `TypeError` if you pass a string to `def add(a: int, b: int)`.  
-   *The Truth:* CPython completely ignores type hints at runtime; they are stored as metadata in `__annotations__` for static linters (Mypy) or runtime validation libraries (Pydantic).
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| Reciting a definition with no example | Sounds memorised | Add a 3-line example |
+| Claiming "Python passes by reference/value" flatly | Both are wrong | "By object reference (assignment)" + show mutate vs rebind |
+| Saying "tuples are faster lists" | Misses semantics | Immutability, hashability, fixed shape |
+| "Use threads for CPU speed-up" | GIL | Processes / C extensions / vectorise |
+| Guessing outputs without tracing | Falls to the trap | Walk names → objects line by line |
+| "Never use X" absolutes | Easy to counter | State trade-offs |
+| Over-long answers to simple questions | Loses the thread | 15-second shape, then offer to go deeper |
+| Not mentioning the version | Ambiguous | "In 3.11+, …" |
 
 ---
 
-## 6. Exercises & Practical Drills
+## 7. Interview questions (the tricky ones to rehearse)
 
-### Exercise 1: Predict the Output
-What does this snippet print, and why?
-```python
-a = [1, 2, 3]
-b = a
-b += [4]
-c = a + [5]
-print(a)
-print(b)
-print(c)
-```
 <details>
-<summary>Answer</summary>
+<summary><strong>1. What does this print? `a = [1]; b = a; b += [2]; print(a)` [TRICKY]</strong></summary>
 
-**Output:**
+`[1, 2]`. `+=` on a list calls `__iadd__`, which extends in place, so `a` and `b` (same object) both see it. With a tuple (`b = b + (2,)`) or an int, `+=` would rebind instead.
+
+</details>
+
+<details>
+<summary><strong>2. Why can `t = ([1],); t[0] += [2]` raise and still change `t`? [TRICKY]</strong></summary>
+
+The statement runs `t[0].__iadd__([2])` (mutates the inner list), then tries `t[0] = result` (a `__setitem__` on an immutable tuple) → `TypeError`. The mutation already happened.
+
+</details>
+
+<details>
+<summary><strong>3. What is the output of `[f() for f in [lambda: i for i in range(3)]]`? [TRICKY]</strong></summary>
+
+`[2, 2, 2]` — closures capture the variable `i`, not its value; by the time they run `i == 2`. Fix with a default argument (`lambda i=i: i`) or `functools.partial`.
+
+</details>
+
+<details>
+<summary><strong>4. Why is `def f(x, acc=[])` dangerous and how do you fix it? [BASIC]</strong></summary>
+
+The default object is created once at function definition and shared between calls. Use `acc=None` and create the list inside.
+
+</details>
+
+<details>
+<summary><strong>5. Explain `is` vs `==` with an example that surprises. [TRICKY]</strong></summary>
+
+`a = [1]; b = [1]` → `a == b` is `True`, `a is b` is `False`. Small ints and some strings may be interned so `x is y` can be `True` for equal values — an implementation detail; never rely on it, use `==` and `is None`.
+
+</details>
+
+<details>
+<summary><strong>6. How would you remove duplicates from a list preserving order? [SCENARIO]</strong></summary>
+
+`list(dict.fromkeys(items))` — dicts keep insertion order and keys are unique (needs hashable items; otherwise do an O(n²) scan or key by a hashable projection).
+
+</details>
+
+<details>
+<summary><strong>7. Count word frequencies in a large file without loading it all. [SCENARIO]</strong></summary>
+
+Iterate the file lazily and update a `Counter`: `with open(p) as f: c = Counter(w for line in f for w in line.split())`; use `c.most_common(10)`. Memory scales with distinct words, not file size.
+
+</details>
+
+<details>
+<summary><strong>8. When is Python the wrong tool, and what do you do? [SCENARIO]</strong></summary>
+
+Tight CPU-bound loops, hard real-time, tiny-footprint targets. Mitigate: vectorise with NumPy, move hot paths to C/Cython/Rust (PyO3), use `multiprocessing`, or put the hot path in another service — keep Python for orchestration and I/O-bound glue.
+
+</details>
+
+---
+
+## 8. One-page cheat sheet
+
 ```text
-[1, 2, 3, 4]
-[1, 2, 3, 4]
-[1, 2, 3, 4, 5]
+Identity   is vs ==         names are references     assignment aliases      copy.copy / deepcopy
+Traps      mutable default   [[0]*n]*m   late-binding lambdas   finally overrides return   tuple[0] += x
+Numbers    big ints   // floors   round half-even   0.1+0.2!=0.3 (Decimal / isclose)   nan!=nan   bool is int
+Seq        list O(1) append, O(n) insert/in | tuple fixed+hashable | deque both ends | set/dict O(1) | sort stable
+Functions  *args tuple  **kwargs dict  / and * markers  LEGB  nonlocal  closures capture variables
+OOP        __new__ makes, __init__ inits | __eq__ => no __hash__ | MRO C3 | dataclass | Protocol | __slots__
+Lazy       iterator (__next__) | generator (yield) | genexp | range | single-use
+Errors     EAFP | else/finally | raise X from e | specific exceptions | ExceptionGroup 3.11
+Runtime    bytecode VM | refcount + cycle GC | GIL: threads/async=I/O, processes=CPU | recursion limit ~1000
+Web/test   WSGI sync, ASGI async | gunicorn/uvicorn | pytest fixtures | patch where LOOKED UP
+Answer     definition -> example -> gotcha (15 s) ; state the Python version ; trace names not values
 ```
-**Explanation:**
-`b = a` creates an alias pointing to the same list object in memory.
-`b += [4]` invokes `b.__iadd__([4])`, which mutates the underlying list in-place and returns the same reference, updating both `a` and `b`.
-`c = a + [5]` invokes `a.__add__([5])`, which constructs and returns a completely **new** list instance, leaving `a` and `b` unchanged.
-</details>
-
-### Exercise 2: Diagnose the Bug
-A developer complains that their class cannot be stored in a Python `set`:
-```python
-class Customer:
-
-  def __init__(self, cid: int, name: str):
-    self.cid = cid
-    self.name = name
-
-  def __eq__(self, other):
-    return isinstance(other, Customer) and self.cid == other.cid
-
-
-customers = {Customer(1, "Alice"), Customer(1, "Alice")}
-```
-What error is raised, why does it happen, and what is the one-line fix?
-<details>
-<summary>Answer</summary>
-
-**Error:** `TypeError: unhashable type: 'Customer'`.  
-**Root Cause:** In Python 3, if a class explicitly overrides `__eq__` without providing `__hash__`, Python automatically sets `__hash__ = None`. This explicitly marks the class unhashable to prevent breaking the hash invariant (equal objects must produce equal hash codes).  
-**Fix:** Implement `__hash__`:
-```python
-def __hash__(self):
-  return hash(self.cid)
-```
-</details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## Further reading
 
-### Group 1: Object Model, Mutability & Memory (Lessons 01, 02, 13)
+- [Python docs: Data model](https://docs.python.org/3/reference/datamodel.html) · [FAQ](https://docs.python.org/3/faq/programming.html)
+- [Python Gotchas: Hitchhiker's Guide](https://docs.python-guide.org/writing/gotchas/)
+- Practice set for this track: [PRACTICE.md](../PRACTICE.md)
 
-> [!interview]
-> **Question 1: Is Python interpreted or compiled?**  
-> **Strong Answer:**  
-> Python is both: source code is first compiled into intermediate bytecode (`.pyc` files), which is then interpreted by the CPython virtual machine's bytecode execution loop (`ceval.c`).
-
-> [!interview]
-> **Question 2: What does "everything is an object" mean?**  
-> **Strong Answer:**  
-> In Python, all entities—including primitive integers, strings, functions, modules, and classes—are first-class `PyObject` structures allocated on the heap, complete with an object type pointer (`ob_type`) and a reference count (`ob_refcnt`).
-
-> [!interview]
-> **Question 3: What happens when you write a = b?**  
-> **Strong Answer:**  
-> It binds the name `a` in the current namespace dictionary to the exact same heap memory object referenced by `b`, incrementing that object's reference count by one without copying any data.
-
-> [!interview]
-> **Question 4: What is the difference between is and ==?**  
-> **Strong Answer:**  
-> `is` evaluates pointer identity (`id(a) == id(b)`), verifying if two variables point to the exact same physical memory address, whereas `==` evaluates value equality by invoking the object's `__eq__` method.
-
-> [!interview]
-> **Question 5: Why is a list a bad default argument?**  
-> **Strong Answer:**  
-> Default argument expressions are evaluated once when the function definition is executed at module load time, not on each invocation; a mutable default list is therefore shared across every subsequent call that omits the argument.
-
-> [!interview]
-> **Question 6: What is the difference between copy and deepcopy?**  
-> **Strong Answer:**  
-> `copy.copy()` constructs a new outer container but inserts references to the original child objects, whereas `copy.deepcopy()` recursively constructs duplicates of the container and every nested object it contains.
-
-> [!interview]
-> **Question 7: Is Python pass by value or pass by reference?**  
-> **Strong Answer:**  
-> Python is call-by-sharing (pass-by-object-reference): the function receives a copy of the object reference pointer by value. Reassigning the parameter name rebinding leaves the caller unaffected, but in-place mutations of mutable objects directly modify the caller's instance.
-
-> [!interview]
-> **Question 8: Can a tuple be changed?**  
-> **Strong Answer:**  
-> The tuple's internal reference array is strictly immutable and cannot be resized or reassigned, but if a tuple holds a reference to a mutable object (like a list), the contents of that nested object can be mutated in-place.
-
-> [!interview]
-> **Question 9: How does Python manage memory?**  
-> **Strong Answer:**  
-> Python manages memory primarily through deterministic reference counting for immediate reclamation, supplemented by a generational cyclic garbage collector (Generations 0, 1, and 2) to detect and reclaim isolated reference cycles.
-
-> [!interview]
-> **Question 10: What is reference counting?**  
-> **Strong Answer:**  
-> Reference counting tracks the number of active pointers referencing each `PyObject` in its `ob_refcnt` header field, immediately deallocating the object and freeing its memory the moment that count drops to zero.
-
-> [!interview]
-> **Question 11: Why can two equal integers or strings sometimes be the same object and sometimes not?**  
-> **Strong Answer:**  
-> CPython optimizes memory via interning: it pre-allocates small integers between -5 and 256 and caches short compile-time string constants, causing `is` to evaluate to `True` for these cached instances but `False` for dynamically calculated values outside these ranges.
-
-> [!interview]
-> **Question 12: How do you find what is slow?**  
-> **Strong Answer:**  
-> Profile deterministically using standard library `cProfile` to measure call counts and cumulative execution time per function, analyze memory allocations using `tracemalloc`, and pinpoint line-by-line bottlenecks with `line_profiler`.
-
----
-
-### Group 2: Functions, Closures, Scope & Decorators (Lessons 03, 04)
-
-> [!interview]
-> **Question 13: What are *args and **kwargs?**  
-> **Strong Answer:**  
-> `*args` packs excess positional arguments into a `tuple`, while `**kwargs` packs excess keyword arguments into a `dict`, enabling functions to accept arbitrary, dynamic parameter signatures.
-
-> [!interview]
-> **Question 14: What is a closure?**  
-> **Strong Answer:**  
-> A closure is an inner function that retains read and write access to variables from its enclosing lexical scope (`__closure__` holding `cell` objects) even after the outer function has completed execution and exited the call stack.
-
-> [!interview]
-> **Question 15: What is the LEGB rule?**  
-> **Strong Answer:**  
-> The LEGB rule defines Python's sequential scope resolution order when resolving variable names: **L**ocal first, then **E**nclosing functions, then **G**lobal (module level), and finally **B**uilt-in scope.
-
-> [!interview]
-> **Question 16: What does nonlocal do?**  
-> **Strong Answer:**  
-> `nonlocal` explicitly binds a variable name within an inner function to the nearest enclosing lexical scope, preventing Python from creating a new local variable when performing an assignment.
-
-> [!interview]
-> **Question 17: What is a decorator? Write one.**  
-> **Strong Answer:**  
-> A decorator is a callable that takes a function as input, extends or alters its behavior via a wrapper closure, and returns the replacement callable; written as:  
-> `def dec(f): @functools.wraps(f) def wrapper(*a, **kw): return f(*a, **kw); return wrapper`.
-
-> [!interview]
-> **Question 18: Why use functools.wraps?**  
-> **Strong Answer:**  
-> `functools.wraps` copies original function metadata—including `__name__`, `__doc__`, `__annotations__`, and `__module__`—from the decorated target onto the wrapper function, preventing introspection and debugging tooling from breaking.
-
-> [!interview]
-> **Question 19: How do you write a decorator that takes arguments?**  
-> **Strong Answer:**  
-> You construct a three-tiered nested function: an outer decorator factory that accepts the configuration arguments, an intermediate decorator function that accepts the target callable, and an inner wrapper that intercepts runtime calls.
-
-> [!interview]
-> **Question 20: What does lru_cache do?**  
-> **Strong Answer:**  
-> `functools.lru_cache` wraps a pure function with a thread-safe Least Recently Used memoization dictionary, caching return values keyed by argument hashes up to a specified maximum capacity (`maxsize`).
-
----
-
-### Group 3: Iterators, Generators & Comprehensions (Lesson 05)
-
-> [!interview]
-> **Question 21: What is the difference between an iterable and an iterator?**  
-> **Strong Answer:**  
-> An iterable is an object implementing `__iter__()` that returns an iterator; an iterator is an object implementing `__next__()` that returns successive values on demand and raises `StopIteration` when exhausted.
-
-> [!interview]
-> **Question 22: What is a generator?**  
-> **Strong Answer:**  
-> A generator is a special iterator produced either by a function containing the `yield` keyword or a generator expression, lazily producing values via a suspended stack frame without buffering the full sequence in memory.
-
-> [!interview]
-> **Question 23: What does yield do?**  
-> **Strong Answer:**  
-> `yield` suspends the execution state and local variables of a generator function, emits a value to the caller, and pauses until the caller invokes `next()` on the generator.
-
-> [!interview]
-> **Question 24: List comprehension or generator expression: when which?**  
-> **Strong Answer:**  
-> Use a list comprehension `[...]` when you need random access, repeated iteration, or sequence length; use a generator expression `(...)` for large or infinite streams to preserve $O(1)$ memory consumption.
-
----
-
-### Group 4: Classes, `__init__`, `__new__`, `__slots__` & Dunder Methods (Lessons 06, 07, 16)
-
-> [!interview]
-> **Question 25: What is the difference between __new__ and __init__?**  
-> **Strong Answer:**  
-> `__new__` is the static constructor responsible for allocating and returning the raw object instance, whereas `__init__` is the initializer that receives that created instance to set initial attribute values.
-
-> [!interview]
-> **Question 26: What is self?**  
-> **Strong Answer:**  
-> `self` is an explicit reference to the current instance passed automatically as the first parameter to instance methods, bound dynamically at call time via Python's descriptor protocol on functions.
-
-> [!interview]
-> **Question 27: What is the difference between a class attribute and an instance attribute?**  
-> **Strong Answer:**  
-> A class attribute is defined on the class body and shared across all instances via `Class.__dict__`; an instance attribute is stored in a specific object's `instance.__dict__` and isolated to that single instance.
-
-> [!interview]
-> **Question 28: What does __slots__ do?**  
-> **Strong Answer:**  
-> `__slots__` replaces the dynamic per-instance `__dict__` with a fixed-size array of C-level descriptor pointers, drastically reducing memory footprint and preventing arbitrary attribute assignment.
-
-> [!interview]
-> **Question 29: What is the difference between __str__ and __repr__?**  
-> **Strong Answer:**  
-> `__str__` provides a human-readable string representation intended for end users (`print(obj)`), whereas `__repr__` provides an unambiguous, detailed representation intended for developers and debugging (`repr(obj)`).
-
-> [!interview]
-> **Question 30: What are dunder (magic) methods?**  
-> **Strong Answer:**  
-> Dunder methods are special double-underscore methods defined in Python's data model that allow user classes to hook into core language syntax, such as operators (`+`), indexing (`[]`), iteration, and context managers.
-
-> [!interview]
-> **Question 31: Why must __hash__ change when you define __eq__?**  
-> **Strong Answer:**  
-> Python requires that equal objects must have identical hash codes (`a == b` implies `hash(a) == hash(b)`); defining `__eq__` without maintaining `__hash__` violates hash-table invariants in sets and dictionaries.
-
-> [!interview]
-> **Question 32: How do you make an object callable?**  
-> **Strong Answer:**  
-> Implement the `__call__(self, *args, **kwargs)` dunder method on the class, allowing instances to be invoked with standard function-call syntax `instance()`.
-
-> [!interview]
-> **Question 33: What is a metaclass?**  
-> **Strong Answer:**  
-> A metaclass is the class of a class (`type` being the default), intercepting class creation at module load time (`__new__` and `__init__`) to validate, register, or rewrite class definitions.
-
-> [!interview]
-> **Question 34: What is a descriptor?**  
-> **Strong Answer:**  
-> A descriptor is an object attribute that customizes attribute access by implementing at least one of `__get__`, `__set__`, or `__delete__` in its class, serving as the engine behind `@property`, methods, and `@classmethod`.
-
-> [!interview]
-> **Question 35: How does @property work?**  
-> **Strong Answer:**  
-> `@property` is a built-in data descriptor that binds getter, setter, and deleter methods to an attribute name, executing custom logic transparently on standard dot-notation access (`obj.attr`).
-
-> [!interview]
-> **Question 36: What is __init_subclass__?**  
-> **Strong Answer:**  
-> Introduced in Python 3.6, `__init_subclass__` is a hook called on base classes whenever a child class is derived, providing a lightweight alternative to metaclasses for subclass validation and registration.
-
----
-
-### Group 5: Inheritance, `super()` & MRO (Lesson 08)
-
-> [!interview]
-> **Question 37: What is the MRO?**  
-> **Strong Answer:**  
-> The Method Resolution Order (MRO) is the linear sequence computed via the C3 Linearization algorithm that Python traverses to look up methods and attributes in inheritance hierarchies.
-
-> [!interview]
-> **Question 38: How does super() work with multiple inheritance?**  
-> **Strong Answer:**  
-> `super()` delegates to the *next class in the MRO* of the calling instance, not necessarily the lexical parent class, ensuring cooperative multi-inheritance calls proceed deterministically.
-
-> [!interview]
-> **Question 39: How does Python solve the diamond problem?**  
-> **Strong Answer:**  
-> Python resolves the diamond problem through C3 Linearization, which guarantees local precedence order (subclasses before parents) and monotonicity (parent ordering preserved) without visiting any class twice.
-
-> [!interview]
-> **Question 40: What is a mixin?**  
-> **Strong Answer:**  
-> A mixin is a specialized class intended to provide reusable, modular method implementations across unrelated classes through multiple inheritance, without being instantiated directly.
-
----
-
-### Group 6: Typing, Protocols & ABCs, Dataclasses & Context Managers (Lessons 09, 10, 11, 12)
-
-> [!interview]
-> **Question 41: Does Python have interfaces?**  
-> **Strong Answer:**  
-> Python has no native `interface` keyword, but implements them through Abstract Base Classes (`abc.ABC` with nominal inheritance) and Protocols (`typing.Protocol` with structural typing).
-
-> [!interview]
-> **Question 42: What is duck typing?**  
-> **Strong Answer:**  
-> Duck typing is Python's dynamic typing philosophy where an object's suitability is determined by the presence of required methods and properties at runtime, rather than its explicit inheritance hierarchy ("if it walks like a duck and quacks like a duck, it's a duck").
-
-> [!interview]
-> **Question 43: What is the difference between an ABC and a Protocol?**  
-> **Strong Answer:**  
-> An `ABC` enforces nominal subtyping requiring explicit subclassing checked at instantiation time, whereas a `Protocol` enables structural subtyping (static duck typing) verified by static type checkers without runtime inheritance.
-
-> [!interview]
-> **Question 44: Are type hints enforced at run time?**  
-> **Strong Answer:**  
-> No, standard CPython completely ignores type hints at runtime; they are stored as metadata in `__annotations__` for static linters (like Mypy) or runtime validation frameworks (like Pydantic).
-
-> [!interview]
-> **Question 45: What is a dataclass?**  
-> **Strong Answer:**  
-> Introduced in PEP 557, `@dataclass` is a class decorator that automatically generates boilerplate methods (`__init__`, `__repr__`, `__eq__`) by inspecting type-annotated class attributes.
-
-> [!interview]
-> **Question 46: What is the difference between a dataclass and a NamedTuple?**  
-> **Strong Answer:**  
-> A `dataclass` creates a standard mutable class instance with full method support, whereas a `NamedTuple` creates an immutable `tuple` subclass that supports tuple unpacking and indexed access.
-
-> [!interview]
-> **Question 47: When would you use pydantic instead of a dataclass?**  
-> **Strong Answer:**  
-> Use Pydantic when dealing with external boundary data (HTTP payloads, JSON, environment settings) requiring runtime data parsing, validation, and type coercion; use dataclasses for internal, trusted domain models.
-
-> [!interview]
-> **Question 48: What is a context manager?**  
-> **Strong Answer:**  
-> A context manager is an object that manages resource allocation and cleanup by implementing the `__enter__()` and `__exit__()` dunder methods for use with the `with` statement.
-
-> [!interview]
-> **Question 49: How do you write one?**  
-> **Strong Answer:**  
-> Either by implementing a class with `__enter__` and `__exit__` methods, or by decorating a generator function yielding a single resource with `@contextlib.contextmanager`.
-
-> [!interview]
-> **Question 50: What does the with statement guarantee?**  
-> **Strong Answer:**  
-> The `with` statement guarantees that the context manager's `__exit__()` method will be executed to release resources, even if an unhandled exception or early return occurs inside the block.
-
-> [!interview]
-> **Question 51: What is the difference between EAFP and LBYL?**  
-> **Strong Answer:**  
-> EAFP ("Easier to Ask for Forgiveness than Permission") executes the operation and handles exceptions with `try/except`, avoiding race conditions; LBYL ("Look Before You Leap") tests preconditions with `if` checks prior to execution.
-
-> [!interview]
-> **Question 52: What does the else clause of try do?**  
-> **Strong Answer:**  
-> The `else` clause in a `try/except/else/finally` block runs if and only if the `try` block completed successfully without raising any exceptions.
-
-> [!interview]
-> **Question 53: What does raise ... from do?**  
-> **Strong Answer:**  
-> `raise NewException from OriginalException` enables explicit exception chaining by assigning the original error to `__cause__`, preserving the original traceback for diagnostic visibility.
-
-> [!interview]
-> **Question 54: Why should you not catch a bare except?**  
-> **Strong Answer:**  
-> A bare `except:` catches `BaseException`, inadvertently suppressing system-exiting signals like `KeyboardInterrupt` (`Ctrl+C`) and `SystemExit`, making processes difficult to stop gracefully; always catch `Exception` instead.
-
----
-
-### Group 7: Concurrency: GIL, Threading, Multiprocessing & asyncio (Lessons 14, 15)
-
-> [!interview]
-> **Question 55: What is the GIL?**  
-> **Strong Answer:**  
-> The Global Interpreter Lock (GIL) is a mutual-exclusion lock in CPython that restricts execution of Python bytecode to a single OS thread at a time within a single process to keep memory reference counting thread-safe.
-
-> [!interview]
-> **Question 56: Threading or multiprocessing: when which?**  
-> **Strong Answer:**  
-> Use `threading` for I/O-bound tasks where threads release the GIL during network and disk syscalls; use `multiprocessing` for CPU-bound tasks to bypass the GIL across multiple cores via separate process heaps.
-
-> [!interview]
-> **Question 57: When is asyncio the right choice?**  
-> **Strong Answer:**  
-> `asyncio` is the right choice for high-concurrency, network-bound I/O applications maintaining thousands of mostly-idle connections (like WebSockets or API gateways) on a lightweight, single-threaded event loop.
-
-> [!interview]
-> **Question 58: Does Python support true parallelism?**  
-> **Strong Answer:**  
-> Yes, via `multiprocessing`, native C/Rust extensions that drop the GIL (`Py_BEGIN_ALLOW_THREADS`), per-interpreter GILs in Python 3.12+, and official free-threaded builds in Python 3.13+ (PEP 703).
-
-> [!interview]
-> **Question 59: What is the event loop?**  
-> **Strong Answer:**  
-> The event loop is the central engine of `asyncio` that continuously polls OS I/O multiplexers (`epoll`/`kqueue`/IOCP) and schedules suspended coroutines for execution when their awaited events become ready.
-
-> [!interview]
-> **Question 60: What is the difference between a coroutine and a task?**  
-> **Strong Answer:**  
-> A coroutine is a suspended function object created by calling `async def`; a `Task` is an `asyncio.Task` wrapper that schedules the coroutine on the event loop for concurrent background execution.
-
-> [!interview]
-> **Question 61: What happens if you call a blocking function inside async code?**  
-> **Strong Answer:**  
-> Calling a synchronous blocking function (e.g., `time.sleep` or `requests.get`) stalls the entire event loop thread, completely freezing all other concurrent coroutines until the blocking call returns.
-
----
-
-### Group 8: Web Architecture, Testing & Modules (Lessons 17, 18, 19)
-
-> [!interview]
-> **Question 62: What does if __name__ == "__main__" do?**  
-> **Strong Answer:**  
-> It checks whether the Python file is being run directly as a top-level script (`__name__ == "__main__"`) versus being imported as a module into another file, preventing execution of entrypoint code upon import.
-
-> [!interview]
-> **Question 63: What is the difference between a module and a package?**  
-> **Strong Answer:**  
-> A module is a single Python source file (`.py`); a package is a directory containing modules, traditionally signaled by the presence of an `__init__.py` file (or namespace packages via PEP 420).
-
-> [!interview]
-> **Question 64: How do you fix a circular import?**  
-> **Strong Answer:**  
-> Refactor shared dependencies into a separate third module, move imports inside function scopes (deferred imports), or use `typing.TYPE_CHECKING` guards for type hints.
-
-> [!interview]
-> **Question 65: Why use a virtual environment?**  
-> **Strong Answer:**  
-> Virtual environments isolate Python package dependencies per project, preventing version conflicts with the host system Python or between unrelated applications.
-
-> [!interview]
-> **Question 66: What does app.run do in Flask?**  
-> **Strong Answer:**  
-> It starts Werkzeug's embedded single-process development HTTP server with an auto-reloader and interactive debugger for local debugging.
-
-> [!interview]
-> **Question 67: Why should you not use app.run in production?**  
-> **Strong Answer:**  
-> It lacks worker process pooling, cannot handle slowloris/DoS attacks, exposes remote code execution risks if `debug=True`, and cannot handle zero-downtime rolling restarts.
-
-> [!interview]
-> **Question 68: What is the difference between WSGI and ASGI?**  
-> **Strong Answer:**  
-> WSGI is a synchronous calling convention (`app(environ, start_response)`) for standard HTTP request-response cycles, while ASGI is an asynchronous protocol (`app(scope, receive, send)`) supporting async I/O, WebSockets, and HTTP/2.
-
-> [!interview]
-> **Question 69: How does middleware work in FastAPI?**  
-> **Strong Answer:**  
-> Middleware implements an onion wrapper (`dispatch(request, call_next)`) around the ASGI pipeline, allowing pre-processing of incoming requests and post-processing of outgoing responses.
-
-> [!interview]
-> **Question 70: How does dependency injection work in FastAPI?**  
-> **Strong Answer:**  
-> It uses `Depends()` parameter markers to build and resolve a Directed Acyclic Graph (DAG) of shared resources per request, supporting scoped cleanup via `yield`.
-
-> [!interview]
-> **Question 71: What is a pytest fixture?**  
-> **Strong Answer:**  
-> A pytest fixture is a modular, reusable dependency declared with `@pytest.fixture` that prepares test context, injects state into test functions, and performs cleanup via `yield`.
-
-> [!interview]
-> **Question 72: Where should you patch?**  
-> **Strong Answer:**  
-> Always patch an object *where it is looked up*, not where it is defined (e.g., if `app.py` has `from os import remove`, patch `'app.remove'`, not `'os.remove'`).
-
-> [!interview]
-> **Question 73: What is the difference between Mock and MagicMock?**  
-> **Strong Answer:**  
-> `MagicMock` is a subclass of `Mock` that comes pre-configured with default implementations for Python dunder methods (`__iter__`, `__enter__`, `__len__`, `__str__`), whereas standard `Mock` does not.
-
----
-
-## 8. Sources & Further Reading
-
-- [Python Documentation: The Python Standard Library & Language Reference](https://docs.python.org/3/)
-- [PEP 8 – Style Guide for Python Code](https://peps.python.org/pep-0008/)
-- [PEP 703 – Making the Global Interpreter Lock Optional in CPython](https://peps.python.org/pep-0703/)
-- [PEP 3333 – Python Web Server Gateway Interface v1.0.1](https://peps.python.org/pep-3333/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Pytest Documentation](https://docs.pytest.org/en/stable/)
-- [Microsoft Learn: .NET for Python Developers](https://learn.microsoft.com/en-us/dotnet/csharp/)
-
----
-
-Previous: [Testing: pytest, Fixtures and Mocking](../19-testing-pytest-fixtures-and-mocking/README.md) · Next: [Track 27 Overview](../README.md)
+Previous: [Testing: pytest, Fixtures and Mocking](../19-testing-pytest-fixtures-and-mocking/README.md) · Back to: [Python Interview Track](../README.md)

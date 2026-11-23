@@ -13,7 +13,7 @@ export const PATH_COPY = {
   switchTitle: 'Switch path',
   switchLead: 'Your progress stays with the modules, so nothing is lost: a module you finished counts in every path that includes it.',
   start: 'Start this path',
-  follow: 'Follow this path',
+  follow: 'Start this path',
   current: 'Your path',
   switchAction: 'Switch path',
   keepPath: 'Keep my current path',

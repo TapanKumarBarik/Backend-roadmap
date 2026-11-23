@@ -1,541 +1,502 @@
 # Lesson 04: Decorators
 
-> **Prerequisites:** [Functions: *args, **kwargs, Closures and Scope](../03-functions-args-kwargs-closures-and-scope/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 03: Functions, Closures and Scope](../03-functions-args-kwargs-closures-and-scope/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked to "write a decorator", "write one with arguments", or "how is this different from the Decorator pattern?"
+
+> [!NOTE]
+> **In one line:** `@dec` above `def f` means `f = dec(f)`, executed **once at definition time**; the decorator returns a wrapper closure that runs on every call, and `@functools.wraps` keeps the original's name, docstring and signature.
 
 > [!TIP]
-> **The One Rule of Decorators:** A decorator is syntactic sugar for rebinding a callable: writing `@dec` immediately above `def func():` is evaluated as `func = dec(func)` at module import time. If the decorator accepts arguments (`@dec(args)`), it is a **decorator factory** that returns the actual decorator: `func = dec(args)(func)`. Always decorate your inner wrapper with `@functools.wraps(func)` to preserve the wrapped function's identity, docstring, and signature introspection.
+> **Golden rule:** Every real decorator has three parts — accept `*args, **kwargs`, call the original, and use `@functools.wraps`. A decorator **with arguments** is a *factory*: one extra layer that returns the decorator.
+
+> [!TIP]
+> **Try it:** Run the file below, then delete one `@functools.wraps` line and watch `__name__` become `wrapper`. In [LLD Studio](/tools/lld-studio/) draw a decorator as `Client → Wrapper → Target` — the same shape as the GoF Decorator, but applied to a *callable*.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-Decorators appear in virtually every senior Python interview because they test the convergence of first-class functions, closures, variadic arguments, and metaprogramming.
+*"Write a decorator that retries a flaky call three times."* Then, quickly:
 
-Consider this standard interview challenge:
-*"Write a retry decorator with configurable max retries. What happens if you omit `@functools.wraps`, and how does Python's `@` syntax relate to the GoF Decorator Pattern?"*
-
-### The Weak Answer
-> *"A decorator is a function with an `@` symbol on top that adds extra features before and after another function. `@functools.wraps` is optional styling so the function looks nice. Python decorators and the Gang of Four Decorator pattern are basically the exact same thing."*
-
-### The Senior Strong Answer
-> *"Syntactically, a Python decorator is a higher-order callable that takes a function as an argument and returns either a modified function or a wrapper callable. It executes **once at module definition time**, replacing the original function name in the symbol table with the wrapper.  
-> 
-> Omitting `@functools.wraps` is a severe defect in production systems: it replaces the function's `__name__`, `__doc__`, `__annotations__`, and `__module__` with those of the generic wrapper (e.g., `'wrapper'`). In web frameworks like Flask or FastAPI, this causes endpoint name collisions (`AssertionError: View function mapping is overwriting an existing endpoint function: wrapper`), breaks OpenAPI schema generation, and cripples debugging stack traces.  
-> 
-> When arguments are required (e.g., `@retry(max_attempts=3)`), we write a **three-tier closure**: the outermost function accepts the configuration arguments and returns the decorator; the middle function accepts the target function; the innermost function is the variadic wrapper that intercepts the invocation.  
-> 
-> Finally, Python decorators are **behavioral interceptors applied to callables at the language level**, whereas the Gang of Four Decorator pattern is an **object-oriented structural pattern** wrapping class instances implementing a common interface to add responsibilities dynamically at runtime."*
-
-### Interception Paradigms Compared
-
-| Mechanism | Structure | Execution Timing | Metadata Preservation | Primary Use Cases |
-| :--- | :--- | :--- | :--- | :--- |
-| **Simple Decorator** | 2-level nested function | Definition / Import time | Requires `@functools.wraps` | Logging, timing, profiling, authorization checks. |
-| **Parameterized Decorator** | 3-level nested function (factory) | Factory runs at definition time; wrapper runs at call time | Requires `@functools.wraps` on inner wrapper | `@retry(times=3)`, `@rate_limit(per_sec=10)`, `@validate_roles("admin")`. |
-| **Class as Decorator** | Class implementing `__call__` | `__init__` takes `func`; `__call__` executes wrapper | Preserved via `functools.update_wrapper` in `__init__` | Stateful metrics, call counting, caching instances. |
-| **GoF Decorator Pattern** | Object composition (`Wrapper implements IService`) | Runtime instantiation per instance | Preserved by implementing shared interface | Adding encryption/compression layers to `Stream` or `IOrderService`. |
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The Decorator Lifecycle: Definition Time vs Call Time
-
-A decorator's wrapping logic executes once when the module loads, not when the decorated function is called.
-
-```mermaid
-flowchart TD
-    subgraph DefinitionTime["1. Module Load / Definition Time"]
-        DefFunc["def target_function() is parsed"]
-        ExecFactory["retry(max_attempts=3) executes -> returns Decorator"]
-        ExecDec["Decorator(target_function) executes -> returns Wrapper"]
-        Rebind["target_function name rebound to Wrapper!"]
-        DefFunc --> ExecFactory
-        ExecFactory --> ExecDec
-        ExecDec --> Rebind
-    end
-
-    subgraph CallTime["2. Runtime Invocation: target_function()"]
-        Caller["Caller invokes target_function(*args, **kwargs)"]
-        EnterWrapper["Wrapper starts: Initialises attempts = 0"]
-        TryOriginal["Calls original target_function()"]
-        Catch["Catches transient exception -> Retries"]
-        ReturnVal["Returns successful payload or raises exhausted error"]
-        
-        Caller --> EnterWrapper
-        EnterWrapper --> TryOriginal
-        TryOriginal --> Catch
-        Catch -->|Retry < 3| TryOriginal
-        Catch -->|Retry >= 3| ReturnVal
-    end
-```
-
-### Stacking Order Mechanics
-
-When stacking multiple decorators, they apply from the **bottom up** (inside out), but execute from the **top down** (outside in):
+- *"Now make the number of attempts configurable."* (decorator factory)
+- *"What breaks if you forget `functools.wraps`?"*
+- *"In what order do stacked decorators run?"*
+- *"Is this the Decorator design pattern?"*
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Client
-    participant DecA as "@audit_log (Outer Wrapper)"
-    participant DecB as "@retry (Inner Wrapper)"
-    participant Func as "target_service()"
-
-    Note over Client,Func: Syntax: @audit_log \n @retry \n def target_service()
-    Note over Client,Func: Evaluated at import: target_service = audit_log(retry(target_service))
-
-    Client->>DecA: 1. target_service() called
-    DecA->>DecB: 2. DecA pre-execution (Log start) -> calls DecB
-    DecB->>Func: 3. DecB pre-execution (Try attempt 1) -> calls Func
-    Func-->>DecB: 4. Func returns result
-    DecB-->>DecA: 5. DecB post-execution (Success) -> returns to DecA
-    DecA-->>Client: 6. DecA post-execution (Log duration) -> returns to Client
+  participant M as Module import
+  participant D as retry(3)  (factory)
+  participant Dec as decorator
+  participant W as wrapper
+  participant F as flaky()
+  M->>D: @retry(3) evaluated
+  D-->>M: decorator
+  M->>Dec: decorator(flaky)
+  Dec-->>M: wrapper  (name `flaky` now points here)
+  Note over M,W: --- later, at call time ---
+  M->>W: flaky()
+  W->>F: call original (attempt 1..3)
+  F-->>W: result or exception
+  W-->>M: result / re-raise
 ```
+
+Stacking: `@a` over `@b` over `def f` is `f = a(b(f))` — **applied bottom-up, executed top-down** (outermost wrapper runs first).
 
 ---
 
-## 3. Code Implementation
+## 2. Forms at a glance
 
-The following code demonstrates:
-1. Metadata preservation using `@functools.wraps`.
-2. A 3-level parameterized retry decorator.
-3. Class-based decorator pattern with state tracking.
-4. Built-in memoization using `@functools.lru_cache` and cache statistics introspection.
+| Form | Shape | Use for |
+| :--- | :--- | :--- |
+| Simple | `def dec(fn): @wraps(fn) def wrapper(*a, **k): ...; return wrapper` | timing, logging, auth checks |
+| With arguments | `def dec(arg): def real(fn): @wraps(fn) def wrapper(...)...; return real` | `@retry(times=3)`, `@route("/x")` |
+| Class-based | class with `__init__(self, fn)` and `__call__` | decorators that hold state (call counters) |
+| Class decorator | `def dec(cls): ...; return cls` | `@dataclass`, registries |
+| Built-ins | `@property`, `@classmethod`, `@staticmethod`, `functools.cache`, `lru_cache` | day-to-day |
+
+| | Python `@decorator` | GoF Decorator pattern |
+| :--- | :--- | :--- |
+| Acts on | a function / class (at definition) | an *object* implementing an interface (at runtime) |
+| Mechanism | rebinding a name | composition: wrapper holds the wrapped object |
+| Example | `@retry`, `@cache` | `GzipStream(EncryptedStream(FileStream))` |
+
+---
+
+## 3. Walkthrough: timing, retry with arguments, a counter, caching
+
+**Requirements:** (1) `timed` — measure; (2) `retry(times, on=...)` — configurable; (3) `CountCalls` — class-based state; (4) `lru_cache` — memoise with stats.
+
+**Extension point:** because decorators compose, a new cross-cutting concern is another decorator, not an edit to business code.
 
 ````carousel
 ```python
 import functools
 import time
-from typing import Any, Callable, Dict, Tuple, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])
+from typing import Callable
 
 
-# 1. Parameterized Decorator Factory (3 Levels)
-def retry(max_attempts: int = 3) -> Callable[[F], F]:
-    """Decorator factory that retries an operation upon failure."""
+def timed(fn):
+    @functools.wraps(fn)                         # keep __name__, __doc__, __wrapped__
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return fn(*args, **kwargs)
+        finally:                                 # runs on success AND on exception
+            elapsed = time.perf_counter() - start
+            print(f"[timed] {fn.__name__} took {elapsed * 1000:.1f} ms")
+    return wrapper
 
-    def decorator(func: F) -> F:
-        @functools.wraps(func)  # Critical: preserves __name__, __doc__, __annotations__
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            attempts = 0
-            while attempts < max_attempts:
+
+def retry(times: int = 3, on: tuple[type[Exception], ...] = (ConnectionError,)):
+    """Decorator FACTORY: retry(...) returns the real decorator."""
+    def decorator(fn: Callable):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, times + 1):
                 try:
-                    return func(*args, **kwargs)
-                except ValueError:
-                    attempts += 1
-                    if attempts >= max_attempts:
+                    return fn(*args, **kwargs)
+                except on as err:
+                    print(f"[retry] attempt {attempt}/{times} failed: {err}")
+                    if attempt == times:
                         raise
-            raise RuntimeError("Exhausted retries")
-
-        return wrapper  # type: ignore[return-value]
-
+        return wrapper
     return decorator
 
 
-# 2. Demonstration of @functools.wraps preserving metadata
-def identity_decorator(func: F) -> F:
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        return func(*args, **kwargs)
+class CountCalls:
+    """Class-based decorator holding state."""
+    def __init__(self, fn):
+        functools.update_wrapper(self, fn)
+        self._fn = fn
+        self.calls = 0
 
-    return wrapper  # type: ignore[return-value]
-
-
-@identity_decorator
-def compute(x: int) -> int:
-    """Computes square."""
-    return x * x
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return self._fn(*args, **kwargs)
 
 
-# 3. Built-in Memoization with lru_cache
-@functools.lru_cache(maxsize=128)
+_attempts = {"n": 0}
+
+
+@timed
+@retry(times=3)
+def flaky_fetch(url: str) -> str:
+    """Pretend network call: fails twice, then succeeds."""
+    _attempts["n"] += 1
+    if _attempts["n"] < 3:
+        raise ConnectionError(f"timeout #{_attempts['n']}")
+    return f"payload from {url}"
+
+
+@CountCalls
+def greet(name: str) -> str:
+    return f"hi {name}"
+
+
+@functools.lru_cache(maxsize=None)
 def fib(n: int) -> int:
-    """Computes nth Fibonacci number using recursion and LRU caching."""
-    if n < 2:
-        return n
-    return fib(n - 1) + fib(n - 2)
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
 
 
-def run_demonstration() -> None:
-    # 1. Verify preserved metadata
-    print("Preserved func name:", compute.__name__)
-    print("Preserved func doc:", compute.__doc__)
+def main() -> None:
+    print(flaky_fetch("https://example.test"))
+    print(flaky_fetch.__name__, "|", flaky_fetch.__doc__)       # metadata kept
+    print(flaky_fetch.__wrapped__.__name__)                      # the inner (retry) wrapper
 
-    # 2. Test parameterized retry decorator
-    call_count = 0
+    greet("a"); greet("b")
+    print("calls:", greet.calls)
 
-    @retry(max_attempts=3)
-    def flaky_api() -> str:
-        nonlocal call_count
-        call_count += 1
-        if call_count < 3:
-            raise ValueError("Temporary network glitch")
-        return "Success on attempt 3"
-
-    print("Flaky API result:", flaky_api())
-
-    # 3. Test lru_cache hits and misses
-    fib(10)
+    fib(30)
     info = fib.cache_info()
-    print(f"Cache info: hits={info.hits}, misses={info.misses}, currsize={info.currsize}")
+    print(f"cache: hits={info.hits} misses={info.misses}")       # hits=28 misses=31
+
+    def no_wraps(fn):
+        def wrapper(*a, **k):
+            return fn(*a, **k)
+        return wrapper
+
+    @no_wraps
+    def documented():
+        """I have docs."""
+    print(documented.__name__, documented.__doc__)               # wrapper None
 
 
 if __name__ == "__main__":
-    run_demonstration()
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Reflection;
-
-public class Program
+// C#: no @-syntax, but the same idea is a higher-order function (or ASP.NET filter / MediatR behavior).
+static Func<T, TResult> Retry<T, TResult>(Func<T, TResult> fn, int times = 3) => arg =>
 {
-    // 1. C# Higher-Order Delegate Wrapper (Equivalent to Parameterized Decorator)
-    public static Func<TResult> Retry<TResult>(Func<TResult> func, int maxAttempts = 3)
+    for (var attempt = 1; ; attempt++)
     {
-        return () =>
+        try { return fn(arg); }
+        catch (TimeoutException) when (attempt < times)
         {
-            int attempts = 0;
-            while (attempts < maxAttempts)
-            {
-                try
-                {
-                    return func();
-                }
-                catch (ArgumentException)
-                {
-                    attempts++;
-                    if (attempts >= maxAttempts) throw;
-                }
-            }
-            throw new InvalidOperationException("Exhausted retries");
-        };
-    }
-
-    // 2. Metadata preservation: C# delegates hold references to MethodInfo
-    [Description("Computes square.")]
-    public static int Compute(int x) => x * x;
-
-    // 3. LRU Cache / Memoization wrapper matching cache_info metrics
-    public class Memoizer<T, TResult> where T : notnull
-    {
-        private readonly Func<T, TResult> _func;
-        private readonly Dictionary<T, TResult> _cache = new();
-        public int Hits { get; private set; }
-        public int Misses { get; private set; }
-        public int CurrSize => _cache.Count;
-
-        public Memoizer(Func<T, TResult> func) => _func = func;
-
-        public TResult Invoke(T key)
-        {
-            if (_cache.TryGetValue(key, out var cached))
-            {
-                Hits++;
-                return cached;
-            }
-            Misses++;
-            var result = _func(key);
-            _cache[key] = result;
-            return result;
+            Console.WriteLine($"attempt {attempt} failed");
         }
     }
+};
 
-    public static void Main()
-    {
-        // 1. Verify preserved metadata
-        Func<int, int> computeDel = Compute;
-        var method = computeDel.Method;
-        var descAttr = (DescriptionAttribute?)Attribute.GetCustomAttribute(method, typeof(DescriptionAttribute));
-        Console.WriteLine($"Preserved func name: {method.Name.ToLower()}");
-        Console.WriteLine($"Preserved func doc: {descAttr?.Description}");
+var calls = 0;
+Func<string, string> flaky = url =>
+{
+    if (++calls < 3) throw new TimeoutException();
+    return $"payload from {url}";
+};
 
-        // 2. Test parameterized retry decorator
-        int callCount = 0;
-        Func<string> flakyApi = () =>
-        {
-            callCount++;
-            if (callCount < 3)
-                throw new ArgumentException("Temporary network glitch");
-            return "Success on attempt 3";
-        };
+Console.WriteLine(Retry(flaky)("https://example.test"));
 
-        var decoratedApi = Retry(flakyApi, maxAttempts: 3);
-        Console.WriteLine("Flaky API result: " + decoratedApi());
-
-        // 3. Test LRU Cache memoization (Fibonacci)
-        Memoizer<int, int>? fibMemo = null;
-        fibMemo = new Memoizer<int, int>(n =>
-        {
-            if (n < 2) return n;
-            return fibMemo!.Invoke(n - 1) + fibMemo.Invoke(n - 2);
-        });
-
-        fibMemo.Invoke(10);
-        Console.WriteLine($"Cache info: hits={fibMemo.Hits}, misses={fibMemo.Misses}, currsize={fibMemo.CurrSize}");
-    }
+// The GoF Decorator in C#: wrapper object with the same interface
+public interface IOrderService { decimal Total(int id); }
+public sealed class CachedOrderService(IOrderService inner) : IOrderService
+{
+    private readonly Dictionary<int, decimal> _cache = new();
+    public decimal Total(int id) => _cache.TryGetValue(id, out var v) ? v : _cache[id] = inner.Total(id);
 }
 ```
 ````
 
-**Expected Output (Both Languages):**
-
-```text
-Preserved func name: compute
-Preserved func doc: Computes square.
-Flaky API result: Success on attempt 3
-Cache info: hits=8, misses=11, currsize=11
-```
+Output notes: the call prints two `[retry]` lines, then the `[timed]` line as the outermost wrapper finishes, and only then does `main` print the payload. `fib(30)` gives `hits=28 misses=31`; the undecorated-with-`wraps` function prints `wrapper None`.
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges and traps
 
-- **In Python:**
-  - **`functools.lru_cache` and `functools.cache`:** Standard memoization decorators storing up to `maxsize` return values in a doubly linked hash map.
-  - **`@property`, `@classmethod`, `@staticmethod`:** Built-in descriptor-based decorators transforming regular functions into getter/setter properties or binding class references.
-  - **`@dataclasses.dataclass`:** Class decorator that inspects class type annotations and generates `__init__`, `__repr__`, `__eq__`, and `__hash__` dunder methods dynamically.
-  - **FastAPI / Flask Routing:** `@app.get("/users/{id}")` registers endpoint path functions into URL dispatch routing tables while parsing type annotations for JSON deserialization and validation.
-  - **pytest `@pytest.mark.parametrize`:** Metaprogramming decorator generating parameterized test permutations at test collection time.
+- **Forgetting `functools.wraps`.** Every decorated function is named `wrapper`; Flask/FastAPI register routes by name and raise "overwriting an existing endpoint"; docs and tracebacks lie.
+- **Decorating methods.** `wrapper(*args, **kwargs)` forwards `self` correctly; a wrapper with fixed parameters breaks.
+- **Work at import time.** Code in the decorator *outside* the wrapper runs on import (config reads, DB connections) — surprising in tests.
+- **Stacking order.** `@auth` above `@cache` means auth runs first, cache sits inside. Order is behaviour; for web routes the framework decorator (`@app.get`) must be outermost.
+- **`lru_cache` pitfalls.** Arguments must be hashable; `maxsize=None` is unbounded (memory leak for unbounded key spaces); on methods it keeps `self` alive — prefer a per-instance cache or `cached_property`.
+- **Async functions.** A sync wrapper around `async def` returns an un-awaited coroutine; write `async def wrapper` and `await fn(...)` (or detect with `inspect.iscoroutinefunction`).
+- **Decorators with and without parentheses.** Support `@log` and `@log(prefix="x")` by accepting `fn=None, *, prefix=...`.
+- **Thread safety.** A per-function counter in a wrapper is racy; use a lock.
+- **Debugging.** Use `fn.__wrapped__` to reach the original, e.g. in tests.
 
-- **In C# / .NET:**
-  - **ASP.NET Core Action Filters:** Attributes like `[Authorize]`, `[ResponseCache]`, and custom `ActionFilterAttribute` implementations intercepting HTTP controller executions.
-  - **MediatR Pipeline Behaviors:** Implementing `IPipelineBehavior<TRequest, TResponse>` wraps CQRS handlers with cross-cutting concerns (logging, validation, transactions) using the Decorator / Chain of Responsibility pattern.
-  - **Scrutor / DynamicProxy:** Decorating DI services via `services.Decorate<IOrderService, CachedOrderService>()`.
+### Try it — decorator lab (runnable)
 
----
-
-## 5. Pitfalls and When Not to Use It
-
-1. **Omitting `functools.wraps`:**
-   - When you write a decorator without `@functools.wraps(func)`, the wrapper function replaces `__name__` with `"wrapper"` and `__doc__` with `None`. In web frameworks like Flask, registering two endpoints with the same decorator throws `AssertionError: View function mapping is overwriting an existing endpoint function: wrapper` because Flask uses `__name__` as the internal route endpoint key.
-
-2. **The Import-Time Side-Effect Trap:**
-   - Any code placed outside the inner wrapper runs at **module import time**, not when the decorated function is executed. If a decorator connects to a database or reads environment variables directly in its outer body, it executes during test suite discovery or Docker image builds before environment configuration is injected.
-
-3. **Decorating Instance Methods Without Forwarding `self`:**
-   - If a decorator wrapper is defined as `def wrapper(*args, **kwargs):`, it correctly forwards `self` as `args[0]`. However, if the wrapper explicitly unpacks specific arguments (`def wrapper(target_arg):`), decorating an instance method fails with `TypeError: wrapper() takes 1 positional argument but 2 were given` because Python passes `self` as the first argument.
-
-4. **Memory Leaks via Unbounded `lru_cache(maxsize=None)`:**
-   - `lru_cache(maxsize=None)` (or `@functools.cache`) never evicts entries. If decorated functions accept unique or non-repeating parameters (such as customer IDs or UUIDs), the cache dictionary grows monotonically until the process crashes with `MemoryError`.
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: The Universal Dual-Use Decorator
-Write a decorator `@log_call` that can be invoked **both** with and without parentheses:
-```python
-@log_call
-def add(a, b):
-  return a + b
-
-
-@log_call(prefix="[MATH]")
-def multiply(a, b):
-  return a * b
-```
-
-<details>
-<summary>Answer</summary>
+The walkthrough shows the three standard shapes. This lab covers the follow-ups from section 1 that the walkthrough only describes: **stacking order**, **`@log` vs `@log(...)`**, **sync and async**, and a **production-grade retry** (backoff, jitter, only transient errors). Save as `decorator_lab.py`; every claim is an `assert`.
 
 ```python
+import asyncio
 import functools
-from typing import Any, Callable, Optional
+import inspect
+
+# 1) Stacking order: applied bottom-up, executed top-down
+trace: list[str] = []
 
 
-def log_call(
-    _func: Optional[Callable[..., Any]] = None, *, prefix: str = "[INFO]"
-) -> Callable[..., Any]:
-  def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-      print(f"{prefix} Calling {func.__name__}")
-      return func(*args, **kwargs)
+def tag(name):
+    def decorator(fn):
+        trace.append(f"apply {name}")                 # runs ONCE, at definition time
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            trace.append(f"enter {name}")
+            try:
+                return fn(*a, **k)
+            finally:
+                trace.append(f"exit {name}")
+        return wrapper
+    return decorator
 
+
+@tag("outer")
+@tag("inner")
+def f():
+    trace.append("body")
+
+
+f()
+assert trace == ["apply inner", "apply outer", "enter outer", "enter inner", "body", "exit inner", "exit outer"], trace
+
+
+# 2) One decorator usable as @log AND @log(prefix="x")
+calls: list[str] = []
+
+
+def log(fn=None, *, prefix="call"):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*a, **k):
+            calls.append(f"{prefix}:{func.__name__}")
+            return func(*a, **k)
+        return wrapper
+    return decorator(fn) if fn is not None else decorator   # bare @log vs @log(...)
+
+
+@log
+def a(): ...
+
+
+@log(prefix="x")
+def b(): ...
+
+
+a(); b()
+assert calls == ["call:a", "x:b"], calls
+
+
+# 3) A decorator that works for sync AND async functions
+def timed_calls(fn):
+    stats = {"n": 0}
+
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapper(*a, **k):                  # must itself be async, and await
+            stats["n"] += 1
+            return await fn(*a, **k)
+    else:
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            stats["n"] += 1
+            return fn(*a, **k)
+
+    wrapper.stats = stats
     return wrapper
 
-  # If _func is None, @log_call(prefix="...") was called -> return decorator
-  if _func is None:
+
+@timed_calls
+def sync_add(x, y):
+    return x + y
+
+
+@timed_calls
+async def async_add(x, y):
+    await asyncio.sleep(0)
+    return x + y
+
+
+assert sync_add(1, 2) == 3 and asyncio.run(async_add(2, 3)) == 5
+assert sync_add.stats["n"] == 1 and async_add.stats["n"] == 1
+
+# the bug the edge section warns about: a SYNC wrapper around async def
+def broken(fn):
+    def wrapper(*a, **k):
+        return fn(*a, **k)                          # returns an un-awaited coroutine
+    return wrapper
+
+
+@broken
+async def work():
+    return 1
+
+
+coro = work()
+assert inspect.iscoroutine(coro)                    # not 1: nothing has run yet
+coro.close()
+
+
+# 4) Retry with backoff + jitter, injectable sleep so the demo is instant
+def retry(times=3, on=(ConnectionError,), base=0.1, sleep=None):
+    import random
+    import time
+    nap = sleep or time.sleep
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            for attempt in range(1, times + 1):
+                try:
+                    return fn(*a, **k)
+                except on:
+                    if attempt == times:
+                        raise
+                    nap(base * 2 ** (attempt - 1) * random.uniform(0.5, 1.5))   # exponential + jitter
+        return wrapper
     return decorator
-  # If _func is passed, @log_call was called without parens -> execute decorator directly
-  return decorator(_func)
+
+
+naps: list[float] = []
+state = {"n": 0}
+
+
+@retry(times=4, sleep=naps.append)
+def flaky():
+    state["n"] += 1
+    if state["n"] < 4:
+        raise ConnectionError
+    return "ok"
+
+
+assert flaky() == "ok" and len(naps) == 3 and naps[2] > naps[0]   # 3 sleeps; backoff always outgrows jitter
+
+
+@retry(times=3, sleep=lambda s: None)
+def buggy():
+    raise ValueError("a bug, not a transient fault")
+
+
+try:
+    buggy()
+except ValueError:
+    pass                                           # NOT retried: only `on=` errors are
+assert f.__wrapped__.__name__ == "f"               # wraps => __wrapped__ reaches the inner function
+print("decorator lab ok")
 ```
-</details>
 
-### Exercise 2: Debugging Route Overwrite Error
-A developer writes this in Flask/FastAPI:
-```python
-def require_auth(func):
-  def wrapper(*args, **kwargs):
-    # auth logic...
-    return func(*args, **kwargs)
+Expected output (and no warnings):
 
-  return wrapper
-
-
-@app.get("/items")
-@require_auth
-def get_items():
-  return []
-
-
-@app.get("/users")
-@require_auth
-def get_users():
-  return []
+```text
+decorator lab ok
 ```
-Why does this raise an `AssertionError` during startup, and what is the exact one-line fix?
+
+Then:
+
+1. **Reorder.** Swap the two `@tag` lines and predict the new `trace` before running it.
+2. **Break the async wrapper.** In probe 3 delete the `inspect.iscoroutinefunction` branch so every function gets the sync wrapper. Predict which assert fails. *(Surprisingly, none of the call-result asserts: the sync wrapper returns the coroutine and `asyncio.run` happily runs it. What breaks is `inspect.iscoroutinefunction(async_add)`, which is now `False`, so frameworks that dispatch on it — FastAPI, pytest-asyncio — treat the function as sync. And any "after" code in a `try/finally` would run when the coroutine is created, not when it finishes, so your timing would measure nothing.)* Add `assert inspect.iscoroutinefunction(async_add)` to see it fail.
+3. **Make `retry` idempotency-aware.** Add a parameter `only_if=lambda exc: ...` so it can refuse to retry a `PaymentDeclined` or a 4xx. Which of the anti-patterns in section 6 does this remove?
+4. **Test the cache.** Write `@functools.lru_cache(maxsize=2)` on a function, call it with 3 distinct arguments, and use `cache_info()` to prove the first one was evicted.
+
+---
+
+## 5. What you'd say in two minutes
+
+> "A decorator is a callable that takes a function and returns a replacement — `@dec` is just `f = dec(f)` run once when the function is defined. The replacement is usually a closure that does something before and after calling the original with `*args, **kwargs`, and I always apply `functools.wraps` so the name, docstring and annotations survive and `__wrapped__` is set; without it Flask would see every endpoint as `wrapper`. If it needs configuration, like `@retry(times=3)`, I write a factory: the outer function takes the config, returns the real decorator, which returns the wrapper. Stacked decorators are applied bottom-up and executed top-down. It's related to, but not the same as, the GoF Decorator pattern, which wraps *objects* that share an interface at runtime; Python's `@` decorates callables at definition time."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| No `functools.wraps` | Lost metadata, routing collisions | Always `@wraps(fn)` |
+| Bare `except:` in a retry decorator | Retries on `KeyboardInterrupt` and bugs | Retry only specific, transient exceptions |
+| Retry without backoff/limit | Retry storms | Max attempts + exponential backoff + jitter |
+| Retrying non-idempotent calls | Duplicate charges | Idempotency keys; don't retry unsafe operations |
+| `lru_cache` on a method with unbounded inputs | Memory leak | Bounded `maxsize`, per-instance cache |
+| Business logic inside a decorator | Hidden, untestable | Keep decorators for cross-cutting concerns |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. What is a decorator? Write one. [BASIC]</strong></summary>
 
-**Cause:**  
-Without `@functools.wraps(func)`, both `get_items` and `get_users` have their `__name__` attribute replaced by `"wrapper"`. Web frameworks use `func.__name__` as the unique endpoint identifier in their URL routing table. When the router encounters the second function named `"wrapper"`, it detects a routing key collision.
+A callable taking a function and returning a replacement; `@dec` is `f = dec(f)` at definition time. Example: `timed` above — wrapper takes `*args, **kwargs`, times the call in `try/finally`, uses `@functools.wraps(fn)`.
 
-**Fix:**  
-Decorate `wrapper` with `@functools.wraps(func)`:
-```python
-import functools
-
-
-def require_auth(func):
-  @functools.wraps(func)
-  def wrapper(*args, **kwargs):
-    return func(*args, **kwargs)
-
-  return wrapper
-```
 </details>
-
-### Exercise 3: Class-Based Call Counter Decorator
-Implement a class-based decorator `CallCounter` that counts how many times the decorated function has been executed and exposes this count via an attribute `.call_count`.
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. Why `functools.wraps`? [BASIC]</strong></summary>
 
-```python
-import functools
-from typing import Any, Callable
+It copies `__name__`, `__doc__`, `__module__`, `__qualname__`, annotations and `__dict__` from the original onto the wrapper and sets `__wrapped__`. Frameworks, docs, debuggers and `inspect.signature` depend on that metadata.
 
+</details>
 
-class CallCounter:
+<details>
+<summary><strong>3. How do you write a decorator that takes arguments? [BASIC]</strong></summary>
 
-  def __init__(self, func: Callable[..., Any]) -> None:
-    self.func = func
-    self.call_count = 0
-    functools.update_wrapper(self, func)
+Three levels: outer function takes the arguments and returns the decorator; the decorator takes `fn` and returns the wrapper; the wrapper takes `*args, **kwargs`. `@retry(3)` evaluates `retry(3)` first, then applies the result to the function.
 
-  def __call__(self, *args: Any, **kwargs: Any) -> Any:
-    self.call_count += 1
-    return self.func(*args, **kwargs)
+</details>
 
+<details>
+<summary><strong>4. In what order do stacked decorators apply and run? [TRICKY]</strong></summary>
 
-@CallCounter
-def greet(name: str) -> str:
-  return f"Hello {name}"
+Applied bottom-up (`a(b(f))`), executed top-down: the outer wrapper's pre-code runs first, then the inner's, then `f`, then the post-code unwinds in reverse.
 
+</details>
 
-greet("Alice")
-greet("Bob")
-print(f"Total calls: {greet.call_count}")  # Prints: Total calls: 2
-```
+<details>
+<summary><strong>5. Python decorator vs the Decorator pattern? [TRICKY]</strong></summary>
+
+Python's `@` rebinds a function/class at definition time; the GoF pattern composes objects at runtime so a wrapper implements the same interface as the wrapped object. Same spirit (wrap to add behaviour), different mechanism and granularity.
+
+</details>
+
+<details>
+<summary><strong>6. What does `lru_cache` require and risk? [TRICKY]</strong></summary>
+
+Hashable arguments; it stores results keyed by args. Risks: unbounded memory with `maxsize=None`, stale results if the function isn't pure, and pinning `self` on methods. Inspect with `cache_info()`, clear with `cache_clear()`.
+
+</details>
+
+<details>
+<summary><strong>7. Decorate an `async def`. What changes? [SCENARIO]</strong></summary>
+
+The wrapper must itself be `async def` and `await` the call; otherwise you return a coroutine without running or timing it. For a decorator that supports both, branch on `inspect.iscoroutinefunction(fn)`.
+
+</details>
+
+<details>
+<summary><strong>8. Two Flask routes both fail with "overwriting endpoint wrapper". Why? [SCENARIO]</strong></summary>
+
+A decorator under `@app.route` didn't use `functools.wraps`, so both view functions are named `wrapper`; Flask keys endpoints by function name. Add `@wraps(fn)` (or pass `endpoint=`).
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What is a decorator? Write one.**  
-> **Strong Answer:**  
-> "A decorator is a callable that takes a function as an argument and returns either a modified function or a replacement wrapper callable. It provides clean syntactic sugar (`@decorator`) for higher-order function interception: writing `@dec` above `def f():` is equivalent to `f = dec(f)` evaluated at module definition time.  
-> 
-> Here is a production-grade timing decorator:
-> ```python
-> import functools
-> import time
-> 
-> 
-> def timeit(func):
->   @functools.wraps(func)
->   def wrapper(*args, **kwargs):
->     start = time.perf_counter()
->     try:
->       return func(*args, **kwargs)
->     finally:
->       elapsed = time.perf_counter() - start
->       print(f'{func.__name__} executed in {elapsed:.4f}s')
-> 
->   return wrapper
-> ```
-> This accepts arbitrary positional and keyword arguments via `*args` and `**kwargs`, measures execution time guaranteed by a `finally` block, and preserves the original function's signature and metadata via `@functools.wraps`."
-
-> [!interview]
-> **Question 2: Why use `functools.wraps`?**  
-> **Strong Answer:**  
-> "`functools.wraps` is a convenience decorator applied to the inner wrapper function inside a custom decorator.  
-> 
-> When a function is wrapped, the outer variable name points to the generic `wrapper` function. Without `@functools.wraps`, all introspective metadata—including `__name__`, `__doc__`, `__module__`, `__annotations__`, and `__qualname__`—is overwritten by the wrapper's generic attributes.  
-> 
-> Using `wraps` invokes `functools.update_wrapper`, copying the original metadata and attaching a `__wrapped__` attribute pointing back to the raw, unwrapped function. This is critical for:
-> 1. Web frameworks (Flask, FastAPI) that use `__name__` for URL endpoint registration and route conflict detection.
-> 2. Automated documentation tools (Sphinx, OpenAPI / Swagger) that inspect docstrings and type annotations.
-> 3. Unit testing frameworks and mock libraries that unwrap functions via `__wrapped__` to test core logic in isolation."
-
-> [!interview]
-> **Question 3: How do you write a decorator that takes arguments?**  
-> **Strong Answer:**  
-> "To write a decorator that accepts arguments, you construct a **three-tier nested closure**:  
-> 
-> 1. The **outermost function** is the *decorator factory*. It accepts the configuration arguments (e.g., `max_retries`, `timeout`) and returns the actual decorator.  
-> 2. The **middle function** is the *decorator*. It accepts the target function (`func`) and returns the wrapper.  
-> 3. The **innermost function** is the *wrapper*. Decorated with `@functools.wraps(func)`, it accepts `*args` and `**kwargs`, intercepts the call, and executes the cross-cutting concern using the parameters captured from the outer scopes.  
-> 
-> For example:
-> ```python
-> def repeat(num_times: int):
->   def decorator_repeat(func):
->     @functools.wraps(func)
->     def wrapper(*args, **kwargs):
->       for _ in range(num_times - 1):
->         func(*args, **kwargs)
->       return func(*args, **kwargs)
-> 
->     return wrapper
-> 
->   return decorator_repeat
-> ```
-> At import time, `@repeat(num_times=3)` evaluates `repeat(3)`, which returns `decorator_repeat`, which then evaluates `decorator_repeat(target_function)`."
-
-> [!interview]
-> **Question 4: What does `lru_cache` do?**  
-> **Strong Answer:**  
-> "`functools.lru_cache` is a standard library memoization decorator that wraps a callable with a Least Recently Used (LRU) cache.  
-> 
-> It stores function return values keyed by a hash of the positional and keyword arguments passed to the call. If the function is invoked again with identical arguments, `lru_cache` returns the cached value in $O(1)$ time without re-executing the wrapped function body. If the cache reaches its configured `maxsize`, the least recently accessed entry is discarded.  
-> 
-> Key mechanics and considerations:
-> - **Hashability requirement:** All arguments passed to the decorated function must be hashable. Passing a mutable `list` or `dict` raises `TypeError: unhashable type`.
-> - **Monitoring and maintenance:** It exposes `.cache_info()` (returning `hits`, `misses`, `maxsize`, and `currsize`) and `.cache_clear()` for manual cache invalidation.
-> - **Memory management:** Setting `maxsize=None` (or using `@functools.cache` in Python 3.9+) enables an unbounded cache, which risks unbounded memory growth if the parameter space is infinite."
+```text
+@dec  ==  f = dec(f)        runs ONCE at definition, wrapper runs EVERY call
+Template:
+    def dec(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            ...before...
+            try:    return fn(*args, **kwargs)
+            finally: ...after...
+        return wrapper
+With args:   def dec(arg): def real(fn): ... return real      @dec(3)
+Stacking:    @a @b def f  ->  a(b(f))   applied bottom-up, runs top-down
+Class-based: __init__(fn) + __call__ + functools.update_wrapper(self, fn)
+Async:       wrapper must be `async def` + await
+Cache:       lru_cache(maxsize=N) / cache; hashable args; watch memory
+Not same as: GoF Decorator (object wrapper, same interface, runtime)
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [PEP 318: Decorators for Functions and Methods](https://peps.python.org/pep-0318/)
-- [Python 3 Documentation: `functools` module](https://docs.python.org/3/library/functools.html)
-- [Graham Dumpleton: Advanced Python Decorator Mechanics (wrapt)](https://github.com/GrahamDumpleton/wrapt/blob/develop/blog/README.md)
-- [Fluent Python (2nd Edition) by Luciano Ramalho: Chapter 9 - Decorators and Closures](https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/)
-- [Microsoft Learn: Aspect-Oriented Programming and Action Filters in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/mvc/controllers/filters)
+- [PEP 318: decorators for functions and methods](https://peps.python.org/pep-0318/)
+- [`functools` documentation](https://docs.python.org/3/library/functools.html)
+- Luciano Ramalho, *Fluent Python* (2nd ed.), chapter 9: Decorators and closures
 
----
-
-Previous: [Functions: *args, **kwargs, Closures and Scope](../03-functions-args-kwargs-closures-and-scope/README.md) · Next: [Iterators, Generators and yield](../05-iterators-generators-and-yield/README.md)
+Previous: [Functions, Closures and Scope](../03-functions-args-kwargs-closures-and-scope/README.md) · Next: [Iterators, Generators and yield](../05-iterators-generators-and-yield/README.md)

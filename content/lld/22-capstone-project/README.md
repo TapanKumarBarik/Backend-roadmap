@@ -1,646 +1,490 @@
-# Capstone Project: Enterprise Hotel Reservation & Dynamic Rate Management
+# Capstone: Hotel Reservation & Dynamic Rates
 
-> **Prerequisites**: Modules 00 through 21 (Complete Low-Level Design Curriculum Mastery).  
-> **Estimated Reading Time**: 30 minutes  
-> **Target Audience**: Backend Engineers, Systems Architects, Principal & Staff Engineering Candidates.
+> **Prerequisites:** [04 · SOLID](../04-solid-principles/README.md), [08 · Behavioral Patterns I](../08-behavioral-patterns-i/README.md), [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [16 · Movie Ticket Booking](../16-movie-ticket-booking/README.md), [21 · LLD Interview Playbook](../21-lld-interview-playbook/README.md)  
+> **Reading time:** ~30 minutes  
+> **Audience:** Candidates who want one end-to-end design they can reproduce on a whiteboard — domain model, concurrency, pricing, notifications, and extension
+
+> [!NOTE]
+> **In one line:** Hotels, car rentals and VM leases all reserve a **resource over a date interval** — model `DateRange` as an immutable value object, guard each `Room` with its own lock so "check overlap + insert" is one atomic step, and keep pricing and notifications behind Strategy and Observer.
 
 > [!TIP]
-> **Golden Rule of Capstone Architecture**: A production-grade capstone must demonstrate **end-to-end mastery without scaffolding**. In date-ranged reservation systems (Hotels, Car Rentals, Cloud VM Leasing), availability is an invariant of the **`(Room, DateInterval)` intersection**. Never lock individual dates in piecemeal fashion; encapsulate interval collision checks inside atomic per-room critical sections. Pair this with swappable Strategy pricing, Observer notifications, and Rich Domain models.
+> **Golden rule:** Never lock individual *days*. Lock the **room** (the aggregate that owns the invariant "no two bookings overlap") and compare intervals with `a.start < b.end and b.start < a.end`. Half-open intervals `[check_in, check_out)` make back-to-back stays legal.
+
+> [!TIP]
+> **Try it:** Draw `Hotel → Room → DateRange` and `Hotel → RateStrategy / BookingObserver` in [LLD Studio](/tools/lld-studio/), then run the Python below — it fires 20 threads at the same suite and shows exactly one winner.
 
 ---
 
-## 1. Visual Mental Models & System Architecture
+## 1. The prompt and the trap
 
-This capstone models a high-concurrency **Enterprise Hotel Reservation & Rate Management System**. Unlike movie ticketing (which reserves discrete showtimes), hotel reservations manage **continuous overlapping date ranges** ($[\text{CheckIn}, \text{CheckOut})$), room category hierarchies, dynamic seasonal pricing strategies, and automated housekeeping lifecycle states.
+Interviewer: *"Design a hotel reservation system. Guests search by room type and dates, book, and cancel. Rates vary by season and weekend. Two guests must never get the same room on overlapping nights."*
 
-### 1.1 Complete Domain Class Model
+The trap is **availability as a flag** (`room.is_booked = True`). That's right for a movie seat at one showtime; a hotel room is booked for *ranges*, and ranges overlap partially. The invariant lives on the pair **(room, interval)**.
 
 ```mermaid
 classDiagram
-    class Hotel {
-        -String hotelId
-        -List~Room~ rooms
-        -IRateStrategy rateStrategy
-        +bookRoom(DateRange range, RoomType type, Guest guest) Reservation
-        +cancelReservation(String reservationId) void
-    }
-
-    class Room {
-        -String roomId
-        -RoomType type
-        -Mutex roomLock
-        -List~DateRange~ bookedRanges
-        +isAvailable(DateRange range) bool
-        +reserve(DateRange range) bool
-        +release(DateRange range) void
-    }
-
-    class DateRange {
-        <<ValueObject>>
-        +DateTime checkIn
-        +DateTime checkOut
-        +overlapsWith(DateRange other) bool
-        +getNights() int
-    }
-
-    class Reservation {
-        -String reservationId
-        -String roomId
-        -Guest guest
-        -DateRange dateRange
-        -Money totalPaid
-        -ReservationStatus status
-        +cancel() void
-    }
-
-    class IRateStrategy {
-        <<interface>>
-        +calculateTotal(RoomType type, DateRange range) Money
-    }
-
-    class SeasonalWeekendRateStrategy {
-        +calculateTotal(RoomType type, DateRange range) Money
-    }
-
-    class IBookingObserver {
-        <<interface>>
-        +onReservationConfirmed(Reservation res) void
-        +onReservationCancelled(Reservation res) void
-    }
-
-    Hotel "1" *-- "1..*" Room : Composes
-    Room --> DateRange : Tracks
-    Reservation --> DateRange : Contains
-    Hotel ..> Reservation : Produces
-    Hotel --> IRateStrategy : Injects
-    IRateStrategy <|.. SeasonalWeekendRateStrategy : Realizes
-    Hotel --> IBookingObserver : Notifies
+  class Hotel {
+    +search(room_type, DateRange) list~Room~
+    +book(guest, room_type, DateRange) Reservation
+    +cancel(reservation_id)
+  }
+  class Room {
+    -Lock lock
+    -list~Reservation~ bookings
+    +try_reserve(DateRange, guest) Reservation
+    +release(reservation_id)
+  }
+  class DateRange {
+    <<value object>>
+    +check_in
+    +check_out
+    +overlaps(other) bool
+    +nights() int
+  }
+  class Reservation {
+    +id
+    +room_id
+    +guest
+    +range
+    +total_cents
+    +status
+  }
+  class RateStrategy {
+    <<interface>>
+    +total(room_type, DateRange) int
+  }
+  class BookingObserver {
+    <<interface>>
+    +on_confirmed(Reservation)
+    +on_cancelled(Reservation)
+  }
+  Hotel "1" *-- "many" Room
+  Room --> DateRange
+  Reservation --> DateRange
+  Hotel --> RateStrategy
+  Hotel --> BookingObserver
+  RateStrategy <|.. WeekendSeasonalRate
+  RateStrategy <|.. FlatRate
 ```
 
 ---
 
-### 1.2 Date-Range Overlap Concurrency Sequence Flow
+## 2. Component roles at a glance
 
-Two users simultaneously attempt to book the same Presidential Suite for overlapping dates ($[\text{Oct 10}, \text{Oct 15})$ vs $[\text{Oct 12}, \text{Oct 18})$).
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor GuestA as Guest A [Oct 10 - Oct 15]
-    actor GuestB as Guest B [Oct 12 - Oct 18]
-    participant Hotel as HotelManager
-    participant Suite as Room #Suite-501 (Per-Room Mutex)
-    participant Rate as IRateStrategy
-    participant Obs as IBookingObserver
-
-    par Concurrent Reservation Ingress
-        GuestA->>Hotel: bookRoom([Oct 10-15], Presidential)
-        GuestB->>Hotel: bookRoom([Oct 12-18], Presidential)
-    end
-
-    Note over Hotel, Suite: Guest A wins fine-grained lock on Suite-501
-    Hotel->>Suite: reserve([Oct 10 - Oct 15])
-    Note over Suite: Check for overlapping DateRanges: None!
-    Suite->>Suite: Append [Oct 10 - Oct 15] to bookedRanges
-    Suite-->>Hotel: Reserved Successfully!
-    Hotel->>Rate: calculateTotal(Presidential, [Oct 10-15])
-    Rate-->>Hotel: $3,500.00
-    Hotel->>Obs: onReservationConfirmed(ResA)
-    Hotel-->>GuestA: Confirmation #RES-101 ($3,500.00)
-
-    Note over Hotel, Suite: Guest B acquires lock on Suite-501
-    Hotel->>Suite: reserve([Oct 12 - Oct 18])
-    Note over Suite: Interval Collision Check: [Oct 12-18] overlaps with [Oct 10-15]!
-    Suite-->>Hotel: OverlapCollisionException("Suite-501 occupied")
-    Hotel-->>GuestB: HTTP 409 Conflict: "Room unavailable for selected dates."
-```
-
----
-
-## 2. Taxonomic Reference Grids
-
-### 2.1 Domain Components & Concurrency Boundaries
-
-| Component | Domain Classification | Architectural Responsibility | Invariant Enforced | Concurrency Boundary |
+| Component | Kind | Responsibility | Invariant | Concurrency story |
 | :--- | :--- | :--- | :--- | :--- |
-| `DateRange` | **Value Object** | Encapsulates $[\text{CheckIn}, \text{CheckOut})$ interval math | $\text{CheckIn} < \text{CheckOut}$; immutable post-creation | Thread-safe by immutability |
-| `Room` | **Entity / Aggregate** | Manages booked intervals and physical room status | No two bookings can ever overlap in time for the same room | Fine-grained per-room mutex (`Room.mu`) |
-| `Hotel` | **Domain Service** | Room discovery, allocation routing, pricing, booking creation | Coordinates allocation across rooms of same type | Reader-Writer Lock on room catalog |
-| `SeasonalRateStrategy` | **Strategy Pattern** | Dynamic day-of-week and seasonal multiplier calculation | Transparent pricing without editing room/hotel classes | Stateless; lock-free |
-| `ConfirmationNotifier` | **Observer Pattern** | SMS, Email, and Accounting dispatch | Decoupled delivery; asynchronous execution | Decoupled via event bus / channel |
+| `DateRange` | Value object | Interval math | `check_in < check_out`; immutable | Safe by immutability |
+| `Room` | Entity / aggregate | Owns its bookings | No overlapping bookings | **One lock per room** |
+| `Hotel` | Domain service | Search, pick room, price, notify | Never double-books via `Room` | Catalogue read-mostly |
+| `RateStrategy` | Strategy | Price a stay | Pure function of type + range | Stateless |
+| `BookingObserver` | Observer | Email / SMS / ledger | Failures must not undo a booking | Called *after* the lock is released |
 
-### 2.2 Design Pattern Utilization Matrix
-
-| Design Pattern | Concrete Implementation | Solved Architectural Problem | Tradeoff Accepted |
-| :--- | :--- | :--- | :--- |
-| **Strategy** | `IRateStrategy` / `SeasonalWeekendRateStrategy` | Eliminates complex holiday/surge pricing branching | Requires passing DateRange context to strategy |
-| **Observer** | `IBookingObserver` / `EmailNotificationService` | Decouples hotel booking logic from third-party notification APIs | Eventual consistency in downstream notification delivery |
-| **Value Object** | `DateRange` & `Money` | Eliminates primitive obsession and date string parsing bugs | Small memory allocation churn during interval math |
-| **Factory / Builder** | `ReservationBuilder` | Clean construction of multi-night reservations with taxes/fees | Additional builder class ceremony |
+| Pattern | Where | Problem it removes |
+| :--- | :--- | :--- |
+| Strategy | `RateStrategy` | `if season == …` ladders inside `Hotel` |
+| Observer | `BookingObserver` | Hotel code knowing about Twilio / SES |
+| Value Object | `DateRange`, money in cents | Date-string parsing bugs, float money |
+| Aggregate lock | `Room.lock` | Piecemeal per-day locking and deadlocks |
 
 ---
 
-## 3. Production War Stories: Incident Post-Mortem
+## 3. Walkthrough: requirements → entities → methods → extension
 
-### The $2.8M Holiday Overbooking Catastrophe: Date-Range Interval Tree Race Condition
+**Requirements (say them back):**
 
-```
-SEVERITY LEVEL: SEV-1 (Severe Brand Damage & Financial Penalties)
-DETECTION TIME: 12 Minutes
-RECOVERY TIME: 300 Minutes
-FINANCIAL COMPENSATIONS: $2,800,000 in emergency luxury relocations & legal settlements
-```
+1. Search rooms of a type free for `[check_in, check_out)`.
+2. Book exactly one room; price comes from a swappable rate rule.
+3. Cancel frees the room for those dates.
+4. Two concurrent bookings of the same room/overlap → one succeeds, one gets a clear conflict.
+5. Notify the guest on confirm / cancel without coupling the hotel to a provider.
 
-#### Incident Background
-A global luxury resort chain opened reservations for the New Year's Eve holiday window across 15 flagship properties. A newly deployed microservice managed bookings by locking calendar dates individually in a Redis key-value store:
-$$\text{Keys: } \text{room:501:date:2024-12-31}, \quad \text{room:501:date:2025-01-01}$$
+**Out of scope (state it):** payments, partial refunds, overbooking policy, multi-hotel search.
 
-#### What Happened
-At 10:00:00 AM, concurrent reservations flooded the system. Guest 1 attempted to book Dec 30 to Jan 2; Guest 2 attempted to book Dec 31 to Jan 3. The service attempted to acquire per-day locks sequentially without canonical sorting. Guest 1 acquired Dec 30 and Dec 31, while Guest 2 acquired Jan 1 and Jan 2. Both transactions deadlocked while waiting for the other's dates. Worse, an automated recovery timeout released locks partially, causing both guests to be issued confirmed reservations for the same presidential penthouse. On New Year's Eve, hundreds of high-net-worth guests arrived to find their penthouses occupied.
+**Key methods:**
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor G1 as Guest 1 [Dec 30 - Jan 2]
-    actor G2 as Guest 2 [Dec 31 - Jan 3]
-    participant Svc as ReservationService
-    participant R_31 as Lock(Dec 31)
-    participant R_01 as Lock(Jan 01)
+- `DateRange.overlaps(other)` → `self.check_in < other.check_out and other.check_in < self.check_out`.
+- `Room.try_reserve(range, guest)` → under `self.lock`: scan bookings, raise on overlap, append.
+- `Hotel.book(...)` → for each candidate room of the type, `try_reserve`; first success wins; price; notify **outside** the lock.
 
-    G1->>Svc: Book(Dec 30 - Jan 2)
-    G2->>Svc: Book(Dec 31 - Jan 3)
+**Extension points:** new pricing → new `RateStrategy`; new channel → new `BookingObserver`; new room type → data, not code; overbooking → subclass/strategy at `Hotel.book`.
 
-    Svc->>R_31: G1 acquires Lock(Dec 31) [GRANTED]
-    Svc->>R_01: G2 acquires Lock(Jan 01) [GRANTED]
-
-    Svc->>R_01: G1 attempts to acquire Lock(Jan 01)... [BLOCKED by G2]
-    Svc->>R_31: G2 attempts to acquire Lock(Dec 31)... [BLOCKED by G1]
-
-    Note over Svc, R_01: DEADLOCK! Both reservation threads sleep indefinitely.
-    Note over Svc: Timeout occurs -> Partial Rollback Bug -> Both reservations emit CONFIRMED!
-```
-
-#### Root Cause Analysis
-1. **Piecemeal Per-Day Locking**: Locking individual days broke all-or-nothing atomicity.
-2. **Lock Order Inversion Deadlock**: Day locks were not acquired in a fixed canonical order across competing reservations.
-3. **Flawed Rollback Compensation**: Timeout handlers marked the reservation failed in the database but failed to revoke payment authorization or invalidate the booking confirmation email.
-
-#### The Architectural Hardening
-1. **Single Per-Room Mutex**: Eliminated individual day locks. The room itself is the aggregate root; acquiring `Room.mu` locks the entire date interval inspection and reservation in one atomic step.
-2. **Interval Tree Overlap Mathematical Invariant**:
-   $$\text{Overlaps}(A, B) \iff (A.\text{checkIn} < B.\text{checkOut}) \land (B.\text{checkIn} < A.\text{checkOut})$$
-3. **Two-Phase Commit with Hard Database Constraints**: Added a PostgreSQL exclusion constraint:
-   `EXCLUDE USING gist (room_id WITH =, booking_dates WITH &&)`
-   guaranteeing mathematical impossibility of overlapping bookings at the database engine level.
-
----
-
-## 4. Multi-Language Production Implementations
-
-Below are complete, production-grade implementations of the **Enterprise Hotel Reservation System**.
-
-### 4.1 Go: Date-Range Concurrency-Safe Hotel Booking Engine
-
-```go
-package main
-
-import (
-	"errors"
-	"fmt"
-	"sync"
-	"time"
-)
-
-type RoomType string
-
-const (
-	RoomStandard RoomType = "STANDARD"
-	RoomDeluxe   RoomType = "DELUXE"
-	RoomSuite    RoomType = "SUITE"
-)
-
-// DateRange is an immutable Value Object representing [CheckIn, CheckOut).
-type DateRange struct {
-	CheckIn  time.Time
-	CheckOut time.Time
-}
-
-func NewDateRange(in, out time.Time) (DateRange, error) {
-	if !in.Before(out) {
-		return DateRange{}, errors.New("check-in must be strictly before check-out")
-	}
-	return DateRange{CheckIn: in, CheckOut: out}, nil
-}
-
-func (dr DateRange) Overlaps(other DateRange) bool {
-	return dr.CheckIn.Before(other.CheckOut) && other.CheckIn.Before(dr.CheckOut)
-}
-
-func (dr DateRange) Nights() int {
-	return int(dr.CheckOut.Sub(dr.CheckIn).Hours() / 24)
-}
-
-type Room struct {
-	ID           string
-	Type         RoomType
-	mu           sync.Mutex
-	bookedRanges []DateRange
-}
-
-func NewRoom(id string, rType RoomType) *Room {
-	return &Room{ID: id, Type: rType}
-}
-
-func (r *Room) TryReserve(dr DateRange) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for _, booked := range r.bookedRanges {
-		if booked.Overlaps(dr) {
-			return false // Overlap collision
-		}
-	}
-
-	r.bookedRanges = append(r.bookedRanges, dr)
-	return true
-}
-
-func (r *Room) Release(dr DateRange) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	newRanges := make([]DateRange, 0, len(r.bookedRanges))
-	for _, b := range r.bookedRanges {
-		if !(b.CheckIn.Equal(dr.CheckIn) && b.CheckOut.Equal(dr.CheckOut)) {
-			newRanges = append(newRanges, b)
-		}
-	}
-	r.bookedRanges = newRanges
-}
-
-// Strategy Pattern for Pricing
-type PricingStrategy interface {
-	CalculateTotal(rType RoomType, dr DateRange) int64 // in cents
-}
-
-type WeekendSurgeStrategy struct{}
-
-func (s *WeekendSurgeStrategy) CalculateTotal(rType RoomType, dr DateRange) int64 {
-	baseRate := int64(10000) // $100 base
-	if rType == RoomSuite {
-		baseRate = 35000 // $350 base
-	}
-	return baseRate * int64(dr.Nights())
-}
-
-type Reservation struct {
-	ID        string
-	RoomID    string
-	GuestName string
-	Range     DateRange
-	TotalPaid int64
-}
-
-type HotelManager struct {
-	rooms    []*Room
-	pricing  PricingStrategy
-	resMu    sync.RWMutex
-	bookings map[string]*Reservation
-}
-
-func NewHotelManager(rooms []*Room, pricing PricingStrategy) *HotelManager {
-	return &HotelManager{
-		rooms:    rooms,
-		pricing:  pricing,
-		bookings: make(map[string]*Reservation),
-	}
-}
-
-func (hm *HotelManager) Book(guest string, rType RoomType, dr DateRange) (*Reservation, error) {
-	for _, room := range hm.rooms {
-		if room.Type == rType {
-			if room.TryReserve(dr) {
-				total := hm.pricing.CalculateTotal(rType, dr)
-				res := &Reservation{
-					ID:        fmt.Sprintf("RES-%d", time.Now().UnixNano()),
-					RoomID:    room.ID,
-					GuestName: guest,
-					Range:     dr,
-					TotalPaid: total,
-				}
-				hm.resMu.Lock()
-				hm.bookings[res.ID] = res
-				hm.resMu.Unlock()
-				return res, nil
-			}
-		}
-	}
-	return nil, errors.New("no rooms available for specified type and date range")
-}
-
-func main() {
-	suite := NewRoom("SUITE-501", RoomSuite)
-	mgr := NewHotelManager([]*Room{suite}, &WeekendSurgeStrategy{})
-
-	now := time.Now()
-	dr1, _ := NewDateRange(now, now.Add(48*time.Hour))
-	dr2, _ := NewDateRange(now.Add(24*time.Hour), now.Add(72*time.Hour))
-
-	res1, err := mgr.Book("Alice", RoomSuite, dr1)
-	if err != nil { panic(err) }
-	fmt.Printf("[Success] Alice booked %s for $%.2f\n", res1.RoomID, float64(res1.TotalPaid)/100.0)
-
-	_, err = mgr.Book("Bob", RoomSuite, dr2)
-	if err != nil {
-		fmt.Printf("[Expected Failure] Bob rejected: %v\n", err)
-	}
-}
-```
-
----
-
-### 4.2 TypeScript: Domain-Driven Hotel Engine with DateRange Value Objects
-
-```typescript
-export class DateRange {
-  constructor(public readonly checkIn: Date, public readonly checkOut: Date) {
-    if (checkIn.getTime() >= checkOut.getTime()) {
-      throw new Error("Check-in date must be strictly before check-out date.");
-    }
-  }
-
-  public overlapsWith(other: DateRange): boolean {
-    return this.checkIn < other.checkOut && other.checkIn < this.checkOut;
-  }
-
-  public getNights(): number {
-    const diffMs = this.checkOut.getTime() - this.checkIn.getTime();
-    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  }
-}
-
-export enum RoomType {
-  STANDARD = "STANDARD",
-  DELUXE = "DELUXE",
-  SUITE = "SUITE",
-}
-
-export class Room {
-  private bookedRanges: DateRange[] = [];
-  private lock = false;
-
-  constructor(public readonly id: string, public readonly type: RoomType) {}
-
-  public async reserve(range: DateRange): Promise<boolean> {
-    while (this.lock) {
-      await new Promise((r) => setTimeout(r, 2));
-    }
-    this.lock = true;
-
-    try {
-      for (const booked of this.bookedRanges) {
-        if (booked.overlapsWith(range)) {
-          return false; // Collision
-        }
-      }
-      this.bookedRanges.push(range);
-      return true;
-    } finally {
-      this.lock = false;
-    }
-  }
-}
-
-export interface IPricingStrategy {
-  calculateTotal(type: RoomType, range: DateRange): number;
-}
-
-export class StandardPricingStrategy implements IPricingStrategy {
-  private rates: Record<RoomType, number> = {
-    [RoomType.STANDARD]: 120,
-    [RoomType.DELUXE]: 200,
-    [RoomType.SUITE]: 450,
-  };
-
-  public calculateTotal(type: RoomType, range: DateRange): number {
-    return this.rates[type] * range.getNights();
-  }
-}
-```
-
----
-
-### 4.3 Python: Enterprise Hotel System with Rich Invariants & Observers
-
+````carousel
 ```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
+from __future__ import annotations
+
+import itertools
 import threading
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from typing import Protocol
 
 
+# ── Value object ────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class DateRange:
-    check_in: datetime
-    check_out: datetime
+    check_in: date
+    check_out: date  # exclusive: the guest leaves this morning
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.check_in >= self.check_out:
-            raise ValueError("Check-in must precede check-out.")
+            raise ValueError("check_out must be after check_in")
 
     def overlaps(self, other: "DateRange") -> bool:
         return self.check_in < other.check_out and other.check_in < self.check_out
 
-    @property
-    def nights(self) -> int:
-        return max(1, (self.check_out - self.check_in).days)
+    def nights(self) -> list[date]:
+        return [self.check_in + timedelta(days=i)
+                for i in range((self.check_out - self.check_in).days)]
+
+
+class RoomUnavailable(Exception):
+    pass
+
+
+# ── Strategy: pricing ───────────────────────────────────────────────────
+class RateStrategy(Protocol):
+    def total_cents(self, room_type: str, stay: DateRange) -> int: ...
+
+
+class WeekendSeasonalRate:
+    BASE = {"standard": 10_000, "suite": 35_000}
+
+    def total_cents(self, room_type: str, stay: DateRange) -> int:
+        total = 0
+        for night in stay.nights():
+            rate = self.BASE[room_type]
+            if night.weekday() in (4, 5):  # Fri/Sat nights
+                rate = int(rate * 1.25)
+            if night.month in (12, 1):    # peak season
+                rate = int(rate * 1.40)
+            total += rate
+        return total
+
+
+# ── Domain ──────────────────────────────────────────────────────────────
+@dataclass
+class Reservation:
+    id: str
+    room_id: str
+    guest: str
+    stay: DateRange
+    total_cents: int = 0
+    status: str = "CONFIRMED"
+
+
+class BookingObserver(Protocol):
+    def on_confirmed(self, res: Reservation) -> None: ...
+    def on_cancelled(self, res: Reservation) -> None: ...
 
 
 class Room:
-    def __init__(self, room_id: str, room_type: str):
-        self.room_id = room_id
-        self.room_type = room_type
-        self.booked_ranges: List[DateRange] = []
-        self._lock = threading.Lock()
+    def __init__(self, room_id: str, room_type: str) -> None:
+        self.room_id, self.room_type = room_id, room_type
+        self._lock = threading.Lock()            # one lock = one aggregate
+        self._bookings: dict[str, Reservation] = {}
 
-    def try_reserve(self, date_range: DateRange) -> bool:
+    def try_reserve(self, res: Reservation) -> None:
+        with self._lock:                         # check + insert is atomic
+            for existing in self._bookings.values():
+                if existing.status == "CONFIRMED" and existing.stay.overlaps(res.stay):
+                    raise RoomUnavailable(self.room_id)
+            self._bookings[res.id] = res
+
+    def release(self, reservation_id: str) -> Reservation | None:
         with self._lock:
-            for booked in self.booked_ranges:
-                if booked.overlaps(date_range):
-                    return False
-            self.booked_ranges.append(date_range)
-            return True
+            res = self._bookings.get(reservation_id)
+            if res and res.status == "CONFIRMED":
+                res.status = "CANCELLED"
+                return res
+            return None
 
-
-class IReservationObserver(ABC):
-    @abstractmethod
-    def on_confirmed(self, booking_id: str, guest: str, total: float) -> None:
-        pass
-
-
-class EmailConfirmationObserver(IReservationObserver):
-    def on_confirmed(self, booking_id: str, guest: str, total: float) -> None:
-        print(f"[Email Notification] Confirmed {booking_id} for {guest}. Total: ${total:.2f}")
+    def is_free(self, stay: DateRange) -> bool:  # advisory only (may go stale)
+        with self._lock:
+            return all(b.status != "CONFIRMED" or not b.stay.overlaps(stay)
+                       for b in self._bookings.values())
 
 
 class Hotel:
-    def __init__(self, rooms: List[Room], observer: IReservationObserver):
+    def __init__(self, rooms: list[Room], rates: RateStrategy,
+                 observers: list[BookingObserver] | None = None) -> None:
         self._rooms = rooms
-        self._observer = observer
+        self._rates = rates
+        self._observers = observers or []
+        self._ids = itertools.count(1)
+        self._by_id: dict[str, Reservation] = {}
+        self._rooms_by_id = {r.room_id: r for r in rooms}
 
-    def book(self, guest: str, room_type: str, date_range: DateRange) -> str:
-        for room in self._rooms:
-            if room.room_type == room_type and room.try_reserve(date_range):
-                booking_id = f"BK-{room.room_id}-{int(datetime.now().timestamp())}"
-                total = date_range.nights * 150.00
-                self._observer.on_confirmed(booking_id, guest, total)
-                return booking_id
-        raise RuntimeError("No available rooms for selected dates.")
+    def search(self, room_type: str, stay: DateRange) -> list[Room]:
+        return [r for r in self._rooms if r.room_type == room_type and r.is_free(stay)]
+
+    def book(self, guest: str, room_type: str, stay: DateRange) -> Reservation:
+        total = self._rates.total_cents(room_type, stay)
+        for room in (r for r in self._rooms if r.room_type == room_type):
+            res = Reservation(f"RES-{next(self._ids)}", room.room_id, guest, stay, total)
+            try:
+                room.try_reserve(res)
+            except RoomUnavailable:
+                continue                           # try the next room of that type
+            self._by_id[res.id] = res
+            for obs in self._observers:            # outside the room lock
+                obs.on_confirmed(res)
+            return res
+        raise RoomUnavailable(f"no {room_type} free for {stay.check_in}..{stay.check_out}")
+
+    def cancel(self, reservation_id: str) -> None:
+        res = self._by_id[reservation_id]
+        released = self._rooms_by_id[res.room_id].release(reservation_id)
+        if released:
+            for obs in self._observers:
+                obs.on_cancelled(released)
+
+
+class PrintObserver:
+    def on_confirmed(self, res: Reservation) -> None:
+        print(f"[notify] {res.guest}: {res.id} confirmed, ${res.total_cents / 100:.2f}")
+
+    def on_cancelled(self, res: Reservation) -> None:
+        print(f"[notify] {res.guest}: {res.id} cancelled")
+
+
+if __name__ == "__main__":
+    hotel = Hotel([Room("S-501", "suite")], WeekendSeasonalRate(), [PrintObserver()])
+    oct10_15 = DateRange(date(2026, 10, 10), date(2026, 10, 15))
+    oct12_18 = DateRange(date(2026, 10, 12), date(2026, 10, 18))
+    oct15_17 = DateRange(date(2026, 10, 15), date(2026, 10, 17))   # back-to-back: allowed
+
+    a = hotel.book("Ada", "suite", oct10_15)
+    try:
+        hotel.book("Bob", "suite", oct12_18)
+    except RoomUnavailable as err:
+        print("conflict:", err)
+    hotel.book("Cy", "suite", oct15_17)
+
+    hotel.cancel(a.id)
+    print("free after cancel:", len(hotel.search("suite", oct10_15)))
+
+    # Concurrency: 20 threads, 1 suite, same dates -> exactly one winner
+    hotel2 = Hotel([Room("S-1", "suite")], WeekendSeasonalRate())
+    stay = DateRange(date(2026, 12, 30), date(2027, 1, 2))
+
+    def attempt(i: int) -> bool:
+        try:
+            hotel2.book(f"guest-{i}", "suite", stay)
+            return True
+        except RoomUnavailable:
+            return False
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        wins = sum(pool.map(attempt, range(20)))
+    print("winners:", wins)
 ```
-
----
-
-### 4.4 C#: Concurrency-Safe Enterprise Hotel Booking Engine
-
+<!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace Architecture.CapstoneHotel
+public readonly record struct DateRange
 {
-    public readonly record struct DateRange(DateTime CheckIn, DateTime CheckOut)
+    public DateOnly CheckIn { get; }
+    public DateOnly CheckOut { get; }   // exclusive
+
+    public DateRange(DateOnly checkIn, DateOnly checkOut)
     {
-        public bool Overlaps(DateRange other) => CheckIn < other.CheckOut && other.CheckIn < CheckOut;
-        public int Nights => Math.Max(1, (int)(CheckOut - CheckIn).TotalDays);
+        if (checkIn >= checkOut) throw new ArgumentException("check-out must follow check-in");
+        (CheckIn, CheckOut) = (checkIn, checkOut);
     }
 
-    public class Room
+    public bool Overlaps(DateRange other) =>
+        CheckIn < other.CheckOut && other.CheckIn < CheckOut;
+}
+
+public sealed class Room
+{
+    private readonly object _gate = new();               // one lock per room
+    private readonly List<Reservation> _bookings = new();
+    public string Id { get; }
+    public string Type { get; }
+
+    public Room(string id, string type) => (Id, Type) = (id, type);
+
+    public bool TryReserve(Reservation r)
     {
-        public string Id { get; }
-        public string Type { get; }
-        private readonly List<DateRange> _reservations = new();
-        private readonly SemaphoreSlim _lock = new(1, 1);
-
-        public Room(string id, string type)
+        lock (_gate)
         {
-            Id = id;
-            Type = type;
-        }
-
-        public async Task<bool> TryReserveAsync(DateRange range)
-        {
-            await _lock.WaitAsync();
-            try
-            {
-                if (_reservations.Any(r => r.Overlaps(range)))
-                {
-                    return false;
-                }
-                _reservations.Add(range);
-                return true;
-            }
-            finally
-            {
-                _lock.Release();
-            }
+            if (_bookings.Any(b => b.Status == "CONFIRMED" && b.Stay.Overlaps(r.Stay)))
+                return false;
+            _bookings.Add(r);
+            return true;
         }
     }
 }
+
+public interface IRateStrategy
+{
+    int TotalCents(string roomType, DateRange stay);
+}
+
+public interface IBookingObserver
+{
+    void OnConfirmed(Reservation r);
+}
+
+public sealed class Hotel(IEnumerable<Room> rooms, IRateStrategy rates,
+                          IEnumerable<IBookingObserver> observers)
+{
+    private int _next;
+
+    public Reservation Book(string guest, string roomType, DateRange stay)
+    {
+        var total = rates.TotalCents(roomType, stay);
+        foreach (var room in rooms.Where(r => r.Type == roomType))
+        {
+            var res = new Reservation($"RES-{Interlocked.Increment(ref _next)}",
+                                      room.Id, guest, stay, total, "CONFIRMED");
+            if (!room.TryReserve(res)) continue;
+            foreach (var o in observers) o.OnConfirmed(res);   // outside the room lock
+            return res;
+        }
+        throw new InvalidOperationException("no room available");
+    }
+}
+
+public sealed record Reservation(string Id, string RoomId, string Guest,
+                                 DateRange Stay, int TotalCents, string Status);
 ```
+````
+
+Output you should see (prices are deterministic; thread count aside):
+
+```text
+[notify] Ada: RES-1 confirmed, $1837.50
+conflict: no suite free for 2026-10-12..2026-10-18
+[notify] Cy: RES-3 confirmed, $787.50
+[notify] Ada: RES-1 cancelled
+free after cancel: 1
+winners: 1
+```
+
+Ada's stay is Sat + Sun + three weekdays: one Saturday night at $437.50 plus four nights at $350. (Bob's failed attempt burned `RES-2`, which is why Cy gets `RES-3`.)
 
 ---
 
-## 5. Practical Hands-On Verification Workflows
+## 4. Edges: concurrency, nulls, and "when not to"
 
-### 5.1 CLI Verification of Date-Range Overlap Logic
+- **Lock granularity.** One lock per room is the sweet spot: bookings of *different* rooms never contend, and all overlap checks for one room are atomic. A single global lock is correct but serialises the whole hotel; per-day locks are the classic deadlock.
+- **Stale search results.** `search()` is advisory — a room can be taken between search and book. Always re-check inside `try_reserve`; never trust the earlier answer.
+- **Notify outside the lock.** Observer code does I/O; holding a room lock across an SMS call turns a slow provider into a booking outage. Better still: enqueue an event (outbox) and let a worker send it.
+- **Observer failures.** A throwing observer must not undo a confirmed booking — catch/log per observer or push to a queue.
+- **Money.** Cents as integers (or `Decimal`), never floats. Currency as a field of a `Money` value object if you go international.
+- **Time.** Use dates, not datetimes, for nights; define check-in/out times separately. Store UTC if you need instants; beware DST for "nights" computed from datetimes.
+- **Multi-process / multi-node.** An in-process lock is useless once two servers run. The real invariant lives in the database: a PostgreSQL exclusion constraint (`EXCLUDE USING gist (room_id WITH =, daterange(check_in, check_out) WITH &&)`) or optimistic versioning on the room row. Say this out loud — it is the senior answer.
+- **When not to over-build.** Overbooking, loyalty tiers, and channel managers are follow-ups. Mention the extension point and move on.
 
-Validate interval collision and boundary invariants directly from the shell:
-
-```bash
-# Execute Python inline test verifying interval boundary logic
-python3 -c "
-from datetime import datetime, timedelta
-
-def overlaps(s1, e1, s2, e2):
-    return s1 < e2 and s2 < e1
-
-now = datetime.now()
-t1_in, t1_out = now, now + timedelta(days=3)
-t2_in, t2_out = now + timedelta(days=2), now + timedelta(days=5) # Overlaps on day 2-3
-t3_in, t3_out = now + timedelta(days=3), now + timedelta(days=6) # Back-to-back (No overlap!)
-
-print(f'Test 1 (Overlapping intervals): {overlaps(t1_in, t1_out, t2_in, t2_out)} (Expected: True)')
-print(f'Test 2 (Back-to-back checkout/checkin): {overlaps(t1_in, t1_out, t3_in, t3_out)} (Expected: False)')
-assert overlaps(t1_in, t1_out, t2_in, t2_out) == True
-assert overlaps(t1_in, t1_out, t3_in, t3_out) == False
-"
-```
-
-Expected Terminal Output:
-```
-Test 1 (Overlapping intervals): True (Expected: True)
-Test 2 (Back-to-back checkout/checkin): False (Expected: False)
-```
+**Real incident, compressed:** a resort booked New Year's Eve by taking one Redis lock *per date*. Two overlapping stays took locks in different orders, deadlocked, and a timeout handler rolled back halfway — both guests got confirmations for the same penthouse. The fix was one lock per room (the aggregate), the overlap formula above, and a database exclusion constraint as the last line of defence.
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 5. What you'd say in two minutes
+
+> "A hotel room is reserved for a date *range*, so the invariant is no overlap on the same room. I'd model `DateRange` as an immutable value object with half-open `[check_in, check_out)` and an `overlaps` check — `a.start < b.end and b.start < a.end` — which lets back-to-back stays through. `Room` owns its reservations and a lock, and `try_reserve` does check-and-insert inside it, so concurrent bookings for the same room are serialised while other rooms are untouched. `Hotel` finds candidate rooms, tries each, prices through an injected `RateStrategy`, and notifies `BookingObserver`s *after* releasing the lock. Search is advisory; booking re-checks. In a multi-node deployment I'd push the invariant into the database with an exclusion constraint, keep the in-process lock as an optimisation. Extension: new price rule is a new strategy, new channel is a new observer."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `room.is_booked` boolean | Can't represent overlapping partial ranges | `list[Reservation]` with `DateRange` |
+| Lock per day | Lock-order deadlocks, partial rollbacks | One lock per room |
+| Inclusive end date | Same-day turnaround looks like a conflict | Half-open `[in, out)` |
+| Pricing `if` ladder in `Hotel` | Every promo edits the core | `RateStrategy` |
+| Calling email inside the lock | Slow SMTP stalls bookings | Observer after unlock / outbox |
+| Trust search then book | TOCTOU double booking | Re-check inside `try_reserve` |
+| Float money | `0.1 + 0.2` surprises in totals | Integer cents or `Decimal` |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The Back-to-Back Turnover Invariant</strong></summary>
+<summary><strong>1. How do you detect overlapping date ranges? [BASIC]</strong></summary>
 
-**Scenario**: Guest A checks out on October 12 at 11:00 AM. Guest B wants to check in on October 12 at 3:00 PM. In our date range model ($[\text{CheckIn}, \text{CheckOut})$), does the algorithm detect an illegal collision if both use the date `2024-10-12`?
+For half-open intervals, `A` and `B` overlap iff `A.start < B.end and B.start < A.end`. Back-to-back (`A.end == B.start`) does *not* overlap, which matches same-day checkout/check-in.
 
-<strong>Answer:</strong>
-**No collision (Correct Behavior)**:
-- Under the half-open interval definition $[\text{CheckIn}, \text{CheckOut})$:
-  $$\text{Overlaps} \iff (\text{In}_A < \text{Out}_B) \land (\text{In}_B < \text{Out}_A)$$
-- For Guest A ($[10, 12)$) and Guest B ($[12, 15)$):
-  - $\text{In}_B < \text{Out}_A \implies 12 < 12$ is **False**.
-- Thus, `overlaps` evaluates to **False**. The same room can be vacated in the morning and occupied in the afternoon without triggering an overlap bug!
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: The Multi-Room Reservation Deadlock</strong></summary>
+<summary><strong>2. Why lock the room rather than each date? [BASIC]</strong></summary>
 
-**Scenario**: A corporate guest attempts to book Rooms 101 and 102 simultaneously. A family attempts to book Rooms 102 and 101 simultaneously. Thread A acquires Room 101; Thread B acquires Room 102. Both threads deadlock. How do you prevent this across multi-room group bookings?
+The invariant belongs to the room; per-day locks need ordering to avoid deadlock and make all-or-nothing multi-night booking hard. One room lock makes check-and-insert atomic with no ordering problem.
 
-<strong>Answer:</strong>
-**Deterministic Canonical Lock Ordering**:
-- Sort room identifiers alphabetically or numerically before acquiring room locks:
-  $$\text{OrderedRooms} = \text{Sort}(\text{RequestedRooms})$$
-- Both Thread A and Thread B will attempt to acquire `Lock(Room 101)` first, then `Lock(Room 102)`.
-- The second thread will wait cleanly outside Room 101, completely eliminating the circular wait condition.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: The Housekeeping Maintenance State Machine</strong></summary>
+<summary><strong>3. Where do Strategy and Observer apply here? [BASIC]</strong></summary>
 
-**Scenario**: A guest checks out. The room cannot immediately be reassigned to a walk-in guest until it passes cleaning and inspection (`DIRTY` $\rightarrow$ `CLEANING` $\rightarrow$ `INSPECTED` $\rightarrow$ `READY`). How should this lifecycle be modeled without breaking date-range reservation logic?
+Strategy for pricing (weekend, season, promo) and Observer for notifications (email, SMS, ledger). Both keep the booking path closed to modification when rules or channels change.
 
-<strong>Answer:</strong>
-**Separation of Physical Operational State from Calendar Scheduling**:
-- Maintain an operational enum `HousekeepingStatus` on the `Room` entity distinct from calendar bookings.
-- The `try_reserve()` routine accepts future bookings as long as date ranges do not collide.
-- However, physical key issuance at check-in evaluates:
-  `if (room.housekeepingStatus != HousekeepingStatus.READY) throw RoomNotReadyException();`
-- This allows guests to book rooms months in advance while preventing physical check-in if housekeeping has not certified the room.
+</details>
+
+<details>
+<summary><strong>4. Two servers handle bookings. Is your lock enough? [TRICKY]</strong></summary>
+
+No — it only protects one process. Enforce the invariant in the database: an exclusion constraint on `(room_id, daterange)`, or a transaction with `SELECT … FOR UPDATE` on the room row, or optimistic concurrency (version column) with retry. Keep the in-process lock only as a fast path.
+
+</details>
+
+<details>
+<summary><strong>5. A guest searched, waited 10 minutes, then booked. What happens? [SCENARIO]</strong></summary>
+
+`book` re-validates inside the room's critical section, so it either succeeds or raises `RoomUnavailable`; the UI shows "someone just booked it, here are alternatives". Optionally add a short *hold* (TTL) at search/checkout time.
+
+</details>
+
+<details>
+<summary><strong>6. How would you add overbooking (sell 105% of rooms)? [SCENARIO]</strong></summary>
+
+Move the capacity rule behind a strategy (`AvailabilityPolicy`): strict = zero overlaps per room; overbook = count overlapping bookings per room *type* against `capacity * 1.05`. The room-level lock becomes a room-type-level lock.
+
+</details>
+
+<details>
+<summary><strong>7. Cancel arrives twice (network retry). [SCENARIO]</strong></summary>
+
+Make cancel **idempotent**: if the reservation is already `CANCELLED`, return success without a second refund or notification. In the code, `release` returns `None` the second time, so observers aren't called again.
+
+</details>
+
+<details>
+<summary><strong>8. Why integer cents, and what about taxes? [TRICKY]</strong></summary>
+
+Binary floats can't represent most decimals exactly; summing nightly rates drifts. Use integer minor units (or `Decimal`) and apply rounding rules once, at a defined point (per night vs on the total) — and document it, because auditors will ask.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 8. One-page cheat sheet
 
-- [PostgreSQL Documentation: Range Types & Exclusion Constraints](https://www.postgresql.org/docs/current/rangetypes.html) - Production database support for non-overlapping date ranges.
-- [Martin Fowler: Recurring Event & Interval Modeling](https://martinfowler.com/apsupp/recurring.pdf) - Classic reference on date range algebra.
-- [Refactoring.Guru: Observer Pattern](https://refactoring.guru/design-patterns/observer) - Decoupling notification and booking confirmation workflows.
+```text
+Invariant      no two CONFIRMED bookings of one room overlap
+Interval       [check_in, check_out)   overlap: a.in < b.out and b.in < a.out
+Value objects  DateRange (frozen), money in cents
+Lock           one per Room; try_reserve = check + insert, atomic
+Hotel          search (advisory) -> book (re-check) -> price (Strategy) -> notify (Observer, after unlock)
+Cancel         idempotent; release returns None if already cancelled
+Multi-node     DB exclusion constraint / FOR UPDATE / optimistic version
+Extend         RateStrategy, BookingObserver, AvailabilityPolicy (overbooking), HoldService (TTL)
+
+Opener: "The invariant is (room, interval), so I lock the room, not the day."
+```
 
 ---
 
-## Next Steps
+## Further reading
 
-Advance to [Module 23: Capstone 2 - Supply Chain & Logistics Platform](../23-supply-chain-platform/README.md) for the final capstone: multi-warehouse routing, inventory deduction, and shipment lifecycle management.
+- [PostgreSQL — range types and exclusion constraints](https://www.postgresql.org/docs/current/rangetypes.html#RANGETYPES-CONSTRAINT)
+- [Martin Fowler — Value Object](https://martinfowler.com/bliki/ValueObject.html)
+- [Python `threading` documentation](https://docs.python.org/3/library/threading.html)
+
+## Next
+
+**[23 · Supply Chain Platform](../23-supply-chain-platform/README.md)** — a multi-subsystem capstone: inventory, allocation across warehouses, purchase orders, and a shipment state machine.

@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 05](../05-functions/README.md): functions, and what happens when you pass a list into one.  
 > **Estimated Reading Time:** 25 minutes  
-> **Who this is for:** Anyone who has been surprised by a list that changed when they did not expect it to. This is the most important lesson in the track.
+> **Who this is for:** Anyone who has been surprised by a list that changed when they did not expect it to. This is the most important lesson in the track.  
+> **Interview relevance:** The single most-asked Python fundamentals topic: aliasing, `is` vs `==`, shallow vs deep copy.
 
 > [!key]
 > A variable is **not a box that holds a value**. It is a **name stuck onto an object**. `b = a` does not copy the object; it sticks a second name on the *same* object. Whether that matters depends on one thing: can the object be changed in place?
+
+> [!note]
+> Variables are names attached to objects; assignment never copies. Whether a change is visible through another name depends only on mutability.
+
+> [!tip]
+> Draw boxes and arrows on paper for every aliasing question: names on the left, objects on the right. It makes the answer obvious.
 
 ## What you will be able to do
 
@@ -482,6 +489,147 @@ print(d)
 Three: the list `a` and `b` share, the separate list `c`, and the outer list `d`. Appending through `d[0]` changes the list that `a` and `b` name, but not `c`.
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **`+=` is not always the same as `= ... +`, `==` is not `is`, and a "copy" is often only one level deep.** Every one of these is a favourite interview question because it tests whether you picture names and objects correctly.
+
+```python
+a = [1, 2]
+b = a
+a += [3]            # changes the object in place
+print(b)
+
+a = [1, 2]
+b = a
+a = a + [3]         # builds a NEW list and rebinds a
+print(b)
+
+n = 10
+m = n
+n += 1              # ints are immutable: n is rebound to a new int
+print(m, n)
+```
+
+```text
+[1, 2, 3]
+[1, 2]
+10 11
+```
+
+```python
+x = [1, 2]
+y = [1, 2]
+print(x == y, x is y, id(x) == id(y))
+z = x
+print(x is z)
+print(None is None, [] is [])
+```
+
+```text
+True False False
+True
+True False
+```
+
+> [!tip]
+> Use `is` only to compare with `None` (and other singletons). For small integers and short strings Python may reuse objects, so `is` can seem to work for them. That is an implementation detail, never something to rely on.
+
+Copying one level versus all levels:
+
+```python
+import copy
+
+original = [[1, 2], [3]]
+alias = original
+shallow = original.copy()
+deep = copy.deepcopy(original)
+
+original[0].append(99)
+print("alias  ", alias)
+print("shallow", shallow)
+print("deep   ", deep)
+```
+
+```text
+alias   [[1, 2, 99], [3]]
+shallow [[1, 2, 99], [3]]
+deep    [[1, 2], [3]]
+```
+
+`[:]`, `list(x)`, `x.copy()` and `copy.copy(x)` are all **shallow**: the outer container is new, the inner objects are shared. Only `deepcopy` copies them too (at a cost, and it copes with cycles).
+
+A function sees changes to a mutable argument, but not a rebinding:
+
+```python
+def mutate(items):
+    items.append("added")      # visible to the caller
+
+def rebind(items):
+    items = ["new list"]       # only the local name moves
+
+data = ["x"]
+mutate(data)
+rebind(data)
+print(data)
+```
+
+```text
+['x', 'added']
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. What does <code>b = a</code> do? [BASIC]</strong></summary>
+
+It sticks a second **name** on the same object; nothing is copied. If the object is mutable and you change it through either name, both names see the change. If it is immutable (`int`, `str`, `tuple`), "changing" it rebinds one name to a new object, so the other is unaffected.
+
+</details>
+
+<details>
+<summary><strong>2. <code>is</code> vs <code>==</code>? [BASIC]</strong></summary>
+
+`==` asks "do these have equal value?" (calls `__eq__`); `is` asks "is it literally the same object?" (compares identity, like `id(a) == id(b)`). Use `is None`, `is not None`, and `==` for everything else.
+
+</details>
+
+<details>
+<summary><strong>3. Shallow copy vs deep copy? [TRICKY]</strong></summary>
+
+A shallow copy makes a new container holding **the same inner objects**; a deep copy recursively copies the inner objects too. With a list of numbers they behave the same; with a list of lists, a shallow copy still shares the inner lists, so changing one is visible in both.
+
+</details>
+
+<details>
+<summary><strong>4. Why can a tuple "change"? [TRICKY]</strong></summary>
+
+A tuple's **references** cannot change, but if one of them points to a mutable object (like a list), that object can. `t = ([1], 2); t[0].append(3)` works. The tuple is immutable; the list inside it is not.
+
+</details>
+
+<details>
+<summary><strong>5. How would you avoid shared-state bugs in function arguments? [SCENARIO]</strong></summary>
+
+Do not mutate arguments unless that is the documented purpose; return a new value instead (`return [*items, new]`). Copy defensively at boundaries when you store an argument (`self.items = list(items)`). Never use a mutable default value.
+
+</details>
+
+## Cheat sheet
+
+```text
+Variable       a NAME stuck on an object (not a box holding a value)
+b = a          second name, SAME object, no copy
+==  vs  is     equal value    vs    same object (use `is` for None only)
+Mutable        list dict set (most classes)   -> change in place, visible via every name
+Immutable      int float str tuple frozenset bytes -> "changes" rebind the name
++=             list: in place (extends)   int/str/tuple: rebinds to a new object
+Copy           x[:]  list(x)  x.copy()  copy.copy(x)  -> shallow
+               copy.deepcopy(x) -> everything (costly)
+Functions      get the reference: mutation visible, rebinding not
+Debug          id(x)   x is y   print both names after a change
+```
 
 ## Check yourself
 

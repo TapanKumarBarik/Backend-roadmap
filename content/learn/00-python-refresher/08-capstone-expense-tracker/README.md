@@ -2,10 +2,17 @@
 
 > **Prerequisites:** Modules [00](../00-running-python-values-and-types/README.md) to [07](../07-errors-files-and-modules/README.md). Everything below uses something you have already met.  
 > **Estimated Reading Time:** 45 minutes  
-> **Who this is for:** Anyone who has finished the track and wants to see the pieces working together in one small, real program.
+> **Who this is for:** Anyone who has finished the track and wants to see the pieces working together in one small, real program.  
+> **Interview relevance:** "Design a small program" questions: structure, validation, persistence, testing, what you would improve.
 
 > [!key]
 > A program is a handful of small functions that each do one job, working on a plain data structure. Here the data is a **list of dictionaries**, one per expense, and the functions add to it, add it up, print it and save it. The last step shows the same program as a **class**, which is where the next topic begins.
+
+> [!note]
+> A small program is data plus small single-purpose functions; money is stored in cents, input is validated at the edge, and saves are atomic.
+
+> [!tip]
+> Narrate the design as you go: data shape, functions, errors, persistence, then "what I would improve". That is the shape of a strong answer.
 
 ## What you will be able to do
 
@@ -577,6 +584,131 @@ We check the position ourselves so the caller gets a message that makes sense fo
 
 - **Go deeper on what you just saw:** [Classes and objects](../../../lld/01-classes-objects-and-oop-building-blocks/README.md) and the [object-oriented programming guide](/topics/oop-python/) turn the class preview above into a full topic, with coding exercises.
 - **Practice:** the [Practice](/practice/) section has Python problems that run in the browser.
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **Real programs fail in the boring places: money stored as floats, half-written files, bad input, and hidden global state.** A few small habits, all from earlier modules, remove most of those failures.
+
+Money as whole cents survives addition exactly; floats do not:
+
+```python
+float_total = 0.10 + 0.20 + 0.30
+cents_total = 10 + 20 + 30
+print(float_total, float_total == 0.6)
+print(cents_total, f"{cents_total / 100:.2f}")
+```
+
+```text
+0.6000000000000001 False
+60 0.60
+```
+
+Saving over the old file directly can leave it half-written if the program stops mid-save. Write to a temporary file in the same folder, then swap it in; `os.replace` is atomic on the same disk:
+
+```python
+import json
+import os
+import tempfile
+from pathlib import Path
+
+
+def save_atomic(path, data):
+    path = Path(path)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, path)          # all-or-nothing swap
+
+
+with tempfile.TemporaryDirectory() as folder:
+    target = Path(folder) / "expenses.json"
+    save_atomic(target, [{"description": "tea", "amount_cents": 250}])
+    save_atomic(target, [{"description": "tea", "amount_cents": 250},
+                         {"description": "bus", "amount_cents": 400}])
+    print([e["description"] for e in json.loads(target.read_text(encoding="utf-8"))])
+    print(sorted(p.name for p in Path(folder).iterdir()))
+```
+
+```text
+['tea', 'bus']
+['expenses.json']
+```
+
+Validate at the edge of the program and keep the inside simple. A function that **returns a new list** is easier to test than one that edits a global:
+
+```python
+def add_expense(expenses, description, amount_cents):
+    if not description.strip():
+        raise ValueError("description is required")
+    if amount_cents <= 0:
+        raise ValueError("amount must be positive")
+    return [*expenses, {"description": description.strip(), "amount_cents": amount_cents}]
+
+
+before = []
+after = add_expense(before, " lunch ", 1250)
+print(before, after)
+
+try:
+    add_expense(after, "", 5)
+except ValueError as e:
+    print("rejected:", e)
+```
+
+```text
+[] [{'description': 'lunch', 'amount_cents': 1250}]
+rejected: description is required
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. Why store money as an integer number of cents? [BASIC]</strong></summary>
+
+Floats cannot represent most decimal fractions exactly, so totals drift (`0.1 + 0.2`). Integers are exact, and you only convert to a display string (`f"{cents / 100:.2f}"`) at the very end. `decimal.Decimal` is the alternative when you need arbitrary precision or rounding rules.
+
+</details>
+
+<details>
+<summary><strong>2. A list of dictionaries, or a class? How do you decide? [SCENARIO]</strong></summary>
+
+A list of dictionaries is fine for a small script and maps directly to JSON. Move to a class (or a `dataclass`) when the **same data and the functions that use it travel together**, when you need validation in one place, or when more than one part of the program shares the state. That step is the topic of the next track.
+
+</details>
+
+<details>
+<summary><strong>3. How do you keep the saved file from being corrupted? [SCENARIO]</strong></summary>
+
+Write the new content to a temporary file in the same folder and then `os.replace` it over the old one, so readers see either the old file or the new one, never half of one. For many writers or large data, move to a database such as SQLite.
+
+</details>
+
+<details>
+<summary><strong>4. How would you test this program? [SCENARIO]</strong></summary>
+
+Keep logic in small functions that take data in and return data out (no `input()` or file access inside), then check them with plain `assert`s or `pytest`: valid input, empty description, negative amount, an empty list. Test the file code once with a temporary directory.
+
+</details>
+
+<details>
+<summary><strong>5. What would you change to make it production-ready? [SCENARIO]</strong></summary>
+
+Validate and parse input at the boundary, use `Decimal` or cents, handle a missing or corrupt data file explicitly, write atomically, add logging instead of `print`, put the code in a package with a `main()` entry point, add type hints and tests, and consider a database once there is concurrent use.
+
+</details>
+
+## Cheat sheet
+
+```text
+Shape        small functions, each doing ONE job, on plain data (list of dicts) -> later a class
+Money        integer cents (or Decimal); format only for display: f"{cents / 100:.2f}"
+Input        validate at the edge: strip, convert, range-check, raise ValueError with a clear message
+Functions    take data in, RETURN data out; avoid hidden globals; no I/O inside logic
+Persistence  json.dumps(indent=2) -> temp file -> os.replace(tmp, real)   (atomic save)
+Errors       catch the specific error you can handle (FileNotFoundError, JSONDecodeError, ValueError)
+Structure    main() + if __name__ == "__main__": main()
+Next step    dataclass / class when data + behaviour belong together
+```
 
 ## Check yourself
 

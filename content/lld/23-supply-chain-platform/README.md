@@ -1,649 +1,525 @@
-# Capstone 2: Enterprise Supply Chain & Multi-Warehouse Logistics
+# Capstone 2: Supply Chain & Multi-Warehouse Fulfilment
 
-> **Prerequisites**: Modules 00 through 22 (Complete Low-Level Design Curriculum).  
-> **Estimated Reading Time**: 30 minutes  
-> **Target Audience**: Backend Engineers, Systems Architects, Principal & Staff Engineering Candidates.
+> **Prerequisites:** [07 · Structural Patterns](../07-structural-patterns/README.md), [08 · Behavioral Patterns I](../08-behavioral-patterns-i/README.md), [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [22 · Capstone: Hotel Reservation](../22-capstone-project/README.md)  
+> **Reading time:** ~30 minutes  
+> **Audience:** Candidates facing a "design an inventory / order fulfilment platform" round, or any prompt with several cooperating subsystems
+
+> [!NOTE]
+> **In one line:** Split the platform into small subsystems — **Inventory, Procurement, Fulfilment, Shipment** — guard stock with a lock per **(warehouse, SKU)**, pick the warehouse through a **Strategy**, make multi-item reservation **all-or-nothing**, and model shipments as an explicit **state machine**.
 
 > [!TIP]
-> **Golden Rule of Supply Chain Architecture**: Real-world enterprise systems do not collapse into a single class diagram. Never construct a monolithic `SupplyChainManager` God Object. Decompose the domain into four autonomous bounded subsystems: **Inventory**, **Procurement (PO)**, **Order Fulfillment**, and **Shipment Logistics**. Encapsulate concurrency locks strictly at the granular `(Warehouse, SKU)` inventory level, and decouple fulfillment routing via the **Strategy Pattern**.
+> **Golden rule:** Never write a `SupplyChainManager`. Each subsystem owns its own state and invariant (`reserved <= on_hand`, "no shipping a cancelled order"); the fulfilment service only *coordinates*. And never write stock as an absolute value — apply **deltas**, ideally appended to a ledger.
+
+> [!TIP]
+> **Try it:** Sketch the four subsystems in [LLD Studio](/tools/lld-studio/), then run the Python below: 50 threads fight over 10 units and exactly 10 win; a two-item order that can't be fully reserved rolls back cleanly.
 
 ---
 
-## 1. Visual Mental Models & Multi-Subsystem Architecture
+## 1. The smell: why one class cannot hold this
 
-A modern supply chain platform coordinates four distinct operational subsystems:
-1. **Inventory Management**: Tracks physical on-hand, reserved, and available stock per SKU per warehouse.
-2. **Purchase Orders (Procurement)**: Ingests inbound freight from external suppliers to replenish depleted SKUs.
-3. **Customer Order Fulfillment**: Evaluates stock across regional warehouses and reserves units.
-4. **Logistics & Shipments**: Manages carrier handoffs, tracking numbers, and finite transit states.
+Interviewer: *"Design a system that receives purchase orders from suppliers, keeps stock across warehouses, fulfils customer orders from the best warehouse, and tracks shipments."*
 
-### 1.1 Complete Multi-Subsystem Class Architecture
+Signals that this is a **multi-subsystem** prompt:
+
+- More than one aggregate (stock, purchase order, order, shipment) with *different* invariants.
+- Different concurrency stories (many readers of stock, rare writers to a PO).
+- Words like "best warehouse" (Strategy) and "status" (State machine).
 
 ```mermaid
-classDiagram
-    namespace InventorySubsystem {
-        class Warehouse {
-            -String warehouseId
-            -Location location
-            -Map~String, InventoryItem~ inventory
-            +reserveStock(String sku, int qty) bool
-            +replenishStock(String sku, int qty) void
-            +getAvailable(String sku) int
-        }
-
-        class InventoryItem {
-            -String sku
-            -int onHand
-            -int reserved
-            -Mutex stockLock
-            +tryReserve(int qty) bool
-            +addStock(int qty) void
-        }
-    }
-
-    namespace FulfillmentSubsystem {
-        class Order {
-            -String orderId
-            -List~OrderItem~ items
-            -OrderStatus status
-            +markReserved() void
-            +markShipped() void
-        }
-
-        class IFulfillmentStrategy {
-            <<interface>>
-            +selectWarehouse(Order o, List~Warehouse~ warehouses) Warehouse
-        }
-
-        class NearestWarehouseStrategy {
-            +selectWarehouse(Order o, List~Warehouse~ warehouses) Warehouse
-        }
-    }
-
-    namespace LogisticsSubsystem {
-        class Shipment {
-            -String trackingNumber
-            -String orderId
-            -ShipmentStatus status
-            -Carrier carrier
-            +dispatch() void
-            +deliver() void
-        }
-    }
-
-    Warehouse "1" *-- "1..*" InventoryItem : Contains
-    IFulfillmentStrategy <|.. NearestWarehouseStrategy : Implements
-    Order ..> IFulfillmentStrategy : Evaluated By
-    Shipment --> Order : Fulfills
+flowchart LR
+  subgraph Procurement
+    PO["PurchaseOrder\nORDERED → RECEIVED"]
+  end
+  subgraph Inventory
+    W["Warehouse"] --> I["InventoryItem\n(on_hand, reserved, lock)"]
+    L["StockLedger\n(append-only deltas)"]
+  end
+  subgraph Fulfilment
+    F["FulfilmentService"] --> S["WarehouseSelector\n(Strategy)"]
+    F --> O["Order"]
+  end
+  subgraph Logistics
+    SH["Shipment FSM\nCREATED → … → DELIVERED"]
+  end
+  PO -->|"receive(delta +n)"| I
+  F -->|"reserve all-or-nothing"| I
+  F -->|"create"| SH
+  I --> L
 ```
+
+Subsystems talk through narrow methods (`receive`, `try_reserve`, `create_shipment`), never by reaching into each other's fields.
 
 ---
 
-### 1.2 Customer Order Fulfillment Sequence Flow
+## 2. Subsystem map
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer
-    participant Router as FulfillmentRouter (Strategy)
-    participant W_East as Warehouse East
-    participant Item as InventoryItem (SKU: "LAPTOP-16")
-    participant Ship as ShipmentService
-    actor Carrier as FedEx / UPS
-
-    Customer->>Router: submitOrder(Items: [LAPTOP-16 x 2], Destination: NY)
-    Router->>Router: Evaluate nearest warehouse with stock (Strategy)
-    Router->>W_East: reserveStock("LAPTOP-16", 2)
-    
-    Note over W_East, Item: Acquire (Warehouse_East, LAPTOP-16) Mutex Lock
-    W_East->>Item: tryReserve(2)
-    Note over Item: onHand=10, reserved=3 -> Available=7 (>= 2)
-    Item->>Item: reserved += 2 (Now 5)
-    Note over W_East, Item: Release Mutex Lock
-    Item-->>W_East: Success!
-    W_East-->>Router: Stock Reserved!
-
-    Router->>Ship: createShipment(OrderId, Destination, W_East)
-    Ship->>Carrier: GenerateManifestAndLabel()
-    Carrier-->>Ship: Tracking #TRK-889102
-    Ship-->>Customer: Order Confirmed & Tracking Issued!
-```
-
----
-
-### 1.3 Shipment Lifecycle Finite State Machine (FSM)
-
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED : Order Reserved & Manifest Built
-    
-    CREATED --> MANIFESTED : Carrier Dispatched
-    MANIFESTED --> IN_TRANSIT : Picked Up from Warehouse Dock
-    
-    IN_TRANSIT --> OUT_FOR_DELIVERY : Reached Destination Hub
-    OUT_FOR_DELIVERY --> DELIVERED : Final Hand-off to Customer
-    
-    IN_TRANSIT --> EXCEPTION : Damaged / Weather Delay
-    EXCEPTION --> IN_TRANSIT : Rescheduled
-    
-    DELIVERED --> [*]
-```
-
----
-
-## 2. Taxonomic Reference Grids
-
-### 2.1 Multi-Warehouse Fulfillment Routing Strategies
-
-| Strategy | Routing Objective | Algorithmic Complexity | Multi-Item Behavior | Tradeoff / Cost |
+| Subsystem | State it owns | Invariant | Concurrency boundary | Mechanism |
 | :--- | :--- | :--- | :--- | :--- |
-| **Nearest Single Warehouse** | Minimizes delivery time and shipping zones | $\mathcal{O}(W)$ warehouses | Fails if single location cannot fulfill entire order | Rejects orders that could be fulfilled via split shipment |
-| **Split-Shipment Minimal** | Partitions order across minimum number of warehouses | $\mathcal{O}(W \cdot I)$ | Dispatches multiple packages to customer | Higher shipping fees; multiple delivery arrival times |
-| **Consolidated Depletion** | Drains inventory from warehouses with excess aging stock | $\mathcal{O}(W \log W)$ | Prioritizes inventory clearance over proximity | Higher transit latency for the customer |
+| **Inventory** | `on_hand`, `reserved` per `(warehouse, sku)` | `0 ≤ reserved ≤ on_hand` | The `(warehouse, sku)` pair | One lock per item (or atomic SQL delta) |
+| **Procurement** | Purchase order status | Receive only once, never when cancelled | The PO aggregate | State guard / optimistic version |
+| **Fulfilment** | Order status | Never reserve twice; all lines or none | The order | Idempotency key + rollback |
+| **Logistics** | Shipment status | Only legal transitions | The tracking number | FSM table, idempotent events |
 
-### 2.2 Subsystem Isolation & Concurrency Matrix
+### Warehouse selection strategies
 
-| Subsystem | State Governed | Concurrency Boundary | Thread Safety Mechanism | Failure Mode Prevented |
-| :--- | :--- | :--- | :--- | :--- |
-| **Inventory** | `onHand`, `reserved` quantities | Per-`(Warehouse, SKU)` pair | Fine-grained Mutex or Atomic CAS | Negative inventory; selling out-of-stock items |
-| **Procurement (PO)** | Inbound replenishment PO status | Purchase Order aggregate root | State machine guards | Receiving stock against canceled POs |
-| **Fulfillment** | Order processing state | Order entity | Versioned Optimistic Locking | Dual shipment generation for same order |
-| **Logistics** | Manifests and tracking updates | Tracking number | Idempotent event consumer | Out-of-order tracking webhook corruption |
+| Strategy | Goal | Multi-item behaviour | Trade-off |
+| :--- | :--- | :--- | :--- |
+| **Nearest single warehouse** | Fast, cheap delivery | Needs one warehouse to cover *all* lines | May reject orders a split shipment could serve |
+| **Most stock first** | Balance inventory | Same as above, picks the fullest | Longer transit |
+| **Split shipment (min warehouses)** | Always fulfil | Partition lines across warehouses | More parcels, higher cost |
 
----
-
-## 3. Production War Stories: Incident Post-Mortem
-
-### The $3.4M Phantom Stock Blackout: Concurrent Purchase Order Ingestion and Order Allocation Collision
-
-```
-SEVERITY LEVEL: SEV-1 (Severe Inventory Corruption & Backorders)
-DETECTION TIME: 15 Minutes
-RECOVERY TIME: 360 Minutes
-FINANCIAL PENALTY: $3,400,000 in cancelled orders and vendor chargebacks
-```
-
-#### Incident Background
-During Cyber Monday, a nationwide consumer electronics retailer coordinated inventory across 14 automated distribution centers. The warehouse management software utilized an asynchronous message broker to process inbound pallet receipts from suppliers while simultaneously deducting customer online checkouts.
-
-#### What Happened
-At 11:00 AM, a bulk supplier delivery of 5,000 4K OLED Monitors arrived at the Chicago Distribution Center. The receiving dock worker scanned the pallet, publishing an inbound `StockReplenishedEvent`. Concurrently, 35,000 customers attempted to purchase the same discounted monitor. The replenishment service and the checkout service executed non-atomic database updates:
-```sql
--- Replenishment Worker:
-UPDATE inventory SET on_hand = on_hand + 5000 WHERE sku = 'OLED-4K';
-
--- Checkout Worker:
-UPDATE inventory SET on_hand = on_hand - 1 WHERE sku = 'OLED-4K';
-```
-Due to read-modify-write interleaving without row-level locks or atomic transactions, the replenishment update was overwritten by an interleaved checkout transaction. Instead of reading 5,000 units, the database recorded an available quantity of 12. The system abruptly marked the monitor "Sold Out" nationwide during peak traffic. Over 18,000 customers abandoned carts, and automated backorder recovery jobs attempted to re-purchase 5,000 monitors from the supplier at non-discounted emergency rates.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Dock as Dock Scanning App
-    participant DB as Postgres Inventory Table
-    participant Web as Checkout Service
-
-    Note over DB: Current on_hand = 10
-    Dock->>DB: READ on_hand (Reads 10)
-    Web->>DB: READ on_hand (Reads 10)
-    
-    Note over Dock: Computes 10 + 5000 = 5010
-    Note over Web: Computes 10 - 1 = 9
-    
-    Dock->>DB: WRITE on_hand = 5010
-    Web->>DB: WRITE on_hand = 9 (FATAL OVERWRITE!)
-    
-    Note over DB: CORRUPTION: 5,000 newly delivered units vanished from database!
-    Note over Web: Sells out instantly -> $3.4M in lost sales!
-```
-
-#### Root Cause Analysis
-1. **Unsynchronized Read-Modify-Write Cycles**: Application services performed state calculation in local memory and wrote back absolute numbers instead of executing atomic database delta increments.
-2. **Missing Granular Mutex Boundary**: Inbound freight and outbound fulfillment accessed shared SKU quantities without mutual exclusion.
-3. **No Audit Trail or Event Sourcing**: Stock changes were overwritten in place rather than appended as an immutable double-entry ledger of stock movements.
-
-#### The Architectural Hardening
-1. **Atomic Relative Increments**: Replaced absolute writes with atomic database delta operations:
-   $$\text{UPDATE inventory SET on\_hand = on\_hand + :delta WHERE sku = :sku}$$
-2. **Double-Entry Stock Ledger**: All stock modifications create an immutable `StockMovementRecord` (`RECEIPT`, `RESERVATION`, `DISPATCH`, `AUDIT_ADJUSTMENT`). The current stock balance is the mathematical sum of all movements.
-3. **Encapsulated In-Memory Mutex per SKU**: In the core routing service, memory updates are guarded by a fine-grained mutex keyed by `${WarehouseID}:${SKU}`.
+Start with nearest-single and name split-shipment as an extension — that's the usual interview boundary.
 
 ---
 
-## 4. Multi-Language Production Implementations
+## 3. Walkthrough: requirements → entities → methods → extension
 
-Below are complete, enterprise implementations of the **Enterprise Supply Chain Platform**.
+**Requirements (say back):**
 
-### 4.1 Go: Multi-Warehouse Inventory & Fulfillment Engine
+1. Suppliers deliver goods against a **purchase order**; receiving increases stock exactly once.
+2. A customer order has several lines; reserve **all** lines from **one** warehouse or fail cleanly.
+3. The warehouse is chosen by a swappable rule.
+4. A shipment moves through `CREATED → MANIFESTED → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED` (with `EXCEPTION` from transit).
+5. Stock never goes negative, even with concurrent receipts and checkouts.
 
-```go
-package main
+**Entities:** `InventoryItem`, `Warehouse`, `PurchaseOrder`, `Order`/`OrderLine`, `WarehouseSelector` (Strategy), `FulfilmentService`, `Shipment`.
 
-import (
-	"errors"
-	"fmt"
-	"math"
-	"sync"
-)
+**Key methods:**
 
-type Location struct {
-	X float64
-	Y float64
-}
+- `InventoryItem.try_reserve(qty) -> bool` and `release(qty)`, `receive(qty)` — each under the item's lock; every change recorded as a signed delta.
+- `Warehouse.try_reserve_all(lines)` — reserve line by line, **roll back** the earlier lines if a later one fails.
+- `FulfilmentService.place(order)` — ask the selector for candidates, try them in order, create a shipment on success.
+- `Shipment.advance(to)` — validates the transition against a table; repeating the same event is a no-op (idempotent).
 
-func (l Location) DistanceTo(other Location) float64 {
-	return math.Hypot(l.X-other.X, l.Y-other.Y)
-}
+**Extension points:** new routing rule → new `WarehouseSelector`; split shipments → a selector returning a *plan*; new carrier events → new FSM edges.
 
-type InventoryItem struct {
-	SKU      string
-	mu       sync.Mutex
-	onHand   int
-	reserved int
-}
-
-func (item *InventoryItem) TryReserve(qty int) bool {
-	item.mu.Lock()
-	defer item.mu.Unlock()
-
-	available := item.onHand - item.reserved
-	if available >= qty {
-		item.reserved += qty
-		return true
-	}
-	return false
-}
-
-func (item *InventoryItem) Replenish(qty int) {
-	item.mu.Lock()
-	defer item.mu.Unlock()
-	item.onHand += qty
-}
-
-type Warehouse struct {
-	ID        string
-	Location  Location
-	inventory sync.Map // SKU -> *InventoryItem
-}
-
-func NewWarehouse(id string, loc Location) *Warehouse {
-	return &Warehouse{ID: id, Location: loc}
-}
-
-func (w *Warehouse) GetOrCreateItem(sku string) *InventoryItem {
-	val, ok := w.inventory.Load(sku)
-	if !ok {
-		newItem := &InventoryItem{SKU: sku}
-		val, _ = w.inventory.LoadOrStore(sku, newItem)
-	}
-	return val.(*InventoryItem)
-}
-
-type FulfillmentStrategy interface {
-	SelectWarehouse(dest Location, sku string, qty int, warehouses []*Warehouse) (*Warehouse, error)
-}
-
-// NearestWarehouseStrategy implements the Strategy Pattern.
-type NearestWarehouseStrategy struct{}
-
-func (s *NearestWarehouseStrategy) SelectWarehouse(dest Location, sku string, qty int, warehouses []*Warehouse) (*Warehouse, error) {
-	var bestWarehouse *Warehouse
-	minDist := math.MaxFloat64
-
-	for _, w := range warehouses {
-		item := w.GetOrCreateItem(sku)
-		// Check availability without mutating
-		item.mu.Lock()
-		available := item.onHand - item.reserved
-		item.mu.Unlock()
-
-		if available >= qty {
-			dist := w.Location.DistanceTo(dest)
-			if dist < minDist {
-				minDist = dist
-				bestWarehouse = w
-			}
-		}
-	}
-
-	if bestWarehouse == nil {
-		return nil, errors.New("insufficient inventory across all regional warehouses")
-	}
-	return bestWarehouse, nil
-}
-
-type SupplyChainCoordinator struct {
-	warehouses []*Warehouse
-	strategy   FulfillmentStrategy
-}
-
-func NewSupplyChainCoordinator(whs []*Warehouse, strat FulfillmentStrategy) *SupplyChainCoordinator {
-	return &SupplyChainCoordinator{warehouses: whs, strategy: strat}
-}
-
-func (scc *SupplyChainCoordinator) FulfillOrder(orderID, sku string, qty int, customerLoc Location) (string, error) {
-	wh, err := scc.strategy.SelectWarehouse(customerLoc, sku, qty, scc.warehouses)
-	if err != nil {
-		return "", err
-	}
-
-	item := wh.GetOrCreateItem(sku)
-	if !item.TryReserve(qty) {
-		return "", errors.New("concurrent inventory race: failed to reserve stock")
-	}
-
-	return fmt.Sprintf("Order %s fulfilled by Warehouse %s (Distance: %.1f km)",
-		orderID, wh.ID, wh.Location.DistanceTo(customerLoc)), nil
-}
-
-func main() {
-	wEast := NewWarehouse("WH-EAST", Location{X: 10, Y: 10})
-	wWest := NewWarehouse("WH-WEST", Location{X: 90, Y: 90})
-
-	wEast.GetOrCreateItem("SKU-LAPTOP").Replenish(5)
-	wWest.GetOrCreateItem("SKU-LAPTOP").Replenish(10)
-
-	coord := NewSupplyChainCoordinator([]*Warehouse{wEast, wWest}, &NearestWarehouseStrategy{})
-
-	// Customer located close to WH-EAST (X: 12, Y: 11)
-	result, err := coord.FulfillOrder("ORD-101", "SKU-LAPTOP", 2, Location{X: 12, Y: 11})
-	if err != nil { panic(err) }
-	fmt.Println("[Success]", result)
-}
-```
-
----
-
-### 4.2 TypeScript: Domain-Driven Logistics & Shipment Engine
-
-```typescript
-export enum ShipmentStatus {
-  CREATED = "CREATED",
-  IN_TRANSIT = "IN_TRANSIT",
-  DELIVERED = "DELIVERED",
-  CANCELLED = "CANCELLED",
-}
-
-export class Shipment {
-  private _status: ShipmentStatus = ShipmentStatus.CREATED;
-
-  constructor(
-    public readonly trackingNumber: string,
-    public readonly orderId: string,
-    public readonly originWarehouseId: string
-  ) {}
-
-  public get status(): ShipmentStatus {
-    return this._status;
-  }
-
-  public dispatch(): void {
-    if (this._status !== ShipmentStatus.CREATED) {
-      throw new Error(`Cannot dispatch shipment in status: ${this._status}`);
-    }
-    this._status = ShipmentStatus.IN_TRANSIT;
-  }
-
-  public deliver(): void {
-    if (this._status !== ShipmentStatus.IN_TRANSIT) {
-      throw new Error(`Cannot deliver shipment that is not in transit: ${this._status}`);
-    }
-    this._status = ShipmentStatus.DELIVERED;
-  }
-}
-
-export class InventoryItem {
-  private lock = false;
-
-  constructor(
-    public readonly sku: string,
-    public onHand: number = 0,
-    public reserved: number = 0
-  ) {}
-
-  public async tryReserve(qty: number): Promise<boolean> {
-    while (this.lock) {
-      await new Promise((r) => setTimeout(r, 2));
-    }
-    this.lock = true;
-
-    try {
-      if (this.onHand - this.reserved >= qty) {
-        this.reserved += qty;
-        return true;
-      }
-      return false;
-    } finally {
-      this.lock = false;
-    }
-  }
-}
-```
-
----
-
-### 4.3 Python: Purchase Order & Stock Replenishment Subsystem
-
+````carousel
 ```python
-from enum import Enum
+from __future__ import annotations
+
 import threading
-from typing import Dict, List, Optional
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Protocol
 
 
-class POStatus(Enum):
-    DRAFT = 1
-    SUBMITTED = 2
-    RECEIVED = 3
-    CANCELLED = 4
+# ── Inventory subsystem ─────────────────────────────────────────────────
+class InventoryItem:
+    """One (warehouse, sku) pair. The lock guards on_hand and reserved together."""
+
+    def __init__(self, sku: str, on_hand: int = 0) -> None:
+        self.sku = sku
+        self._on_hand = on_hand
+        self._reserved = 0
+        self._lock = threading.Lock()
+        self.ledger: list[tuple[str, int]] = []   # append-only deltas
+
+    @property
+    def available(self) -> int:
+        with self._lock:
+            return self._on_hand - self._reserved
+
+    def receive(self, qty: int) -> None:
+        if qty <= 0:
+            raise ValueError("qty must be positive")
+        with self._lock:
+            self._on_hand += qty                   # delta, never an absolute write
+            self.ledger.append(("RECEIPT", qty))
+
+    def try_reserve(self, qty: int) -> bool:
+        with self._lock:
+            if self._on_hand - self._reserved < qty:
+                return False
+            self._reserved += qty
+            self.ledger.append(("RESERVE", qty))
+            return True
+
+    def release(self, qty: int) -> None:
+        with self._lock:
+            self._reserved -= qty
+            self.ledger.append(("RELEASE", qty))
 
 
+@dataclass(frozen=True)
+class OrderLine:
+    sku: str
+    qty: int
+
+
+class Warehouse:
+    def __init__(self, name: str, distance_km: int) -> None:
+        self.name, self.distance_km = name, distance_km
+        self._items: dict[str, InventoryItem] = {}
+        self._create_lock = threading.Lock()
+
+    def item(self, sku: str) -> InventoryItem:
+        with self._create_lock:                    # create-if-missing must be atomic
+            return self._items.setdefault(sku, InventoryItem(sku))
+
+    def try_reserve_all(self, lines: list[OrderLine]) -> bool:
+        done: list[OrderLine] = []
+        for line in lines:
+            if self.item(line.sku).try_reserve(line.qty):
+                done.append(line)
+            else:
+                for d in done:                     # all-or-nothing: undo
+                    self.item(d.sku).release(d.qty)
+                return False
+        return True
+
+
+# ── Procurement subsystem ───────────────────────────────────────────────
 class PurchaseOrder:
-    def __init__(self, po_id: str, supplier_id: str, line_items: Dict[str, int]):
-        self.po_id = po_id
-        self.supplier_id = supplier_id
-        self.line_items = line_items  # SKU -> Qty
-        self.status = POStatus.DRAFT
-
-    def submit(self) -> None:
-        if self.status != POStatus.DRAFT:
-            raise RuntimeError("Only DRAFT purchase orders can be submitted.")
-        self.status = POStatus.SUBMITTED
-
-    def receive(self) -> Dict[str, int]:
-        if self.status != POStatus.SUBMITTED:
-            raise RuntimeError("Cannot receive stock for non-submitted PO.")
-        self.status = POStatus.RECEIVED
-        return self.line_items
-
-
-class WarehouseInventory:
-    def __init__(self, warehouse_id: str):
-        self.warehouse_id = warehouse_id
-        self._stock: Dict[str, int] = {}
+    def __init__(self, po_id: str, warehouse: Warehouse, lines: list[OrderLine]) -> None:
+        self.po_id, self._warehouse, self._lines = po_id, warehouse, lines
+        self.status = "ORDERED"
         self._lock = threading.Lock()
 
-    def replenish(self, sku: str, qty: int) -> None:
+    def receive(self) -> None:
         with self._lock:
-            self._stock[sku] = self._stock.get(sku, 0) + qty
+            if self.status == "RECEIVED":
+                return                              # idempotent: second scan is a no-op
+            if self.status != "ORDERED":
+                raise ValueError(f"cannot receive a {self.status} PO")
+            for line in self._lines:
+                self._warehouse.item(line.sku).receive(line.qty)
+            self.status = "RECEIVED"
 
-    def get_stock(self, sku: str) -> int:
-        with self._lock:
-            return self._stock.get(sku, 0)
+
+# ── Logistics subsystem: explicit FSM ───────────────────────────────────
+class ShipmentStatus(Enum):
+    CREATED = "CREATED"
+    MANIFESTED = "MANIFESTED"
+    IN_TRANSIT = "IN_TRANSIT"
+    OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
+    DELIVERED = "DELIVERED"
+    EXCEPTION = "EXCEPTION"
+
+
+S = ShipmentStatus
+ALLOWED = {
+    S.CREATED: {S.MANIFESTED},
+    S.MANIFESTED: {S.IN_TRANSIT},
+    S.IN_TRANSIT: {S.OUT_FOR_DELIVERY, S.EXCEPTION},
+    S.EXCEPTION: {S.IN_TRANSIT},
+    S.OUT_FOR_DELIVERY: {S.DELIVERED},
+    S.DELIVERED: set(),
+}
+
+
+class Shipment:
+    def __init__(self, tracking: str, order_id: str) -> None:
+        self.tracking, self.order_id = tracking, order_id
+        self.status = S.CREATED
+
+    def advance(self, to: ShipmentStatus) -> None:
+        if to == self.status:
+            return                                  # idempotent carrier webhook
+        if to not in ALLOWED[self.status]:
+            raise ValueError(f"illegal transition {self.status.name} -> {to.name}")
+        self.status = to
+
+
+# ── Fulfilment subsystem: Strategy + coordination ───────────────────────
+class WarehouseSelector(Protocol):
+    def candidates(self, warehouses: list[Warehouse]) -> list[Warehouse]: ...
+
+
+class NearestFirst:
+    def candidates(self, warehouses: list[Warehouse]) -> list[Warehouse]:
+        return sorted(warehouses, key=lambda w: w.distance_km)
+
+
+class MostStockFirst:
+    def candidates(self, warehouses: list[Warehouse]) -> list[Warehouse]:
+        return sorted(warehouses, key=lambda w: -sum(i.available for i in w._items.values()))
+
+
+@dataclass
+class Order:
+    order_id: str
+    lines: list[OrderLine]
+    status: str = "NEW"
+    warehouse: str | None = None
+
+
+class FulfilmentService:
+    def __init__(self, warehouses: list[Warehouse], selector: WarehouseSelector) -> None:
+        self._warehouses, self._selector = warehouses, selector
+        self._shipments: dict[str, Shipment] = {}
+        self._placed: set[str] = set()
+        self._lock = threading.Lock()
+
+    def place(self, order: Order) -> Shipment | None:
+        with self._lock:                            # idempotency on order id
+            if order.order_id in self._placed:
+                return self._shipments.get(order.order_id)
+            self._placed.add(order.order_id)
+        for wh in self._selector.candidates(self._warehouses):
+            if wh.try_reserve_all(order.lines):
+                order.status, order.warehouse = "RESERVED", wh.name
+                shipment = Shipment(f"TRK-{order.order_id}", order.order_id)
+                self._shipments[order.order_id] = shipment
+                return shipment
+        order.status = "REJECTED"
+        return None
+
+
+if __name__ == "__main__":
+    east, west = Warehouse("east", 100), Warehouse("west", 900)
+    PurchaseOrder("PO-1", east, [OrderLine("LAPTOP", 10), OrderLine("MOUSE", 1)]).receive()
+    po2 = PurchaseOrder("PO-2", west, [OrderLine("LAPTOP", 5), OrderLine("MOUSE", 20)])
+    po2.receive(); po2.receive()                    # duplicate scan: still +5/+20 once
+    print("east laptops:", east.item("LAPTOP").available, "| west mice:", west.item("MOUSE").available)
+
+    svc = FulfilmentService([west, east], NearestFirst())
+
+    # all-or-nothing: east has 1 mouse; the order wants 1 laptop + 2 mice -> falls to west
+    o1 = Order("o-1", [OrderLine("LAPTOP", 1), OrderLine("MOUSE", 2)])
+    svc.place(o1)
+    print(o1.status, "from", o1.warehouse, "| east laptops still:", east.item("LAPTOP").available)
+
+    # nobody can cover 100 laptops -> rejected, nothing reserved anywhere
+    o2 = Order("o-2", [OrderLine("LAPTOP", 100)])
+    print(svc.place(o2), o2.status)
+
+    # concurrency: 50 buyers, 10 units in one warehouse -> exactly 10 win
+    solo = Warehouse("solo", 1)
+    solo.item("TV").receive(10)
+    def buy(_: int) -> bool:
+        return solo.try_reserve_all([OrderLine("TV", 1)])
+    with ThreadPoolExecutor(max_workers=25) as pool:
+        print("buyers who got a TV:", sum(pool.map(buy, range(50))), "| left:", solo.item("TV").available)
+
+    ship = svc.place(Order("o-3", [OrderLine("MOUSE", 1)]))
+    for s in (S.MANIFESTED, S.IN_TRANSIT, S.IN_TRANSIT, S.OUT_FOR_DELIVERY, S.DELIVERED):
+        ship.advance(s)
+    print("shipment:", ship.status.name)
+    try:
+        ship.advance(S.CREATED)
+    except ValueError as err:
+        print("rejected:", err)
 ```
-
----
-
-### 4.4 C#: Concurrency-Safe Enterprise Logistics Platform
-
+<!-- slide -->
 ```csharp
-using System;
-using System.Collections.Concurrent;
-using System.Threading;
-
-namespace Architecture.SupplyChain
+public sealed class InventoryItem
 {
-    public class InventoryItem
+    private readonly object _gate = new();
+    private int _onHand, _reserved;
+
+    public int Available { get { lock (_gate) return _onHand - _reserved; } }
+
+    public void Receive(int qty)
     {
-        public string Sku { get; }
-        private int _onHand;
-        private int _reserved;
-        private readonly object _lock = new();
+        if (qty <= 0) throw new ArgumentOutOfRangeException(nameof(qty));
+        lock (_gate) _onHand += qty;                 // delta, not an absolute write
+    }
 
-        public InventoryItem(string sku, int initialStock)
+    public bool TryReserve(int qty)
+    {
+        lock (_gate)
         {
-            Sku = sku;
-            _onHand = initialStock;
-        }
-
-        public bool TryReserve(int quantity)
-        {
-            lock (_lock)
-            {
-                if (_onHand - _reserved >= quantity)
-                {
-                    _reserved += quantity;
-                    return true;
-                }
-                return false;
-            }
-        }
-
-        public void Replenish(int quantity)
-        {
-            lock (_lock)
-            {
-                _onHand += quantity;
-            }
-        }
-
-        public (int OnHand, int Reserved, int Available) GetMetrics()
-        {
-            lock (_lock) return (_onHand, _reserved, _onHand - _reserved);
+            if (_onHand - _reserved < qty) return false;
+            _reserved += qty;
+            return true;
         }
     }
+
+    public void Release(int qty) { lock (_gate) _reserved -= qty; }
+}
+
+public sealed record OrderLine(string Sku, int Qty);
+
+public sealed class Warehouse(string name, int distanceKm)
+{
+    private readonly ConcurrentDictionary<string, InventoryItem> _items = new();
+    public string Name { get; } = name;
+    public int DistanceKm { get; } = distanceKm;
+
+    public InventoryItem Item(string sku) => _items.GetOrAdd(sku, _ => new InventoryItem());
+
+    public bool TryReserveAll(IEnumerable<OrderLine> lines)
+    {
+        var done = new List<OrderLine>();
+        foreach (var line in lines)
+        {
+            if (Item(line.Sku).TryReserve(line.Qty)) { done.Add(line); continue; }
+            foreach (var d in done) Item(d.Sku).Release(d.Qty);   // all-or-nothing
+            return false;
+        }
+        return true;
+    }
+}
+
+public enum ShipmentStatus { Created, Manifested, InTransit, OutForDelivery, Delivered, Exception }
+
+public sealed class Shipment
+{
+    private static readonly Dictionary<ShipmentStatus, ShipmentStatus[]> Allowed = new()
+    {
+        [ShipmentStatus.Created]        = [ShipmentStatus.Manifested],
+        [ShipmentStatus.Manifested]     = [ShipmentStatus.InTransit],
+        [ShipmentStatus.InTransit]      = [ShipmentStatus.OutForDelivery, ShipmentStatus.Exception],
+        [ShipmentStatus.Exception]      = [ShipmentStatus.InTransit],
+        [ShipmentStatus.OutForDelivery] = [ShipmentStatus.Delivered],
+        [ShipmentStatus.Delivered]      = [],
+    };
+
+    public ShipmentStatus Status { get; private set; } = ShipmentStatus.Created;
+
+    public void Advance(ShipmentStatus to)
+    {
+        if (to == Status) return;                    // idempotent webhook
+        if (!Allowed[Status].Contains(to))
+            throw new InvalidOperationException($"illegal {Status} -> {to}");
+        Status = to;
+    }
+}
+
+public interface IWarehouseSelector
+{
+    IEnumerable<Warehouse> Candidates(IEnumerable<Warehouse> all);
+}
+
+public sealed class NearestFirst : IWarehouseSelector
+{
+    public IEnumerable<Warehouse> Candidates(IEnumerable<Warehouse> all) =>
+        all.OrderBy(w => w.DistanceKm);
 }
 ```
+````
 
----
+Expected output of the Python:
 
-## 5. Practical Hands-On Verification Workflows
-
-### 5.1 CLI Verification of Inventory Allocation & Reservation
-
-Verify multi-warehouse fulfillment logic and nearest-warehouse routing:
-
-```bash
-# Execute unit tests for Supply Chain Platform in Go
-go test -v -run TestSupplyChainFulfillment ./...
-
-# Expected Output:
-# === RUN   TestSupplyChainFulfillment
-# === RUN   TestSupplyChainFulfillment/NearestWarehouseRouting
-# === RUN   TestSupplyChainFulfillment/AtomicReservationRaceSafety
-# --- PASS: TestSupplyChainFulfillment (0.39s)
-# PASS
-# ok      github.com/backend/supplychain   0.412s
-```
-
-### 5.2 Python Inline Stock Replenishment Verification Script
-
-Execute a terminal simulation verifying purchase order stock absorption:
-
-```bash
-python3 -c "
-stock = {'SKU-1': 10, 'SKU-2': 5}
-po_items = {'SKU-1': 50, 'SKU-3': 20}
-
-# Inbound PO receipt
-for sku, qty in po_items.items():
-    stock[sku] = stock.get(sku, 0) + qty
-
-print('Stock after inbound PO receipt:')
-for s, q in sorted(stock.items()):
-    print(f'  {s}: {q} units')
-assert stock['SKU-1'] == 60 and stock['SKU-3'] == 20
-"
-```
-
-Expected Terminal Output:
-```
-Stock after inbound PO receipt:
-  SKU-1: 60 units
-  SKU-2: 5 units
-  SKU-3: 20 units
+```text
+east laptops: 10 | west mice: 20
+RESERVED from west | east laptops still: 10
+None REJECTED
+buyers who got a TV: 10 | left: 0
+shipment: DELIVERED
+rejected: illegal transition DELIVERED -> CREATED
 ```
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 4. Edges: where supply-chain designs go wrong
+
+- **Read-modify-write on stock.** The real incident: a receiving worker wrote `on_hand = 5010` while checkout wrote `on_hand = 9` from a stale read; 5,000 delivered monitors vanished and the item showed "sold out" nationwide at peak traffic. Cure: apply **relative deltas** (`UPDATE … SET on_hand = on_hand + :d`), guard with a per-item lock or row lock, and keep an append-only **ledger** so balance = sum of movements and you can audit it.
+- **Partial reservation.** Reserving line 1 then failing on line 2 leaves phantom reserved stock. Roll back, or reserve in a transaction.
+- **Lock ordering.** If you ever need two locks (transfer between warehouses), always acquire in a canonical order (e.g., sorted by warehouse id) — otherwise A→B and B→A deadlock.
+- **Idempotency.** Duplicate "PO received" scans, duplicate checkout retries, duplicate carrier webhooks. Each subsystem needs an idempotency rule: ignore an event that doesn't change state; remember order ids.
+- **Out-of-order events.** Carrier says `DELIVERED` before `IN_TRANSIT` arrives. The FSM rejects (or queues) the illegal jump — it does not silently overwrite.
+- **Reservations that never expire.** An abandoned checkout holds stock forever. Give reservations a TTL and a sweeper, or release on order timeout.
+- **Cross-subsystem calls inside locks.** Don't call a carrier API while holding an inventory lock; commit the reservation, *then* create the shipment (outbox/event).
+- **When not to over-model.** Split shipments, backorders, cross-docking, and returns are follow-ups. Name the extension point; don't build them unprompted.
+
+---
+
+## 5. What you'd say in two minutes
+
+> "I'd split this into four subsystems with their own invariants: Inventory, Procurement, Fulfilment and Logistics, and keep a thin `FulfilmentService` that only coordinates. Inventory is keyed by (warehouse, SKU); each item has its own lock and keeps `reserved ≤ on_hand`, and changes are *deltas* appended to a ledger, never absolute writes — that's what prevents lost updates between receiving and checkout. A purchase order's `receive` is idempotent. For an order, the selector — a Strategy, nearest first by default — returns candidate warehouses; `try_reserve_all` reserves every line or rolls back, so we never leave phantom reservations. Success creates a shipment, which is an explicit state machine with a transition table, so out-of-order carrier events are rejected and repeated ones are no-ops. Extensions are a split-shipment selector, reservation TTLs, and moving the stock invariant into the database for multi-node deployments."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `SupplyChainManager` God class | One change touches everything | Four subsystems + thin coordinator |
+| `stock = read(); write(stock - 1)` | Lost updates | Atomic delta or per-item lock |
+| Status as free string | Impossible states, silent overwrites | Enum + transition table |
+| Reserve lines one by one without rollback | Phantom reservations | `try_reserve_all` with undo |
+| Strategy `if warehouse.region == …` in the service | Every new rule edits the core | `WarehouseSelector` |
+| Calling carrier API under a stock lock | Slow I/O blocks all buyers | Commit, then publish an event |
+| Global lock for all inventory | Correct but serialises the company | Lock per `(warehouse, sku)` |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The Multi-Warehouse Partial Reservation Dilemma</strong></summary>
+<summary><strong>1. Why lock per (warehouse, SKU) rather than globally? [BASIC]</strong></summary>
 
-**Scenario**: A customer places an order for $[SKU_A \times 5, SKU_B \times 10]$. Warehouse East has $SKU_A$ but not $SKU_B$. Warehouse West has $SKU_B$ but not $SKU_A$. If you reserve $SKU_A$ at Warehouse East first, and then find that Warehouse West cannot fulfill $SKU_B$, how do you prevent orphaned inventory holds?
+The invariant `reserved ≤ on_hand` is per item, so contention should be per item. A global lock is correct but throttles unrelated products; a per-item lock lets thousands of SKUs proceed in parallel.
 
-<strong>Answer:</strong>
-**Two-Phase Reservation with Compensating Rollback (Saga Pattern)**:
-1. **Phase 1 (Probe & Plan)**: Identify the warehouse allocation map without modifying state:
-   $\{\text{East}: [SKU_A \times 5], \text{West}: [SKU_B \times 10]\}$.
-2. **Phase 2 (Atomic Try-Reserve Execution)**:
-   - Attempt `wEast.tryReserve(SKU_A, 5)`.
-   - Attempt `wWest.tryReserve(SKU_B, 10)`.
-3. **Rollback Compensation**: If any step in Phase 2 fails, immediately fire compensating calls (`wEast.releaseStock(SKU_A, 5)`) to ensure zero orphaned holds remain in the system.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: Carrier Webhook Out-of-Order Delivery</strong></summary>
+<summary><strong>2. How do you make multi-item reservation all-or-nothing? [BASIC]</strong></summary>
 
-**Scenario**: A freight carrier sends tracking webhooks to your platform via HTTP. Due to network routing delays, the webhook `DELIVERED` arrives at 14:00, but the earlier webhook `OUT_FOR_DELIVERY` arrives at 14:02. If your shipment state machine naively overwrites state, the shipment reverts from `DELIVERED` back to `OUT_FOR_DELIVERY`. How do you protect the FSM?
+Reserve each line in turn, remembering what succeeded; on the first failure release those and return false. In SQL, do it in one transaction. Either way no partial state is visible afterwards.
 
-<strong>Answer:</strong>
-**Monotonic State Sequence Guards**:
-- Assign a strictly increasing integer sequence or timestamp to lifecycle states:
-  $$\text{CREATED}(1) \rightarrow \text{MANIFESTED}(2) \rightarrow \text{IN\_TRANSIT}(3) \rightarrow \text{OUT\_FOR\_DELIVERY}(4) \rightarrow \text{DELIVERED}(5)$$
-- Guard clause in state transition method:
-  ```typescript
-  public updateStatus(newStatus: ShipmentStatus): void {
-      if (this.statusSequence[newStatus] <= this.statusSequence[this._status]) {
-          // Discard stale out-of-order webhook event
-          return;
-      }
-      this._status = newStatus;
-  }
-  ```
-- Any event representing an earlier phase is rejected as an idempotent no-op.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: Dynamic Automated Reorder Points</strong></summary>
+<summary><strong>3. Which pattern chooses the warehouse? [BASIC]</strong></summary>
 
-**Scenario**: How do you implement automated purchase order creation when an inventory item falls below its safety stock threshold, without tightly coupling the `InventorySubsystem` to the `ProcurementSubsystem`?
+Strategy — a `WarehouseSelector` interface with `NearestFirst`, `MostStockFirst`, and later a split-shipment planner. `FulfilmentService` depends only on the interface.
 
-<strong>Answer:</strong>
-**Domain Events & Observer Pattern**:
-1. When stock is reserved or deducted, `InventoryItem` checks:
-   `if (available <= safetyStockThreshold) publish(new LowStockEvent(warehouseId, sku, available));`
-2. An asynchronous `ProcurementEventListener` listens to `LowStockEvent`.
-3. It queries supplier lead times, generates a draft `PurchaseOrder`, and notifies the purchasing manager.
-4. The `InventoryItem` remains completely oblivious to suppliers, purchase orders, and pricing.
+</details>
+
+<details>
+<summary><strong>4. A PO "received" message is delivered twice. What happens? [SCENARIO]</strong></summary>
+
+Nothing extra — `receive()` checks status under a lock and returns if already `RECEIVED`. Idempotency matters because brokers deliver at-least-once.
+
+</details>
+
+<details>
+<summary><strong>5. Carrier webhooks arrive out of order. [SCENARIO]</strong></summary>
+
+The FSM has a transition table. `DELIVERED` arriving while `CREATED` is illegal — reject or park it until the missing events arrive; don't overwrite. Repeats of the *current* status are ignored. For strict ordering, include a sequence number or timestamp from the carrier.
+
+</details>
+
+<details>
+<summary><strong>6. Why a ledger instead of just updating a counter? [TRICKY]</strong></summary>
+
+A counter loses history and hides bugs. An append-only ledger of signed movements (`RECEIPT`, `RESERVE`, `DISPATCH`, `ADJUSTMENT`) lets you recompute and audit the balance, replay after a failure, and detect drift. You can still keep a cached counter for speed.
+
+</details>
+
+<details>
+<summary><strong>7. Transfer 20 units from warehouse A to B concurrently with a reverse transfer. [TRICKY]</strong></summary>
+
+Two locks means deadlock risk. Acquire them in a canonical order (sort by warehouse id) every time, or avoid holding both: decrement A, enqueue a "in-transit" record, increment B later.
+
+</details>
+
+<details>
+<summary><strong>8. How would you support split shipments? [SCENARIO]</strong></summary>
+
+Change the selector contract from "ordered warehouses" to a **plan**: `list[(warehouse, lines)]`. Reserve every part atomically (or compensate), create one shipment per part, and the order is `RESERVED` only when all parts are. The FSM and inventory code stay unchanged.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 8. One-page cheat sheet
 
-- [Domain-Driven Design: Bounded Contexts & Aggregate Roots (Eric Evans)](https://domainlanguage.com/ddd/) - Strategic domain modeling for multi-subsystem architectures.
-- [Enterprise Integration Patterns: Saga and Compensating Transactions](https://www.enterpriseintegrationpatterns.com/) - Distributed rollback workflows.
-- [Refactoring.Guru: Strategy Pattern](https://refactoring.guru/design-patterns/strategy) - Dynamic fulfillment routing algorithms.
+```text
+Subsystems   Inventory | Procurement | Fulfilment | Logistics   (no SupplyChainManager)
+Inventory    lock per (warehouse, sku); reserved <= on_hand; deltas + append-only ledger
+Procurement  PO.receive() idempotent; status guard
+Fulfilment   selector (Strategy) -> try_reserve_all (rollback) -> create shipment
+Logistics    Enum + ALLOWED table; same-status = no-op; illegal = reject
+Idempotency  order id set, PO status, webhook same-state
+Deadlock     canonical lock order for multi-warehouse transfers
+Multi-node   DB atomic delta / row lock / optimistic version; outbox for events
+
+Opener: "Four subsystems, each owning one invariant; locks and deltas at the (warehouse, SKU) level."
+```
 
 ---
 
-## Conclusion of the Low-Level Design Curriculum
+## Further reading
 
-Congratulations! You have completed all 24 modules of the Low-Level Design curriculum. You have mastered:
-- OOP Foundations, UML, Generics, and Value Objects.
-- The SOLID Principles and GoF Design Patterns (Creational, Structural, Behavioral).
-- Concurrency-safe locking disciplines and race-condition elimination.
-- The 7-step interview blueprint and 45-minute communication playbook.
-- Ten classic enterprise system designs solved end-to-end in Go, TypeScript, Python, and C#.
+- [Martin Fowler — Event Sourcing (the ledger idea)](https://martinfowler.com/eaaDev/EventSourcing.html)
+- [Microservices.io — Transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html)
+- [Python `threading` documentation](https://docs.python.org/3/library/threading.html)
+
+## Conclusion
+
+You've now designed a booking system (22) and a multi-subsystem platform (23) with the same toolkit: **name the invariant, choose the smallest aggregate that owns it, lock or version at that boundary, keep rules behind Strategy/State, and say what you'd add next.** Take that into the [LLD Interview Playbook](../21-lld-interview-playbook/README.md) and the question banks in tracks [24](../24-oop-interview-questions/README.md) – [27](../27-python-interview/README.md).

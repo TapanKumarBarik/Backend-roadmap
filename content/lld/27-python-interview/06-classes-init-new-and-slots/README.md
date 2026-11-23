@@ -1,515 +1,485 @@
-# Lesson 06: Classes: How an Object Is Made, Class Attributes and Slots
+# Lesson 06: Classes — How an Object Is Made, Class Attributes and `__slots__`
 
-> **Prerequisites:** [Iterators, Generators and yield](../05-iterators-generators-and-yield/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 16 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 02: Mutability and Identity](../02-mutability-identity-and-copying/README.md) · [LLD 01: Classes & Objects](../../01-classes-objects-and-oop-building-blocks/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked "`__new__` vs `__init__`", "class vs instance attribute", "`@classmethod` vs `@staticmethod`", or "what is `__slots__` for?"
+
+> [!NOTE]
+> **In one line:** Calling a class runs `__new__` (allocate and return the instance) then `__init__` (initialise it); attributes live in the **instance** `__dict__` or on the **class**, and lookup checks the instance first, then the class chain; `__slots__` removes the per-instance dict to save memory.
 
 > [!TIP]
-> **The One Rule of Object Construction and Slots:** `__new__` is the static allocator that creates and returns a raw instance; `__init__` is merely the instance configurator that mutates that instance after creation. If you need singletons or custom immutable types, override `__new__`. If you need to store millions of instances without the 150+ byte per-instance overhead of dynamic `__dict__` hash tables, define `__slots__`.
+> **Golden rule:** Mutable *class* attributes are shared by every instance; assignment through an instance creates a **new instance attribute** that shadows the class one. Put per-object state in `__init__`; put constants and defaults for immutable values on the class.
+
+> [!TIP]
+> **Try it:** Run the section 3 file, then add `print(Account.__dict__.keys())` and `print(a.__dict__)` at the end of `main()` to see where each attribute lives. Then run the [class lab](#try-it--class-lab-runnable) below — eleven asserted probes, including a deterministic singleton race. Draw the lookup chain *instance → class → base classes* in [LLD Studio](/tools/lld-studio/).
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"How is an object created in Python?" is one of the most reliable screening questions for separating self-taught script writers from senior backend engineers.
-
-Almost every junior candidate immediately replies: *"You define `__init__`, which is the constructor that creates the object."*
-
-This answer is technically incorrect on multiple levels:
-1. `__init__` does not construct or return anything; it returns `None`. When `__init__` runs, the instance already exists and is passed into `self`.
-2. The true constructor is `__new__`, a static factory method that allocates memory and returns the newly minted object.
-3. If `__new__` does not return an instance of that class, `__init__` is skipped entirely.
-
-The second trap interviewers set is the **mutable class attribute trap**:
-```python
-class WorkerQueue:
-  pending_tasks = []  # Shared across every single instance!
-```
-Candidates who confuse class attributes with instance attributes inadvertently introduce critical concurrency and data corruption bugs into production services.
-
-### Weak vs Strong Answers
-
-| Dimension | Junior / Weak Answer | Senior / Principal Answer |
-| :--- | :--- | :--- |
-| **`__new__` vs `__init__`** | "`__init__` is the constructor. I've never touched `__new__`." | "`__new__` is the static allocator (`cls` is passed in) responsible for returning a new instance. `__init__` is the initializer (`self` is passed in) responsible for setting state. `__new__` is essential when subclassing immutable types like `int` or `str`, writing metaclasses, or enforcing Singletons." |
-| **What is `self`?** | "It's just the keyword Python uses for `this`." | "`self` is not a keyword; it is an explicit parameter representing the instance. In Python, instance methods are descriptors that bind the instance as the first positional argument (`ClassName.func(instance, *args)`). Making it explicit avoids implicit scoping ambiguities and allows decorator/wrapper flexibility." |
-| **Class vs Instance Attribute** | "Class attributes are outside methods; instance attributes are inside." | "A class attribute lives on the class object (`ClassName.__dict__`) and is shared across all instances. An instance attribute lives in `instance.__dict__`. Reading falls back from instance to class, but mutating via `self.attr = val` creates a shadowing instance attribute unless mutating in-place." |
-| **What does `__slots__` do?** | "It makes attributes private or makes classes faster." | "`__slots__` prevents Python from allocating a dynamic dictionary (`__dict__`) and weakref list for each instance. It replaces them with a fixed-size C array of descriptor references, reducing per-object memory footprint by ~60–70% and accelerating attribute access." |
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The Object Construction Lifecycle
-
-When a caller writes `w = Worker("job-42")`, Python dispatches the call through the metaclass (`type.__call__`).
+- *"What's the difference between `__new__` and `__init__`?"* (and "when would you override `__new__`?")
+- *"Why did changing `self.count` in one object not change another, but `items.append` did?"*
+- *"`@staticmethod` vs `@classmethod` vs a normal method?"*
+- *"What does `__slots__` buy you, and what does it cost?"*
+- *"How would you implement a Singleton in Python?"*
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Caller
-    participant Type as "type (__call__)"
-    participant New as "Worker.__new__(cls, ...)"
-    participant Init as "Worker.__init__(self, ...)"
-
-    Caller->>Type: Worker("job-42")
-    Type->>New: __new__(Worker, "job-42")
-    Note over New: Allocates memory on heap
-    New-->>Type: Returns newly created raw instance (self)
-    Type->>Init: __init__(self, "job-42")
-    Note over Init: Mutates self.task_id = "job-42"
-    Init-->>Type: Returns None
-    Type-->>Caller: Returns fully initialized instance
+  participant C as caller
+  participant T as type.__call__
+  participant N as Cls.__new__
+  participant I as Cls.__init__
+  C->>T: Cls(args)
+  T->>N: __new__(Cls, args)  (allocate)
+  N-->>T: instance
+  T->>I: __init__(instance, args)  (initialise)
+  I-->>T: None
+  T-->>C: instance
 ```
 
-### Memory Footprint: `__dict__` vs `__slots__`
-
-Standard Python objects carry an internal hash table (`__dict__`) so developers can dynamically attach arbitrary attributes at runtime. While flexible, dictionaries incur substantial pointer, hashing, and bucket overhead.
-
-```mermaid
-flowchart TD
-    subgraph DefaultInstance["Standard Object (with __dict__) ~152+ bytes"]
-        O1["PyObject Head (16B)"]
-        D1["Pointer to __dict__ (8B)"]
-        W1["Pointer to __weakref__ (8B)"]
-        DICT["PyDictObject: Keys Table + Values Array + Hash Buckets (~120B+)"]
-        D1 --> DICT
-    end
-
-    subgraph SlottedInstance["Slotted Object (__slots__) ~48-56 bytes"]
-        O2["PyObject Head (16B)"]
-        S1["Direct Descriptor Offset: _task_id (8B)"]
-        S2["Direct Descriptor Offset: _priority (8B)"]
-    end
-```
-
-### Feature Comparison Matrix
-
-| Feature | Standard Class | Slotted Class (`__slots__`) | Class Attributes | `@classmethod` |
-| :--- | :--- | :--- | :--- | :--- |
-| **Per-Instance `__dict__`** | Yes (Dynamic attribute assignment allowed) | No (Attribute assignment restricted to slot names) | N/A (Lives on class) | N/A |
-| **Memory per Instance** | ~152–200 bytes base overhead | ~48–56 bytes base overhead | 0 bytes per instance (shared on class) | N/A |
-| **Dynamic Attributes** | Allowed (`obj.new_prop = 123`) | Raises `AttributeError` (unless `'__dict__'` in slots) | Attached to class | N/A |
-| **First Parameter** | `self` (bound instance) | `self` (bound instance) | N/A | `cls` (bound class) |
-| **Primary Use Case** | General application domain entities | High-throughput data objects (millions of rows/nodes) | Global constants, shared counters, default configurations | Alternative constructors, factory methods |
+`__init__` is only called if `__new__` returned an instance of `Cls`. Attribute lookup: `obj.x` → `type(obj).__mro__` data descriptors → `obj.__dict__` → class attributes / non-data descriptors → `__getattr__`.
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The following implementation demonstrates:
-1. Custom instance allocation and caching via `__new__`.
-2. The distinction between shared class attributes and per-instance attributes.
-3. Factory construction using `@classmethod`.
-4. Drastic memory optimization and strict attribute validation using `__slots__`.
+| Method kind | First arg | Defined with | Use for |
+| :--- | :--- | :--- | :--- |
+| Instance method | `self` | `def m(self)` | Behaviour on one object |
+| `@classmethod` | `cls` | decorator | Alternative constructors (`from_json`), subclass-aware factories |
+| `@staticmethod` | none | decorator | A utility that logically belongs to the class |
+| `@property` | `self` | decorator | Computed/validated attribute (lesson 16) |
+
+| | `__new__` | `__init__` |
+| :--- | :--- | :--- |
+| Role | Create (allocate) the object | Initialise the created object |
+| Receives | `cls` | `self` |
+| Returns | An instance | Must return `None` |
+| Override when | Immutable subclasses (`int`, `str`, `tuple`), singletons, caching/flyweights | Almost always |
+
+| Attribute home | Shared? | Example |
+| :--- | :---: | :--- |
+| Class attribute | Yes (all instances) | `rate = 0.05`, `registry = []` (careful!) |
+| Instance attribute | No | `self.balance = 0` |
+| `__slots__` entry | No (no `__dict__`) | `__slots__ = ("x", "y")` |
+
+---
+
+## 3. Walkthrough: `Account` with alternative constructors, a singleton and slots
+
+**Requirements:** an `Account` with per-instance balance, a class-level interest rate, a `from_string` constructor, a counter of created accounts, a singleton `Config`, and a memory-lean `Point`.
+
+1. Instance state in `__init__`; constants on the class.
+2. `@classmethod from_string` uses `cls(...)` so subclasses work.
+3. `@staticmethod` for a pure helper that needs no state.
+4. `__new__` returns the same object for a singleton (note: `__init__` runs each time!).
+5. `__slots__` for lots of tiny objects.
 
 ````carousel
 ```python
 import sys
-from typing import ClassVar, Dict, Optional
 
 
-class ConnectionPool:
-  """Demonstrates Class vs Instance attributes, __new__ caching,
+class Account:
+    interest_rate = 0.05                  # class attribute (immutable value: safe)
+    created = 0                           # shared counter (rebind on the CLASS)
 
-  and alternative constructors.
-  """
+    def __init__(self, owner: str, balance: float = 0.0) -> None:
+        self.owner = owner                # instance attributes
+        self.balance = balance
+        Account.created += 1              # NOT self.created += 1 (that would shadow)
 
-  # Class attributes: Shared across ALL instances
-  default_timeout_seconds: ClassVar[int] = 30
-  _active_pools: ClassVar[Dict[str, "ConnectionPool"]] = {}
-  _total_instances_created: ClassVar[int] = 0
+    @classmethod
+    def from_string(cls, text: str) -> "Account":
+        owner, balance = text.split(":")
+        return cls(owner, float(balance))     # cls => subclass-aware
 
-  def __new__(cls, pool_name: str, max_connections: int = 10) -> "ConnectionPool":
-    """1. __new__ allocates or returns an existing instance.
+    @staticmethod
+    def is_valid_amount(amount: float) -> bool:
+        return amount > 0                 # no self/cls needed
 
-    Implements a multiton (named pool registry) pattern.
-    """
-    if pool_name in cls._active_pools:
-      # Returns cached instance; __init__ will be invoked on this instance again!
-      return cls._active_pools[pool_name]
-
-    # Allocate raw uninitialized object
-    instance = super().__new__(cls)
-    cls._active_pools[pool_name] = instance
-    cls._total_instances_created += 1
-    return instance
-
-  def __init__(self, pool_name: str, max_connections: int = 10) -> None:
-    """2. __init__ configures state.
-
-    Guard against re-initializing cached instances.
-    """
-    if hasattr(self, "_initialized"):
-      return
-
-    # Instance attributes: unique to this specific object
-    self.pool_name: str = pool_name
-    self.max_connections: int = max_connections
-    self.connections: list[str] = []  # Separate list per instance!
-    self._initialized: bool = True
-
-  @classmethod
-  def from_connection_string(cls, uri: str) -> "ConnectionPool":
-    """Alternative constructor parsing a URI."""
-    # Example format: "postgres://prod-db:5432?pool_name=analytics&size=20"
-    params = dict(part.split("=") for part in uri.split("?")[-1].split("&"))
-    name = params.get("pool_name", "default")
-    size = int(params.get("size", "10"))
-    return cls(pool_name=name, max_connections=size)
-
-  @staticmethod
-  def validate_port(port: int) -> bool:
-    """Utility method independent of class or instance state."""
-    return 1 <= port <= 65535
+    def __repr__(self) -> str:
+        return f"Account({self.owner!r}, {self.balance})"
 
 
-class SlottedWorkerTask:
-  """Demonstrates __slots__ for high-scale memory optimization."""
-
-  __slots__ = ("task_id", "priority", "payload")
-
-  def __init__(self, task_id: str, priority: int, payload: str) -> None:
-    self.task_id = task_id
-    self.priority = priority
-    self.payload = payload
+class Savings(Account):
+    interest_rate = 0.08
 
 
-class UnslottedWorkerTask:
-  """Standard class with dynamic __dict__ for comparison."""
+class Config:
+    _instance = None
 
-  def __init__(self, task_id: str, priority: int, payload: str) -> None:
-    self.task_id = task_id
-    self.priority = priority
-    self.payload = payload
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self, env: str = "dev") -> None:
+        self.env = env                    # runs on EVERY Config(...) call!
+
+
+class PointDict:
+    def __init__(self, x: int, y: int) -> None:
+        self.x, self.y = x, y
+
+
+class PointSlots:
+    __slots__ = ("x", "y")                # no per-instance __dict__
+
+    def __init__(self, x: int, y: int) -> None:
+        self.x, self.y = x, y
+
+
+class Celsius(float):
+    """Immutable subclass: must customise __new__ (value is fixed at creation)."""
+    def __new__(cls, value: float):
+        return super().__new__(cls, round(value, 1))
+
+
+def main() -> None:
+    a = Account("ada", 10)
+    b = Savings.from_string("bob:25")
+    print(a, b, type(b).__name__, Account.created)                # created == 2
+
+    a.interest_rate = 0.99                # creates an INSTANCE attribute (shadows)
+    print(a.interest_rate, Account.interest_rate, b.interest_rate)  # 0.99 0.05 0.08
+    print("interest_rate" in a.__dict__, Account.is_valid_amount(5))
+
+    c1, c2 = Config("prod"), Config("test")
+    print(c1 is c2, c1.env)                                       # True test  (init ran twice!)
+
+    p1, p2 = PointDict(1, 2), PointSlots(1, 2)
+    print("has __dict__:", hasattr(p1, "__dict__"), hasattr(p2, "__dict__"))
+    try:
+        p2.z = 3
+    except AttributeError as err:
+        print("AttributeError:", err)
+    print(sys.getsizeof(p1) + sys.getsizeof(p1.__dict__) > sys.getsizeof(p2))   # True
+
+    print(Celsius(36.66), isinstance(Celsius(1), float))          # 36.7 True
 
 
 if __name__ == "__main__":
-  # 1. Verification of __new__ multiton behavior
-  pool1 = ConnectionPool("auth-db", max_connections=5)
-  pool2 = ConnectionPool("auth-db", max_connections=99)  # Re-fetches auth-db
-
-  print(f"Same pool instance? {pool1 is pool2}")
-  print(f"Total instances created: {ConnectionPool._total_instances_created}")
-
-  # 2. Alternative constructor
-  pool3 = ConnectionPool.from_connection_string(
-      "postgres://localhost:5432?pool_name=orders&size=25"
-  )
-  print(f"Pool 3 name: {pool3.pool_name}, max: {pool3.max_connections}")
-
-  # 3. Class vs Instance attribute behavior
-  pool1.connections.append("conn-1")
-  print(f"Pool 1 connections: {pool1.connections}")
-  print(f"Pool 3 connections: {pool3.connections}")  # Not contaminated!
-
-  # 4. __slots__ memory & enforcement demonstration
-  slotted = SlottedWorkerTask("task-100", 1, '{"status": "queued"}')
-  unslotted = UnslottedWorkerTask("task-100", 1, '{"status": "queued"}')
-
-  print(f"Slotted has __dict__? {hasattr(slotted, '__dict__')}")
-  print(f"Unslotted has __dict__? {hasattr(unslotted, '__dict__')}")
-
-  # Attempting to attach arbitrary attribute to slotted object
-  try:
-    slotted.arbitrary_tag = "urgent"  # type: ignore
-  except AttributeError as e:
-    print(f"Slots blocked attribute: {type(e).__name__}")
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-
-// In C#, object allocation and construction are tightly integrated.
-// Type-level state is handled via 'static' members, and factory methods
-// take the place of Python's @classmethod alternative constructors.
-public class ConnectionPool
+// C#: constructors only initialise (allocation is done by `new`); static members are per type.
+public class Account
 {
-    // Class attributes -> C# static fields
-    public static int DefaultTimeoutSeconds { get; set; } = 30;
-    private static readonly ConcurrentDictionary<string, ConnectionPool> ActivePools = new();
-    private static int _totalInstancesCreated = 0;
-    public static int TotalInstancesCreated => _totalInstancesCreated;
+    public static double InterestRate = 0.05;      // ~ class attribute (single copy)
+    public static int Created;                     // shared counter
+    public string Owner { get; }
+    public double Balance { get; private set; }
 
-    // Instance attributes -> C# instance fields/properties
-    public string PoolName { get; }
-    public int MaxConnections { get; }
-    public List<string> Connections { get; } = new();
-
-    // Private constructor enforcing factory creation (equivalent to __new__ caching)
-    private ConnectionPool(string poolName, int maxConnections)
+    public Account(string owner, double balance = 0)
     {
-        PoolName = poolName;
-        MaxConnections = maxConnections;
+        Owner = owner; Balance = balance; Created++;
     }
 
-    public static ConnectionPool GetOrCreate(string poolName, int maxConnections = 10)
+    // ~ @classmethod alternative constructor: a static factory
+    public static Account FromString(string text)
     {
-        return ActivePools.GetOrAdd(poolName, name =>
-        {
-            System.Threading.Interlocked.Increment(ref _totalInstancesCreated);
-            return new ConnectionPool(name, maxConnections);
-        });
+        var parts = text.Split(':');
+        return new Account(parts[0], double.Parse(parts[1]));
     }
 
-    // Alternative constructor -> C# static factory method
-    public static ConnectionPool FromConnectionString(string uri)
-    {
-        // Example URI: "postgres://localhost:5432?pool_name=orders&size=25"
-        var query = uri.Split('?')[^1];
-        var parts = query.Split('&');
-        string name = "default";
-        int size = 10;
-
-        foreach (var part in parts)
-        {
-            var kv = part.Split('=');
-            if (kv[0] == "pool_name") name = kv[1];
-            if (kv[0] == "size") size = int.Parse(kv[1]);
-        }
-        return GetOrCreate(name, size);
-    }
-
-    public static bool ValidatePort(int port) => port is >= 1 and <= 65535;
+    // ~ @staticmethod
+    public static bool IsValidAmount(double amount) => amount > 0;
 }
 
-// In C#, structs eliminate object-header and indirection overhead entirely on stack,
-// serving as the .NET equivalent to Python's memory-optimized __slots__.
-public readonly struct SlottedWorkerTask
+// Singleton in C#: private constructor + Lazy<T> (or, better, DI singleton lifetime)
+public sealed class Config
 {
-    public string TaskId { get; }
-    public int Priority { get; }
-    public string Payload { get; }
-
-    public SlottedWorkerTask(string taskId, int priority, string payload)
-    {
-        TaskId = taskId;
-        Priority = priority;
-        Payload = payload;
-    }
-}
-
-public class Program
-{
-    public static void Main()
-    {
-        // 1. Verification of factory caching
-        var pool1 = ConnectionPool.GetOrCreate("auth-db", 5);
-        var pool2 = ConnectionPool.GetOrCreate("auth-db", 99);
-
-        Console.WriteLine($"Same pool instance? {ReferenceEquals(pool1, pool2)}");
-        Console.WriteLine($"Total instances created: {ConnectionPool.TotalInstancesCreated}");
-
-        // 2. Alternative constructor
-        var pool3 = ConnectionPool.FromConnectionString("postgres://localhost:5432?pool_name=orders&size=25");
-        Console.WriteLine($"Pool 3 name: {pool3.PoolName}, max: {pool3.MaxConnections}");
-
-        // 3. Class vs Instance state
-        pool1.Connections.Add("conn-1");
-        Console.WriteLine($"Pool 1 connections: [{string.Join(", ", pool1.Connections)}]");
-        Console.WriteLine($"Pool 3 connections: [{string.Join(", ", pool3.Connections)}]");
-
-        // 4. In C#, objects are statically typed: arbitrary attributes cannot be attached
-        var slotted = new SlottedWorkerTask("task-100", 1, "{\"status\": \"queued\"}");
-        Console.WriteLine($"Slotted has __dict__? False");
-        Console.WriteLine($"Unslotted has __dict__? True");
-        Console.WriteLine("Slots blocked attribute: AttributeError");
-    }
+    private static readonly Lazy<Config> _lazy = new(() => new Config());
+    public static Config Instance => _lazy.Value;
+    private Config() { }
 }
 ```
 ````
 
-**Expected Output (Both Languages):**
+Notes: `Account.created` is 2 after two constructions; `interest_rate` on `a` becomes an *instance* attribute after assignment; the singleton's `__init__` runs again with `"test"`.
+
+Expected output of the Python tab:
 
 ```text
-Same pool instance? True
-Total instances created: 1
-Pool 3 name: orders, max: 25
-Pool 1 connections: ['conn-1']
-Pool 3 connections: []
-Slotted has __dict__? False
-Unslotted has __dict__? True
-Slots blocked attribute: AttributeError
+Account('ada', 10) Account('bob', 25.0) Savings 2
+0.99 0.05 0.08
+True True
+True test
+has __dict__: True False
+AttributeError: 'PointSlots' object has no attribute 'z' and no __dict__ for setting new attributes
+True
+36.7 True
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges
 
-- **Subclassing Immutable Built-ins in Python:**
-  `int`, `float`, `str`, and `tuple` are immutable in CPython. By the time `__init__` executes, the object value is frozen in memory. Customizing immutable object creation (e.g., creating a normalized uppercase string type or specialized tuple) **must** be implemented inside `__new__`:
-  ```python
-  class NormalizedCase(str):
+- **Shadowing.** `self.count += 1` on a class attribute reads the class value and writes an *instance* attribute — the class value never changes. Use `ClassName.count`.
+- **Mutable class attributes.** `class A: items = []` is shared by all instances (and subclasses); use `__init__` or `dataclasses.field(default_factory=list)`.
+- **Singleton gotcha.** `__new__` returning the same object doesn't stop `__init__` running each call. Prefer a module-level instance or a DI container.
+- **`__new__` for immutables.** For `int`/`str`/`tuple` subclasses the value must be set in `__new__` — `__init__` is too late.
+- **`__slots__`:** no `__dict__` (no dynamic attributes), no `__weakref__` unless listed, inheritance needs `__slots__` in every class to keep the saving (a plain subclass gets a `__dict__` back), two bases that both have non-empty slots cannot be combined (`TypeError: multiple bases have instance lay-out conflict`), and `functools.cached_property` fails because it needs a `__dict__`. Saves memory (about 30% in lab probe 11) mainly for millions of instances. Lab probes 5–7 show each failure.
+- **`@staticmethod` smell.** If it never needs the class, consider a module-level function — static methods are namespaced functions, nothing more.
+- **`@classmethod` + inheritance.** Use `cls(...)` not `ClassName(...)` so subclasses construct themselves.
+- **Name mangling.** `__x` becomes `_Class__x` to avoid subclass clashes — not privacy.
+- **Thread safety.** Lazy singleton creation in `__new__` is a check-then-act race; use a lock or create it at import time. Probe 10 widens the window with `sleep` and gets several "singletons" from four threads, then fixes it with a `Lock`.
+- **Weird `__new__`.** If `__new__` returns something that is not an instance of the class, `__init__` is silently skipped (probe 1).
+- **Pickle/copy** work on slotted classes with the default protocol (2+); the old protocols 0/1 raise `TypeError` unless you define `__getstate__` (probe 8).
 
-    def __new__(cls, value: str) -> "NormalizedCase":
-      return super().__new__(cls, value.strip().upper())
+### Try it — class lab (runnable)
+
+The follow-ups interviewers use after you explain `__new__` vs `__init__`. Save as `class_lab.py`; every probe is an `assert` or a printed error message, so a wrong claim fails loudly. Probe 10 uses `sleep` to make a race reliable, and probe 11's exact ratio varies by Python version.
+
+```python
+import pickle, threading, time, tracemalloc, weakref
+from functools import cached_property
+
+# 1) __init__ runs only if __new__ returned an instance of the class
+class Weird:
+    def __new__(cls):
+        return 42                      # not a Weird instance
+    def __init__(self):
+        raise AssertionError("never called")
+assert Weird() == 42
+
+# 2) self.count += 1 reads the class value, writes an INSTANCE attribute
+class Counter:
+    count = 0
+    def bump_wrong(self): self.count += 1
+    def bump_right(self): type(self).count += 1
+c1, c2 = Counter(), Counter()
+c1.bump_wrong()
+assert Counter.count == 0 and c1.count == 1 and "count" in c1.__dict__
+c2.bump_right()
+assert Counter.count == 1 and c1.count == 1 and c2.count == 1   # c1 still shadows with its own 1
+
+# 3) Mutable class attribute is shared by every instance (and subclass)
+class Bag:
+    items = []
+class SubBag(Bag): pass
+Bag().items.append("x")
+assert SubBag().items == ["x"] and Bag.items is SubBag.items
+
+# 4) classmethod with cls() is subclass-aware; hard-coding the class is not
+class Shape:
+    @classmethod
+    def good(cls): return cls()
+    @staticmethod
+    def bad(): return Shape()
+class Circle(Shape): pass
+assert type(Circle.good()) is Circle and type(Circle.bad()) is Shape
+
+# 5) __slots__: subclass WITHOUT __slots__ gets a __dict__ back (saving lost)
+class Slim:
+    __slots__ = ("x",)
+class Fat(Slim): pass
+class StillSlim(Slim):
+    __slots__ = ("y",)
+assert hasattr(Fat(), "__dict__") and not hasattr(StillSlim(), "__dict__")
+
+# 6) __slots__: two bases with non-empty slots cannot be combined; slots also disable weakrefs unless listed
+class A: __slots__ = ("a",)
+class B: __slots__ = ("b",)
+try:
+    class AB(A, B): pass
+except TypeError as e:
+    print("6:", e)
+try:
+    weakref.ref(A())
+except TypeError as e:
+    print("6b:", e)
+class WithWeak:
+    __slots__ = ("v", "__weakref__")
+w = WithWeak(); assert weakref.ref(w)() is w
+
+# 7) cached_property needs a __dict__ -> unusable on a slotted class
+try:
+    class Bad:
+        __slots__ = ("n",)
+        @cached_property
+        def double(self): return self.n * 2
+    b = Bad(); b.n = 2
+    b.double
+except TypeError as e:
+    print("7:", e)
+
+# 8) Pickle round-trips slotted objects with the default protocol
+class P:
+    __slots__ = ("x", "y")
+    def __init__(self, x, y): self.x, self.y = x, y
+p = pickle.loads(pickle.dumps(P(1, 2)))
+assert (p.x, p.y) == (1, 2)
+try:
+    pickle.dumps(P(1, 2), protocol=1)   # old protocols have no slots support
+except TypeError as e:
+    print("8:", e)
+
+# 9) Name mangling is renaming, not privacy
+class Vault:
+    def __init__(self): self.__secret = 7
+assert Vault()._Vault__secret == 7
+
+# 10) Singleton via __new__: init runs every call, and the lazy check-then-act races
+class Single:
+    _instance = None
+    def __new__(cls):
+        if cls._instance is None:
+            time.sleep(0.05)               # widen the race window on purpose
+            cls._instance = super().__new__(cls)
+        return cls._instance
+made = []
+ts = [threading.Thread(target=lambda: made.append(Single())) for _ in range(4)]
+[t.start() for t in ts]; [t.join() for t in ts]
+print("10: racing threads built more than one singleton:", len({id(m) for m in made}) > 1)
+assert len({id(m) for m in made}) > 1
+
+class Locked:
+    _instance, _lock = None, threading.Lock()
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                time.sleep(0.05)
+                cls._instance = super().__new__(cls)
+        return cls._instance
+made.clear()
+ts = [threading.Thread(target=lambda: made.append(Locked())) for _ in range(4)]
+[t.start() for t in ts]; [t.join() for t in ts]
+assert len({id(m) for m in made}) == 1
+
+# 11) Measured: slots vs dict for 100k objects
+class PD:
+    def __init__(self, x, y): self.x, self.y = x, y
+class PS:
+    __slots__ = ("x", "y")
+    def __init__(self, x, y): self.x, self.y = x, y
+def measure(cls):
+    tracemalloc.start()
+    objs = [cls(i, i) for i in range(100_000)]
+    size, _ = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return size
+d, s = measure(PD), measure(PS)
+print(f"11: slots use less memory than dict instances: {s < d}  (ratio is roughly 0.6-0.8; varies by Python version)")
+assert s < d
+print("class lab ok")
 ```
-- **Lightweight Built-ins Using `__slots__`:**
-  `collections.namedtuple` creates classes with empty `__slots__ = ()` to guarantee that tuple-like records consume zero extra dictionary overhead.
-- **Descriptors and Metaclasses in Django and SQLAlchemy:**
-  When you declare `models.CharField(...)` or `Column(...)` as class attributes on an ORM model, the metaclass intercepts those class attributes, converts them to database column descriptors, and binds per-instance row values separately.
-- **.NET / C# Parallels:**
-  - `System.Activator.CreateInstance()` and the CLR `newobj` intermediate bytecode instruction perform the allocation step that Python's `__new__` handles.
-  - C# `readonly struct` and `record struct` fulfill the memory optimization purpose of Python's `__slots__` by removing heap allocations and object-header overhead entirely.
+
+Expected output:
+
+```text
+6: multiple bases have instance lay-out conflict
+6b: cannot create weak reference to 'A' object
+7: No '__dict__' attribute on 'Bad' instance to cache 'double' property.
+8: a class that defines __slots__ without defining __getstate__ cannot be pickled
+10: racing threads built more than one singleton: True
+11: slots use less memory than dict instances: True  (ratio is roughly 0.6-0.8; varies by Python version)
+class lab ok
+```
 
 ---
 
-## 5. Pitfalls and When Not to Use It
+## 5. What you'd say in two minutes
 
-### 1. The Mutable Class Attribute "Shared State" Antipattern
-Declaring a mutable default (`list`, `dict`, `set`) at the class level shares that identical collection across all instances:
-```python
-# BROKEN ANTIPATTERN
-class ServiceClient:
-  headers = {"Accept": "application/json"}  # Shared dictionary!
-
-
-client_a = ServiceClient()
-client_b = ServiceClient()
-client_a.headers["Authorization"] = "Bearer token_a"
-# CRITICAL BUG: client_b now sends client_a's authorization token!
-```
-*Remediation:* Always initialize mutable collections inside `__init__` on `self`.
-
-### 2. Overriding `__new__` Without Returning an Instance
-If `__new__` returns `None` or an instance of an unrelated class:
-```python
-class Faulty:
-
-  def __new__(cls):
-    # Forgot to return super().__new__(cls)
-    pass
-
-  def __init__(self):
-    print("Init called")  # WILL NEVER RUN!
-```
-Python's runtime verifies that the return value of `__new__` is an instance of `cls`. If it is not, Python completely skips invoking `__init__`.
-
-### 3. The `__slots__` Inheritance Pitfall
-If base class `Parent` defines `__slots__ = ('x',)` but derived class `Child(Parent)` does not declare `__slots__`, Python quietly creates a `__dict__` for every `Child` instance. To maintain memory savings across inheritance, every child class must explicitly define `__slots__ = ()` or its own slots tuple.
-
-### 4. Multiple Inheritance Slot Conflicts
-In CPython, a class cannot inherit from multiple base classes if more than one base class defines non-empty `__slots__`. Doing so raises:
-`TypeError: multiple bases have instance lay-out conflict`.
+> "Calling a class goes through `type.__call__`: first `__new__` allocates and returns the instance, then `__init__` initialises it, and `__init__` runs only if `__new__` returned an instance of that class. I override `__new__` only for immutable subclasses, singletons or flyweights; otherwise `__init__`. Attributes live in the instance `__dict__` or on the class, and lookup checks the instance first and then the MRO — so assigning through an instance creates a new instance attribute that shadows the class one, and a mutable class attribute like a list is shared by everyone. `@classmethod` gets the class and is how I write alternative constructors that respect subclasses; `@staticmethod` is just a namespaced function. `__slots__` removes the per-instance dict, saving memory for millions of small objects at the cost of dynamic attributes and some inheritance flexibility."
 
 ---
 
-## 6. Exercises & Practical Drills
+## 6. Anti-patterns
 
-### Exercise 1: Spot and Fix the Leaky Session Bug
-Review this snippet from an authentication microservice:
-```python
-class SessionManager:
-  active_tokens: dict = {}
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `class A: items = []` | Shared across instances | Create in `__init__` |
+| `self.counter += 1` for a class counter | Shadows, doesn't share | `Class.counter += 1` |
+| Singleton via `__new__` with stateful `__init__` | Re-initialised each call | Module-level instance / DI |
+| `ClassName(...)` inside `@classmethod` | Breaks subclasses | `cls(...)` |
+| `__slots__` "for performance" on a few objects | Complexity for no gain | Measure first |
+| Heavy work in `__init__` (I/O, network) | Hard to test, slow construction | Factory method / lazy init |
 
-  def __init__(self, user_id: str):
-    self.user_id = user_id
+---
 
-  def add_token(self, token: str):
-    self.active_tokens[self.user_id] = token
-```
-What is the bug, and how does it manifest in production under concurrent requests?
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. `__new__` vs `__init__`? [BASIC]</strong></summary>
 
-**The Bug:** `active_tokens` is a class attribute shared across all `SessionManager` instances. 
+`__new__(cls)` creates and returns the instance (a static method taking the class); `__init__(self)` initialises it and returns `None`. Override `__new__` for immutable types, singletons or flyweights.
 
-**Production Impact:** If two requests instantiate separate `SessionManager` instances, they mutate the exact same dictionary in memory without thread-safety synchronization. More critically, calling `len(SessionManager.active_tokens)` leaks tokens globally across tenants, and deleting an instance does not evict its tokens from memory, causing a memory leak.
-
-**Fix:**
-```python
-class SessionManager:
-
-  def __init__(self, user_id: str):
-    self.user_id = user_id
-    self.active_tokens: dict[str, str] = {}  # Bound to instance self
-```
 </details>
-
-### Exercise 2: Implement an Uppercase-Enforcing Slug
-Implement a class `Slug` that inherits from `str` and ensures that any slug instantiated is always stripped and lowercase, while still supporting standard string operations.
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. Class attribute vs instance attribute? [BASIC]</strong></summary>
 
-Because `str` is an immutable built-in type, modifying the value inside `__init__` is impossible. You must intercept allocation in `__new__`:
+Class attributes live on the class and are shared; instance attributes live in `obj.__dict__`. Lookup checks the instance first, so assignment through an instance shadows the class attribute without changing it.
 
-```python
-class Slug(str):
+</details>
 
-  def __new__(cls, text: str) -> "Slug":
-    cleaned = text.strip().lower().replace(" ", "-")
-    return super().__new__(cls, cleaned)
+<details>
+<summary><strong>3. `@classmethod` vs `@staticmethod`? [BASIC]</strong></summary>
 
+`@classmethod` receives the class (`cls`) — use it for alternative constructors and subclass-aware logic. `@staticmethod` receives nothing — a plain function placed in the class namespace.
 
-s = Slug("  Hello World  ")
-print(s)  # "hello-world"
-print(isinstance(s, str))  # True
-```
+</details>
+
+<details>
+<summary><strong>4. What does `__slots__` do? What's the catch? [TRICKY]</strong></summary>
+
+It declares a fixed set of attributes stored in compact slots instead of a per-instance dict, reducing memory and slightly speeding attribute access. Catch: no arbitrary new attributes, no `__weakref__` unless declared, and subclasses must also define `__slots__` to retain the benefit.
+
+</details>
+
+<details>
+<summary><strong>5. Implement a Singleton in Python. [SCENARIO]</strong></summary>
+
+Simplest: a module-level instance (modules are imported once). Or `__new__` caching with a lock. Or a decorator/metaclass. In applications, prefer a DI container's singleton lifetime so it stays testable.
+
+</details>
+
+<details>
+<summary><strong>6. Why does `self.count += 1` not update the class counter? [TRICKY]</strong></summary>
+
+It expands to `self.count = self.count + 1`: read from the class, write to the instance. The class attribute is untouched. Use `type(self).count += 1` or `ClassName.count += 1`.
+
+</details>
+
+<details>
+<summary><strong>7. How do you make an immutable `Money(int)` subclass? [SCENARIO]</strong></summary>
+
+Override `__new__` to validate and call `super().__new__(cls, value)`; `__init__` can't change an `int`'s value. For richer types prefer `@dataclass(frozen=True)`.
+
+</details>
+
+<details>
+<summary><strong>8. Class-level `registry = []` in a base class collects every subclass instance — bug? [SCENARIO]</strong></summary>
+
+It's shared across the whole hierarchy by design or by accident; if each subclass needs its own, create it in `__init_subclass__` (lesson 16). If you want one global registry, name it explicitly and document it.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What is the difference between `__new__` and `__init__`?**  
-> **Strong Answer:**  
-> "`__new__` is the actual constructor, while `__init__` is merely the initializer.  
-> 
-> Technically, `__new__` is a static method (implicitly treated as such) that receives `cls` as its first parameter along with the instantiation arguments. Its job is to allocate memory on the heap and return a new instance of `cls`.  
-> 
-> `__init__` receives the newly created object as `self` along with the same arguments. Its job is to mutate and configure the instance's state, and it must return `None`.  
-> 
-> Under the hood, Python executes `type.__call__`, which first calls `instance = cls.__new__(cls, *args, **kwargs)`. If and only if `instance` is an instance of `cls`, Python proceeds to call `cls.__init__(instance, *args, **kwargs)`.  
-> 
-> We override `__new__` when subclassing immutable types like `tuple` or `str`, when implementing Singleton/Multiton patterns, or when constructing dynamic objects in metaclasses."
-
-> [!interview]
-> **Question 2: What is `self`?**  
-> **Strong Answer:**  
-> "`self` is the explicit reference to the instance of the class upon which a method is invoked. Unlike languages like C++, Java, or C# where `this` is an implicit keyword injected into the lexical scope by the compiler, `self` in Python is an explicit parameter defined as the first argument in instance methods.  
-> 
-> When you invoke `obj.method(arg)`, Python's descriptor protocol translates that syntactic sugar into `type(obj).method(obj, arg)`.  
-> 
-> Making `self` explicit adheres to 'Explicit is better than implicit' in the Zen of Python. It avoids lexical scope ambiguity between local variables and instance fields, eliminates the need for special syntax to capture instance methods as first-class function pointers, and simplifies method decoration."
-
-> [!interview]
-> **Question 3: What is the difference between a class attribute and an instance attribute?**  
-> **Strong Answer:**  
-> "A **class attribute** is defined directly within the class body and is stored in the class's dictionary (`ClassName.__dict__`). It is shared across all instances of that class.  
-> 
-> An **instance attribute** is bound directly to an individual object (typically initialized on `self` inside `__init__`) and is stored in that object's dictionary (`instance.__dict__`).  
-> 
-> When reading `instance.attr`, Python first checks `instance.__dict__`. If the name is not present, it falls back to inspecting `ClassName.__dict__` and then up the inheritance MRO.  
-> 
-> However, assignment is asymmetrical: writing `instance.attr = value` creates a new instance attribute that shadows the class attribute for that specific instance, rather than updating the class attribute. The critical danger occurs with mutable class attributes like lists or dictionaries: calling `instance.attr.append()` mutates the shared underlying object in place, corrupting state across all instances."
-
-> [!interview]
-> **Question 4: What does `__slots__` do?**  
-> **Strong Answer:**  
-> "`__slots__` is a class-level optimization that suppresses the automatic creation of the instance dictionary (`__dict__`) and weak reference pointer (`__weakref__`) for each object.  
-> 
-> Instead of a dynamic hash table, Python allocates a fixed-size C array of descriptor pointers corresponding strictly to the attribute names defined in `__slots__`.  
-> 
-> This provides two primary benefits:  
-> 1. **Massive memory reduction:** A standard Python object requires roughly 150–200 bytes due to the minimum size of a dictionary. A slotted object reduces this to approximately 48–56 bytes—a 60–70% reduction—which is critical when holding millions of objects in memory.  
-> 2. **Faster attribute access:** Attribute lookup bypasses dictionary hashing and resolves via direct C-level struct offsets.  
-> 
-> The trade-off is that instances cannot have arbitrary new attributes added at runtime, and multiple inheritance requires all parent classes to have compatible slot layouts."
+```text
+Cls(args)   ->  __new__(cls, args) [allocate]  ->  __init__(self, args) [initialise, returns None]
+Lookup      instance.__dict__  ->  class  ->  bases (MRO)       (data descriptors win first)
+Class attr  shared; instance assignment SHADOWS it;  mutate shared state via Class.attr
+@classmethod  cls first: alternative constructors, use cls(...)
+@staticmethod no first arg: namespaced function
+__new__     immutable subclasses, singleton, flyweight (init runs again!)
+__slots__   no __dict__, memory saver, no dynamic attrs, repeat in subclasses
+__x         name-mangled to _Class__x, not private
+Singleton   module-level instance  >  __new__ hack  >  metaclass
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [Python Documentation: Data Model — `__new__` and `__init__`](https://docs.python.org/3/reference/datamodel.html#basic-customization)
-- [Python Documentation: Saving memory with `__slots__`](https://docs.python.org/3/reference/datamodel.html#slots)
-- [PEP 412: Key-Sharing Dictionary](https://peps.python.org/pep-0412/)
-- [Microsoft Learn: Classes, Structs, and Records in C#](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/types/classes)
-
----
+- [Python tutorial: classes](https://docs.python.org/3/tutorial/classes.html)
+- [Python data model: `__new__` and `__slots__`](https://docs.python.org/3/reference/datamodel.html#object.__new__)
+- [Descriptor HowTo Guide](https://docs.python.org/3/howto/descriptor.html)
 
 Previous: [Iterators, Generators and yield](../05-iterators-generators-and-yield/README.md) · Next: [Dunder Methods and the Data Model](../07-dunder-methods-and-the-data-model/README.md)

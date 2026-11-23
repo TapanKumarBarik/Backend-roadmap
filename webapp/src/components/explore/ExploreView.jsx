@@ -15,10 +15,10 @@ export default function ExploreView({ allTags, onOpenPalette, paths = [], status
   return (
     <div id="empty" className="explore-screen">
       <header className="explore-hero">
-        <span className="explore-eyebrow">CURRICULUM DIRECTORY</span>
-        <h1>Explore Backend Engineering</h1>
+        <span className="explore-eyebrow">Curriculum directory</span>
+        <h1>Explore the curriculum</h1>
         <p className="explore-hero-lead">
-          Choose a structured learning track with real-world capstone milestones, or dive deep into specialized backend topics across system design, databases, DevOps, and GenAI.
+          Pick a learning path with a finish line, or jump into a topic guide. Paths cut through Backend, System Design, LLD, Linux to Cloud, ML, Neural Networks and GenAI.
         </p>
       </header>
 

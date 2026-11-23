@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 03](../03-dictionaries/README.md): lists and dictionaries, which most loops walk through.  
 > **Estimated Reading Time:** 25 minutes  
-> **Who this is for:** Anyone who wants the control flow of Python clear: choosing between actions and repeating them.
+> **Who this is for:** Anyone who wants the control flow of Python clear: choosing between actions and repeating them.  
+> **Interview relevance:** Control flow is tested through small "what does this print?" snippets and short algorithms.
 
 > [!key]
 > `if` chooses whether to run some code. `for` runs it once for each item in a collection. `while` runs it again and again until a condition stops being true. In Python the **indentation** is the structure: the lines pushed in under a colon are the lines that belong to it.
+
+> [!note]
+> `and`/`or` return operands, `for ... else` runs when no `break` happened, `range` excludes its stop, and you never edit a list you are looping over.
+
+> [!tip]
+> Prefer `for x in items` and `enumerate`/`zip` over `range(len(items))`. It is the first thing reviewers notice.
 
 ## What you will be able to do
 
@@ -487,6 +494,148 @@ print(primes)
 For each `n`, try every divisor `d` from 2 up to `n - 1`. One exact division is enough to rule `n` out, so `break` stops looking. It is not the fastest method, but it is the clearest one.
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **`and`/`or` return one of their *operands* (not just `True`/`False`), `for ... else` runs when there was no `break`, `zip` stops at the shortest input, and `range` stops one short.**
+
+```python
+print("" or "default", 0 or None, "a" and "b", [] and "never")
+x = 7
+print(1 < x < 10, 1 < x < 5)
+
+for n in [1, 3, 5]:
+    if n % 2 == 0:
+        print("found even")
+        break
+else:
+    print("no even number")
+
+print(list(range(1, 4)), list(range(5, 0, -2)), list(range(0)))
+```
+
+```text
+default None b []
+True False
+no even number
+[1, 2, 3] [5, 3, 1] []
+```
+
+- `a or b` gives `a` if it is truthy, otherwise `b`. This is the idiom behind `name = given or "anonymous"`, but it also replaces a legitimate `0` or `""`.
+- Chained comparisons (`1 < x < 10`) are a single check, not two joined by hand.
+- The `else` of a loop is a "not found" branch: it runs if the loop was **not** ended by `break`.
+
+```python
+names = ["a", "b", "c"]
+scores = [90, 80]
+print(list(zip(names, scores)))
+print(list(enumerate(names, start=1)))
+
+try:
+    list(zip(names, scores, strict=True))
+except ValueError as e:
+    print("ValueError:", e)
+```
+
+```text
+[('a', 90), ('b', 80)]
+[(1, 'a'), (2, 'b'), (3, 'c')]
+ValueError: zip() argument 2 is shorter than argument 1
+```
+
+Changing a list while looping over it skips items; `while` loops need something that eventually makes the condition false:
+
+```python
+items = [1, 2, 3, 4]
+for item in items:
+    items.remove(item)
+print(items)
+
+count = 3
+while count > 0:
+    print("tick", count)
+    count -= 1          # forget this line and the loop never ends
+print("liftoff")
+```
+
+```text
+[2, 4]
+tick 3
+tick 2
+tick 1
+liftoff
+```
+
+Prefer looping over the items themselves rather than their positions:
+
+```python
+colours = ["red", "green"]
+for i in range(len(colours)):          # works, but clumsy
+    print(i, colours[i])
+for i, colour in enumerate(colours):   # clearer
+    print(i, colour)
+```
+
+```text
+0 red
+1 green
+0 red
+1 green
+```
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. What does <code>for ... else</code> do? [TRICKY]</strong></summary>
+
+The `else` block runs when the loop finishes **without hitting `break`**. It is Python's neat way to express "search; if nothing was found, do this" without a flag variable. It also runs if the loop has zero iterations.
+
+</details>
+
+<details>
+<summary><strong>2. <code>break</code>, <code>continue</code> and <code>pass</code>? [BASIC]</strong></summary>
+
+`break` leaves the loop; `continue` jumps to the next iteration; `pass` does nothing (a placeholder where a statement is required). Only `break` affects the loop's `else`.
+
+</details>
+
+<details>
+<summary><strong>3. How do you loop over two lists together, or with an index? [BASIC]</strong></summary>
+
+`for a, b in zip(xs, ys)` (use `strict=True` to catch length mismatches) and `for i, x in enumerate(xs, start=1)`. Avoid `range(len(xs))` unless you really need to assign by index.
+
+</details>
+
+<details>
+<summary><strong>4. List comprehension or loop? [BASIC]</strong></summary>
+
+A comprehension for a simple "transform/filter into a new list" (`[x * 2 for x in xs if x > 0]`); a plain loop when there are side effects or several steps. If it needs more than one `if`/nested `for` to read, use a loop. A *generator expression* `(...)` avoids building the list when you only need to iterate once, as in `sum(x * x for x in xs)`.
+
+</details>
+
+<details>
+<summary><strong>5. Which values count as true in an <code>if</code>? [TRICKY]</strong></summary>
+
+Anything except `None`, `False`, zero and empty containers or strings. So `if items:` means "not empty". Use `is None` when `None` must be told apart from `0` or `[]`.
+
+</details>
+
+## Cheat sheet
+
+```text
+if / elif / else      indentation is the structure     a if cond else b
+Truthy                everything except None False 0 0.0 "" [] () {} set()
+and / or              return an OPERAND:   name = given or "anon"    short-circuit
+Chained               1 < x < 10                       in / not in / is / is not
+for x in items        for i, x in enumerate(items, 1)  for a, b in zip(xs, ys, strict=True)
+range                 range(stop) range(start, stop, step)     stop is EXCLUDED
+loop controls         break  continue  pass    for ... else = ran without break
+while cond            update something inside, or loop forever
+Never                 add/remove items of the list you are looping over -> build a new list
+Comprehension         [expr for x in xs if cond]    {k: v for ...}    (genexp) lazy
+any(...) / all(...)   any([]) is False, all([]) is True
+```
 
 ## Check yourself
 

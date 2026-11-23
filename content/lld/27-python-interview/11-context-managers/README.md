@@ -1,583 +1,512 @@
-# Lesson 11: Context Managers and with
+# Lesson 11: Context Managers and `with`
 
-> **Prerequisites:** [dataclasses, NamedTuple, Enum and pydantic](../10-dataclasses-namedtuples-enums-and-pydantic/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 04: Decorators](../04-decorators/README.md) · [Lesson 05: Generators](../05-iterators-generators-and-yield/README.md)  
+> **Reading time:** ~20 minutes  
+> **Audience:** Candidates asked "what does `with` guarantee?", "write a context manager", or "`@contextmanager` vs a class?"
+
+> [!NOTE]
+> **In one line:** `with expr as x:` calls `expr.__enter__()` (its return value becomes `x`) and **always** calls `__exit__(exc_type, exc, tb)` when the block ends — normally or by exception — which makes it Python's tool for deterministic cleanup (files, locks, transactions, temporary state).
 
 > [!TIP]
-> **The One Rule of Context Managers:** The `with` statement guarantees that teardown logic executes upon leaving the block, **regardless of whether the block completes normally, returns early, or aborts due to an unhandled exception**. In the context manager protocol, `__enter__()` acquires the resource, while `__exit__(exc_type, exc_val, exc_tb)` handles teardown. If `__exit__` returns `True`, the in-flight exception is suppressed; returning `False` or `None` propagates it. For generator-based context managers (`@contextmanager`), the post-yield cleanup code **must always be wrapped in a `try...finally` block**; otherwise, an exception raised inside the caller's `with` block will abort the generator and leak the resource.
+> **Golden rule:** Anything you must "undo" — release a lock, close a file, roll back a transaction, restore a setting — belongs in a context manager. Return **`True` from `__exit__` only if you really mean to swallow the exception**; the default (`None`/`False`) lets it propagate.
+
+> [!TIP]
+> **Try it:** Run the file; then make `Transaction.__exit__` return `True` and notice the exception disappears — the classic bug (`propagated: boom` is no longer printed). Then run the [context-manager lab](#try-it--context-manager-lab-runnable) below. Model the transaction as `begin → work → commit | rollback` in [LLD Studio](/tools/lld-studio/) — it's the Template Method / RAII shape.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"What does the `with` statement actually do under the hood, and how do you guarantee zero resource leaks in distributed systems?" is an essential question for backend and platform engineers. Candidates who view `with` merely as syntax sugar for closing files frequently write leaky database transactions, swallow fatal errors accidentally, or leave unclosed network sockets during partial failures.
-
-### The Weak Answer
-> *"The `with` statement is just syntactic sugar for a `try...finally` block. You use it with `open('file.txt') as f:` so Python closes the file automatically when you are done. You can write your own by making a class with `__enter__` and `__exit__`, where `__exit__` closes things. If an error happens, Python handles it for you."*
-
-### The Senior Strong Answer
-> *"The `with` statement implements the **Context Management Protocol** (PEP 343), providing deterministic Resource Acquisition Is Initialization (RAII) and teardown semantics.
-> 
-> Under the hood, CPython executes a rigorous protocol:
-> 1. It evaluates the context expression to retrieve the context manager object.
-> 2. It invokes `manager.__enter__()`, binding its return value to the optional `as target` identifier.
-> 3. It executes the inner block within an exception handling frame.
-> 4. Upon block completion:
->    - If the block exits normally or via `return`: CPython calls `manager.__exit__(None, None, None)`.
->    - If an exception occurs: CPython captures the exception tuple `(exc_type, exc_val, exc_tb)` and passes it to `manager.__exit__()`.
-> 5. **Exception Suppression:** If `__exit__` returns a truthy value (`True`), CPython suppresses the exception and resumes normal execution immediately after the `with` block. If `__exit__` returns falsy (`False` or `None`), CPython re-raises the exception up the call stack.
-> 
-> In addition to class-based managers, Python provides:
-> - **`@contextlib.contextmanager`:** A decorator that transforms a generator containing a single `yield` into a context manager. Code before `yield` runs in `__enter__`; code after `yield` runs in `__exit__`. The post-yield code must be protected with `try...finally` because caller exceptions are injected into the generator via `gen.throw()`.
-> - **`contextlib.ExitStack`:** A programmatic, LIFO stack for managing dynamic or arbitrary quantities of context managers safely without nested indentation hell.
-> - **Async Context Managers (`__aenter__` / `__aexit__`):** Native coroutine-based context management used in `async with` for asynchronous network connections and locks."*
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### The Complete Lifecycle of a `with` Statement
-
-The sequence diagram below models both execution paths: normal completion and exception dispatch with conditional suppression.
+- *"What does `with open(...)` do that `open()`/`close()` doesn't?"*
+- *"Write a timer / transaction / temporary-directory context manager."*
+- *"What are `__enter__` and `__exit__`'s arguments? What does returning `True` do?"*
+- *"`contextlib.contextmanager`: how does it work, and what must you remember?"*
+- *"How is this different from `try/finally`? From C# `using`?"*
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor Caller as "Caller"
-    participant ContextExpr as "Context Manager Object"
-    participant CodeBlock as "with Block Body"
-
-    Caller->>ContextExpr: "__enter__()"
-    ContextExpr-->>Caller: "Yields target (bound to 'as var')"
-    
-    rect rgb(240, 248, 255)
-        note over Caller,CodeBlock: Execution Phase
-        Caller->>CodeBlock: "Execute block statements"
-        alt Normal Completion / Return
-            CodeBlock-->>Caller: "Block completes"
-            Caller->>ContextExpr: "__exit__(None, None, None)"
-            ContextExpr-->>Caller: "Cleanup executed (returns None/False)"
-        else Exception Raised in Block
-            CodeBlock-->>Caller: "Raises Exception (E)"
-            Caller->>ContextExpr: "__exit__(type(E), E, traceback)"
-            alt __exit__ returns True
-                ContextExpr-->>Caller: "Returns True (Exception suppressed)"
-                note over Caller: Execution resumes safely after with block
-            else __exit__ returns False or None
-                ContextExpr-->>Caller: "Returns False (Exception re-raised)"
-                note over Caller: Exception propagates up call stack
-            end
-        end
-    end
+  participant Code as with block
+  participant CM as context manager
+  Code->>CM: __enter__()
+  CM-->>Code: value → `as x`
+  Code->>Code: body runs
+  alt body raises
+    Code->>CM: __exit__(type, exc, tb)
+    CM-->>Code: falsy → re-raise  /  truthy → suppress
+  else normal exit
+    Code->>CM: __exit__(None, None, None)
+  end
 ```
 
-### Context Manager Implementation Taxonomy
-
-| Pattern | Definition Mechanism | Exception Handling Location | Concurrency / Async | Best Used For |
-| :--- | :--- | :--- | :--- | :--- |
-| **Class-Based** | `__enter__()` and `__exit__()` methods | Inside `__exit__(exc_type, exc_val, exc_tb)` | Synchronous | Stateful managers, complex transaction rollbacks, reusable library clients |
-| **Generator-Based** | `@contextlib.contextmanager` wrapping a generator with `yield` | Around `yield` via `try...except...finally` | Synchronous | Lightweight resources, telemetry timers, temporary environment mutations |
-| **Async Context Manager** | `__aenter__()` and `__aexit__()` coroutine methods | Inside `async def __aexit__()` | Asynchronous (`async with`) | Non-blocking database connections, Redis pools, `asyncio.Lock` |
-| **Dynamic Stack** | `contextlib.ExitStack` / `AsyncExitStack` | Programmatic callbacks registered in LIFO stack | Both | Dynamic resource lists, combining multiple files or distributed locks |
-| **C# `IDisposable`** | `void Dispose()` method via `using` statement | Handled outside via `try...catch` around `using` | Synchronous | Memory cleanup, native OS handles, socket termination in .NET |
-| **C# `IAsyncDisposable`** | `ValueTask DisposeAsync()` via `await using` | Handled outside via `try...catch` around `await using` | Asynchronous | Asynchronous stream flushing, network disconnections in .NET |
+`with A() as a, B() as b:` is nested `with`s: B exits first, then A (LIFO).
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The carousel below demonstrates:
-1. A robust class-based `DatabaseTransaction` context manager that commits on normal completion, rolls back on error, and selectively suppresses a designated `RollbackQuietly` business exception.
-2. A generator-based context manager using `@contextlib.contextmanager` protected by `try...finally`.
-3. Dynamic resource handling using `contextlib.ExitStack` ensuring guaranteed LIFO (Last-In, First-Out) teardown.
-4. The equivalent C# implementation using `IDisposable`, custom RAII transaction scopes, and an `ExitStack` equivalent.
+| Tool | Use | Notes |
+| :--- | :--- | :--- |
+| Class with `__enter__`/`__exit__` | Reusable, stateful managers | Most explicit |
+| `@contextlib.contextmanager` | A generator with one `yield` | Code before `yield` = enter; after = exit; wrap `yield` in `try/finally` |
+| `contextlib.suppress(Exc)` | Ignore specific exceptions | Replaces `try/except: pass` |
+| `contextlib.closing(obj)` | Call `.close()` on exit | For objects without `__exit__` |
+| `contextlib.ExitStack` | Dynamic number of managers | Open N files, register callbacks |
+| `contextlib.redirect_stdout` | Temporary redirect | Testing |
+| `async with` | `__aenter__`/`__aexit__` | Async resources (lesson 15) |
+
+| | `try/finally` | `with` |
+| :--- | :--- | :--- |
+| Cleanup guaranteed | Yes | Yes |
+| Reusable / named | No (copy-paste) | **Yes** |
+| Can inspect/suppress exception | Needs `except` | `__exit__` receives it |
+| Python / C# analogue | — / `try-finally` | — / `using` |
+
+---
+
+## 3. Walkthrough: a timer, a transaction, `ExitStack`
+
+**Requirements:** (1) `Timer` as a class; (2) `Transaction` that commits on success and rolls back on error but **lets the error propagate**; (3) `temp_setting` with `@contextmanager`; (4) `ExitStack` for many resources.
+
+1. `__enter__` acquires/starts and returns the object bound by `as`.
+2. `__exit__` receives the exception info; return falsy to propagate.
+3. In `@contextmanager`, always `try: yield … finally: restore` — otherwise an exception skips cleanup.
+4. `ExitStack` pops contexts in reverse order, even if a later one fails to open.
 
 ````carousel
 ```python
-import contextlib
-from typing import Any, List, Optional, Type
+import time
+from contextlib import ExitStack, closing, contextmanager, suppress
 
 
-# 1. Custom exception for safe transactional rollbacks
-class RollbackQuietly(Exception):
-    """Custom exception used to trigger safe rollback without crashing."""
-    pass
-
-
-# 2. Class-Based Context Manager with Rollback & Selective Suppression
-class DatabaseTransaction:
-    def __init__(self, tx_id: int) -> None:
-        self.tx_id = tx_id
-        self.active = False
-
-    def __enter__(self) -> "DatabaseTransaction":
-        self.active = True
-        print(f"[BEGIN] Transaction {self.tx_id}")
+class Timer:
+    def __enter__(self) -> "Timer":
+        self.start = time.perf_counter()
         return self
 
-    def execute(self, sql: str) -> None:
-        print(f"[SQL] {sql}")
-
-    def __exit__(
-        self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[Any],
-    ) -> bool:
-        if exc_type is None:
-            print(f"[COMMIT] Transaction {self.tx_id} committed successfully")
-            self.active = False
-            return False  # Normal exit; nothing to suppress
-
-        print(f"[ROLLBACK] Transaction {self.tx_id} rolled back due to error")
-        self.active = False
-        # Suppress RollbackQuietly, but allow unexpected critical exceptions to propagate
-        if issubclass(exc_type, RollbackQuietly):
-            return True  # True instructs Python to swallow the exception
-        return False  # False propagates unexpected errors
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.elapsed = time.perf_counter() - self.start
+        return False                                   # never swallow exceptions
 
 
-# 3. Generator-Based Context Manager with @contextmanager
-@contextlib.contextmanager
-def managed_lock(lock_name: str):
-    print(f"[ACQUIRE] {lock_name} acquired")
+class Transaction:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    def __enter__(self) -> "Transaction":
+        self.log.append("BEGIN")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.log.append("ROLLBACK" if exc_type else "COMMIT")
+        return False                                   # propagate the error after rollback
+
+
+settings = {"debug": False}
+
+
+@contextmanager
+def temp_setting(key: str, value):
+    old = settings[key]
+    settings[key] = value
     try:
-        yield lock_name
-    finally:
-        # Mandatory try...finally guarantees release even if caller raises
-        print(f"[RELEASE] {lock_name} released safely")
+        yield settings                                 # body runs here
+    finally:                                           # runs even if the body raises
+        settings[key] = old
 
 
-# 4. Resource tracking for ExitStack demonstration
+@contextmanager
+def tag(name: str, out: list[str]):
+    out.append(f"<{name}>")
+    yield
+    out.append(f"</{name}>")                           # NOTE: skipped if the body raises
+
+
 class Resource:
-    def __init__(self, name: str, history: List[str]) -> None:
-        self.name = name
-        self.history = history
+    def __init__(self, name: str, log: list[str]) -> None:
+        self.name, self.log = name, log
+        log.append(f"open {name}")
 
-    def __enter__(self) -> "Resource":
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        self.history.append(self.name)
+    def close(self) -> None:
+        self.log.append(f"close {self.name}")
 
 
-def run_demonstration() -> None:
-    # 1. Class-Based Context Manager: Success path
-    print("1. Class-Based Context Manager (Commit on success):")
-    with DatabaseTransaction(1) as tx1:
-        tx1.execute("Inserting user 'Alice'")
+def main() -> None:
+    with Timer() as t:
+        sum(range(100_000))
+    print("elapsed set:", t.elapsed >= 0)
 
-    # 2. Class-Based Context Manager: Rollback & Suppression path
-    print("2. Class-Based Context Manager (Rollback on error):")
-    suppressed = False
+    log: list[str] = []
+    with Transaction(log):
+        log.append("work")
     try:
-        with DatabaseTransaction(2) as tx2:
-            tx2.execute("Inserting user 'Bob'")
-            raise RollbackQuietly("Simulated validation failure")
-        suppressed = True
-    except RollbackQuietly:
-        suppressed = False
-    print(f"Exception suppressed safely: {suppressed}")
+        with Transaction(log):
+            raise ValueError("boom")
+    except ValueError as err:
+        print("propagated:", err)
+    print(log)                       # ['BEGIN','work','COMMIT','BEGIN','ROLLBACK']
 
-    # 3. Generator Context Manager
-    print("3. Generator Context Manager (@contextmanager):")
-    with managed_lock("Lock") as lock:
-        print("[WORK] Processing critical section")
+    with temp_setting("debug", True) as s:
+        print("inside:", s["debug"])
+    print("after:", settings["debug"])
 
-    # 4. Dynamic Resource Management (ExitStack)
-    print("4. Dynamic Resource Management (ExitStack):")
-    closed_order: List[str] = []
-    with contextlib.ExitStack() as stack:
-        resources = [
-            stack.enter_context(Resource(f"res_{i}", closed_order))
-            for i in range(3)
-        ]
-        print(f"Batch opened: [{', '.join(r.name for r in resources)}]")
+    try:
+        with temp_setting("debug", True):
+            raise RuntimeError("fail")
+    except RuntimeError:
+        print("restored despite error:", settings["debug"])   # False
 
-    print(f"Batch closed: [{', '.join(closed_order)}]")
+    out: list[str] = []
+    try:
+        with tag("b", out):
+            raise KeyError("x")
+    except KeyError:
+        pass
+    print(out)                       # ['<b>']  <- closing tag skipped: needs try/finally
+
+    with suppress(FileNotFoundError):
+        open("definitely-missing.txt")
+    print("suppressed")
+
+    events: list[str] = []
+    with ExitStack() as stack:
+        for name in ("a", "b", "c"):
+            stack.callback(Resource(name, events).close)    # closes in reverse order
+    print(events)
+
+    with closing(Resource("z", events)) as r:
+        pass
+    print(events[-1])
 
 
 if __name__ == "__main__":
-    run_demonstration()
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-
-// 1. Custom Exception for safe rollback
-public class RollbackQuietlyException : Exception
+// C#: using / IDisposable is the equivalent; `await using` for IAsyncDisposable.
+var log = new List<string>();
+using (var tx = new Transaction(log))
 {
-    public RollbackQuietlyException(string message) : base(message) { }
+    // work...
+    tx.Commit();
+}
+Console.WriteLine(string.Join(",", log));   // BEGIN,COMMIT
+
+public sealed class Transaction : IDisposable
+{
+    private readonly List<string> _log;
+    private bool _committed;
+    public Transaction(List<string> log) { _log = log; _log.Add("BEGIN"); }
+    public void Commit() { _committed = true; _log.Add("COMMIT"); }
+    public void Dispose() { if (!_committed) _log.Add("ROLLBACK"); }   // always runs
 }
 
-// 2. Class-Based Transaction Manager with RAII
-public class DatabaseTransaction : IDisposable
-{
-    private readonly int _txId;
-    private bool _committed = false;
-
-    public DatabaseTransaction(int txId)
-    {
-        _txId = txId;
-        Console.WriteLine($"[BEGIN] Transaction {_txId}");
-    }
-
-    public void Execute(string sql)
-    {
-        Console.WriteLine($"[SQL] {sql}");
-    }
-
-    public void Commit()
-    {
-        _committed = true;
-    }
-
-    public void Dispose()
-    {
-        if (_committed)
-        {
-            Console.WriteLine($"[COMMIT] Transaction {_txId} committed successfully");
-        }
-        else
-        {
-            Console.WriteLine($"[ROLLBACK] Transaction {_txId} rolled back due to error");
-        }
-    }
-}
-
-// 3. Action-based RAII wrapper (simulating generator context manager)
-public sealed class ActionDisposable : IDisposable
-{
-    private readonly Action _onDispose;
-    public ActionDisposable(Action onDispose) => _onDispose = onDispose;
-    public void Dispose() => _onDispose();
-}
-
-// 4. Dynamic Resource Stack (simulating ExitStack)
-public class ExitStack : IDisposable
-{
-    private readonly Stack<IDisposable> _disposables = new();
-
-    public T EnterContext<T>(T resource) where T : IDisposable
-    {
-        _disposables.Push(resource);
-        return resource;
-    }
-
-    public void Dispose()
-    {
-        while (_disposables.Count > 0)
-        {
-            _disposables.Pop().Dispose();
-        }
-    }
-}
-
-public class Resource : IDisposable
-{
-    public string Name { get; }
-    private readonly List<string> _history;
-
-    public Resource(string name, List<string> history)
-    {
-        Name = name;
-        _history = history;
-    }
-
-    public void Dispose()
-    {
-        _history.Add(Name);
-    }
-}
-
-public class Program
-{
-    public static IDisposable ManagedLock(string lockName)
-    {
-        Console.WriteLine($"[ACQUIRE] {lockName} acquired");
-        return new ActionDisposable(() => Console.WriteLine($"[RELEASE] {lockName} released safely"));
-    }
-
-    public static void Main()
-    {
-        // 1. Class-Based Context Manager: Success path
-        Console.WriteLine("1. Class-Based Context Manager (Commit on success):");
-        using (var tx1 = new DatabaseTransaction(1))
-        {
-            tx1.Execute("Inserting user 'Alice'");
-            tx1.Commit();
-        }
-
-        // 2. Class-Based Context Manager: Rollback & Suppression path
-        Console.WriteLine("2. Class-Based Context Manager (Rollback on error):");
-        bool suppressed = false;
-        try
-        {
-            using (var tx2 = new DatabaseTransaction(2))
-            {
-                tx2.Execute("Inserting user 'Bob'");
-                throw new RollbackQuietlyException("Simulated validation failure");
-            }
-        }
-        catch (RollbackQuietlyException)
-        {
-            suppressed = true; // Exception intercepted and handled safely
-        }
-        Console.WriteLine($"Exception suppressed safely: {suppressed}");
-
-        // 3. Generator Context Manager
-        Console.WriteLine("3. Generator Context Manager (@contextmanager):");
-        using (ManagedLock("Lock"))
-        {
-            Console.WriteLine("[WORK] Processing critical section");
-        }
-
-        // 4. Dynamic Resource Management (ExitStack)
-        Console.WriteLine("4. Dynamic Resource Management (ExitStack):");
-        var closedOrder = new List<string>();
-        using (var stack = new ExitStack())
-        {
-            var r0 = stack.EnterContext(new Resource("res_0", closedOrder));
-            var r1 = stack.EnterContext(new Resource("res_1", closedOrder));
-            var r2 = stack.EnterContext(new Resource("res_2", closedOrder));
-            Console.WriteLine($"Batch opened: [{r0.Name}, {r1.Name}, {r2.Name}]");
-        }
-        Console.WriteLine($"Batch closed: [{string.Join(", ", closedOrder)}]");
-    }
-}
+// C# has no way for Dispose to see the exception; Python's __exit__ receives it directly.
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab:
 
 ```text
-1. Class-Based Context Manager (Commit on success):
-[BEGIN] Transaction 1
-[SQL] Inserting user 'Alice'
-[COMMIT] Transaction 1 committed successfully
-2. Class-Based Context Manager (Rollback on error):
-[BEGIN] Transaction 2
-[SQL] Inserting user 'Bob'
-[ROLLBACK] Transaction 2 rolled back due to error
-Exception suppressed safely: True
-3. Generator Context Manager (@contextmanager):
-[ACQUIRE] Lock acquired
-[WORK] Processing critical section
-[RELEASE] Lock released safely
-4. Dynamic Resource Management (ExitStack):
-Batch opened: [res_0, res_1, res_2]
-Batch closed: [res_2, res_1, res_0]
+elapsed set: True
+propagated: boom
+['BEGIN', 'work', 'COMMIT', 'BEGIN', 'ROLLBACK']
+inside: True
+after: False
+restored despite error: False
+['<b>']
+suppressed
+['open a', 'open b', 'open c', 'close c', 'close b', 'close a']
+close z
 ```
 
----
-
-## 4. Where You Already Use It
-
-- **In Python:**
-  - **`open(filename)`:** The quintessential context manager; calls the underlying C runtime `close(fd)` immediately upon leaving the `with` block, guaranteeing that OS file handles are reclaimed without waiting for cyclic garbage collection.
-  - **`threading.Lock` and `asyncio.Lock`:** `with lock:` acquires the mutex before entry and guarantees `lock.release()` in `__exit__`, preventing deadlock conditions on unhandled exceptions.
-  - **`unittest.mock.patch`:** Dynamically alters an attribute, class, or module during the `with` block and restores the original reference upon exit, preventing test pollution.
-  - **`decimal.localcontext()`:** Temporarily changes mathematical precision or rounding modes (e.g., `prec=4`) for financial computations within the block and automatically reverts to global precision upon exit.
-  - **`tempfile.TemporaryDirectory()`:** Creates a secure temporary folder on disk and recursively removes the directory and all contained files upon exit.
-  - **SQLAlchemy / Django `transaction.atomic()`:** Manages database savepoints and transaction commit/rollback lifecycles.
-
-- **In C# / .NET:**
-  - **The `using` Statement & `IDisposable`:** The .NET standard for deterministic cleanup of unmanaged resources (file streams, database connections, cryptography handles).
-  - **`System.Transactions.TransactionScope`:** Manages ambient distributed transactions; if `scope.Complete()` is not invoked before `Dispose()`, the transaction automatically rolls back.
-  - **ASP.NET Core `IServiceScope`:** `using var scope = app.Services.CreateScope();` allocates and disposes scoped dependency injection services per HTTP request.
+Two lines to read closely: `['<b>']` (the closing tag is missing — `tag` has no `try/finally`, which is deliberate) and the `ExitStack` line (resources close in reverse order of registration).
 
 ---
 
-## 5. Pitfalls and When Not to Use It
+## 4. Edges
 
-1. **The Inadvertent Exception Swallowing Bug:**
-   - If `__exit__` returns `True` indiscriminately, it swallows **all** exceptions, including `KeyboardInterrupt`, `MemoryError`, `SystemExit`, or `NameError` (typos in your code). This turns critical crashes into silent bugs.
-   - *Rule:* Only return `True` for specific, anticipated exception types:
-     ```python
-     def __exit__(self, exc_type, exc_val, exc_tb):
-         self.cleanup()
-         return exc_type is not None and issubclass(exc_type, ExpectedBusinessError)
-     ```
+- **Swallowing exceptions by accident.** `__exit__` returning a truthy value suppresses the exception. A forgotten `return True` (or a `return` in a `finally`) is a nasty bug.
+- **`@contextmanager` needs `try/finally`.** If the body raises, the exception is re-thrown *at the `yield`*; code after `yield` without `finally` is skipped (see `tag` above).
+- **Exactly one `yield`** in a `@contextmanager` generator.
+- **`__enter__` failing** means `__exit__` is not called — acquire carefully (use `ExitStack` for multi-step setup).
+- **`as` binds `__enter__`'s return,** not the manager itself — return `self` if you want the object.
+- **Reuse.** Many context managers are single-use (generator-based ones definitely: entering the same `@contextmanager` object twice fails — `RuntimeError` or `AttributeError` depending on the Python version). Make a class reusable by building fresh state in `__enter__` (probe 7). To use a manager as a decorator too, subclass `contextlib.ContextDecorator` (probe 8).
+- **Partial setup.** With `with A(), B():`, if `B.__enter__` raises, `A` is still exited but `B.__exit__` is not called (probe 2).
+- **Files and temp files.** `with` closes a `NamedTemporaryFile(delete=False)` but does not delete it; deletion is still your job (probe 11).
+- **Locks.** `with lock:` is the correct way — no forgotten `release()` on exception paths.
+- **Order and unwinding.** Multiple managers exit in reverse; exceptions raised inside `__exit__` replace the original (chained via `__context__`).
+- **Async.** Use `async with` and `__aenter__`/`__aexit__` (or `@asynccontextmanager`); a sync manager can't `await`.
+- **Thread/process safety:** cleanup guarantees are per-thread; a context manager doesn't make shared state thread-safe.
+- **Generators with `with` inside** are cleaned up when the generator is closed (lesson 05).
 
-2. **The Missing `try...finally` in `@contextmanager`:**
-   - In a generator context manager, if an exception occurs in the caller's `with` block, Python re-injects that exception into the generator at the `yield` point using `generator.throw()`. If the code after `yield` is not wrapped in `try...finally`, the generator immediately terminates and **the cleanup code is skipped!**
-     ```python
-     # FATAL BUG: Leak on error!
-     @contextmanager
-     def open_connection():
-         conn = acquire()
-         yield conn
-         conn.close()  # Never executes if with block raises!
-     ```
+### Try it — context-manager lab (runnable)
 
-3. **Re-entering Non-Reentrant Context Managers:**
-   - Most context managers are single-use state machines. Reusing the same instance in nested or concurrent `with` statements (e.g., `cm = MyManager(); with cm: with cm: ...`) results in corrupted state or premature cleanup. If re-entrancy is needed, inherit from `contextlib.ReentrantContextManager`.
-
-4. **Deep Indentation Hell with Dynamic Resources:**
-   - Opening an unpredictable number of files or resources by nesting `with` statements (`with open(f1): with open(f2): ...`) is unmaintainable. Furthermore, if the fifth resource throws during acquisition, earlier resources may not be tracked cleanly without `contextlib.ExitStack`.
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: Spot the Resource Leak
-Explain why the following custom context manager leaks database connections when an unhandled query error occurs, and fix it:
+The follow-ups interviewers use after the basic `__enter__`/`__exit__` answer. Save as `context_manager_lab.py`; every probe is an `assert` (or a printed message), so a wrong claim fails loudly.
 
 ```python
-from contextlib import contextmanager
+import os, tempfile, threading
+from contextlib import ExitStack, ContextDecorator, contextmanager, nullcontext, suppress, redirect_stdout
+import io
 
+log = []
+class CM:
+    def __init__(self, name, fail_enter=False, swallow=False):
+        self.name, self.fail_enter, self.swallow = name, fail_enter, swallow
+    def __enter__(self):
+        if self.fail_enter:
+            raise RuntimeError(f"{self.name} enter failed")
+        log.append(f"enter {self.name}"); return self
+    def __exit__(self, et, e, tb):
+        log.append(f"exit {self.name}")
+        return self.swallow
 
+# 1) `with A, B`: B exits first; exits run on return / break / continue too
+log.clear()
+def early():
+    with CM("a"), CM("b"):
+        return "x"
+assert early() == "x" and log == ["enter a", "enter b", "exit b", "exit a"]
+log.clear()
+for _ in range(2):
+    with CM("loop"):
+        continue
+assert log == ["enter loop", "exit loop"] * 2
+
+# 2) If __enter__ fails, ITS __exit__ is not called, but earlier managers still unwind
+log.clear()
+try:
+    with CM("ok"), CM("bad", fail_enter=True):
+        pass
+except RuntimeError:
+    pass
+assert log == ["enter ok", "exit ok"]
+
+# 3) Returning True from __exit__ swallows everything (the bug); the code after `with` runs
+swallowed = False
+with CM("sw", swallow=True):
+    raise ValueError("lost forever")
+swallowed = True
+assert swallowed
+
+# 4) An exception raised inside __exit__ replaces the original and chains it
+class Boom:
+    def __enter__(self): return self
+    def __exit__(self, *a): raise KeyError("cleanup failed")
+try:
+    with Boom():
+        raise ValueError("original")
+except KeyError as e:
+    assert isinstance(e.__context__, ValueError)
+
+# 5) @contextmanager: a missing try/finally skips cleanup; with it, cleanup runs
+state = []
 @contextmanager
-def get_db_session():
-    session = db_pool.acquire()
-    print("Session acquired")
-    yield session
-    session.close()
-    print("Session closed")
-```
-
-<details>
-<summary>Answer</summary>
-
-**The Bug:**  
-When an exception is raised inside the caller's `with get_db_session() as s:` block, CPython's context manager machinery executes `gen.throw(exc_type, exc_val, exc_tb)`. This re-raises the exception directly from the `yield session` expression. Because there is no `try...finally` block enclosing the `yield`, execution aborts immediately; `session.close()` is never called, leaking the connection back into the pool.
-
-**Fixed Code:**
-```python
-from contextlib import contextmanager
-
-
+def bad():
+    state.append("setup"); yield; state.append("cleanup")
 @contextmanager
-def get_db_session():
-    session = db_pool.acquire()
-    print("Session acquired")
-    try:
-        yield session
-    finally:
-        session.close()
-        print("Session closed")
-```
-</details>
+def good():
+    state.append("setup")
+    try: yield
+    finally: state.append("cleanup")
+for cm in (bad, good):
+    state.clear()
+    with suppress(ZeroDivisionError):
+        with cm():
+            1 / 0
+    print("5:", cm.__name__, state)
 
-### Exercise 2: Building an Execution Latency & Telemetry Manager
-Implement a class-based context manager named `ExecutionTimer` that records the elapsed time in seconds, captures any exception that occurred, and logs the execution metrics upon exit without swallowing exceptions.
+# 6) @contextmanager can suppress by catching at the yield and NOT re-raising
+@contextmanager
+def ignore_value_error():
+    try: yield
+    except ValueError: pass
+with ignore_value_error():
+    raise ValueError("gone")
 
-<details>
-<summary>Answer</summary>
+# 7) Generator-based managers are single-use; a class that rebuilds state in __enter__ is reusable
+@contextmanager
+def once():
+    yield
+cm = once()
+with cm: pass
+try:
+    with cm: pass
+except (RuntimeError, AttributeError):          # which one depends on the Python version
+    print("7: generator-based manager cannot be re-entered")
+class Reusable:
+    def __enter__(self): self.items = []; return self.items
+    def __exit__(self, *a): return False
+r = Reusable()
+with r as a: a.append(1)
+with r as b: assert b == []
 
-```python
-import time
-from typing import Any, Optional, Type
+# 8) ContextDecorator: the same manager works as a decorator
+calls = []
+class Traced(ContextDecorator):
+    def __enter__(self): calls.append("in"); return self
+    def __exit__(self, *a): calls.append("out"); return False
+@Traced()
+def work(): calls.append("work")
+work()
+assert calls == ["in", "work", "out"]
 
-
-class ExecutionTimer:
-    def __init__(self, operation_name: str) -> None:
-        self.operation_name = operation_name
-        self.elapsed_ms: float = 0.0
-        self._start_time: float = 0.0
-
-    def __enter__(self) -> "ExecutionTimer":
-        self._start_time = time.perf_counter()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[Any],
-    ) -> bool:
-        self.elapsed_ms = (time.perf_counter() - self._start_time) * 1000.0
-        status = "FAILED" if exc_type else "SUCCESS"
-        print(f"[{status}] {self.operation_name} took {self.elapsed_ms:.2f}ms")
-        # Return False so any exception continues propagating
-        return False
-```
-</details>
-
-### Exercise 3: Dynamic Multi-File Merger with `ExitStack`
-Write a function `merge_files(source_paths: list[str], output_path: str)` that opens an arbitrary number of source files simultaneously and concatenates their contents into `output_path`. Ensure that if any file fails to open, all already-opened files are closed immediately without leaks.
-
-<details>
-<summary>Answer</summary>
-
-```python
-from contextlib import ExitStack
-from typing import List
-
-
-def merge_files(source_paths: List[str], output_path: str) -> None:
+# 9) ExitStack: variable number of resources; if opening #3 fails, #1 and #2 are still closed
+closed = []
+def opener(i):
+    if i == 3: raise OSError("cannot open 3")
+    @contextmanager
+    def res():
+        try: yield i
+        finally: closed.append(i)
+    return res()
+try:
     with ExitStack() as stack:
-        # Open output file first
-        out_f = stack.enter_context(open(output_path, "w", encoding="utf-8"))
-        
-        # Dynamically acquire and track every input file
-        input_files = [
-            stack.enter_context(open(path, "r", encoding="utf-8"))
-            for path in source_paths
-        ]
-        
-        for in_f in input_files:
-            out_f.write(in_f.read())
-            out_f.write("\n")
-    # All files guaranteed closed upon exiting the ExitStack block
+        for i in (1, 2, 3):
+            stack.enter_context(opener(i))
+except OSError:
+    pass
+assert closed == [2, 1]
+
+# 10) nullcontext: optional manager without if/else; redirect_stdout for tests
+lock = None
+with (lock if lock else nullcontext()):
+    pass
+buf = io.StringIO()
+with redirect_stdout(buf):
+    print("captured")
+assert buf.getvalue() == "captured\n"
+
+# 11) Real thing: a lock released on exception, a temp file removed on exception
+mutex = threading.Lock()
+try:
+    with mutex:
+        raise RuntimeError
+except RuntimeError:
+    pass
+assert not mutex.locked()
+path = None
+try:
+    with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+        path = fh.name
+        raise RuntimeError
+except RuntimeError:
+    pass
+assert fh.closed and os.path.exists(path)      # file closed by `with`...
+os.remove(path)                                # ...but delete=False means YOU still own removal
+print("context-manager lab ok")
 ```
+
+Expected output:
+
+```text
+5: bad ['setup']
+5: good ['setup', 'cleanup']
+7: generator-based manager cannot be re-entered
+context-manager lab ok
+```
+
+---
+
+## 5. What you'd say in two minutes
+
+> "`with` is deterministic cleanup. Python calls `__enter__` — whose return value binds to `as` — runs the block, then *always* calls `__exit__` with the exception type, value and traceback, or three `None`s on success. If `__exit__` returns a truthy value the exception is suppressed; otherwise it propagates, which is what I want almost always — for a transaction I roll back in `__exit__` and let the error continue. I can write one as a class or, more concisely, with `@contextlib.contextmanager` — a generator with a single `yield`, where I must wrap the `yield` in `try/finally` so cleanup runs on exceptions. For a variable number of resources I use `ExitStack`. It's the same job as C# `using` and `IDisposable`, with the extra ability to see and suppress the exception."
+
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `f = open(...)` … `f.close()` | Leaks on exceptions | `with open(...)` |
+| `return True` in `__exit__` "to be safe" | Hides every error | Return `False`/`None` |
+| `@contextmanager` without `try/finally` | Cleanup skipped on error | `try: yield finally: ...` |
+| Manual `lock.acquire()` / `release()` | Missed release paths | `with lock:` |
+| Heavy work in `__enter__` that can fail midway | Partial acquisition leaks | `ExitStack` / separate managers |
+| `try: ... except: pass` | Swallows everything | `contextlib.suppress(SpecificError)` |
+
+---
+
+## 7. Interview questions
+
+<details>
+<summary><strong>1. What does `with` guarantee? [BASIC]</strong></summary>
+
+That `__exit__` runs when the block ends — whether normally, by exception, `return`, `break` or `continue` — so cleanup happens deterministically (as long as `__enter__` succeeded).
+
+</details>
+
+<details>
+<summary><strong>2. What are the arguments of `__exit__` and what does its return value mean? [BASIC]</strong></summary>
+
+`(exc_type, exc_value, traceback)`, all `None` when no exception. Returning a truthy value suppresses the exception; falsy/`None` lets it propagate.
+
+</details>
+
+<details>
+<summary><strong>3. Write a context manager with `contextlib`. What must you remember? [BASIC]</strong></summary>
+
+`@contextmanager def cm(): setup; try: yield value; finally: cleanup`. One `yield`; use `try/finally` so cleanup runs when the body raises.
+
+</details>
+
+<details>
+<summary><strong>4. What does `as x` bind to? [TRICKY]</strong></summary>
+
+The return value of `__enter__`, not the context manager object (unless `__enter__` returns `self`, as `open()` does).
+
+</details>
+
+<details>
+<summary><strong>5. `with` vs `try/finally`? [BASIC]</strong></summary>
+
+Same guarantee, but a context manager packages the pattern for reuse and exposes exception details to the manager. `try/finally` is fine for one-offs.
+
+</details>
+
+<details>
+<summary><strong>6. Open a variable number of files safely. [SCENARIO]</strong></summary>
+
+`with ExitStack() as stack: files = [stack.enter_context(open(p)) for p in paths]` — all are closed in reverse order even if opening one fails.
+
+</details>
+
+<details>
+<summary><strong>7. Your transaction manager hides errors — why? [SCENARIO]</strong></summary>
+
+Probably `__exit__` returns `True` (or a truthy value) after rollback, suppressing the exception. Return `False`/`None`; rollback and *re-raise*.
+
+</details>
+
+<details>
+<summary><strong>8. Python `with` vs C# `using`? [BASIC]</strong></summary>
+
+Both give deterministic cleanup. C# calls `Dispose()` (no access to the exception); Python's `__exit__` receives the exception and may suppress it. C# 8's `using var` declarations scope to the enclosing block.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What is a context manager?**  
-> **Strong Answer:**  
-> "A context manager is a Python object that implements the **Context Management Protocol** defined in PEP 343, consisting of two dunder methods: `__enter__()` and `__exit__()`.  
-> 
-> It provides deterministic setup and teardown semantics around an execution block using the `with` statement. The `__enter__()` method sets up the runtime context (e.g., acquiring locks, opening files, initiating transactions) and optionally returns a target object bound via `as`. The `__exit__()` method receives information about any exception that occurred within the block and executes teardown (releasing locks, closing file descriptors, committing/rolling back transactions). Context managers ensure that cleanup logic runs reliably even when exceptions, runtime errors, or early `return` statements interrupt execution."
-
-> [!interview]
-> **Question 2: How do you write one?**  
-> **Strong Answer:**  
-> "There are two primary ways to write a context manager in Python:
-> 
-> 1. **Class-Based Implementation:** Define a class that implements `__enter__(self)` and `__exit__(self, exc_type, exc_val, exc_tb)`. In `__exit__`, return `True` if you intend to swallow an exception, or `False`/`None` to allow it to propagate. This approach is best for complex, stateful managers like database connections or network sockets.
-> 2. **Generator-Based Implementation via `contextlib.contextmanager`:** Decorate a generator function containing a single `yield` statement. Code preceding `yield` executes during `__enter__`; the yielded value is bound to the `as` variable; and code following `yield` executes during `__exit__`. **The cleanup code must be wrapped in a `try...finally` block**, because any exception thrown in the `with` block is re-injected into the generator at the `yield` point via `generator.throw()`."
-
-> [!interview]
-> **Question 3: What does the `with` statement guarantee?**  
-> **Strong Answer:**  
-> "The `with` statement guarantees that the context manager's `__exit__()` method will be executed **deterministically upon exiting the lexical block**, regardless of how the block terminates.  
-> 
-> Specifically, it guarantees teardown under all of the following exit conditions:
-> - Normal completion of all statements in the block.
-> - An unhandled exception raised anywhere within the block.
-> - Early exit via a `return`, `break`, or `continue` statement.
-> 
-> Furthermore, it guarantees that if an exception is raised, `__exit__` will receive the complete exception triple (`exc_type`, `exc_val`, `exc_tb`) before the call stack unwinds, granting the context manager full authority to log, roll back, propagate, or suppress the exception. The only scenarios where `__exit__` does not run are non-graceful process aborts, such as `os._exit()`, a hard SIGKILL, or a physical power failure."
-
-> [!interview]
-> **Question 4: What is contextlib.ExitStack and when should you use it?**  
-> **Strong Answer:**  
-> "`contextlib.ExitStack` is a programmatic context manager designed for managing a dynamic or variable collection of context managers and cleanup callbacks.  
-> 
-> While the standard `with` statement requires statically known context managers at compile time (e.g., `with A(), B():`), `ExitStack` allows you to register an arbitrary number of context managers at runtime using `stack.enter_context(cm)`.  
-> 
-> Key capabilities include:
-> - **LIFO Teardown Guarantee:** It maintains an internal stack, ensuring that resources are closed in the exact reverse order of entry (Last-In, First-Out), matching traditional call stack unwinding and preventing deadlock in nested lock acquisition.
-> - **Partial Acquisition Safety:** If acquiring the $N$-th resource in a loop fails with an exception, `ExitStack` immediately unwinds and closes the previously acquired $N-1$ resources before propagating the exception, preventing resource leaks during partial failures.
-> - **Arbitrary Callbacks:** Allows registering arbitrary cleanup callbacks via `stack.callback(cleanup_fn, *args)`."
+```text
+with cm as x:      x = cm.__enter__() ... cm.__exit__(exc_type, exc, tb)   ALWAYS runs (if enter succeeded)
+__exit__ result    truthy = suppress;  falsy/None = propagate  (default: propagate)
+@contextmanager    def cm(): setup; try: yield v; finally: cleanup      # one yield
+suppress(E)        ignore specific errors      closing(o)  call o.close()
+ExitStack          N dynamic resources; callback(); enter_context(); reverse unwinding
+Multiple           with A() as a, B() as b:   B exits first
+Async              async with / __aenter__/__aexit__ / @asynccontextmanager
+Use for            files, locks, transactions, temp state, timers, connections
+C#                 using / IDisposable / await using
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [PEP 343: The "with" Statement](https://peps.python.org/pep-0343/)
-- [Python 3 Documentation: `contextlib` — Utilities for with-statement contexts](https://docs.python.org/3/library/contextlib.html)
-- [Python 3 Documentation: Context Manager Types](https://docs.python.org/3/library/stdtypes.html#context-manager-types)
-- [Fluent Python (2nd Edition) by Luciano Ramalho: Chapter 18 - with, match, and else Blocks](https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/)
-- [Microsoft Learn: `using` statement - ensure the correct use of disposable objects](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/statements/using)
-
----
+- [Python reference: the `with` statement](https://docs.python.org/3/reference/compound_stmts.html#the-with-statement)
+- [`contextlib` documentation](https://docs.python.org/3/library/contextlib.html)
+- [PEP 343: the "with" statement](https://peps.python.org/pep-0343/)
 
 Previous: [dataclasses, NamedTuple, Enum and pydantic](../10-dataclasses-namedtuples-enums-and-pydantic/README.md) · Next: [Exceptions Done Right](../12-exceptions-done-right/README.md)

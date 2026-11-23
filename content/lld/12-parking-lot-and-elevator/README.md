@@ -1,424 +1,178 @@
-# Classic Systems: Parking Lot & Elevator Control
+# Parking Lot & Elevator — Thread-Safe Allocation, Strategy, and State
 
-> **Prerequisites**: [10: Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [11: Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [08: Behavioral Patterns I](../08-behavioral-patterns-i/README.md).  
-> **Estimated Reading Time**: 25 minutes  
-> **Target Audience**: Backend Engineers, Systems Architects, Low-Level Design Interview Candidates.
+> **Prerequisites:** [08 · Behavioral Patterns I](../08-behavioral-patterns-i/README.md) (Strategy, State), [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md), [11 · Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md)  
+> **Reading time:** ~30 minutes (two full problems, both with concurrency)  
+> **Audience:** Machine-coding / LLD rounds — the two most-asked "physical world" problems
+
+> [!NOTE]
+> **In one line:** Parking lot = *allocate a scarce resource under contention* (Strategy for which spot, one lock per level, check-and-reserve in one step); Elevator = *a state machine per car plus a dispatcher* (State for the car's behavior, Strategy for which car answers a call).
 
 > [!TIP]
-> **Golden Rule of Classic System Design**: In physical domain modeling, the physical constraints dictate the software architecture. Never decouple state inspection from state modification (avoid "check-then-act" races). In resource allocation (parking) and mechanical scheduling (elevators), encapsulate locking at the smallest autonomous unit of contention (e.g., floor or elevator cabin) to prevent systemic deadlock and starvation.
+> **Golden rule:** Never check and act in two steps. "Is the spot free?" followed by "take it" is a bug the moment two gates exist. Put the check and the take inside **one** method, behind **one** lock, and make that lock as small as the thing it protects (a level, a car — not the whole building).
+
+> [!TIP]
+> **Try it:** Draw `ParkingLot → Level → Spot` and `ElevatorController → ElevatorCar → CarState` in [LLD Studio](/tools/lld-studio/), mark where each lock lives, then run the Python examples below.
 
 ---
 
-## 1. Visual Mental Models & System Architecture
+## 1. Interview pressure
 
-Both the **Parking Lot** and the **Elevator System** are benchmark problems in Low-Level Design interviews. They evaluate how an engineer handles physical spatial constraints, concurrent shared state, and algorithmic dispatch strategies.
+*"Design a multi-level parking lot with multiple entry gates. Then — if we have time — an elevator system."*
 
-### 1.1 Parking Lot: Sharded Concurrency Model
+What the interviewer is really probing:
 
-In a high-throughput multi-level parking garage, centralizing locks at the `ParkingLot` level creates severe lock contention. The architecture shards concurrency by delegating locking to individual `Level` aggregates.
+| They say | They are checking |
+| :--- | :--- |
+| "Two cars arrive at the same time, one spot left." | Do you know check-then-act races? Where is your lock? |
+| "How do you choose which spot?" | Strategy pattern, not an `if/else` ladder |
+| "Pricing changes on weekends." | Open/Closed: new pricing = new class |
+| "Elevator is idle, moving, or has its door open." | State pattern, not boolean flags |
+| "Which elevator answers a hall call?" | Dispatch policy as a swappable Strategy |
+| "What if the signage display is slow?" | Never do I/O while holding a lock |
+
+**The smell:** a single `synchronized` method on `ParkingLot` that does everything, or an `Elevator` with `isMoving`, `isDoorOpen`, `isIdle` booleans that can contradict each other.
 
 ```mermaid
 flowchart TD
-    subgraph Ingress["Entry Gates (Concurrent Ingress)"]
-        G1["Entry Gate 1"]
-        G2["Entry Gate 2"]
-        G3["Entry Gate 3"]
-    end
-
-    subgraph Core["ParkingLot Orchestrator"]
-        Router["Allocation Router (Strategy Pattern)"]
-    end
-
-    subgraph Shards["Level Aggregates (Independent Mutexes)"]
-        L1["Level 1 (Floor 1 Mutex)<br/>Compact / Motorcycle Spots"]
-        L2["Level 2 (Floor 2 Mutex)<br/>Compact / Large Spots"]
-        L3["Level 3 (Floor 3 Mutex)<br/>EV Charging / Large Spots"]
-    end
-
-    G1 --> Router
-    G2 --> Router
-    G3 --> Router
-
-    Router -->|TryAcquire| L1
-    Router -.->|Fallback if Full| L2
-    Router -.->|Fallback if Full| L3
-
-    style Ingress fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
-    style Core fill:#ede7f6,stroke:#512da8,stroke-width:2px
-    style Shards fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-```
-
-### 1.2 Elevator: SCAN Scheduling & State Machine
-
-Elevator cabins execute the **LOOK / SCAN (Elevator Algorithm)**: a car continues in its current direction serving pending requests until no further requests exist in that direction, then reverses.
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    
-    IDLE --> MOVING_UP : Request Above Current Floor
-    IDLE --> MOVING_DOWN : Request Below Current Floor
-    
-    MOVING_UP --> MOVING_UP : More Floors Ahead in Up Direction
-    MOVING_UP --> STOPPED : Arrive at Target Floor
-    STOPPED --> MOVING_UP : Remaining Requests Above
-    STOPPED --> MOVING_DOWN : No Requests Above, Requests Below Exist
-    STOPPED --> IDLE : No Pending Requests in System
-    
-    MOVING_DOWN --> MOVING_DOWN : More Floors Ahead in Down Direction
-    MOVING_DOWN --> STOPPED : Arrive at Target Floor
-    STOPPED --> MOVING_DOWN : Remaining Requests Below
+  subgraph Parking["Parking lot"]
+    Gate1["Gate 1"] --> Lot["ParkingLot<br/>park / exit"]
+    Gate2["Gate 2"] --> Lot
+    Lot --> Alloc["LevelOrderStrategy<br/>which level first"]
+    Alloc --> L1["Level 1<br/>OWN LOCK"]
+    Alloc --> L2["Level 2<br/>OWN LOCK"]
+    L1 --> Free["free spots by size<br/>reserve = check + take"]
+    Lot --> Price["PricingStrategy<br/>fee on exit"]
+    Lot -.->|"non-blocking event"| Sign["Signage worker"]
+  end
+  subgraph Elevator["Elevator bank"]
+    Hall["Hall call: floor + direction"] --> Ctl["ElevatorController"]
+    Ctl --> Disp["DispatchStrategy<br/>which car"]
+    Disp --> CarA["Car A<br/>OWN LOCK"]
+    Disp --> CarB["Car B<br/>OWN LOCK"]
+    CarA --> St["CarState<br/>Idle / Moving / DoorOpen"]
+  end
 ```
 
 ---
 
-## 2. Taxonomic Reference Grids
+## 2. Walkthrough — requirements → entities → methods
 
-### 2.1 Strategy Comparison Grid
+### Parking lot
 
-| System | Component | Strategy Option | Algorithmic Complexity | Pros | Cons / Edge Cases |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Parking Lot** | Spot Allocation | **First-Fit (Nearest Gate)** | $\mathcal{O}(N)$ scan per level | Simple, minimizes driver walking distance | Causes uneven wear and heavy congestion on lower levels |
-| **Parking Lot** | Spot Allocation | **Best-Fit (Size Matched)** | $\mathcal{O}(1)$ via Type Queues | Maximizes lot capacity; preserves large spots for trucks | More complex data structures; fragmented spots |
-| **Parking Lot** | Pricing Engine | **Flat / Step Hourly** | $\mathcal{O}(1)$ | Predictable for customers | Inefficient for high-demand peak hours |
-| **Parking Lot** | Pricing Engine | **Dynamic Surge Pricing** | $\mathcal{O}(1)$ | Maximizes revenue based on occupancy | Discourages users; requires real-time occupancy telemetry |
-| **Elevator** | Car Dispatch | **Nearest Idle Car (FIFS)** | $\mathcal{O}(K)$ cars | Minimal dispatch compute overhead | Starves distant requests; highly inefficient during rush hours |
-| **Elevator** | Car Dispatch | **Direction-Aware SCAN** | $\mathcal{O}(K \log M)$ | Minimizes total transit time; prevents elevator thrashing | Passengers going reverse direction experience initial delay |
+**Requirements (ask these, then write them down)**
 
-### 2.2 Concurrency & State Ownership Matrix
+1. Multiple levels, spots of three sizes (motorcycle, compact, large). A vehicle may use any spot **at least as big** as it needs.
+2. Several entry gates run in parallel; no spot may be double-assigned.
+3. Entry issues a ticket; exit takes the ticket and returns a fee.
+4. Allocation policy (lowest floor first vs. spread across floors) and pricing must be swappable.
+5. Out of scope (say it): payment gateway, reservations, EV charging, license-plate recognition.
 
-| System Entity | State Maintained | Ownership Model | Locking Boundary | Failure Mode on Race |
-| :--- | :--- | :--- | :--- | :--- |
-| `ParkingSpot` | `isOccupied`, `vehiclePlate` | Contained inside `Level` | Protected by `Level.mu` | Double allocation of same physical spot |
-| `ParkingTicket` | `entryTime`, `spotId`, `isPaid` | Value/Entity in `ParkingLot` | Write-once, read-many (immutable post-entry) | Inconsistent billing duration |
-| `ElevatorCar` | `currentFloor`, `direction`, `targets` | Autonomous Actor / Thread | Protected by `Car.mu` | Floor overshoot; door opens while moving |
-| `ElevatorController` | `cars`, `hallCalls` | Central Dispatcher | Reader-Writer Lock (`RWMutex`) | Hall request assigned to multiple cars |
+**Entities** (nouns → keep / drop)
 
----
+| Noun | Decision |
+| :--- | :--- |
+| `Vehicle` | Value object: plate + minimum spot size it needs |
+| `Spot` | Immutable identity (id, size, level). **Occupancy is not stored on it** — the level owns it, under the lock |
+| `Level` | Aggregate: owns its spots and **its own lock** |
+| `Ticket` | Immutable record: id, vehicle, spot, entry time |
+| `ParkingLot` | Orchestrator: picks level order, issues/redeems tickets |
+| `LevelOrderStrategy` | Strategy: which level to try first |
+| `PricingStrategy` | Strategy: fee from ticket + exit time |
+| `Gate`, `Attendant`, `Payment` | Dropped — not needed for the core |
 
-## 3. Production War Stories: Incident Post-Mortem
+**Methods**
 
-### The Terminal 4 Ground Stop: Deadlock in Multi-Deck Airport Parking Infrastructure
+| Method | Contract |
+| :--- | :--- |
+| `Level.try_reserve(vehicle) -> Spot \| None` | **Atomic** find-best-fit and mark occupied. Never "check" separately |
+| `Level.release(spot) -> bool` | `False` if the spot was not occupied (double exit) |
+| `ParkingLot.park(vehicle) -> Ticket` | Reject duplicate plate; try levels in strategy order; raise `LotFullError` |
+| `ParkingLot.exit(ticket_id) -> fee` | Remove ticket **atomically** (second exit with the same ticket fails), release spot, price it |
 
-```
-SEVERITY LEVEL: SEV-1 (Airport Roadway Gridlock)
-DETECTION TIME: 8 Minutes
-RECOVERY TIME: 55 Minutes
-FINANCIAL & REGULATORY PENALTY: $420,000 in flight rebooking costs & Port Authority fines
-```
+### Elevator
 
-#### Incident Background
-At a major international hub, Terminal 4 opened a new 6-story smart parking structure with 8,500 spaces. The parking backend was built as a distributed microservice with automated license-plate recognition (ALPR) entry gates and automated dynamic digital guidance signage on each floor.
+**Requirements**
 
-#### What Happened
-During holiday peak traffic, 30 entry gates were admitting vehicles at 45 cars per minute. The system deployed a global `sync.Mutex` on the root `ParkingManager` to coordinate both entry ticket generation and the update of digital displays across all floors. Under heavy concurrency, the critical section length escalated due to slow network RPCs calling the physical LED signage. Gate barriers failed to open within the 3-second timeout, causing physical vehicle queues to spill onto the airport access highway, paralyzing airport operations.
+1. N cars, F floors. Hall call = (floor, direction). Cabin call = destination floor.
+2. Each car serves stops in its current direction first, then reverses (SCAN / "LOOK" — what real elevators do).
+3. Car behavior depends on whether it is idle, moving, or doors-open.
+4. Dispatch policy is replaceable (nearest car, cost-based, zoned).
+5. Out of scope: weight sensors, fire mode, express cars, door obstruction.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Gate as Gate Barrier ALPR
-    participant Svc as ParkingManager (Global Lock)
-    participant Sign as Physical Signage Hardware (Floor 3)
-    participant DB as Postgres DB
+**Entities**
 
-    Gate->>Svc: POST /entry/assign (Vehicle: SUV)
-    Note over Svc: Acquires Global Manager Mutex Lock
-    Svc->>DB: INSERT Ticket (Assigned Spot F3-12)
-    DB-->>Svc: OK
-    Svc->>Sign: RPC UpdateAvailableCount(Floor 3: 4 -> 3)
-    Note over Sign: Network Packet Loss! RPC hangs for 5,000ms
-    
-    par Concurrent Requests Blocked
-        Gate->>Svc: POST /entry/assign (Gate 2 Barrier)... BLOCKED
-        Gate->>Svc: POST /entry/assign (Gate 3 Barrier)... BLOCKED
-    end
+| Noun | Decision |
+| :--- | :--- |
+| `ElevatorCar` | Owns floor, stop set, current state, **its own lock** |
+| `CarState` | State interface: `tick(car) -> next state`. Implementations: `Idle`, `Moving`, `DoorOpen` |
+| `ElevatorController` | Receives hall calls, asks the strategy, forwards to a car |
+| `DispatchStrategy` | Strategy: picks a car from **snapshots** |
+| `CarSnapshot` | Immutable view (floor, heading, pending count) so strategy doesn't touch live cars |
 
-    Note over Svc: 300+ Gateway threads starved waiting for Global Lock
-    Note over Gate: Timeout (3000ms) -> Barrier Remains Closed -> Traffic Gridlock
-```
-
-#### Root Cause Analysis
-1. **Unbounded Critical Section**: Synchronous external I/O (hardware signage RPC) was performed while holding a system-wide in-memory mutex.
-2. **Coarse-Grained Locking**: A single lock was used across all floors and gates instead of sharding locks by independent parking levels.
-3. **Missing Asynchronous Event Decoupling**: Signage displays should have received asynchronous change events via an internal pub/sub channel rather than blocking synchronous HTTP/gRPC calls inside the critical path of spot allocation.
-
-#### The Architectural Hardening
-- **De-scoped Mutexes to Shards**: Spot reservation now acquires only the target `Level` lock for less than $50\mu s$.
-- **Asynchronous Event-Driven Decoupling**: Spot allocation publishes an in-memory `SpotOccupiedEvent`. Signage controllers listen asynchronously; slow hardware responses never impact barrier latency.
-- **Circuit Breakers with Fail-Open Safe Mode**: If the reservation engine does not respond within 500ms, gates fail open and issue offline physical paper tickets.
+**Methods:** `car.add_stop(floor)`, `car.tick()`, `car.snapshot()`, `controller.hall_call(floor, direction)`, `strategy.pick(snapshots, floor, direction)`.
 
 ---
 
-## 4. Multi-Language Production Implementations
+## 3. The design decisions that matter (say these out loud)
 
-Below are four enterprise implementations of the **Multi-Level Parking Lot** and **SCAN Elevator Controller**.
+### 3.1 Where does the lock live?
 
-### 4.1 Go: Sharded Multi-Level Parking Lot with Spot Allocation Strategies
+| Option | Verdict |
+| :--- | :--- |
+| One lock on `ParkingLot` | Correct but every gate waits on every other gate. Fine for a take-home, wrong for "multiple gates." |
+| **One lock per `Level`** | Two gates only contend if they target the same level. Reserve is microseconds. **This is the answer.** |
+| One lock per `Spot` | Needs lock ordering when scanning many spots; check-then-act returns if you scan unlocked. Over-engineered. |
+| Lock-free (CAS on a counter) | Works for "count only" lots. Falls apart once spot sizes and best-fit matter. |
 
-```go
-package main
+### 3.2 Check-then-act, concretely
 
-import (
-	"errors"
-	"fmt"
-	"sync"
-	"time"
-)
-
-type VehicleSize int
-
-const (
-	SizeMotorcycle VehicleSize = 1
-	SizeCompact    VehicleSize = 2
-	SizeLarge      VehicleSize = 3
-)
-
-type Vehicle struct {
-	Plate string
-	Size  VehicleSize
-}
-
-type ParkingSpot struct {
-	ID       string
-	Size     VehicleSize
-	Occupant *Vehicle
-}
-
-func (s *ParkingSpot) CanFit(v *Vehicle) bool {
-	return s.Occupant == nil && s.Size >= v.Size
-}
-
-type Level struct {
-	Floor int
-	mu    sync.Mutex
-	spots []*ParkingSpot
-}
-
-func NewLevel(floor int, spotCounts map[VehicleSize]int) *Level {
-	lvl := &Level{Floor: floor}
-	counter := 1
-	for sz, cnt := range spotCounts {
-		for i := 0; i < cnt; i++ {
-			lvl.spots = append(lvl.spots, &ParkingSpot{
-				ID:   fmt.Sprintf("F%d-S%02d", floor, counter),
-				Size: sz,
-			})
-			counter++
-		}
-	}
-	return lvl
-}
-
-// FindAndAssign reserves a spot under a fine-grained per-level lock.
-func (l *Level) FindAndAssign(v *Vehicle) (*ParkingSpot, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	for _, spot := range l.spots {
-		if spot.CanFit(v) {
-			spot.Occupant = v
-			return spot, nil
-		}
-	}
-	return nil, errors.New("no suitable spot on level")
-}
-
-func (l *Level) ReleaseSpot(spotID string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	for _, spot := range l.spots {
-		if spot.ID == spotID {
-			if spot.Occupant == nil {
-				return errors.New("spot already vacant")
-			}
-			spot.Occupant = nil
-			return nil
-		}
-	}
-	return errors.New("spot not found")
-}
-
-type Ticket struct {
-	ID        string
-	SpotID    string
-	Plate     string
-	EntryTime time.Time
-}
-
-type ParkingSystem struct {
-	levels  []*Level
-	tickets sync.Map // Concurrent ticket store
-}
-
-func NewParkingSystem(levels []*Level) *ParkingSystem {
-	return &ParkingSystem{levels: levels}
-}
-
-func (ps *ParkingSystem) Park(v *Vehicle) (*Ticket, error) {
-	for _, lvl := range ps.levels {
-		spot, err := lvl.FindAndAssign(v)
-		if err == nil {
-			t := &Ticket{
-				ID:        fmt.Sprintf("TK-%d", time.Now().UnixNano()),
-				SpotID:    spot.ID,
-				Plate:     v.Plate,
-				EntryTime: time.Now(),
-			}
-			ps.tickets.Store(t.ID, t)
-			return t, nil
-		}
-	}
-	return nil, errors.New("parking garage is full")
-}
-
-func (ps *ParkingSystem) Exit(ticketID string) error {
-	val, ok := ps.tickets.LoadAndDelete(ticketID)
-	if !ok {
-		return errors.New("invalid or expired ticket")
-	}
-	t := val.(*Ticket)
-
-	for _, lvl := range ps.levels {
-		if err := lvl.ReleaseSpot(t.SpotID); err == nil {
-			return nil
-		}
-	}
-	return errors.New("could not find spot to release")
-}
-
-func main() {
-	lvl1 := NewLevel(1, map[VehicleSize]int{SizeMotorcycle: 2, SizeCompact: 2, SizeLarge: 1})
-	ps := NewParkingSystem([]*Level{lvl1})
-
-	car := &Vehicle{Plate: "NYC-7721", Size: SizeCompact}
-	ticket, err := ps.Park(car)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("[Success] Parked %s at Spot: %s. Ticket ID: %s\n", car.Plate, ticket.SpotID, ticket.ID)
-	
-	err = ps.Exit(ticket.ID)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("[Success] Exited garage. Spot released.")
-}
+```text
+BROKEN                              FIXED
+thread A: spot.is_free() -> True    with level.lock:
+thread B: spot.is_free() -> True        spot = find_best_fit(vehicle)
+thread A: spot.occupy(carA)             mark_occupied(spot, vehicle)
+thread B: spot.occupy(carB)  <-- same spot, two cars
 ```
+
+The fix is not "add a lock around `occupy`." It is: **make the search and the occupy one atomic operation.**
+
+### 3.3 Strategy choosing a level vs reserving a spot
+
+The strategy returns an **ordering of levels**, not a spot. Why: the strategy has to read state (free counts) to decide; if it also picked the spot, that read would be stale by the time you act. So: strategy proposes, `Level.try_reserve` decides atomically, and the lot just moves on to the next level if the first one filled up in between.
+
+### 3.4 Never hold a lock while doing I/O
+
+Signage updates, DB writes, and notifications happen **after** the lock is released, ideally through a queue. The war story (section 8) is exactly this mistake.
+
+### 3.5 Idempotent exit
+
+A ticket can be redeemed once. `tickets.pop(id)` under a tiny lock (or `TryRemove` on a concurrent map) makes a double exit fail cleanly instead of releasing a spot that has since been given to someone else.
+
+### 3.6 Elevator: one lock per car, and the dispatcher never holds two
+
+The controller takes **snapshots** (each acquires one car lock briefly, released immediately), runs the strategy on plain data, then calls `add_stop` on the winner (one lock). It never holds two car locks at once, so lock-ordering deadlock cannot happen. The snapshot can be stale — that is fine; dispatch is a best-effort hint and the car's own state machine is the source of truth.
 
 ---
 
-### 4.2 TypeScript: SCAN Elevator Control System with Direction State
+## 4. Code — thread-safe parking lot
 
-```typescript
-export enum Direction {
-  IDLE = "IDLE",
-  UP = "UP",
-  DOWN = "DOWN",
-}
-
-export class Elevator {
-  public currentFloor: number = 0;
-  public direction: Direction = Direction.IDLE;
-  private targetFloors: Set<number> = new Set();
-
-  constructor(public readonly id: string, public readonly maxFloor: number) {}
-
-  public addRequest(floor: number): void {
-    if (floor >= 0 && floor <= this.maxFloor) {
-      this.targetFloors.add(floor);
-      if (this.direction === Direction.IDLE) {
-        this.direction = floor >= this.currentFloor ? Direction.UP : Direction.DOWN;
-      }
-    }
-  }
-
-  public step(): void {
-    if (this.targetFloors.size === 0) {
-      this.direction = Direction.IDLE;
-      return;
-    }
-
-    if (this.targetFloors.has(this.currentFloor)) {
-      this.targetFloors.delete(this.currentFloor);
-      console.log(`[Elevator ${this.id}] Stopping at floor ${this.currentFloor}. Doors opening.`);
-    }
-
-    // Determine direction using SCAN algorithm
-    if (this.direction === Direction.UP) {
-      const hasUpperTargets = Array.from(this.targetFloors).some((f) => f > this.currentFloor);
-      if (hasUpperTargets) {
-        this.currentFloor++;
-      } else {
-        const hasLowerTargets = Array.from(this.targetFloors).some((f) => f < this.currentFloor);
-        this.direction = hasLowerTargets ? Direction.DOWN : Direction.IDLE;
-        if (this.direction === Direction.DOWN) this.currentFloor--;
-      }
-    } else if (this.direction === Direction.DOWN) {
-      const hasLowerTargets = Array.from(this.targetFloors).some((f) => f < this.currentFloor);
-      if (hasLowerTargets) {
-        this.currentFloor--;
-      } else {
-        const hasUpperTargets = Array.from(this.targetFloors).some((f) => f > this.currentFloor);
-        this.direction = hasUpperTargets ? Direction.UP : Direction.IDLE;
-        if (this.direction === Direction.UP) this.currentFloor++;
-      }
-    }
-  }
-
-  public getPendingCount(): number {
-    return this.targetFloors.size;
-  }
-}
-
-export class ElevatorDispatcher {
-  constructor(private elevators: Elevator[]) {}
-
-  public requestRide(floor: number): Elevator {
-    // Select elevator with minimal distance and matching direction
-    let bestElevator: Elevator | null = null;
-    let minScore = Infinity;
-
-    for (const el of this.elevators) {
-      const distance = Math.abs(el.currentFloor - floor);
-      let penalty = el.getPendingCount() * 2;
-      
-      // Bonus if moving towards floor
-      if (
-        (el.direction === Direction.UP && floor >= el.currentFloor) ||
-        (el.direction === Direction.DOWN && floor <= el.currentFloor) ||
-        el.direction === Direction.IDLE
-      ) {
-        penalty -= 1;
-      }
-
-      const score = distance + penalty;
-      if (score < minScore) {
-        minScore = score;
-        bestElevator = el;
-      }
-    }
-
-    bestElevator!.addRequest(floor);
-    return bestElevator!;
-  }
-}
-```
-
----
-
-### 4.3 Python: Thread-Safe Multi-Level Parking Lot with Strategy Pricing
-
+````carousel
 ```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum, auto
+from __future__ import annotations
+
+import queue
 import threading
-from typing import Dict, List, Optional
+import uuid
+from abc import ABC, abstractmethod
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import IntEnum
+from math import ceil
+from typing import Callable, Optional
 
 
-class SpotSize(Enum):
+class SpotType(IntEnum):          # IntEnum: iteration order == size order
     MOTORCYCLE = 1
     COMPACT = 2
     LARGE = 3
@@ -427,313 +181,919 @@ class SpotSize(Enum):
 @dataclass(frozen=True)
 class Vehicle:
     plate: str
-    size: SpotSize
+    min_spot: SpotType            # smallest spot this vehicle fits in
 
 
-class IPricingStrategy(ABC):
-    @abstractmethod
-    def calculate_fee(self, entry_time: datetime, exit_time: datetime, size: SpotSize) -> float:
-        pass
+@dataclass(frozen=True)
+class Spot:
+    id: str
+    type: SpotType
+    level: int                    # NOTE: no "occupied" flag here. Level owns occupancy.
 
 
-class HourlyPricingStrategy(IPricingStrategy):
-    RATES = {
-        SpotSize.MOTORCYCLE: 2.0,
-        SpotSize.COMPACT: 5.0,
-        SpotSize.LARGE: 10.0,
-    }
-
-    def calculate_fee(self, entry_time: datetime, exit_time: datetime, size: SpotSize) -> float:
-        duration_hours = max(1.0, (exit_time - entry_time).total_seconds() / 3600.0)
-        return round(duration_hours * self.RATES[size], 2)
+@dataclass(frozen=True)
+class Ticket:
+    id: str
+    vehicle: Vehicle
+    spot: Spot
+    entry_time: datetime
 
 
-class ParkingSpot:
-    def __init__(self, spot_id: str, size: SpotSize):
-        self.spot_id = spot_id
-        self.size = size
-        self.vehicle: Optional[Vehicle] = None
-
-    def can_fit(self, vehicle: Vehicle) -> bool:
-        return self.vehicle is None and self.size.value >= vehicle.size.value
-
-    def occupy(self, vehicle: Vehicle) -> None:
-        self.vehicle = vehicle
-
-    def vacate(self) -> None:
-        self.vehicle = None
+class LotFullError(Exception): ...
+class InvalidTicketError(Exception): ...
+class AlreadyParkedError(Exception): ...
 
 
 class Level:
-    def __init__(self, floor: int, spots: List[ParkingSpot]):
-        self.floor = floor
-        self.spots = spots
+    """One lock, one level. Reserve = find + take in a single critical section."""
+
+    def __init__(self, number: int, counts: dict[SpotType, int]) -> None:
+        self.number = number
         self._lock = threading.Lock()
+        self._free: dict[SpotType, deque[Spot]] = {t: deque() for t in SpotType}
+        self._occupied: dict[str, Vehicle] = {}          # spot_id -> vehicle
+        n = 0
+        for spot_type, count in counts.items():
+            for _ in range(count):
+                n += 1
+                self._free[spot_type].append(Spot(f"L{number}-{n:02d}", spot_type, number))
 
-    def assign_spot(self, vehicle: Vehicle) -> Optional[ParkingSpot]:
+    def try_reserve(self, v: Vehicle) -> Optional[Spot]:
         with self._lock:
-            for spot in self.spots:
-                if spot.can_fit(vehicle):
-                    spot.occupy(vehicle)
+            for spot_type in SpotType:                   # smallest first => best fit
+                if spot_type >= v.min_spot and self._free[spot_type]:
+                    spot = self._free[spot_type].popleft()
+                    self._occupied[spot.id] = v
                     return spot
-            return None
+        return None
 
-    def release_spot(self, spot_id: str) -> bool:
+    def release(self, spot: Spot) -> bool:
         with self._lock:
-            for spot in self.spots:
-                if spot.spot_id == spot_id and spot.vehicle is not None:
-                    spot.vacate()
-                    return True
-            return False
+            if self._occupied.pop(spot.id, None) is None:
+                return False                             # double release, ignore safely
+            self._free[spot.type].append(spot)
+            return True
+
+    def free_count(self) -> int:
+        with self._lock:
+            return sum(len(q) for q in self._free.values())
+
+
+# ── Strategy 1: which level to try first ─────────────────────────────
+class LevelOrderStrategy(ABC):
+    @abstractmethod
+    def order(self, levels: list[Level], v: Vehicle) -> list[Level]: ...
+
+
+class LowestFloorFirst(LevelOrderStrategy):
+    def order(self, levels: list[Level], v: Vehicle) -> list[Level]:
+        return sorted(levels, key=lambda lv: lv.number)
+
+
+class LeastLoadedFirst(LevelOrderStrategy):
+    """Spreads load. free_count() is a racy hint; try_reserve() is the authority."""
+
+    def order(self, levels: list[Level], v: Vehicle) -> list[Level]:
+        return sorted(levels, key=lambda lv: -lv.free_count())
+
+
+# ── Strategy 2: pricing ──────────────────────────────────────────────
+class PricingStrategy(ABC):
+    @abstractmethod
+    def fee_cents(self, ticket: Ticket, exit_time: datetime) -> int: ...
+
+
+class HourlyPricing(PricingStrategy):
+    RATE = {SpotType.MOTORCYCLE: 100, SpotType.COMPACT: 300, SpotType.LARGE: 600}
+
+    def fee_cents(self, ticket: Ticket, exit_time: datetime) -> int:
+        seconds = (exit_time - ticket.entry_time).total_seconds()
+        hours = max(1, ceil(seconds / 3600))             # minimum one hour
+        return hours * self.RATE[ticket.spot.type]
+
+
+@dataclass(frozen=True)
+class SpotEvent:
+    level: int
+    free: int
 
 
 class ParkingLot:
-    def __init__(self, levels: List[Level], pricing: IPricingStrategy):
-        self.levels = levels
-        self.pricing = pricing
-        self.active_tickets: Dict[str, dict] = {}
-        self._tickets_lock = threading.Lock()
+    def __init__(
+        self,
+        levels: list[Level],
+        allocation: LevelOrderStrategy,
+        pricing: PricingStrategy,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
+        self._levels = levels
+        self._by_number = {lv.number: lv for lv in levels}
+        self._allocation = allocation
+        self._pricing = pricing
+        self._clock = clock
+        self._book_lock = threading.Lock()               # tiny: dict ops only, no I/O inside
+        self._tickets: dict[str, Ticket] = {}
+        self._inside: set[str] = set()                   # plates currently parked
+        self.events: "queue.SimpleQueue[SpotEvent]" = queue.SimpleQueue()  # signage reads this
 
-    def park(self, vehicle: Vehicle) -> dict:
-        for lvl in self.levels:
-            spot = lvl.assign_spot(vehicle)
-            if spot:
-                ticket_id = f"TK-{spot.spot_id}-{int(datetime.now().timestamp())}"
-                ticket = {
-                    "id": ticket_id,
-                    "spot_id": spot.spot_id,
-                    "floor": lvl.floor,
-                    "vehicle": vehicle,
-                    "entry_time": datetime.now(),
-                }
-                with self._tickets_lock:
-                    self.active_tickets[ticket_id] = ticket
+    def park(self, v: Vehicle) -> Ticket:
+        with self._book_lock:
+            if v.plate in self._inside:
+                raise AlreadyParkedError(v.plate)
+            self._inside.add(v.plate)
+        try:
+            for level in self._allocation.order(self._levels, v):
+                spot = level.try_reserve(v)              # atomic find + take
+                if spot is None:
+                    continue                             # level filled up meanwhile; try next
+                ticket = Ticket(uuid.uuid4().hex[:8], v, spot, self._clock())
+                with self._book_lock:
+                    self._tickets[ticket.id] = ticket
+                self.events.put(SpotEvent(level.number, level.free_count()))  # non-blocking
                 return ticket
-        raise RuntimeError("Parking Lot Full: No available spots for vehicle size.")
+            raise LotFullError(f"no spot for {v.plate}")
+        except BaseException:
+            with self._book_lock:
+                self._inside.discard(v.plate)            # roll back the plate claim
+            raise
 
-    def exit(self, ticket_id: str) -> float:
-        with self._tickets_lock:
-            ticket = self.active_tickets.pop(ticket_id, None)
-        if not ticket:
-            raise ValueError("Invalid Ticket ID.")
+    def exit(self, ticket_id: str) -> int:
+        with self._book_lock:
+            ticket = self._tickets.pop(ticket_id, None)  # atomic: only one caller wins
+            if ticket is None:
+                raise InvalidTicketError(ticket_id)
+            self._inside.discard(ticket.vehicle.plate)
+        level = self._by_number[ticket.spot.level]
+        level.release(ticket.spot)
+        self.events.put(SpotEvent(level.number, level.free_count()))
+        return self._pricing.fee_cents(ticket, self._clock())
 
-        # Vacate spot
-        for lvl in self.levels:
-            if lvl.floor == ticket["floor"]:
-                lvl.release_spot(ticket["spot_id"])
-                break
 
-        exit_time = datetime.now()
-        fee = self.pricing.calculate_fee(ticket["entry_time"], exit_time, ticket["vehicle"].size)
-        return fee
+if __name__ == "__main__":
+    # 2 levels x 25 compact spots = 50 spots. 100 cars arrive "at once".
+    lot = ParkingLot(
+        [Level(1, {SpotType.COMPACT: 25}), Level(2, {SpotType.COMPACT: 25})],
+        LowestFloorFirst(),
+        HourlyPricing(),
+    )
+    tickets: list[Ticket] = []
+    full = 0
+    guard = threading.Lock()
+
+    def arrive(i: int) -> None:
+        global full
+        try:
+            t = lot.park(Vehicle(f"CAR-{i}", SpotType.COMPACT))
+            with guard:
+                tickets.append(t)
+        except LotFullError:
+            with guard:
+                full += 1
+
+    threads = [threading.Thread(target=arrive, args=(i,)) for i in range(100)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    spots = [t.spot.id for t in tickets]
+    print("parked:", len(tickets), "| turned away:", full, "| unique spots:", len(set(spots)))
+    assert len(tickets) == 50 and full == 50 and len(set(spots)) == 50
+
+    fee = lot.exit(tickets[0].id)
+    print("fee cents:", fee)                              # 300 (minimum 1 hour, compact)
+    try:
+        lot.exit(tickets[0].id)
+    except InvalidTicketError:
+        print("second exit rejected")
 ```
+<!-- slide -->
+```csharp
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Channels;
+
+public enum SpotType { Motorcycle = 1, Compact = 2, Large = 3 }
+
+public sealed record Vehicle(string Plate, SpotType MinSpot);
+public sealed record Spot(string Id, SpotType Type, int Level);   // occupancy lives in Level
+public sealed record Ticket(string Id, Vehicle Vehicle, Spot Spot, DateTimeOffset EntryTime);
+public sealed record SpotEvent(int Level, int Free);
+
+public sealed class LotFullException : Exception { public LotFullException(string m) : base(m) { } }
+
+public sealed class Level
+{
+    private static readonly SpotType[] BySize = { SpotType.Motorcycle, SpotType.Compact, SpotType.Large };
+
+    private readonly object _gate = new();                  // one lock, one level
+    private readonly Dictionary<SpotType, Queue<Spot>> _free = BySize.ToDictionary(t => t, _ => new Queue<Spot>());
+    private readonly Dictionary<string, Vehicle> _occupied = new();
+
+    public int Number { get; }
+
+    public Level(int number, IReadOnlyDictionary<SpotType, int> counts)
+    {
+        Number = number;
+        int n = 0;
+        foreach (var (type, count) in counts)
+            for (int i = 0; i < count; i++)
+                _free[type].Enqueue(new Spot($"L{number}-{++n:00}", type, number));
+    }
+
+    public Spot? TryReserve(Vehicle v)
+    {
+        lock (_gate)                                         // find + take, atomically
+        {
+            foreach (var type in BySize)                     // smallest first => best fit
+            {
+                if (type >= v.MinSpot && _free[type].Count > 0)
+                {
+                    var spot = _free[type].Dequeue();
+                    _occupied[spot.Id] = v;
+                    return spot;
+                }
+            }
+            return null;
+        }
+    }
+
+    public bool Release(Spot spot)
+    {
+        lock (_gate)
+        {
+            if (!_occupied.Remove(spot.Id)) return false;    // double release is a no-op
+            _free[spot.Type].Enqueue(spot);
+            return true;
+        }
+    }
+
+    public int FreeCount() { lock (_gate) return _free.Values.Sum(q => q.Count); }
+}
+
+public interface ILevelOrderStrategy
+{
+    IEnumerable<Level> Order(IReadOnlyList<Level> levels, Vehicle v);
+}
+
+public sealed class LowestFloorFirst : ILevelOrderStrategy
+{
+    public IEnumerable<Level> Order(IReadOnlyList<Level> levels, Vehicle v) => levels.OrderBy(l => l.Number);
+}
+
+public sealed class LeastLoadedFirst : ILevelOrderStrategy      // FreeCount is a hint; TryReserve is the authority
+{
+    public IEnumerable<Level> Order(IReadOnlyList<Level> levels, Vehicle v) => levels.OrderByDescending(l => l.FreeCount());
+}
+
+public interface IPricingStrategy { long FeeCents(Ticket t, DateTimeOffset exit); }
+
+public sealed class HourlyPricing : IPricingStrategy
+{
+    public long FeeCents(Ticket t, DateTimeOffset exit)
+    {
+        var hours = Math.Max(1, (long)Math.Ceiling((exit - t.EntryTime).TotalHours));
+        long rate = t.Spot.Type switch { SpotType.Motorcycle => 100, SpotType.Compact => 300, _ => 600 };
+        return hours * rate;
+    }
+}
+
+public sealed class ParkingLot
+{
+    private readonly IReadOnlyList<Level> _levels;
+    private readonly Dictionary<int, Level> _byNumber;
+    private readonly ILevelOrderStrategy _allocation;
+    private readonly IPricingStrategy _pricing;
+    private readonly Func<DateTimeOffset> _clock;
+    private readonly ConcurrentDictionary<string, Ticket> _tickets = new();
+    private readonly ConcurrentDictionary<string, byte> _inside = new();      // plates currently parked
+    private readonly Channel<SpotEvent> _events = Channel.CreateUnbounded<SpotEvent>();
+
+    public ChannelReader<SpotEvent> Events => _events.Reader;                  // signage worker reads this
+
+    public ParkingLot(IReadOnlyList<Level> levels, ILevelOrderStrategy allocation,
+                      IPricingStrategy pricing, Func<DateTimeOffset>? clock = null)
+    {
+        _levels = levels;
+        _byNumber = levels.ToDictionary(l => l.Number);
+        _allocation = allocation;
+        _pricing = pricing;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    public Ticket Park(Vehicle v)
+    {
+        if (!_inside.TryAdd(v.Plate, 0)) throw new InvalidOperationException($"{v.Plate} already inside");
+        try
+        {
+            foreach (var level in _allocation.Order(_levels, v))
+            {
+                var spot = level.TryReserve(v);                                // atomic find + take
+                if (spot is null) continue;                                    // filled meanwhile; next level
+                var ticket = new Ticket(Guid.NewGuid().ToString("N")[..8], v, spot, _clock());
+                _tickets[ticket.Id] = ticket;
+                _events.Writer.TryWrite(new SpotEvent(level.Number, level.FreeCount()));  // never blocks
+                return ticket;
+            }
+            throw new LotFullException($"no spot for {v.Plate}");
+        }
+        catch
+        {
+            _inside.TryRemove(v.Plate, out _);                                 // roll back plate claim
+            throw;
+        }
+    }
+
+    public long Exit(string ticketId)
+    {
+        if (!_tickets.TryRemove(ticketId, out var ticket))                     // only one caller wins
+            throw new KeyNotFoundException("invalid or already-used ticket");
+        _inside.TryRemove(ticket.Vehicle.Plate, out _);
+        var level = _byNumber[ticket.Spot.Level];
+        level.Release(ticket.Spot);
+        _events.Writer.TryWrite(new SpotEvent(level.Number, level.FreeCount()));
+        return _pricing.FeeCents(ticket, _clock());
+    }
+}
+```
+````
+
+**Why `Spot` has no `occupied` field:** if occupancy lived on the spot, any code holding a `Spot` could flip it without the level lock. Keeping state in the `Level` means there is exactly one door to mutate it.
 
 ---
 
-### 4.4 C#: Elevator Control Subsystem with SCAN Algorithm
+## 5. Code — elevator with State + Strategy
 
+````carousel
+```python
+from __future__ import annotations
+
+import threading
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import IntEnum
+from typing import Optional
+
+
+class Direction(IntEnum):
+    UP = 1
+    DOWN = -1
+
+
+# ── State: the car's behavior is its current state ───────────────────
+class CarState(ABC):
+    heading: Optional[Direction] = None
+
+    @abstractmethod
+    def tick(self, car: "ElevatorCar") -> "CarState":
+        """Do one unit of work; return the NEXT state."""
+
+
+class Idle(CarState):
+    def tick(self, car: "ElevatorCar") -> CarState:
+        if not car.stops:
+            return self
+        if car.floor in car.stops:
+            return DoorOpen(Direction.UP)
+        nearest = min(car.stops, key=lambda f: abs(f - car.floor))
+        return Moving(Direction.UP if nearest > car.floor else Direction.DOWN)
+
+
+class Moving(CarState):
+    def __init__(self, direction: Direction) -> None:
+        self.heading = direction
+
+    def tick(self, car: "ElevatorCar") -> CarState:
+        if not car.stops:
+            return Idle()
+        car.floor += int(self.heading)                   # one floor per tick
+        return DoorOpen(self.heading) if car.floor in car.stops else self
+
+
+class DoorOpen(CarState):
+    def __init__(self, heading: Direction) -> None:
+        self.heading = heading
+
+    def tick(self, car: "ElevatorCar") -> CarState:
+        car.stops.discard(car.floor)                     # door closes: this stop is served
+        h = int(self.heading)
+        ahead = any((f - car.floor) * h > 0 for f in car.stops)
+        behind = any((f - car.floor) * h < 0 for f in car.stops)
+        if ahead:
+            return Moving(self.heading)                  # SCAN: keep going the same way
+        if behind:
+            return Moving(Direction(-h))                 # nothing ahead: reverse
+        return Idle()
+
+
+@dataclass(frozen=True)
+class CarSnapshot:
+    car_id: str
+    floor: int
+    heading: Optional[Direction]
+    pending: int
+
+
+class ElevatorCar:
+    def __init__(self, car_id: str, lowest: int = 0, highest: int = 20, start: int = 0) -> None:
+        self.id = car_id
+        self.lowest, self.highest = lowest, highest
+        self.floor = start
+        self.stops: set[int] = set()
+        self._state: CarState = Idle()
+        self._lock = threading.Lock()                    # one lock per car
+
+    def add_stop(self, floor: int) -> None:
+        if not self.lowest <= floor <= self.highest:
+            raise ValueError(f"floor {floor} out of range")
+        with self._lock:
+            self.stops.add(floor)
+
+    def tick(self) -> str:
+        with self._lock:
+            self._state = self._state.tick(self)
+            return type(self._state).__name__
+
+    def snapshot(self) -> CarSnapshot:
+        with self._lock:
+            return CarSnapshot(self.id, self.floor, self._state.heading, len(self.stops))
+
+
+# ── Strategy: which car answers a hall call ──────────────────────────
+class DispatchStrategy(ABC):
+    @abstractmethod
+    def pick(self, cars: list[CarSnapshot], floor: int, direction: Direction) -> str: ...
+
+
+class CostBasedDispatch(DispatchStrategy):
+    def pick(self, cars: list[CarSnapshot], floor: int, direction: Direction) -> str:
+        def cost(c: CarSnapshot) -> int:
+            distance = abs(c.floor - floor)
+            if c.heading is None:
+                return distance                           # idle: just distance
+            on_the_way = (floor - c.floor) * int(c.heading) >= 0 and c.heading == direction
+            if on_the_way:
+                return distance                           # will pass us going our way
+            return distance + 2 * c.pending + 4           # must finish its run, maybe turn around
+        return min(cars, key=cost).car_id                 # ties: first car (deterministic)
+
+
+class ElevatorController:
+    def __init__(self, cars: list[ElevatorCar], strategy: DispatchStrategy) -> None:
+        self._cars = {c.id: c for c in cars}
+        self._strategy = strategy
+
+    def hall_call(self, floor: int, direction: Direction) -> str:
+        snaps = [c.snapshot() for c in self._cars.values()]      # one car lock at a time
+        winner = self._cars[self._strategy.pick(snaps, floor, direction)]
+        winner.add_stop(floor)                                   # one car lock
+        return winner.id
+
+    def tick_all(self) -> None:
+        for c in self._cars.values():
+            c.tick()
+
+
+if __name__ == "__main__":
+    # SCAN trace: car at 4, requests 7, 3, 9, 1
+    car = ElevatorCar("A", start=4)
+    for f in (7, 3, 9, 1):
+        car.add_stop(f)
+    served = []
+    while car.stops or car.snapshot().heading is not None:
+        name = car.tick()
+        if name == "DoorOpen":
+            served.append(car.floor)
+    print("service order:", served)                      # [3, 1, 7, 9]
+
+    ctl = ElevatorController([ElevatorCar("A", start=0), ElevatorCar("B", start=10)], CostBasedDispatch())
+    print("call at 9 going down ->", ctl.hall_call(9, Direction.DOWN))   # B is closer
+```
+<!-- slide -->
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Architecture.ElevatorSystem
+public enum Direction { Down = -1, Up = 1 }
+
+public interface ICarState
 {
-    public enum ElevatorDirection { Idle, Up, Down }
+    Direction? Heading { get; }
+    ICarState Tick(ElevatorCar car);              // do one unit of work; return NEXT state
+}
 
-    public class Elevator
+public sealed class Idle : ICarState
+{
+    public Direction? Heading => null;
+
+    public ICarState Tick(ElevatorCar car)
     {
-        public int Id { get; }
-        public int CurrentFloor { get; private set; } = 0;
-        public ElevatorDirection Direction { get; private set; } = ElevatorDirection.Idle;
-        private readonly SortedSet<int> _targetFloors = new();
-        private readonly object _lock = new();
+        if (car.Stops.Count == 0) return this;
+        if (car.Stops.Contains(car.Floor)) return new DoorOpen(Direction.Up);
+        var nearest = car.Stops.OrderBy(f => Math.Abs(f - car.Floor)).First();
+        return new Moving(nearest > car.Floor ? Direction.Up : Direction.Down);
+    }
+}
 
-        public Elevator(int id)
+public sealed class Moving : ICarState
+{
+    private readonly Direction _dir;
+    public Moving(Direction dir) => _dir = dir;
+    public Direction? Heading => _dir;
+
+    public ICarState Tick(ElevatorCar car)
+    {
+        if (car.Stops.Count == 0) return new Idle();
+        car.Floor += (int)_dir;                                   // one floor per tick
+        return car.Stops.Contains(car.Floor) ? new DoorOpen(_dir) : this;
+    }
+}
+
+public sealed class DoorOpen : ICarState
+{
+    private readonly Direction _dir;
+    public DoorOpen(Direction dir) => _dir = dir;
+    public Direction? Heading => _dir;
+
+    public ICarState Tick(ElevatorCar car)
+    {
+        car.Stops.Remove(car.Floor);                              // door closes: stop served
+        int h = (int)_dir;
+        bool ahead = car.Stops.Any(f => (f - car.Floor) * h > 0);
+        bool behind = car.Stops.Any(f => (f - car.Floor) * h < 0);
+        if (ahead) return new Moving(_dir);                       // SCAN: keep going
+        if (behind) return new Moving((Direction)(-h));           // reverse
+        return new Idle();
+    }
+}
+
+public sealed record CarSnapshot(string CarId, int Floor, Direction? Heading, int Pending);
+
+public sealed class ElevatorCar
+{
+    private readonly object _gate = new();                        // one lock per car
+    private ICarState _state = new Idle();
+    private readonly int _lowest, _highest;
+
+    public string Id { get; }
+    public int Floor { get; internal set; }
+    internal HashSet<int> Stops { get; } = new();                 // touched only inside _gate
+
+    public ElevatorCar(string id, int lowest = 0, int highest = 20, int start = 0)
+    {
+        Id = id; _lowest = lowest; _highest = highest; Floor = start;
+    }
+
+    public void AddStop(int floor)
+    {
+        if (floor < _lowest || floor > _highest) throw new ArgumentOutOfRangeException(nameof(floor));
+        lock (_gate) Stops.Add(floor);
+    }
+
+    public string Tick()
+    {
+        lock (_gate)
         {
-            Id = id;
+            _state = _state.Tick(this);
+            return _state.GetType().Name;
         }
+    }
 
-        public void AddDestination(int floor)
+    public CarSnapshot Snapshot()
+    {
+        lock (_gate) return new CarSnapshot(Id, Floor, _state.Heading, Stops.Count);
+    }
+}
+
+public interface IDispatchStrategy
+{
+    string Pick(IReadOnlyList<CarSnapshot> cars, int floor, Direction direction);
+}
+
+public sealed class CostBasedDispatch : IDispatchStrategy
+{
+    public string Pick(IReadOnlyList<CarSnapshot> cars, int floor, Direction direction)
+    {
+        int Cost(CarSnapshot c)
         {
-            lock (_lock)
-            {
-                _targetFloors.Add(floor);
-                if (Direction == ElevatorDirection.Idle)
-                {
-                    Direction = floor >= CurrentFloor ? ElevatorDirection.Up : ElevatorDirection.Down;
-                }
-            }
+            int distance = Math.Abs(c.Floor - floor);
+            if (c.Heading is null) return distance;               // idle
+            bool onTheWay = (floor - c.Floor) * (int)c.Heading.Value >= 0 && c.Heading == direction;
+            return onTheWay ? distance : distance + 2 * c.Pending + 4;
         }
+        return cars.OrderBy(Cost).First().CarId;                  // stable: ties keep list order
+    }
+}
 
-        public void Step()
-        {
-            lock (_lock)
-            {
-                if (_targetFloors.Count == 0)
-                {
-                    Direction = ElevatorDirection.Idle;
-                    return;
-                }
+public sealed class ElevatorController
+{
+    private readonly Dictionary<string, ElevatorCar> _cars;
+    private readonly IDispatchStrategy _strategy;
 
-                if (_targetFloors.Contains(CurrentFloor))
-                {
-                    _targetFloors.Remove(CurrentFloor);
-                    Console.WriteLine($"[Elevator {Id}] Stopped at floor {CurrentFloor}. Servicing passengers.");
-                }
+    public ElevatorController(IEnumerable<ElevatorCar> cars, IDispatchStrategy strategy)
+    {
+        _cars = cars.ToDictionary(c => c.Id);
+        _strategy = strategy;
+    }
 
-                if (Direction == ElevatorDirection.Up)
-                {
-                    bool hasUpper = _targetFloors.Any(f => f > CurrentFloor);
-                    if (hasUpper)
-                    {
-                        CurrentFloor++;
-                    }
-                    else
-                    {
-                        bool hasLower = _targetFloors.Any(f => f < CurrentFloor);
-                        Direction = hasLower ? ElevatorDirection.Down : ElevatorDirection.Idle;
-                        if (Direction == ElevatorDirection.Down) CurrentFloor--;
-                    }
-                }
-                else if (Direction == ElevatorDirection.Down)
-                {
-                    bool hasLower = _targetFloors.Any(f => f < CurrentFloor);
-                    if (hasLower)
-                    {
-                        CurrentFloor--;
-                    }
-                    else
-                    {
-                        bool hasUpper = _targetFloors.Any(f => f > CurrentFloor);
-                        Direction = hasUpper ? ElevatorDirection.Up : ElevatorDirection.Idle;
-                        if (Direction == ElevatorDirection.Up) CurrentFloor++;
-                    }
-                }
-            }
-        }
-
-        public int GetPendingTargetCount()
-        {
-            lock (_lock) return _targetFloors.Count;
-        }
+    public string HallCall(int floor, Direction direction)
+    {
+        var snaps = _cars.Values.Select(c => c.Snapshot()).ToList();   // one car lock at a time
+        var winner = _cars[_strategy.Pick(snaps, floor, direction)];
+        winner.AddStop(floor);                                         // one car lock
+        return winner.Id;
     }
 }
 ```
+````
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> DoorOpen: stop at current floor
+  Idle --> Moving: stops elsewhere (toward nearest)
+  Moving --> Moving: floor passed, not a stop
+  Moving --> DoorOpen: arrived at a stop
+  Moving --> Idle: stops cancelled
+  DoorOpen --> Moving: stop ahead (keep heading) or only behind (reverse)
+  DoorOpen --> Idle: no stops left
+```
+
+**State transition table (put this on the whiteboard)**
+
+```text
+State       Event / condition                     Next
+----------  ------------------------------------  ----------------------------
+Idle        no stops                              Idle
+Idle        stop at current floor                 DoorOpen
+Idle        stops elsewhere                       Moving(toward nearest stop)
+Moving      arrived at a stop floor               DoorOpen(same heading)
+Moving      stops cancelled / none left           Idle
+DoorOpen    stops ahead in heading                Moving(same heading)
+DoorOpen    only stops behind                     Moving(reverse)
+DoorOpen    no stops                              Idle
+```
+
+**SCAN trace** (car at 4, requests 7, 3, 9, 1): nearest is 3 → goes **down** serving 3, 1; nothing below → reverses; goes **up** serving 7, 9. Service order `[3, 1, 7, 9]`. Compare with FIFO (4→7→3→9→1), which crosses the building four times.
 
 ---
 
-## 5. Practical Hands-On Verification Workflows
+## 6. Strategy comparison
 
-### 5.1 CLI Verification of Concurrency-Safe Spot Allocation
+| Decision | Option | Cost | Pros | Cons |
+| :--- | :--- | :--- | :--- | :--- |
+| Level order | **Lowest floor first** | O(L) | Short walk, simple | Lower floors saturate, upper ones sit empty |
+| Level order | **Least loaded first** | O(L log L) | Even usage | Reads racy counts (hint only); longer walks |
+| Spot within level | **Smallest fitting size** | O(sizes) | Keeps big spots for big vehicles | Needs per-size free lists |
+| Spot within level | First free in a flat list | O(spots) | Trivial | Truck can't park because compacts took the large spots |
+| Pricing | **Hourly (ceil)** | O(1) | Predictable | Rigid on peak hours |
+| Pricing | Surge / time-of-day | O(1) | Revenue | Needs occupancy and clock injected |
+| Car dispatch | Nearest car | O(K) | Trivial | Picks a car heading the wrong way |
+| Car dispatch | **Cost-based (distance + direction + load)** | O(K) | Good in rush hour | Weights need tuning |
+| Car dispatch | Zoned / destination dispatch | O(K) | Best throughput | Needs destination-at-lobby hardware |
 
-Execute a high-concurrency simulation verifying that zero double-assignments occur:
+**Concurrency ownership**
 
-```bash
-# Execute concurrent booking test in Go
-go test -v -run TestConcurrentParkingAllocation ./...
-
-# Expected Output:
-# === RUN   TestConcurrentParkingAllocation
-# === RUN   TestConcurrentParkingAllocation/100_Concurrent_Cars_On_50_Spots
-# --- PASS: TestConcurrentParkingAllocation (0.38s)
-# PASS
-# ok      github.com/backend/parking   0.410s
-```
-
-### 5.2 Elevator SCAN Dispatch Simulation
-
-Run an inline terminal simulation of the SCAN algorithm:
-
-```bash
-python3 -c "
-targets = [3, 7, 1, 9]
-current = 4
-direction = 'UP'
-
-print(f'Starting at floor {current}, moving {direction} with requests: {targets}')
-while targets:
-    if direction == 'UP':
-        ahead = [f for f in sorted(targets) if f >= current]
-        if ahead:
-            current = ahead[0]
-            targets.remove(current)
-            print(f'-> Serviced floor {current} (UP)')
-        else:
-            direction = 'DOWN'
-            print('-> Reversing direction to DOWN')
-    else:
-        ahead = [f for f in sorted(targets, reverse=True) if f <= current]
-        if ahead:
-            current = ahead[0]
-            targets.remove(current)
-            print(f'-> Serviced floor {current} (DOWN)')
-        else:
-            direction = 'UP'
-            print('-> Reversing direction to UP')
-"
-```
-
-Expected Terminal Output:
-```
-Starting at floor 4, moving UP with requests: [3, 7, 1, 9]
--> Serviced floor 7 (UP)
--> Serviced floor 9 (UP)
--> Reversing direction to DOWN
--> Serviced floor 3 (DOWN)
--> Serviced floor 1 (DOWN)
-```
+| Entity | State | Owner | Lock | If you get it wrong |
+| :--- | :--- | :--- | :--- | :--- |
+| `Spot` | Immutable identity | Nobody | — | — |
+| `Level` | Free lists, occupied map | The level | `Level._lock` | Two cars, one spot |
+| `Ticket` | Immutable | Lot's ticket map | tiny book lock | Double exit frees someone else's spot |
+| `ElevatorCar` | floor, stops, state | The car | `Car._lock` | Door opens while moving |
+| `ElevatorController` | cars map (read-only after init) | Controller | none | — |
 
 ---
 
-## 6. Operational Validation Checkpoints (Scenario Quizzes)
+## 7. Edges — and when not to over-engineer
+
+- **Spot sizes with fallback.** A motorcycle in a large spot wastes capacity; best-fit-first is the mitigation. Say what you do when only larger spots remain (allowed) vs. smaller (never).
+- **Same plate twice.** ALPR glitches and tailgating happen. The `_inside` plate claim must be atomic with parking, and rolled back if the lot is full.
+- **Spot stuck occupied.** Sensors fail. Add an admin `force_release(spot)` path, with an audit log.
+- **Clock.** Inject it (`clock=...`). Fee tests with real `sleep` are flaky.
+- **Elevator door obstruction / overload.** Add states (`Overloaded`, `OutOfService`) — exactly what State makes cheap. Do not bolt on a boolean.
+- **Stale dispatch.** The chosen car may change direction before it gets the stop. Acceptable: the call is still queued on that car; mention re-dispatch on timeout if asked.
+- **Hall-call direction is only used for dispatch.** In the code above the car serves *any* stop it reaches, so a car going UP stops for a DOWN hall call as it passes, and the rider boards a car heading the wrong way. Real controllers keep `(floor, direction)` pairs per car and skip a stop whose direction opposes the heading unless it is the last one in that direction. Say this limitation out loud; it is the first follow-up on a naive SCAN.
+- **Re-entrant plate claim.** `park()` claims the plate before searching levels and rolls the claim back on `LotFullError` (or any exception); skip the rollback and a full lot permanently locks out every car that was turned away.
+- **Starvation.** Pure nearest-first can starve far floors; SCAN bounds waiting time to one sweep. Aging (bump priority after N seconds) fixes the rest.
+
+**When not to use the heavy version**
+
+| Situation | Do this instead |
+| :--- | :--- |
+| Interviewer says "single-threaded, 30 minutes" | One lock-free class; **name** the lock you'd add and where |
+| One vehicle size, one level | A counter and a set — no `Level`, no strategies |
+| Elevator with only up/down/idle and no doors | An enum plus a switch is fine; State pays off at 4+ states with distinct behavior |
+| One pricing rule that never changes | A function, not a Strategy hierarchy |
+
+---
+
+## 8. War story (short)
+
+A 6-level airport garage guarded entry with **one global mutex** on `ParkingManager`. Inside the lock it also called the floor-signage hardware over RPC. During a holiday peak one signage RPC stalled for 5 s; 300 gate requests queued behind the lock, the barrier timeout (3 s) tripped, and cars backed up onto the highway for almost an hour.
+
+**Fix:** reserve under a per-level lock for microseconds; publish a `SpotEvent` to a queue (what `ParkingLot.events` does above); let a separate signage worker drain it; add a fail-open mode that issues paper tickets if the engine is unresponsive.
+
+---
+
+## 9. What you'd say in two minutes
+
+> "Two problems, same theme: shared physical resources under concurrency. For parking, I model `Level` as an aggregate that owns its spots and its own lock. `try_reserve` finds the best-fit free spot and marks it occupied in one critical section — that kills the check-then-act race when two gates see the same last spot. A Strategy chooses which level to try first; it only proposes an order, because the real decision has to be atomic inside the level. Pricing is another Strategy with an injected clock so I can test it. Exit removes the ticket atomically so a double exit can't free someone else's spot. Anything slow, like signage, goes through a queue, never inside a lock.
+>
+> For the elevator, each car is a State machine — Idle, Moving, DoorOpen — which replaces conflicting booleans with one source of truth, and it follows SCAN: keep going in the current direction, then reverse. A controller takes snapshots of the cars and a Strategy picks one; it never holds two car locks, so no lock-ordering deadlock. If you want weight limits or fire mode, that's a new state, not a new flag."
+
+---
+
+## 10. Anti-patterns
+
+1. **`synchronized` on the whole `ParkingLot`** — correct, but it serializes every gate. Shard by level.
+2. **`is_free()` then `occupy()`** — check-then-act. One atomic `try_reserve`.
+3. **Occupancy flag on the `Spot` object** — anyone can mutate it without the lock. Keep it inside the level.
+4. **I/O under a lock** (signage, DB, HTTP) — the airport outage. Queue it.
+5. **Boolean flags for elevator state** (`moving`, `doorOpen`, `idle`) — contradictory combinations. Use one State.
+6. **Strategy that reads live objects and picks the spot** — stale by the time you act. Strategy proposes, atomic method decides.
+7. **Floating-point money** for fees — use integer cents.
+8. **Real `sleep()` or `datetime.now()` hard-wired in pricing** — untestable. Inject a clock.
+9. **Dispatcher grabbing every car lock at once** — invites lock-ordering deadlock. Snapshot, decide, then touch one car.
+
+---
+
+## 11. Interview questions
 
 <details>
-<summary><strong>Checkpoint 1: The Elevator Door Cycle Under Starvation</strong></summary>
+<summary><strong>1. Why lock per level, not per lot or per spot? [BASIC]</strong></summary>
 
-**Scenario**: In a 50-story commercial building at 5:00 PM, an elevator cabin on floor 10 is ascending with passengers for floors 12, 18, and 25. Meanwhile, passengers on floors 15, 16, and 17 press the Hall Call "UP" button. If the elevator pauses at every floor, passengers boarding on intermediate floors take longer than the door cycle, causing upper-floor passengers to experience starvation. How do you re-architect the dispatch policy?
+Per-lot serializes every gate. Per-spot needs lock ordering when scanning and the unlocked scan brings the race back. Per-level is the sweet spot: contention only when two cars target the same level, and the critical section is a few dictionary operations.
 
-<strong>Answer:</strong>
-Implement **Capacity-Aware Fullness Throttling**:
-1. When cabin weight reaches 80% of rated capacity, the elevator automatically sets a `BypassIntermediateHallCalls` flag.
-2. The elevator bypasses all intermediate hall calls, serving only existing internal destination calls (floors 12, 18, 25).
-3. The central `ElevatorDispatcher` senses the bypass and immediately assigns an alternate idle/ascending cabin to service floors 15, 16, and 17.
 </details>
 
 <details>
-<summary><strong>Checkpoint 2: The Double-Gate Entry Race</strong></summary>
+<summary><strong>2. What is the check-then-act race here? [BASIC]</strong></summary>
 
-**Scenario**: Two gates on opposite sides of a parking garage admit a Car and an SUV at the exact same millisecond. Only one `Large` spot remains on Level 2. The code checks `spot.isAvailable` on thread A, finds it true, and proceeds to print a ticket. Meanwhile, thread B does the same. Both drivers are directed to the same spot. Where did the design fail?
+Two threads both see the last spot free, then both occupy it. Fix by making "find free spot" and "mark occupied" one method under one lock (`try_reserve`).
 
-<strong>Answer:</strong>
-A classic **Check-Then-Act Race Condition**. The check `isAvailable()` and the assignment `spot.occupant = vehicle` were executed as two decoupled operations rather than inside a single atomic critical section. The fix is to encapsulate spot lookup and reservation into a single method (`level.FindAndAssign(vehicle)`) protected by `level.mu.Lock()`.
 </details>
 
 <details>
-<summary><strong>Checkpoint 3: Dynamic Fee Policy Extensibility (OCP)</strong></summary>
+<summary><strong>3. Where do Strategy and State appear, and why not swap them? [BASIC]</strong></summary>
 
-**Scenario**: The business introduces a green incentive: Electric Vehicles (EVs) get 50% off parking fees, but if parked at an EV charger for more than 30 minutes after reaching 100% battery, an idle penalty of $0.50/minute is added. How do you design this without modifying the core `ParkingLot` or `Ticket` classes?
+Strategy: allocation order, pricing, car dispatch — the *caller/config* picks the algorithm. State: the car's `Idle / Moving / DoorOpen` — the *machine itself* moves to the next state after events. Using Strategy for the car would make the caller flip behavior, which is wrong; the car's behavior must follow its own state.
 
-<strong>Answer:</strong>
-Use the **Strategy Pattern** combined with **Decorator Pattern**:
-1. Define `IPricingStrategy { decimal CalculateFee(ParkingTicket ticket, Vehicle vehicle, ChargingSession? session); }`.
-2. Implement `BaseHourlyPricingStrategy` for standard calculations.
-3. Wrap it in an `EVPenaltyPricingDecorator : IPricingStrategy`:
-   - Checks if `vehicle.IsElectric`. If so, applies the 50% discount.
-   - If `session.IdleMinutes > 30`, adds `(session.IdleMinutes - 30) * 0.50m`.
-4. The `ParkingLot` remains completely agnostic to vehicle fuel types and billing specifics, fulfilling the Open-Closed Principle (OCP).
+</details>
+
+<details>
+<summary><strong>4. Add a rule: EVs get 50% off, and an idle-charging penalty after 30 minutes. [SCENARIO]</strong></summary>
+
+New `EvPricing` that wraps the base `HourlyPricing` (Decorator over a Strategy) and needs the `ChargingSession`. `ParkingLot` doesn't change. Pass the session in via the ticket or a lookup, not by adding EV fields to `ParkingLot`.
+
+</details>
+
+<details>
+<summary><strong>5. At 5 pm elevators stop at every floor and top floors starve. Fix. [SCENARIO]</strong></summary>
+
+Add a `Full` condition: above ~80% load, the car bypasses hall calls and serves cabin calls only; the dispatcher sees the bypass in the snapshot and assigns another car. Longer term, destination dispatch (passengers pick floor at the lobby) groups riders per car.
+
+</details>
+
+<details>
+<summary><strong>6. Two gates, one spot left, same millisecond. Walk me through what happens. [SCENARIO]</strong></summary>
+
+Both threads call `try_reserve` on the same level. One acquires the lock, takes the spot, releases. The other acquires, finds no free spot, returns `None`; the lot tries the next level and, if none, raises `LotFullError`. Exactly one ticket. My concurrency test: 100 threads, 50 spots → exactly 50 tickets, 50 rejections, 50 distinct spots.
+
+</details>
+
+<details>
+<summary><strong>7. Dispatch used a stale snapshot and the car turned around. Bug? [TRICKY]</strong></summary>
+
+Not a correctness bug. The snapshot is a hint; the car's state machine is the authority and the stop is queued on the car regardless. It's a quality issue (a worse car got the call). If it matters, re-dispatch calls that are not served within a timeout, or let cars bid.
+
+</details>
+
+<details>
+<summary><strong>8. Exit is called twice with the same ticket (network retry). What stops a double release? [TRICKY]</strong></summary>
+
+Ticket removal is atomic (`pop` under the book lock / `TryRemove`), so only the first call finds the ticket. `Level.release` also checks the spot was actually occupied and returns `False` otherwise. Defense in depth: even a buggy caller can't free a spot that's been re-assigned.
+
 </details>
 
 ---
 
-## 7. Further Reading & References
+## 12. Try it
 
-- [Wikipedia: Elevator SCAN Scheduling Algorithm](https://en.wikipedia.org/wiki/Elevator_algorithm) - Foundational reference on disk and elevator scheduling algorithms.
-- [Refactoring.Guru: Strategy Pattern](https://refactoring.guru/design-patterns/strategy) - Guide to swappable pricing and dispatch policies.
-- [Go Concurrency Patterns: Fine-Grained Locking](https://go.dev/blog/race-detector) - Best practices for sharded in-memory state.
+**A. Watch the race happen (runnable, 10 seconds).** Split *find* and *occupy*, exactly as 3.2 warns, then compare with a locked `try_reserve`. Save as `parking_race.py`:
+
+```python
+"""Break it on purpose: split find + occupy and watch two cars share one spot."""
+import threading
+import time
+from collections import Counter
+
+
+class BrokenLevel:
+    def __init__(self, spots: int) -> None:
+        self.free = [f"S{i:02d}" for i in range(spots)]   # shared mutable state, NO lock
+        self.owner: dict[str, str] = {}
+
+    def find_free(self):                       # CHECK
+        return self.free[0] if self.free else None
+
+    def occupy(self, spot: str, plate: str) -> None:   # ACT
+        time.sleep(0.001)                      # any context switch lands here
+        if spot in self.free:
+            self.free.remove(spot)
+        self.owner[spot] = plate               # last writer silently wins
+
+
+class SafeLevel(BrokenLevel):
+    def __init__(self, spots: int) -> None:
+        super().__init__(spots)
+        self._lock = threading.Lock()
+
+    def try_reserve(self, plate: str):
+        with self._lock:                       # find + take = ONE critical section
+            if not self.free:
+                return None
+            spot = self.free.pop(0)
+            self.owner[spot] = plate
+            return spot
+
+
+def run(reserve, cars: int = 40):
+    gate, got = threading.Barrier(cars), []
+
+    def car(i: int) -> None:
+        gate.wait()
+        got.append(reserve(f"CAR-{i}"))
+
+    ts = [threading.Thread(target=car, args=(i,)) for i in range(cars)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    return [g for g in got if g]
+
+
+broken = BrokenLevel(5)
+
+
+def broken_reserve(plate: str):
+    spot = broken.find_free()
+    if spot is None:
+        return None
+    broken.occupy(spot, plate)
+    return spot
+
+
+tickets = run(broken_reserve)
+dupes = {s: n for s, n in Counter(tickets).items() if n > 1}
+print(f"BROKEN: {len(tickets)} tickets for 5 spots, shared spots: {dupes}")
+assert dupes, "expected double-assigned spots"
+
+safe = SafeLevel(5)
+tickets = run(safe.try_reserve)
+print(f"SAFE:   {len(tickets)} tickets for 5 spots, unique: {len(set(tickets))}")
+assert len(tickets) == 5 == len(set(tickets))
+```
+
+Expected output (the broken count is always 40 tickets for 5 spots; which spots are shared varies by run):
+
+```text
+BROKEN: 40 tickets for 5 spots, shared spots: {'S00': 40}
+SAFE:   5 tickets for 5 spots, unique: 5
+```
+
+**B. Stress the real lot.** In the §4 Python example change `100` threads to `1000` and spots to `2 x 250`. The invariant is unchanged: `parked + turned_away == arrivals` and every spot id is unique. Then replace `LowestFloorFirst()` with `LeastLoadedFirst()` — the assertion must still pass, because the strategy only *proposes* an order.
+
+**C. Extend without editing the lot.** Write `WeekendPricing(HourlyPricing)` (double the rate if `entry_time.weekday() >= 5`). Pass a fake clock into `ParkingLot(..., clock=...)` and assert 2 hours on Saturday costs `2 * 2 * 300 == 1200` for a compact spot. Files edited outside the new class: zero.
+
+**D. Add `OutOfService` to the elevator.** Create `class OutOfService(CarState): tick -> self`. Then answer: (1) why does `CostBasedDispatch` still pick this car? *(Because `CarSnapshot` has no availability field; add `in_service: bool` and filter in `hall_call`.)* (2) which existing states changed? *(None — only the controller's filter; that is State paying off.)*
+
+**E. Fix the direction edge.** Make `add_stop` accept `(floor, direction)` and have `DoorOpen` skip a stop whose direction opposes the heading while stops ahead remain. Re-run the SCAN trace (`[3, 1, 7, 9]`) and a new one: car at 0 going up with a DOWN call at 5 and an up stop at 8 — it should serve 8 first, then 5.
+
+**F. Draw it.** Model both systems in [LLD Studio](/tools/lld-studio/), mark every lock, and verify no thread path ever holds two.
 
 ---
 
-## Next Steps
+## 13. One-page cheat sheet
 
-Advance to [Module 13: Library & Vending Machine](../13-library-and-vending-machine/README.md) to explore the contrast between lightweight enum guard checks and full GoF State Pattern hierarchies.
+```text
+PARKING
+  Level      owns spots + ONE lock. try_reserve = find best fit + take, atomic.
+  Spot       immutable. Occupancy lives in Level.
+  Lot        strategy -> level ORDER; level decides; tickets popped atomically.
+  Slow stuff signage/DB/notify -> queue, AFTER the lock.
+  Test       100 threads on 50 spots -> 50 tickets, 50 rejects, 50 unique spots.
+
+ELEVATOR
+  Car        State machine: Idle -> Moving -> DoorOpen -> (Moving | Idle). One lock/car.
+  SCAN       Keep direction while stops ahead; reverse only when none.
+  Controller snapshots -> Strategy.pick -> car.add_stop. Never hold 2 car locks.
+  Dispatch   hint, not truth. Car state is the authority.
+
+Strategy = who picks the algorithm: caller.    State = who picks next behavior: machine.
+Say aloud: "Where is the lock, how small is it, and is any I/O inside it?"
+```
+
+---
+
+## Next
+
+**[13 · Library & Vending Machine](../13-library-and-vending-machine/README.md)** — enum guards vs. full State hierarchies.

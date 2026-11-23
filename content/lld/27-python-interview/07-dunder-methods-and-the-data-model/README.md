@@ -1,562 +1,457 @@
 # Lesson 07: Dunder Methods and the Data Model
 
-> **Prerequisites:** [Classes: How an Object Is Made, Class Attributes and Slots](../06-classes-init-new-and-slots/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 06: Classes](../06-classes-init-new-and-slots/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked "`__str__` vs `__repr__`", "how do you make `==` / `len` / `[]` work on your class?", or "`__eq__` and `__hash__`?"
+
+> [!NOTE]
+> **In one line:** Python's syntax and built-ins are **protocols**: `len(x)` calls `type(x).__len__`, `a + b` calls `__add__`, `x[i]` calls `__getitem__`, `for` uses `__iter__`. Implement the dunder ("special") methods and your class behaves like a built-in.
 
 > [!TIP]
-> **The One Rule of the Python Data Model:** Python syntax never calls methods directly on objects; it delegates through the special "dunder" protocols defined on the object's type (`type(x)`). When you evaluate `a == b`, `len(a)`, or `a + b`, Python calls `type(a).__eq__(a, b)`, `type(a).__len__(a)`, and `type(a).__add__(a, b)`. Crucially, if you define `__eq__`, Python automatically sets `__hash__ = None` to safeguard the hash table invariant: equal objects **must** produce identical hashes and remain immutable while stored in sets or dictionaries.
+> **Golden rule:** Dunders are called **by Python, on the type**, not by you. Define `__repr__` always (for debugging), `__eq__` and `__hash__` *together*, and return `NotImplemented` (not `False` or an exception) when you don't know how to handle the other operand.
+
+> [!TIP]
+> **Try it:** Run the section 3 file, then delete `__hash__` from `Money` and re-run — `{a, Money(500)}` in `main()` now raises `TypeError: unhashable type: 'Money'`. Then run the [data-model lab](#try-it--data-model-lab-runnable) below (13 asserted probes). In [LLD Studio](/tools/lld-studio/) model `Money` as a **value object**: equality by value, immutable, hashable.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-In senior Python interviews, the interviewer often tests whether you understand **protocols** or if you simply memorize syntax:
-1. *"What happens if you define `__eq__` on a class and put its instance in a `set`?"*
-2. *"Why does `len(my_obj)` work, but assigning `my_obj.__len__ = lambda: 5` fails?"*
-3. *"When should you return `NotImplemented` versus raising `NotImplementedError`?"*
-
-A junior developer answers:
-- *"Dunder methods are magic methods that let you override operators."*
-- *"If you define `__eq__`, it just compares equality; the set works fine."*
-- *"`__repr__` and `__str__` are basically the same as Java or C#'s `toString()`."*
-
-All three answers reveal dangerous gaps in understanding the CPython data model:
-- Defining `__eq__` without `__hash__` renders your class **unhashable**: Python sets `__hash__ = None`, causing `TypeError: unhashable type` the moment an instance is passed to a `set` or used as a `dict` key.
-- Dunder methods are looked up on the **class** (`type(self)`), bypassing the instance dictionary (`self.__dict__`) entirely for performance and C-level slot dispatch.
-- `__repr__` is an unambiguous, developer-focused representation that ideally re-evaluates to the object (`eval(repr(x)) == x`). `__str__` is a friendly, end-user display. If `__str__` is missing, Python falls back to `__repr__`; if `__repr__` is missing, Python falls back to generic memory addresses.
-
-### Weak vs Strong Answers
-
-| Dimension | Junior / Weak Answer | Senior / Principal Answer |
-| :--- | :--- | :--- |
-| **`__str__` vs `__repr__`** | "`__str__` is for printing, `__repr__` is for debugging." | "`__repr__` aims to be unambiguous, detailed, and ideally an executable Python expression (`eval(repr(x)) == x`) targeting developers. `__str__` is for human-readable display targeting end users. Fallback is one-way: if `__str__` is omitted, Python falls back to `__repr__`." |
-| **`__eq__` and `__hash__`** | "You only need `__eq__` to compare two objects with `==`." | "Hash table invariants require: `a == b ==> hash(a) == hash(b)`. If you implement `__eq__`, Python sets `__hash__ = None` by default to prevent mutable equality from corrupting hash buckets. You must implement `__hash__` explicitly on immutable fields to restore hashability." |
-| **Making Objects Callable** | "You write a regular function instead of a class." | "Implement `__call__(self, *args, **kwargs)`. This lets instances act as stateful closures, decorators, or strategy objects while maintaining class encapsulation, properties, and inheritance." |
-| **Operator Overloading Return** | "Raise `TypeError` if the other operand has the wrong type." | "Return the singleton `NotImplemented`. This signals Python to reflect the operator and attempt the reverse operation on the right-hand operand (`__radd__`, `__rsub__`). Only if both return `NotImplemented` does Python raise `TypeError`." |
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### Protocol Lookup Flow
-
-When you write `result = a + b`, Python does not look inside `a.__dict__`. It routes through the CPython type slots:
-
-```mermaid
-flowchart TD
-    Start["Expression: a + b"] --> Step1["Lookup: type(a).__add__(a, b)"]
-    Step1 --> CheckAdd{"type(a).__add__\nimplemented?"}
-    CheckAdd -- Yes --> CallAdd["Execute a.__add__(b)"]
-    CallAdd --> CheckResult{"Result is\nNotImplemented?"}
-    CheckResult -- No --> Success["Return result"]
-    CheckResult -- Yes --> TryReverse["Lookup: type(b).__radd__(b, a)"]
-    CheckAdd -- No --> TryReverse
-    TryReverse --> CheckRAdd{"type(b).__radd__\nimplemented?"}
-    CheckRAdd -- Yes --> CallRAdd["Execute b.__radd__(a)"]
-    CallRAdd --> CheckRResult{"Result is\nNotImplemented?"}
-    CheckRResult -- No --> Success
-    CheckRResult -- Yes --> RaiseError["Raise TypeError: unsupported operand type(s)"]
-    CheckRAdd -- No --> RaiseError
-```
-
-### The Hash Table Contract
+- *"What's the difference between `__str__` and `__repr__`?"*
+- *"Make this `Deck` class work with `len()`, indexing, `in`, and `for`."*
+- *"If I override `__eq__`, what else must I do?"*
+- *"What does `a + b` actually call, and what if `a.__add__` fails?"*
+- *"What's `__call__`? `__bool__`? `__getattr__`?"*
 
 ```mermaid
 flowchart LR
-    subgraph Contract["Hash Table Contract (Set / Dict)"]
-        direction TB
-        Cond["If a == b is True"] --> Implication["hash(a) must equal hash(b)"]
-        Mut["If object mutated"] --> Corrupt["Hash bucket changes: Object lost in set!"]
-    end
+  Syntax["Python syntax / built-in"] --> Dunder["type(obj).__dunder__"]
+  S1["len(x)"] --> D1["__len__"]
+  S2["x[i]"] --> D2["__getitem__"]
+  S3["a + b"] --> D3["a.__add__(b)  →  b.__radd__(a)"]
+  S4["a == b"] --> D4["__eq__"]
+  S5["for v in x"] --> D5["__iter__ / __next__"]
+  S6["with x"] --> D6["__enter__ / __exit__"]
+  S7["x(...)"] --> D7["__call__"]
 ```
-
-### Python Data Model Protocols Matrix
-
-| Protocol Category | Dunder Methods | Invoked By Python Syntax | C# Equivalent |
-| :--- | :--- | :--- | :--- |
-| **String Representation** | `__repr__`, `__str__`, `__format__` | `repr(x)`, `str(x)`, `print(x)`, `f"{x}"` | `ToString()`, `IFormattable` |
-| **Equality & Hashing** | `__eq__`, `__hash__` | `a == b`, `hash(x)`, `x in set_or_dict` | `Equals(object)`, `GetHashCode()`, `IEquatable<T>` |
-| **Comparison & Ordering** | `__lt__`, `__le__`, `__gt__`, `__ge__` | `<`, `<=`, `>`, `>=`, `sorted()`, `min()` | `IComparable<T>`, `operator <` |
-| **Container / Sequence** | `__len__`, `__getitem__`, `__contains__`, `__iter__` | `len(c)`, `c[i]`, `val in c`, `for item in c:` | `IReadOnlyList<T>`, `IEnumerable<T>`, indexer `this[i]` |
-| **Callable Object** | `__call__` | `instance(arg1, arg2)` | `Invoke()`, delegate `Action`, `Func` |
-| **Context Management** | `__enter__`, `__exit__` | `with manager as m:` | `IDisposable`, `using (...)` |
-| **Arithmetic Operators** | `__add__`, `__radd__`, `__iadd__` | `a + b`, `b + a`, `a += b` | `operator +` |
 
 ---
 
-## 3. Code Implementation
+## 2. Reference: the dunders you actually use
 
-The following carousel demonstrates an immutable value object, `Money`, and a transaction container, `Ledger`. It illustrates:
-1. `__repr__` and `__str__` contrast.
-2. Safe `__eq__` and `__hash__` implementation with frozen immutability.
-3. Operator overloading with `NotImplemented` fallback and `@functools.total_ordering`.
-4. Making an object callable via `__call__` for dynamic fee calculation.
-5. Container protocol (`__len__`, `__getitem__`, `__contains__`).
+| Group | Methods | Triggered by |
+| :--- | :--- | :--- |
+| Representation | `__repr__`, `__str__`, `__format__` | `repr()`, `print()`/`str()`, f-strings |
+| Equality & hashing | `__eq__`, `__hash__`, `__ne__` | `==`, `set`, `dict` keys |
+| Ordering | `__lt__`, `__le__`, `__gt__`, `__ge__` | `<`, `sorted` (needs `__lt__`) |
+| Truthiness & size | `__bool__`, `__len__` | `if x:`, `len(x)` |
+| Container | `__getitem__`, `__setitem__`, `__delitem__`, `__contains__`, `__iter__` | `x[i]`, `in`, `for` |
+| Arithmetic | `__add__`, `__radd__`, `__iadd__`, `__mul__`, `__neg__` … | `+`, `+=`, `*`, unary `-` |
+| Callable | `__call__` | `obj()` |
+| Context | `__enter__`, `__exit__` | `with` (lesson 11) |
+| Attribute access | `__getattr__`, `__getattribute__`, `__setattr__`, `__delattr__` | `obj.x` fallbacks/hooks |
+| Lifecycle | `__new__`, `__init__`, `__del__` | construction / finalisation |
+
+| | `__repr__` | `__str__` |
+| :--- | :--- | :--- |
+| Audience | Developers (debug, logs, REPL) | End users |
+| Goal | Unambiguous; ideally `eval`-able: `Money(5, 'USD')` | Readable: `$5.00` |
+| Fallback | Default `<Money object at 0x…>` | Falls back to `__repr__` |
+
+**Rule:** implement `__repr__` first; add `__str__` only if the user-facing form differs.
+
+---
+
+## 3. Walkthrough: `Money` (value object) and `Deck` (sequence)
+
+**Requirements:** `Money` — immutable, comparable, hashable, addable, printable. `Deck` — works with `len`, indexing/slicing, `in`, iteration, `reversed`, and `sorted`.
+
+1. `__eq__` compares fields and returns `NotImplemented` for foreign types.
+2. `__hash__` uses the *same* fields; objects that compare equal must hash equal.
+3. `__add__` returns a new `Money`; `__radd__` makes `sum([...])` work (`0 + Money`).
+4. `__len__` + `__getitem__` alone give you iteration, `in`, `reversed`.
+5. `__call__` turns an instance into a function-like object.
 
 ````carousel
 ```python
-from decimal import Decimal
 from functools import total_ordering
-from typing import Any, List, Union
 
 
 @total_ordering
 class Money:
-  """Immutable Value Object implementing core Python Data Model protocols."""
+    __slots__ = ("_cents", "_cur")
 
-  __slots__ = ("_amount", "_currency")
+    def __init__(self, cents: int, currency: str = "USD") -> None:
+        object.__setattr__(self, "_cents", int(cents))
+        object.__setattr__(self, "_cur", currency)
 
-  def __init__(self, amount: Union[int, float, str, Decimal], currency: str):
-    # Enforce invariant: Money is immutable once constructed
-    super().__setattr__("_amount", Decimal(str(amount)))
-    super().__setattr__("_currency", currency.upper())
+    def __setattr__(self, name, value):                     # immutability
+        raise AttributeError("Money is immutable")
 
-  def __setattr__(self, name: str, value: Any) -> None:
-    raise AttributeError("Money instances are immutable.")
+    def __repr__(self) -> str:
+        return f"Money({self._cents}, {self._cur!r})"
 
-  @property
-  def amount(self) -> Decimal:
-    return self._amount
+    def __str__(self) -> str:
+        return f"{self._cents / 100:.2f} {self._cur}"
 
-  @property
-  def currency(self) -> str:
-    return self._currency
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Money):
+            return NotImplemented                            # let Python try the reflected op
+        return (self._cents, self._cur) == (other._cents, other._cur)
 
-  # 1. String Representation Protocol
-  def __repr__(self) -> str:
-    """Developer representation: valid code to recreate object."""
-    return f"Money({self._amount!r}, {self._currency!r})"
+    def __lt__(self, other: "Money") -> bool:
+        if not isinstance(other, Money) or other._cur != self._cur:
+            return NotImplemented
+        return self._cents < other._cents
 
-  def __str__(self) -> str:
-    """User-friendly representation."""
-    return f"{self._currency} {self._amount:.2f}"
+    def __hash__(self) -> int:
+        return hash((self._cents, self._cur))               # same fields as __eq__
 
-  # 2. Equality and Hash Table Contract
-  def __eq__(self, other: object) -> bool:
-    if not isinstance(other, Money):
-      return NotImplemented
-    return self._amount == other._amount and self._currency == other._currency
+    def __add__(self, other):
+        if not isinstance(other, Money) or other._cur != self._cur:
+            return NotImplemented
+        return Money(self._cents + other._cents, self._cur)
 
-  def __hash__(self) -> int:
-    """Hash invariant: equal objects MUST yield identical hashes."""
-    return hash((self._amount, self._currency))
+    def __radd__(self, other):
+        return self if other == 0 else NotImplemented       # lets sum() start from 0
 
-  # 3. Ordering Protocol (total_ordering generates <=, >, >= from <)
-  def __lt__(self, other: object) -> bool:
-    if not isinstance(other, Money):
-      return NotImplemented
-    if self._currency != other._currency:
-      raise TypeError(
-          f"Cannot compare different currencies: {self._currency} and"
-          f" {other._currency}"
-      )
-    return self._amount < other._amount
-
-  # 4. Arithmetic Operator Overloading
-  def __add__(self, other: object) -> "Money":
-    if not isinstance(other, Money):
-      return NotImplemented
-    if self._currency != other._currency:
-      raise ValueError(
-          f"Currency mismatch: cannot add {self._currency} and {other._currency}"
-      )
-    return Money(self._amount + other._amount, self._currency)
+    def __bool__(self) -> bool:
+        return self._cents != 0
 
 
-class FeeCalculator:
-  """Callable Strategy Object using __call__."""
+class Deck:
+    RANKS = [str(n) for n in range(2, 11)] + list("JQKA")
+    SUITS = "♠♥♦♣"
 
-  def __init__(self, fee_percentage: Decimal) -> None:
-    self.fee_percentage = fee_percentage
+    def __init__(self) -> None:
+        self._cards = [f"{r}{s}" for s in self.SUITS for r in self.RANKS]
 
-  def __call__(self, money: Money) -> Money:
-    """Allows instance to be called directly: fee = calculator(money)."""
-    fee_amount = (money.amount * self.fee_percentage).quantize(Decimal("0.01"))
-    return Money(fee_amount, money.currency)
+    def __len__(self) -> int:
+        return len(self._cards)
+
+    def __getitem__(self, index):                           # int or slice
+        return self._cards[index]
 
 
-class Ledger:
-  """Sequence and Container Protocol."""
+class Multiplier:
+    def __init__(self, factor: int) -> None:
+        self.factor = factor
 
-  def __init__(self) -> None:
-    self._records: List[Money] = []
+    def __call__(self, x: int) -> int:
+        return x * self.factor
 
-  def record(self, item: Money) -> None:
-    self._records.append(item)
 
-  def __len__(self) -> int:
-    return len(self._records)
+def main() -> None:
+    a, b = Money(500), Money(250)
+    print(repr(a), "|", a, "|", a + b, "|", sum([a, b, Money(50)]))
+    print(a == Money(500), a != b, a > b, sorted([a, b])[0], bool(Money(0)))
+    print({a, Money(500)} == {a}, a == "5.00")               # True False (NotImplemented → False)
+    try:
+        a._cents = 1
+    except AttributeError as err:
+        print("AttributeError:", err)
+    try:
+        a + Money(1, "EUR")
+    except TypeError as err:
+        print("TypeError:", err)
 
-  def __getitem__(self, index: int) -> Money:
-    return self._records[index]
+    d = Deck()
+    print(len(d), d[0], d[-1], d[:3], "A♠" in d)             # 52 2♠ A♣ ['2♠','3♠','4♠'] True
+    print(list(reversed(d))[0], len(list(d)))                # A♣ 52  (iteration comes free)
 
-  def __contains__(self, item: object) -> bool:
-    return item in self._records
+    triple = Multiplier(3)
+    print(triple(7), callable(triple))                       # 21 True
 
 
 if __name__ == "__main__":
-  # Representation
-  m1 = Money("100.00", "USD")
-  m2 = Money("50.00", "USD")
-  m3 = Money("100.00", "USD")
-
-  print(f"repr: {repr(m1)}")
-  print(f"str: {str(m1)}")
-
-  # Equality and Hashing in Sets
-  wallet = {m1, m2}
-  print(f"m1 == m3: {m1 == m3}")
-  print(f"m3 in wallet: {m3 in wallet}")
-
-  # Arithmetic and Ordering
-  total = m1 + m2
-  print(f"Total: {total}")
-  print(f"m2 < m1: {m2 < m1}")
-
-  # Callable Strategy
-  calc = FeeCalculator(Decimal("0.03"))  # 3% processing fee
-  fee = calc(m1)
-  print(f"Fee on {m1}: {fee}")
-
-  # Container Protocol
-  ledger = Ledger()
-  ledger.record(m1)
-  ledger.record(m2)
-  print(f"Ledger length: {len(ledger)}")
-  print(f"First item: {ledger[0]}")
-  print(f"Contains m2? {m2 in ledger}")
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections;
-using System.Collections.Generic;
-
-// In C#, protocols map directly to operator overloading, standard interfaces
-// (IEquatable<T>, IComparable<T>), and indexers.
-public readonly struct Money : IEquatable<Money>, IComparable<Money>
+// C#: the same protocols are interfaces / overridable members.
+public readonly record struct Money(long Cents, string Currency = "USD") : IComparable<Money>
 {
-    public decimal Amount { get; }
-    public string Currency { get; }
+    // record struct generates Equals/GetHashCode/ToString by value  (~ __eq__/__hash__/__repr__)
+    public static Money operator +(Money a, Money b) =>          // ~ __add__
+        a.Currency == b.Currency ? new(a.Cents + b.Cents, a.Currency)
+                                 : throw new InvalidOperationException("currency mismatch");
 
-    public Money(decimal amount, string currency)
-    {
-        Amount = amount;
-        Currency = currency.ToUpperInvariant();
-    }
-
-    // 1. String Representation
-    public override string ToString() => $"{Currency} {Amount:F2}";
-
-    public string ToDebugString() => $"Money({Amount}, \"{Currency}\")";
-
-    // 2. Equality and Hash Table Contract
-    public bool Equals(Money other) => Amount == other.Amount && Currency == other.Currency;
-
-    public override bool Equals(object? obj) => obj is Money other && Equals(other);
-
-    public override int GetHashCode() => HashCode.Combine(Amount, Currency);
-
-    public static bool operator ==(Money left, Money right) => left.Equals(right);
-    public static bool operator !=(Money left, Money right) => !left.Equals(right);
-
-    // 3. Comparison Protocol
-    public int CompareTo(Money other)
-    {
-        if (Currency != other.Currency)
-            throw new ArgumentException($"Cannot compare currencies: {Currency} and {other.Currency}");
-        return Amount.CompareTo(other.Amount);
-    }
-
-    public static bool operator <(Money left, Money right) => left.CompareTo(right) < 0;
-    public static bool operator >(Money left, Money right) => left.CompareTo(right) > 0;
-    public static bool operator <=(Money left, Money right) => left.CompareTo(right) <= 0;
-    public static bool operator >=(Money left, Money right) => left.CompareTo(right) >= 0;
-
-    // 4. Arithmetic Operators
-    public static Money operator +(Money left, Money right)
-    {
-        if (left.Currency != right.Currency)
-            throw new InvalidOperationException($"Currency mismatch: {left.Currency} and {right.Currency}");
-        return new Money(left.Amount + right.Amount, left.Currency);
-    }
+    // Simplification: ignores currency. The Python version returns NotImplemented for mixed currencies.
+    public int CompareTo(Money other) => Cents.CompareTo(other.Cents);   // ~ __lt__ / sorted
+    public override string ToString() => $"{Cents / 100.0:F2} {Currency}";  // ~ __str__
 }
 
-// Callable Strategy Pattern in C# via Func<T, TResult> or Invoke method
-public class FeeCalculator
+public sealed class Deck : IReadOnlyList<string>          // ~ __len__ + __getitem__ + __iter__
 {
-    private readonly decimal _feePercentage;
-
-    public FeeCalculator(decimal feePercentage)
-    {
-        _feePercentage = feePercentage;
-    }
-
-    public Money Invoke(Money money)
-    {
-        decimal feeAmount = Math.Round(money.Amount * _feePercentage, 2);
-        return new Money(feeAmount, money.Currency);
-    }
-}
-
-// Container / Sequence Protocol in C#
-public class Ledger : IReadOnlyList<Money>
-{
-    private readonly List<Money> _records = new();
-
-    public void Record(Money item) => _records.Add(item);
-
-    public int Count => _records.Count;
-
-    public Money this[int index] => _records[index];
-
-    public IEnumerator<Money> GetEnumerator() => _records.GetEnumerator();
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-}
-
-public class Program
-{
-    public static void Main()
-    {
-        var m1 = new Money(100.00m, "USD");
-        var m2 = new Money(50.00m, "USD");
-        var m3 = new Money(100.00m, "USD");
-
-        Console.WriteLine($"repr: {m1.ToDebugString()}");
-        Console.WriteLine($"str: {m1}");
-
-        var wallet = new HashSet<Money> { m1, m2 };
-        Console.WriteLine($"m1 == m3: {m1 == m3}");
-        Console.WriteLine($"m3 in wallet: {wallet.Contains(m3)}");
-
-        var total = m1 + m2;
-        Console.WriteLine($"Total: {total}");
-        Console.WriteLine($"m2 < m1: {m2 < m1}");
-
-        var calc = new FeeCalculator(0.03m);
-        var fee = calc.Invoke(m1);
-        Console.WriteLine($"Fee on {m1}: {fee}");
-
-        var ledger = new Ledger();
-        ledger.Record(m1);
-        ledger.Record(m2);
-        Console.WriteLine($"Ledger length: {ledger.Count}");
-        Console.WriteLine($"First item: {ledger[0]}");
-        Console.WriteLine($"Contains m2? {ledger.Contains(m2)}");
-    }
+    private readonly List<string> _cards = new() { "2S", "3S" };
+    public int Count => _cards.Count;
+    public string this[int i] => _cards[i];                // ~ __getitem__
+    public IEnumerator<string> GetEnumerator() => _cards.GetEnumerator();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 }
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab:
 
 ```text
-repr: Money(Decimal('100.00'), 'USD')
-str: USD 100.00
-m1 == m3: True
-m3 in wallet: True
-Total: USD 150.00
-m2 < m1: True
-Fee on USD 100.00: USD 3.00
-Ledger length: 2
-First item: USD 100.00
-Contains m2? True
+Money(500, 'USD') | 5.00 USD | 7.50 USD | 8.00 USD
+True True True 2.50 USD False
+True False
+AttributeError: Money is immutable
+TypeError: unsupported operand type(s) for +: 'Money' and 'Money'
+52 2♠ A♣ ['2♠', '3♠', '4♠'] True
+A♣ 52
+21 True
+```
+
+(The mixed-currency `TypeError` text is Python's generic message, because `__add__` returned `NotImplemented` and `__radd__` declined too. Wrap it in your own `CurrencyMismatch` error if callers need a clearer message — see lesson 12.)
+
+---
+
+## 4. Edges
+
+- **`__eq__` without `__hash__`.** Defining `__eq__` sets `__hash__ = None` — the class becomes unhashable (can't go in sets / be dict keys). Define both or use a frozen dataclass.
+- **Equal ⇒ same hash.** The converse isn't required. Hash only immutable fields; mutating a hashed field corrupts sets/dicts.
+- **`NotImplemented` vs `NotImplementedError`.** The former is a *value* returned from binary dunders so Python can try the reflected method (`__radd__`, `__eq__` on the other side); the latter is an *exception* for abstract methods.
+- **`__str__` must return `str`;** returning `None` raises `TypeError`.
+- **`__bool__` / `__len__`.** Without `__bool__`, truthiness falls back to `__len__ != 0`, then to `True`.
+- **`__getitem__` iteration** works with integers 0…IndexError but is a legacy fallback; prefer `__iter__` when you can.
+- **`__del__` is unreliable** (timing, cycles, interpreter shutdown). Use context managers.
+- **Operators on unrelated types:** mixing `Money` currencies should be an explicit error, not silent coercion.
+- **`__slots__` + immutability** via `__setattr__` is a pattern; for most code use `@dataclass(frozen=True)` (lesson 10).
+- **Dunder lookup bypasses the instance:** `obj.__len__ = ...` on an instance won't change `len(obj)`; Python looks on the *type*.
+- **Reflected-operator priority.** If the right operand's class is a *subclass* of the left's and overrides the reflected method, it is tried **first** (lab probe 6). `+=` uses `__iadd__` (in place, aliases see it) and falls back to `__add__` + rebinding (probe 8).
+- **Both sides `NotImplemented` for `==`** does not raise: Python falls back to identity, so the result is `False` unless it is the same object (probe 7). Only ordering and arithmetic raise `TypeError`.
+- **Concurrency:** immutable value objects with correct `__hash__` are safe to share between threads.
+
+### Try it — data-model lab (runnable)
+
+The follow-ups interviewers use after `__eq__`/`__hash__`. Save as `data_model_lab.py`; every probe is an `assert` (or a printed error message), so a wrong claim fails loudly.
+
+```python
+from functools import total_ordering
+
+# 1) __repr__ is what containers show; str() falls back to repr() but not the reverse
+class OnlyRepr:
+    def __repr__(self): return "OnlyRepr()"
+class OnlyStr:
+    def __str__(self): return "friendly"
+assert str(OnlyRepr()) == "OnlyRepr()"
+assert repr(OnlyStr()).startswith("<__main__.OnlyStr object at 0x")
+assert str([OnlyStr()]).startswith("[<__main__.OnlyStr object")   # list uses repr of elements, not str
+
+# 2) __str__ must return a str
+class BadStr:
+    def __str__(self): return None
+try:
+    str(BadStr())
+except TypeError as e:
+    print("2:", e)
+
+# 3) __eq__ alone makes the class unhashable; mutating a hashed field loses the entry
+class Eq:
+    def __init__(self, v): self.v = v
+    def __eq__(self, o): return self.v == o.v
+assert Eq.__hash__ is None
+class Mut:
+    def __init__(self, v): self.v = v
+    def __eq__(self, o): return isinstance(o, Mut) and self.v == o.v
+    def __hash__(self): return hash(self.v)
+m = Mut(1); s = {m}
+m.v = 2                                   # hash changed under the set's feet
+assert m not in s and len(s) == 1         # present but unfindable: corrupted
+
+# 4) Truthiness: __bool__, else __len__, else always True
+class HasLen:
+    def __len__(self): return 0
+class Plain: pass
+class Both:
+    def __len__(self): return 5
+    def __bool__(self): return False
+assert not HasLen() and Plain() and not Both()
+
+# 5) Reflected operators: Python tries the right operand's __radd__ when left says NotImplemented
+class Left:
+    def __add__(self, o): return NotImplemented
+class Right:
+    def __radd__(self, o): return "reflected"
+assert Left() + Right() == "reflected"
+try:
+    Left() + Left()
+except TypeError as e:
+    print("5:", e)
+
+# 6) A subclass's reflected method gets priority over the left operand
+class Base:
+    def __add__(self, o): return "Base.__add__"
+class Child(Base):
+    def __radd__(self, o): return "Child.__radd__"
+assert Base() + Child() == "Child.__radd__"
+
+# 7) NotImplemented vs raising: returning it lets the other side answer; == falls back to identity
+class Strict:
+    def __eq__(self, o): return NotImplemented
+assert (Strict() == Strict()) is False       # both NotImplemented -> identity comparison -> False
+s1 = Strict(); assert (s1 == s1) is True     # same object -> identity says True
+
+# 8) += uses __iadd__ if present (in place), otherwise __add__ and rebinding
+class V:
+    def __init__(self, items): self.items = items
+    def __iadd__(self, o): self.items.extend(o); return self
+class W:
+    def __init__(self, items): self.items = items
+    def __add__(self, o): return W(self.items + list(o))
+v = V([1]); v_alias = v; v += [2]
+assert v_alias.items == [1, 2]                # in place: alias sees it
+w = W([1]); w_alias = w; w += [2]
+assert w_alias.items == [1] and w.items == [1, 2]   # rebound to a new object
+
+# 9) Dunders are looked up on the TYPE: patching the instance has no effect on len()
+class Sized: 
+    def __len__(self): return 1
+z = Sized()
+z.__len__ = lambda: 99
+assert z.__len__() == 99 and len(z) == 1
+
+# 10) Legacy iteration via __getitem__ vs __iter__ taking priority; `in` uses __contains__ first
+class Seq:
+    def __getitem__(self, i):
+        if i > 2: raise IndexError
+        return i
+    def __iter__(self): return iter(["from __iter__"])
+    def __contains__(self, x): return x == "magic"
+assert list(Seq()) == ["from __iter__"] and "magic" in Seq() and 1 not in Seq()
+
+# 11) @total_ordering derives the rest from __eq__ + ONE ordering method
+@total_ordering
+class Ver:
+    def __init__(self, n): self.n = n
+    def __eq__(self, o): return self.n == o.n
+    def __lt__(self, o): return self.n < o.n
+assert Ver(1) <= Ver(1) and Ver(2) >= Ver(1) and Ver(3) > Ver(2)
+assert [v.n for v in sorted([Ver(3), Ver(1), Ver(2)])] == [1, 2, 3]   # sorted() only needs __lt__
+
+# 12) __format__ drives f-string specs
+class Temp:
+    def __init__(self, c): self.c = c
+    def __format__(self, spec): return f"{self.c:{spec or '.1f'}}C"
+assert f"{Temp(21.456)}" == "21.5C" and f"{Temp(21.456):.0f}" == "21C"
+
+# 13) Floats are a bad home for money; cents (int) are exact
+assert 0.1 + 0.2 != 0.3 and 10 + 20 == 30
+print("data-model lab ok")
+```
+
+Expected output:
+
+```text
+2: __str__ returned non-string (type NoneType)
+5: unsupported operand type(s) for +: 'Left' and 'Left'
+data-model lab ok
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 5. What you'd say in two minutes
 
-- **`requests.Response.__bool__`:**
-  When you write `if response:` after an HTTP call, Python calls `response.__bool__()`. The library authors implemented `__bool__` to return `True` if `status_code < 400`, and `False` otherwise.
-- **`pathlib.Path.__truediv__`:**
-  Constructing filesystem paths cleanly with `/` (`path = Path("/etc") / "nginx" / "nginx.conf"`) delegates to `__truediv__`.
-- **PyTorch `nn.Module.__call__`:**
-  Neural network layers are invoked like functions: `output = model(inputs)`. PyTorch implements `__call__` to register forward hooks, telemetry, and backpropagation gradients before delegating to `forward()`.
-- **.NET Standard Library Comparisons:**
-  - `System.DateTime` overrides `operator -` to return a `System.TimeSpan`.
-  - Collections implementing `IReadOnlyList<T>` expose `this[int index]` indexers matching Python's `__getitem__`.
-  - C# `using` blocks invoke `IDisposable.Dispose()`, mirroring Python's `with` context manager (`__enter__` and `__exit__`).
+> "Python's data model means the language syntax and built-ins call special methods on the type: `len` calls `__len__`, `a + b` calls `__add__` and falls back to `b.__radd__`, `for` uses `__iter__`, and `==` uses `__eq__`. So to make my class feel native I implement the protocols. I always write `__repr__` for debugging, and add `__str__` only if users need a different view. If I define `__eq__`, I must also define a consistent `__hash__` — equal objects must hash equal — otherwise Python makes the class unhashable. For comparisons I return `NotImplemented` for foreign types so Python can try the reflected operation instead of raising. For a sequence-like class, `__len__` and `__getitem__` get me indexing, slicing, `in`, `reversed` and iteration. A value object like `Money` is immutable, hashable and safe to share across threads."
 
 ---
 
-## 5. Pitfalls and When Not to Use It
+## 6. Anti-patterns
 
-### 1. The Mutated Hash Key "Vanish" Trap
-If a class implements `__hash__` using a mutable attribute, mutating that attribute after inserting the object into a `set` or `dict` breaks retrieval:
-```python
-class MutableUser:
-
-  def __init__(self, username: str):
-    self.username = username
-
-  def __eq__(self, other):
-    return isinstance(other, MutableUser) and self.username == other.username
-
-  def __hash__(self):
-    return hash(self.username)
-
-
-u = MutableUser("alice")
-s = {u}
-u.username = "bob"  # Mutated in place!
-
-print(u in s)  # Prints: False! The object still lives in memory but is lost.
-```
-*Rule:* Only hash immutable attributes (`id`, UUIDs, frozen tuples).
-
-### 2. Attaching Dunders to Instances Directly
-Beginners often attempt monkey-patching dunders on instances:
-```python
-class Box:
-  pass
-
-
-b = Box()
-b.__len__ = lambda: 10
-len(b)  # RAISES TypeError: 'Box' object has no len()
-```
-CPython searches for special methods strictly on the **class** (`type(b).__len__`), bypassing the instance `__dict__` for speed and slot optimization.
-
-### 3. Raising `NotImplementedError` Instead of Returning `NotImplemented`
-In arithmetic and comparison operators (`__eq__`, `__add__`), returning `NotImplemented` is a control signal that tells Python: *"I do not know how to handle this type; try the other operand's reflected method."*  
-Raising `NotImplementedError` terminates execution immediately and aborts the fallback mechanism.
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| `__eq__` without `__hash__` | Unhashable (silently) | Define both / frozen dataclass |
+| `__hash__` using mutable fields | Set/dict corruption | Hash only immutable state |
+| `raise NotImplementedError` in `__add__` | Blocks reflected ops | `return NotImplemented` |
+| `__str__` that raises or does I/O | `print`/logging crashes | Keep dunders cheap and pure |
+| Overloading operators surprisingly (`+` to append to a DB) | Violates least surprise | Use named methods |
+| Relying on `__del__` for cleanup | Not guaranteed | `with` / `try-finally` |
 
 ---
 
-## 6. Exercises & Practical Drills
-
-### Exercise 1: Fix the Unhashable Set Bug
-A candidate wrote this entity for deduplication:
-```python
-class Product:
-
-  def __init__(self, sku: str, price: float):
-    self.sku = sku
-    self.price = price
-
-  def __eq__(self, other: object) -> bool:
-    return isinstance(other, Product) and self.sku == other.sku
-
-
-catalog = {Product("SKU-1", 19.99), Product("SKU-2", 49.99)}
-```
-Running this raises `TypeError: unhashable type: 'Product'`. Why does this happen, and how do you fix it while maintaining equality by SKU?
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. `__str__` vs `__repr__`? [BASIC]</strong></summary>
 
-**Explanation:** In Python 3, defining `__eq__` automatically sets `__hash__ = None` on the class. Python does this deliberately to prevent mutable instances from violating hash invariants.
+`__repr__` is for developers: unambiguous, ideally reconstructs the object. `__str__` is for users: readable. `print` uses `__str__` and falls back to `__repr__`; containers show their elements with `__repr__`.
 
-**Fix:** Implement `__hash__` using the immutable `sku` attribute:
-```python
-class Product:
-
-  def __init__(self, sku: str, price: float):
-    self.sku = sku
-    self.price = price
-
-  def __eq__(self, other: object) -> bool:
-    return isinstance(other, Product) and self.sku == other.sku
-
-  def __hash__(self) -> int:
-    return hash(self.sku)
-```
 </details>
-
-### Exercise 2: Build a Callable Decorator Class with Call Tracking
-Implement a class decorator `CountCalls` that wraps any function, increments a call counter on each invocation, and makes the count accessible via `func.call_count`.
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. If you override `__eq__`, what else must you do? [BASIC]</strong></summary>
 
-```python
-from functools import wraps
-from typing import Any, Callable
+Define a consistent `__hash__` (equal objects → equal hashes) or accept the class becomes unhashable. Ensure the hashed fields are immutable.
 
+</details>
 
-class CountCalls:
+<details>
+<summary><strong>3. How do you make a class work with `len()` and `[]`? [BASIC]</strong></summary>
 
-  def __init__(self, func: Callable[..., Any]) -> None:
-    self.func = func
-    self.call_count: int = 0
-    wraps(func)(self)  # Preserves docstring and metadata
+Implement `__len__` and `__getitem__` (accepting ints and slices). With those, `in`, iteration and `reversed()` also work via the sequence fallback.
 
-  def __call__(self, *args: Any, **kwargs: Any) -> Any:
-    self.call_count += 1
-    return self.func(*args, **kwargs)
+</details>
 
+<details>
+<summary><strong>4. What happens on `a + b` if `a.__add__(b)` returns `NotImplemented`? [TRICKY]</strong></summary>
 
-@CountCalls
-def process_order(order_id: str) -> str:
-  return f"Processed {order_id}"
+Python tries `b.__radd__(a)`. If that also returns `NotImplemented` (or doesn't exist), it raises `TypeError: unsupported operand type(s)`.
 
+</details>
 
-process_order("A1")
-process_order("A2")
-print(process_order.call_count)  # Prints: 2
-```
+<details>
+<summary><strong>5. `NotImplemented` vs `NotImplementedError`? [TRICKY]</strong></summary>
+
+`NotImplemented` is a singleton returned from binary special methods to say "I can't handle this operand". `NotImplementedError` is an exception, typically raised by abstract methods.
+
+</details>
+
+<details>
+<summary><strong>6. What is `__call__` good for? [SCENARIO]</strong></summary>
+
+Making instances callable: stateful decorators, strategy objects, configurable validators, or classes that must satisfy a `Callable[[int], int]` type while holding state.
+
+</details>
+
+<details>
+<summary><strong>7. Why does `sum([Money(1), Money(2)])` need `__radd__`? [TRICKY]</strong></summary>
+
+`sum` starts with the integer `0`, so the first operation is `0 + Money(1)`. `int.__add__` doesn't know `Money`, so Python calls `Money.__radd__(0)`, which should return `self` for zero.
+
+</details>
+
+<details>
+<summary><strong>8. How would you make `Money` safe as a dict key? [SCENARIO]</strong></summary>
+
+Make it immutable (no setters, `__slots__`/frozen dataclass), implement `__eq__` and `__hash__` over the same fields (amount and currency), and avoid floats for the amount.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What is the difference between `__str__` and `__repr__`?**  
-> **Strong Answer:**  
-> "`__repr__` is intended for developers and debugging: it should be unambiguous, detailed, and ideally valid Python code that recreates the object if evaluated (`eval(repr(obj)) == obj`).  
-> 
-> `__str__` is intended for end users: it provides an informal, human-readable representation suitable for display in logs or user interfaces.  
-> 
-> When Python formats an object (e.g., via `print()` or `f'{obj}'`), it looks for `__str__`. If `__str__` is not defined, Python falls back to `__repr__`. However, the reverse is not true: `repr()` will never fall back to `__str__`. As a best practice, always implement `__repr__` first so your class always has an informative string representation."
-
-> [!interview]
-> **Question 2: What are dunder (magic) methods?**  
-> **Strong Answer:**  
-> "Dunder methods (short for 'double underscore' methods) are Python's language-level hooks that implement the Python Data Model. They enable custom classes to seamlessly integrate with Python syntax, operators, and built-in functions.  
-> 
-> For example:  
-> - `len(x)` delegates to `type(x).__len__(x)`  
-> - `a + b` delegates to `type(a).__add__(a, b)`  
-> - `x in collection` delegates to `type(collection).__contains__(collection, x)`  
-> - `with ctx:` delegates to `__enter__` and `__exit__`  
-> 
-> They allow user-defined types to behave as first-class citizens with the same ergonomic interfaces as built-in types (`list`, `dict`, `int`), adhering to the principle of polymorphic protocols rather than explicit method names."
-
-> [!interview]
-> **Question 3: Why must `__hash__` change when you define `__eq__`?**  
-> **Strong Answer:**  
-> "Hash tables (like Python's `set` and `dict`) depend on a strict mathematical invariant: **if two objects are equal according to `__eq__`, their hash values must be identical (`a == b ==> hash(a) == hash(b)`)**.  
-> 
-> By default, user-defined classes inherit `object.__eq__` (which checks identity `is`) and `object.__hash__` (derived from memory address).  
-> 
-> When you override `__eq__` to compare attribute values, you break this relationship. If Python allowed the default hash to remain, two objects with identical attributes would produce different hash codes and land in different hash buckets, causing duplicates in sets and lookup misses in dictionaries.  
-> 
-> To prevent this silent data corruption, Python 3 automatically sets `__hash__ = None` on any class that defines `__eq__` without `__hash__`. You must explicitly define `__hash__` based on the immutable fields used in `__eq__`."
-
-> [!interview]
-> **Question 4: How do you make an object callable?**  
-> **Strong Answer:**  
-> "You make an object callable by implementing the `__call__(self, *args, **kwargs)` dunder method on its class.  
-> 
-> When an instance of that class is invoked with parentheses (`instance(a, b)`), Python routes the execution to `instance.__call__(a, b)`.  
-> 
-> This is widely used in production for:  
-> 1. **Stateful decorators:** A class decorator can maintain state (such as call counts, execution timing, or cache tables) across invocations while presenting a callable interface.  
-> 2. **Configurable strategies and factories:** Initializing an object with complex configuration (like DB pools or API keys) and passing it as a callable pipeline stage.  
-> 3. **Machine learning models:** Libraries like PyTorch design `nn.Module` with `__call__` to intercept inference calls for hook execution before running the forward pass."
+```text
+repr()  -> __repr__ (devs)        str()/print -> __str__ (users, falls back to repr)
+==      -> __eq__                 set/dict    -> __hash__  (define BOTH, same fields, immutable)
+< sorted-> __lt__ (+ @total_ordering)          bool(x) -> __bool__ else __len__
+len(x)  -> __len__                x[i], x[a:b] -> __getitem__     in -> __contains__ / iteration
+for     -> __iter__               a + b -> __add__ -> b.__radd__    a += b -> __iadd__ -> __add__
+x(...)  -> __call__               with x -> __enter__/__exit__      obj.attr -> __getattr__ (fallback)
+Return NotImplemented (value) for unsupported operands; NotImplementedError is for abstract methods
+Dunders are looked up on the TYPE, not the instance
+Prefer: @dataclass(frozen=True) for value objects
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [Python Documentation: The Data Model](https://docs.python.org/3/reference/datamodel.html)
-- [Python Documentation: Emulating Container Types](https://docs.python.org/3/reference/datamodel.html#emulating-container-types)
-- [PEP 207: Rich Comparisons](https://peps.python.org/pep-0207/)
-- [Microsoft Learn: Operator Overloading in C#](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/operators/operator-overloading)
+- [Python data model](https://docs.python.org/3/reference/datamodel.html)
+- [`functools.total_ordering`](https://docs.python.org/3/library/functools.html#functools.total_ordering)
+- Luciano Ramalho, *Fluent Python* (2nd ed.), Part II: Data structures / the Python data model
 
----
-
-Previous: [Classes: How an Object Is Made, Class Attributes and Slots](../06-classes-init-new-and-slots/README.md) · Next: [Inheritance, super() and the MRO](../08-inheritance-super-and-the-mro/README.md)
+Previous: [Classes](../06-classes-init-new-and-slots/README.md) · Next: [Inheritance, super() and the MRO](../08-inheritance-super-and-the-mro/README.md)

@@ -1,546 +1,537 @@
-# Lesson 16: Metaclasses, Descriptors and How @property Works
+# Lesson 16: Metaclasses, Descriptors and `@property`
 
-> **Prerequisites:** [asyncio in Depth](../15-asyncio-in-depth/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18-20 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 06: Classes, `__init__`, `__new__`, `__slots__`](../06-classes-init-new-and-slots/README.md) · [Lesson 07: Dunder Methods](../07-dunder-methods-and-the-data-model/README.md) · [Lesson 04: Decorators](../04-decorators/README.md)  
+> **Reading time:** ~25 minutes  
+> **Audience:** Candidates asked "how does `@property` work?", "what is a metaclass?", "how do ORMs/Django models/dataclasses do their magic?"
+
+> [!NOTE]
+> **In one line:** Attribute access is governed by the **descriptor protocol** (`__get__`/`__set__`/`__set_name__`) — `property`, methods, `classmethod`, `staticmethod` and `__slots__` are all descriptors — and a **metaclass** is the class of a class (`type` by default) that customizes how classes get *created*.
 
 > [!TIP]
-> **The One Rule of Metaprogramming & Descriptors:** Descriptors control **attribute access on instances** by intercepting `__get__`, `__set__`, and `__delete__` at the class level; Metaclasses control **class construction** by intercepting `__new__` and `__init__` when the class definition itself is executed. In modern Python (3.6+), prefer `__init_subclass__` and `__set_name__` over custom metaclasses for 95% of use cases, eliminating metaclass conflicts while preserving clean, declarative metaprogramming.
+> **Golden rule:** "Metaclasses are deeper magic than 99% of users should ever worry about." Prefer, in order: a plain function/decorator → `__init_subclass__` → a class decorator → a descriptor → a metaclass.
+
+> [!TIP]
+> **Try it:** Run the section 3 file (expected output is right below it). Then run the [descriptor lab](#try-it--descriptor-lab-runnable) — probe 1 shows the shared-state bug when a descriptor stores its value on itself, and probe 3 shows `__set_name__` being skipped when a descriptor is attached after class creation. Sketch the lookup order in [LLD Studio](/tools/lld-studio/).
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"How does `@property` actually work under the hood, and how does Python resolve `obj.x`?" is a quintessential technical screening question used to separate surface-level script writers from senior systems engineers who understand CPython's runtime object model.
-
-A typical junior candidate replies:
-- *"Decorating a method with `@property` turns it into a getter. When you want to set it, you use `@x.setter`. A metaclass is a class that creates classes like blueprints, and you use it when you want advanced OOP."*
-
-This response fails to answer the question. It describes superficial syntax without explaining the mechanism. It cannot explain:
-1. Why `@property` only works when defined on a **class**, not an instance.
-2. What CPython's `object.__getattribute__` actually does when resolving names.
-3. The vital operational distinction between **data descriptors** and **non-data descriptors**.
-4. Why Python 3.6 introduced `__set_name__` and `__init_subclass__` (PEP 487) to obsolete most metaclasses.
-
-A senior engineer answers with **exact runtime mechanics and lookup precedence**:
-- **The Descriptor Protocol:** A descriptor is an object attribute whose binding behavior is overridden by methods in the descriptor protocol: `__get__(self, instance, owner=None)`, `__set__(self, instance, value)`, and `__delete__(self, instance)`. If an object defines at least one of these methods, it is a descriptor.
-- **Data vs Non-Data Descriptors:**
-  - A **Data Descriptor** implements `__set__` or `__delete__` (in addition to `__get__`). It takes absolute precedence over an instance's `__dict__`. If `x` is a data descriptor on the class, assigning `obj.x = 42` or reading `obj.x` *always* invokes the descriptor; it cannot be shadowed by an entry in `obj.__dict__`.
-  - A **Non-Data Descriptor** implements only `__get__` (e.g., standard Python functions, `classmethod`, `staticmethod`). An instance dictionary key shadows a non-data descriptor.
-- **The Attribute Lookup Hierarchy in `object.__getattribute__`:**
-  1. Inspect the class and its MRO for a **data descriptor** named `x`. If found, call `type(obj).__dict__['x'].__get__(obj, type(obj))`.
-  2. Inspect the instance's own dictionary `obj.__dict__['x']`. If found, return that value.
-  3. Inspect the class and its MRO for a **non-data descriptor** named `x`. If found, call `type(obj).__dict__['x'].__get__(obj, type(obj))`.
-  4. Inspect the class and its MRO for a standard class attribute `x`.
-  5. If none match, invoke `__getattr__(obj, 'x')` if defined, or raise `AttributeError`.
-- **Why `@property` Works:** The `@property` decorator is simply a built-in class implementing the data descriptor protocol. Because it defines `__set__` (even a stub that raises `AttributeError: can't set attribute`), it is a data descriptor, ensuring instance attribute dictionaries cannot shadow it.
-- **Metaclasses vs `__init_subclass__`:** In Python, classes are themselves instances of metaclasses (`type` by default). Metaclasses intercept class creation (`metaclass.__new__` allocates the class object before it exists; `metaclass.__init__` configures it). However, multiple inheritance with differing metaclasses causes fatal `TypeError: metaclass conflict`. PEP 487 introduced `__init_subclass__` and `__set_name__`, allowing base classes to hook into subclass initialization and descriptors to know their assigned attribute names cleanly without a custom metaclass.
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### CPython Attribute Resolution Flowchart (`object.__getattribute__`)
+- *"How does `@property` work? Is it a decorator?"*
+- *"What's the difference between a data and non-data descriptor?"*
+- *"Why do functions become bound methods?"*
+- *"What is a metaclass? When have you used one?"*
+- *"How would you auto-register all subclasses of a plugin base?"*
+- *"How does Django's `models.CharField` know its own name?"*
 
 ```mermaid
 flowchart TD
-    Start["Access obj.x"] --> CheckMRO["Inspect type(obj).__mro__ for 'x'"]
-    CheckMRO --> FoundInMRO{"Is 'x' in Class MRO?"}
-
-    FoundInMRO -- "Yes" --> IsDataDesc{"Is it a Data Descriptor?<br>(Defines __set__ or __delete__)"}
-    FoundInMRO -- "No" --> CheckInstanceDict
-
-    IsDataDesc -- "Yes" --> InvokeDataDesc["Invoke descriptor.__get__(obj, type(obj))"]
-    InvokeDataDesc --> ReturnResult["Return Result"]
-
-    IsDataDesc -- "No" --> CheckInstanceDict["Check obj.__dict__['x']"]
-
-    CheckInstanceDict --> InInstanceDict{"Exists in obj.__dict__?"}
-    InInstanceDict -- "Yes" --> ReturnInstVal["Return obj.__dict__['x']"]
-    InInstanceDict -- "No" --> CheckNonDataDesc{"Is 'x' a Non-Data Descriptor in MRO?<br>(Defines __get__ only)"}
-
-    CheckNonDataDesc -- "Yes" --> InvokeNonDataDesc["Invoke descriptor.__get__(obj, type(obj))<br>(e.g., bound method / staticmethod)"]
-    InvokeNonDataDesc --> ReturnResult
-
-    CheckNonDataDesc -- "No" --> CheckClassAttr{"Is 'x' standard class attribute?"}
-    CheckClassAttr -- "Yes" --> ReturnClassVal["Return type(obj).x"]
-    CheckClassAttr -- "No" --> CheckGetAttr{"Is __getattr__ defined?"}
-
-    CheckGetAttr -- "Yes" --> InvokeGetAttr["Invoke obj.__getattr__('x')"]
-    InvokeGetAttr --> ReturnResult
-    CheckGetAttr -- "No" --> RaiseAttrError["Raise AttributeError"]
+  A["obj.attr"] --> B{"type(obj) MRO has attr<br/>as a DATA descriptor?<br/>(__get__ and __set__)"}
+  B -->|yes| C["call descriptor.__get__ (wins over instance dict)"]
+  B -->|no| D{"attr in obj.__dict__ ?"}
+  D -->|yes| E["return instance value"]
+  D -->|no| F{"class attr is a NON-data descriptor<br/>or plain attribute?"}
+  F -->|descriptor| G["call __get__ (e.g. function → bound method)"]
+  F -->|plain| H["return class attribute"]
+  F -->|missing| I["__getattr__ or AttributeError"]
 ```
 
-### Architectural Comparison: Property, Descriptors, `__init_subclass__`, and Metaclasses
-
-| Dimension | Built-in `@property` | Custom Descriptor | `__init_subclass__` (PEP 487) | Metaclass (`type` subclass) | C# Analogue |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Primary Scope** | Single property inside one class | Reusable attribute logic across multiple classes | Subclass customization and validation | Class creation and type system alteration | C# Property vs Custom Attribute |
-| **Protocol Methods** | `fget`, `fset`, `fdel` via descriptor `__get__`, `__set__` | `__get__`, `__set__`, `__delete__`, `__set_name__` | `def __init_subclass__(cls, **kwargs)` | `__new__(mcls, name, bases, dct)`, `__init__` | Getters/Setters vs Roslyn Source Generators |
-| **Descriptor Type** | Data descriptor (always overrides instance `__dict__`) | Data or Non-Data (depending on `__set__` presence) | N/A (Class lifecycle hook) | N/A (Class constructor) | Backing field encapsulation |
-| **Reusability** | Low (bound to specific methods of that class) | High (instantiated as class attributes in any class) | High (inherited across class hierarchy) | High (declarative framework engine) | Class inheritance vs Roslyn interceptor |
-| **Multiple Inheritance Safety** | Safe | Safe | Safe (cooperative `super().__init_subclass__`) | High conflict risk (`TypeError: metaclass conflict`) | Interface implementation |
-| **Typical Use Cases** | Computed attributes, single-field validation | Typed fields, range validators, ORM column mappings | Plugin registries, schema validation, ORM models | Deep language DSLs, abstract syntax tree modifications | Auto-properties, DataAnnotations, Reflection |
+```mermaid
+flowchart LR
+  I["instance"] -->|"type()"| C["class (instance of its metaclass)"]
+  C -->|"type()"| M["metaclass (default: type)"]
+  M -->|"type()"| M
+```
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The carousel below demonstrates:
-1. **Python:** A reusable `BoundedNumber` data descriptor utilizing `__set_name__`, a pure-Python reimplementation of `@property` (`CustomProperty`) showing its exact descriptor anatomy, and an automated model registry using `__init_subclass__`.
-2. **C#:** An equivalent strongly-typed domain model utilizing property accessors with backing validation logic (`BoundedValidator`), computed properties with getters/setters, and static constructor registration.
+| Hook | Runs when | Typical use |
+| :--- | :--- | :--- |
+| `__get__(self, obj, owner)` | Attribute read through descriptor | Computed values, bound methods |
+| `__set__(self, obj, value)` | Attribute assignment | Validation (data descriptor) |
+| `__delete__` | `del obj.attr` | Rare |
+| `__set_name__(self, owner, name)` | When the owning class is created | Learn the attribute name |
+| `__init_subclass__(cls, **kw)` | A subclass is defined | Registries, validation (no metaclass needed) |
+| `__class_getitem__` | `Cls[int]` | Generics |
+| Metaclass `__new__/__init__/__call__` | Class creation / instance creation | Frameworks, enforcing class structure |
 
-Both implementations produce identical console output.
+| Kind | Defines | Beats instance dict? |
+| :--- | :--- | :--- |
+| **Data descriptor** | `__get__` + `__set__` (or `__delete__`) | **Yes** |
+| **Non-data descriptor** | `__get__` only (functions, `classmethod`) | No (instance can shadow) |
+
+---
+
+## 3. Walkthrough: validated fields, a plugin registry, and `property` unmasked
+
+**Requirements:** reusable validation (`Positive`, `Typed`) across many classes without repeating properties; automatic registration of plugin subclasses; show that `property` is just a descriptor.
+
+1. A **data descriptor** stores values in the instance `__dict__` under a private key and validates in `__set__`; `__set_name__` removes the need to pass the name twice.
+2. `__init_subclass__` registers plugins — the 90% case for "metaclass" questions.
+3. A tiny metaclass shows the hook order and a real use: refusing classes that don't define a required method.
+4. Re-implement `property` in ten lines to prove it's nothing magic.
 
 ````carousel
 ```python
-from typing import Any, Optional, Type
+from __future__ import annotations
 
-# ============================================================================
-# 1. Custom Data Descriptor with __set_name__ (PEP 487)
-# ============================================================================
-class BoundedNumber:
-    """A reusable data descriptor enforcing numeric range validation."""
-    def __init__(self, min_val: float, max_val: float) -> None:
-        self.min_val = min_val
-        self.max_val = max_val
-        self.storage_name: str = ""
-
-    def __set_name__(self, owner: Type[Any], name: str) -> None:
-        # Automatically invoked when the owning class is created
-        self.storage_name = f"_{name}"
-
-    def __get__(self, instance: Optional[Any], owner: Optional[Type[Any]] = None) -> Any:
-        # Accessing via the class itself returns the descriptor object
-        if instance is None:
-            return self
-        return getattr(instance, self.storage_name, None)
-
-    def __set__(self, instance: Any, value: float) -> None:
-        if not isinstance(value, (int, float)):
-            raise TypeError(f"{self.storage_name[1:]} must be a number, got {type(value).__name__}")
-        if not (self.min_val <= value <= self.max_val):
-            raise ValueError(
-                f"{self.storage_name[1:]} must be between {self.min_val} and {self.max_val}, got {value}"
-            )
-        setattr(instance, self.storage_name, value)
+from typing import Any
 
 
-# ============================================================================
-# 2. Pure-Python Reimplementation of @property
-# ============================================================================
-class CustomProperty:
-    """A descriptor that behaves identically to Python's built-in @property."""
-    def __init__(self, fget=None, fset=None, fdel=None, doc=None) -> None:
+class Positive:
+    """Reusable validated attribute (data descriptor)."""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.public = name
+        self.private = f"_{name}"
+
+    def __get__(self, obj: Any, owner: type | None = None):
+        if obj is None:
+            return self                       # accessed on the class
+        return getattr(obj, self.private)
+
+    def __set__(self, obj: Any, value: float) -> None:
+        if value <= 0:
+            raise ValueError(f"{self.public} must be > 0, got {value}")
+        setattr(obj, self.private, value)
+
+
+class Product:
+    price = Positive()
+    quantity = Positive()
+
+    def __init__(self, price: float, quantity: int) -> None:
+        self.price = price                    # goes through Positive.__set__
+        self.quantity = quantity
+
+
+p = Product(9.99, 3)
+print(p.price, p.quantity)
+try:
+    p.price = -1
+except ValueError as e:
+    print("rejected:", e)
+print("descriptor on class:", type(Product.price).__name__)
+print("stored privately:", sorted(k for k in vars(p)))
+
+
+# --- functions are non-data descriptors → bound methods
+class Greeter:
+    def hi(self) -> str:
+        return "hi"
+
+
+g = Greeter()
+print(type(Greeter.hi).__name__, "->", type(g.hi).__name__)
+print("same function:", g.hi.__func__ is Greeter.hi)
+
+
+# --- property is just a descriptor
+class my_property:
+    def __init__(self, fget):
         self.fget = fget
-        self.fset = fset
-        self.fdel = fdel
-        self.__doc__ = doc or (fget.__doc__ if fget else None)
 
-    def __get__(self, instance: Optional[Any], owner: Optional[Type[Any]] = None) -> Any:
-        if instance is None:
-            return self
-        if self.fget is None:
-            raise AttributeError("Unreadable attribute")
-        return self.fget(instance)
-
-    def __set__(self, instance: Any, value: Any) -> None:
-        if self.fset is None:
-            raise AttributeError("Can't set attribute (read-only)")
-        self.fset(instance, value)
-
-    def setter(self, fset):
-        return type(self)(self.fget, fset, self.fdel, self.__doc__)
+    def __get__(self, obj, owner=None):
+        return self if obj is None else self.fget(obj)
 
 
-# ============================================================================
-# 3. Model Base with __init_subclass__ Subclass Registration
-# ============================================================================
-class ModelBase:
-    registry: dict[str, Type["ModelBase"]] = {}
+class Circle:
+    def __init__(self, r: float) -> None:
+        self.r = r
 
-    def __init_subclass__(cls, table_name: Optional[str] = None, **kwargs) -> None:
-        super().__init_subclass__(**kwargs)
-        name = table_name or cls.__name__.lower()
-        cls.registry[name] = cls
-        cls._table = name
+    @my_property
+    def area(self) -> float:
+        return round(3.14159 * self.r ** 2, 2)
 
+    @property
+    def diameter(self) -> float:
+        return self.r * 2
 
-class Product(ModelBase, table_name="inventory_products"):
-    price = BoundedNumber(0.01, 10000.0)
-    stock = BoundedNumber(0, 100000)
-
-    def __init__(self, name: str, price: float, stock: int, discount: float = 0.0) -> None:
-        self.name = name
-        self.price = price       # Triggers BoundedNumber.__set__
-        self.stock = stock       # Triggers BoundedNumber.__set__
-        self._discount = discount
-
-    @CustomProperty
-    def effective_price(self) -> float:
-        """Calculate price after discount."""
-        return round(self.price * (1.0 - self._discount), 2)
-
-    @effective_price.setter
-    def effective_price(self, target_price: float) -> None:
-        if target_price > self.price:
-            raise ValueError("Effective price cannot exceed base price")
-        self._discount = round(1.0 - (target_price / self.price), 4)
+    @diameter.setter
+    def diameter(self, d: float) -> None:
+        self.r = d / 2
 
 
-def main():
-    print("=== 1. Descriptor Field Validation ===")
-    p = Product("Laptop", 1200.0, 15, discount=0.10)
-    print(f"Product: {p.name}, Price: ${p.price:.2f}, Stock: {p.stock}")
-    print(f"Effective Price: ${p.effective_price:.2f}")
+c = Circle(2)
+print(c.area, c.diameter)
+c.diameter = 10
+print(c.r, c.area)
 
-    print("\n=== 2. Custom @property Setter in Action ===")
-    p.effective_price = 960.0
-    print(f"Updated Effective Price: ${p.effective_price:.2f}, New Discount: {p._discount * 100:.1f}%")
-
-    print("\n=== 3. Descriptor Bounds Check & Type Guard ===")
-    try:
-        p.price = -50.0
-    except ValueError as e:
-        print(f"Validation Caught: {e}")
-
-    print("\n=== 4. Class Registry via __init_subclass__ ===")
-    print(f"Registered Models: {list(Product.registry.keys())}")
-    print(f"Class Descriptor Access: {type(Product.price).__name__} for table '{Product._table}'")
+# data vs non-data: instance dict shadows a non-data descriptor, not a data one
+g.hi = lambda: "shadowed"
+print("non-data shadowed:", g.hi())
+try:
+    c.__dict__["diameter"] = 99
+    print("data descriptor wins:", c.diameter)
+except Exception as e:  # pragma: no cover
+    print(e)
 
 
-if __name__ == "__main__":
-    main()
+# --- __init_subclass__: registry without a metaclass
+class Plugin:
+    registry: dict[str, type] = {}
+
+    def __init_subclass__(cls, /, key: str | None = None, **kw) -> None:
+        super().__init_subclass__(**kw)
+        Plugin.registry[key or cls.__name__.lower()] = cls
+
+
+class Csv(Plugin): ...
+class Json(Plugin, key="js"): ...
+
+
+print("registry:", sorted(Plugin.registry))
+
+
+# --- a metaclass that enforces structure and shows hook order
+class Strict(type):
+    def __new__(mcs, name, bases, ns):
+        print(f"  Strict.__new__  creating class {name}")
+        if bases and "run" not in ns:
+            raise TypeError(f"{name} must define run()")
+        return super().__new__(mcs, name, bases, ns)
+
+    def __call__(cls, *a, **kw):
+        print(f"  Strict.__call__ building {cls.__name__} instance")
+        return super().__call__(*a, **kw)
+
+
+class Job(metaclass=Strict):
+    pass
+
+
+class Good(Job):
+    def run(self) -> str:
+        return "ok"
+
+
+print(Good().run())
+try:
+    class Bad(Job):
+        pass
+except TypeError as e:
+    print("rejected class:", e)
+
+print("class of Good:", type(Good).__name__, "| class of that:", type(type(Good)).__name__)
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
+// C#: no descriptors or metaclasses. Properties are a language feature with accessors;
+// "validated reusable field" is a setter, a value object, or a source generator.
+var p = new Product { Price = 9.99m };
+try { p.Price = -1; }
+catch (ArgumentOutOfRangeException e) { Console.WriteLine("rejected: " + e.ParamName); }
+Console.WriteLine(p.Price);
 
-namespace DescriptorsAndProperties;
-
-// ============================================================================
-// 1. Reusable Property Validator (C# Equivalent to Reusable Descriptors)
-// ============================================================================
-public static class BoundedValidator
+class Product
 {
-    public static void Validate(double value, string name, double min, double max)
-    {
-        if (value < min || value > max)
-        {
-            throw new ArgumentException($"{name} must be between {min:0.00} and {max:0.0}, got {value:0.0}");
-        }
-    }
-
-    public static void Validate(int value, string name, int min, int max)
-    {
-        if (value < min || value > max)
-        {
-            throw new ArgumentException($"{name} must be between {min} and {max}, got {value}");
-        }
-    }
-}
-
-// ============================================================================
-// 2. Base Model with Registration (C# Equivalent to __init_subclass__)
-// ============================================================================
-public abstract class ModelBase
-{
-    public static Dictionary<string, Type> Registry { get; } = new();
-
-    public static void RegisterModel<T>(string tableName) where T : ModelBase
-    {
-        Registry[tableName] = typeof(T);
-    }
-}
-
-// ============================================================================
-// 3. Product Model Demonstrating Encapsulation and Property Accessors
-// ============================================================================
-public class Product : ModelBase
-{
-    public const string TableName = "inventory_products";
-
-    static Product()
-    {
-        // Static constructor runs once upon type initialization
-        RegisterModel<Product>(TableName);
-    }
-
-    private double _price;
-    private int _stock;
-    private double _discount;
-
-    public string Name { get; }
-
-    public double Price
+    private decimal _price;
+    public decimal Price
     {
         get => _price;
-        set
-        {
-            BoundedValidator.Validate(value, "price", 0.01, 10000.0);
-            _price = value;
-        }
-    }
-
-    public int Stock
-    {
-        get => _stock;
-        set
-        {
-            BoundedValidator.Validate(value, "stock", 0, 100000);
-            _stock = value;
-        }
-    }
-
-    public double EffectivePrice
-    {
-        get => Math.Round(_price * (1.0 - _discount), 2);
-        set
-        {
-            if (value > _price)
-                throw new ArgumentException("Effective price cannot exceed base price");
-            _discount = Math.Round(1.0 - (value / _price), 4);
-        }
-    }
-
-    public double Discount => _discount;
-
-    public Product(string name, double price, int stock, double discount = 0.0)
-    {
-        Name = name;
-        Price = price; // Invokes property setter with validation
-        Stock = stock;
-        _discount = discount;
+        set => _price = value > 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
     }
 }
-
-public class Program
-{
-    public static void Main()
-    {
-        Console.WriteLine("=== 1. Descriptor Field Validation ===");
-        var p = new Product("Laptop", 1200.0, 15, discount: 0.10);
-        Console.WriteLine($"Product: {p.Name}, Price: ${p.Price:F2}, Stock: {p.Stock}");
-        Console.WriteLine($"Effective Price: ${p.EffectivePrice:F2}");
-
-        Console.WriteLine("\n=== 2. Custom @property Setter in Action ===");
-        p.EffectivePrice = 960.0;
-        Console.WriteLine($"Updated Effective Price: ${p.EffectivePrice:F2}, New Discount: {p.Discount * 100:F1}%");
-
-        Console.WriteLine("\n=== 3. Descriptor Bounds Check & Type Guard ===");
-        try
-        {
-            p.Price = -50.0;
-        }
-        catch (ArgumentException ex)
-        {
-            Console.WriteLine($"Validation Caught: {ex.Message}");
-        }
-
-        Console.WriteLine("\n=== 4. Class Registry via __init_subclass__ ===");
-        Console.WriteLine($"Registered Models: ['{Product.TableName}']");
-        Console.WriteLine($"Class Descriptor Access: BoundedNumber for table '{Product.TableName}'");
-    }
-}
+// Class-creation hooks ≈ attributes + reflection + source generators (compile time), not runtime metaclasses.
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab (the script prints `rejected class: ...` because `Bad` lacks `run()`; the `Strict.__new__` lines show the hook order — class creation for `Job`, `Good` and `Bad`, but `__call__` only once, when `Good()` builds an instance):
+
 ```text
-=== 1. Descriptor Field Validation ===
-Product: Laptop, Price: $1200.00, Stock: 15
-Effective Price: $1080.00
-
-=== 2. Custom @property Setter in Action ===
-Updated Effective Price: $960.00, New Discount: 20.0%
-
-=== 3. Descriptor Bounds Check & Type Guard ===
-Validation Caught: price must be between 0.01 and 10000.0, got -50.0
-
-=== 4. Class Registry via __init_subclass__ ===
-Registered Models: ['inventory_products']
-Class Descriptor Access: BoundedNumber for table 'inventory_products'
+9.99 3
+rejected: price must be > 0, got -1
+descriptor on class: Positive
+stored privately: ['_price', '_quantity']
+function -> method
+same function: True
+12.57 4
+5.0 78.54
+non-data shadowed: shadowed
+data descriptor wins: 10.0
+registry: ['csv', 'js']
+  Strict.__new__  creating class Job
+  Strict.__new__  creating class Good
+  Strict.__call__ building Good instance
+ok
+  Strict.__new__  creating class Bad
+rejected class: Bad must define run()
+class of Good: Strict | class of that: type
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges
 
-### Python Standard Library and Ecosystem
-1. **Methods and Functions:** In Python, standard functions are non-data descriptors. When you access `instance.method`, Python invokes `function.__get__(instance, type(instance))` under the hood, returning a `types.MethodType` (a bound method) that binds `self` to the first argument.
-2. **`@classmethod` and `@staticmethod`:** Built-in descriptor classes. `classmethod.__get__` binds the class object as the first argument, while `staticmethod.__get__` returns the underlying callable without binding any argument.
-3. **ORM Column Mappings (SQLAlchemy & Django ORM):** When you declare `id = Column(Integer, primary_key=True)` or `name = models.CharField(max_length=100)`, these are data descriptors. Accessing `user.name` doesn't read a raw dictionary value; it queries or buffers the database state, tracks dirty mutation flags, and handles lazy loading.
-4. **Pydantic & Dataclasses:** Pydantic uses descriptors to enforce runtime type coercion and validation when fields are assigned.
+- **Descriptors live on the class, not the instance.** A descriptor stored in `self.x = Positive()` does nothing special. State must go **on the instance** (`obj.__dict__`), not on the descriptor, or all instances share it.
+- **`__get__` receives `obj=None` for class access** — return `self` so `Product.price` works (docs/introspection).
+- **Data beats instance dict; non-data loses.** That's why `obj.method = lambda: ...` can shadow a method but not a property.
+- **`property` without a setter is read-only** (`AttributeError: property 'x' of 'C' object has no setter` on 3.11+; older versions say `can't set attribute`).
+- **`__slots__` members are descriptors** (member descriptors) — which is why instances have no `__dict__`.
+- **`@functools.cached_property`** is a non-data descriptor that writes its result into the instance `__dict__`, so later reads bypass it; needs `__dict__` (not with `__slots__`) and isn't thread-safe in older versions.
+- **Metaclass conflicts.** A class can have one metaclass; mixing bases with different metaclasses raises `TypeError: metaclass conflict` (ABCs use `ABCMeta`).
+- **`__init_subclass__` runs for every subclass** — pass keyword arguments through `super().__init_subclass__(**kw)`.
+- **Metaclass `__call__` controls instance creation** (Singleton in 6 lines) — but a module-level instance or a classmethod is clearer.
+- **`type(name, bases, ns)`** is how classes are made dynamically.
+- **`__set_name__` is called only at class creation.** Assigning a descriptor to an existing class afterwards doesn't call it.
+- **Prefer dataclasses/pydantic/attrs** for field validation — they implement all of this.
 
-### .NET / C# Ecosystem
-1. **CLR Properties with Accessors:** In C#, properties compile down to `get_PropertyName()` and `set_PropertyName()` IL methods backed by internal storage fields.
-2. **`System.ComponentModel.INotifyPropertyChanged`:** In WPF and MAUI, properties intercept setters to dispatch change notifications across data-binding channels.
-3. **`System.ComponentModel.DataAnnotations`:** Attributes such as `[Range(0, 100)]` and `[Required]` annotate properties, validated dynamically by reflection or source generators during model binding in ASP.NET Core.
+### Try it — descriptor lab (runnable)
 
----
+The follow-ups interviewers use once you know data vs non-data descriptors. Save as ``descriptor_lab.py``; every probe is an ``assert`` (or a printed error message), so a wrong claim fails loudly.
 
-## 5. Pitfalls and When Not to Use It
-
-### 1. Storing Instance State in the Descriptor Instance
-A classic beginner bug when authoring custom descriptors is storing state on `self` inside the descriptor:
 ```python
-# BROKEN ANTI-PATTERN:
-class BrokenDescriptor:
-    def __init__(self):
-        self.value = None  # BUG: Shared across ALL instances!
+import functools
 
-    def __get__(self, instance, owner):
-        return self.value
+# 1) Bug: storing the value ON the descriptor shares it across all instances
+class SharedPositive:
+    def __set_name__(self, owner, name): self.value = None
+    def __get__(self, obj, owner=None): return self if obj is None else self.value
+    def __set__(self, obj, v): self.value = v
+class Item:
+    price = SharedPositive()
+a, b = Item(), Item()
+a.price, b.price = 1, 2
+assert a.price == 2                          # a's value was overwritten by b: shared state
 
-    def __set__(self, instance, value):
-        self.value = value  # Mutating this updates it for every instance!
+# 2) Correct: state lives in the instance __dict__, keyed by the name from __set_name__
+class Field:
+    def __set_name__(self, owner, name): self.name = name
+    def __get__(self, obj, owner=None):
+        return self if obj is None else obj.__dict__[self.name]
+    def __set__(self, obj, v): obj.__dict__[self.name] = v
+class Item2:
+    price = Field()
+a, b = Item2(), Item2()
+a.price, b.price = 1, 2
+assert (a.price, b.price) == (1, 2) and isinstance(Item2.price, Field)
+
+# 3) __set_name__ is called only at class creation, not on later assignment
+class Late:
+    pass
+Late.f = Field()
+assert not hasattr(Late.f, "name")           # never told its name
+try:
+    Late().f = 1
+except AttributeError as e:
+    print("3:", type(e).__name__)
+
+# 4) Data descriptor beats the instance dict; non-data descriptor loses to it
+class Data:
+    def __get__(self, obj, owner=None): return "descriptor"
+    def __set__(self, obj, v): pass
+class NonData:
+    def __get__(self, obj, owner=None): return "descriptor"
+class T:
+    d = Data(); n = NonData()
+t = T()
+t.__dict__["d"] = "instance"; t.__dict__["n"] = "instance"
+assert t.d == "descriptor" and t.n == "instance"
+
+# 5) property is read-only without a setter, and says so
+class C:
+    @property
+    def x(self): return 1
+try:
+    C().x = 2
+except AttributeError as e:
+    print("5:", e)
+
+# 6) Functions are non-data descriptors; bound methods carry __self__ and __func__
+class G:
+    def hi(self): return "hi"
+g = G()
+assert G.hi.__get__(g, G).__func__ is G.hi and g.hi.__self__ is g
+assert hasattr(G.hi, "__get__") and not hasattr(G.hi, "__set__")
+
+# 7) __slots__ members are descriptors (member_descriptor): that's why there is no __dict__
+class S:
+    __slots__ = ("x",)
+assert type(S.x).__name__ == "member_descriptor"
+
+# 8) cached_property is non-data: after the first read the value sits in the instance dict
+calls = []
+class Calc:
+    @functools.cached_property
+    def heavy(self):
+        calls.append(1); return 42
+c = Calc()
+assert c.heavy == c.heavy == 42 and len(calls) == 1 and "heavy" in c.__dict__
+
+# 9) __init_subclass__ passes class keywords; super() call keeps cooperative chains working
+registry = {}
+class Base:
+    def __init_subclass__(cls, /, key=None, **kw):
+        super().__init_subclass__(**kw)
+        registry[key or cls.__name__.lower()] = cls
+class A(Base): pass
+class B(Base, key="bee"): pass
+assert registry == {"a": A, "bee": B}
+try:
+    class Bad(Base, nope=1): pass
+except TypeError as e:
+    print("9:", e)
+
+# 10) Metaclass conflict, and type() builds classes dynamically
+class M1(type): pass
+class M2(type): pass
+class X(metaclass=M1): pass
+class Y(metaclass=M2): pass
+try:
+    class Z(X, Y): pass
+except TypeError as e:
+    print("10:", str(e)[:48])
+Dyn = type("Dyn", (), {"hello": lambda self: "dyn"})
+assert Dyn().hello() == "dyn" and type(Dyn) is type and type(type) is type
+
+# 11) A metaclass __call__ can make a singleton, but it hides global state
+class Singleton(type):
+    _inst = {}
+    def __call__(cls, *a, **kw):
+        if cls not in cls._inst:
+            cls._inst[cls] = super().__call__(*a, **kw)
+        return cls._inst[cls]
+class Conf(metaclass=Singleton): pass
+assert Conf() is Conf()
+
+# 12) __getattribute__ recursion trap: use object.__getattribute__ inside it
+class Safe:
+    def __init__(self): self.v = 1
+    def __getattribute__(self, name):
+        return object.__getattribute__(self, name)
+assert Safe().v == 1
+class Loop:
+    def __getattribute__(self, name):
+        return self.other                    # re-enters __getattribute__ forever
+try:
+    Loop().x
+except RecursionError:
+    print("12: RecursionError")
+
+# 13) __getattr__ is only the fallback for MISSING attributes
+class Fallback:
+    real = "found"
+    def __getattr__(self, name): return f"fallback:{name}"
+f = Fallback()
+assert f.real == "found" and f.missing == "fallback:missing"
+print("descriptor lab ok")
 ```
-Because descriptors are defined at the **class level**, there is only *one* descriptor instance shared across all instances of the owning class. Storing `self.value` creates a single shared global variable across all instances.  
-**Correct Approach:** Store state inside the target instance's `__dict__` or use a private instance attribute dynamically assigned via `__set_name__` (e.g., `setattr(instance, self.storage_name, value)`).
 
-### 2. Confusing Data vs Non-Data Descriptors
-If you define only `__get__` (a non-data descriptor), any assignment `instance.x = value` writes directly to `instance.__dict__['x']`. Subsequent reads will return the dictionary value, shadowing your descriptor's `__get__` method! If you want your descriptor to govern assignment and prevent shadowing, you **must** implement `__set__` (even if it only raises `AttributeError`).
+Expected output:
 
-### 3. Metaclass Conflict Hell (`TypeError: metaclass conflict`)
-If class `Child` inherits from `BaseA` (metaclass `MetaA`) and `BaseB` (metaclass `MetaB`), Python raises:
 ```text
-TypeError: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
+3: AttributeError
+5: property 'x' of 'C' object has no setter
+9: Bad.__init_subclass__() takes no keyword arguments
+10: metaclass conflict: the metaclass of a derived c
+12: RecursionError
+descriptor lab ok
 ```
-Resolving this requires manually synthesizing an awkward combined metaclass that subclasses both `MetaA` and `MetaB`.  
-**When to Avoid:** Do not write custom metaclasses unless building a complex dynamic language bridge or AST transformer. For plugin registration, declarative validation, and attribute naming, always use `__init_subclass__` and `__set_name__`.
 
 ---
 
-## 6. Exercises & Practical Drills
+## 5. What you'd say in two minutes
 
-### Drill 1: The Class-Level Descriptor Access
-Given the following descriptor and class:
-```python
-class TypedString:
-    def __set_name__(self, owner, name):
-        self.name = f"_{name}"
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            return self
-        return getattr(instance, self.name, "")
-    def __set__(self, instance, value):
-        if not isinstance(value, str):
-            raise TypeError("Must be a string")
-        setattr(instance, self.name, value)
+> "Attribute lookup goes through the descriptor protocol. If the class attribute defines `__get__` and `__set__`, it's a data descriptor and wins over the instance dict; if only `__get__`, it's non-data and the instance can shadow it. Functions are non-data descriptors, which is how `obj.method` becomes a bound method; `property`, `classmethod` and `staticmethod` are descriptors too, so `@property` isn't magic — I can write it in ten lines. For reusable validation I write a descriptor, store the value in the instance dict, and use `__set_name__` to learn the attribute name. A metaclass is the class of a class — `type` by default — and customizes class creation (`__new__`, `__init__`) or instance creation (`__call__`). I rarely need one: `__init_subclass__` handles plugin registries, class decorators handle most transformations, and dataclasses or pydantic already cover field validation. Frameworks like Django models or SQLAlchemy use metaclasses plus descriptors to turn class bodies into schemas."
 
-class User:
-    username = TypedString()
-```
-What is returned when you evaluate `User.username` versus `User().username`?
+---
+
+## 6. Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| Storing value on the descriptor object | All instances share one value | Store in `obj.__dict__` (use `__set_name__`) |
+| Reaching for a metaclass first | Hard to read, metaclass conflicts | `__init_subclass__` / class decorator |
+| Getter/setter pairs for plain attributes (Java style) | Noise; breaks nothing if later needed | Public attribute; promote to `@property` when needed |
+| Expensive work in `@property` read | Surprising cost per access | `cached_property` or an explicit method |
+| `__get__` that ignores `obj is None` | Class access crashes | Return `self` |
+| Overriding `__getattribute__` casually | Easy infinite recursion | `__getattr__` for missing attrs only |
+| Singleton via metaclass for tests-unfriendly global | Hidden global state | DI / module-level instance |
+
+---
+
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. How does `@property` work? [BASIC]</strong></summary>
 
-- `User.username` (evaluated on the class) passes `instance=None` to `__get__`. The check `if instance is None:` triggers and returns the `TypedString` descriptor instance itself (`<TypedString object at ...>`). This is crucial because it allows inspection of the descriptor's metadata (e.g., in documentation generators or ORM reflection).
-- `User().username` passes an instance of `User`. `__get__` runs `getattr(instance, "_username", "")`, returning the default empty string `""` or the stored string value.
+`property` is a built-in class implementing the descriptor protocol. `@property` wraps the getter; `.setter` / `.deleter` create a new property with those functions. Access through an instance calls `fget`; assignment calls `fset`. Without a setter it's read-only.
+
+</details>
+
+<details>
+<summary><strong>2. Data vs non-data descriptor? [TRICKY]</strong></summary>
+
+A data descriptor defines `__set__` (or `__delete__`) as well as `__get__`; it takes precedence over the instance `__dict__`. A non-data descriptor defines only `__get__` (functions, `classmethod`, `cached_property`); the instance dict wins. That is why you can overwrite a method on an instance but can't bypass a property.
+
+</details>
+
+<details>
+<summary><strong>3. Why does `obj.method` return a bound method? [TRICKY]</strong></summary>
+
+Functions implement `__get__`; when found on the class, `function.__get__(obj, cls)` returns a bound method that passes `obj` as the first argument. `Class.method` (obj `None`) returns the plain function.
+
+</details>
+
+<details>
+<summary><strong>4. What is a metaclass and when would you use one? [BASIC]</strong></summary>
+
+The class of a class (default `type`). It lets you customize class creation: validate namespace, auto-register, inject methods. Real uses: ORMs, ABCs (`ABCMeta`), enum implementation. In application code, prefer `__init_subclass__` or class decorators.
+
+</details>
+
+<details>
+<summary><strong>5. Auto-register all subclasses of `Plugin`. [SCENARIO]</strong></summary>
+
+Implement `__init_subclass__` on the base and store `cls` in a registry keyed by name or class keyword. No metaclass needed; it also works with multiple inheritance via cooperative `super().__init_subclass__`.
+
+</details>
+
+<details>
+<summary><strong>6. Implement a reusable `Positive` field. [SCENARIO]</strong></summary>
+
+A descriptor with `__set_name__` (learn the name), `__get__` (return `self` for class access else `getattr(obj, private)`), `__set__` (validate, then `setattr(obj, private, v)`). State lives on the instance.
+
+</details>
+
+<details>
+<summary><strong>7. `property` vs `__getattr__` vs `__getattribute__`? [TRICKY]</strong></summary>
+
+`property` serves one named attribute. `__getattr__` is a fallback invoked only when normal lookup fails. `__getattribute__` intercepts **every** access (dangerous: recursion; use `object.__getattribute__`).
+
+</details>
+
+<details>
+<summary><strong>8. What is the C# equivalent? [BASIC]</strong></summary>
+
+C# properties with accessors cover `@property`; there are no descriptors or runtime metaclasses. Cross-cutting class customization uses attributes + reflection or source generators at compile time.
+
 </details>
 
 ---
 
-### Drill 2: Implementing a Read-Only Cached Property
-Implement a lightweight `@lazy_property` decorator descriptor that computes an expensive value once upon first access, caches it on the instance, and ensures subsequent reads return the cached value directly without recomputation.
+## 8. One-page cheat sheet
 
-<details>
-<summary>Answer</summary>
-
-```python
-class lazy_property:
-    """Non-data descriptor: caches result in instance __dict__ on first access."""
-    def __init__(self, func):
-        self.func = func
-        self.__doc__ = func.__doc__
-
-    def __get__(self, instance, owner=None):
-        if instance is None:
-            return self
-        # Compute value
-        value = self.func(instance)
-        # Store directly in instance __dict__ using the function's name
-        instance.__dict__[self.func.__name__] = value
-        return value
+```text
+Lookup:  data descriptor (class MRO)  >  instance __dict__  >  non-data descriptor / class attr  >  __getattr__
+Descriptor protocol:  __get__(self,obj,owner)  __set__(self,obj,val)  __delete__  __set_name__(self,owner,name)
+  data = __get__ + __set__ ;  non-data = __get__ only
+  obj is None  ->  accessed via class: return self
+  keep per-instance state in obj.__dict__, NOT on the descriptor
+Built on descriptors: function->bound method, property, classmethod, staticmethod, __slots__, cached_property
+Hooks:  __init_subclass__ (subclass defined)  class decorator  metaclass(__new__, __init__, __call__)
+Order of preference:  function < __init_subclass__ < class decorator < descriptor < metaclass
+type(name, bases, ns)  creates classes dynamically;  type(type) is type
 ```
-**Why this works:** Because `lazy_property` only implements `__get__`, it is a **non-data descriptor**. On first access, it computes `value` and inserts it into `instance.__dict__`. On subsequent accesses, Python's `object.__getattribute__` checks `instance.__dict__` first, discovers the cached value, and returns it immediately without ever invoking `lazy_property.__get__` again! (Note: Python 3.8+ includes this in standard library as `functools.cached_property`).
-</details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## Further reading
 
-> [!interview]
-> **Question 1: What is a metaclass?**  
-> **Strong Answer:**  
-> "A metaclass in Python is the class of a class. Just as an ordinary object is an instance of a class, every class in Python is an instance of a metaclass. By default, that metaclass is `type`.  
-> 
-> When CPython encounters a `class Foo:` block, it executes the class body inside a new namespace dictionary and calls the metaclass constructor: `Foo = Meta(name, bases, namespace_dict)`.  
-> 
-> A custom metaclass subclasses `type` and overrides:
-> 1. `__new__(mcls, name, bases, dct)`: To modify or validate the class definition *before* the class object is allocated in memory.
-> 2. `__init__(cls, name, bases, dct)`: To configure the newly created class object.  
-> 
-> In modern Python, metaclasses are rarely necessary. Since Python 3.6, `__init_subclass__` and `__set_name__` (PEP 487) handle subclass registration, class customization, and descriptor naming cleanly without risking multiple-inheritance metaclass conflicts."
-
----
-
-> [!interview]
-> **Question 2: What is a descriptor?**  
-> **Strong Answer:**  
-> "A descriptor is an object attribute whose access, mutation, and deletion are governed by the descriptor protocol: `__get__(self, instance, owner)`, `__set__(self, instance, value)`, and `__delete__(self, instance)`. Descriptors must be instantiated as class attributes, not instance attributes.  
-> 
-> Descriptors are bifurcated into two categories:
-> 1. **Data Descriptors:** Implement `__set__` or `__delete__` (and usually `__get__`). CPython's `__getattribute__` prioritizes data descriptors above the instance's own `__dict__`. They cannot be shadowed by instance attributes.
-> 2. **Non-Data Descriptors:** Implement only `__get__`. An entry in `instance.__dict__` shadows a non-data descriptor. Regular Python functions, `classmethod`, and `staticmethod` are non-data descriptors.  
-> 
-> Descriptors form the architectural backbone of Python's OOP system: methods, `@property`, `super()`, ORM column mappings (like SQLAlchemy or Django), and validation frameworks are all built upon descriptors."
-
----
-
-> [!interview]
-> **Question 3: How does `@property` work?**  
-> **Strong Answer:**  
-> "Under the hood, `@property` is a built-in class that implements the **data descriptor protocol**.  
-> 
-> When you write:
-> ```python
-> @property
-> def age(self):
->     return self._age
-> ```
-> Python executes `age = property(fget=age)`. The `property` instance is stored in the class's dictionary.  
-> 
-> When you evaluate `obj.age`, CPython's `object.__getattribute__` looks up `type(obj).__mro__`, discovers that `age` is a data descriptor, and calls `property.__get__(age, obj, type(obj))`, which internally invokes your getter `fget(obj)`.  
-> 
-> When you declare `@age.setter`, the `setter()` method of the property descriptor returns a *new* property instance with both `fget` and `fset` configured. Because `property` implements `__set__`, writing `obj.age = 25` invokes `property.__set__(age, obj, 25)`, which executes your setter function. If no setter was defined, the default `__set__` raises `AttributeError: can't set attribute`."
-
----
-
-> [!interview]
-> **Question 4: What is `__init_subclass__`?**  
-> **Strong Answer:**  
-> "`__init_subclass__` is a hook introduced in Python 3.6 (PEP 487) that allows base classes to customize and validate subclass creation without needing a custom metaclass.  
-> 
-> Whenever a class subclasses a base class, Python automatically invokes the base class's `__init_subclass__(cls, **kwargs)` method, passing the newly created subclass as `cls`.  
-> 
-> It provides three major architectural advantages:
-> 1. **Zero Metaclass Conflicts:** Because it works through standard class inheritance rather than changing `type`, it completely avoids `TypeError: metaclass conflict` during multiple inheritance.
-> 2. **Subclass Registration & Validation:** It is ideal for building plugin registries, enforcing required methods or attributes, and attaching table names in ORMs.
-> 3. **Keyword Arguments:** Classes can pass custom configuration directly in their inheritance definition, such as `class Product(ModelBase, table_name="inventory_products"):`, which are forwarded cleanly to `**kwargs` in `__init_subclass__`."
-
----
-
-## 8. Sources & Further Reading
-
-- [Python Documentation: Descriptor HowTo Guide (by Raymond Hettinger)](https://docs.python.org/3/howto/descriptor.html)
-- [PEP 487 – Simpler customisation of class creation (`__init_subclass__`, `__set_name__`)](https://peps.python.org/pep-0487/)
-- [Python Documentation: The Data Model - Descriptors](https://docs.python.org/3/reference/datamodel.html#descriptors)
-- [PEP 3115 – Metaclasses in Python 3000](https://peps.python.org/pep-3115/)
-- [Microsoft Learn: Properties (C# Programming Guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/properties)
-
----
+- [Descriptor HowTo Guide](https://docs.python.org/3/howto/descriptor.html)
+- [Data model: customizing class creation](https://docs.python.org/3/reference/datamodel.html#customizing-class-creation)
+- [PEP 487: `__init_subclass__` and `__set_name__`](https://peps.python.org/pep-0487/)
 
 Previous: [asyncio in Depth](../15-asyncio-in-depth/README.md) · Next: [Modules, Packages and Imports](../17-modules-packages-and-imports/README.md)

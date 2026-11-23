@@ -1,448 +1,519 @@
-# Lesson 10: dataclasses, NamedTuple, Enum and pydantic
+# Lesson 10: `dataclasses`, `NamedTuple`, `Enum` and pydantic
 
-> **Prerequisites:** [ABCs, Protocols, Duck Typing and Type Hints](../09-abcs-protocols-duck-typing-and-type-hints/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 07: Dunder Methods](../07-dunder-methods-and-the-data-model/README.md) · [Lesson 09: ABCs, Protocols and Type Hints](../09-abcs-protocols-duck-typing-and-type-hints/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked "dataclass vs NamedTuple vs dict vs pydantic?", "what does `frozen=True` do?", or "`field(default_factory=…)`?"
+
+> [!NOTE]
+> **In one line:** Pick the lightest tool that gives the guarantees you need — **`@dataclass`** for mutable/regular data objects, **`frozen=True`** for value objects, **`NamedTuple`** for lightweight immutable records that must behave like tuples, **`Enum`** for a closed set of named values, and **pydantic** when data comes from *outside* and must be validated and coerced.
 
 > [!TIP]
-> **The One Rule of Data Containers:** Choose your data representation based on **boundary trust, mutability, and memory layout**: use **`NamedTuple`** for compact, immutable data requiring zero `__dict__` overhead and positional unpacking; **`@dataclass`** for internal domain models needing automatic dunder methods, defaults, and optional immutability (`frozen=True`); **`Enum` / `StrEnum`** for closed, discrete states; and **Pydantic** strictly at **untrusted system boundaries** (HTTP APIs, message queues, databases) where runtime schema parsing, coercion, and validation are mandatory.
+> **Golden rule:** Dataclasses and NamedTuples do **not** validate types at run time — hints are metadata. If the input is untrusted (JSON, HTTP, files), validate at the boundary with pydantic (or explicit checks) and keep plain dataclasses *inside* the domain.
+
+> [!TIP]
+> **Try it:** Run the section 3 file; then change `OrderLine` to `frozen=False` (drop `frozen=True`) and re-run — `{line: "ok"}` now raises `TypeError: unhashable type: 'OrderLine'`, and `line.qty = 5` succeeds instead of raising. Then run the [dataclass lab](#try-it--dataclass-lab-runnable) below (needs Python 3.11+ for `StrEnum`; the pydantic probe is skipped if pydantic is absent). Sketch `Order → OrderLine (value) → Status (enum)` in [LLD Studio](/tools/lld-studio/) and decide which of the four tools each box should be.
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"How do you model domain data in Python, and when would you choose a dataclass over a `NamedTuple` or Pydantic model?" is a classic system design and low-level design screening question. Candidates often reach for either raw dictionaries or heavy Pydantic models for every scenario without understanding memory footprints, runtime costs, or boundary contracts.
-
-### The Weak Answer
-> *"I usually just use dictionaries everywhere because Python is dynamic and dictionaries are flexible. If I need a class, I use dataclasses because they were added in Python 3.7 to replace `namedtuple`. Pydantic is just another library that does the same thing as dataclasses."*
-
-### The Senior Strong Answer
-> *"Modern Python provides specialized abstractions for data modeling, each serving a distinct layer of system architecture:
-> 
-> 1. **`typing.NamedTuple` (Lightweight Value Object):** A typed subclass of the built-in `tuple`. It is immutable, supports positional indexing and unpacking (`x, y = pt`), and incurs zero per-instance `__dict__` memory overhead. However, it exhibits loose tuple equality—comparing equal to any tuple with identical items (`Point(1, 2) == (1, 2)`)—and cannot support mutable state.
-> 2. **`@dataclass` (Internal Domain Entities):** A code generator introduced in PEP 557 that dynamically synthesizes boilerplate dunder methods (`__init__`, `__repr__`, `__eq__`, `__hash__`) at class creation time. It supports mutable or immutable (`frozen=True`) structures, default factories, and memory optimization via `slots=True`. However, **it does not validate data types at runtime**—passing invalid types succeeds silently.
-> 3. **`Enum` / `StrEnum` (Closed Domain Sets):** Prevents stringly-typed bugs by guaranteeing identity and value constraints for discrete system states. `StrEnum` (Python 3.11+) allows direct string interoperability for JSON serialization while preserving enum type safety.
-> 4. **Pydantic `BaseModel` (Boundary Validation):** Built for untrusted I/O boundaries (REST payloads, environment configs). It enforces strict runtime type parsing, validation, coercion, and generates rich error payloads. Because Pydantic performs deep reflection and coercion, instantiation is **50x–100x slower than a standard dataclass**, making it inappropriate inside tight algorithmic inner loops."*
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### Decision Tree for Data Container Selection
+- *"Why use a dataclass instead of a plain class or a dict?"*
+- *"What does `@dataclass` generate? How do you make it immutable and hashable?"*
+- *"Why can't I write `items: list = []` in a dataclass?"*
+- *"NamedTuple vs dataclass?"*
+- *"Where do type hints stop and validation start?"*
 
 ```mermaid
 flowchart TD
-    Start["Requirement: Need a Data Container"] --> IsClosed{"Is it a fixed, closed set of discrete constants?"}
-    
-    IsClosed -- "Yes" --> NeedStr{"Needs transparent string serialization / JSON?"}
-    NeedStr -- "Yes" --> UseStrEnum["Use enum.StrEnum (Python 3.11+)"]
-    NeedStr -- "No" --> UseEnum["Use enum.Enum"]
-    
-    IsClosed -- "No" --> IsBoundary{"Is data crossing an untrusted I/O boundary (REST API, DB, Kafka, CLI)?"}
-    IsBoundary -- "Yes" --> UsePydantic["Use pydantic.BaseModel (Boundary Validation & Coercion)"]
-    
-    IsBoundary -- "No" --> NeedUnpacking{"Needs tuple compatibility, positional unpacking, or minimal memory?"}
-    NeedUnpacking -- "Yes" --> UseNamedTuple["Use typing.NamedTuple (Immutable, Compact, Unpackable)"]
-    
-    NeedUnpacking -- "No" --> InternalDomain["Internal Domain Entity / Business Logic"]
-    InternalDomain --> IsValueObject{"Is it an immutable Value Object?"}
-    IsValueObject -- "Yes" --> UseFrozenDataclass["Use @dataclass(frozen=True, slots=True)"]
-    IsValueObject -- "No" --> UseStandardDataclass["Use @dataclass(slots=True)"]
+  Start["I need a data-holding type"] --> Ext{"Untrusted input\n(JSON/HTTP/env)?"}
+  Ext -- yes --> Pyd["pydantic BaseModel\nvalidate + coerce + serialise"]
+  Ext -- no --> Fixed{"Closed set of\nnamed values?"}
+  Fixed -- yes --> En["Enum"]
+  Fixed -- no --> Tup{"Must unpack / index\nlike a tuple, tiny, immutable?"}
+  Tup -- yes --> NT["NamedTuple"]
+  Tup -- no --> Mut{"Needs to be hashable /\nshared safely?"}
+  Mut -- yes --> FD["@dataclass(frozen=True)"]
+  Mut -- no --> DC["@dataclass"]
 ```
-
-### Comprehensive Data Modeling Comparison Matrix
-
-| Feature | `dict` | `typing.NamedTuple` | `@dataclass` | `@dataclass(frozen=True)` | `pydantic.BaseModel` | C# Equivalent |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mutability** | Mutable | Strictly Immutable | Mutable (default) | Strictly Immutable | Mutable / Frozen via config | `class` vs `record` |
-| **Memory Model** | Dynamic Hash Map (`PyDictObject`) | Fixed C-array pointer (`PyTupleObject`) | `__dict__` (or C-array if `slots=True`) | `__dict__` (or C-array if `slots=True`) | Core schema + `__dict__` storage | Heap object vs Struct |
-| **Runtime Type Validation** | None | None | None (advisory type hints only) | None (advisory type hints only) | **Strict runtime parsing & coercion** | Static compilation / Model Binding |
-| **Positional Unpacking** | Keys only (`k1, k2 = d`) | **Yes** (`x, y = pt`) | No (requires custom `__iter__`) | No | No | Tuple deconstruction `var (x, y)` |
-| **Equality Semantics** | Keys & Values equality | Tuple equality (`Point(1,2) == (1,2)`) | Nominal field-by-field equality | Nominal field-by-field equality | Field-by-field equality | Value-based `record` equality |
-| **Instantiation Overhead** | Minimal ($O(1)$) | Ultra-fast ($O(1)$ C-level) | Very Fast (compiled `__init__`) | Very Fast | High (deep validation & coercion) | Near-zero (JIT optimized) |
-| **Best Architectural Layer** | Ad-hoc intermediate bags | Mathematical coordinates, DB row tuples | Domain entities, business aggregations | Domain Value Objects, immutable events | HTTP controllers, JSON parsers, CLI inputs | DTOs, domain models, records |
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The carousel below demonstrates:
-1. `typing.NamedTuple` with positional unpacking and immutable field access.
-2. `@dataclass(frozen=True)` enforcing immutability and default factories via `field(default_factory=list)`.
-3. `StrEnum` enabling type-safe string constants.
-4. Pydantic boundary validation demonstrating automatic type coercion and catching malformed payloads.
-5. C# parallel using positional record structs, init-only records, and boundary validation models.
+| Tool | Mutable | Hashable | Validates | Generated for you | Typical use |
+| :--- | :---: | :---: | :---: | :--- | :--- |
+| plain `dict` | Yes | No | No | — | Ad-hoc, JSON-ish |
+| plain class | Yes | by id | No | nothing | Behaviour-heavy objects |
+| `@dataclass` | Yes | No (`eq=True` clears hash) | No | `__init__`, `__repr__`, `__eq__` (+ order, slots optional) | Domain/data objects |
+| `@dataclass(frozen=True)` | **No** | Yes | No | + `__hash__`, blocks setattr | Value objects, dict keys |
+| `NamedTuple` | No | Yes | No | tuple behaviour, field names | Small records, return values |
+| `Enum` | Members fixed | Yes | Membership | identity, `name`, `value`, iteration | Status, type codes |
+| pydantic `BaseModel` | Yes (config) | opt-in | **Yes** (+coercion) | validation, `model_dump`, JSON schema | API/config/IO models |
+
+| Dataclass option | Effect |
+| :--- | :--- |
+| `frozen=True` | Immutable; generates `__hash__` (with `eq=True`) |
+| `order=True` | Generates `<`, `<=`, … comparing fields in order |
+| `slots=True` (3.10+) | Uses `__slots__` (less memory) |
+| `kw_only=True` (3.10+) | All fields keyword-only |
+| `field(default_factory=list)` | Fresh mutable default per instance |
+| `__post_init__` | Hook for validation/derived fields |
+| `InitVar`, `field(init=False)` | Init-only values / computed fields |
+
+---
+
+## 3. Walkthrough: an `Order` model
+
+**Requirements:** an `Order` with lines, a status from a fixed set, an immutable `Money`/`Point`-style value, and validated input from JSON.
+
+1. `Status` as an `Enum` — no magic strings.
+2. `OrderLine` as `frozen=True` dataclass — a value object.
+3. `Order` as a regular dataclass with `field(default_factory=list)`.
+4. `__post_init__` enforces invariants the hints can't.
+5. `NamedTuple` for a lightweight `(lat, lon)` pair.
+6. pydantic parses external JSON (shown separately as it needs an install).
 
 ````carousel
 ```python
-from dataclasses import dataclass, field
-from enum import StrEnum
-from typing import List, NamedTuple
-from pydantic import BaseModel, ValidationError
+from dataclasses import FrozenInstanceError, dataclass, field, replace
+from enum import Enum, auto
+from typing import NamedTuple
 
 
-# 1. NamedTuple: Compact immutable tuple with field access & unpacking
+class Status(Enum):
+    NEW = auto()
+    PAID = auto()
+    SHIPPED = auto()
+
+
+@dataclass(frozen=True, order=True)
+class OrderLine:
+    sku: str
+    qty: int
+    price_cents: int
+
+    def __post_init__(self) -> None:
+        if self.qty <= 0 or self.price_cents < 0:
+            raise ValueError("qty must be > 0 and price >= 0")
+
+    @property
+    def total(self) -> int:
+        return self.qty * self.price_cents
+
+
+@dataclass
+class Order:
+    order_id: str
+    lines: list[OrderLine] = field(default_factory=list)   # NOT `= []`
+    status: Status = Status.NEW
+
+    def add(self, line: OrderLine) -> None:
+        self.lines.append(line)
+
+    @property
+    def total(self) -> int:
+        return sum(line.total for line in self.lines)
+
+
 class GeoPoint(NamedTuple):
     lat: float
     lon: float
 
 
-# 2. StrEnum: Type-safe string domain constants
-class UserRole(StrEnum):
-    ADMIN = "admin"
-    MEMBER = "member"
-
-
-# 3. Dataclass: Internal domain entity with defaults & immutability
-@dataclass(frozen=True)
-class DomainUser:
-    user_id: int
-    role: UserRole
-    tags: List[str] = field(default_factory=list)
-
-
-# 4. Pydantic: Boundary parsing, validation & coercion
-class UserPayload(BaseModel):
-    user_id: int
-    role: UserRole
-
-
-def run_demonstration() -> None:
-    # 1. NamedTuple Demonstration
-    point = GeoPoint(37.7749, -122.4194)
-    lat, lon = point  # Tuple unpacking
-    print(f"NamedTuple unpacked: lat={lat}, lon={lon}")
-
-    # 2. Dataclass Immutability & Defaults
-    user = DomainUser(user_id=1, role=UserRole.ADMIN)
-    print(f"Dataclass created: id={user.user_id}, role={user.role}, tags={user.tags}")
-    try:
-        user.user_id = 999  # type: ignore[misc]
-    except Exception:
-        print("Dataclass frozen mutation blocked: True")
-
-    # 3. StrEnum Comparison
-    print(f"StrEnum equals string: {user.role == 'admin'}")
-
-    # 4. Pydantic Boundary Validation & Coercion
-    # Coerces string '42' to int 42
-    valid_payload = UserPayload(user_id="42", role="member")
-    print(f"Pydantic coerced id: {valid_payload.user_id} (type: {type(valid_payload.user_id).__name__})")
+def main() -> None:
+    line = OrderLine("pen", 3, 150)
+    order = Order("o-1")
+    order.add(line)
+    order.add(replace(line, sku="ink", qty=1, price_cents=900))   # copy-with-change
+    print(order)
+    print(order.total, order.status.name, Status["PAID"], Status(2))
 
     try:
-        UserPayload(user_id="invalid", role="member")
-    except ValidationError:
-        print("Pydantic caught invalid boundary data: True")
+        line.qty = 5                                       # frozen
+    except FrozenInstanceError as err:
+        print("FrozenInstanceError:", err)
+    print({line: "ok"}[OrderLine("pen", 3, 150)])         # hashable, equal by value
+    print(sorted(order.lines)[0].sku)                      # order=True compares field by field
+
+    try:
+        OrderLine("bad", 0, 1)
+    except ValueError as err:
+        print("ValueError:", err)
+
+    try:
+        @dataclass
+        class Bad:
+            items: list = []                               # mutable default is rejected
+    except ValueError as err:
+        print("ValueError:", err)
+
+    o2 = Order("o-2")
+    o2.add(line)
+    print(Order("o-3").lines, o2 == Order("o-2", [line]))  # [] True
+
+    p = GeoPoint(12.9, 77.6)
+    lat, lon = p                                           # unpacks like a tuple
+    print(p, p.lat, p[1], lat == p[0], isinstance(p, tuple))
+
+    print([s.name for s in Status], Status.PAID in Status, Status.NEW is Status.NEW)
+
+    # Hints are NOT enforced: a dataclass without checks happily stores a str in an int field
+    @dataclass
+    class Loose:
+        qty: int
+
+    print(Loose("not-an-int").qty)                         # not-an-int  (no error)
 
 
 if __name__ == "__main__":
-    run_demonstration()
+    main()
+```
+<!-- slide -->
+```python
+# Runnable as-is once pydantic v2 is installed: pip install pydantic
+# pydantic v2: validation + coercion at the boundary
+from pydantic import BaseModel, Field, ValidationError
+
+
+class OrderLineIn(BaseModel):
+    sku: str
+    qty: int = Field(gt=0)
+    price_cents: int = Field(ge=0)
+
+
+try:
+    print(OrderLineIn.model_validate({"sku": "pen", "qty": "3", "price_cents": 150}))   # "3" coerced to 3
+    OrderLineIn.model_validate({"sku": "pen", "qty": 0, "price_cents": 150})
+except ValidationError as err:
+    print(err.errors()[0]["loc"], err.errors()[0]["type"])                              # ('qty',) greater_than
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Collections.Generic;
-using System.Reflection;
+// C# analogues
+public enum Status { New, Paid, Shipped }
 
-// 1. Positional Record Struct (C# equivalent of NamedTuple)
-public readonly record struct GeoPoint(double Lat, double Lon);
-
-// 2. Domain String Constants (C# equivalent of StrEnum)
-public static class UserRole
+public sealed record OrderLine(string Sku, int Qty, int PriceCents)   // immutable, value equality
 {
-    public const string Admin = "admin";
-    public const string Member = "member";
+    public int Total => Qty * PriceCents;
 }
 
-// 3. Immutable Record (C# equivalent of frozen dataclass)
-public record DomainUser(int UserId, string Role, IReadOnlyList<string>? Tags = null)
+public readonly record struct GeoPoint(double Lat, double Lon);       // ~ NamedTuple / frozen dataclass
+
+public sealed class Order
 {
-    public IReadOnlyList<string> Tags { get; init; } = Tags ?? Array.Empty<string>();
+    public string OrderId { get; init; } = "";
+    public List<OrderLine> Lines { get; } = new();
+    public Status Status { get; set; } = Status.New;
 }
-
-// 4. Boundary Validation Model (C# equivalent of Pydantic model)
-public record UserPayload
-{
-    public int UserId { get; init; }
-    public string Role { get; init; } = string.Empty;
-
-    public static UserPayload FromBoundary(object rawId, string role)
-    {
-        // Type coercion & boundary validation
-        if (rawId == null || !int.TryParse(rawId.ToString(), out int parsedId))
-        {
-            throw new FormatException($"Validation error: cannot coerce '{rawId}' to integer");
-        }
-        return new UserPayload { UserId = parsedId, Role = role };
-    }
-}
-
-public class Program
-{
-    public static void Main()
-    {
-        // 1. NamedTuple Demonstration
-        var point = new GeoPoint(37.7749, -122.4194);
-        var (lat, lon) = point; // Positional deconstruction
-        Console.WriteLine($"NamedTuple unpacked: lat={lat}, lon={lon}");
-
-        // 2. Dataclass Immutability & Defaults
-        var user = new DomainUser(1, UserRole.Admin);
-        Console.WriteLine($"Dataclass created: id={user.UserId}, role={user.Role}, tags=[{string.Join(", ", user.Tags)}]");
-
-        // C# records with init-only properties disallow mutation post-initialization
-        PropertyInfo? prop = typeof(DomainUser).GetProperty(nameof(DomainUser.UserId));
-        bool isImmutable = prop != null && (prop.SetMethod == null || prop.SetMethod.ReturnParameter.GetRequiredCustomModifiers().Length > 0);
-        if (isImmutable)
-        {
-            Console.WriteLine("Dataclass frozen mutation blocked: True");
-        }
-
-        // 3. StrEnum Comparison
-        Console.WriteLine($"StrEnum equals string: {user.Role == "admin"}");
-
-        // 4. Boundary Validation & Coercion
-        var validPayload = UserPayload.FromBoundary("42", UserRole.Member);
-        string typeName = validPayload.UserId.GetType() == typeof(int) ? "int" : validPayload.UserId.GetType().Name;
-        Console.WriteLine($"Pydantic coerced id: {validPayload.UserId} (type: {typeName})");
-
-        try
-        {
-            UserPayload.FromBoundary("invalid", UserRole.Member);
-        }
-        catch (FormatException)
-        {
-            Console.WriteLine("Pydantic caught invalid boundary data: True");
-        }
-    }
-}
+// Validation on input: DataAnnotations / FluentValidation  (~ pydantic)
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab (the second tab, pydantic v2, prints `sku='pen' qty=3 price_cents=150` then `('qty',) greater_than`):
 
 ```text
-NamedTuple unpacked: lat=37.7749, lon=-122.4194
-Dataclass created: id=1, role=admin, tags=[]
-Dataclass frozen mutation blocked: True
-StrEnum equals string: True
-Pydantic coerced id: 42 (type: int)
-Pydantic caught invalid boundary data: True
+Order(order_id='o-1', lines=[OrderLine(sku='pen', qty=3, price_cents=150), OrderLine(sku='ink', qty=1, price_cents=900)], status=<Status.NEW: 1>)
+1350 NEW Status.PAID Status.PAID
+FrozenInstanceError: cannot assign to field 'qty'
+ok
+ink
+ValueError: qty must be > 0 and price >= 0
+ValueError: mutable default <class 'list'> for field items is not allowed: use default_factory
+[] True
+GeoPoint(lat=12.9, lon=77.6) 12.9 77.6 True True
+['NEW', 'PAID', 'SHIPPED'] True True
+not-an-int
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges
 
-- **In Python:**
-  - **`urllib.parse.urlparse`:** Returns a `ParseResult`, which is a `NamedTuple`. This enables both named attribute access (`result.scheme`, `result.netloc`) and tuple unpacking (`scheme, netloc, path, *rest = urlparse(...)`).
-  - **`sys.version_info`:** The Python interpreter version is exposed as a `NamedTuple` (`sys.version_info.major == 3`).
-  - **`http.HTTPStatus`:** Standard Python HTTP status codes are implemented as `IntEnum` instances (`HTTPStatus.OK == 200`), permitting both integer comparisons and descriptive attribute access (`HTTPStatus.OK.phrase`).
-  - **FastAPI / SQLModel:** FastAPI uses Pydantic models for request body deserialization, OpenAPI schema generation, and query validation. SQLModel bridges Pydantic models and SQLAlchemy table entities.
-  - **`inspect.Signature`:** CPython's internal inspection modules construct dataclass-like objects to represent function parameters and bytecode metadata.
+- **Mutable defaults.** `items: list = []` raises `ValueError` in dataclasses (they detect unhashable defaults) — use `field(default_factory=list)`.
+- **`frozen=True` is shallow.** A frozen dataclass holding a list can still have the list mutated — and `hash()` then fails with `TypeError: unhashable type: 'list'` because the hash is built from the fields. Use tuples/frozen types for deep immutability (lab probe 1).
+- **`datetime.now()` as a default** is *accepted* (datetimes are hashable, so no `ValueError`) but evaluated once; every instance shares the timestamp. Use `default_factory` (probe 6).
+- **`eq=True` removes `__hash__`** unless `frozen=True` (or `unsafe_hash=True`). Mutable + hashable objects corrupt dicts/sets.
+- **Inheritance & ordering of defaults.** A field without a default can't follow one with a default (`kw_only=True` solves it).
+- **No validation.** `OrderLine("x", "oops", 1)` succeeds. Add `__post_init__` checks or use pydantic.
+- **`NamedTuple` equals a tuple.** `GeoPoint(1, 2) == (1, 2)` is `True` — surprising for domain types; prefer frozen dataclasses for entities of different meaning.
+- **`Enum` comparison.** Compare with `is`/`==` to members, not raw values; use `IntEnum` only when integer behaviour is genuinely needed (it equals `int`s). Use `StrEnum` (3.11+) for string enums. Lookup by value `Status(2)`, by name `Status["PAID"]`.
+- **Enum aliases/duplicates.** Same value → alias, not a new member; `@unique` forbids it.
+- **pydantic cost.** Validation has overhead; don't use it for hot inner-loop objects. v2 is Rust-backed and much faster than v1, but still not free.
+- **Serialisation.** `dataclasses.asdict` is recursive and copies; `Enum` isn't JSON-serialisable by default (use `.value` or `StrEnum`).
+- **Concurrency:** frozen dataclasses/NamedTuples are safe to share across threads.
 
-- **In C# / .NET:**
-  - **`record` and `record struct`:** C# 9+ records synthesize value-based equality, copy constructors (for `with` expressions), and formatted string representations.
-  - **`readonly ref struct`:** Used for zero-allocation high-performance data buffers (like `ReadOnlySpan<T>`).
-  - **ASP.NET Core Model Binding & Data Annotations:** Automatically validates incoming JSON payloads against model attributes (`[Required]`, `[Range]`) and populates `ModelState.IsValid`.
+### Try it — dataclass lab (runnable)
 
----
-
-## 5. Pitfalls and When Not to Use It
-
-1. **The Mutable Default Value Trap in Dataclasses:**
-   - Attempting `tags: List[str] = []` inside a `@dataclass` raises a compile-time `ValueError: mutable default <class 'list'> for field tags is not allowed: use default_factory`.
-   - *Fix:* Always supply a callable factory: `tags: List[str] = field(default_factory=list)`.
-
-2. **The `NamedTuple` Accidental Tuple Equality Bug:**
-   - Because `NamedTuple` is a direct subclass of `tuple`, equality is evaluated purely by constituent elements:
-     ```python
-     class Coordinate(NamedTuple):
-         x: int
-         y: int
-
-     coord = Coordinate(1, 2)
-     print(coord == (1, 2))  # Evaluates to True!
-     ```
-     This can cause subtle bugs when comparing domain objects or using them as dictionary keys alongside raw tuples.
-
-3. **Field Order Inheritance Conflict in Dataclasses:**
-   - In Python, parameters without defaults cannot follow parameters with defaults. If a base dataclass declares a field with a default value:
-     ```python
-     @dataclass
-     class Base:
-         status: str = "active"
-
-     @dataclass
-     class Child(Base):
-         name: str  # SyntaxError: non-default argument 'name' follows default argument
-     ```
-     *Fix:* In Python 3.10+, use `kw_only=True` on `@dataclass` or the child fields.
-
-4. **Standard `Enum` vs `StrEnum` String Comparison:**
-   - In standard Python `Enum`:
-     ```python
-     class Status(Enum):
-         PENDING = "pending"
-
-     Status.PENDING == "pending"  # Evaluates to False!
-     ```
-     A standard `Enum` member is not equal to its raw value. Use `StrEnum` (Python 3.11+) or `class Status(str, Enum):` if your code requires direct string comparisons.
-
-5. **Using Pydantic in Performance-Critical Inner Loops:**
-   - Pydantic models perform extensive validation, deep copying, type coercion, and metadata tracking. Instantiating a Pydantic model millions of times in a tight numerical loop will cripple performance. In high-throughput internal pipelines, use `@dataclass(slots=True)` or `NamedTuple`.
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: The Accidental Tuple Collision
-Explain what happens in the following snippet. Why does the lookup succeed, and how would you redesign `UserKey` to prevent cross-type collisions?
+The follow-ups interviewers use after you can recite what `@dataclass` generates. Save as `dataclass_lab.py`; every probe is an `assert` (or a printed error message), so a wrong claim fails loudly.
 
 ```python
+import json, time
+from dataclasses import dataclass, field, replace, asdict, InitVar, FrozenInstanceError
+from datetime import datetime
+from enum import Enum, IntEnum, StrEnum, unique
 from typing import NamedTuple
 
+# 1) frozen is SHALLOW: the list inside can still change, and hashing then fails
+@dataclass(frozen=True)
+class Tags:
+    names: list
+t = Tags(["a"])
+t.names.append("b")                         # allowed: only attribute rebinding is blocked
+assert t.names == ["a", "b"]
+try:
+    hash(t)
+except TypeError as e:
+    print("1:", e)
 
-class UserKey(NamedTuple):
-    org_id: int
-    user_id: int
+# 2) eq=True without frozen clears __hash__; unsafe_hash=True restores it (at your risk)
+@dataclass
+class M: x: int
+@dataclass(unsafe_hash=True)
+class U: x: int
+assert M.__hash__ is None and hash(U(1)) == hash(U(1))
 
+# 3) A field without a default cannot follow one with a default; kw_only=True fixes it
+try:
+    @dataclass
+    class Bad:
+        a: int = 0
+        b: int
+except TypeError as e:
+    print("3:", e)
+@dataclass(kw_only=True)
+class Good:
+    a: int = 0
+    b: int
+assert Good(b=2).b == 2
 
-cache = {}
-key = UserKey(10, 20)
-cache[key] = "admin_session"
+# 4) InitVar and field(init=False): init-only input and computed fields
+@dataclass
+class User:
+    name: str
+    password: InitVar[str]
+    pw_hash: str = field(init=False)
+    def __post_init__(self, password):
+        self.pw_hash = f"h({password})"
+u = User("ann", "secret")
+assert u.pw_hash == "h(secret)" and not hasattr(u, "password")
 
-raw_tuple = (10, 20)
-print("Cache hit:", cache.get(raw_tuple))
+# 5) asdict is recursive and COPIES; replace() makes a changed copy
+@dataclass
+class Line: sku: str
+@dataclass
+class Order:
+    lines: list
+o = Order([Line("pen")])
+d = asdict(o)
+assert d == {"lines": [{"sku": "pen"}]} and isinstance(d["lines"][0], dict)
+o2 = replace(o, lines=[])
+assert o.lines and not o2.lines
+
+# 6) datetime.now() as a default is evaluated ONCE (and no error is raised); default_factory is per instance
+@dataclass
+class Bug:
+    at: datetime = datetime.now()
+@dataclass
+class Fixed:
+    at: datetime = field(default_factory=datetime.now)
+b1 = Bug(); time.sleep(0.01); b2 = Bug()
+assert b1.at == b2.at
+f1 = Fixed(); time.sleep(0.01); f2 = Fixed()
+assert f1.at != f2.at
+
+# 7) slots=True: no __dict__, fewer surprises from typos
+@dataclass(slots=True)
+class S: x: int
+s = S(1)
+try:
+    s.y = 2
+except AttributeError as e:
+    print("7:", type(e).__name__)
+
+# 8) NamedTuple equals a plain tuple, and so do two different record types with the same values
+class Point(NamedTuple):
+    x: int; y: int
+class Size(NamedTuple):
+    w: int; h: int
+assert Point(1, 2) == (1, 2) == Size(1, 2)               # surprising for domain types
+@dataclass(frozen=True)
+class P2: x: int; y: int
+@dataclass(frozen=True)
+class S2: w: int; h: int
+assert P2(1, 2) != S2(1, 2)                               # dataclass eq also checks the class
+
+# 9) Enum: aliases, @unique, IntEnum leaks, JSON
+class Color(Enum):
+    RED = 1
+    CRIMSON = 1                                           # alias of RED, not a new member
+assert Color.CRIMSON is Color.RED and len(Color) == 1
+try:
+    @unique
+    class C2(Enum):
+        A = 1
+        B = 1
+except ValueError as e:
+    print("9:", e)
+class Level(IntEnum): LOW = 1
+class Plain(Enum): LOW = 1
+assert Level.LOW == 1 and Plain.LOW != 1                 # IntEnum compares equal to ints
+try:
+    json.dumps({"c": Plain.LOW})
+except TypeError as e:
+    print("9b:", e)
+class Name(StrEnum): PAID = "paid"
+assert json.dumps({"s": Name.PAID}) == '{"s": "paid"}' and Name("paid") is Name.PAID
+
+# 10) Hints are not enforced by dataclasses; __post_init__ is the cheap fix
+@dataclass
+class Qty:
+    n: int
+    def __post_init__(self):
+        if not isinstance(self.n, int):
+            raise TypeError(f"n must be int, got {type(self.n).__name__}")
+try:
+    Qty("3")
+except TypeError as e:
+    print("10:", e)
+
+# 11) pydantic: coercion vs strict (skipped if not installed)
+try:
+    from pydantic import BaseModel, ConfigDict, ValidationError
+except ImportError:
+    print("11: pydantic not installed - skipped")
+else:
+    class Lax(BaseModel):
+        qty: int
+    class Strict(BaseModel):
+        model_config = ConfigDict(strict=True)
+        qty: int
+    assert Lax(qty="3").qty == 3                         # coerced
+    try:
+        Strict(qty="3")
+    except ValidationError as e:
+        print("11:", e.errors()[0]["type"])
+    try:
+        Lax(qty="abc")
+    except ValidationError as e:
+        print("11b:", e.errors()[0]["type"])
+print("dataclass lab ok")
 ```
 
-<details>
-<summary>Answer</summary>
+Expected output:
 
-**Output:**
 ```text
-Cache hit: admin_session
+1: unhashable type: 'list'
+3: non-default argument 'b' follows default argument 'a'
+7: AttributeError
+9: duplicate values found in <enum 'C2'>: B -> A
+9b: Object of type Plain is not JSON serializable
+10: n must be int, got str
+11: int_type
+11b: int_parsing
+dataclass lab ok
 ```
 
-**Explanation:**  
-`UserKey` inherits directly from `tuple`. In Python, a tuple's hash and equality are based entirely on its ordered sequence of values: `hash(UserKey(10, 20)) == hash((10, 20))` and `UserKey(10, 20) == (10, 20)` are both `True`. Therefore, a raw tuple unintentionally accesses the cache entry.
+---
 
-**Redesign Fix:**  
-Use a frozen dataclass to enforce nominal type identity:
-```python
-from dataclasses import dataclass
+## 5. What you'd say in two minutes
 
+> "I choose by guarantee. A plain `@dataclass` gives me `__init__`, `__repr__` and `__eq__` for free — ideal for domain objects; mutable fields use `default_factory` so instances don't share a list. If I need a value object, `frozen=True` makes it immutable and hashable so it can be a dict key and is safe across threads — though the freeze is shallow. `NamedTuple` is for tiny immutable records that should unpack like tuples. An `Enum` replaces magic strings with a closed set of members. None of these validate types at run time — hints are metadata — so for untrusted input like JSON from an API I use pydantic at the boundary, which validates and coerces, and then work with plain dataclasses inside. In C# the equivalents are `record`, `record struct`, `enum` and DataAnnotations/FluentValidation."
 
-@dataclass(frozen=True, slots=True)
-class UserKey:
-    org_id: int
-    user_id: int
+---
 
+## 6. Anti-patterns
 
-# UserKey(10, 20) == (10, 20) evaluates to False!
-```
-</details>
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| Passing raw `dict`s around the codebase | Typos, no contract | Dataclass / TypedDict at boundaries |
+| `items: list = []` | Rejected (or shared in plain classes) | `default_factory=list` |
+| Magic strings for status (`"paid"`) | Typos, no exhaustiveness | `Enum` |
+| Trusting hints for external input | Silently wrong types | pydantic / explicit validation |
+| Mutable dataclass as a dict key | Hash drift | `frozen=True` |
+| Pydantic models everywhere incl. hot loops | Overhead | Validate at edges only |
 
-### Exercise 2: Dataclass Default Factory Repair
-The following dataclass is intended to represent an audit trail, but running it causes Python to raise an immediate exception at definition time. Fix the class:
+---
 
-```python
-from dataclasses import dataclass
-from typing import List
-
-
-@dataclass
-class AuditRecord:
-    action: str
-    metadata: dict = {}
-    history: List[str] = []
-```
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. What does `@dataclass` generate? [BASIC]</strong></summary>
 
-**The Bug:**  
-`metadata` and `history` use mutable defaults (`{}` and `[]`), which `@dataclass` explicitly forbids to prevent shared state bugs across instances.
+`__init__`, `__repr__` and `__eq__` from the annotated fields; optionally `__lt__` etc. (`order=True`), `__hash__` (`frozen=True`), `__slots__` (`slots=True`) and keyword-only init (`kw_only=True`).
 
-**Fixed Code:**
-```python
-from dataclasses import dataclass, field
-from typing import Dict, List
-
-
-@dataclass
-class AuditRecord:
-    action: str
-    metadata: Dict[str, str] = field(default_factory=dict)
-    history: List[str] = field(default_factory=list)
-```
 </details>
-
-### Exercise 3: Architectural Decision Drill
-You are designing an order-processing pipeline that receives raw JSON HTTP requests, translates them into internal domain orders, performs 10,000 algorithmic pricing iterations, and publishes an immutable event to Kafka. Which container should you use at each stage?
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. Why can't you write `items: list = []`? [BASIC]</strong></summary>
 
-1. **HTTP Ingestion:** **Pydantic `BaseModel`**. Ensures raw untrusted JSON fields are validated, missing fields raise HTTP 422 errors, and types are coerced.
-2. **Internal Algorithmic Pricing Loop:** **`@dataclass(slots=True)`** or **`typing.NamedTuple`**. Provides $O(1)$ fast attribute access and minimal memory overhead without validation lag.
-3. **Kafka Event Emission:** **`@dataclass(frozen=True, slots=True)`** with domain **`StrEnum`** states. Guarantees the emitted event is immutable, thread-safe, and serializes cleanly to JSON.
+A mutable default would be shared by all instances (lesson 02). Dataclasses reject it with `ValueError`; use `field(default_factory=list)`.
+
+</details>
+
+<details>
+<summary><strong>3. dataclass vs NamedTuple? [BASIC]</strong></summary>
+
+NamedTuple is an immutable tuple with named fields: unpackable, indexable, hashable, lightweight, equal to plain tuples. Dataclass is a regular class: mutable by default, supports methods/inheritance/defaults better, not iterable.
+
+</details>
+
+<details>
+<summary><strong>4. How do you make a dataclass immutable and hashable? [BASIC]</strong></summary>
+
+`@dataclass(frozen=True)`; with `eq=True` it generates `__hash__` from the fields. Remember the freeze is shallow.
+
+</details>
+
+<details>
+<summary><strong>5. When pydantic over dataclasses? [SCENARIO]</strong></summary>
+
+When data crosses a trust boundary — request bodies, config, files — and you need validation, coercion, error reporting and (de)serialisation (FastAPI is built on it). Inside the domain, plain dataclasses are lighter.
+
+</details>
+
+<details>
+<summary><strong>6. Do type hints validate dataclass fields? [TRICKY]</strong></summary>
+
+No. `Order("x", lines="oops")` succeeds. Validate in `__post_init__`, or use pydantic's dataclasses/models.
+
+</details>
+
+<details>
+<summary><strong>7. `Enum` vs constants vs `IntEnum`? [TRICKY]</strong></summary>
+
+`Enum` members are distinct, comparable by identity, iterable and self-documenting. Module constants have no grouping or type. `IntEnum` members *are* ints (compare equal to numbers), which leaks — use only for wire-format codes.
+
+</details>
+
+<details>
+<summary><strong>8. A dataclass field defaults to `datetime.now()`. What's wrong? [SCENARIO]</strong></summary>
+
+The default is evaluated once at class definition, so every instance gets the same timestamp. Use `field(default_factory=datetime.now)`.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: What is a dataclass?**  
-> **Strong Answer:**  
-> "A dataclass (introduced in PEP 557 in Python 3.7) is a class decorator (`@dataclass`) that inspects type annotations on a class and automatically synthesizes boilerplate special dunder methods—primarily `__init__()`, `__repr__()`, and `__eq__()`—at class definition time.  
-> 
-> Key capabilities include:
-> - **Immutability:** Setting `frozen=True` emulates read-only value objects by overriding `__setattr__` and `__delattr__` to raise a `FrozenInstanceError`.
-> - **Ordering:** Setting `order=True` automatically generates comparison dunder methods (`__lt__`, `__le__`, `__gt__`, `__ge__`) based on field tuples.
-> - **Memory Optimization:** In Python 3.10+, passing `slots=True` generates a `__slots__` attribute, eliminating the instance `__dict__` and reducing memory footprint.
-> - **Default Factories:** Provides `field(default_factory=...)` to safely allocate mutable defaults (like lists or dicts) per instance rather than sharing class-level instances.
-> 
-> Crucially, a dataclass is **not** a data validation library. It records type hints as metadata in `__annotations__` but performs no runtime type enforcement."
-
-> [!interview]
-> **Question 2: What is the difference between a dataclass and a `NamedTuple`?**  
-> **Strong Answer:**  
-> "The primary differences center on **inheritance, mutability, memory layout, and equality semantics**:
-> 
-> 1. **Underlying Base Type:** A `NamedTuple` is a typed subclass of the built-in `tuple`. A `dataclass` is a standard Python `class` (subclass of `object`) with auto-generated dunder methods.
-> 2. **Mutability:** `NamedTuple` is **strictly immutable** by design. A `dataclass` is **mutable by default**, but can be made immutable via `frozen=True`.
-> 3. **Unpacking and Indexing:** `NamedTuple` supports positional indexing (`pt[0]`) and unpacking (`x, y = pt`). A `dataclass` does not support indexing or unpacking unless explicitly implemented via `__iter__`.
-> 4. **Equality Semantics:** `NamedTuple` shares tuple equality semantics: a `Point(1, 2)` compares equal to a raw tuple `(1, 2)`. A `dataclass` uses nominal equality: an instance is only equal to another instance of the **same class** with matching field values.
-> 5. **Memory Overhead:** A `NamedTuple` stores items in a compact C-level pointer array without a per-instance `__dict__`. A standard `dataclass` allocates a `__dict__` unless configured with `slots=True`."
-
-> [!interview]
-> **Question 3: When would you use pydantic instead of a dataclass?**  
-> **Strong Answer:**  
-> "You should use **Pydantic** when operating at **untrusted system boundaries**, and a **dataclass** for **internal domain logic and computational performance**:
-> 
-> - **Use Pydantic when:**
->   - Ingesting untrusted external data (HTTP JSON payloads, environment variables, configuration files, message broker payloads).
->   - You require **runtime validation, parsing, and type coercion** (e.g., converting an incoming ISO string `'2026-01-01T00:00:00Z'` into a `datetime` object, or validating email regex).
->   - You need automatic JSON Schema generation (e.g., OpenAPI in FastAPI).
-> 
-> - **Use a Dataclass when:**
->   - Modeling internal domain entities, algorithms, and business logic where data is already trusted and validated.
->   - Operating inside high-throughput computational or algorithmic loops where Pydantic's reflection and validation overhead (often 50x–100x slower) would cause severe CPU bottlenecks.
->   - Writing lightweight libraries with zero external dependencies."
+```text
+@dataclass                 __init__ __repr__ __eq__      mutable;  field(default_factory=list) for mutables
+@dataclass(frozen=True)    + __hash__, immutable (shallow) -> value objects, dict keys
+@dataclass(order=True, slots=True, kw_only=True)   extras (3.10+)
+__post_init__              validate / derive;   replace(obj, x=1) = copy-with-change
+NamedTuple                 tuple + names; unpack/index; == plain tuple (surprise)
+Enum / StrEnum             closed set; Status["X"], Status(v), iterate; compare with `is`
+pydantic BaseModel         validate + coerce + serialise at the boundary (v2: model_validate/model_dump)
+Hints                      NOT enforced.  Untrusted input => pydantic.  Inside domain => dataclass
+C#                         record / record struct / enum / DataAnnotations
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [PEP 557: Data Classes](https://peps.python.org/pep-0557/)
-- [Python 3 Documentation: `dataclasses` module](https://docs.python.org/3/library/dataclasses.html)
-- [Python 3 Documentation: `collections.namedtuple`](https://docs.python.org/3/library/collections.html#collections.namedtuple)
-- [Python 3 Documentation: `enum` - Support for enumerations](https://docs.python.org/3/library/enum.html)
-- [Pydantic Official Documentation](https://docs.pydantic.dev/latest/)
-- [Microsoft Learn: Records - Value-based equality in C#](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/types/records)
-
----
+- [`dataclasses` documentation](https://docs.python.org/3/library/dataclasses.html) · [PEP 557](https://peps.python.org/pep-0557/)
+- [`enum` documentation](https://docs.python.org/3/library/enum.html)
+- [pydantic documentation](https://docs.pydantic.dev/latest/)
 
 Previous: [ABCs, Protocols, Duck Typing and Type Hints](../09-abcs-protocols-duck-typing-and-type-hints/README.md) · Next: [Context Managers and with](../11-context-managers/README.md)

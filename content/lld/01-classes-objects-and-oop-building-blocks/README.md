@@ -1,159 +1,188 @@
-# Module 01: Classes, Objects, and OOP Building Blocks
+# Classes, Objects & OOP Building Blocks
 
-> **Prerequisites:** Module 00 (Programming Basics, Memory Layout).  
-> **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Software Engineers, Backend Developers, Low-Level Design Architects.
+> **Prerequisites:** [00 · Programming Basics (Python & C#)](../00-programming-basics-python-and-csharp/README.md) — references, value vs reference, collections, `Decimal` / `decimal`.  
+> **Reading time:** ~22 minutes  
+> **Audience:** Anyone in an LLD / machine-coding round who will be asked to "design a class" — a bank account, wallet, order, or locker — and defend its encapsulation
+
+> [!NOTE]
+> **In one line:** A class is a **guardian of invariants**, not a bag of fields — keep state private, build objects that are valid from the first line after the constructor, and let every state change pass through one validated method.
 
 > [!TIP]
-> **The Golden Rule of Encapsulation:** **Never expose public mutable fields.** A class is not a passive data bag; it is an **enforcer of business invariants**. Make internal state private, validate all state transitions through public methods, and ensure that an object can never exist in an invalid, corrupted, or negative state from the moment its constructor finishes.
+> **Golden rule:** If a caller can put your object into an illegal state (`balance = -490`) *without calling one of your methods*, the class is not finished. Move the rule into the class; then delete the setter.
+
+> [!TIP]
+> **Try it:** Sketch `BankAccount` → `Transaction` in [LLD Studio](/tools/lld-studio/), then run the Python ledger below and try to break the invariant from outside.
 
 ---
 
-## 1. Architectural Mental Model: Classes, Instances, and Method Dispatch
+## 1. When this shows up in an interview
 
-A class is a compile-time metadata schema; an object is a dynamically allocated chunk of heap memory initialized to that schema:
+Interviewer: *"Design a `BankAccount` (or `Wallet`, `Locker`, `Order`). Deposit, withdraw, show history."* It sounds easy, which is the point — they are watching for **encapsulation instincts**.
+
+**Smells that cost you points:**
+
+- `public decimal Balance { get; set; }` or `self.balance` edited from outside.
+- `getBalance()` / `setBalance()` pairs — encapsulation theater; the setter accepts anything.
+- An `AccountService` that holds all the rules while `Account` is a data bag (**anemic domain model**).
+- A constructor that leaves the object half-built (needs `init()` afterwards).
+- `float` for money; `static` fields holding per-account or per-request state.
+- Returning the internal history list so callers can rewrite the past.
 
 ```mermaid
-flowchart TD
-    subgraph ClassMetadata["Class Blueprint (Code / Metadata Segment)"]
-        BankAccountClass["Class BankAccount\nMethod: deposit(amount)\nMethod: withdraw(amount)\nVirtual Method Table (vtable)"]
-    end
-
-    subgraph HeapMemory["Managed Heap (Runtime Instances)"]
-        ObjA["Instance A (0x10A0)\naccountNumber: 'ACC-001'\n_balance: $500.00\nvptr -> BankAccount"]
-        ObjB["Instance B (0x20F0)\naccountNumber: 'ACC-002'\n_balance: $1,250.00\nvptr -> BankAccount"]
-    end
-
-    subgraph Invocation["Method Execution: accountA.deposit(50.00)"]
-        StackCall["Call Stack Frame: deposit()\nArg 0 (Hidden): this / self = 0x10A0\nArg 1: amount = 50.00"]
-    end
-
-    ObjA -.->|Instantiated from| BankAccountClass
-    ObjB -.->|Instantiated from| BankAccountClass
-    StackCall -->|Mutates private state of 0x10A0 only| ObjA
-
-    classDef meta fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    class BankAccountClass meta;
+classDiagram
+  class BankAccount {
+    -string accountId
+    -Decimal balance
+    -List~Transaction~ history
+    +deposit(amount) void
+    +withdraw(amount) void
+    +balance Decimal
+    +history() Transaction[]
+  }
+  class Transaction {
+    <<value object>>
+    +TxKind kind
+    +Decimal amount
+    +datetime at
+  }
+  class TxKind {
+    <<enumeration>>
+    DEPOSIT
+    WITHDRAWAL
+  }
+  BankAccount "1" *-- "0..*" Transaction : owns ledger
+  Transaction --> TxKind
 ```
-
-### The Anatomy of `this` / `self`
-When you execute `account.deposit(50.00)`, the CPU does not execute code inside the object. Executable machine code lives once in the shared code segment. 
-
-The runtime passes the memory address of the target object as a **hidden zeroth argument** (`this` in C++/C#/Java/TS, explicit `self` in Python, explicit receiver in Go). The method reads and mutates the specific fields located at that heap address offset.
-
----
-
-## 2. Taxonomic Reference: Access Modifiers Across Languages
-
-Encapsulation restricts direct access to an object's internal representation:
-
-| Language | Public Visibility | Private Visibility | Protected / Package Visibility | How Enforced |
-| :--- | :--- | :--- | :--- | :--- |
-| **C# (.NET)** | `public` | `private` (Default) | `protected` (Subclasses) / `internal` (Assembly) | Compiler & CLR runtime reflection guards |
-| **Python** | Default attributes (`self.balance`) | Leading double underscore (`self.__balance`) | Leading single underscore (`self._balance` - convention) | Name mangling (`_ClassName__field`) |
-| **Go** | Capitalized identifier (`Account`, `Balance`) | Lowercase identifier (`account`, `balance`) | Package-scoped (shared within folder) | Compiler symbol export table |
-| **TypeScript** | `public` (Default) | `#balance` (Hard private) or `private` (TS check) | `protected` (Derived classes) | Hard private `#` enforced by JavaScript runtime |
-
----
-
-## 3. Systematic Breakdown: Static Members vs. Instance Members
-
-Understanding the scope of data prevents memory leaks and multi-tenant contamination:
-
-```
-  CLASS BLUEPRINT (Loaded once per process)
-  ┌────────────────────────────────────────────────────────┐
-  │ static totalAccountsCreated = 2                        │ ◀── Shared by ALL instances
-  │ static getBankRoutingNumber()                          │
-  └────────────────────────────────────────────────────────┘
-          │                                  │
-          ▼                                  ▼
-  INSTANCE A (0x100)                 INSTANCE B (0x200)
-  ┌───────────────────────┐          ┌───────────────────────┐
-  │ id: "ACC-001"         │          │ id: "ACC-002"         │
-  │ balance: $500         │          │ balance: $1200        │
-  └───────────────────────┘          └───────────────────────┘
-```
-
-* **Instance Variables:** Unique to each individual object. Modifying `accountA.balance` never affects `accountB.balance`.
-* **Static / Class Variables:** Bound to the class definition in global memory. Every instance shares the exact same memory cell. Modifying a static variable alters behavior across all users in the system!
-
----
-
-## 4. Production War Story: The Public Mutable Field Invariant Bypass
 
 ```mermaid
-sequenceDiagram
-    actor Attacker as Malicious Client
-    participant Promo as Marketing Promo Engine
-    participant Account as BankAccount Entity
-    participant DB as Production Database
-
-    Note over Account: Account has public field: public decimal Balance#59;
-    Attacker->>Promo: Apply $500 Promotional Coupon
-    Note over Promo: Promo engine calculates discount:
-    Promo->>Account: account.Balance = account.Balance - 500#59;
-    Note over Account: Initial balance was $10! Balance becomes -$490!
-    Note over Account: Because field is public, zero validation occurred!
-    Promo->>DB: Save account with negative balance
-    Attacker->>Account: Withdraw remaining cash from ATM
-    Note over Account: Emergency SEV-1: Overdraft limits bypassed#59; $140,000 loss!
+flowchart LR
+  Caller["Caller"] -->|"withdraw(50)"| Door["BankAccount.withdraw"]
+  Door --> G1{"amount valid?"}
+  G1 -->|no| E1["raise / throw"]
+  G1 -->|yes| G2{"balance >= amount?"}
+  G2 -->|no| E2["InsufficientFunds"]
+  G2 -->|yes| M["mutate balance + append Transaction"]
 ```
 
-### The Incident
-A digital banking platform introduced a promotional checkout service. A developer declared the domain account model with public setters:
-```csharp
-public class BankAccount {
-    public decimal Balance { get; set; } // ❌ ANTI-PATTERN: Raw public setter
-}
-```
-A promotional checkout module calculated item discounts and subtracted them directly from `account.Balance`. 
-
-When users with $\$10$ applied a $\$500$ voucher that had a negative rebate clause, the balance was set directly to $-\$490$. Because no domain checks executed, 1,200 accounts went negative without triggering overdraft controls, allowing users to withdraw unbacked funds from ATMs.
-
-### The Post-Mortem Data
-* **Severity:** SEV-1 (Financial Loss & Compliance Breach)
-* **Mean Time to Detect (MTTD):** 20 minutes
-* **Mean Time to Resolution (MTTR):** 40 minutes
-
-### The Root Cause
-The `BankAccount` class failed to encapsulate its state. By exposing a public mutable property, external modules were permitted to bypass business invariants (e.g., balance cannot be negative without an authorized credit facility).
-
-### The Fix & Hardening
-1. **Enforce Private State and Intent-Revealing Methods:**
-```csharp
-public class BankAccount {
-    public decimal Balance { get; private set; } // Read-only externally
-
-    public void Withdraw(decimal amount) {
-        if (amount <= 0) throw new ArgumentException("Withdrawal must be positive");
-        if (Balance - amount < 0) throw new InvalidOperationException("Insufficient funds");
-        Balance -= amount;
-    }
-}
-```
-2. **Make Constructors Enforce Initial Invariants:** Forbid creating half-initialized objects by requiring all mandatory fields in constructor parameters.
+Every state change goes through **one door**. That door is where the invariants live.
 
 ---
 
-## 5. Multi-Language Production Code: Encapsulation & Domain Invariants
+## 2. Building blocks (the vocabulary you must use precisely)
 
-Below is an enterprise implementation of a domain entity enforcing strict invariants, currency boundaries, and immutable identifiers across four languages.
+| Term | Meaning | Interview line |
+| :--- | :--- | :--- |
+| **Class** | Blueprint: fields + methods + constructors | "The class defines what is legal." |
+| **Object / instance** | One allocation of that blueprint with its own field values | "Two accounts, same class, separate state." |
+| **Field** | Data stored per instance | Keep private. |
+| **Method** | Behavior that operates on instance fields via hidden `this` / explicit `self` | "Behavior lives next to the data it protects." |
+| **Constructor** | Runs once; must leave the object valid | "No half-initialized objects." |
+| **Property** | Controlled field access (`@property`, `{ get; private set; }`) | "Read freely, write through intent-revealing methods." |
+| **Static / class member** | One copy per class (per process), not per object | "Process-wide state — avoid for anything mutable." |
+| **Invariant** | A condition that is true whenever no method is mid-execution | "balance ≥ 0 and balance = sum of ledger." |
+| **Tell, don't ask** | Tell the object what to do (`account.withdraw(50)`), don't pull its state and decide outside | "Rules live with the data." |
+
+### Access control: Python vs C#
+
+| Level | Python | C# | Enforced by |
+| :--- | :--- | :--- | :--- |
+| Public API | `balance`, `deposit()` | `public` | — |
+| Internal use | `_balance` (single underscore) | `private` (default for members) | Python: **convention only**; C#: compiler |
+| Name-mangled | `__balance` → `_BankAccount__balance` | — | Python avoids accidental subclass clashes; **not** security |
+| Subclass-visible | `_name` by convention | `protected` | C# compiler |
+| Assembly-visible | module-level / `_` helpers | `internal` | C# compiler |
+| Read-only after construction | `@property` with no setter; `frozen=True` dataclass | `{ get; }`, `init`, `readonly` | Runtime / compiler |
+
+**Say this aloud:** *"In Python 'private' is a social contract plus tooling; in C# it's a compiler guarantee. Either way I design the public surface so the contract is easy to keep."*
+
+---
+
+## 3. Construction and lifecycle
+
+1. **Valid on construction.** Check every precondition in the constructor; raise / throw if it can't hold. Avoid two-phase init (`acct = Account(); acct.init(...)`) — that is **temporal coupling**.
+2. **One constructor, plus named factories** when construction can take different forms or fail: `Account.open_with_deposit(...)` (Python `@classmethod`), `Account.Open(...)` (C# `static`).
+3. **No virtual calls in constructors.** In C#, a base constructor that calls a `virtual` method runs the override before the derived constructor body — fields are still default. Python has the same hazard with overridden methods. Seal the class (`sealed`) unless inheritance is part of the design.
+4. **Release resources deterministically.** Python `with` / `__enter__`; C# `IDisposable` + `using`. Domain objects like accounts rarely need this; connections and file handles do.
+
+---
+
+## 4. Walkthrough: `BankAccount` with a ledger
+
+**Requirements (tiny):** open an account with an optional opening balance; `deposit`; `withdraw` (no overdraft); expose the balance and an immutable-looking history.
+
+**Invariants to protect:**
+
+1. `balance >= 0`.
+2. `balance == sum(deposits) - sum(withdrawals)` (the ledger always explains the balance).
+3. Amounts are positive and have at most two decimal places.
+4. A failed operation changes nothing.
+
+### Before (fields exposed, no door)
+
+```python
+class BadAccount:
+    def __init__(self):
+        self.balance = 0.0
+        self.history = []
+
+acct = BadAccount()
+acct.balance -= 490       # allowed. No ledger entry. No check.
+acct.history.clear()      # allowed. The past is gone.
+```
+
+### After (one door per change)
 
 ````carousel
 ```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Final
+from enum import Enum
+from typing import Callable
+
+
+class TxKind(Enum):
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+
+
+@dataclass(frozen=True)
+class Transaction:
+    kind: TxKind
+    amount: Decimal
+    at: datetime
+
+
+class InsufficientFunds(Exception):
+    def __init__(self, balance: Decimal, requested: Decimal) -> None:
+        super().__init__(f"balance {balance}, requested {requested}")
+        self.balance = balance
+        self.requested = requested
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
 
 class BankAccount:
-    def __init__(self, account_id: str, initial_deposit: Decimal):
+    def __init__(
+        self,
+        account_id: str,
+        opening_balance: Decimal = Decimal("0"),
+        clock: Callable[[], datetime] = _utc_now,
+    ) -> None:
         if not account_id or not account_id.strip():
-            raise ValueError("Account ID cannot be empty.")
-        if initial_deposit < Decimal("0.00"):
-            raise ValueError("Initial deposit cannot be negative.")
-
-        self._account_id: Final[str] = account_id
-        self._balance: Decimal = initial_deposit
+            raise ValueError("account_id is required")
+        if opening_balance != 0:
+            self._require_money(opening_balance)
+        self._account_id = account_id
+        self._clock = clock
+        self._balance = Decimal("0")
+        self._history: list[Transaction] = []
+        if opening_balance > 0:
+            self._post(TxKind.DEPOSIT, opening_balance)
 
     @property
     def account_id(self) -> str:
@@ -164,272 +193,278 @@ class BankAccount:
         return self._balance
 
     def deposit(self, amount: Decimal) -> None:
-        if amount <= Decimal("0.00"):
-            raise ValueError("Deposit amount must be strictly positive.")
-        self._balance += amount
+        self._require_money(amount)
+        self._post(TxKind.DEPOSIT, amount)
 
     def withdraw(self, amount: Decimal) -> None:
-        if amount <= Decimal("0.00"):
-            raise ValueError("Withdrawal amount must be strictly positive.")
+        self._require_money(amount)
         if amount > self._balance:
-            raise ValueError(f"Insufficient funds: available {self._balance}, requested {amount}.")
-        self._balance -= amount
+            raise InsufficientFunds(self._balance, amount)
+        self._post(TxKind.WITHDRAWAL, amount)
+
+    def history(self) -> tuple[Transaction, ...]:
+        """Snapshot. Later transactions do not appear in a tuple you already hold."""
+        return tuple(self._history)
+
+    # -- private helpers ----------------------------------------------------
+    def _post(self, kind: TxKind, amount: Decimal) -> None:
+        delta = amount if kind is TxKind.DEPOSIT else -amount
+        self._balance += delta
+        self._history.append(Transaction(kind, amount, self._clock()))
+
+    @staticmethod
+    def _require_money(amount: Decimal) -> None:
+        if not isinstance(amount, Decimal):
+            raise TypeError("amount must be Decimal, not float")
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        if amount != amount.quantize(Decimal("0.01")):
+            raise ValueError("amount has more than 2 decimal places")
+
 
 if __name__ == "__main__":
-    acc = BankAccount("ACC-101", Decimal("100.00"))
-    acc.deposit(Decimal("50.00"))
-    print(f"Account {acc.account_id} balance: ${acc.balance}")
+    acct = BankAccount("ACC-1", Decimal("100.00"))
+    acct.deposit(Decimal("50.00"))
+    acct.withdraw(Decimal("30.00"))
+    print(acct.balance)                                   # 120.00
+
+    try:
+        acct.withdraw(Decimal("500.00"))
+    except InsufficientFunds as exc:
+        print("rejected:", exc)
+    assert acct.balance == Decimal("120.00")               # failed op changed nothing
+
+    ledger = acct.history()
+    assert len(ledger) == 3
+    assert sum(t.amount if t.kind is TxKind.DEPOSIT else -t.amount for t in ledger) == acct.balance
+    try:
+        ledger[0].amount = Decimal("999")                  # type: ignore[misc]
+    except Exception as exc:
+        print("ledger entry is frozen:", type(exc).__name__)
 ```
-
 <!-- slide -->
-
 ```csharp
 using System;
+using System.Collections.Generic;
 
-public class BankAccount
+public enum TxKind { Deposit, Withdrawal }
+
+public sealed record Transaction(TxKind Kind, decimal Amount, DateTimeOffset At);
+
+public sealed class InsufficientFundsException : InvalidOperationException
 {
+    public decimal Balance { get; }
+    public decimal Requested { get; }
+
+    public InsufficientFundsException(decimal balance, decimal requested)
+        : base($"balance {balance}, requested {requested}")
+    {
+        Balance = balance;
+        Requested = requested;
+    }
+}
+
+public sealed class BankAccount
+{
+    private readonly List<Transaction> _history = new();
+    private readonly Func<DateTimeOffset> _clock;
+
     public string AccountId { get; }
     public decimal Balance { get; private set; }
 
-    public BankAccount(string accountId, decimal initialDeposit)
+    // Live, read-only view. Caller cannot mutate it, but it reflects later changes.
+    public IReadOnlyList<Transaction> History => _history.AsReadOnly();
+
+    public BankAccount(string accountId, decimal openingBalance = 0m, Func<DateTimeOffset>? clock = null)
     {
         if (string.IsNullOrWhiteSpace(accountId))
-            throw new ArgumentException("Account ID cannot be null or whitespace.", nameof(accountId));
-        
-        if (initialDeposit < 0m)
-            throw new ArgumentOutOfRangeException(nameof(initialDeposit), "Initial balance cannot be negative.");
+            throw new ArgumentException("accountId is required", nameof(accountId));
+        if (openingBalance != 0m) RequireMoney(openingBalance, nameof(openingBalance));
 
         AccountId = accountId;
-        Balance = initialDeposit;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        if (openingBalance > 0m) Post(TxKind.Deposit, openingBalance);
     }
 
     public void Deposit(decimal amount)
     {
-        if (amount <= 0m)
-            throw new ArgumentOutOfRangeException(nameof(amount), "Deposit amount must be strictly positive.");
-
-        Balance += amount;
+        RequireMoney(amount, nameof(amount));
+        Post(TxKind.Deposit, amount);
     }
 
     public void Withdraw(decimal amount)
     {
-        if (amount <= 0m)
-            throw new ArgumentOutOfRangeException(nameof(amount), "Withdrawal amount must be strictly positive.");
-        
-        if (amount > Balance)
-            throw new InvalidOperationException($"Insufficient funds. Current balance: {Balance}");
-
-        Balance -= amount;
-    }
-}
-```
-
-<!-- slide -->
-
-```go
-package main
-
-import (
-	"errors"
-	"fmt"
-)
-
-type BankAccount struct {
-	// Unexported private fields
-	accountID string
-	balance   int64 // Cents to avoid floating point imprecision
-}
-
-// NewBankAccount acts as a constructor function enforcing domain validation.
-func NewBankAccount(id string, initialDepositCents int64) (*BankAccount, error) {
-	if id == "" {
-		return nil, errors.New("account ID cannot be empty")
-	}
-	if initialDepositCents < 0 {
-		return nil, errors.New("initial deposit cannot be negative")
-	}
-
-	return &BankAccount{
-		accountID: id,
-		balance:   initialDepositCents,
-	}, nil
-}
-
-func (a *BankAccount) Balance() int64 {
-	return a.balance
-}
-
-func (a *BankAccount) Deposit(cents int64) error {
-	if cents <= 0 {
-		return errors.New("deposit amount must be positive")
-	}
-	a.balance += cents
-	return nil
-}
-
-func (a *BankAccount) Withdraw(cents int64) error {
-	if cents <= 0 {
-		return errors.New("withdrawal amount must be positive")
-	}
-	if cents > a.balance {
-		return fmt.Errorf("insufficient funds: balance is %d, requested %d", a.balance, cents)
-	}
-	a.balance -= cents
-	return nil
-}
-
-func main() {
-	acc, _ := NewBankAccount("ACC-001", 10000)
-	_ = acc.Deposit(5000)
-	fmt.Printf("Account Balance: $%.2f\n", float64(acc.Balance())/100)
-}
-```
-
-<!-- slide -->
-
-```typescript
-export class BankAccount {
-  readonly #accountId: string;
-  #balance: bigint; // Using bigint for integer currency subunits
-
-  constructor(accountId: string, initialDepositCents: bigint) {
-    if (!accountId || accountId.trim() === '') {
-      throw new Error('Account ID cannot be empty');
-    }
-    if (initialDepositCents < 0n) {
-      throw new Error('Initial deposit cannot be negative');
+        RequireMoney(amount, nameof(amount));
+        if (amount > Balance) throw new InsufficientFundsException(Balance, amount);
+        Post(TxKind.Withdrawal, amount);
     }
 
-    this.#accountId = accountId;
-    this.#balance = initialDepositCents;
-  }
-
-  get accountId(): string {
-    return this.#accountId;
-  }
-
-  get balanceCents(): bigint {
-    return this.#balance;
-  }
-
-  public deposit(amountCents: bigint): void {
-    if (amountCents <= 0n) {
-      throw new Error('Deposit must be positive');
+    private void Post(TxKind kind, decimal amount)
+    {
+        Balance += kind == TxKind.Deposit ? amount : -amount;
+        _history.Add(new Transaction(kind, amount, _clock()));
     }
-    this.#balance += amountCents;
-  }
 
-  public withdraw(amountCents: bigint): void {
-    if (amountCents <= 0n) {
-      throw new Error('Withdrawal must be positive');
+    private static void RequireMoney(decimal amount, string name)
+    {
+        if (amount <= 0m) throw new ArgumentOutOfRangeException(name, "amount must be positive");
+        if (decimal.Round(amount, 2) != amount)
+            throw new ArgumentException("amount has more than 2 decimal places", name);
     }
-    if (amountCents > this.#balance) {
-      throw new Error(`Insufficient funds: balance is ${this.#balance}, requested ${amountCents}`);
+}
+
+public static class Program
+{
+    public static void Main()
+    {
+        var acct = new BankAccount("ACC-1", 100.00m);
+        acct.Deposit(50.00m);
+        acct.Withdraw(30.00m);
+        Console.WriteLine(acct.Balance);                       // 120.00
+
+        try { acct.Withdraw(500.00m); }
+        catch (InsufficientFundsException ex) { Console.WriteLine($"rejected: {ex.Message}"); }
+
+        Console.WriteLine(acct.Balance == 120.00m);            // True: failed op changed nothing
+        Console.WriteLine(acct.History.Count);                 // 3
     }
-    this.#balance -= amountCents;
-  }
 }
 ```
 ````
 
+**What each choice bought you**
+
+| Choice | Invariant it protects |
+| :--- | :--- |
+| `balance` has no public setter | Balance can only change via `deposit` / `withdraw` |
+| Validation before `_post` | A failed call leaves balance and ledger untouched |
+| `Transaction` is frozen / `record` | History entries cannot be edited after the fact |
+| `Decimal` + two-decimal rule | No float drift; no sub-cent amounts |
+| Injected `clock` | Tests are deterministic; no `sleep` or `freeze_time` needed |
+
 ---
 
-## 6. Practical Hands-On Verification CLI Workflows
+## 5. Edges interviewers push on
 
-Follow these workflows in your Ubuntu terminal:
+| Edge | What goes wrong | What to say |
+| :--- | :--- | :--- |
+| **Collection getters** | `return self._history` lets callers append fake entries | Return a tuple / copy (Python) or `IReadOnlyList` view (C#); say whether it is a snapshot or a live view |
+| **Static mutable state** | `static int totalAccounts`, `static User current` shared across requests/tests | Per-process state is global state: it breaks tests and is a data race under threads; use instances + DI |
+| **Entity vs value equality** | Two `BankAccount` objects with the same ID — equal or not? | Entities compare by **ID**; value objects by **all fields** ([03](../03-generics-exceptions-and-value-objects/README.md)) |
+| **Constructor validates, setter doesn't** | Object valid at birth, corrupted later | Route every write through a method that re-checks the same rules |
+| **Python `__x` is not private** | `acct._BankAccount__balance = -1` works | Mangling prevents accidental clashes; it is not a security boundary |
+| **Reflection / serialization** | ORMs and JSON can set private fields | Fine at the boundary, but do not let the domain depend on it; keep invariants in constructors/factories used by mappers |
+| **Concurrent `withdraw`** | Check balance, then subtract — two threads can both pass the check | This class is **not** thread-safe; see [10 · Concurrency-Safe Design](../10-concurrency-safe-design/README.md) |
+| **Idempotency** | A retried `deposit` credits twice | Real APIs carry an idempotency key; in LLD say it and keep the class simple |
+| **Over-encapsulating** | A getter/setter per private field | Expose *behavior* and read-only state, not field-by-field accessors |
 
-### Workflow 1: Inspect Encapsulation and Property Invariants
-```bash
-python3 -c '
-from decimal import Decimal
+---
 
-class User:
-    def __init__(self, age: int):
-        self.age = age # Uses setter property
+## 6. What you'd say in two minutes
 
-    @property
-    def age(self) -> int:
-        return self._age
+> "I'd model `BankAccount` as an entity identified by `account_id`, with private balance and a private ledger of immutable `Transaction` value objects. The constructor validates the ID and opening balance, so no account is ever half-built. The only ways to change state are `deposit` and `withdraw`; both validate that the amount is a positive `Decimal` with at most two places, `withdraw` also checks sufficient funds, and a failed call leaves everything unchanged. The ledger always explains the balance — that's my second invariant. History is returned as a tuple in Python or a read-only view in C#, so callers can't rewrite it. I inject a clock for deterministic tests. It isn't thread-safe; if two gates call `withdraw` concurrently I'd put a lock inside the account, not in callers. I'd avoid static state and avoid getters and setters that just mirror fields."
 
-    @age.setter
-    def age(self, value: int):
-        if value < 0:
-            raise ValueError("Age cannot be negative!")
-        self._age = value
+---
 
-u = User(25)
-print("Valid age set:", u.age)
-try:
-    u.age = -5
-except ValueError as e:
-    print("✅ Invariant protection active:", e)
-'
-```
-**Expected Output:**
+## 7. Anti-patterns
+
+1. **Public mutable fields / setters** — any caller can bypass every rule.
+2. **Anemic domain model** — `Order` has only getters/setters; `OrderService` owns all rules; the same rule gets copied into three services. Put `order.cancel()` on `Order`.
+3. **Half-built objects** — constructor then `init()` then `validate()` — temporal coupling. Use the constructor or a factory.
+4. **God constructor** — twelve required parameters. Group into value objects or use a builder ([06](../06-creational-patterns/README.md)).
+5. **Static state for instance concerns** — counters, "current user", caches keyed by nothing.
+6. **Leaking internals** — returning `self._items`, or exposing `List<T>` instead of `IReadOnlyList<T>`.
+7. **`float` / `double` for money** — drift in the ledger.
+8. **Getters that ask, services that decide** — violating *tell, don't ask*.
+
+---
+
+## 8. Interview questions
+
+<details>
+<summary><strong>1. Are getters and setters encapsulation? [BASIC]</strong></summary>
+
+Not by themselves. A setter that accepts any value is just a public field with extra typing. Encapsulation is hiding representation and exposing **behavior that preserves invariants** — `withdraw(amount)`, not `setBalance(x)`.
+
+</details>
+
+<details>
+<summary><strong>2. Class vs object, and what are `this` / `self`? [BASIC]</strong></summary>
+
+A class is the blueprint; an object is one instance with its own field values. Methods are shared code; the runtime passes the target instance as a hidden first argument — `this` in C#, explicit `self` in Python — so `acct.deposit(10)` touches only that account's fields.
+
+</details>
+
+<details>
+<summary><strong>3. What is an invariant, and where do you enforce it? [BASIC]</strong></summary>
+
+A condition that must hold whenever no method is mid-flight (e.g. `balance >= 0`). Enforce it in the **constructor** (so the object starts valid) and in **every method that mutates state**, before changing anything. If you must mutate in several steps, validate first so a failure leaves state untouched.
+
+</details>
+
+<details>
+<summary><strong>4. Static vs instance members — when is static fine? [BASIC]</strong></summary>
+
+Static is one copy per process. Fine for constants, pure functions (`Money.parse`), and factory methods. Dangerous for mutable data — it is shared across requests and tests, and is a data race under threads.
+
+</details>
+
+<details>
+<summary><strong>5. `Order.setStatus(String)` exists; new rule: you can't cancel after it ships. Refactor. [SCENARIO]</strong></summary>
+
+Remove the setter; add `cancel()`, `ship()`, `deliver()` that check the current status and transition it. Illegal moves raise a domain error. Callers can't skip the rule because there is no other door. If the transitions are numerous, introduce a state machine ([08 · State](../08-behavioral-patterns-i/README.md)).
+
+</details>
+
+<details>
+<summary><strong>6. `history()` is called from a UI while deposits keep arriving. Snapshot or live view? [SCENARIO]</strong></summary>
+
+A **snapshot** (tuple copy) is safe to iterate and cannot change under the reader; cost is O(n) per call. A **live read-only view** (C# `AsReadOnly()`) is O(1) but reflects later changes, and enumerating it while another thread appends can throw. Pick one deliberately and say which; for concurrent use prefer a snapshot taken under the account's lock.
+
+</details>
+
+<details>
+<summary><strong>7. You must unit-test "interest posts at month end." How does the design help? [SCENARIO]</strong></summary>
+
+Inject time. Pass a `clock` callable / `Func<DateTimeOffset>` / `TimeProvider` into the account or service so tests supply a fixed clock — no `sleep`, no monkey-patching `datetime.now`.
+
+</details>
+
+<details>
+<summary><strong>8. Is Python's `__balance` really private? [TRICKY]</strong></summary>
+
+No. It is name-mangled to `_BankAccount__balance`, so `acct._BankAccount__balance` still works. The goal is avoiding accidental clashes in subclasses. Python's privacy is convention (`_balance`) enforced by reviewers and linters; C# `private` is enforced by the compiler (though reflection can still reach it).
+
+</details>
+
+---
+
+## 9. One-page cheat sheet
+
 ```text
-Valid age set: 25
-✅ Invariant protection active: Age cannot be negative!
+Class        Blueprint. Object = one instance with its own state.
+Invariant    A fact that is always true between method calls. Protect it in ctor + every mutator.
+One door     State changes only through intent-revealing methods (deposit, cancel), never setters.
+Construct    Valid on return. No init() afterwards. Named factories for variants.
+Expose       Read-only state + behavior. Return tuple/copy/read-only view for collections.
+Static       Constants, pure helpers, factories. Not mutable state.
+Equality     Entity: by ID.  Value object: by all fields.
+Python/C#    _x convention vs private compiler rule; __x is mangling, not security.
+Not safe     This class is single-threaded. Locks go INSIDE the class (see 10).
+
+Interview opener: "What must always be true about this object, and who is allowed to change it?"
 ```
 
 ---
 
-## 7. Operational Validation Checkpoint
+## Further reading
 
-<details>
-<summary><strong>Question 1: Anemic Domain Models vs. Rich Encapsulation</strong></summary>
+- [Python tutorial — Classes](https://docs.python.org/3/tutorial/classes.html) (private variables, name mangling)
+- [C# access modifiers](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/access-modifiers)
+- [Martin Fowler — AnemicDomainModel](https://martinfowler.com/bliki/AnemicDomainModel.html)
+- [Martin Fowler — TellDontAsk](https://martinfowler.com/bliki/TellDontAsk.html)
+- [Python `dataclasses`](https://docs.python.org/3/library/dataclasses.html) and [C# records](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/record)
 
-**Scenario:** A junior developer designs a system where all classes consist solely of public getters and setters (e.g. `Order` has `getStatus()`, `setStatus()`, `getItems()`, `setItems()`). All business logic (validation, total calculation, state transitions) is written inside an external `OrderService`.
+## Next
 
-What is this architectural anti-pattern called, and why does it degrade long-term maintainability?
-
-**Answer:**
-This is the **Anemic Domain Model** anti-pattern. 
-
-By stripping business logic and invariant validation from the entity and reducing it to a passive data bag, encapsulation is broken:
-1. Any developer anywhere in the codebase can call `order.setStatus("CANCELLED")` without checking whether the order has already shipped or triggering inventory refunds.
-2. Logic is duplicated across multiple services.
-
-**The Fix:** Build a **Rich Domain Model** where the entity encapsulates its own rules: `order.cancel(reason)` validates internal state transitions and updates items directly.
-</details>
-
-<details>
-<summary><strong>Question 2: Static State in Multi-Tenant Backend APIs</strong></summary>
-
-**Scenario:** In a Node.js or C# backend service, a developer writes:
-`public static User CurrentUser;`
-When 1,000 requests hit the API concurrently, users report seeing other customers' private profile data and account dashboards.
-
-Why did this occur, and why is mutable static state prohibited in web servers?
-
-**Answer:**
-A web server processes concurrent HTTP requests within a single process. 
-
-**Static fields are allocated once per process and shared across all threads and requests**. When Request A sets `CurrentUser = Alice` and begins an asynchronous database query, Request B arrives and sets `CurrentUser = Bob`. When Request A resumes execution, it reads `CurrentUser` (now Bob!) and serves Bob's data to Alice. 
-
-**Rule:** Never store request-scoped data in static variables. Pass request state via method parameters or scoped dependency injection containers.
-</details>
-
-<details>
-<summary><strong>Question 3: Why Floats Must Never Be Used for Currency</strong></summary>
-
-**Scenario:** A banking class declares balance as:
-`public double balance = 0.0;`
-After 100,000 deposits of $\$0.10$, the account reports $\$9,999.9999999999982$ instead of $\$10,000.00$.
-
-What is the root cause, and what data type must be used in production?
-
-**Answer:**
-Hardware floating-point numbers (`float`, `double`) use binary representation (IEEE 754). 
-
-Numbers like `0.10` cannot be represented exactly in binary fractions, just as $1/3$ cannot be represented in finite decimal digits ($0.3333...$). Rounding errors accumulate over thousands of calculations.
-
-**Production Solution:**
-1. Store currency as **integers representing the smallest unit** (e.g. cents, satoshis): `$10.00` = `1000`.
-2. Or use an exact arbitrary-precision decimal type: **`Decimal`** (Python), **`decimal`** (C#), or **`big.Int`** (Go).
-</details>
-
----
-
-## Next Step
-
-Now that you have mastered classes, encapsulation, and domain invariants, proceed to **[02 · Object-Oriented Foundations and UML](../02-oop-foundations-and-uml/README.md)** to master Inheritance vs. Composition, Polymorphism, and standard UML class modeling.
+**[02 · OOP Foundations & UML](../02-oop-foundations-and-uml/README.md)** — inheritance vs composition, polymorphism, and drawing class diagrams.

@@ -1,497 +1,461 @@
 # Lesson 09: ABCs, Protocols, Duck Typing and Type Hints
 
-> **Prerequisites:** [Inheritance, super() and the MRO](../08-inheritance-super-and-the-mro/README.md) and [Track 27 Overview](../README.md).  
-> **Estimated Reading Time:** 18 minutes  
-> **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
+> **Prerequisites:** [Lesson 08: Inheritance and the MRO](../08-inheritance-super-and-the-mro/README.md) · [LLD 24 · Abstract Class vs Interface](../../24-oop-interview-questions/03-abstract-class-vs-interface/README.md)  
+> **Reading time:** ~22 minutes  
+> **Audience:** Candidates asked "interface in Python?", "ABC vs Protocol?", "do type hints do anything at run time?"
+
+> [!NOTE]
+> **In one line:** Python has three ways to say "this must support these methods": **duck typing** (just call it), **ABCs** (*nominal* — you must inherit or register, and abstract methods are enforced at instantiation), and **Protocols** (*structural* — any class with the right methods qualifies, checked by type checkers). Type hints are metadata; Python does **not** enforce them at run time.
 
 > [!TIP]
-> **The One Rule of Contracts in Python:** Python contracts exist along an enforcement continuum: **Duck Typing** relies on runtime behavior (EAFP); **`abc.ABC`** enforces nominal inheritance and method presence at instantiation time; **`typing.Protocol`** enables compile-time structural subtyping (static duck typing); and **Type Hints** are purely advisory metadata completely erased and ignored by CPython at runtime unless inspected by static analyzers like `mypy` or validation libraries like Pydantic.
+> **Golden rule:** Depend on a **small Protocol** at the boundary you want to fake or swap (gateway, clock, repository); use an **ABC** when subclasses share real implementation (a template-method skeleton) or you need runtime enforcement of abstract methods.
+
+> [!TIP]
+> **Try it:** Run the section 3 file, then `python -m mypy` on it. Even unmodified it reports three errors — the three lines that misuse things on purpose (`Broken()`, `Report()`, `typed("not an int")`). Now replace `FakeGateway.charge` with some other method: mypy adds a **fourth** error on the `Checkout(gw)` line (`incompatible type ... expected "PaymentGateway"`). Python itself would only fail when `.charge()` is finally called. Then run the [protocol lab](#try-it--protocol-lab-runnable) below. Draw `Checkout → PaymentGateway ⇠ Stripe / Fake` in [LLD Studio](/tools/lld-studio/).
 
 ---
 
-## 1. Why This Matters: The Interview Trap
+## 1. The smell: how this gets asked
 
-"Does Python have interfaces, and how do you design contracts in large production codebases without runtime surprises?" is a quintessential technical screening question. It separates engineers who treat Python as an ad-hoc scripting tool from those who understand interface design, type theory, and large-scale architectural modularity.
-
-### The Weak Answer
-> *"Python doesn't have interfaces like C# or Java. Python is dynamically typed and uses duck typing: if it walks like a duck and quacks like a duck, it's a duck. If you want interfaces, you just add type hints like `def process(repo: Repo)` and Python will throw a `TypeError` at runtime if the caller passes the wrong object."*
-
-### The Senior Strong Answer
-> *"Python provides three distinct mechanisms for defining interface contracts, each operating at a different point in the compilation and execution lifecycle:
-> 
-> 1. **Pure Duck Typing (Runtime Behavioral):** The traditional Python approach following the **EAFP** (*Easier to ask for forgiveness than permission*) philosophy. Code invokes methods directly without upfront type checks and handles `AttributeError` if unsupported.
-> 2. **Abstract Base Classes (`abc.ABC` - Nominal Subtyping):** Enforces contracts through explicit inheritance. Classes must explicitly subclass `ABC` and implement all `@abstractmethod` decorators; otherwise, CPython blocks instantiation at runtime with a `TypeError`. ABCs also support virtual subclassing via `ABC.register()`.
-> 3. **Protocols (`typing.Protocol` - Structural Subtyping / Static Duck Typing):** Introduced in PEP 544, Protocols define contracts based on structure rather than inheritance. A class satisfies a `Protocol` simply by implementing the matching attributes and method signatures without ever importing or subclassing the Protocol. Static type checkers (`mypy`, `pyright`) verify compliance during CI/CD.
-> 
-> Crucially, **standard type hints are purely non-enforcing annotations**. CPython stores them in `__annotations__` and erases them during bytecode evaluation. Calling `def double(x: int) -> int` with `double('abc')` executes without error, producing `'abcabc'`. Runtime enforcement requires third-party tools like Pydantic or manual assertions."*
-
-### Contract Strategy Taxonomy
-
-| Strategy | Coupling Model | Verification Time | Inheritance Required? | Runtime Impact | Best Used For |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Duck Typing** | Zero coupling (implicit) | Runtime (at invocation) | No | None (standard opcode dispatch) | Small utilities, rapid scripts, pluggable components |
-| **`abc.ABC`** | High coupling (nominal) | Runtime (at instantiation) | **Yes** (or `.register()`) | Tiny (metaclass check during `__new__`) | Framework plugins, core domain abstractions, template methods |
-| **`typing.Protocol`** | Low coupling (structural) | Compile time (via `mypy`/`pyright`) | **No** (structural match) | Zero at runtime (erased) | Modern clean architecture, decoupled boundaries, library APIs |
-| **Type Hints** | Informational | Static analysis time only | N/A | Zero (ignored by VM) | Developer tooling, IDE autocompletion, self-documentation |
-| **C# `interface`** | Nominal contract | Compile time & runtime | **Yes** (implements interface) | Zero overhead (direct vtable dispatch) | Standard enterprise contract enforcement in .NET |
-
----
-
-## 2. Visual Mental Model / Taxonomic Comparison
-
-### Contract Enforcement Lifecycle
-
-The following diagram illustrates where each contract enforcement strategy operates—from static analysis to runtime instantiation and method execution:
+- *"Does Python have interfaces?"*
+- *"ABC vs Protocol — when each?"*
+- *"What is duck typing? What's its downside?"*
+- *"Do type hints affect runtime? How would you validate input?"*
+- *"Why do dependency-injected services in Python often take a `Protocol`?"*
 
 ```mermaid
 flowchart TD
-    subgraph StaticPhase["1. Compile / Static Analysis Phase"]
-        Source["Python Source Code"] --> Mypy["Static Type Checker (mypy / pyright)"]
-        Mypy -->|"Checks structural shape"| ProtocolCheck["typing.Protocol (PEP 544)"]
-        Mypy -->|"Checks type annotations"| TypeHintCheck["Type Hints (PEP 484)"]
-    end
-
-    subgraph InstantiationPhase["2. Runtime Object Instantiation"]
-        Source --> NewCall["Class Instantiation: MyClass()"]
-        NewCall --> ABCCheck{"Is class an abc.ABC with unimplemented abstract methods?"}
-        ABCCheck -- "Yes" --> TypeError["TypeError: Can't instantiate abstract class"]
-        ABCCheck -- "No" --> InstanceCreated["Heap Instance Created"]
-    end
-
-    subgraph InvocationPhase["3. Runtime Method Execution"]
-        InstanceCreated --> MethodCall["Invoke method: obj.save()"]
-        MethodCall --> DispatchCheck{"Does object attribute exist on heap?"}
-        DispatchCheck -- "Yes" --> ExecutionSuccess["Method Executes (Duck Typing Success)"]
-        DispatchCheck -- "No" --> AttributeError["AttributeError / EAFP Exception"]
-    end
+  Need["I need 'something with .charge()'"] --> Q1{"Do subclasses share\nimplementation / state?"}
+  Q1 -- yes --> ABC["ABC + abstractmethod\n(nominal, enforced at instantiation)"]
+  Q1 -- no --> Q2{"Third-party / unrelated\nclasses should qualify?"}
+  Q2 -- yes --> Proto["Protocol\n(structural, checked by mypy/pyright)"]
+  Q2 -- no --> Duck["Plain duck typing\n+ docs/tests"]
 ```
-
-### Nominal Subtyping (ABC) vs Structural Subtyping (Protocol)
-
-```mermaid
-flowchart LR
-    subgraph NominalWorld["Nominal Subtyping: abc.ABC"]
-        ABCObj["Base Contract: Repository(ABC)"]
-        SqlRepo["SqlRepository"]
-        ABCObj -->|"Explicit Subclassing Required"| SqlRepo
-    end
-
-    subgraph StructuralWorld["Structural Subtyping: typing.Protocol"]
-        Proto["Protocol: Notifier"]
-        Email["EmailSender"]
-        SMS["SmsSender"]
-        Email -.->|"Matches shape (No inheritance!)"| Proto
-        SMS -.->|"Matches shape (No inheritance!)"| Proto
-    end
-```
-
-### Comprehensive Comparison Matrix
-
-| Feature | Dynamic Duck Typing | `abc.ABC` | `typing.Protocol` | C# `interface` |
-| :--- | :--- | :--- | :--- | :--- |
-| **Type System Model** | Dynamic behavioral | Nominal (explicit hierarchy) | Structural (shape matching) | Nominal (explicit contract) |
-| **Enforcement Trigger** | Method invocation (`obj.method()`) | Class instantiation (`MyClass()`) | Static analysis (`mypy`) | Compilation (`csc`) |
-| **Subclassing Obligation** | None | Must inherit or call `.register()` | None | Must declare `: IInterface` |
-| **Signature Validation** | None (crashes at runtime if wrong args) | Verifies method presence at `__init__` | Verifies full parameter and return types statically | Strict compile-time signature verification |
-| **Runtime Introspection** | `hasattr(obj, 'method')` | `isinstance(obj, MyABC)` | `isinstance()` only with `@runtime_checkable` | `obj is IInterface` |
-| **Performance Overhead** | None | Microsecond check during `__new__` | None at runtime (unless `@runtime_checkable`) | Zero overhead |
 
 ---
 
-## 3. Code Implementation
+## 2. Reference
 
-The carousel below shows:
-1. Nominal enforcement using `abc.ABC` blocking instantiation of incomplete subclasses.
-2. Structural contract fulfillment via `typing.Protocol`, allowing uncoupled classes to fulfill contracts without inheritance.
-3. Behavioral Duck Typing implementing EAFP (*Easier to ask for forgiveness than permission*).
-4. Demonstrating that standard runtime Python ignores type hint annotations without raising errors.
-5. C# parallel demonstrating interfaces, structural reflection checks, and dynamic typing.
+| | Duck typing | `abc.ABC` | `typing.Protocol` |
+| :--- | :--- | :--- | :--- |
+| Typing style | Implicit | **Nominal** (inherit or `register`) | **Structural** (shape matches) |
+| Enforced when | At the failing call | **At instantiation** (`TypeError`) | By type checkers (static); `@runtime_checkable` for `isinstance` (names only) |
+| Shared code | None | Yes (concrete methods, state) | No (interface only) |
+| Third-party classes | Work | Need `register()` | Work automatically |
+| Best for | Scripts, small code | Framework base classes, template method | DI boundaries, fakes, callbacks |
+
+| Hint feature | Meaning | Runtime effect |
+| :--- | :--- | :--- |
+| `x: int` | Annotation | Stored in `__annotations__`; **ignored** by the interpreter |
+| `list[str]`, `dict[str, int]` | Generic builtins (3.9+) | None |
+| `X \| None` (3.10+), `Optional[X]` | Union | None |
+| `Callable[[int], str]` | Callable type | None |
+| `TypeVar`, `Generic[T]` | Generic functions/classes | None |
+| `Literal["a", "b"]`, `Final`, `TypedDict` | Narrow/constrain | None (checkers only) |
+
+Enforcement at run time needs *code*: `isinstance`, pydantic, `beartype`, or explicit validation.
+
+---
+
+## 3. Walkthrough: a payment gateway, three ways
+
+**Requirements:** `Checkout` charges via a gateway. Production uses `Stripe`; tests use a fake; a third-party `LegacyBank` class (which we can't edit) must also work.
+
+1. **Protocol** `PaymentGateway` with `charge(amount_cents) -> str`.
+2. `Checkout` takes the protocol — knows nothing else.
+3. `LegacyBank` has a matching method but no inheritance → still accepted.
+4. **ABC** version for a template-method base (`Report`) where subclasses fill in steps and inherit shared code.
+5. Hints are inspected, not enforced — show `get_type_hints` and a runtime check.
 
 ````carousel
 ```python
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from typing import Protocol, get_type_hints, runtime_checkable
 
 
-# 1. Nominal Contract via ABC
-class Repository(ABC):
+# ── Structural: a Protocol at the DI boundary ────────────────────────
+@runtime_checkable
+class PaymentGateway(Protocol):
+    def charge(self, amount_cents: int) -> str: ...
+
+
+class Stripe:
+    def charge(self, amount_cents: int) -> str:
+        return f"stripe:{amount_cents}"
+
+
+class LegacyBank:                       # unrelated third-party class: no inheritance
+    def charge(self, amount_cents: int) -> str:
+        return f"legacy:{amount_cents}"
+
+
+class FakeGateway:
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    def charge(self, amount_cents: int) -> str:
+        self.calls.append(amount_cents)
+        return "fake-tx"
+
+
+class Checkout:
+    def __init__(self, gateway: PaymentGateway) -> None:
+        self._gateway = gateway
+
+    def pay(self, amount_cents: int) -> str:
+        return self._gateway.charge(amount_cents)
+
+
+# ── Nominal: an ABC with shared implementation (template method) ─────
+class Report(ABC):
+    def render(self) -> str:                         # concrete, shared
+        return f"{self.header()}\n{self.body()}"
+
+    def header(self) -> str:
+        return "== REPORT =="
+
     @abstractmethod
-    def save(self, data: str) -> str:
-        """Abstract method that all subclasses must implement."""
-        pass
+    def body(self) -> str: ...                       # must be implemented
 
 
-class SqlRepository(Repository):
-    def save(self, data: str) -> str:
-        return f"SQL saved: {data}"
+class SalesReport(Report):
+    def body(self) -> str:
+        return "sales: 42"
 
 
-class IncompleteRepository(Repository):
-    # Fails to implement abstract method save()
+class Broken(Report):                                # forgot body()
     pass
 
 
-# 2. Structural Contract via Protocol
-@runtime_checkable
-class Notifier(Protocol):
-    def notify(self, message: str) -> str:
-        ...
+def typed(a: int, b: "list[str] | None" = None) -> bool:
+    return True
 
 
-class EmailSender:
-    # Notice: Does NOT explicitly inherit from Notifier!
-    def notify(self, message: str) -> str:
-        return f"Email sent: {message}"
+def main() -> None:
+    for gw in (Stripe(), LegacyBank(), FakeGateway()):
+        print(type(gw).__name__, "->", Checkout(gw).pay(500))
 
+    print(isinstance(Stripe(), PaymentGateway), isinstance(object(), PaymentGateway))  # True False
+    print(SalesReport().render())
 
-# 3. Duck Typing with EAFP
-def execute_save(repo: object) -> str:
     try:
-        # EAFP: Attempt method invocation directly without checking type
-        return getattr(repo, "save")("order_100")
-    except AttributeError:
-        return "Execution failed: missing save method"
-
-
-# 4. Type Hint Runtime Illusion
-def double(val: int) -> int:
-    return val * 2
-
-
-def run_demonstration() -> None:
-    print("1. Nominal ABC Enforcement:")
+        Broken()
+    except TypeError as err:
+        print("TypeError:", err)
     try:
-        IncompleteRepository()  # type: ignore[abstract]
-    except TypeError:
-        print("ABC blocked instantiation: True")
+        Report()
+    except TypeError as err:
+        print("TypeError:", str(err)[:48])
 
-    sql_repo = SqlRepository()
-    print(f"SqlRepository save: {execute_save(sql_repo)}")
+    # Hints are metadata only
+    print(get_type_hints(typed))
+    print(typed("not an int"))                       # runs fine: Python does not enforce hints
 
-    print("2. Structural Protocol (Static Duck Typing):")
-    email = EmailSender()
-    # Structural check enabled by @runtime_checkable
-    print(f"EmailSender matches Notifier: {isinstance(email, Notifier)}")
-    print(f"Email output: {email.notify('alert')}")
+    # Runtime validation is something YOU add
+    def validated(a):
+        if not isinstance(a, int):
+            raise TypeError(f"expected int, got {type(a).__name__}")
+        return a
 
-    print("3. Duck Typing & EAFP:")
-    print(f"Invalid repo save: {execute_save(object())}")
+    try:
+        validated("x")
+    except TypeError as err:
+        print("TypeError:", err)
 
-    print("4. Runtime Type Hint Illusion:")
-    # Passing string 'abc' to a function annotated with int!
-    str_result = double("abc")  # type: ignore[arg-type]
-    print(f"Runtime type hints enforced: False (result: {str_result})")
+    # Duck typing: anything with .read() works
+    import io
+    for src in (io.StringIO("abc"), open(__file__, encoding="utf-8")):
+        print(type(src).__name__, len(src.read(3)))
+        src.close()
 
 
 if __name__ == "__main__":
-    run_demonstration()
+    main()
 ```
 <!-- slide -->
 ```csharp
-using System;
-using System.Reflection;
+// C#: nominal typing. A class must DECLARE `: IPaymentGateway` (no structural matching).
+public interface IPaymentGateway { string Charge(int amountCents); }
 
-// 1. Nominal Contract via Abstract Class
-public abstract class Repository
+public sealed class Stripe : IPaymentGateway
 {
-    public abstract string Save(string data);
+    public string Charge(int amountCents) => $"stripe:{amountCents}";
 }
 
-public class SqlRepository : Repository
+// A third-party class that doesn't implement the interface needs an ADAPTER:
+public sealed class LegacyBank { public string Charge(int c) => $"legacy:{c}"; }
+public sealed class LegacyBankAdapter(LegacyBank inner) : IPaymentGateway
 {
-    public override string Save(string data) => $"SQL saved: {data}";
+    public string Charge(int amountCents) => inner.Charge(amountCents);
 }
 
-// 2. Structural Contract (Protocol-like interface contract)
-public interface INotifier
+// abstract class: shared implementation + abstract members, enforced at compile time
+public abstract class Report
 {
-    string Notify(string message);
+    public string Render() => $"== REPORT ==\n{Body()}";
+    protected abstract string Body();
 }
-
-public class EmailSender
-{
-    // Notice: Does NOT explicitly implement INotifier!
-    public string Notify(string message) => $"Email sent: {message}";
-}
-
-public class Program
-{
-    // 3. Duck Typing with EAFP using C# dynamic dispatch
-    public static string ExecuteSave(object repo)
-    {
-        try
-        {
-            dynamic dynamicRepo = repo;
-            return dynamicRepo.Save("order_100");
-        }
-        catch (Exception)
-        {
-            return "Execution failed: missing save method";
-        }
-    }
-
-    // 4. Runtime behavior demonstration
-    public static object DoubleValue(dynamic val)
-    {
-        // Demonstrating dynamic execution where type hints are not bound statically
-        return val + val;
-    }
-
-    public static void Main()
-    {
-        Console.WriteLine("1. Nominal ABC Enforcement:");
-        try
-        {
-            Activator.CreateInstance(typeof(Repository));
-        }
-        catch (MissingMethodException)
-        {
-            Console.WriteLine("ABC blocked instantiation: True");
-        }
-
-        var sqlRepo = new SqlRepository();
-        Console.WriteLine($"SqlRepository save: {ExecuteSave(sqlRepo)}");
-
-        Console.WriteLine("2. Structural Protocol (Static Duck Typing):");
-        var email = new EmailSender();
-        // Protocol check: does EmailSender structurally possess the required Notify signature?
-        MethodInfo? method = typeof(EmailSender).GetMethod(
-            nameof(EmailSender.Notify),
-            new[] { typeof(string) }
-        );
-        bool matches = method != null && method.ReturnType == typeof(string);
-        Console.WriteLine($"EmailSender matches Notifier: {matches}");
-        Console.WriteLine($"Email output: {email.Notify("alert")}");
-
-        Console.WriteLine("3. Duck Typing & EAFP:");
-        Console.WriteLine($"Invalid repo save: {ExecuteSave(new object())}");
-
-        Console.WriteLine("4. Runtime Type Hint Illusion:");
-        dynamic strVal = "abc";
-        var strResult = DoubleValue(strVal);
-        Console.WriteLine($"Runtime type hints enforced: False (result: {strResult})");
-    }
-}
+// Types ARE enforced: passing a string where int is expected is a compile error.
 ```
 ````
 
-**Expected Output (Both Languages):**
+Expected output of the Python tab (the abstract-class wording is Python 3.12+; older versions say `with abstract method body`; `get_type_hints` on the string annotation needs 3.10+):
 
 ```text
-1. Nominal ABC Enforcement:
-ABC blocked instantiation: True
-SqlRepository save: SQL saved: order_100
-2. Structural Protocol (Static Duck Typing):
-EmailSender matches Notifier: True
-Email output: Email sent: alert
-3. Duck Typing & EAFP:
-Invalid repo save: Execution failed: missing save method
-4. Runtime Type Hint Illusion:
-Runtime type hints enforced: False (result: abcabc)
+Stripe -> stripe:500
+LegacyBank -> legacy:500
+FakeGateway -> fake-tx
+True False
+== REPORT ==
+sales: 42
+TypeError: Can't instantiate abstract class Broken without an implementation for abstract method 'body'
+TypeError: Can't instantiate abstract class Report without 
+{'a': <class 'int'>, 'b': list[str] | None, 'return': <class 'bool'>}
+True
+TypeError: expected int, got str
+StringIO 3
+TextIOWrapper 3
 ```
 
 ---
 
-## 4. Where You Already Use It
+## 4. Edges
 
-- **In Python:**
-  - **`collections.abc`:** The standard library models core container behaviors via ABCs: `Iterable`, `Iterator`, `Mapping`, `Sequence`, `MutableMapping`. Functions check container capabilities using `isinstance(data, collections.abc.Mapping)` rather than concrete types like `dict`.
-  - **`typing.Protocol` (PEP 544):** Standard protocols include `typing.Iterable` (structural duck typing for iterators), `os.PathLike` (any object implementing `__fspath__()`), and `contextlib.AbstractContextManager`.
-  - **`io.IOBase` Virtual Subclasses:** CPython's I/O hierarchy uses `io.IOBase.register(RawIOBase)` to implement virtual subclassing without multiple inheritance conflicts.
-  - **`mypy` and `pyright` in Production CI:** Enterprise codebases run static type checks as a pre-commit or CI step, converting Python's runtime duck typing into compile-time verified structural typing.
+- **`isinstance` with a Protocol** requires `@runtime_checkable` (otherwise `TypeError`) and only checks that the *methods exist* — not their signatures or return types (lab probes 1–2).
+- **Protocols aren't enforced at run time.** A fake missing a method fails when called, not when passed — rely on mypy/pyright in CI.
+- **ABC enforcement is at instantiation,** not class definition: `class Broken(Report): pass` is fine until `Broken()`.
+- **`@abstractmethod` can have a body** (callable via `super()`), and abstract properties/classmethods are supported.
+- **`abc.ABC.register(cls)`** makes a *virtual* subclass for `isinstance` without inheritance — for third-party types. It is a promise, not a check: a registered class that lacks the abstract methods still passes `isinstance` (probe 7).
+- **Hints and performance.** No runtime cost beyond annotation storage (unless you use `from __future__ import annotations`/strings, which defer evaluation); libraries like pydantic and FastAPI *read* hints to validate/inject.
+- **`Any` and gradual typing.** One `Any` can silently switch off checking downstream.
+- **Over-specifying parameters.** Accept the narrowest protocol you need (`Iterable[str]`, `Sequence`, `Mapping`) and return concrete types — more reusable.
+- **Duck-typing downside:** errors appear late and far from the cause; mitigate with tests, Protocols, and small interfaces.
+- **Mutable defaults in annotated signatures** are still shared (lesson 02).
 
-- **In C# / .NET:**
-  - **Pattern-Based Duck Typing in Roslyn:** In C#, you can use `foreach` on any class that exposes a public parameterless `GetEnumerator()` method returning an object with `MoveNext()` and `Current`—**without implementing `IEnumerable` or `IEnumerable<T>`**. Similarly, `await` works on any type providing a `GetAwaiter()` method.
-  - **`IDisposable` and `IAsyncDisposable`:** Standard nominal interfaces guaranteeing resource disposal lifecycle contracts.
-  - **Generic Type Constraints:** `where T : class, IRepository, new()` provides compile-time contract enforcement with zero runtime reflection overhead.
+### Try it — protocol lab (runnable)
 
----
-
-## 5. Pitfalls and When Not to Use It
-
-1. **The Type Hint False Sense of Security:**
-   - Writing `def transfer(amount: float, recipient: str):` does **not** protect against callers passing `transfer(-500, 12345)`. The CPython interpreter does not validate types. If you need runtime data validation, use **Pydantic** or explicit validation checks.
-
-2. **The `@runtime_checkable` Blind Spot:**
-   - `@runtime_checkable` allows `isinstance(obj, MyProtocol)`. However, it **only checks whether the attributes/methods exist**—it **does not check parameter signatures, type annotations, or return types!** If `MyProtocol` expects `def render(width: int, height: int) -> str:`, an object with `def render(self): pass` still returns `True` for `isinstance(obj, MyProtocol)`. Furthermore, checking protocols at runtime is slow. Use `@runtime_checkable` sparingly.
-
-3. **Missing `ABC` Inheritance:**
-   - Declaring `@abstractmethod` on a class that does **not** inherit from `abc.ABC` (or does not use `metaclass=ABCMeta`) does nothing. The decorator is recorded as an attribute, but Python will happily allow callers to instantiate the class with unimplemented abstract methods.
-
-4. **The LBYL Concurrency Race Condition:**
-   - Writing *Look Before You Leap* code like:
-     ```python
-     if hasattr(file_handler, "flush"):
-         file_handler.flush()
-     ```
-     in concurrent or dynamic environments can introduce subtle bugs. The Pythonic idiom is **EAFP**:
-     ```python
-     try:
-         file_handler.flush()
-     except AttributeError:
-         pass
-     ```
-
----
-
-## 6. Exercises & Practical Drills
-
-### Exercise 1: The `@runtime_checkable` Protocol Trap
-Given the following Protocol and class, predict whether `isinstance(worker, WorkHandler)` evaluates to `True` or `False`. Explain why this happens:
+The follow-ups interviewers use after ABC vs Protocol. Save as `protocol_lab.py`; every probe is an `assert` (or a printed error message). Probe 10 runs `mypy` if it is installed and is skipped otherwise.
 
 ```python
+import importlib.util, subprocess, sys, typing
+from abc import ABC, abstractmethod
 from typing import Protocol, runtime_checkable
 
+# 1) A Protocol without @runtime_checkable cannot be used with isinstance
+class Closer(Protocol):
+    def close(self) -> None: ...
+try:
+    isinstance(object(), Closer)
+except TypeError as e:
+    print("1:", str(e)[:60])
 
+# 2) @runtime_checkable checks NAMES only: a wrong signature still passes
 @runtime_checkable
-class WorkHandler(Protocol):
-    def process(self, job_id: int, payload: dict) -> bool:
-        ...
+class Gateway(Protocol):
+    def charge(self, amount_cents: int) -> str: ...
+class WrongSig:
+    def charge(self) -> None: ...                # different parameters AND return type
+assert isinstance(WrongSig(), Gateway)           # True: only "has .charge" was checked
 
+# 3) issubclass() is refused for protocols with data members
+@runtime_checkable
+class HasName(Protocol):
+    name: str
+class Named:
+    def __init__(self): self.name = "n"
+assert isinstance(Named(), HasName)              # instance check works (attribute exists)
+try:
+    issubclass(Named, HasName)
+except TypeError as e:
+    print("3:", str(e)[:60])
 
-class BrokenWorker:
-    def process(self) -> None:
-        pass
+# 4) ABC enforcement happens at instantiation, not at class definition
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -> float: ...
+class Half(Shape): pass                          # no error here
+try:
+    Half()
+except TypeError as e:
+    print("4:", str(e)[:48])
 
+# 5) An abstract method can have a body and be reached through super()
+class Base(ABC):
+    @abstractmethod
+    def greet(self): return "base"
+class Impl(Base):
+    def greet(self): return "impl+" + super().greet()
+assert Impl().greet() == "impl+base"
 
-worker = BrokenWorker()
-print("Matches protocol:", isinstance(worker, WorkHandler))
+# 6) Abstract properties are enforced the same way
+class HasId(ABC):
+    @property
+    @abstractmethod
+    def ident(self) -> int: ...
+try:
+    HasId()
+except TypeError:
+    pass
+class Concrete(HasId):
+    ident = 7                                    # a plain class attribute satisfies it
+assert Concrete().ident == 7
+
+# 7) register(): a virtual subclass passes isinstance but inherits nothing and is NOT checked
+class ThirdParty:
+    pass
+Shape.register(ThirdParty)
+tp = ThirdParty()
+assert isinstance(tp, Shape) and not hasattr(tp, "area")     # "is a Shape" with no area()!
+
+# 8) Protocol classes cannot be instantiated, but you CAN inherit from one explicitly
+class Greeter(Protocol):
+    def greet(self) -> str: return "default hello"       # protocols may carry default bodies
+class English(Greeter): pass                             # explicit subclass inherits the default
+assert English().greet() == "default hello"
+try:
+    Greeter()
+except TypeError as e:
+    print("8:", e)
+
+# 9) Hints are stored, not enforced; get_type_hints resolves strings
+def f(a: int, b: "list[str] | None" = None) -> bool:
+    return True
+assert f.__annotations__["a"] is int and f("not an int") is True
+assert typing.get_type_hints(f)["b"] == (list[str] | None)
+
+# 10) Nothing is checked at call time, yet a type checker catches it (skipped if mypy is absent)
+if importlib.util.find_spec("mypy"):
+    snippet = "def f(a: int) -> int:\n    return a\nf('x')\n"
+    r = subprocess.run([sys.executable, "-m", "mypy", "-c", snippet], capture_output=True, text=True)
+    assert r.returncode == 1 and "incompatible type" in r.stdout
+    print("10: mypy flagged the call that Python happily runs")
+else:
+    print("10: mypy not installed - skipped")
+
+# 11) Duck typing, LBYL vs EAFP
+class Duck:
+    def quack(self): return "quack"
+def lbyl(x): return x.quack() if hasattr(x, "quack") else "n/a"
+def eafp(x):
+    try:
+        return x.quack()
+    except AttributeError:
+        return "n/a"
+assert lbyl(Duck()) == eafp(Duck()) == "quack" and lbyl(1) == eafp(1) == "n/a"
+print("abc/protocol lab ok")
 ```
 
-<details>
-<summary>Answer</summary>
+Expected output:
 
-**Output:**
 ```text
-Matches protocol: True
+1: Instance and class checks can only be used with @runtime_che
+3: Protocols with non-method members don't support issubclass()
+4: Can't instantiate abstract class Half without an
+8: Protocols cannot be instantiated
+10: mypy flagged the call that Python happily runs
+abc/protocol lab ok
 ```
 
-**Explanation:**  
-`@runtime_checkable` on a Protocol only performs a shallow check: it verifies that `hasattr(BrokenWorker, "process")` and that `callable(getattr(BrokenWorker, "process"))` is true. It **does not inspect function signatures, argument counts, or return type annotations at runtime**. Static type checkers like `mypy` would flag this as an error during static analysis, but runtime `isinstance` returns `True`.
-</details>
+---
 
-### Exercise 2: The Inactive Abstract Method
-Find the bug in this code. Why does `PaymentGateway()` instantiate successfully despite not implementing `charge()`?
+## 5. What you'd say in two minutes
 
-```python
-from abc import abstractmethod
+> "Python doesn't have an `interface` keyword; it has three tools. Plain duck typing — if it has the method, call it — is flexible but fails late. `abc.ABC` is nominal: subclasses inherit and, if they leave an `@abstractmethod` unimplemented, instantiation raises `TypeError`; I use it when subclasses share real implementation, like a template-method base. `typing.Protocol` is structural: any class with the right methods satisfies it, even a third-party one I can't edit, and mypy or pyright checks that — I use it at dependency-injection boundaries so tests can pass a fake. Type hints themselves are just metadata in `__annotations__`; the interpreter ignores them, so if I need runtime validation I add `isinstance` checks or a library like pydantic. Compared to C#, which is nominal and compile-time checked, Python trades some safety for flexibility, and I recover it with a type checker in CI."
 
+---
 
-class PaymentGateway:
-    @abstractmethod
-    def charge(self, amount: int) -> bool:
-        pass
+## 6. Anti-patterns
 
+| Anti-pattern | Why it fails | Fix |
+| :--- | :--- | :--- |
+| ABC for an interface with no shared code | Forces inheritance, blocks third-party types | Protocol |
+| `isinstance(x, SomeConcreteClass)` everywhere | Defeats duck typing, hurts testing | Program to a Protocol/behaviour |
+| Fat Protocol with 15 methods | Fakes become huge (ISP) | Role-sized protocols |
+| Trusting hints for input validation | They aren't enforced | Validate at boundaries (pydantic) |
+| `Any` sprinkled to "make mypy pass" | Silent holes | Narrow types, `object`, generics |
+| `hasattr` chains instead of a contract | Brittle | Protocol + type checker |
 
-gateway = PaymentGateway()
-print("Gateway created:", gateway)
-```
+---
+
+## 7. Interview questions
 
 <details>
-<summary>Answer</summary>
+<summary><strong>1. Does Python have interfaces? [BASIC]</strong></summary>
 
-**Bug:**  
-`PaymentGateway` does not inherit from `abc.ABC` (nor does it set `metaclass=ABCMeta`).
+Not as a keyword. You express interfaces with duck typing, `abc.ABC` with abstract methods (nominal), or `typing.Protocol` (structural, static).
 
-**Explanation:**  
-The `@abstractmethod` decorator simply sets an attribute flag `charge.__isabstractmethod__ = True`. The runtime enforcement that inspects this flag and blocks instantiation lives inside `ABCMeta.__new__`. Without subclassing `ABC`, the standard type constructor creates the object normally.
-
-**Fix:**
-```python
-from abc import ABC, abstractmethod
-
-
-class PaymentGateway(ABC):
-    @abstractmethod
-    def charge(self, amount: int) -> bool:
-        pass
-```
 </details>
-
-### Exercise 3: Decoupling via Protocol
-You are given a third-party caching library `RedisCache` that has a `get(key: str) -> str` method. Your internal service currently requires `class Service(ABC): def fetch(self, cache: CacheBase)`. How do you refactor `CacheBase` to accept `RedisCache` without modifying third-party code or creating a wrapper adapter?
 
 <details>
-<summary>Answer</summary>
+<summary><strong>2. ABC vs Protocol? [BASIC]</strong></summary>
 
-Replace the nominal abstract base class with a structural `typing.Protocol`:
+ABC: inheritance-based, can hold shared implementation, enforced at instantiation. Protocol: structural — matching methods suffice, no inheritance needed, enforced by type checkers (and shallowly by `runtime_checkable`). Use Protocol for boundaries, ABC for shared skeletons.
 
-```python
-from typing import Protocol
+</details>
 
+<details>
+<summary><strong>3. What is duck typing? [BASIC]</strong></summary>
 
-class CacheProtocol(Protocol):
-    def get(self, key: str) -> str:
-        ...
+"If it walks like a duck": suitability is determined by the presence of the needed methods/attributes at call time, not the class. EAFP style: try it and handle `AttributeError`/`TypeError`.
 
+</details>
 
-class Service:
-    def __init__(self, cache: CacheProtocol) -> None:
-        self.cache = cache
+<details>
+<summary><strong>4. Do type hints change behaviour? [BASIC]</strong></summary>
 
-    def execute(self, key: str) -> str:
-        return self.cache.get(key)
-```
+No — the interpreter stores but ignores them. Tools (mypy, pyright, IDEs) and libraries (pydantic, FastAPI, dataclasses) read them. To validate at run time you must write or use code that does.
 
-Because `CacheProtocol` is structural, `RedisCache` satisfies the contract automatically. Static analyzers like `mypy` pass without requiring `RedisCache` to inherit from `CacheProtocol`.
+</details>
+
+<details>
+<summary><strong>5. When does an ABC raise its error? [TRICKY]</strong></summary>
+
+On instantiation of a class with unimplemented abstract methods (`TypeError: Can't instantiate abstract class …`), not when the subclass is defined.
+
+</details>
+
+<details>
+<summary><strong>6. How do you make a third-party class satisfy your ABC? [SCENARIO]</strong></summary>
+
+`MyABC.register(ThirdParty)` for `isinstance` purposes, or write an adapter that subclasses the ABC and delegates. With a Protocol you need nothing — if the methods match, it already qualifies.
+
+</details>
+
+<details>
+<summary><strong>7. What does `@runtime_checkable` actually check? [TRICKY]</strong></summary>
+
+Only that the attributes/methods named in the protocol exist on the object — not signatures, argument types or return types. `isinstance` works for data members (it checks the attribute exists on the instance) but `issubclass` is refused for protocols that have non-method members. It's a convenience, not a contract.
+
+</details>
+
+<details>
+<summary><strong>8. How would you test `Checkout` without calling Stripe? [SCENARIO]</strong></summary>
+
+Inject a fake that satisfies the `PaymentGateway` protocol (records calls, returns canned values). No patching required — this is why DI boundaries are typed with Protocols.
+
 </details>
 
 ---
 
-## 7. Interview Questions & Model Answers
+## 8. One-page cheat sheet
 
-> [!interview]
-> **Question 1: Does Python have interfaces?**  
-> **Strong Answer:**  
-> "Python does not have a dedicated `interface` keyword like C# or Java, but it provides full architectural support for interfaces through two standard library mechanisms:
-> 
-> 1. **Nominal Interfaces via `abc.ABC`:** An Abstract Base Class with `@abstractmethod` decorators acts as an explicit nominal interface. Subclasses must explicitly inherit from the ABC and implement all abstract methods; otherwise, CPython raises a `TypeError` on instantiation. It also supports virtual subclassing via `MyABC.register(TargetClass)`.
-> 2. **Structural Interfaces via `typing.Protocol` (PEP 544):** Protocols define interfaces structurally (static duck typing). Any class that implements the methods and properties defined in the `Protocol` automatically satisfies the interface without explicit inheritance.
-> 
-> In modern Python architecture, `typing.Protocol` is the preferred tool for decoupled interfaces across package boundaries, while `abc.ABC` is preferred when shared default behavior or strict runtime instantiation enforcement is needed."
-
-> [!interview]
-> **Question 2: What is duck typing?**  
-> **Strong Answer:**  
-> "Duck typing is a dynamic typing paradigm derived from the phrase: *'If it walks like a duck and quacks like a duck, it's a duck.'*  
-> 
-> In Python, an object's suitability for a given operation is determined by the presence of specific methods, attributes, and runtime behaviors, rather than its position in an explicit class inheritance tree. For example, a function that iterates over an input does not check `if isinstance(data, list)`; it simply executes `for item in data:`, relying on whether the object implements the `__iter__()` or `__getitem__()` dunder methods.  
-> 
-> Duck typing is tightly coupled with Python's **EAFP** (*Easier to ask for forgiveness than permission*) design philosophy: rather than validating an object's capabilities upfront with defensive checks, code attempts the desired operation inside a `try...except` block, catching `AttributeError` or `TypeError` if unsupported."
-
-> [!interview]
-> **Question 3: What is the difference between an ABC and a Protocol?**  
-> **Strong Answer:**  
-> "The fundamental difference is **nominal subtyping versus structural subtyping**:
-> 
-> - **`abc.ABC` is nominal:** A class is only considered a subtype of an ABC if it **explicitly subclasses it in its class definition** (e.g., `class SqlRepo(RepositoryABC):`) or is explicitly registered as a virtual subclass (`RepositoryABC.register(SqlRepo)`). Enforcement happens at **runtime during object instantiation**; if an abstract method is missing, `__new__` raises a `TypeError`.
-> - **`typing.Protocol` is structural (PEP 544):** A class is considered a subtype of a Protocol based strictly on its **shape and method signatures**. No explicit inheritance is required. A class defined in a separate library automatically satisfies a Protocol without modifying its source code. Enforcement happens primarily at **compile/lint time via static type checkers (`mypy`, `pyright`)**.
-> 
-> Use an **ABC** when building framework base classes that provide template methods or require strict runtime enforcement. Use a **Protocol** when defining domain boundaries, decoupling microservices, or writing reusable libraries."
-
-> [!interview]
-> **Question 4: Are type hints enforced at run time?**  
-> **Strong Answer:**  
-> "No, standard Python type hints are **not enforced at run time**.  
-> 
-> When CPython compiles and runs Python code, type annotations are evaluated once at definition time and stored as dictionary metadata in the module, class, or function's `__annotations__` attribute (or handled lazily via PEP 563 / PEP 649). During bytecode execution, the virtual machine completely ignores these annotations. Passing a string to a function annotated as `def square(x: int) -> int` will not raise an error unless the function body executes an operation that fails at runtime (e.g., `'abc' ** 2`).  
-> 
-> Type hints exist primarily for:
-> 1. Static type analysis during development and CI/CD (`mypy`, `pyright`).
-> 2. IDE autocompletion and refactoring assistance.
-> 3. Third-party runtime validation libraries (such as **Pydantic**, **FastAPI**, or **Typeguard**) that explicitly inspect `__annotations__` via reflection to coerce and validate incoming data at system boundaries."
+```text
+Duck typing   call it; fail late; EAFP.            Good for small scopes.
+ABC           class X(ABC) + @abstractmethod       nominal; TypeError at instantiation; shared code; register() for 3rd-party
+Protocol      class P(Protocol): def m(self)...    structural; checked by mypy/pyright; no inheritance needed
+@runtime_checkable  isinstance(obj, P) -> names only, not signatures
+Hints         stored in __annotations__, IGNORED at runtime; get_type_hints(f) to read
+Validate      isinstance / pydantic / beartype at the boundaries
+Choose        shared implementation -> ABC | boundary to fake/swap -> Protocol | tiny script -> duck typing
+Accept wide (Iterable, Mapping), return concrete; small role-sized protocols
+```
 
 ---
 
-## 8. Sources & Further Reading
+## Further reading
 
-- [Python 3 Documentation: `abc` - Abstract Base Classes](https://docs.python.org/3/library/abc.html)
-- [Python 3 Documentation: `typing` - Support for type hints](https://docs.python.org/3/library/typing.html)
-- [PEP 544: Protocols: Structural subtyping (static duck typing)](https://peps.python.org/pep-0544/)
-- [PEP 484: Type Hints](https://peps.python.org/pep-0484/)
-- [PEP 3119: Introducing Abstract Base Classes](https://peps.python.org/pep-3119/)
-- [Microsoft Learn: Interfaces - Define behavior for multiple types](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/types/interfaces)
-
----
+- [PEP 544: Protocols — structural subtyping](https://peps.python.org/pep-0544/)
+- [`abc` — Abstract Base Classes](https://docs.python.org/3/library/abc.html)
+- [typing documentation](https://docs.python.org/3/library/typing.html) · [mypy cheat sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html)
 
 Previous: [Inheritance, super() and the MRO](../08-inheritance-super-and-the-mro/README.md) · Next: [dataclasses, NamedTuple, Enum and pydantic](../10-dataclasses-namedtuples-enums-and-pydantic/README.md)

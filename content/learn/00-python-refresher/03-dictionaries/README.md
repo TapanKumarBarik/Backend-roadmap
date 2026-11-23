@@ -2,10 +2,17 @@
 
 > **Prerequisites:** [Module 02](../02-lists-tuples-and-sets/README.md): lists, and the idea of a collection.  
 > **Estimated Reading Time:** 25 minutes  
-> **Who this is for:** Anyone who wants to look things up by name instead of by position, which is most of real programming.
+> **Who this is for:** Anyone who wants to look things up by name instead of by position, which is most of real programming.  
+> **Interview relevance:** Dictionaries are the most-used structure in Python interviews: counting, grouping, caching, lookups.
 
 > [!key]
 > A **dictionary** stores **key → value** pairs and finds a value from its key almost instantly, however large it is. A list answers "what is at position 3?". A dictionary answers "what is the price of tea?".
+
+> [!note]
+> A dictionary is a hash table: average O(1) lookup, insertion-ordered, keys must be hashable; the traps are missing keys, shared default values and changing size while looping.
+
+> [!tip]
+> Almost every "count/group/dedupe" question is a dictionary (or `Counter`/`defaultdict`) question. Practise the pattern until you can type it without thinking.
 
 ## What you will be able to do
 
@@ -419,6 +426,152 @@ w
 Count every letter first, then walk the word in order and stop at the first letter whose count is 1. (`break` ends the loop early; it is part of Module 04.)
 
 </details>
+
+## Edge cases interviewers poke at
+
+> [!pitfall]
+> **Reading a missing key raises, `defaultdict` *creates* keys when you merely look, `fromkeys` shares one value, and you cannot change a dictionary's size while looping over it.**
+
+```python
+prices = {"tea": 2.5}
+print(prices.get("coffee"), prices.get("coffee", 0), "coffee" in prices)
+
+from collections import defaultdict
+seen = defaultdict(list)
+seen["a"]            # just looking...
+print(dict(seen))    # ...created the key
+
+shared = dict.fromkeys(["x", "y"], [])
+shared["x"].append(1)
+print(shared)
+fresh = {k: [] for k in ["x", "y"]}
+fresh["x"].append(1)
+print(fresh)
+```
+
+```text
+None 0 False
+{'a': []}
+{'x': [1], 'y': [1]}
+{'x': [1], 'y': []}
+```
+
+```python
+# raises
+d = {"a": 1, "b": 2}
+for key in d:
+    if d[key] == 1:
+        del d[key]
+```
+
+```text
+RuntimeError: dictionary changed size during iteration
+```
+
+Safe ways to remove while looping: loop over a **copy of the keys** or build a new dictionary.
+
+```python
+d = {"a": 1, "b": 2, "c": 1}
+for key in list(d):
+    if d[key] == 1:
+        del d[key]
+print(d)
+
+e = {"a": 1, "b": 2, "c": 1}
+print({k: v for k, v in e.items() if v != 1})
+```
+
+```text
+{'b': 2}
+{'b': 2}
+```
+
+Keys must be hashable, and equal keys collapse into one (`1`, `1.0` and `True` are all "the same" key):
+
+```python
+print({1: "int", 1.0: "float", True: "bool"})
+print({(1, 2): "tuple key works"})
+```
+
+```text
+{1: 'bool'}
+{(1, 2): 'tuple key works'}
+```
+
+```python
+# raises
+{[1, 2]: "list key"}
+```
+
+```text
+TypeError: unhashable type: 'list'
+```
+
+```python
+original = {"tags": ["a"], "n": 1}
+shallow = original.copy()
+shallow["tags"].append("b")
+shallow["n"] = 2
+print(original)
+```
+
+```text
+{'tags': ['a', 'b'], 'n': 1}
+```
+
+> [!tip]
+> `.copy()` is **shallow**: the new dictionary shares the inner list. Use `copy.deepcopy` when values are themselves mutable and you need independence (see Module 06).
+
+## Mini interview Q&A
+
+<details>
+<summary><strong>1. How does a dictionary find a value so fast? [BASIC]</strong></summary>
+
+It is a **hash table**: Python computes `hash(key)`, uses it to jump to a slot, and compares keys there. Average lookup, insert and delete are O(1) regardless of size. That is why keys must be hashable and why a dictionary beats a list scan for lookups.
+
+</details>
+
+<details>
+<summary><strong>2. Are dictionaries ordered? [TRICKY]</strong></summary>
+
+Yes: since Python 3.7 they preserve **insertion order** (guaranteed by the language). Updating an existing key keeps its position; deleting and re-adding moves it to the end. Equality ignores order: `{"a": 1, "b": 2} == {"b": 2, "a": 1}`.
+
+</details>
+
+<details>
+<summary><strong>3. <code>d[key]</code>, <code>d.get(key)</code> or <code>try/except KeyError</code>? [BASIC]</strong></summary>
+
+`d[key]` when the key must exist (a `KeyError` is a bug signal). `d.get(key, default)` when absence is normal. `try/except KeyError` when the common path has the key and you want to avoid two lookups, or need to run other code on a miss.
+
+</details>
+
+<details>
+<summary><strong>4. Count the words in a text. Then find the top three. [SCENARIO]</strong></summary>
+
+`from collections import Counter; counts = Counter(text.split()); counts.most_common(3)`. Without the library: `counts[w] = counts.get(w, 0) + 1` in a loop, then `sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:3]`.
+
+</details>
+
+<details>
+<summary><strong>5. How do you merge two dictionaries? [BASIC]</strong></summary>
+
+`merged = a | b` (3.9+) or `{**a, **b}`. If a key appears in both, the **right-hand** value wins. `a.update(b)` does the same but changes `a` in place.
+
+</details>
+
+## Cheat sheet
+
+```text
+Create     {"a": 1}  dict(a=1)  {k: v for ...}  dict(zip(keys, values))
+Read       d[k] (KeyError)   d.get(k, default)   k in d   d.items() / keys() / values()
+Change     d[k] = v   d.update(other)   d.pop(k, None)   del d[k]   d.setdefault(k, [])
+Merge      a | b   {**a, **b}  (right side wins)
+Count      collections.Counter(items).most_common(n)       Group  defaultdict(list)
+Keys       hashable only: str, int, float, bool, tuple of hashables   (1 == 1.0 == True)
+Order      insertion order (3.7+), equality ignores order
+Traps      change size while looping -> loop over list(d) | .copy() is shallow
+           fromkeys(keys, []) shares one list | defaultdict creates on read
+```
 
 ## Check yourself
 

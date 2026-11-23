@@ -1,379 +1,577 @@
-# Module 03: Generics, Exceptions, and Value Objects
+# Generics, Exceptions & Value Objects
 
-> **Prerequisites:** Module 01 (Classes and Objects), Module 02 (OOP Foundations).  
-> **Estimated Reading Time:** 25 minutes  
-> **Target Audience:** Backend Developers, Domain-Driven Design (DDD) Practitioners, Low-Level Design Candidates.
+> **Prerequisites:** [01 · Classes & Objects](../01-classes-objects-and-oop-building-blocks/README.md), [02 · OOP & UML](../02-oop-foundations-and-uml/README.md)  
+> **Reading time:** ~25 minutes  
+> **Audience:** LLD / machine-coding candidates who will be asked "what do you return when it fails?", "make this reusable for any type," and "is this an entity or a value object?"
+
+> [!NOTE]
+> **In one line:** **Generics** remove casts and duplicate code, an **error contract** (exception vs `Result`) tells callers exactly what can go wrong, and **value objects** (`Money`, `Email`) replace raw strings and floats with small immutable types that validate themselves.
 
 > [!TIP]
-> **The Golden Rule of Error Handling and Domain Modeling:** **Never use Exceptions for normal control flow.** Exceptions are intended for exceptional, unexpected system failures (database connection severed, disk full); throwing exceptions for routine business conditions (cache miss, user not found) incurs massive CPU overhead capturing call stack traces. Use the **Result Pattern (`Result<T, E>`)** for domain errors, and model domain attributes as **immutable Value Objects** defined strictly by their values rather than database IDs.
+> **Golden rule:** Bugs and broken infrastructure → **exceptions**. Expected outcomes (bad input, not found, declined) → **a typed result**. Never let a raw `str` / `decimal` carry domain meaning across a method boundary.
+
+> [!TIP]
+> **Try it:** Model `Customer → Email` and `Money` in [LLD Studio](/tools/lld-studio/), then run the registration example below and feed it a bad email.
 
 ---
 
-## 1. Architectural Mental Model: Entities vs. Value Objects
+## 1. When this shows up in an interview
 
-In Domain-Driven Design (DDD) and object-oriented architecture, domain classes are cleanly divided into **Entities** (identity-based) and **Value Objects** (attribute-based):
+Interviewer: *"Register a customer with an email. What happens on invalid input? Store them in a repository that works for any entity."*
+
+**Smells that cost you points:**
+
+- `email: str` passed through six layers, validated in two of them.
+- `float price` and `"USD"` as separate parameters (**primitive obsession**).
+- `raise Exception("error")` / `throw new Exception("error")` — callers cannot catch precisely.
+- `except Exception: pass` or returning `None` / `null` with no reason.
+- `throw ex;` (C#) destroying the stack trace.
+- A `Repository` that takes and returns `object`, followed by casts.
+- A value object with setters or a mutable list inside.
 
 ```mermaid
 flowchart TD
-    subgraph EntityBox["1. Entity (Identity-Based, Mutable Lifecycle)"]
-        UserA["User Entity (ID: 'usr_99')\nemail: 'alice@example.com'\nbalance: $150.00"]
-        UserB["User Entity (ID: 'usr_99')\nemail: 'alice_new@example.com'\nbalance: $200.00"]
-        EntityEq["Equality Rule: UserA == UserB\n(Because their Unique ID 'usr_99' is identical,\neven if their attributes change over time!)"]
-    end
-
-    subgraph ValueObjectBox["2. Value Object (Attribute-Based, Immutable)"]
-        Money1["Money Value Object\namount: 50.00, currency: 'USD'"]
-        Money2["Money Value Object\namount: 50.00, currency: 'USD'"]
-        VOEq["Equality Rule: Money1 == Money2\n(Two $50 bills are completely interchangeable!\nIf you change the amount, you allocate a NEW object.)"]
-    end
-
-    UserA -.-> EntityEq
-    UserB -.-> EntityEq
-    Money1 -.-> VOEq
-    Money2 -.-> VOEq
-
-    classDef vo fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
-    class Money1,Money2,VOEq vo;
+  F["Something went wrong"] --> Q1{"Caller bug or broken invariant?<br/>null arg, impossible state"}
+  Q1 -->|yes| EX1["Throw / raise. Fail fast."]
+  Q1 -->|no| Q2{"Expected outcome of valid use?<br/>bad user input, not found, declined"}
+  Q2 -->|yes| RES["Return Result / TryX / Optional with a reason"]
+  Q2 -->|no| Q3{"Infrastructure? DB, network, disk"}
+  Q3 -->|yes| EX2["Exception. Translate and retry at the boundary."]
+  Q3 -->|no| EX1
 ```
-
----
-
-## 2. Taxonomic Reference: Entities vs. Value Objects
-
-| Dimension | Entity | Value Object | Production Example |
-| :--- | :--- | :--- | :--- |
-| **Identity** | Has a persistent unique ID (`UUID`, DB primary key) | **No identity**. Defined purely by its attributes. | Entity: `Order(id="ord_101")`<br>Value Object: `Money(50, "USD")` |
-| **Equality** | Compared by **ID** (`objA.Id == objB.Id`) | Compared by **all field values** | Value Object: `Address`, `Email`, `DateRange` |
-| **Mutability** | State changes over time as operations occur | **Strictly Immutable**. Any change yields a new object. | `money.Add(other)` returns a brand new `Money` instance. |
-| **Lifespan** | Long-lived; tracked in database tables | Ephemeral; stored embedded within Entity columns | In SQL: `users.street`, `users.city` embed `Address`. |
-
----
-
-## 3. Systematic Breakdown: Exceptions vs. The Result Pattern
-
-| Dimension | Exceptions (`throw new Exception()`) | Result Pattern (`Result<T, Error>`) |
-| :--- | :--- | :--- |
-| **Intended Purpose** | **Catastrophic / Unrecoverable System Failures** | **Expected Business / Domain Validations** |
-| **Examples** | Database socket disconnect, hardware I/O error, OutOfMemory | User not found, validation error, card declined, cache miss |
-| **Performance Cost** | **Heavy** (Captures entire stack trace, unwinds call frames) | **Zero overhead** (Standard return value on stack) |
-| **Compiler Enforceability** | Often un-typed (easily forgotten until runtime crash) | **Type-enforced** (Caller is forced by compiler to check error) |
-| **Code Readability** | Hidden non-local jumps (`goto`-like behavior) | Explicit, local, and linear execution flow |
-
----
-
-## 4. Production War Story: The Exception-Driven Control Flow Outage
 
 ```mermaid
-sequenceDiagram
-    actor Client as 40,000 Flash-Sale Clients
-    participant Gateway as API Gateway (Node / C#)
-    participant Cache as User Cache Layer
-    participant Runtime as CLR / JVM Call Stack Engine
-
-    Note over Client,Gateway: Flash sale launches: 40,000 search req/sec arrive!
-    Gateway->>Cache: getUser(id) -> Cache Miss!
-    Note over Cache: Anti-pattern: Cache throws new CacheMissException() on miss!
-    Cache->>Runtime: throw new CacheMissException()
-    Note over Runtime: Runtime halts thread, walks call stack, builds 48 stack frames!
-    Note over Runtime: 15,000 stack traces generated every second!
-    Note over Runtime: CPU spikes to 100% purely generating string stack traces!
-    Note over Gateway: Request latency balloons from 8ms to 3,500ms!
-    Gateway-->>Client: 504 Gateway Timeout (Service Collapses)
-    Note over Gateway: Emergency SEV-1: Outage caused by exception overhead, not DB load!
+classDiagram
+  class Result~T,E~ {
+    <<union>>
+  }
+  class Ok~T~ {
+    +T value
+  }
+  class Err~E~ {
+    +E error
+  }
+  class Money {
+    <<value object>>
+    +Decimal amount
+    +string currency
+    +add(other) Money
+    +times(qty) Money
+  }
+  class Email {
+    <<value object>>
+    +string value
+    +parse(raw) Result
+  }
+  class Customer {
+    <<entity>>
+    +string id
+    +Email email
+  }
+  class Repository~TEntity~ {
+    +add(entity) void
+    +get(id) TEntity
+  }
+  Result <|-- Ok
+  Result <|-- Err
+  Customer *-- Email
+  Repository~TEntity~ ..> Customer : T = Customer
 ```
-
-### The Incident
-During a major Black Friday retail flash sale, a product catalog service experienced a complete collapse. Throughput plummeted from 40,000 requests per second to fewer than 500 req/s. CPU utilization pegged at 100% across all 40 cloud server instances, even though database queries and memory usage remained low.
-
-### The Post-Mortem Data
-* **Severity:** SEV-1 (Global Retail Platform Outage)
-* **Mean Time to Detect (MTTD):** 15 minutes
-* **Mean Time to Resolution (MTTR):** 35 minutes
-
-### The Root Cause
-The caching layer used an anti-pattern: **Exceptions for control flow**:
-```csharp
-// ❌ ANTI-PATTERN: Throwing an exception on an expected condition
-public User GetUser(string id) {
-    if (!_cache.TryGetValue(id, out var user)) {
-        throw new CacheMissException(); // Generating 15,000 stack traces/sec!
-    }
-    return user;
-}
-```
-When a cold cache received thousands of simultaneous requests, 15,000 exceptions were thrown per second. Generating and capturing call stack traces (walking the call stack, inspecting symbol tables, formatting line numbers) is one of the most computationally expensive operations in managed runtimes, starving CPU cores and grinding the service to a halt.
-
-### The Fix & Hardening
-1. **Refactor to the Tester-Doer / Result Pattern:**
-```csharp
-// ✅ PRODUCTION PATTERN: Return Option / bool without throwing
-public bool TryGetUser(string id, out User user) {
-    return _cache.TryGetValue(id, out user);
-}
-```
-2. **Result Object for Complex Operations:** Return a lightweight `Result<T, E>` struct containing either the payload or a domain error enum, completely eliminating stack trace generation.
 
 ---
 
-## 5. Multi-Language Production Code: Value Objects & The Result Pattern
+## 2. Generics: one definition, many types, no casts
 
-Below is an enterprise implementation of an immutable `Money` Value Object and a generic `Result<T, E>` pattern across four backend languages.
+| | Python | C# |
+| :--- | :--- | :--- |
+| **Declare** | `T = TypeVar("T")`; `class Box(Generic[T])` (3.12+: `class Box[T]:`) | `class Box<T>` |
+| **Constrain** | `TypeVar("T", bound=HasId)` or `Protocol` | `where T : class, IHasId, new()` |
+| **Checked by** | Static checker (`mypy`, `pyright`). **Erased at runtime** — `Box[int]("x")` still runs | Compiler **and** CLR: generics are reified, so `List<int>` and `List<string>` are distinct runtime types |
+| **Variance** | Declared on the TypeVar (`covariant=True`); checker enforces | `out T` (producer, covariant), `in T` (consumer, contravariant) on interfaces / delegates |
+| **Typical LLD uses** | `Repository[T]`, `Result[T, E]`, `Cache[K, V]` | `IRepository<T>`, `Result<T, E>`, `Cache<TKey, TValue>` |
+
+**Why you care in an interview**
+
+- A generic `Repository<T>` removes copy-paste across `Customer`, `Order`, `Product` repositories.
+- A constraint (`where T : IHasId`) is how you say *"I need an `Id` to key this by"* — compile-time documentation.
+- **Do not** make everything generic. One implementation, one entity? Write the concrete class.
+
+---
+
+## 3. Exceptions and error contracts
+
+### Design rules
+
+1. **Throw for violated preconditions and broken invariants** (null argument, negative quantity, mismatched currencies).
+2. **Return a result for outcomes the caller should expect** (invalid email from a form, card declined, key missing).
+3. **Use a domain hierarchy**, not bare `Exception`:
+
+```text
+DomainError (base)
+ ├─ ValidationError       bad input the caller can fix
+ ├─ NotFoundError
+ └─ ConflictError         e.g. InsufficientFunds, DuplicateId
+InfrastructureError       DB, network, timeouts → retry / translate at the boundary
+```
+
+4. **Carry data** (`balance`, `requested`) on the exception, not just a message string.
+5. **Preserve the cause.** Python `raise DomainError("…") from original`; C# `throw new DomainException("…", inner)`; rethrow with plain `throw;` — never `throw ex;`.
+6. **Catch narrowly.** A broad `catch (Exception)` belongs at a boundary (request handler, worker loop) that logs and translates — not in the middle of domain code.
+7. **Clean up deterministically:** `with` / `try-finally` (Python), `using` / `try-finally` (C#).
+8. **Be honest about cost.** In .NET and Java, throwing is slow (microseconds, stack trace capture), so exceptions-as-flow-control on a hot path hurts at thousands per second — use `TryParse` / `TryGetValue`. In Python, `try/except KeyError` is idiomatic (EAFP) and cheap when the exceptional case is rare; the rule there is *clarity*, not raw speed.
+
+### Exception vs `Result`
+
+| Aspect | Exception | `Result<T, E>` / `TryX` |
+| :--- | :--- | :--- |
+| **Intent** | "This should not happen" | "This can happen; handle it" |
+| **Visibility** | Hidden in the signature | Visible in the return type |
+| **Caller burden** | Easy to forget; surfaces at runtime | Caller must look at success vs error |
+| **Best for** | Bugs, invariant violations, infrastructure | Parsing, validation, lookups, business refusals |
+| **Idiom** | Both languages | Natural in C# (`TryParse`) and Go-like styles; unusual if overused in Python |
+
+**Interview honesty:** many shops use exceptions for domain failures too. Either choice is acceptable if you **state the contract** and apply it consistently.
+
+---
+
+## 4. Value objects vs entities
+
+| Dimension | Entity | Value object |
+| :--- | :--- | :--- |
+| **Identity** | Has an ID that survives changes | None — defined by its values |
+| **Equality** | By ID | By all fields |
+| **Mutability** | Changes over its lifetime | **Immutable**; a change creates a new object |
+| **Examples** | `Customer(id)`, `Order(id)`, `Account(id)` | `Money`, `Email`, `Address`, `DateRange`, `Coordinates` |
+| **Validation** | On every transition | **Once, in the constructor** — a valid `Email` can never be invalid |
+| **Python tool** | Plain class | `@dataclass(frozen=True)` |
+| **C# tool** | `class` with `Id` | `sealed record` (class) or `readonly record struct` |
+
+Why immutable? If two objects share a mutable `Location` and one "moves", the other moves too. A value object is replaced, not edited.
+
+---
+
+## 5. Walkthrough: register a customer, price an order, store anything
+
+**Requirements (keep tiny):**
+
+1. Parse an email from user input; invalid input is an *expected* failure.
+2. `Money` supports `add` and `times(qty)`; mixing currencies is a *programmer error*.
+3. A generic repository stores any entity that has an `id`.
+
+**Choices to say aloud:** `Email.parse` returns a `Result` (user input); `Money.add` throws on currency mismatch (code bug); `repo.add` throws on a duplicate that slipped past the pre-check (race or bug).
+
+### Before (primitives, no contract)
+
+```python
+def register(customer_id, email, price, currency):
+    if "@" not in email:
+        return None                      # why? caller can't tell
+    total = price * 3                    # float; currency forgotten
+    db[customer_id] = {"email": email}   # dict of dicts; shape is a secret
+```
+
+### After
 
 ````carousel
 ```python
 from __future__ import annotations
+
+import re
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Generic, TypeVar, Optional, Union
+from typing import Callable, Generic, Protocol, TypeVar, Union
 
 T = TypeVar("T")
 E = TypeVar("E")
+U = TypeVar("U")
 
-# 1. Immutable Value Object
+
+# ── Result ──────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class Ok(Generic[T]):
+    value: T
+
+    def map(self, fn: Callable[[T], U]) -> "Ok[U]":
+        return Ok(fn(self.value))
+
+
+@dataclass(frozen=True)
+class Err(Generic[E]):
+    error: E
+
+    def map(self, fn: Callable[[object], object]) -> "Err[E]":
+        return self
+
+
+Result = Union[Ok[T], Err[E]]
+
+
+# ── Value objects ───────────────────────────────────────────────────────
+class CurrencyMismatch(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class Money:
     amount: Decimal
     currency: str
 
-    def __post_init__(self):
-        if self.amount < Decimal("0.00"):
-            raise ValueError("Money amount cannot be negative.")
-        if not self.currency or len(self.currency) != 3:
-            raise ValueError("Currency must be a 3-letter ISO code.")
+    def __post_init__(self) -> None:
+        if not isinstance(self.amount, Decimal):
+            raise TypeError("amount must be Decimal")
+        if self.amount < 0:
+            raise ValueError("amount cannot be negative")
+        if len(self.currency) != 3 or not self.currency.isalpha() or not self.currency.isupper():
+            raise ValueError("currency must be a 3-letter upper-case code")
 
-    def add(self, other: Money) -> Money:
-        if self.currency != other.currency:
-            raise ValueError(f"Cannot add {self.currency} and {other.currency}")
+    def add(self, other: "Money") -> "Money":
+        if other.currency != self.currency:
+            raise CurrencyMismatch(f"{self.currency} vs {other.currency}")
         return Money(self.amount + other.amount, self.currency)
 
-# 2. Generic Result Pattern
+    def times(self, qty: int) -> "Money":
+        if qty < 0:
+            raise ValueError("qty cannot be negative")
+        return Money(self.amount * qty, self.currency)
+
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 @dataclass(frozen=True)
-class Result(Generic[T, E]):
-    value: Optional[T] = None
-    error: Optional[E] = None
-    is_success: bool = True
+class Email:
+    value: str
+
+    def __post_init__(self) -> None:
+        if not _EMAIL.match(self.value) or self.value != self.value.lower():
+            raise ValueError(f"invalid email: {self.value!r}")
 
     @staticmethod
-    def ok(value: T) -> Result[T, E]:
-        return Result(value=value, is_success=True)
+    def parse(raw: str) -> Result["Email", str]:
+        candidate = raw.strip().lower()
+        if not _EMAIL.match(candidate):
+            return Err("invalid email")
+        return Ok(Email(candidate))
 
-    @staticmethod
-    def fail(error: E) -> Result[T, E]:
-        return Result(error=error, is_success=False)
+
+# ── Entity + generic repository ─────────────────────────────────────────
+class HasId(Protocol):
+    @property
+    def id(self) -> str: ...
+
+
+TEntity = TypeVar("TEntity", bound=HasId)
+
+
+class DuplicateId(Exception):
+    pass
+
+
+class InMemoryRepository(Generic[TEntity]):
+    def __init__(self) -> None:
+        self._items: dict[str, TEntity] = {}
+
+    def add(self, entity: TEntity) -> None:
+        if entity.id in self._items:
+            raise DuplicateId(entity.id)
+        self._items[entity.id] = entity
+
+    def get(self, entity_id: str) -> TEntity | None:
+        return self._items.get(entity_id)
+
+    def all(self) -> tuple[TEntity, ...]:
+        return tuple(self._items.values())
+
+
+@dataclass(frozen=True)
+class Customer:
+    id: str
+    email: Email
+
+
+def register(repo: InMemoryRepository[Customer], customer_id: str, raw_email: str) -> Result[Customer, str]:
+    parsed = Email.parse(raw_email)
+    if isinstance(parsed, Err):
+        return parsed
+    if repo.get(customer_id) is not None:
+        return Err("customer id already exists")
+    customer = Customer(customer_id, parsed.value)
+    repo.add(customer)
+    return Ok(customer)
+
 
 if __name__ == "__main__":
-    m1 = Money(Decimal("50.00"), "USD")
-    m2 = Money(Decimal("25.00"), "USD")
-    m3 = m1.add(m2)
-    print(f"Total: ${m3.amount} {m3.currency}")
+    repo: InMemoryRepository[Customer] = InMemoryRepository()
+    print(register(repo, "c1", "  Asha@Example.com "))      # Ok(value=Customer(id='c1', email=Email(value='asha@example.com')))
+    print(register(repo, "c2", "not-an-email"))              # Err(error='invalid email')
+    print(register(repo, "c1", "other@example.com"))         # Err(error='customer id already exists')
+
+    price = Money(Decimal("19.99"), "USD")
+    assert price.times(3) == Money(Decimal("59.97"), "USD")  # value equality
+    try:
+        price.add(Money(Decimal("1"), "EUR"))
+    except CurrencyMismatch as exc:
+        print("programmer error:", exc)
 ```
-
 <!-- slide -->
-
 ```csharp
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 
-// Immutable Value Object using C# readonly record struct
-public readonly record struct Money
+// ── Result ──────────────────────────────────────────────────────────────
+public abstract record Result<T, TError>
+{
+    private Result() { }
+    public sealed record Ok(T Value) : Result<T, TError>;
+    public sealed record Err(TError Error) : Result<T, TError>;
+}
+
+// ── Value objects ───────────────────────────────────────────────────────
+public sealed class CurrencyMismatchException : InvalidOperationException
+{
+    public CurrencyMismatchException(string a, string b) : base($"{a} vs {b}") { }
+}
+
+public sealed record Money
 {
     public decimal Amount { get; }
     public string Currency { get; }
 
     public Money(decimal amount, string currency)
     {
-        if (amount < 0m) throw new ArgumentOutOfRangeException(nameof(amount), "Amount cannot be negative");
-        if (string.IsNullOrWhiteSpace(currency) || currency.Length != 3) 
-            throw new ArgumentException("Currency must be 3-letter ISO code", nameof(currency));
-
+        if (amount < 0m) throw new ArgumentOutOfRangeException(nameof(amount), "amount cannot be negative");
+        if (currency is null || currency.Length != 3 || !currency.All(c => c is >= 'A' and <= 'Z'))
+            throw new ArgumentException("currency must be a 3-letter upper-case code", nameof(currency));
         Amount = amount;
-        Currency = currency.ToUpperInvariant();
+        Currency = currency;
     }
 
     public Money Add(Money other)
     {
-        if (Currency != other.Currency)
-            throw new InvalidOperationException($"Cannot add {Currency} to {other.Currency}");
+        if (other.Currency != Currency) throw new CurrencyMismatchException(Currency, other.Currency);
         return new Money(Amount + other.Amount, Currency);
     }
-}
 
-// Generic Lightweight Result Struct (Zero Heap Allocations!)
-public readonly struct Result<T, TError>
-{
-    public bool IsSuccess { get; }
-    public T Value { get; }
-    public TError Error { get; }
-
-    private Result(T value) { IsSuccess = true; Value = value; Error = default!; }
-    private Result(TError error) { IsSuccess = false; Value = default!; Error = error; }
-
-    public static Result<T, TError> Ok(T value) => new(value);
-    public static Result<T, TError> Fail(TError error) => new(error);
-}
-```
-
-<!-- slide -->
-
-```go
-package main
-
-import (
-	"errors"
-	"fmt"
-)
-
-// Immutable Value Object in Go
-type Money struct {
-	amountCents int64
-	currency    string
-}
-
-func NewMoney(cents int64, currency string) (Money, error) {
-	if cents < 0 {
-		return Money{}, errors.New("money cannot be negative")
-	}
-	if len(currency) != 3 {
-		return Money{}, errors.New("currency must be 3-letter ISO code")
-	}
-	return Money{amountCents: cents, currency: currency}, nil
-}
-
-func (m Money) Add(other Money) (Money, error) {
-	if m.currency != other.currency {
-		return Money{}, fmt.Errorf("currency mismatch: %s != %s", m.currency, other.currency)
-	}
-	return Money{amountCents: m.amountCents + other.amountCents, currency: m.currency}, nil
-}
-
-func (m Money) Display() string {
-	return fmt.Sprintf("$%.2f %s", float64(m.amountCents)/100, m.currency)
-}
-
-func main() {
-	m1, _ := NewMoney(5000, "USD")
-	m2, _ := NewMoney(2500, "USD")
-	m3, _ := m1.Add(m2)
-	fmt.Println("Result:", m3.Display())
-}
-```
-
-<!-- slide -->
-
-```typescript
-export class Money {
-  readonly #amountCents: bigint;
-  readonly #currency: string;
-
-  constructor(amountCents: bigint, currency: string) {
-    if (amountCents < 0n) throw new Error('Amount cannot be negative');
-    if (!currency || currency.length !== 3) throw new Error('Currency must be 3-letter ISO code');
-
-    this.#amountCents = amountCents;
-    this.#currency = currency.toUpperCase();
-  }
-
-  get amountCents(): bigint { return this.#amountCents; }
-  get currency(): string { return this.#currency; }
-
-  public equals(other: Money): boolean {
-    return this.#amountCents === other.#amountCents && this.#currency === other.#currency;
-  }
-
-  public add(other: Money): Money {
-    if (this.#currency !== other.#currency) {
-      throw new Error(`Cannot add currency ${this.#currency} to ${other.#currency}`);
+    public Money Times(int qty)
+    {
+        if (qty < 0) throw new ArgumentOutOfRangeException(nameof(qty));
+        return new Money(Amount * qty, Currency);
     }
-    return new Money(this.#amountCents + other.#amountCents, this.#currency);
-  }
 }
 
-// Discriminated Union Result Pattern
-export type Result<T, E> = 
-  | { success: true; value: T }
-  | { success: false; error: E };
+public sealed record Email
+{
+    private static readonly Regex Pattern = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+
+    public string Value { get; }
+    private Email(string value) => Value = value;
+
+    public static Result<Email, string> Parse(string? raw)
+    {
+        var candidate = (raw ?? "").Trim().ToLowerInvariant();
+        return Pattern.IsMatch(candidate)
+            ? new Result<Email, string>.Ok(new Email(candidate))
+            : new Result<Email, string>.Err("invalid email");
+    }
+}
+
+// ── Entity + generic repository ─────────────────────────────────────────
+public interface IHasId { string Id { get; } }
+
+public sealed record Customer(string Id, Email Email) : IHasId;
+
+public sealed class InMemoryRepository<TEntity> where TEntity : class, IHasId
+{
+    private readonly Dictionary<string, TEntity> _items = new();
+
+    public void Add(TEntity entity)
+    {
+        if (!_items.TryAdd(entity.Id, entity))
+            throw new InvalidOperationException($"duplicate id {entity.Id}");
+    }
+
+    public TEntity? Get(string id) => _items.GetValueOrDefault(id);
+    public IReadOnlyList<TEntity> All() => _items.Values.ToList();
+}
+
+public static class Registration
+{
+    public static Result<Customer, string> Register(
+        InMemoryRepository<Customer> repo, string customerId, string rawEmail)
+    {
+        switch (Email.Parse(rawEmail))
+        {
+            case Result<Email, string>.Err err:
+                return new Result<Customer, string>.Err(err.Error);
+            case Result<Email, string>.Ok ok:
+                if (repo.Get(customerId) is not null)
+                    return new Result<Customer, string>.Err("customer id already exists");
+                var customer = new Customer(customerId, ok.Value);
+                repo.Add(customer);
+                return new Result<Customer, string>.Ok(customer);
+            default:
+                throw new InvalidOperationException("unreachable");
+        }
+    }
+}
+
+public static class Program
+{
+    public static void Main()
+    {
+        var repo = new InMemoryRepository<Customer>();
+        Console.WriteLine(Registration.Register(repo, "c1", "  Asha@Example.com "));
+        Console.WriteLine(Registration.Register(repo, "c2", "not-an-email"));
+        Console.WriteLine(Registration.Register(repo, "c1", "other@example.com"));
+
+        var price = new Money(19.99m, "USD");
+        Console.WriteLine(price.Times(3) == new Money(59.97m, "USD"));   // True: value equality
+        try { price.Add(new Money(1m, "EUR")); }
+        catch (CurrencyMismatchException ex) { Console.WriteLine($"programmer error: {ex.Message}"); }
+    }
+}
 ```
 ````
 
+**What each piece buys you**
+
+| Piece | Benefit |
+| :--- | :--- |
+| `Email` can only exist in valid, normalized form | No `if "@" in …` scattered across layers |
+| `Result` return type | Caller *sees* that registration can fail, and why |
+| `Money` carries currency | No float, no "forgot the currency" bug; equality by value |
+| `Repository[T]` with a `HasId` bound | One implementation for every entity, still type-safe |
+| Exceptions only for bugs | `CurrencyMismatch` and `DuplicateId` signal broken assumptions |
+
 ---
 
-## 6. Practical Hands-On Verification CLI Workflows
+## 6. Edges interviewers push on
 
-Verify Value Object equality and immutability in your Ubuntu terminal:
+| Edge | What to say |
+| :--- | :--- |
+| **`throw ex;` vs `throw;`** | `throw ex;` resets the stack trace; use `throw;` to rethrow, or wrap with an inner exception |
+| **`raise X from e`** | Keeps the original as `__cause__`; use `from None` only to hide noise deliberately |
+| **Swallowed exceptions** | `except: pass` hides bugs. Log with context, or let it propagate to the boundary |
+| **`finally` that returns** | A `return` in `finally` (Python) silently swallows in-flight exceptions — don't |
+| **Async errors** | C#: `async void` can crash the process; await your tasks. Python: unawaited tasks log "never retrieved" |
+| **Atomicity on failure** | Validate first, then mutate; or roll back. A half-applied operation is worse than a rejected one |
+| **Generic erasure** | Python's `list[int]` is not enforced at runtime; C# generics are reified and enforced |
+| **Variance** | `List<Dog>` is **not** a `List<Animal>` (writes would break it); `IEnumerable<Dog>` **is** an `IEnumerable<Animal>` (read-only, `out T`) |
+| **Value object holding a collection** | A frozen dataclass with a `list` field is still mutable and unhashable — use `tuple` / `ImmutableArray` |
+| **`decimal` equality** | `1.0m == 1.00m` is `true` but they format differently; normalize before display or hashing |
+| **`default(Money)` for structs** | Skips your constructor. If invariants matter, use a `sealed record` class (as above) |
+| **Overusing `Result`** | In Python, chains of `Ok/Err` can be less idiomatic than exceptions; pick the project convention and stay consistent |
+| **Normalization** | Lowercasing the whole email is a policy choice (local part is technically case-sensitive); say so |
 
-### Workflow 1: Demonstrate Value Object Equality
-```bash
-python3 -c '
-from dataclasses import dataclass
+---
 
-@dataclass(frozen=True)
-class Coordinates:
-    lat: float
-    lon: float
+## 7. What you'd say in two minutes
 
-c1 = Coordinates(37.7749, -122.4194)
-c2 = Coordinates(37.7749, -122.4194)
+> "I'd draw a line between three kinds of failure. Bugs and broken invariants — a null argument, mixing USD and EUR — throw. Infrastructure failures throw and I'd translate them at the boundary. Expected outcomes like a bad email from a form don't throw; `Email.parse` returns a `Result` with a reason, so the caller sees the failure in the type. `Email` and `Money` are immutable value objects validated in the constructor — equality by value, no setters — so the rest of the code never re-validates. `Customer` is an entity compared by ID. For storage I'd write a generic repository bound to something with an `id`; that removes duplicate repositories and the casts. Exceptions form a small domain hierarchy and carry data; I rethrow with `throw;`, wrap with a cause, and catch broadly only at the request boundary. In Python generics are checked statically; in C# they're enforced at runtime."
 
-print("Memory Addresses:", hex(id(c1)), hex(id(c2)))
-print("Structural Equality (c1 == c2):", c1 == c2)
+---
 
-try:
-    c1.lat = 40.7128 # Attempt mutation
-except Exception as e:
-    print("✅ Invariant: Value Object is strictly immutable:", type(e).__name__)
-'
-```
-**Expected Output:**
+## 8. Anti-patterns
+
+1. **Primitive obsession** — `str email`, `float price`, `str currency` everywhere; wrap them.
+2. **`raise Exception("…")` / `throw new Exception("…")`** — no one can catch it precisely.
+3. **Exceptions as normal flow** on hot paths (.NET/Java) — `TryParse` exists for a reason.
+4. **Returning `None` / `null` for "failed"** with no reason — the caller guesses and crashes later.
+5. **Catch-all and continue** — `except Exception: pass`.
+6. **`throw ex;`** — destroys the original stack trace.
+7. **Mutable value objects** or value objects with public setters — aliasing bugs and broken hashing.
+8. **Generic everything** — `Repository<T, TKey, TContext, TSpec>` for a two-entity app; abstraction before need.
+
+---
+
+## 9. Interview questions
+
+<details>
+<summary><strong>1. Why use generics? [BASIC]</strong></summary>
+
+One implementation works for many types with compile-time (or static-checker) type safety — no `object` casts, no duplicated `CustomerRepository` / `OrderRepository`. Constraints (`where T : IHasId`, `TypeVar(bound=…)`) state what the type must offer.
+
+</details>
+
+<details>
+<summary><strong>2. Entity vs value object? [BASIC]</strong></summary>
+
+An entity has identity that persists as its data changes (`Customer(id)`), compared by ID. A value object has no identity, is defined by its attributes, is immutable, and is compared by all fields (`Money`, `Email`, `Address`). Changing a value object means creating a new one.
+
+</details>
+
+<details>
+<summary><strong>3. When do you throw and when do you return an error value? [BASIC]</strong></summary>
+
+Throw for programmer errors and broken invariants (null argument, mismatched currencies) and infrastructure failures. Return a `Result` / `TryX` / `Optional` for outcomes a correct caller should expect: invalid user input, not found, payment declined. State the rule and be consistent.
+
+</details>
+
+<details>
+<summary><strong>4. `throw;` vs `throw ex;` in C#? [BASIC]</strong></summary>
+
+`throw;` rethrows the current exception preserving its original stack trace. `throw ex;` throws the same object but resets the trace to the current line, hiding where the failure began. To add context, wrap: `throw new DomainException("…", ex)`.
+
+</details>
+
+<details>
+<summary><strong>5. Login with wrong password: exception or result? [SCENARIO]</strong></summary>
+
+A wrong password is an **expected** outcome, so return `AuthResult.InvalidCredentials` (or a `Result`). Throwing makes a credential-stuffing attack also a stack-trace-generation load (a real concern in .NET/Java) and blurs "this was a normal refusal" with "something is broken." Use exceptions for the database being down.
+
+</details>
+
+<details>
+<summary><strong>6. Build one `Repository<T>` for all entities. What constraints and pitfalls? [SCENARIO]</strong></summary>
+
+Constraint: `T` must expose an ID (`IHasId` / `HasId` protocol), and in C# often `class` to allow `null` returns. Pitfalls: a generic CRUD repository leaks persistence concerns into the domain, makes each aggregate's special queries awkward, and tempts you to expose `IQueryable`. Keep a thin generic base and write specific repositories (`OrderRepository.find_open_for(customer)`) when behavior differs.
+
+</details>
+
+<details>
+<summary><strong>7. Is `Address` an entity or a value object? [SCENARIO]</strong></summary>
+
+Usually a **value object**: two customers at the same street don't share identity, and a move replaces the whole address. Store it embedded (columns or JSON) in the owning entity. It becomes an entity only if it has its own lifecycle — e.g. a warehouse location tracked independently with inventory attached.
+
+</details>
+
+<details>
+<summary><strong>8. Can you pass a `List<Dog>` where a `List<Animal>` is expected? [TRICKY]</strong></summary>
+
+No — generic collections are **invariant**: if the callee were allowed to `Add(new Cat())`, your `List<Dog>` would contain a cat. A read-only producer like `IEnumerable<out T>` is **covariant**, so `IEnumerable<Dog>` converts to `IEnumerable<Animal>`. In Python the static checker enforces the same rule (`list` is invariant, `Sequence` is covariant) but the runtime does not.
+
+</details>
+
+---
+
+## 10. One-page cheat sheet
+
 ```text
-Memory Addresses: 0x7f... 0x7f... (Distinct memory locations!)
-Structural Equality (c1 == c2): True
-✅ Invariant: Value Object is strictly immutable: FrozenInstanceError
+Generics      One definition, many types, no casts. Constrain with bound= / where T :.
+              Python: erased, static-checked.  C#: reified, runtime-enforced. Variance: out/in.
+Exceptions    Bugs + invariants + infrastructure -> throw. Domain hierarchy, carry data, keep the cause.
+              Rethrow with `throw;`  |  raise ... from e.  Catch broadly only at the boundary.
+Result/TryX   Expected failures (input, not found, declined) -> typed result with a reason.
+Value object  Immutable, validated in ctor, equal by fields.  Money, Email, Address, DateRange.
+Entity        Has an ID, equal by ID, changes over time.
+Repository    Generic base bound to "has an id"; specific repos for specific queries.
+Smells        Primitive obsession, raise Exception, None-as-failure, throw ex, mutable VOs.
+
+Interview opener: "Is this failure a bug, or a normal outcome? That decides exception vs result."
 ```
 
 ---
 
-## 7. Operational Validation Checkpoint
+## Further reading
 
-<details>
-<summary><strong>Question 1: Why Value Objects Must Be Immutable</strong></summary>
+- [Python tutorial — Errors and Exceptions](https://docs.python.org/3/tutorial/errors.html) and [`typing` generics](https://docs.python.org/3/library/typing.html#generics)
+- [.NET — Best practices for exceptions](https://learn.microsoft.com/en-us/dotnet/standard/exceptions/best-practices-for-exceptions)
+- [C# generics](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/types/generics) and [constraints on type parameters](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/generics/constraints-on-type-parameters)
+- [Martin Fowler — ValueObject](https://martinfowler.com/bliki/ValueObject.html)
+- [Python `dataclasses`](https://docs.python.org/3/library/dataclasses.html) and [C# records](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/record)
 
-**Scenario:** In a ride-sharing service, `User` and `Driver` both hold a reference to the same `Location` Value Object (`{lat: 37.77, lon: -122.41}`). If `Location` was mutable, what critical concurrency bug occurs when the driver moves?
+## Next
 
-**Answer:**
-If `Location` were mutable, when the driver moves and modifies `driver.location.lat = 37.78`, the user's location would **silently mutate in memory as well**, because both entities hold pointers to the same shared heap object (pointer aliasing). 
-
-**The Rule:** Value Objects must be **strictly immutable**. When a driver moves, the system allocates a brand new `Location` instance and assigns it: `driver.location = new Location(37.78, -122.41)`. The customer's location remains completely unaffected.
-</details>
-
-<details>
-<summary><strong>Question 2: Performance Cost of Exceptions in High-Throughput APIs</strong></summary>
-
-**Scenario:** A candidate in an interview proposes: "Whenever a user submits invalid login credentials, our authentication service throws an `InvalidCredentialsException`, which is caught by a global controller advice that returns HTTP 401."
-
-Why is this poor software design for an authentication endpoint subjected to high brute-force traffic?
-
-**Answer:**
-Throwing an exception forces the runtime engine (JVM, CLR, Python VM) to **suspend execution, walk the entire thread call stack, and construct a detailed stack trace array**. 
-
-During a credential-stuffing attack where an attacker attempts 5,000 invalid logins per second, generating 5,000 stack traces per second will saturate CPU cores, causing a self-inflicted Denial of Service (DoS) for legitimate users. 
-
-**Correct Design:** Return a domain `Result.Fail(AuthError.InvalidCredentials)` without throwing exceptions.
-</details>
-
-<details>
-<summary><strong>Question 3: Entity vs. Value Object in Database Schema</strong></summary>
-
-**Scenario:** You are designing a database schema for customer addresses (`Street`, `City`, `PostalCode`, `Country`). 
-Should `Address` be an Entity with its own primary key table (`address_id`), or a Value Object embedded within the `users` table?
-
-**Answer:**
-Unless customers share and collaboratively edit global addresses, `Address` is fundamentally a **Value Object**:
-* It has no independent lifecycle; if two users live at the same address, they do not share an identity.
-* If a customer updates their address, they are not mutating a shared entity; they are replacing their address with a new value.
-* **Database Representation:** Store address fields directly as embedded columns in the `users` table (`street`, `city`, `zip_code`), or serialize as a JSONB column.
-</details>
-
----
-
-## Next Step
-
-Now that you understand Generics, Exceptions, and Value Objects, proceed to **[04 · SOLID Principles in Production](../04-solid-principles/README.md)** to master Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion.
+**[04 · SOLID Principles](../04-solid-principles/README.md)** — one reason to change, extend by adding, honest subtypes, small interfaces, and dependency inversion.
