@@ -1,9 +1,12 @@
 # Lesson 22: Certificates and PKI — Why Your Browser Trusts a Site It Has Never Met
 
 > **Prerequisites:** [Lesson 21: The TLS 1.3 Handshake Step by Step](../21-tls-1-3-handshake/README.md) and [Networking From Zero Overview](../README.md) (Lesson 22 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend, SRE, and DevOps engineers debugging TLS trust chain failures, automating `ACME` certificate issuance, enabling `OCSP` stapling, and implementing service-to-service `mTLS`.  
 > **Free PDF Notes:** [Download SD-N-022.pdf](https://backendroadmap.com/notes/system-design/SD-N-022.pdf)
+
+> [!NOTE]
+> **In one line:** a certificate binds a name to a public key; browsers trust it by checking signatures up a chain to a root in their trust store, and short-lived certificates with automated renewal (`ACME`) end surprise expiry outages.
 
 > [!TIP]
 > **The Golden Rule of PKI & Trust Chains:** Encryption without verified identity just locks traffic for an attacker; **X.509 certificates** bind a hostname in **`SAN`** (not deprecated `CN`) to a public key through a signature chain from an offline **Root CA** in your OS store down through an **Intermediate CA** to your **Leaf certificate**. Always configure servers to serve **`fullchain.pem` (Leaf + Intermediate)**, automate renewals via **`ACME` (`HTTP-01` / `DNS-01`)**, attach **`OCSP` staples**, and enforce **`mTLS`** when internal services must verify each other.
@@ -140,6 +143,116 @@ sequenceDiagram
 | **Online `OCSP`** | **Yes (`+1–2 RTT`)** | **Yes** | High (soft-fail defaults) | Deprecated by major CAs (`Let's Encrypt` ending OCSP in favor of CRLs/short certs) |
 | **`OCSP Stapling`** | **Zero** (`0 RTT`) | **No** | Safe with `Must-Staple` | Best practice when server OCSP responders are active |
 | **Short-Lived Certs (`7–47 d`)** | **Zero** (`0 RTT`) | **No** | **Eliminated** via rapid expiry | Gold standard in automated cloud & `SPIFFE` `mTLS` meshes |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**An X.509 certificate is a signed document that binds a name to a public key.** A browser (or SDK) trusts it only when every link in the chain verifies: leaf signed by intermediate, intermediate signed by a **root already in the client's trust store**, hostname matches a `SAN`, dates are valid, the cert is not revoked, and the server proves possession of the matching private key via `CertificateVerify`. **What it is not:** a certificate is not encryption by itself, not a guarantee the site is safe, and not something you can omit the intermediate for just because Chrome still works.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **Leaf** vs. **Intermediate** vs. **Root** | Leaf = your site's cert (sent first). Intermediate = online issuing CA (must be sent). Root = offline trust anchor (already on the device; never send it). | Serve `fullchain.pem` = leaf + intermediate; root lives in `/etc/ssl/certs`. |
+| **`SAN`** vs. **`CN`** | `SAN` lists typed identities (`DNS:`, `IP:`). Legacy `CN` is ignored by modern Go/Chrome/OpenSSL. | `DNS:api.shop.example` + `DNS:*.shop.example` (one label only; `a.b.shop.example` is **not** covered). |
+| **`SNI`** vs. **certificate name** | `SNI` is the plaintext hostname in `ClientHello` so a multi-tenant IP can pick which cert to send. The cert's `SAN` is what the client then validates. | One LB IP hosts `a.example`, `b.example`, `c.example`; wrong/missing `SNI` yields the default cert and `ERR_CERT_COMMON_NAME_INVALID`. |
+| **One-way TLS** vs. **`mTLS`** | One-way: only the server presents a cert. `mTLS`: both sides present certs; the server also sends `CertificateRequest`. | Public website = one-way. Mesh `payments` accepting only `spiffe://…/orders` = `mTLS` + `SAN` allowlist. |
+| **`HTTP-01`** vs. **`DNS-01`** | `HTTP-01` serves a token on port 80. `DNS-01` writes a `_acme-challenge` TXT (required for wildcards and firewalled hosts). | Public apex → `HTTP-01`. `*.internal.example.com` → `DNS-01`. |
+
+**Business impact.** Certificate mistakes are binary outages: every HTTPS client fails at once. Manual yearly renewals guarantee calendar-driven SEV-1s; short lifetimes plus `ACME` automation shrink both the stolen-key window and the human-error window.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy of the Trust Chain (What the Server Must Send)
+
+```text
+ SENT BY THE SERVER IN THE HANDSHAKE          ALREADY ON THE DEVICE (trust store)
+ +----------------------------------+         +----------------------------------+
+ | Leaf certificate                 |         | Root X (self-signed)             |
+ |   SAN: shop.example.com          |  signs  |   public key                     |
+ |   public key                     | <------ |   lives in OS / browser store    |
+ |   valid 90 days                  |         |   kept offline / HSM             |
+ |   issuer: Intermediate R         |         +----------------------------------+
+ +----------------------------------+                      ^
+ | Intermediate R                   |                      | signs
+ |   public key                     | ---------------------+
+ |   issuer: Root X                 |
+ +----------------------------------+
+ Browser checks: signatures up the chain | SAN match | dates | not revoked | CertificateVerify (owns key)
+```
+
+*The root is never sent. Omitting the intermediate is the #1 production chain bug: Chrome may hide it via `AIA`/cache; `curl`, Go, Python, and mobile SDKs do not.*
+
+### The Observability Gap: Where Cert Health Hides
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Desktop Chrome padlock** | Successful validation *for that browser*, often after `AIA` fetch or cached intermediate. | Programmatic clients (`curl`, Go, iOS) that never chase `AIA`. |
+| **HTTP access / `5xx` dashboards** | Only requests that **finished** the handshake. | Failed handshakes (expired cert, incomplete chain, `SAN` mismatch) never become HTTP—they are invisible as `5xx`. |
+| **`openssl s_client -showcerts` / synthetic probes** | Exact chain depth, `notAfter`, stapled OCSP, negotiated cipher. | Whether *every* edge PoP / region serves the same chain. |
+| **ACME / cert-manager logs** | Issuance success, challenge failures, Secret updates. | Whether the *running* Ingress/LB reloaded the new Secret. |
+| **Metrics to add** | Days-to-`notAfter` per endpoint (alert `< 14` days), incomplete-chain rate, `mTLS` handshake failure by `SAN`, OCSP staple age. | Nothing: they separate "Chrome looks fine" from "APIs are dark". |
+
+---
+
+## Mathematical Model of Certificate Lifetimes, Renewal Windows & Fleet Load
+
+### 1. Renewal Window on a 90-Day Certificate
+
+Let's Encrypt leaves typically last $L = 90$ days. Renew when $\frac{1}{3}$ of lifetime remains (cert-manager default):
+
+$$t_{\text{renew}} = L - \frac{L}{3} = 60\text{ days into life},\qquad W_{\text{retry}} = \frac{L}{3} = 30\text{ days}$$
+
+Alert when remaining life drops below $14$ days—that means automation has already been failing for roughly two weeks:
+
+$$\text{Alert if}\quad \text{notAfter} - \text{now} < 14\text{ days}$$
+
+| Lifetime $L$ | Renew-at remaining | Retry window | Critical alert |
+| :--- | :--- | :--- | :--- |
+| `90 d` (classic LE) | `30 d` left | `30 d` | `< 14 d` |
+| `47 d` (tightening industry) | `~16 d` left | `~16 d` | `< 7 d` |
+| `7 d` (short-lived / mesh) | continuous ACME | hours | `< 1 d` |
+| `365 d` (manual legacy) | calendar guess | days of human lag | usually **too late** |
+
+### 2. Worked Example: 40 Domains, Manual vs Automated
+
+Manual 1-year certificates: $\approx 40$ renewals/year, each a chance to forget.
+
+ACME 90-day certs renewed at 30 days left:
+
+$$N_{\text{renewals/year}} = 40 \times \frac{365}{60} \approx 243\quad\text{(every ~60 days per domain)}$$
+
+All automatic, each with a **30-day** retry window. Monitor `notAfter` for every public endpoint; page when any is under 14 days.
+
+### 3. Stolen-Key Exposure Window
+
+Revocation checking soft-fails in many clients, so a leaked private key stays usable until expiry:
+
+$$E_{\text{exposure}} \approx L_{\text{remaining}} \le L$$
+
+| Leaf lifetime | Max useful life of a stolen key | Operational consequence |
+| :--- | :--- | :--- |
+| `1–2 years` (legacy) | years | Manual CRLs/OCSP must work; they often don't |
+| `90 days` | weeks | Forces automation; shrinks breach blast |
+| `7–47 days` | days | Gold standard when issuance is fully automated |
+| Mesh `24 h` SPIFFE | hours | Compromise self-heals overnight |
+
+### 4. Chain Flight Size vs. TCP Initial Window
+
+A leaf + one intermediate is typically $1.5\text{–}5$ KB. TCP initial window $\text{IW10} \approx 10 \times 1{,}460 = 14{,}600$ B. Keep the certificate flight under one IW so handshake Flight 2 does not stall an extra RTT:
+
+$$\text{Flight}_2 \approx |\text{ServerHello}| + |\text{Cert chain}| + |\text{CertificateVerify}| + |\text{Finished}| \ll 14.6\text{ KB}$$
+
+ECDSA P-256 chains are smaller and faster to verify than RSA-2048—pair short chains with [Lesson 21](../21-tls-1-3-handshake/README.md) handshake CPU math.
+
+### 5. Compounding: Incomplete Chain Across Client Types
+
+If a fraction $p$ of clients chase `AIA` (desktop browsers) and $1-p$ do not (SDKs, mobile, containers):
+
+$$P(\text{outage visible in Chrome}) \approx 0,\qquad P(\text{outage for backend clients}) = 1$$
+
+Shipping only the leaf makes staging "green" while production APIs are `100%` dark—exactly the war story below.
 
 ---
 
@@ -443,53 +556,136 @@ If Service B trusts *any* certificate signed by your internal Root CA, then a co
 
 ## Interview Practice Questions
 
-> [!interview] How does a browser trust an HTTPS website it has never visited before? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. How does a browser trust a certificate? [BASIC]</strong></summary>
 
-Your OS or browser ships with a curated list of trusted Root CAs. During the TLS handshake, the server sends its Leaf certificate—containing its domain `SAN` and public key—along with an Intermediate CA certificate. The client verifies the cryptographic signature chain from the Leaf up to a trusted Root CA in its store, checks validity dates and `SAN` match, and verifies `CertificateVerify` to confirm the server actually holds the matching private key.
-
-</details>
-
-> [!interview] Your site loads fine in desktop Chrome, but `curl`, Go services, and iOS fail with `unable to verify the first certificate`. What broke? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The server is only sending its Leaf certificate (`cert.pem`) and forgot to include the Intermediate CA certificate (`fullchain.pem`). Desktop Chrome hides this mistake by using cached intermediates or fetching the missing intermediate over HTTP via the cert's `AIA` URL. Programmatic TLS libraries intentionally skip `AIA` chasing and reject the incomplete chain immediately.
+<strong>What a strong answer covers:</strong>
+It verifies the chain of signatures from the leaf through intermediates to a root CA in its trust store, checks the hostname against the `SAN`, checks validity dates and revocation, and in the handshake confirms the server signs with the matching private key (`CertificateVerify`).
 
 </details>
 
-> [!interview] Why did `SAN` replace `CN` in X.509 certificates? (Basic)
+<details>
+<summary><strong>2. What is SNI and why is it needed? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-The legacy `Common Name (CN)` was an ambiguous single string inside the subject field that didn't cleanly distinguish hostnames from human organization names or support multiple domains and IP addresses reliably. `Subject Alternative Name (SAN)` explicitly types every identity (`DNS:api.example.com`, `IP:10.0.0.5`), and modern browsers plus Go/OpenSSL ignore `CN` and reject certificates missing a valid `SAN`.
-
-</details>
-
-> [!interview] Compare `ACME` `HTTP-01` vs. `DNS-01` challenges. When do you need `DNS-01`? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-`HTTP-01` proves control by serving a token on public port 80 (`/.well-known/acme-challenge/...`), which is simple and needs no DNS keys. `DNS-01` proves control by writing a `_acme-challenge` `TXT` record via DNS API. You must use `DNS-01` whenever issuing wildcard certificates (`*.example.com`) or automating certs for private internal services unreachable from the public internet.
+<strong>What a strong answer covers:</strong>
+Server Name Indication: the client sends the hostname in the cleartext `ClientHello` so a server (or LB) hosting many domains on one IP can present the matching certificate before encryption starts. Without `SNI` the server guesses a default cert and names mismatch.
 
 </details>
 
-> [!interview] What is `OCSP Stapling` and what two problems with online `OCSP` does it fix? (Tricky)
+<details>
+<summary><strong>3. What is mTLS used for? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Mutual authentication—mostly service-to-service. Both sides present certificates so the server knows exactly which caller is connecting before reading any HTTP. Meshes like Istio/Linkerd issue and rotate short-lived certs automatically (`SPIFFE` IDs).
 
-With online `OCSP`, every client pauses the TLS handshake to ask the CA's responder if the cert was revoked—adding 1–2 RTTs of latency, leaking user browsing history to the CA, and breaking or soft-failing if the responder goes offline. With `OCSP Stapling`, the web server periodically fetches the CA-signed OCSP proof itself and staples it right inside the TLS handshake, costing zero extra RTTs and protecting user privacy.
+</details>
+
+<details>
+<summary><strong>4. Why did `SAN` replace `CN`? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`CN` was an ambiguous single string; `SAN` explicitly types every identity (`DNS:`, `IP:`) and supports multiple names. Modern Go, Chrome, and OpenSSL ignore `CN` and reject certificates missing a matching `SAN`. Wildcards cover one label only (`*.example.com` ≠ `a.b.example.com`).
 
 </details>
 
-> [!interview] How does `mTLS` differ from standard TLS, and why isn't checking the CA signature alone enough? (Tricky)
+<details>
+<summary><strong>5. Your site went down because a certificate expired. How do you prevent it again? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Standard TLS authenticates only the server, whereas `mTLS` has the server send a `CertificateRequest` so the client must also present a valid X.509 certificate (`clientAuth` EKU) and sign the handshake with its private key. Checking only that the client cert was signed by your internal CA lets any internal service impersonate any other—you must also authorize the specific `SAN` or `SPIFFE ID` inside the client certificate.
+<strong>What a strong answer covers:</strong>
+Automate with `ACME` (certbot, cert-manager, or managed LB certs), renewing at ~30 days left on a 90-day leaf. Monitor `notAfter` for every endpoint and alert below 14 days so failing automation is caught with two weeks to spare. Never rely on a human calendar.
 
 </details>
+
+<details>
+<summary><strong>6. You need a certificate for `*.internal.example.com` on servers not reachable from the internet. Which ACME challenge? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`DNS-01`: create a `TXT` at `_acme-challenge.internal.example.com`. `HTTP-01` needs port 80 reachable from the public internet and cannot issue wildcards.
+
+</details>
+
+<details>
+<summary><strong>7. `curl` says `unable to verify the first certificate` but the browser shows the padlock. Why? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The server isn't sending its intermediate. The browser cached it or fetched it via `AIA`; `curl` and most libraries do not. Configure the server to send the full chain (`leaf + intermediate` / `fullchain.pem`).
+
+</details>
+
+<details>
+<summary><strong>8. How does mTLS differ from one-way TLS, and why isn't "signed by our CA" enough? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+One-way authenticates only the server; `mTLS` also requires a client certificate + live signature. CA signature alone lets any internal service impersonate any other—authorize the specific `SAN` / `SPIFFE ID` (and prefer short-lived mesh certs).
+
+</details>
+
+<details>
+<summary><strong>9. Why do CAs use intermediates instead of signing leaves with the root? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The root key stays offline in an HSM so it is hard to steal. If an intermediate is compromised it can be revoked and replaced without updating trust stores on billions of devices (a multi-year process).
+
+</details>
+
+<details>
+<summary><strong>10. Why are short certificate lifetimes considered more secure? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Revocation checking is unreliable (browsers often soft-fail), so a stolen key stays usable until expiry. With 90-day or shorter certificates the damage window is weeks, not years—and short lifetimes force automation, which removes human error.
+
+</details>
+
+<details>
+<summary><strong>11. What is OCSP stapling, and what two problems does it fix? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Online OCSP adds 1–2 RTTs, leaks browsing history to the CA, and soft-fails when the responder is down. Stapling: the server periodically fetches a CA-signed proof and attaches it in the handshake—zero extra client RTT, no privacy leak. Prefer short-lived certs when OCSP is being retired.
+
+</details>
+
+<details>
+<summary><strong>12. What goes wrong with certificate pinning in mobile apps? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Pinning hard-codes which leaf key (or cert) the app trusts. Rotate to a new key the app doesn't know and every installed copy stops connecting until users update. If you pin, pin a backup key too and plan rotation—or pin the CA intermediate instead of the leaf.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                          CERTIFICATES & PKI  —  CHEAT SHEET
+====================================================================================================
+IN ONE LINE   Cert binds NAME -> public key; client walks signatures to a ROOT already in its trust store
+
+CHAIN         Leaf (sent) <- Intermediate (MUST send) <- Root (on device, NEVER send)
+CHECKS        signatures | SAN match | notBefore/notAfter | not revoked | CertificateVerify (owns key)
+FILES         fullchain.pem = leaf + intermediate     cert.pem alone = Chrome may pass, curl/Go/mobile FAIL
+
+SNI           plaintext hostname in ClientHello -> pick cert on shared IP     (ECH hides SNI later)
+SAN vs CN     SAN is mandatory; CN ignored by modern stacks     *.example.com = ONE label only
+ACME          HTTP-01: port 80 token (no wildcards)     DNS-01: TXT (wildcards + private hosts)
+RENEW MATH    L=90 d -> renew at 30 d left (W_retry=30 d)     ALERT if notAfter-now < 14 d
+EXPOSURE      stolen key useful until expiry -> shorter L shrinks breach window; meshes use ~24 h
+
+mTLS          both sides present certs; authorize SPIFFE/SAN allowlist (CA-only check is insufficient)
+OCSP          online = +RTT + privacy leak + soft-fail     staple = 0 RTT     short-lived certs = best
+FLIGHT SIZE   keep leaf+intermediate << 14.6 KB (IW10) so Flight 2 fits one RTT; prefer ECDSA chains
+
+OBSERVE       days-to-expiry per endpoint | incomplete-chain probes (no AIA) | mTLS fail by SAN
+              failed handshakes NEVER appear in HTTP 5xx dashboards
+
+ANTI-PATTERNS X renew by calendar   X serve leaf without intermediate   X trust CN over SAN
+              X pin leaf with no backup   X ACME HTTP-01 for wildcards/private hosts
+              X FROM scratch without ca-certificates   X declare healthy from Chrome alone
+====================================================================================================
+```
 
 ---
 

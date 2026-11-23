@@ -1,9 +1,12 @@
 # Lesson 23: HTTP/1.1 vs HTTP/2 vs HTTP/3 and Head-of-Line Blocking
 
 > **Prerequisites:** [Lesson 18: HTTP Part 1](../18-http-requests-responses-and-methods/README.md), [Lesson 21: The TLS 1.3 Handshake Step by Step](../21-tls-1-3-handshake/README.md), [Lesson 12: UDP vs TCP](../12-udp-vs-tcp/README.md), and [Networking From Zero Overview](../README.md) (Lesson 23 of 30).  
-> **Estimated Reading Time:** 28 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend, platform, and SRE engineers optimizing API latency across lossy mobile networks, debugging HTTP/2 TCP head-of-line stalls, configuring ALPN negotiation, and deploying HTTP/3 (QUIC) behind reverse proxies and CDNs.  
 > **Free PDF Notes:** [Download SD-N-023.pdf](https://backendroadmap.com/notes/system-design/SD-N-023.pdf)
+
+> [!NOTE]
+> **In one line:** HTTP/1.1 sends one request at a time per connection; HTTP/2 multiplexes many streams over one TCP connection but still stalls on a lost packet; HTTP/3 runs on QUIC over UDP, so streams are independent, setup is faster, and connections survive network changes.
 
 > [!TIP]
 > **The Golden Rule of HTTP Evolution:** `HTTP/1.1` suffers **application-layer head-of-line blocking**, forcing browsers to open `6` parallel TCP connections per origin; `HTTP/2` multiplexes binary streams and `HPACK`-compressed headers over **one TCP socket**, yet any single dropped segment stalls **all streams in the kernel TCP buffer**; `HTTP/3` moves transport onto **`QUIC` (`UDP` + TLS 1.3)** so streams recover independently, survive Wi-Fi-to-5G IP switches via Connection IDs, and handshake in `1` RTT (or `0` RTT).
@@ -163,6 +166,88 @@ Why didn't engineers simply fix TCP inside operating system kernels? Because mil
   Once that single packet drops, **all `30` streams stall for at least `1` RTT (`80 ms`)**—or **`200+ ms` RTO** if tail packets drop. Over `HTTP/3`, only the `1` affected stream waits `80 ms` while the other `29` streams complete unhindered. Meanwhile, on cold startup at `RTT = 60 ms`:
 
   $$\text{TCP + TLS 1.3 + H2 startup} = 2 \times 60\text{ ms} = 120\text{ ms}, \qquad \text{QUIC / H3 startup} = 1 \times 60\text{ ms} = 60\text{ ms}$$
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**HTTP methods, status codes, and headers mean the same thing in HTTP/1.1, HTTP/2, and HTTP/3—what changes is how messages share the wire.** HTTP/1.1 is text and one-request-at-a-time per TCP socket; HTTP/2 is binary frames multiplexed on one TCP socket; HTTP/3 keeps the multiplexed model but moves transport to QUIC over UDP. **What it is not:** a new HTTP version does not invent new verbs or status codes, does not remove the need for TLS on the public web, and does not magically make a lossy radio link lossless.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **App-layer HOL** vs. **TCP HOL** vs. **stream HOL** | App: one slow response blocks its HTTP/1.1 lane. TCP: one lost segment stalls *all* HTTP/2 streams. Stream: HTTP/3 loss stalls only that stream. | Mobile 2% loss: H2 freezes the whole page; H3 delays one image. |
+| **Multiplexing** vs. **pipelining** | Multiplexing interleaves frames of many streams. Pipelining sent multiple H1 requests but still required ordered responses—browsers never enabled it. | gRPC: thousands of concurrent calls on one H2 connection. |
+| **HPACK** vs. **QPACK** | Both compress headers with a dynamic table. HPACK assumes total order (TCP); QPACK is designed for independent QUIC streams. | Repeated `Cookie` shrinks from hundreds of bytes to a few-byte index. |
+| **ALPN `h2`** vs. **`Alt-Svc` / HTTPS DNS** | `ALPN` picks `h2` vs `http/1.1` inside TLS. HTTP/3 is discovered via `Alt-Svc: h3=":443"` (or HTTPS DNS) after an H2 response. | First visit often H2; next visit races QUIC vs TCP (Happy Eyeballs). |
+| **Connection ID** vs. **4-tuple** | TCP identity = IP+port pair (breaks on Wi-Fi→5G). QUIC identity = Connection ID (migrates). | Phone keeps downloading the same stream across radios. |
+
+**Business impact.** Page feel is dominated by how many RTTs and how many loss-induced freezes you pay. Wrong version choice shows up as "we moved to HTTP/2 and mobile got *worse*"—a classic interview and production trap.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy: How Requests Share One Origin
+
+```text
+ HTTP/1.1  (~6 TCP+TLS connections per host)
+   conn1: [req A]----[slow B]====[C waits]     <- app HOL on this lane
+   conn2: [D][E][F]
+   conn3: [G][H]     ... headers repeated in full every time (~0.5–2 KB)
+
+ HTTP/2   (1 TCP+TLS connection, binary frames)
+   stream1 HEADERS/DATA  stream3 HEADERS/DATA  stream5 ... interleaved
+   HPACK table shared    SETTINGS max_concurrent_streams ~100+
+   *** one lost TCP segment -> ALL streams wait in kernel reorder buffer ***
+
+ HTTP/3   (1 QUIC connection over UDP, TLS 1.3 built-in)
+   stream1 continues ✓   stream3 waits on loss ✗   stream5 continues ✓
+   QPACK   Connection ID survives IP change   1-RTT (or 0-RTT) setup
+```
+
+### The Observability Gap: Which Layer Is Slow?
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Browser DevTools / RUM** | Protocol (`h2`/`h3`), TTFB, waterfalls, connection count. | Whether a stall was TCP loss vs origin CPU; UDP blocks look like "just used h2". |
+| **Edge / CDN metrics** | `% HTTP/3`, QUIC handshake fails, `Alt-Svc` acceptance. | Corporate firewalls silently dropping UDP/443 after a long Happy-Eyeballs timeout. |
+| **Server access logs** | HTTP version, status, bytes—only completed requests. | TCP HOL freezes that inflate *client* p99 while origin p50 looks fine. |
+| **Packet / `ss` / congestion** | Retransmits, `cwnd`, `rttvar` on the single H2 socket. | Per-stream fairness inside the app. |
+| **Metrics to add** | Protocol mix, retransmit rate vs client p99, H3 fallback rate, MTU blackhole errors, `0-RTT`/`425` counts. | Nothing: they separate "origin healthy" from "transport is melting on radio". |
+
+---
+
+## Mathematical Model of Multiplexing, Loss Freezes & Setup RTTs
+
+### 1. Cold-Start Round Trips to First Byte
+
+| Stack | Setup RTTs (with TLS 1.3) | @ `100 ms` RTT |
+| :--- | :--- | :--- |
+| TCP + TLS + HTTP/1.1 or HTTP/2 | `1 + 1 + 1 = 3` (or `2` if TCP+TLS overlapped carefully; classic teaching: **2** TCP+TLS before request on H2) | `~200–300 ms` |
+| QUIC + HTTP/3 (`1-RTT`) | **`1`** combined transport+crypto + request | `~100–200 ms` |
+| QUIC `0-RTT` (idempotent only) | **`0`** crypto + request on first flight | `~100 ms` |
+
+### 2. Worked Example: 60 Files, `100 ms` RTT, `2%` Loss
+
+HTTP/1.1 with 6 lanes ≈ $60/6 = 10$ deep queues → **at least ~12 RTTs ≈ 1.2 s** even with fast servers (plus 6× handshakes).
+
+HTTP/2: one handshake, all 60 in flight—few RTTs when healthy. But with packet loss $p = 0.02$ over $N = 50$ packets on the path:
+
+$$P(\text{at least one loss}) = 1 - (1-p)^N = 1 - 0.98^{50} \approx 63.6\%$$
+
+Each loss freezes **all 60 streams** for ~1 RTT (`100 ms`) or worse under RTO.
+
+HTTP/3: one combined handshake (**−100 ms** vs TCP+TLS), and a loss delays **only the affected file**.
+
+### 3. Header Bandwidth: HPACK Savings
+
+At $1{,}000$ API calls/s with $1$ KB repetitive headers uncompressed vs ~$40$ B indexed:
+
+$$\Delta B = 1{,}000 \times (1{,}000 - 40) = 960\text{ KB/s} \approx 7.7\text{ Mbps saved per connection fan-in}$$
+
+### 4. When HTTP/2 Can Be Slower Than HTTP/1.1
+
+With $k = 6$ H1 connections, a loss stalls ~$1/k$ of work. With one H2 connection it stalls $100\%$, and congestion control also gives that single flow one `cwnd` share. Prefer H3 on lossy last-mile; keep H2 fallback when UDP is blocked.
 
 ---
 
@@ -554,53 +639,131 @@ RFC 9113 (HTTP/2) and RFC 9114 (HTTP/3) **explicitly forbid** connection-specifi
 
 ## Interview Practice Questions
 
-> [!interview] What is Head-of-Line blocking, and how does it differ between HTTP/1.1 and HTTP/2? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. What problem does HTTP/2 solve? [BASIC]</strong></summary>
 
-In HTTP/1.1, head-of-line blocking happens at the application layer: each TCP socket can only handle one HTTP request-response at a time, so a slow response stalls everything queued behind it unless browsers open up to 6 parallel TCP sockets. HTTP/2 solves application-layer blocking by multiplexing binary streams over one TCP connection, but introduces TCP-layer head-of-line blocking: because TCP sees a single ordered byte stream, one dropped packet stalls all multiplexed streams in the kernel reorder buffer until it is retransmitted.
-
-</details>
-
-> [!interview] How does HTTP/3 solve TCP-level head-of-line blocking? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-HTTP/3 runs over QUIC on top of UDP instead of TCP, and implements independent reliable delivery per stream in user space. If a UDP packet carrying Stream 1 is lost, QUIC only pauses Stream 1 for retransmission while immediately delivering packets that arrived safely for Streams 3 and 5. It also uses QPACK instead of HPACK so header compression updates don't block other streams when packets arrive out of order.
+<strong>What a strong answer covers:</strong>
+HTTP/1.1 handles one request at a time per connection, so browsers open ~6 connections and a slow response blocks its lane. HTTP/2 multiplexes many streams over one connection and compresses headers with HPACK—eliminating application-layer HOL and repeated bulky headers.
 
 </details>
 
-> [!interview] Why did our service actually see slower tail latency on 3G/4G commuter routes after switching from HTTP/1.1 to HTTP/2? (Scenario)
+<details>
+<summary><strong>2. Why was HTTP/3 built on UDP? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-On lossy wireless links (1–3% packet loss), HTTP/1.1 spreads requests across up to 6 independent TCP connections, so a single dropped segment only stalls roughly one-sixth of in-flight assets. With HTTP/2 using a single TCP socket, any single lost packet freezes 100% of multiplexed streams in the kernel's TCP receive buffer. Enabling HTTP/3 (QUIC) over UDP fixes this by isolating packet loss to the individual affected stream.
-
-</details>
-
-> [!interview] How does QUIC survive switching from home Wi-Fi to 5G without dropping active streams? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-A TCP connection is bound to the four-tuple of client IP, client port, server IP, and server port—so changing from a Wi-Fi IP to a cellular 5G IP breaks every active TCP/HTTP/2 socket and forces fresh handshakes. QUIC identifies connections using a cryptographic Connection ID in the packet header rather than the IP/port tuple. When the phone's IP changes, it keeps sending packets with the same Connection ID, validates the new path, and preserves active downloads and TLS state seamlessly.
+<strong>What a strong answer covers:</strong>
+To escape TCP's HOL blocking and its ossified, kernel-bound design. QUIC on UDP runs in user space with independent streams, a combined 1-RTT handshake with TLS 1.3, and connection migration—while still evolving quickly.
 
 </details>
 
-> [!interview] How do browsers discover HTTP/3, and what happens if a corporate firewall blocks UDP port 443? (Tricky)
+<details>
+<summary><strong>3. What is head-of-line blocking? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+When one slow or lost item delays everything queued behind it. In HTTP/1.1 it is a slow response on a connection; in HTTP/2 it is a lost TCP packet stalling all streams; HTTP/3 limits it to one stream.
 
-Browsers typically start on HTTP/2 over TCP/443 and discover HTTP/3 via an `Alt-Svc: h3=":443"` response header (or HTTPS DNS records). On subsequent loads, the browser uses Happy Eyeballs to race a QUIC/UDP connection against a TCP/HTTP/2 fallback. If a corporate firewall silently drops or throttles UDP/443, the browser cleanly falls back to HTTP/2 over TCP within ~250 milliseconds without surfacing an error.
+</details>
+
+<details>
+<summary><strong>4. What do HPACK and ALPN do? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+HPACK compresses headers with a shared dynamic table so repeated cookies cost bytes, not kilobytes. ALPN negotiates `h2` vs `http/1.1` inside the TLS handshake so the browser does not need an extra upgrade RTT. (HTTP/3 uses QPACK + `Alt-Svc`/HTTPS DNS discovery.)
 
 </details>
 
-> [!interview] Why can't HTTP/3 reuse HTTP/2's HPACK directly, and why shouldn't `POST /charge` run on QUIC 0-RTT? (Tricky)
+<details>
+<summary><strong>5. Mobile users on flaky networks are still slow after HTTP/2. Why, and what helps? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-HPACK relies on strictly ordered dynamic header-table updates across one TCP stream; if used over independent QUIC streams, out-of-order header frames would re-create head-of-line blocking, so HTTP/3 introduces QPACK. Regarding 0-RTT: early data sent on the first packet has weaker replay protection because an attacker can re-send that UDP packet before handshake completion. Only safe, idempotent requests like `GET` should run in 0-RTT—state-changing `POST`s should be rejected with `425 Too Early` or guarded by strict idempotency keys.
+<strong>What a strong answer covers:</strong>
+Packet loss: every lost TCP packet stalls all streams on the single connection. Enable HTTP/3 at the CDN/LB (with HTTP/2 fallback); QUIC limits stalls to one stream and survives Wi-Fi/cellular switches without reconnecting.
 
 </details>
+
+<details>
+<summary><strong>6. Why does gRPC use HTTP/2? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Streams: one connection carries thousands of concurrent calls, binary framing suits protobuf, and long-lived streams enable client/server/bidi streaming. You also get HPACK and per-stream flow control.
+
+</details>
+
+<details>
+<summary><strong>7. You enabled HTTP/3 but some office users still use HTTP/2. Broken? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Probably not. Their firewall likely blocks UDP 443, so the browser falls back to TCP. Discovery via `Alt-Svc` or HTTPS DNS only upgrades when QUIC actually connects (Happy Eyeballs).
+
+</details>
+
+<details>
+<summary><strong>8. How does QUIC survive Wi-Fi → 5G without dropping streams? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+TCP is bound to the 4-tuple; an IP change kills the socket. QUIC uses a Connection ID in the packet header, validates the new path, and keeps TLS state and streams alive across the radio switch.
+
+</details>
+
+<details>
+<summary><strong>9. Can HTTP/2 be slower than HTTP/1.1? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Yes, on lossy links. With six HTTP/1.1 connections a lost packet stalls one of them; with one HTTP/2 connection it stalls every stream, and that single flow also gets one share of TCP congestion control.
+
+</details>
+
+<details>
+<summary><strong>10. Why can't we just fix HOL blocking in TCP? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+TCP lives in OS kernels and is inspected by middleboxes that drop unexpected behavior (ossification). Deploying a change takes decades. QUIC encrypts nearly all headers so middleboxes cannot freeze it again, and ships in user space with the browser/server.
+
+</details>
+
+<details>
+<summary><strong>11. Why can't HTTP/3 reuse HPACK, and why avoid `0-RTT` for `POST /charge`? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+HPACK's dynamic table assumes total order; out-of-order QUIC streams would reintroduce HOL—hence QPACK. `0-RTT` early data is replayable; only idempotent `GET`/`HEAD` belong there—reject mutating methods with `425 Too Early`.
+
+</details>
+
+<details>
+<summary><strong>12. Should you keep HTTP/1.1 domain sharding and sprite sheets on HTTP/2? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+No. Those tricks existed to work around the 6-connection / HOL limits. Extra domains mean extra connections and lose multiplexing benefits. Prefer one origin, HTTP/2 or HTTP/3, and modern bundling/caching instead.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                    HTTP/1.1 vs HTTP/2 vs HTTP/3  —  CHEAT SHEET
+====================================================================================================
+SAME SEMANTICS   methods / status / headers unchanged     DIFFERENT WIRE FRAMING + TRANSPORT
+
+HTTP/1.1   text | 1 req at a time / TCP | ~6 conns/host | app HOL | headers repeated
+HTTP/2     binary frames | multiplex on 1 TCP | HPACK | app HOL gone | TCP HOL remains
+HTTP/3     binary on QUIC/UDP | independent streams | QPACK | 1-RTT (0-RTT) setup | migrates
+
+HOL MATH   P(freeze) = 1-(1-p)^N     e.g. p=0.02, N=50 -> ~64% chance H2 freezes ALL streams
+PAGE MATH  60 files @100ms RTT: H1 ~12 RTTs (~1.2s) | H2 few RTTs but loss freezes all | H3 isolates
+SETUP      TCP+TLS+H2 ~2–3 RTT | QUIC+H3 ~1 RTT | 0-RTT = 1 RTT total to response (idempotent only)
+
+DISCOVERY  ALPN h2 inside TLS | H3 via Alt-Svc / HTTPS DNS + Happy Eyeballs (UDP 443 may be blocked)
+gRPC       built on H2 streams + per-stream flow control
+MIGRATION  TCP 4-tuple breaks on IP change | QUIC Connection ID continues
+
+OBSERVE    protocol mix | client p99 vs origin p50 | retransmits | H3 fallback % | MTU blackholes
+ANTI-PATTERNS  X "H2 removed all HOL"   X keep sharding/sprites on H2   X assume H3 always works
+               X 0-RTT on POST   X blame origin when TCP HOL owns mobile p99
+====================================================================================================
+```
 
 ---
 

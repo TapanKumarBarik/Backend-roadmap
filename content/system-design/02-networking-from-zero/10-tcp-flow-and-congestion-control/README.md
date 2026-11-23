@@ -5,6 +5,9 @@
 > **Target Audience:** Backend engineers and system design candidates optimizing throughput across high-latency WAN paths, diagnosing zero-window receiver stalls, and evaluating CUBIC vs BBR congestion control.  
 > **Free PDF Notes:** [Download SD-N-010.pdf](https://backendroadmap.com/notes/system-design/SD-N-010.pdf)
 
+> [!NOTE]
+> **In one line:** The receive window stops TCP drowning the receiver, the congestion window stops it drowning the network; TCP keeps the smaller of the two in flight, starts small, doubles every round trip, and cuts back on loss, so speed is at most window ÷ round trip.
+
 > [!TIP]
 > **The Golden Rule of TCP Pacing:** The **receive window (`rwnd`)** stops TCP from drowning the receiver, and the **congestion window (`cwnd`)** stops it from drowning the network. TCP keeps the smaller of the two in flight, starts small, doubles every round trip in slow start, and cuts back on loss—so throughput is strictly bounded by `min(rwnd, cwnd) / RTT`.
 
@@ -120,6 +123,134 @@ Today's systems refine this: Linux uses **CUBIC** by default, and Google's **BBR
 
 ---
 
+﻿## Core Definition & Taxonomic Comparison
+
+**What it is:** TCP throughput control is the closed feedback loop that decides, every round trip, *how many unacknowledged bytes may be in flight*. Two independent brakes feed that decision: one lives at the **receiver** (what the application can absorb) and one lives at the **sender** (what the path can carry). The sender obeys the **smaller**.
+
+**What it isn't:** It is not "bandwidth" (a link property), not "latency" (a path property), and not "retransmission" (a loss-recovery mechanism). Engineers routinely blur these four, then tune the wrong knob.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **Receive window (`rwnd`)** | Free bytes in the receiver's socket buffer, advertised in every ACK (16-bit field × `2^wscale`). Receiver-owned. | A Python ingest worker blocks on `fsync()`; `Recv-Q` fills; the server advertises `win 0` and every client upload stalls. |
+| **Congestion window (`cwnd`)** | The sender's private estimate of how many bytes the *path* can hold. Never transmitted on the wire. | A fresh HTTPS connection starts at `IW10` = `14,600` bytes; a 60 KB JSON needs 3 data round trips regardless of link speed. |
+| **Slow-start threshold (`ssthresh`)** | The `cwnd` value at which exponential growth hands over to linear growth. Set to `cwnd / 2` after loss. | After a loss at `cwnd = 400` segments, `ssthresh = 200`: the connection regrows quickly to 200, then crawls `+1 MSS/RTT`. |
+| **Send window (effective window)** | `min(rwnd, cwnd)` minus bytes already in flight: how much more the sender may emit *right now*. | `ss -tin` shows `cwnd:20` but `Send-Q` capped at 64 KB: `rwnd` (no `wscale`), not `cwnd`, is the binding limit. |
+| **Bandwidth-Delay Product (BDP)** | `bandwidth × RTT`: bytes that must be in flight to keep the pipe full. | A `1 Gbps` × `180 ms` Frankfurt–Tokyo link has a `22.5 MB` BDP; a 64 KB window uses `0.29%` of it. |
+| **Throughput vs. goodput** | Throughput = bytes on the wire per second; goodput = *useful, de-duplicated* application bytes per second. | A Wi-Fi link at `3%` loss can show `20 Mbps` throughput but `12 Mbps` goodput once retransmits are subtracted. |
+| **Bufferbloat** | Excess queueing delay created when loss-based CC keeps filling oversized router buffers. | A CUBIC bulk upload pushes ping on the same home router from `15 ms` to `600 ms`. |
+
+**Human and business implication:** users do not perceive *bandwidth*; they perceive *time to last byte*. For small API responses that is dominated by slow start (RTT count), for bulk replication it is dominated by `min(rwnd, cwnd) / RTT`, and for mobile it is dominated by whether the CC algorithm mistakes radio loss for congestion.
+
+---
+
+## Component Breakdown & Anatomy: Where Does the Time Go?
+
+Time-to-last-byte for a transfer of `S` bytes over a cold TCP connection decomposes into five additive parts:
+
+$$T_{\text{total}} = T_{\text{handshake}} + T_{\text{slow-start}} + T_{\text{steady}} + T_{\text{loss-recovery}} + T_{\text{receiver-stall}}$$
+
+| Component | What Drives It | Typical Size | Fix Lever |
+| :--- | :--- | :--- | :--- |
+| **Handshake (`T_handshake`)** | `1 × RTT` for TCP (+ `1 × RTT` for TLS 1.3) before the first data byte | `RTT` to `2 × RTT` | Keep-alive, connection pools, TLS 1.3 0-RTT, QUIC |
+| **Slow start (`T_slow-start`)** | `IW10` and doubling per RTT until `ssthresh` or loss | `⌈log2(S/14,600 + 1)⌉` RTTs | Compress below 14 KB, CDN edge, larger `initcwnd` on trusted paths |
+| **Steady state (`T_steady`)** | `min(rwnd, cwnd) / RTT` ceiling, link rate ceiling | `S / min(window/RTT, link)` | Window scaling, BBR, closer replica |
+| **Loss recovery (`T_loss-recovery`)** | Dup-ACK fast retransmit (`~1 RTT`) vs. RTO (`≥ 200 ms`, doubling) | `1 RTT` to seconds | Fix lossy hop, SACK, TLP, pacing |
+| **Receiver stall (`T_receiver-stall`)** | App not draining `Recv-Q`; `rwnd = 0` windows | `0` to seconds | Fix slow consumer, enlarge `tcp_rmem`, backpressure |
+
+```text
+ SENDER APP        SENDER KERNEL                NETWORK PATH               RECEIVER KERNEL          RECEIVER APP
+ write(buf) ──►  [ Send-Q  ]                                               [ Recv-Q (sk_rmem) ] ──► read(buf)
+                  │ limited by min(cwnd, rwnd)                                   ▲  advertises rwnd in every ACK
+                  ▼                                                              │
+             in-flight bytes ═══════►  routers + queues + loss  ═══════════════►│
+                  ▲                         (cwnd probes this)                   │
+                  └───────────────────────── ACK + window ◄──────────────────────┘
+```
+
+### The Observability Gap: Who Sees Which Number?
+
+Every measurement point is blind to something. Misreading them is how teams blame the network for an application stall (and vice versa).
+
+| Measurement Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Application timer** (client `fetch` duration, server handler time) | End-to-end wall time | Splits between slow start, loss recovery, and receiver stalls are invisible |
+| **`ss -tin` / `TCP_INFO` on sender** | `cwnd`, `ssthresh`, `rtt`, `retrans`, `delivery_rate`, `snd_wnd`, `wscale` | Only that host's view; cannot see *why* the path dropped packets |
+| **`ss -tin` on receiver** | `Recv-Q` depth, advertised window, `rcv_space` | Whether the sender is `cwnd`-limited or app-limited |
+| **Packet capture (`tshark`, `tcpdump`)** | `ZeroWindow`, `Dup ACK`, `Retransmission`, window scale option in SYN | Ground truth, but one vantage point; no view of queueing inside a middlebox |
+| **Load balancer / CDN logs** | Per-request time, bytes, upstream time | TCP-level behavior (window, loss) is entirely hidden |
+| **Router / switch counters** | Queue drops, ECN marks, utilization | Which flow was hurt and why |
+
+---
+
+## Mathematical Model: Windows, BDP, Slow Start, and Loss
+
+### 1. The Fundamental Throughput Bound
+
+Per round trip, at most one window of data can be acknowledged, so:
+
+$$\text{Throughput} \le \frac{\min(\text{rwnd},\ \text{cwnd})}{\text{RTT}}$$
+
+Without window scaling the 16-bit field caps `rwnd` at `65,535` bytes, so:
+
+| RTT | Max throughput at 64 KB window | % of a 1 Gbps link | Where you meet it |
+| :--- | :--- | :--- | :--- |
+| `1 ms` | `524 Mbps` | `52%` | Same-rack / same-AZ |
+| `20 ms` | `26.2 Mbps` | `2.6%` | Cross-region, same continent |
+| `100 ms` | `5.2 Mbps` | `0.52%` | Cross-continent |
+| `200 ms` | `2.6 Mbps` | `0.26%` | India ↔ US East, satellite-grade paths |
+
+### 2. Bandwidth-Delay Product and Window Scaling
+
+$$\text{BDP} = \frac{B \times \text{RTT}}{8} \text{ bytes}, \qquad \text{wscale} = \min\{k : 65{,}535 \cdot 2^{k} \ge \text{BDP}\}\ (k \le 14)$$
+
+| Bandwidth | RTT | BDP | Min `wscale` | Max window at that shift |
+| :--- | :--- | :--- | :--- | :--- |
+| `100 Mbps` | `100 ms` | `1.25 MB` | `5` | `2.1 MB` |
+| `1 Gbps` | `20 ms` | `2.5 MB` | `6` | `4.2 MB` |
+| `500 Mbps` | `180 ms` | `11.25 MB` | `8` | `16.8 MB` |
+| `10 Gbps` | `200 ms` | `250 MB` | `12` | `268 MB` |
+
+The absolute ceiling is `65,535 × 2^14 ≈ 1.07 GB`. Rule of thumb: size `tcp_rmem`/`tcp_wmem` maximums to `2 × BDP` so retransmission and kernel overhead never starve the pipe.
+
+### 3. Slow-Start Rounds for a Cold Connection
+
+With `IW = 10 × 1,460 = 14,600` bytes doubling each RTT, after `n` data rounds the sender has emitted $IW\,(2^{n} - 1)$ bytes. The rounds needed for a payload of `S` bytes:
+
+$$n = \left\lceil \log_2\!\left(\frac{S}{IW} + 1\right) \right\rceil$$
+
+| Payload `S` | Data rounds `n` | Added latency at `100 ms` RTT | Takeaway |
+| :--- | :--- | :--- | :--- |
+| `14.6 KB` | `1` | `100 ms` | Fits in `IW10`: the "first 14 KB" rule |
+| `60 KB` | `3` | `300 ms` | Typical un-gzipped API list |
+| `100 KB` | `3` | `300 ms` | Typical page HTML + CSS |
+| `500 KB` | `6` | `600 ms` | Why bundle size matters on cold connections |
+| `1 MB` | `7` | `700 ms` | Still ramp-limited, not link-limited |
+| `10 MB` | `10` | `1,000 ms` | Ramp-up amortizes; steady state dominates |
+
+### 4. Loss and the Mathis Equation
+
+For loss-based Reno-style CC with loss probability `p`, the steady-state ceiling is (Mathis et al., 1997):
+
+$$\text{Throughput} \approx \frac{C \cdot \text{MSS}}{\text{RTT}\sqrt{p}},\quad C \approx 1.22$$
+
+| Loss rate `p` | `RTT = 10 ms` | `RTT = 100 ms` | `RTT = 200 ms` |
+| :--- | :--- | :--- | :--- |
+| `0.001%` | `451 Mbps` | `45.1 Mbps` | `22.5 Mbps` |
+| `0.01%` | `142 Mbps` | `14.3 Mbps` | `7.1 Mbps` |
+| `0.1%` | `45.1 Mbps` | `4.5 Mbps` | `2.3 Mbps` |
+| `1%` | `14.3 Mbps` | `1.4 Mbps` | `0.7 Mbps` |
+| `5%` | `6.4 Mbps` | `0.6 Mbps` | `0.3 Mbps` |
+
+**The operational lesson:** throughput falls with `1/√p` *and* `1/RTT`. A path with `1%` loss at `100 ms` cannot exceed `~1.4 Mbps` per connection under Reno-style CC even on a `10 Gbps` circuit. That is why "just buy more bandwidth" fails, and why BBR (which ignores isolated non-congestive loss) or a nearer edge wins.
+
+### 5. Sawtooth Average
+
+For AIMD with a multiplicative cut of `β = 0.5`, the average window is `0.75 × W_max` (the sawtooth swings between `0.5 W_max` and `W_max`). For CUBIC (`β = 0.7`) it is `0.85 × W_max`, one reason CUBIC fills fat pipes better than Reno.
+
+---
+
+---
+
 ## Systematic Reference & Comparison Grid
 
 ### Flow Control (`rwnd`) vs. Congestion Control (`cwnd`)
@@ -140,6 +271,31 @@ Today's systems refine this: Linux uses **CUBIC** by default, and Google's **BBR
 | **Reno / NewReno** | Packet loss (`3 Dup ACKs` or RTO) | Linear (`+1 MSS / RTT`) | Halves `cwnd` (`0.5×`) | Collapses badly on high-BDP or 1% loss Wi-Fi |
 | **CUBIC (Linux Default)** | Packet loss | Cubic function of time since last loss | Cuts `cwnd` by `30%` (`0.7×`) | Great on clean fiber, still fills buffers (bufferbloat) and drops on radio noise |
 | **BBR (Bottleneck BW & RTT)** | Delivery rate & min-RTT pacing | Probes bandwidth (`1.25×` gain) and drains queues | Ignores isolated non-congestive loss (in v1); paces smoothly | Maintains high speed across transoceanic / Wi-Fi links with minimal bufferbloat |
+
+---
+
+## Observability: Metrics, Alerts, and Dashboards for Throughput Health
+
+Treat TCP window state as a first-class SLI. Most "slow network" tickets are one of three signatures: **receiver-limited** (zero window), **window-limited** (small or unscaled `rwnd`), or **loss-limited** (sawtooth + retransmits).
+
+| Signal | Source | Healthy | Alert When | Meaning |
+| :--- | :--- | :--- | :--- | :--- |
+| `tcpi_snd_cwnd` / `cwnd` | `ss -tin`, `TCP_INFO` | Climbs to path BDP after ramp | Pinned at `10` on a long-lived transfer | Repeated RTO / slow-start-after-idle resets |
+| `tcpi_snd_wnd` | `TCP_INFO` | Multi-MB on WAN sockets | `≤ 65,535` on cross-region sockets | Missing `wscale` (middlebox stripped option) |
+| `tcpi_rtt` / `rttvar` | `TCP_INFO` | Stable, near physical RTT | RTT jumps `3×` under load | Bufferbloat / queue build-up |
+| `tcpi_total_retrans` / `RetransSegs` | `nstat TcpRetransSegs` | `< 0.1%` of segments out | `> 1%` for 5 min | Lossy hop, congestion, or Wi-Fi noise |
+| `TCPTimeouts` vs `TCPFastRetrans` | `nstat -az TcpExtTCPTimeouts TcpExtTCPFastRetrans` | Fast retrans ≫ timeouts | Timeouts rising | Tail losses; RTO collapses `cwnd` to 1 MSS |
+| `Recv-Q` per listening service | `ss -tn` / eBPF | Near `0` | Sustained `> 50%` of `rcvbuf` | Consumer slower than producer; `ZeroWindow` imminent |
+| `TCPZeroWindowDrop`, `TCPRcvQDrop` | `nstat` | `0` | Any steady increase | Receiver buffer overflow / memory pressure |
+| `delivery_rate` vs `pacing_rate` | `ss -tin` | Close to link/BDP goodput | Delivery ≪ pacing | App-limited or loss-limited |
+
+**Dashboard layout that works:** (1) per-service `p50/p95` of *time-to-first-byte* and *time-to-last-byte* split by payload size bucket (`< 14 KB`, `14–100 KB`, `> 1 MB`); (2) cross-region socket `snd_wnd` histogram; (3) `Recv-Q` heatmap per pod; (4) retransmit ratio per AZ pair. If TTFB is fine but TTLB scales with payload, you are slow-start- or window-limited, not CPU-limited.
+
+**Runbook decision tree:**
+1. `ss -tin` on the sender: is `cwnd` small, or `snd_wnd` small? If `snd_wnd ≤ 65,535`, check window scaling end to end.
+2. `ss -tn` on the receiver: is `Recv-Q` huge? Then profile the consumer (GC, fsync, locks).
+3. `nstat`: are retransmits or timeouts rising? Then trace the path (`mtr`, ping loss per hop) and consider BBR.
+4. Only after all three: blame bandwidth.
 
 ---
 
@@ -556,53 +712,155 @@ Three full data RTTs (`3 × 120 ms = 360 ms`) plus initial handshake RTTs add up
 
 ## Interview Practice Questions
 
-> [!interview] What's the difference between flow control and congestion control? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+### Basic Conceptual Questions (Q1–Q4)
 
-Flow control protects the receiver: it advertises a receive window, its free buffer space, in every ACK, and the sender never has more unacknowledged data than that. Congestion control protects the network: the sender keeps its own congestion window, grows it while ACKs arrive and cuts it on loss. The sender is limited by the smaller of the two.
+<details>
+<summary><strong>Q1: What's the difference between flow control and congestion control? [BASIC]</strong></summary>
 
-</details>
-
-> [!interview] Explain slow start and congestion avoidance. (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-A new connection starts with a small congestion window, about 10 segments, and doubles it every round trip (slow start). After a threshold or a loss it grows by about one segment per round trip (congestion avoidance). On three duplicate ACKs classic TCP halves the window; on a timeout it drops to one segment and slow-starts again, which gives the sawtooth.
+<strong>What a strong answer covers:</strong>
+**Flow control** protects the *receiver*: it advertises a receive window (`rwnd`), its free buffer space, in every ACK, and the sender never has more unacknowledged data than that. **Congestion control** protects the *network*: the sender keeps its own congestion window (`cwnd`), grows it while ACKs arrive and cuts it on loss. The sender is limited by the smaller of the two: `in flight ≤ min(rwnd, cwnd)`. Only `rwnd` is on the wire; `cwnd` is private sender state.
 
 </details>
 
-> [!interview] A transfer between India and the US is slow, though both ends have fast links. Why? (Scenario)
+<details>
+<summary><strong>Q2: Explain slow start and congestion avoidance. [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Throughput is at most window ÷ round-trip time. At 200 ms, a 64 KB window allows about 2.6 Mbit/s whatever the link speed. Check window scaling and buffer sizes, packet loss on the path (which keeps cutting the window), and consider moving the data closer (a CDN or a nearer region) or using parallel connections.
-
-</details>
-
-> [!interview] A capture shows the receiver advertising a zero window. What does that tell you? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The receiver's buffer is full because the application isn't reading fast enough, so the sender is paused and probing. The network is fine; the bottleneck is the receiving app: CPU, a slow disk, a blocked thread or too small a buffer.
+<strong>What a strong answer covers:</strong>
+A new connection starts with a small `cwnd`, about `10` segments (`IW10`, `14.6 KB`, RFC 6928), and **doubles** it every round trip in which all ACKs return (slow start: `10, 20, 40, 80`). After `cwnd ≥ ssthresh` or a loss it grows by about **one segment per round trip** (congestion avoidance). On three duplicate ACKs classic TCP halves the window (fast retransmit / fast recovery); on a timeout it drops to `1 MSS` and slow-starts again. Plotted over time that gives the **sawtooth**.
 
 </details>
 
-> [!interview] What is the bandwidth-delay product, and why does it matter? (Tricky)
+<details>
+<summary><strong>Q3: Why does TCP keep many segments in flight instead of waiting for each ACK? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Stop-and-wait sends one segment per RTT. With `1,460` bytes and `100 ms` RTT that is `14.6 KB/s`, about `117 kbit/s`, regardless of link speed. A **sliding window** keeps `W` bytes outstanding so throughput becomes `W / RTT`. The window must be at least the **BDP** to fill the pipe; anything smaller leaves the link idle while the sender waits for ACKs.
 
-Bandwidth × round-trip time: the bytes that must be in flight to keep the link full. 100 Mbit/s × 100 ms = 1.25 MB, far more than the 64 KB a window can say without window scaling, so long, fast paths need scaled windows and large buffers.
+</details>
+
+<details>
+<summary><strong>Q4: What is window scaling, and why do we need it? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The TCP header's window field is 16 bits, so it can only express `65,535` bytes. **Window scaling** (RFC 7323) is a **SYN-only option** that defines a shift count (`0–14`); the effective window is `field × 2^shift`, up to about `1 GB`. It is negotiated only in the handshake; if either side (or a middlebox) omits it, the connection is stuck at 64 KB for life. Modern Linux enables it by default (`tcp_window_scaling=1`).
 
 </details>
 
-> [!interview] Why can TCP perform badly on Wi-Fi or mobile links, and what helps? (Tricky)
+### Scenario-Based Architecture Questions (Q5–Q8)
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Q5: A transfer between India and the US is slow, though both ends have fast links. Why? [SCENARIO]</strong></summary>
 
-Loss-based congestion control treats every lost packet as congestion, but radio noise also loses packets, so TCP cuts its window although the path isn't full. Link-layer retransmission hides some loss; newer algorithms such as BBR estimate bandwidth and round trip directly instead of reacting to each loss.
+<strong>What a strong answer covers:</strong>
+Throughput is at most `window ÷ RTT`. At `200 ms`, a `64 KB` window yields only `~2.6 Mbit/s` whatever the link speed. Check, in order: (1) window scaling negotiated on both ends and not stripped by a proxy (`ss -tin` shows `wscale:x,y`); (2) socket buffer maximums (`tcp_rmem`, `tcp_wmem`); (3) loss on the path (Mathis: throughput falls with `1/√p`); (4) the CC algorithm (BBR helps on lossy long paths). If physics still bites, move data closer (CDN, regional replica) or use parallel streams.
 
 </details>
+
+<details>
+<summary><strong>Q6: A packet capture shows the receiver advertising a zero window. What does that tell you? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The receiver's buffer is full because the **application is not reading fast enough**; the sender is paused, sending periodic **Zero Window Probes** until a **Window Update** arrives. The network is fine (no retransmissions needed). Look at the receiving app: GC pauses, synchronous disk `fsync`, lock contention, a blocked worker, or an undersized buffer. Fix the consumer or add application-level backpressure (HTTP `429`, bounded queues), not the network.
+
+</details>
+
+<details>
+<summary><strong>Q7: A `60 KB` uncompressed JSON from an origin `120 ms` away takes `~480 ms` after connect on a gigabit client. Why, and how do you fix it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Slow start, not bandwidth. `IW10` sends `14.6 KB` in RTT 1, `29.2 KB` in RTT 2, then the remaining `16.2 KB` in RTT 3: `3 × 120 ms = 360 ms` of data rounds on top of handshake and server time. Fixes: compress (gzip/Brotli) below `14 KB` so it fits in one round, serve from an edge CDN, reuse warm pooled HTTP/2 connections (cwnd already grown), or paginate.
+
+</details>
+
+<details>
+<summary><strong>Q8: Size the TCP buffers for a single stream between Frankfurt and Tokyo (`180 ms` RTT) that must sustain `500 Mbps`. [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+BDP = `500 Mbps × 0.18 s / 8 = 11.25 MB`. Unscaled window is `64 KB`; shift `7` gives `8.39 MB` (too small), shift `8` gives `16.8 MB` (enough), so `wscale ≥ 8`. Set `tcp_rmem`/`tcp_wmem` maxima to `~2 × BDP` (`16–32 MB`). Also verify no middlebox strips the option, enable `fq` + BBR or tuned CUBIC, and watch loss: at `0.01%` loss Reno-style CC caps near `7 Mbps` at this RTT, so loss must be near zero or CC must be loss-tolerant.
+
+</details>
+
+### Advanced & Tricky Interview Questions (Q9–Q12)
+
+<details>
+<summary><strong>Q9: What is the bandwidth-delay product, and why does it matter? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`BDP = bandwidth × RTT`: the bytes that must be in flight to keep the pipe full. `100 Mbit/s × 100 ms = 1.25 MB`, nearly 20× the 64 KB a window can express without scaling. It matters because a **long fat network** is idle most of the time if the window is smaller than BDP; it also sizes buffers (`2 × BDP`) and tells you the delivery floor when a router queue is empty. Note BDP is the amount that *fits in the pipe*; anything above it just sits in router queues as extra latency (bufferbloat).
+
+</details>
+
+<details>
+<summary><strong>Q10: Why can TCP perform badly on Wi-Fi or mobile links, and what helps? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Loss-based congestion control (Reno, CUBIC) interprets *every* lost packet as congestion and cuts `cwnd` (`×0.5` or `×0.7`), yet radio noise, handover, and interference lose packets while the path is empty. Because throughput scales as `1/√p`, even `1%` random loss crushes speed. Helps: link-layer retransmission (hides loss), **BBR**, which models bandwidth and min-RTT instead of reacting to each loss, SACK/RACK/TLP for faster recovery, and reducing RTT via an edge presence. QUIC adds per-stream recovery, avoiding head-of-line stalls.
+
+</details>
+
+<details>
+<summary><strong>Q11: Your service uses pooled keep-alive connections, yet the first request after a quiet period is slow. Why? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Linux has `net.ipv4.tcp_slow_start_after_idle = 1` by default (RFC 2861 behaviour): after the connection has been idle for roughly one RTO, `cwnd` is **reset to the initial window** because the old estimate of the path is stale. The pooled socket is "warm" for TLS/TCP handshake purposes but cold for window size. Setting it to `0` keeps the grown `cwnd` for bursty-but-long-lived internal RPC paths (a deliberate trade-off on trusted networks), or send small keep-alive traffic, or use HTTP/2 multiplexing to keep connections busy.
+
+</details>
+
+<details>
+<summary><strong>Q12: CUBIC vs BBR: what signal does each use, and when would BBR hurt? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**CUBIC** (Linux default) is loss-based: it grows `cwnd` as a cubic function of time since the last loss and cuts by `0.7×` on loss, so it keeps filling buffers until they overflow (bufferbloat) and misreads radio loss. **BBR** estimates bottleneck bandwidth (max delivery rate) and `min RTT`, paces at that rate, and periodically probes (`1.25×` gain) and drains the queue; it keeps queues short and tolerates random loss. Caveats: BBRv1 can be unfair to loss-based flows sharing a shallow-buffered bottleneck and can cause high retransmissions there; it needs `fq` pacing (or internal pacing in newer kernels). BBRv2/v3 add loss and ECN responses. Always A/B test on your real paths.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+              TCP FLOW & CONGESTION CONTROL: HOW FAST SHOULD TCP SEND? — CHEAT SHEET
+====================================================================================================
+TWO BRAKES
+  * Flow control   (rwnd): receiver's free buffer, in every ACK (16-bit x 2^wscale). Protects RECEIVER.
+  * Congestion ctl (cwnd): sender's private guess of the path. Never on the wire.   Protects NETWORK.
+  * In flight <= min(rwnd, cwnd).   Throughput <= min(rwnd, cwnd) / RTT.
+
+CONGESTION CONTROL STATE MACHINE
+  * Start        : cwnd = IW10 = 10 x 1,460 = 14,600 B  (RFC 6928)
+  * Slow start   : cwnd doubles each RTT (10, 20, 40, 80, 160) until ssthresh or loss
+  * Cong. avoid. : cwnd += 1 MSS per RTT
+  * 3 dup ACKs   : ssthresh = cwnd/2 (Reno) or 0.7 x cwnd (CUBIC); fast retransmit + fast recovery
+  * RTO timeout  : ssthresh = cwnd/2; cwnd = 1 MSS; slow start again
+
+KEY FORMULAS
+  * BDP bytes    = bandwidth_bps x RTT_s / 8      ( 100 Mbps x 100 ms = 1.25 MB )
+  * wscale       = smallest k where 65,535 x 2^k >= BDP   (max k = 14, ~1 GB window)
+  * Slow-start rounds for S bytes: n = ceil( log2( S/14,600 + 1 ) )   ( 60 KB -> 3, 1 MB -> 7 )
+  * Mathis loss ceiling: ~ 1.22 x MSS / ( RTT x sqrt(p) )   ( 1% loss, 100 ms -> ~1.4 Mbps )
+  * 64 KB window: 200 ms -> 2.6 Mbps | 100 ms -> 5.2 Mbps | 20 ms -> 26 Mbps | 1 ms -> 524 Mbps
+
+DIAGNOSIS CHEAT TABLE
+  * Recv-Q full + ZeroWindow ........ slow consumer app           -> fix GC/disk/locks, backpressure
+  * snd_wnd <= 65,535 on WAN ........ wscale stripped/disabled    -> tcp_window_scaling=1, bypass proxy
+  * retrans + sawtooth on Wi-Fi ..... loss misread as congestion   -> BBR + fq, link-layer ARQ
+  * slow small responses ............ slow start (IW10)           -> compress <14 KB, pool, CDN
+  * slow first request after idle ... tcp_slow_start_after_idle   -> sysctl=0 on trusted paths
+
+TOOLS
+  ss -tin dst <ip>   |  sysctl net.ipv4.tcp_{window_scaling,congestion_control,rmem,wmem}
+  tshark -Y "tcp.analysis.zero_window or tcp.analysis.duplicate_ack"  |  nstat -az TcpRetransSegs
+
+ANTI-PATTERNS
+  x Treating flow control and congestion control as the same thing
+  x Assuming TCP uses full bandwidth immediately          x Blaming the network for a slow receiver app
+  x Buying more bandwidth on a window-limited or loss-limited path
+  x Allowing middleboxes that strip the window-scale option
+====================================================================================================
+```
 
 ---
 

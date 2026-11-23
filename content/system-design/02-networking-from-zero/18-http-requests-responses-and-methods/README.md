@@ -1,9 +1,12 @@
 # Lesson 18: HTTP Part 1 — Requests, Responses and Methods
 
 > **Prerequisites:** [Lesson 07: What Happens When You Type a URL](../07-what-happens-when-you-type-a-url/README.md), [Lesson 17: DNS Traffic Management](../17-dns-traffic-management/README.md), and [Networking From Zero Overview](../README.md) (Lesson 18 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend and API engineers designing REST endpoints, hardening reverse proxies against `CL.TE` HTTP request smuggling, and implementing retry-safe `Idempotency-Key` middleware.  
 > **Free PDF Notes:** [Download SD-N-018.pdf](https://backendroadmap.com/notes/system-design/SD-N-018.pdf)
+
+> [!NOTE]
+> **In one line:** HTTP is a stateless request/response protocol framed in text; idempotent methods are safe to retry, `POST` needs an `Idempotency-Key`, conflicting `Content-Length` and `Transfer-Encoding` headers enable request smuggling, and ETags turn a re-download into a tiny `304`.
 
 > [!TIP]
 > **The Golden Rule of HTTP Wire Framing & Methods:** HTTP/1.1 runs as plain text over a continuous TCP byte stream delimited by `\r\n\r\n`, `Content-Length`, or `Transfer-Encoding: chunked`—so front proxies and origin servers must **never disagree on message boundaries** (`400 Bad Request` on conflicting `CL` + `TE`). On top of that wire contract, design retries strictly around method semantics: **`Safe` (`GET`, `HEAD`, `OPTIONS`)** and **`Idempotent` (`PUT`, `DELETE`)** calls retry cleanly, whereas **`POST`** mutations require an explicit **`Idempotency-Key`** to prevent duplicate charges.
@@ -55,7 +58,7 @@ Content-Length: 27\r\n
 --- Response on same TCP socket ---
 HTTP/1.1 201 Created\r\n
 Location: /v1/charges/ch_8812\r\n
-Content-Length: 31\r\n
+Content-Length: 30\r\n
 \r\n
 {"id":"ch_8812","status":"ok"}
 ```
@@ -173,6 +176,119 @@ Meanwhile, for chunked streaming (`Transfer-Encoding: chunked`), every chunk of 
 | **`Transfer-Encoding: chunked` only** | Valid | Incomplete terminator hangs socket | Stream chunks until `0\r\n\r\n` |
 | **Both `Content-Length` AND `Transfer-Encoding`** | **Forbidden** | **`CL.TE` / `TE.CL` Request Smuggling** | Reject **`400 Bad Request`**, close socket |
 | **Two `Content-Length` headers with different values** | **Forbidden** | **Header desync smuggling** | Reject **`400 Bad Request`**, close socket |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**HTTP/1.1 is a stateless, text-framed request/response protocol layered on a reliable byte stream.** TCP delivers bytes in order and has no idea where one message ends; HTTP supplies that boundary with a start-line, headers, a blank line, and an explicitly framed body. What it is not: a session. The server keeps no memory between requests; cookies or tokens re-identify the caller on every message, which is exactly why any server behind a load balancer can answer any request.
+
+Four distinctions decide whether an API is retry-safe and attack-resistant:
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **Safe** vs. **Idempotent** vs. **Cacheable** | *Safe*: no state change is expected (`GET`, `HEAD`, `OPTIONS`). *Idempotent*: $N$ identical calls leave the same final state as one (`PUT`, `DELETE` + all safe methods). *Cacheable*: a stored response may satisfy later requests. Safe $\subset$ idempotent. | `PUT /users/7` is idempotent but **not** safe; `GET /users/7` is both. |
+| **`PUT`** vs. **`POST`** vs. **`PATCH`** | `PUT`: replace the target resource with this full representation. `POST`: process this payload (create, or run an action) under server-chosen semantics. `PATCH`: apply a partial change, idempotent only if written as "set X to V". | `PATCH {"status":"paid"}` is idempotent; `PATCH {"addBalance":100}` is not. |
+| **`Content-Length`** vs. **`Transfer-Encoding: chunked`** vs. **HTTP/2 frames** | Three body-framing schemes: a known byte count; size-prefixed hex chunks ending in `0`; or binary length-prefixed frames with no text delimiters. Having *two* text schemes at once is the root of request smuggling. | `Content-Length: 27` for a JSON `POST`; chunked for a streamed export; `h2` between proxy and origin. |
+| **`Idempotency-Key`** vs. **`ETag` / `If-Match`** | `Idempotency-Key` de-duplicates a *retry of the same creation* (replay the stored result). `If-Match` prevents a *lost update* by making a write conditional on the version the client saw. They solve different failure modes. | `POST /charges` + key (no double charge); `PUT /doc/9` + `If-Match: "v3"` (`412` if someone else edited). |
+
+**Business impact.** Method semantics are a contract with every retry library, CDN, crawler, and link-preview bot between you and the user. Violate it (state change on `GET`, unkeyed `POST` retries) and the failure mode is financial: duplicate charges, accidental unsubscribes, or deleted data triggered by a prefetcher.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Byte-Accurate Anatomy of One Exchange
+
+```text
+ REQUEST  (191 bytes on the wire)                                          bytes
+ POST /v1/charges HTTP/1.1\r\n                  <- request-line            27
+ Host: api.payments.example\r\n                 <- mandatory (RFC 9112)    28
+ Content-Type: application/json\r\n                                        32
+ Idempotency-Key: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d\r\n                 55
+ Content-Length: 27\r\n                         <- body framing            20
+ \r\n                                           <- header/body delimiter    2
+ {"amount":4900,"ccy":"USD"}                    <- body                    27
+ 
+ RESPONSE (105 bytes on the wire)
+ HTTP/1.1 201 Created\r\n                       <- status-line             22
+ Location: /v1/charges/ch_8812\r\n                                         31
+ Content-Length: 30\r\n                                                    20
+ \r\n                                                                       2
+ {"id":"ch_8812","status":"ok"}                                            30
+```
+
+For this tiny JSON call, **headers are `164 / 191 = 86%` of the bytes**. Real browser requests carry `500-800 B` of headers (cookies, `User-Agent`, `Accept-*`), which is why HTTP/2's `HPACK` header compression (Lesson 23) matters on chatty APIs.
+
+**Request-target has four legal forms (RFC 9112 §3.2):** *origin-form* `/v1/orders?id=7` (normal), *absolute-form* `http://host/path` (to forward proxies), *authority-form* `host:443` (only for `CONNECT` tunnels), and *asterisk-form* `*` (only `OPTIONS *`). Disagreement between a proxy and an origin about which form it received is a second classic desync source.
+
+### The Observability Gap: Where Each Layer Is Blind
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Client SDK / mobile trace** | Total time, retry count, the exact `Idempotency-Key` it sent. | Whether the server *committed* before the timeout (the central uncertainty of every retry). |
+| **Edge proxy / L7 LB access log** | Method, path, status, bytes, `$request_time`; a `504` it generated itself. | That the origin actually committed the work; **smuggled requests** (the proxy saw exactly one request). |
+| **App handler / business log** | Whether the charge executed, ledger IDs, replay (`X-Idempotent-Replay: true`). | Network-level losses before the request arrived; framing errors rejected earlier return `400` with no app log. |
+| **Metrics to add** | `http_framing_rejects_total` (CL+TE, dup Host), `idempotent_replays_total`, `idempotency_conflicts_total` (`409`/`422`), `retry_attempts_by_method`. | Nothing: these are the early-warning signals that unkeyed retries or smuggling probes exist. |
+
+**Debug rule:** a customer says "I was charged twice". Join client request IDs, edge log lines, and ledger rows on `Idempotency-Key`; two ledger rows with different keys mean the *client* regenerated the key per retry, and two rows with no key mean the retry layer was blind.
+
+---
+
+## Mathematical Model of Retries, Duplicates & Framing Overhead
+
+### 1. Retry Amplification
+
+If each attempt fails independently with probability $p$ and a caller allows up to $k$ retries, expected attempts per logical request are:
+
+$$\mathbb{E}[\text{attempts}] = \sum_{i=0}^{k} p^i = \frac{1 - p^{k+1}}{1 - p}$$
+
+| Per-Attempt Failure $p$ | $k = 3$ Attempts | Load Multiplier on Backend |
+| :--- | :--- | :--- |
+| `1.5%` (healthy blip) | `1.015` | `+1.5%` |
+| `50%` (degraded) | `1.875` | **`1.9x`** |
+| `90%` (brownout) | `3.44` | **`3.4x`** |
+| `100%` (hard down) | `4.0` | **`4x`** |
+
+**Layered retries multiply:** client (`3`) x gateway (`3`) x service (`3`) gives up to $(1+3)^3 = 64$ attempts per user action at the origin during an outage. Retry at **one** layer, with backoff + jitter, and a retry budget (for example `<= 10%` extra traffic).
+
+### 2. Duplicate Charges Without an `Idempotency-Key`
+
+A response lost *after* commit with probability $q$ makes a blind `POST` retry create a duplicate:
+
+$$\text{Duplicates/s} = \text{RPS} \times q = 1{,}000 \times 0.015 = 15/\text{s} \;\;(54{,}000/\text{hour})$$
+
+With a key, duplicates become replays: the store returns the saved `201` and the ledger gets exactly one row per key.
+
+### 3. Sizing the Idempotency Store
+
+$$\text{Rows} = \text{POST RPS} \times T_{\text{retention}},\qquad \text{Memory} \approx \text{Rows} \times \text{bytes per row}$$
+
+At `1,000` RPS, `256 B` per row (`36 B` key + `32 B` payload hash + status + trimmed response):
+
+| Retention $T$ | Rows | Memory | Fit |
+| :--- | :--- | :--- | :--- |
+| `1 h` | `3.6 M` | `~0.9 GB` | Single Redis node |
+| `24 h` (Stripe-style) | `86.4 M` | `~22 GB` | Sharded Redis or a unique-index table with TTL job |
+| `7 d` | `605 M` | `~155 GB` | Durable DB, not cache |
+
+Pick $T$ from the longest *client retry horizon* (mobile queues can retry for hours), not from convenience.
+
+### 4. Chunked Framing Overhead
+
+Each chunk of $L$ bytes costs $\lceil \log_{16}(L+1) \rceil + 4$ bytes (hex size + 2 CRLFs), plus the `5`-byte terminator `0\r\n\r\n`:
+
+| Chunk Size $L$ | Overhead Bytes | Overhead % | Verdict |
+| :--- | :--- | :--- | :--- |
+| `1 B` | `5` | `500%` | Pathological (flush-per-byte logging) |
+| `16 B` | `6` | `37.5%` | Wasteful |
+| `256 B` | `7` | `2.7%` | Acceptable |
+| `4,096 B` | `8` | `0.195%` | Sweet spot |
+| `65,536 B` | `9` | `0.014%` | Negligible |
+
+### 5. Keep-Alive Savings
+
+A cold HTTP/1.1 request over TLS 1.3 costs `3 RTT` before the response begins (TCP + TLS + HTTP); a reused connection costs `1 RTT`. At `RTT = 50 ms`: **`150 ms` vs. `50 ms`**, a `3x` difference that connection pooling captures on every call after the first (Lesson 29).
 
 ---
 
@@ -501,53 +617,144 @@ Return **`421 Misdirected Request`** (`RFC 9110`). While HTTP/2 permits connecti
 
 ## Interview Practice Questions
 
-> [!interview] Walk through the exact parts of an HTTP/1.1 request and response on the wire. (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. Walk through the parts of an HTTP/1.1 request and response on the wire. [BASIC]</strong></summary>
 
-An HTTP/1.1 message starts with a request-line (`GET /orders HTTP/1.1`) or status-line (`HTTP/1.1 200 OK`) terminated by `\r\n`, followed by `Name: Value\r\n` headers including the mandatory `Host` header for virtual hosting. A blank line `\r\n\r\n` ends the headers, and any message body is bounded either by an exact byte count in `Content-Length` or hex-sized chunks under `Transfer-Encoding: chunked` ending with `0\r\n\r\n`.
-
-</details>
-
-> [!interview] What is the difference between a safe HTTP method and an idempotent HTTP method? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-A safe method (`GET`, `HEAD`, `OPTIONS`) promises not to modify server state at all—it is purely read-only. An idempotent method (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) can change state on the first call, but calling it multiple times produces the exact same final server state as calling it once. Every safe method is idempotent, though `PUT` and `DELETE` are idempotent without being safe.
+<strong>What a strong answer covers:</strong>
+A message starts with a request-line (`GET /orders HTTP/1.1`) or status-line (`HTTP/1.1 200 OK`) ending in `\r\n`, followed by `Name: Value\r\n` headers (including the mandatory `Host`). A blank line `\r\n\r\n` ends the headers. The optional body is bounded by an exact byte count in `Content-Length` or by hex-sized chunks under `Transfer-Encoding: chunked` that end with `0\r\n\r\n`. In the example payment call, headers are about `86%` of the bytes.
 
 </details>
 
-> [!interview] Why is `POST` not idempotent, and how do payment APIs make `POST` retries safe? (Scenario)
+<details>
+<summary><strong>2. What is the difference between a safe and an idempotent HTTP method? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-`POST` creates a new sub-resource or triggers a fresh action each time it runs, so retrying after a dropped socket risks double-billing. Payment APIs like Stripe solve this with a client-generated UUID in an `Idempotency-Key` header: the server stores the key atomically alongside a hash of the request payload and the resulting response, replaying the cached response on retries and rejecting conflicting payloads with 422.
-
-</details>
-
-> [!interview] Explain `CL.TE` HTTP request smuggling and how you prevent it in production. (Tricky)
-
-<details><summary>What to say in 30 seconds</summary>
-
-`CL.TE` happens when a front-end proxy and back-end origin reuse keep-alive TCP connections and parse a dual-framed request differently—the proxy uses `Content-Length` while the origin honors `Transfer-Encoding: chunked`. The leftover bytes after `0\r\n\r\n` stay in the backend socket buffer and prepend to the next victim's request. Prevent it by rejecting requests carrying both `CL` and `TE` (or duplicate `CL`) with 400 Bad Request and using HTTP/2 between proxy and origin.
+<strong>What a strong answer covers:</strong>
+A **safe** method (`GET`, `HEAD`, `OPTIONS`) is read-only by contract. An **idempotent** method (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) may change state, but $N$ calls leave the same final state as one. Every safe method is idempotent; `PUT` and `DELETE` are idempotent without being safe. `POST` is neither, and `PATCH` is idempotent only if written as "set to a value".
 
 </details>
 
-> [!interview] Is `DELETE /items/42` still idempotent if the first call returns `200` and the retry returns `404`? (Tricky)
+<details>
+<summary><strong>3. What does it mean that HTTP is stateless? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+The server keeps no memory between requests: each one carries everything needed to process it, with cookies or bearer tokens identifying the session. That is what lets a load balancer send consecutive requests to different servers, lets you scale horizontally, and lets caches and proxies reason about each message alone. State lives in a shared store (database, Redis), not in the connection.
 
-Yes. HTTP idempotency is defined by the resulting state on the server, not getting identical status codes back. Whether `DELETE /items/42` runs once (`200 OK`) or three times (`404 Not Found`), the final server state is identical: item 42 is gone.
+</details>
+
+<details>
+<summary><strong>4. Why is the `Host` header mandatory in HTTP/1.1, and what happens if it is missing? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+One IP and port routinely serve thousands of domains through virtual hosting, and the request-line carries only the path. `Host` tells the server which site is wanted. RFC 9112 requires exactly one; a request with none or two must be rejected with `400 Bad Request`. In HTTP/2 the equivalent is the `:authority` pseudo-header, and a TLS `SNI` / `Host` mismatch can justify `421 Misdirected Request`.
 
 </details>
 
-> [!interview] Why did HTTP/1.1 make the `Host` header mandatory, and what happens if it's missing? (Basic)
+<details>
+<summary><strong>5. A payment `POST` times out. Can the client retry? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Because one public IP address and reverse proxy routinely host dozens or thousands of domains via virtual hosting, and the HTTP request-line originally only sent the relative path (`/login`), not the domain name. The `Host` header tells the server which tenant site the client wants. Per RFC 9112, an HTTP/1.1 request missing `Host` or carrying two `Host` headers must be rejected with `400 Bad Request`.
+<strong>What a strong answer covers:</strong>
+Only safely with an **idempotency key**. The client generates one UUID per logical purchase and reuses it for every retry. The server atomically stores `(tenant, key) -> {request hash, status, body}`: the first call executes, a repeat with the same key and payload **replays** the saved `201`, a repeat while the first is still running returns `409`, and a reused key with a different payload returns `422`. Without a key, surface "outcome unknown" and reconcile instead of retrying blindly.
 
 </details>
+
+<details>
+<summary><strong>6. Your mobile app downloads a 2 MB catalog on every launch. How do you cut bandwidth? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Return an `ETag` and a short `Cache-Control: max-age`. The app sends `If-None-Match`; when nothing changed the server answers `304 Not Modified` with no body, about `300 B` instead of `2 MB`. At `100,000` opens/day that is `200 GB` versus about `30 MB`. Add `Accept-Encoding: gzip`/`br` compression for changed responses. (Status codes and caching internals continue in Lesson 19.)
+
+</details>
+
+<details>
+<summary><strong>7. Users get 502 from the load balancer, and 503 at peak. What do they tell you? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`502 Bad Gateway`: the proxy got an invalid response or a closed connection from the backend (crash, protocol mismatch, idle-timeout race). `503 Service Unavailable`: overload, no healthy backends, or maintenance; clients should back off, ideally honoring `Retry-After`. `504` would mean the backend was too slow. Respond with retries only for idempotent calls, plus load shedding and capacity fixes for `503`.
+
+</details>
+
+<details>
+<summary><strong>8. Design an `Idempotency-Key` middleware. What are the hard parts? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Scope keys per tenant and route; hash the request body to catch reuse with a different payload (`422`). Make "claim the key" **atomic** (`INSERT ... ON CONFLICT` or `SET NX`) so two concurrent retries cannot both execute; return `409` (or wait) while in progress. Persist the response *in the same transaction* as the side effect, otherwise a crash between commit and store creates a duplicate window. Choose retention from the client retry horizon (`24 h` is common), cap stored response size, and emit replay/conflict metrics.
+
+</details>
+
+<details>
+<summary><strong>9. Explain `CL.TE` request smuggling and how you prevent it. [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A front proxy and a back-end reuse keep-alive connections but parse a dual-framed request differently: the proxy trusts `Content-Length`, the origin trusts `Transfer-Encoding: chunked`. Bytes after the origin's `0\r\n\r\n` stay in the socket buffer and prepend to the next user's request, so an attacker can hijack sessions or poison caches. Prevention: reject any message with both headers (or differing `Content-Length` values) using `400` and close the connection, normalize at the edge, and prefer **HTTP/2 (binary framing) to the origin**.
+
+</details>
+
+<details>
+<summary><strong>10. `DELETE /items/42` returns `200` the first time and `404` on retry. Is it still idempotent? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Yes. Idempotency (RFC 9110) concerns the **effect on server state**, not the response. After one or five `DELETE`s item `42` is gone either way. Clients should treat `200`, `204`, and `404` as success for `DELETE` retries. The same reasoning explains why a counter-style `PATCH {"addBalance": 100}` is *not* idempotent: its final state depends on how many times it ran.
+
+</details>
+
+<details>
+<summary><strong>11. Is `PATCH` idempotent, and how do you make it retry-safe? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Not guaranteed. "Set `status` to `paid`" is idempotent; "add `1` to `quantity`" is not. Make relative updates retry-safe by sending the absolute target value, making the write conditional with `If-Match: "v3"` (a retry gets `412 Precondition Failed`), or requiring an `Idempotency-Key`. Until the API defines otherwise, treat `PATCH` like `POST` for retry decisions.
+
+</details>
+
+<details>
+<summary><strong>12. Why is a state change behind a `GET` URL dangerous? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Everything between the user and the server assumes `GET` is safe: link-preview bots in chat and email, security scanners, browser prefetch, crawlers, caches, and retry middleware will all call it, sometimes many times. `GET /unsubscribe?user=42` or `GET /approve?tx=9` therefore executes without user intent (and may be cached or logged with the secret in the URL). Use `POST`/`PUT`/`DELETE` plus CSRF protection and authentication for any mutation.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                  HTTP/1.1 REQUESTS, RESPONSES & METHODS  —  CHEAT SHEET
+====================================================================================================
+MESSAGE ANATOMY
+  start-line CRLF | headers (Name: value CRLF)* | CRLF | body        Host: REQUIRED (exactly one) else 400
+  Framing: Content-Length: N (read N bytes) | chunked (hex size CRLF data CRLF ... 0 CRLF CRLF) | HTTP/2 frames
+  BOTH CL and TE, or duplicate differing CL  =>  REJECT 400 + close socket   (CL.TE / TE.CL smuggling)
+  Stateless: every request carries identity (cookie / bearer token) -> any server can answer.
+
+METHODS                 SAFE   IDEMPOTENT   CACHEABLE   AUTO-RETRY ON TIMEOUT
+  GET / HEAD / OPTIONS   yes      yes         yes/yes/no  yes
+  PUT / DELETE           no       yes         no          yes (DELETE: 200/204/404 all fine)
+  POST                   no       NO          rare        ONLY with Idempotency-Key
+  PATCH                  no       NO*         no          only if absolute / If-Match / keyed   (*set-style can be)
+
+IDEMPOTENCY-KEY CONTRACT
+  1st call executes + stores (tenant,key)->{hash,status,body}  |  same key+hash => replay stored 2xx
+  same key, in flight => 409 (or wait)   |  same key, different body => 422   |  retention = client retry horizon
+
+MATH
+  Retry multiplier = (1 - p^(k+1)) / (1 - p)      layered retries multiply: (1+k)^layers
+  Duplicates/s     = RPS * P(response lost after commit)         1,000 * 1.5% = 15/s
+  Store rows       = POST RPS * retention          1,000 RPS * 24 h = 86.4M rows ~ 22 GB @ 256 B
+  Chunk overhead   = ceil(log16(L+1)) + 4 bytes per chunk (+5 terminator)   4 KB chunks = 0.2%
+  Example payment POST = 191 B, of which headers 164 B (86%)
+
+OBSERVABILITY
+  Metrics: framing_rejects, idempotent_replays, idempotency_conflicts, retries_by_method, 4xx/5xx by route
+  Client sees timeout; LB logs its own 504; only the LEDGER knows if it committed -> join on Idempotency-Key.
+
+ANTI-PATTERNS
+  X blind retry of POST      X forwarding CL+TE upstream      X state change on GET      X key per retry attempt
+  X retries at 3 layers      X plaintext h1 to origin pools   X PATCH add-delta w/o keys X ignoring 421/425
+====================================================================================================
+```
 
 ---
 

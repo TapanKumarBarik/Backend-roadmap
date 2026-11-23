@@ -5,6 +5,9 @@
 > **Target Audience:** Backend and platform engineers sizing cloud VPCs, preventing Kubernetes Pod CIDR IP exhaustion, resolving overlapping VPN/VPC peering collisions, and interpreting CIDR routing tables.  
 > **Free PDF Notes:** [Download SD-N-013.pdf](https://backendroadmap.com/notes/system-design/SD-N-013.pdf)
 
+> [!NOTE]
+> **In one line:** CIDR writes an address block as `start/prefix`: the first `p` bits are fixed as the network and the remaining `32 − p` bits are hosts, so `/16` is 65,536 addresses and `/24` is 256 (251 usable on AWS); you carve a VPC into non-overlapping subnets per tier and zone, and you never let two networks that must talk claim the same range.
+
 > [!TIP]
 > **The Golden Rule of Subnets & CIDR:** **CIDR (`/prefix`)** replaces rigid legacy IP classes with a movable bit divider splitting a `32`-bit IPv4 address into `p` network bits and `32 - p` host bits—giving **$2^{32-p} - 2$** usable LAN hosts (or **$2^{32-p} - 5$** inside AWS/GCP/Azure VPC subnets). Always carve non-overlapping blocks from **RFC 1918** (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and **RFC 6598 CGNAT** (`100.64.0.0/10`) upfront, because two subnets with overlapping CIDRs can **never** peer cleanly without messy NAT workarounds.
 
@@ -87,6 +90,157 @@ In cloud-native Kubernetes plugins like **AWS VPC CNI** or **Azure CNI**, *every
 
 ---
 
+## Core Definition & Taxonomic Comparison
+
+**What it is:** A **subnet** is a contiguous, power-of-two-sized, bit-aligned slice of IP space that shares one network prefix and (normally) one broadcast/L2 domain or one cloud route-table scope. **CIDR** is the notation (`address/prefix-length`) and the allocation rule that lets blocks be any size from `/0` to `/32`, replacing the rigid Class A/B/C of the 1980s. **What it isn't:** `/24` does **not** mean "24 hosts" (it means `24` *network bits*, leaving `8` host bits = `256` addresses), and "public/private subnet" in the cloud is **not** a property of the IP range at all.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **CIDR block** | A start address plus prefix length that must be *aligned* to its own size. `10.0.0.50/24` is not a valid block; `10.0.0.0/24` is. | `10.20.0.0/16` assigned to the payments VPC by the IPAM registry. |
+| **Subnet** | A CIDR block carved out of a larger block and attached to one zone/segment; hosts inside share a prefix and reach each other without a router. | `10.0.11.0/24` = private app subnet in AZ-a. |
+| **VPC / VNet** | A software-defined private network owning one or more CIDR blocks (primary + secondary) and many subnets. | `10.0.0.0/16` VPC with 6 subnets across 2 AZs. |
+| **Subnet mask** | The `32`-bit pattern (`p` ones then zeros) used as `ip & mask = network ID`. | `/20` ⇒ `255.255.240.0`. |
+| **Wildcard mask** | The bitwise inverse of the subnet mask (`0.0.15.255` for `/20`), used by some ACL syntaxes (Cisco OSPF/ACL). | Router ACL matching `10.0.16.0 0.0.15.255`. |
+| **Supernet / aggregate** | Several adjacent, aligned subnets summarized into one shorter prefix. | `10.0.0.0/24` + `10.0.1.0/24` ⇒ `10.0.0.0/23`; 256 `/24`s ⇒ `/16`. |
+| **Public subnet** | A subnet whose **route table** sends `0.0.0.0/0` to an **internet gateway**. Defined by routing, not by IP numbers. | Load balancers and NAT gateways. |
+| **Private subnet** | A subnet with **no route to an internet gateway**; outbound goes through NAT (app tier) or nowhere (data tier). | App subnet → NAT GW; database subnet → no default route. |
+| **Overlap** | Two blocks sharing any address. CIDR blocks are either *nested* or *disjoint*, never partially overlapping. | Two VPCs both `10.0.0.0/16`: peering, VPN, and Transit Gateway cannot route between them. |
+
+**Business implication:** an address plan is a **one-way door**. Renumbering a live VPC means rebuilding every subnet, ENI, and security-group reference; companies spend months undoing a "default `10.0.0.0/16` everywhere" decision after a merger or when a partner needs private connectivity.
+
+---
+
+## Component Breakdown & Anatomy: A Hierarchical Address Plan
+
+A good plan encodes organization structure into the bits, so that **routes, firewall rules and humans can all aggregate**:
+
+$$\underbrace{10}_{\text{RFC 1918 /8}} . \underbrace{\text{env/region}}_{\text{bits 8–15}} . \underbrace{\text{AZ + tier}}_{\text{bits 16–23}} . \underbrace{\text{host}}_{\text{bits 24–31}}$$
+
+```text
+ 10.0.0.0/8 (enterprise supernet: 16,777,216 addresses)
+  ├── 10.0.0.0/16   prod     ── VPC  (65,536)           ← one IPAM-allocated slice per VPC
+  │     ├── AZ-a   public   10.0.1.0/24    load balancers, NAT gateway
+  │     ├── AZ-b   public   10.0.2.0/24
+  │     ├── AZ-a   app      10.0.11.0/24   services  (use /20 if each container takes a VPC IP)
+  │     ├── AZ-b   app      10.0.12.0/24
+  │     ├── AZ-a   data     10.0.21.0/24   databases: NO internet route
+  │     └── AZ-b   data     10.0.22.0/24
+  ├── 10.1.0.0/16   staging
+  ├── 10.2.0.0/16   dev
+  └── 100.64.0.0/10 secondary: Kubernetes pod CIDRs / overlays (RFC 6598)
+```
+
+```mermaid
+flowchart TB
+    Net((Internet)) --> IGW["Internet Gateway"]
+    subgraph VPC["VPC 10.0.0.0/16 (65,536 IPs)"]
+        subgraph AZA["AZ-a"]
+            PubA["Public 10.0.1.0/24 (ALB, NAT GW)"]
+            AppA["Private app 10.0.11.0/24"]
+            DataA["Private data 10.0.21.0/24 (no internet route)"]
+        end
+        subgraph AZB["AZ-b"]
+            PubB["Public 10.0.2.0/24 (ALB, NAT GW)"]
+            AppB["Private app 10.0.12.0/24"]
+            DataB["Private data 10.0.22.0/24 (no internet route)"]
+        end
+    end
+    IGW --> PubA
+    IGW --> PubB
+    PubA -.->|"outbound only via NAT"| AppA
+    PubB -.->|"outbound only via NAT"| AppB
+    AppA --> DataA
+    AppB --> DataB
+```
+
+| Tier | Route table default (`0.0.0.0/0`) | Inbound from internet? | Outbound to internet? | Sizing driver |
+| :--- | :--- | :--- | :--- | :--- |
+| **Public** | Internet gateway | Yes (only to load balancers) | Yes | Few IPs: LBs, NAT GWs (`/24` is plenty) |
+| **Private app** | NAT gateway (in the public subnet of the same AZ) | **No** | Yes (outbound only, replies return) | **Largest**: every container/pod/Lambda ENI may take an IP |
+| **Private data** | None | **No** | **No** | Small, stable: DB nodes, replicas |
+
+**Why databases live in private subnets:** with no route from the internet, even a leaked password or a mis-set security group is not enough to reach the database. Routing is one layer, security groups a second, credentials a third: **defense in depth**.
+
+### The Observability Gap: Who Can See Address Exhaustion?
+
+| Measurement Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Cloud console / `describe-subnets`** | `AvailableIpAddressCount` per subnet right now | Warm/pre-allocated IPs about to be claimed; per-workload attribution |
+| **CNI metrics (e.g., VPC CNI `awscni_assigned_ip_addresses`, `awscni_total_ip_addresses`)** | IPs held by each node and how many are in use | Subnet-wide headroom unless aggregated across nodes |
+| **IPAM tooling (AWS VPC IPAM, NetBox, Infoblox)** | Planned vs allocated CIDRs, overlaps across accounts | Actual runtime consumption inside subnets |
+| **VPC Flow Logs** | Accepted/rejected flows, including packets to unroutable ranges | *Why* a route is missing; root cause lives in route tables |
+| **Route tables / Reachability Analyzer** | The effective Longest-Prefix-Match decision for a source→dest | Application-level behavior |
+| **Kubernetes events (`FailedCreatePodSandBox`, `InsufficientFreeAddressesInSubnet`)** | The failure *after* it hits | Early warning |
+
+Address exhaustion is **a capacity metric with a hard cliff**, and nothing in the default dashboards alerts on it. You have to add the SLI yourself.
+
+---
+
+## Mathematical Model: Masks, Alignment, Splitting, and Capacity Planning
+
+### 1. Size, Mask, and Usable Hosts
+
+$$N_{\text{total}} = 2^{32-p}, \quad \text{mask} = 2^{32} - 2^{32-p}, \quad \text{usable}_{\text{LAN}} = N - 2,\quad \text{usable}_{\text{AWS/Azure}} = N - 5$$
+
+**Provider nuance:** AWS and Azure reserve **5** addresses per subnet (network, router, DNS, future, broadcast); **GCP reserves 4** (network, gateway, second-to-last, broadcast) and allows subnets as small as `/29`; AWS allows `/28` to `/16`. Always read your provider's subnet-sizing doc before computing headroom.
+
+Worked mask derivation for `/20`: `20` ones then `12` zeros ⇒ `11111111.11111111.11110000.00000000` ⇒ `255.255.240.0`; block size in the third octet is `256 − 240 = 16`, so valid `/20` networks start at `x.x.0.0`, `x.x.16.0`, `x.x.32.0`, …
+
+### 2. Network ID by Bitwise AND, and Alignment Rule
+
+$$\text{network} = \text{ip} \;\&\; \text{mask}, \qquad \text{start address} \bmod 2^{32-p} = 0$$
+
+| Address | Prefix | `ip & mask` (network) | Valid block start? |
+| :--- | :--- | :--- | :--- |
+| `10.20.4.99` | `/24` | `10.20.4.0` | `10.20.4.0/24` ✓ |
+| `10.20.4.99` | `/26` | `10.20.4.64` (99 = 64 + 35) | `10.20.4.64/26` ✓ |
+| `10.0.0.50` | `/24` | `10.0.0.0` | `10.0.0.50/24` ✗ (not aligned) |
+| `172.32.10.5` | `/12` vs `172.16.0.0/12` | outside `172.16.0.0 – 172.31.255.255` | **Public**, not RFC 1918 |
+
+### 3. Splitting and Aggregating
+
+Extending the prefix by `k` bits yields $2^{k}$ equal subnets, each $2^{k}$ times smaller:
+
+| Parent | Split into | Count | Each has | Cloud-usable each |
+| :--- | :--- | :--- | :--- | :--- |
+| `/16` | `/24`s | `2^8 = 256` | `256` | `251` |
+| `/16` | `/20`s | `2^4 = 16` | `4,096` | `4,091` |
+| `/22` | `/24`s | `2^2 = 4` | `256` | `251` |
+| `/24` | `/26`s | `2^2 = 4` | `64` | `59` |
+| `/24` | `/28`s | `2^4 = 16` | `16` | `11` |
+
+Aggregation is the inverse: `2^k` **adjacent, aligned** blocks of the same size summarize into one block `k` bits shorter, shrinking route tables (`10.0.0.0/24 … 10.0.3.0/24` ⇒ `10.0.0.0/22`). Non-aligned neighbors (`10.0.1.0/24` + `10.0.2.0/24`) do **not** merge.
+
+### 4. Overlap Detection
+
+Because CIDR blocks are aligned and power-of-two sized, two blocks are either **nested or disjoint**. Let $m = \min(p_a, p_b)$:
+
+$$\text{overlap}(A, B) \iff (\text{net}_A \;\&\; \text{mask}_m) = (\text{net}_B \;\&\; \text{mask}_m)$$
+
+`10.0.0.0/16` vs `10.0.1.0/24` ⇒ `m = 16` ⇒ same `10.0.0.0` ⇒ overlap (nested). `10.0.0.0/16` vs `10.1.0.0/16` ⇒ differ ⇒ safe.
+
+### 5. Sizing a Subnet: Capacity Planning Formula
+
+$$\text{IPs needed} = \frac{N_{\text{nodes}} \times (1 + \text{pods per node} + \text{warm pool})}{\text{target utilization}} + 5$$
+
+Worked VPC-CNI example: `40` nodes × (`1` node IP + `30` pods + `~10` warm ENI IPs) = `1,640`; at a `70%` utilization ceiling that is `1,640 / 0.7 ≈ 2,343` ⇒ smallest block with `≥ 2,343 + 5` addresses is a **`/20`** (`4,096`). A `/24` (`251`) is more than `9×` too small.
+
+| Needed usable IPs | Smallest cloud-safe prefix | Usable | Headroom at 70% ceiling |
+| :--- | :--- | :--- | :--- |
+| `≤ 40` | `/26` | `59` | `41` |
+| `≤ 100` | `/25` | `123` | `86` |
+| `≤ 250` | `/23` | `507` | `354` |
+| `≤ 1,000` | `/21` | `2,043` | `1,430` |
+| `≤ 4,000` | `/19` | `8,187` | `5,730` |
+
+### 6. The PDF's Worked Address Plan
+
+`VPC 10.0.0.0/16` with six `/24` subnets: **addresses used** `6 × 256 = 1,536`; **usable on AWS** `6 × 251 = 1,506`; **fraction of the VPC consumed** `1,536 / 65,536 = 2.34%`, leaving **`97.66%`** free for a third AZ or new tiers. The only strong reason to deviate is IP-hungry container tiers: make those `/20` (`4,091` usable each).
+
+---
+
+---
+
 ## Systematic Reference & Comparison Grid
 
 ### Essential CIDR Prefix Reference
@@ -125,6 +279,42 @@ $$
 | **`127.0.0.0/8`** | `RFC 1122` | Host Loopback | Never leaves the OS kernel (`127.0.0.1`) |
 | **`169.254.0.0/16`** | `RFC 3927` | Link-Local | Zero-conf & cloud metadata service (`169.254.169.254`) |
 | **`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`** | `RFC 5737` | Documentation | Safe example "public" IPs for docs, tutorials, and tests |
+
+---
+
+## Observability: Subnet Utilization, Overlap Audits, and Routing Health
+
+IP space is the one cloud resource you can exhaust *silently* and unrecoverably (you cannot grow a subnet in place). Monitor it as a first-class capacity metric.
+
+| Signal | Source | Healthy | Alert When | Meaning |
+| :--- | :--- | :--- | :--- | :--- |
+| Subnet free IPs | `aws ec2 describe-subnets` (`AvailableIpAddressCount`) → custom metric / exporter | `> 30%` free | `< 25%` warn, `< 10%` page | Autoscaling about to fail with `InsufficientFreeAddressesInSubnet` |
+| IPs held per node vs. used | VPC CNI `awscni_total_ip_addresses` vs `awscni_assigned_ip_addresses` | Warm pool small | Warm pool large on many nodes | Over-allocation draining the subnet (tune `WARM_IP_TARGET` / `MINIMUM_IP_TARGET`) |
+| Pending pods with sandbox errors | `kube_pod_status_phase{phase="Pending"}` + events `FailedCreatePodSandBox` | `0` | Any sustained | Subnet or ENI exhaustion |
+| ENI / instance limits | `aws ec2 describe-network-interfaces` counts; node `allocatable pods` | Under instance limit | At limit | Per-instance IP cap reached before the subnet is |
+| CIDR overlap audit | IPAM export + script (below) in CI | `0` overlaps | Any | A future peering/VPN/TGW attachment will fail |
+| Peering / TGW attachment errors | CloudTrail `CreateVpcPeeringConnection` failures, Transit Gateway route conflicts | None | Overlap error | Planning defect |
+| Flow Logs `REJECT` to RFC 1918 | VPC Flow Logs → Athena/Loki | Low | New spike to an unexpected `10.x` | Missing route, stale peering, or overlapping network sending traffic to the wrong place |
+| Route table drift | `aws ec2 describe-route-tables` diff in CI | Matches IaC | Drift | A manual `0.0.0.0/0` to the IGW on a data subnet is a breach waiting to happen |
+
+**Dashboards**
+1. *Capacity board:* every subnet as a bar of used / warm / free IPs, sorted by lowest free percentage, with the trend line projecting the date free IPs hit `10%`.
+2. *Plan vs reality:* IPAM-allocated CIDRs against what exists in accounts; unallocated-but-in-use ranges are the earliest sign of shadow networks.
+3. *Network paths:* weekly Reachability Analyzer runs for critical paths (app → DB, app → NAT → internet, VPN → app).
+
+**CI guard: fail the pull request on overlap**
+```python
+import ipaddress, itertools, sys
+cidrs = [ipaddress.ip_network(c) for c in sys.argv[1:]]
+bad = [(a, b) for a, b in itertools.combinations(cidrs, 2) if a.overlaps(b)]
+for a, b in bad: print(f"OVERLAP {a} <-> {b}")
+sys.exit(1 if bad else 0)
+```
+
+**Runbook decision tree**
+1. Pods Pending with `InsufficientFreeAddressesInSubnet` → add a secondary `100.64.0.0/16` pod CIDR with custom networking, or new `/20` subnets; reduce warm-pool targets as a stopgap.
+2. Peering/VPN rejected → compare VPC CIDRs; if overlap, plan the migration (new VPC with a distinct `/16`) and meanwhile expose only needed services via PrivateLink.
+3. Traffic reaching the wrong place → `ip route get <dst>` / route table, then check for a longer prefix hijacking the traffic.
 
 ---
 
@@ -519,53 +709,151 @@ From Host B's `/23` view (`10.1.0.0`–`10.1.1.255`), `10.1.0.50` is **on-link i
 
 ## Interview Practice Questions
 
-> [!interview] What is CIDR notation, and how many usable IPs are in a `/24` vs. a `/28`? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+### Basic Conceptual Questions (Q1–Q4)
 
-CIDR writes the number of network prefix bits after a slash, leaving 32 minus p bits for hosts. A `/24` has 8 host bits—256 total addresses, 254 usable on a traditional LAN (subtracting network and broadcast) or 251 inside AWS/GCP/Azure VPCs (which reserve 5 IPs). A `/28` has 4 host bits—16 total, 14 LAN usable, or just 11 cloud VPC usable.
+<details>
+<summary><strong>Q1: What is CIDR notation, and how many usable IPs are in a `/24` vs. a `/28`? [BASIC]</strong></summary>
 
-</details>
-
-> [!interview] Why did CIDR replace classful networking (Class A, B, C)? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Classful networking locked organizations into fixed blocks of 16 million, 65,536, or 256 addresses. Any company needing 500 IPs received an entire Class B of 65,536 addresses—wasting 99% of them—and global routing tables swelled with millions of Class C entries. CIDR lets networks carve exact power-of-two blocks at any bit boundary and aggregate routes together.
+<strong>What a strong answer covers:</strong>
+CIDR writes the number of network-prefix bits after a slash; the remaining `32 − p` bits are hosts. A `/24` has `8` host bits: `256` addresses, `254` usable on a classic LAN (minus network and broadcast) or `251` on AWS/Azure (which reserve `5`). A `/28` has `4` host bits: `16` addresses, `14` LAN-usable, `11` on AWS. (GCP reserves `4`, so its `/28` yields `12`.) The notation is also an *alignment promise*: the start address must be a multiple of the block size.
 
 </details>
 
-> [!interview] Name the three RFC 1918 private ranges and explain what `100.64.0.0/10` is used for. (Basic)
+<details>
+<summary><strong>Q2: What does `10.0.0.0/16` mean, and how many `/24` subnets fit inside it? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-RFC 1918 reserves `10.0.0.0/8`, `172.16.0.0/12` (ending at `172.31.255.255`, not `172.32`), and `192.168.0.0/16` for internal networks. `100.64.0.0/10` is RFC 6598 Shared Address Space originally created for ISP Carrier-Grade NAT, and today platform teams widely use it as a non-overlapping secondary CIDR for Kubernetes Pods or WireGuard/Tailscale overlays.
-
-</details>
-
-> [!interview] What happens when two AWS VPCs with the same `10.0.0.0/16` CIDR need to talk? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Direct VPC peering fails immediately because routers cannot tell which VPC owns a destination like `10.0.1.15`. Long-term you must migrate one VPC to a non-overlapping CIDR allocated via IPAM; short-term you work around it using AWS PrivateLink (endpoint services), an intermediary proxy/NAT subnet in a disjoint secondary CIDR, or application-level API gateways.
+<strong>What a strong answer covers:</strong>
+The first `16` bits (`10.0`) are the fixed network; the last `16` bits are hosts: `2^16 = 65,536` addresses from `10.0.0.0` to `10.0.255.255`. Extending the prefix by `8` bits gives `2^8 = 256` `/24` subnets (`10.0.0.0/24` … `10.0.255.0/24`), each with `256` addresses (`251` usable on AWS). Subnets need not be equal-sized (a few `/20`s for container tiers and `/24`s elsewhere) as long as they don't overlap.
 
 </details>
 
-> [!interview] A Kubernetes cluster in `/24` subnets stops scheduling new Pods at ~240 Pods even though nodes have plenty of CPU and RAM. Why? (Scenario)
+<details>
+<summary><strong>Q3: Why did CIDR replace classful (Class A/B/C) addressing? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Classful networking offered only three block sizes (`16.7M`, `65,536`, `256`). An organization needing `500` addresses got a whole Class B (`65,536`), wasting `99%`, which drained IPv4 space quickly, while thousands of small Class C routes bloated global routing tables. CIDR (RFC 4632, 1993) allows any prefix length and **route aggregation**: contiguous blocks summarize into one advertisement, slowing both exhaustion and routing-table growth.
 
-With VPC-native CNIs like AWS VPC CNI, every Pod—and warm ENI IP buffer—consumes a real VPC subnet IP, not just each VM node. A `/24` only gives 251 cloud-usable IPs total across nodes and pods. Fix it by migrating workloads to `/20` or `/19` subnets or attaching a `100.64.0.0/16` secondary CGNAT CIDR exclusively for pods.
+</details>
+
+<details>
+<summary><strong>Q4: What are the private IPv4 ranges, why do they exist, and what is `100.64.0.0/10`? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+RFC 1918: `10.0.0.0/8`, `172.16.0.0/12` (ends at `172.31.255.255`, **not** all of `172.x`), and `192.168.0.0/16`. They are not routed on the public internet, so every organization can reuse them internally, with NAT translating to a public address for outbound traffic. `100.64.0.0/10` is RFC 6598 *Shared Address Space* for carrier-grade NAT; teams reuse it as a non-overlapping secondary range for Kubernetes pods and overlays such as Tailscale, though it can still collide with an ISP's CGNAT on the client side, so document it.
 
 </details>
 
-> [!interview] A router has entries for `0.0.0.0/0`, `10.20.0.0/16`, and `10.20.4.0/24`. Which route wins for `10.20.4.99` and why? (Tricky)
+### Scenario-Based Architecture Questions (Q5–Q8)
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Q5: Design the subnets for a three-tier application across two availability zones. [SCENARIO]</strong></summary>
 
-`10.20.4.0/24` wins regardless of table order because routers always apply Longest Prefix Match. Although `10.20.4.99` matches all three prefixes, `/24` specifies 24 matching leading bits versus 16 and 0, making it the most specific route.
+<strong>What a strong answer covers:</strong>
+VPC `10.0.0.0/16`. Per AZ: a **public** subnet (e.g., `10.0.1.0/24`, `10.0.2.0/24`) holding load balancers and the NAT gateway, route `0.0.0.0/0 → internet gateway`; a **private app** subnet (`10.0.11.0/24`, `10.0.12.0/24`, or `/20` if containers take VPC IPs), default route `→ NAT gateway`; a **private data** subnet (`10.0.21.0/24`, `10.0.22.0/24`) with **no internet route**. Six subnets, each in exactly one AZ, using `1,536` of `65,536` addresses (`2.3%`). Add one NAT gateway per AZ to avoid cross-AZ dependence, and reserve space for a third AZ and new tiers.
 
 </details>
+
+<details>
+<summary><strong>Q6: Why put databases in private subnets if they already have passwords and security groups? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Defense in depth.** With no route from the internet, a leaked password or a mistaken `0.0.0.0/0` security-group rule still does not give an attacker connectivity: routing is an independent control from authentication and filtering. Only the app tier (by security-group reference) can reach the data tier. The same layering means a compromised public-tier host still needs a second hop. Add VPC endpoints for AWS APIs instead of NAT where possible, and keep data subnets without any NAT route.
+
+</details>
+
+<details>
+<summary><strong>Q7: Your company wants to peer a new VPC with an existing VPC and with the office VPN. What do you check first, and what if they overlap? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**CIDR overlap**, before anything else. Peering, VPN and Transit Gateway cannot route between two networks that both claim `10.0.0.0/16`: the router cannot decide where `10.0.1.25` lives (and Longest Prefix Match ties). If there is overlap: long-term renumber/migrate one VPC to a distinct block from a central IPAM (`10.1.0.0/16`); short-term use **PrivateLink / NLB endpoint services**, an intermediary NAT/proxy in a disjoint secondary CIDR, or an API gateway so only specific services are exposed. Prevention: a registry (`prod 10.0/16`, `staging 10.1/16`, `dev 10.2/16`) and a CI overlap check.
+
+</details>
+
+<details>
+<summary><strong>Q8: A Kubernetes cluster in `/24` subnets stops scheduling pods around 240 pods, with plenty of CPU and RAM. Why and how do you fix it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+With a VPC-native CNI (AWS VPC CNI, Azure CNI), **every pod consumes a real subnet IP**, plus warm ENI pre-allocations, plus the node itself. A `/24` gives `251` IPs *in total*. Events show `FailedCreatePodSandBox` / `InsufficientFreeAddressesInSubnet`. Fixes: attach a **secondary CIDR** (`100.64.0.0/16`) with CNI custom networking so pods use it while nodes stay on primary RFC 1918 ranges; move worker subnets to `/20`; tune `WARM_IP_TARGET`; use prefix delegation (`/28` per ENI slot) to raise density; or use an overlay CNI. Prevent: size from `nodes × (1 + pods + warm) / 0.7` and alert at `25%` free.
+
+</details>
+
+### Advanced & Tricky Interview Questions (Q9–Q12)
+
+<details>
+<summary><strong>Q9: A router has `0.0.0.0/0`, `10.20.0.0/16`, and `10.20.4.0/24`. Which route wins for `10.20.4.99`, and does table order matter? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`10.20.4.0/24` wins: all three match, but **Longest Prefix Match** picks the most specific (`24 > 16 > 0` leading bits). Row order doesn't matter; hardware implementations (tries, TCAM) are built for this. A subtle follow-up: if a more-specific route is injected by mistake (a `/32` via BGP or a stale `/24` from a peered VPC), it silently hijacks traffic from the intended `/16`, which is why route filters and prefix limits matter. Tie-breaking among *equal* prefixes uses administrative distance/metric.
+
+</details>
+
+<details>
+<summary><strong>Q10: How many instances can you launch in a `/28` on AWS, and why is "I'll just grow the subnet later" a trap? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`2^4 = 16` addresses minus `5` reserved = **`11`** (and it is AWS's smallest subnet). Managed services (RDS, load balancers, endpoints, Lambda ENIs) also consume IPs from the subnet, so `11` disappears fast; ALB needs headroom to scale. You **cannot resize a subnet in place**; you must create a new, larger subnet and migrate workloads, and you can only add *secondary* VPC CIDRs, not expand existing ones. Hence over-provision: `/20` for container tiers, `/24` for LBs, and keep ≥ `30%` free.
+
+</details>
+
+<details>
+<summary><strong>Q11: Is a "public subnet" defined by its IP range? Do instances in a private app subnet need public IPs to download updates? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+No. A public subnet is defined by its **route table** (`0.0.0.0/0 → internet gateway`); the addresses are still RFC 1918, and an instance additionally needs a public/Elastic IP (and permissive security group) to be reachable. Private-app instances do **not** need public IPs: they send traffic to a **NAT gateway** in a public subnet, which uses its own public IP; connections can go out and replies return, but nothing on the internet can *initiate* one. Gotchas: NAT gateway per-AZ cost and `55,000`-ports-per-destination limit, and S3/DynamoDB gateway endpoints that avoid NAT charges.
+
+</details>
+
+<details>
+<summary><strong>Q12: How do you programmatically test whether two CIDR blocks overlap, and why can they never overlap partially? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Take the shorter prefix `m = min(pA, pB)` and compare `netA & mask_m == netB & mask_m`; equal means overlap. In code: Python `ipaddress.ip_network(a).overlaps(ip_network(b))`, Go `netip.Prefix.Overlaps`. They can't partially overlap because every block is **aligned to its own size and a power of two**: it equals "all addresses sharing the first `p` bits," so either one set of leading bits is a prefix of the other (nesting) or they differ somewhere (disjoint). Add this check to Terraform CI against the IPAM registry for every account/region, plus on-prem and VPN ranges.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                 SUBNETS & CIDR: NEIGHBOURHOODS OF ADDRESSES — CHEAT SHEET
+====================================================================================================
+NOTATION
+  a.b.c.d/p  : first p bits = network, last 32-p bits = hosts.   /24 = 24 NETWORK bits (not 24 hosts).
+  Total  = 2^(32-p)         LAN usable = total - 2         AWS/Azure usable = total - 5 (GCP: -4)
+  Mask   = p ones + zeros   (/20 = 255.255.240.0)          Network = ip AND mask
+  Alignment: start address must be a multiple of block size (10.0.0.50/24 is INVALID)
+
+QUICK TABLE
+  /32=1 | /31=2 (P2P) | /28=16 (11 AWS) | /26=64 (59) | /25=128 (123) | /24=256 (251) | /23=512 (507)
+  /22=1,024 (1,019) | /21=2,048 (2,043) | /20=4,096 (4,091) | /19=8,192 (8,187) | /16=65,536 | /8=16.7M
+  +1 to prefix HALVES it; -1 DOUBLES it.   Split by k bits -> 2^k subnets.   Aggregate 2^k aligned -> -k bits.
+
+PRIVATE & SPECIAL RANGES
+  10.0.0.0/8 | 172.16.0.0/12 (172.16-172.31 ONLY; 172.32 is PUBLIC) | 192.168.0.0/16   (RFC 1918)
+  100.64.0.0/10 (RFC 6598 CGNAT; Tailscale; K8s pod CIDR) | 169.254.0.0/16 (link-local, cloud metadata)
+  127.0.0.0/8 loopback | 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 documentation (RFC 5737)
+
+ROUTING RULES
+  Longest Prefix Match: most specific (largest /p) matching route wins; order irrelevant; /0 = default.
+  Two CIDR blocks are NESTED or DISJOINT, never partially overlapping.  Overlap => peering/VPN/TGW impossible.
+
+3-TIER VPC (per AZ)
+  public  : route 0.0.0.0/0 -> IGW    (ALB, NAT GW)       app  : 0.0.0.0/0 -> NAT GW (outbound only)
+  data    : NO default route (defense in depth)             Each subnet lives in exactly ONE AZ.
+
+SIZING
+  IPs = nodes x (1 + pods/node + warm) / 0.70 + 5     VPC-CNI: pods use REAL subnet IPs.  Alert at 25% free.
+  Plan: /16 per VPC from central IPAM (prod 10.0/16, staging 10.1/16, dev 10.2/16); pods on 100.64.0.0/16.
+
+ANTI-PATTERNS
+  x default 10.0.0.0/16 everywhere        x /24 for container subnets      x assuming all 172.x is private
+  x DB in a public subnet "for now"       x no overlap check in CI         x assuming a subnet can be resized
+====================================================================================================
+```
 
 ---
 

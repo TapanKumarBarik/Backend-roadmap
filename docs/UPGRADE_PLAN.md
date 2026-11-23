@@ -33,7 +33,7 @@ Designed to Scale is HLD animation + metrics. We already have more surface area 
 ## Non‑negotiable content bar
 
 ### System Design
-Existing 16-point rubric + tracker (`docs/curriculum-rewrite-tracker.md`). Keep completing networking modules; do not “shorten for UI.”
+Existing 16-point rubric + tracker (`docs/curriculum-rewrite-tracker.md`). **Active focus (after LLD):** Phase 2 Networking From Zero — finish `04`→`30` to 🟢 (Phase 1 Core Fundamentals already 19/19). Do not “shorten for UI.”
 
 ### LLD
 12-point interview-coach rubric (`docs/lld-quality-rubric.md`) + tracker (`docs/lld-rewrite-tracker.md`).

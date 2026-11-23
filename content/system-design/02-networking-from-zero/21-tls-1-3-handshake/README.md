@@ -1,9 +1,12 @@
 # Lesson 21: The TLS 1.3 Handshake Step by Step
 
 > **Prerequisites:** [Lesson 20: Why Encryption, Public and Private Keys](../20-why-encryption-public-and-private-keys/README.md), [Lesson 09: TCP Three-Way Handshake](../09-tcp-three-way-handshake/README.md), and [Networking From Zero Overview](../README.md) (Lesson 21 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend, SRE, and security engineers optimizing HTTPS tail latency, configuring TLS 1.3 servers and clients, auditing cipher suites, and guarding APIs against `0-RTT` replay attacks.  
 > **Free PDF Notes:** [Download SD-N-021.pdf](https://backendroadmap.com/notes/system-design/SD-N-021.pdf)
+
+> [!NOTE]
+> **In one line:** HTTPS is HTTP inside TLS; the TLS 1.3 handshake agrees on fresh secret keys with `ECDHE` and proves the server's identity with a certificate, all in one round trip, then switches to fast symmetric encryption.
 
 > [!TIP]
 > **The Golden Rule of TLS 1.3:** By guessing an ephemeral `X25519` `key_share` directly inside `ClientHello`, TLS 1.3 completes key agreement in **`1` RTT** instead of TLS 1.2's **`2` RTTs**, encrypts certificates and `ALPN` right after `ServerHello`, and restricts ciphers strictly to `AEAD` (`AES-GCM` / `ChaCha20-Poly1305`) with mandatory **forward secrecy**. While session resumption (`PSK`) also enables **`0-RTT` early data**, `0-RTT` lacks replay protection—so proxies and origins must reject non-idempotent `POST` requests carrying early data with **`425 Too Early`**.
@@ -137,6 +140,120 @@ $$T_{\text{TLS 1.3 (0-RTT PSK)}} = (1_{\text{TCP}} + 0_{\text{TLS}} + 1_{\text{H
 | **`TLS_CHACHA20_POLY1305_SHA256`** | Stream `AEAD` (`256`-bit key) | Low-power mobile/IoT CPUs lacking hardware AES-NI |
 | **`server_name` (`SNI`)** | Cleartext target hostname | Required for virtual-hosted multi-domain TLS termination |
 | **`application_layer_protocol_negotiation`** | `ALPN` (`h2`, `http/1.1`) | Selects HTTP/2 multiplexing inside `ClientHello` without extra RTT |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**HTTPS is plain HTTP carried inside a TLS connection (port `443`), and the TLS 1.3 handshake is the short negotiation that creates that connection.** Inside one round trip it agrees on fresh keys with ephemeral Diffie-Hellman, proves the server's identity with a certificate and a live signature, and then switches to fast symmetric encryption. TLS adds exactly three guarantees: **confidentiality** (nobody can read it), **integrity** (nobody can change a byte unnoticed), and **authentication** (the server proves who it is). What it is not: TLS does not hide the destination (`IP`, `SNI`), does not protect data once a proxy decrypts it, and does not make a vulnerable application safe.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **SSL** vs. **TLS** vs. **HTTPS** vs. **mTLS** | `SSL` is the obsolete ancestor (SSL 3.0 is broken); `TLS` is the protocol (1.2/1.3 are in use); `HTTPS` = HTTP over TLS; `mTLS` = *both* sides present certificates. | Browser to site: TLS 1.3 HTTPS. Service to service in a mesh: mTLS with SPIFFE identities. |
+| **Full handshake** vs. **`PSK` resumption** vs. **`0-RTT`** | Full: certificate + signature, `1` TLS RTT. Resumption: reuse a ticket as a pre-shared key, skip certificate work, **still `1` RTT** with fresh `ECDHE`. `0-RTT`: data in the first flight, replayable. | First app launch (full); next launch (`PSK`); a `GET /feed` (`0-RTT`, only if idempotent). |
+| **Cleartext** vs. **encrypted** handshake messages | In TLS 1.3 only `ClientHello` and `ServerHello` are cleartext; `EncryptedExtensions`, `Certificate`, `CertificateVerify`, `Finished` are encrypted under handshake keys. | Wi-Fi snoopers see `SNI` and the key shares, but not the certificate or `ALPN` choice. |
+| **Terminate + re-encrypt** vs. **passthrough** vs. **offload** | *Terminate + re-encrypt*: LB holds the public cert, reads HTTP, opens a second TLS connection to backends. *Passthrough*: L4 LB forwards raw encrypted bytes; backends terminate. *Offload*: LB decrypts and sends **plain** HTTP inside. | Path-based routing + PCI scope: terminate + re-encrypt. End-to-end encryption, no HTTP routing: passthrough. Offload is a zero-trust anti-pattern. |
+| **Key exchange** vs. **authentication** vs. **bulk cipher** | Three independent jobs: `X25519` agrees keys; `ECDSA`/`RSA-PSS` + certificate authenticates; `AES-GCM`/`ChaCha20` encrypts data. TLS 1.3 *cipher suites* name only the last one (+ hash). | `TLS_AES_128_GCM_SHA256` says nothing about the curve; that is negotiated in `supported_groups`. |
+
+**Business impact.** The handshake sits on the critical path of every *new* connection: each saved round trip is `20-200 ms` on every cold mobile start, API client launch, and cross-region call. It also determines your compliance posture (forward secrecy, no legacy ciphers) and your replay exposure when `0-RTT` is enabled.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy of the Three Flights
+
+```text
+ CLIENT                                                                                       SERVER
+   │  TCP SYN ─────────────────────────────────────────────────────────────────────────────────>│
+   │<─────────────────────────────────────────────────────────────────────────────── SYN-ACK    │   (1 RTT: TCP)
+   │  ACK + FLIGHT 1  [ClientHello  ~300-600 B  CLEARTEXT]                                       │
+   │     legacy_version 0x0303 | supported_versions [TLS1.3] | cipher_suites (AEAD only)         │
+   │     SNI | ALPN [h2, http/1.1] | supported_groups | key_share X25519 (32 B) | PSK (resume)   │
+   │ ───────────────────────────────────────────────────────────────────────────────────────────>│
+   │                                  server: HKDF(client_share, server_share, transcript) ──>   │
+   │<─ FLIGHT 2  [ServerHello + key_share 32 B  CLEARTEXT]                                       │   (1 RTT: TLS)
+   │             {EncryptedExtensions}{Certificate ~1.5-5 KB}{CertificateVerify ~64-256 B}{Finished 32-48 B}
+   │     client: verify chain + signature + Finished, derive application keys                    │
+   │  FLIGHT 3  {Finished} + {HTTP GET /}   (first request rides in the SAME flight)             │
+   │ ───────────────────────────────────────────────────────────────────────────────────────────>│
+   │<─ {NewSessionTicket} + {HTTP 200 OK ...}                                                    │   (1 RTT: HTTP)
+   Legend: {...} = encrypted with handshake/application traffic keys derived by HKDF
+```
+
+**Key schedule (RFC 8446 §7.1):** `PSK -> Early Secret -> (EC)DHE -> Handshake Secret -> Master Secret`, each stage `HKDF-Extract`ed and `HKDF-Expand`ed into separate labelled keys (`client/server handshake traffic`, `client/server application traffic`, `resumption`, `exporter`). Separate keys per direction and per phase mean compromising one never reveals another.
+
+**Record layer:** application data travels in records of up to `2^14 = 16,384` plaintext bytes, each adding `5 B` header + `1 B` inner content type + `16 B` AEAD tag = **`22 B` (`0.13%`)**. A server flight larger than the TCP initial window (`10 x 1,460 = 14,600 B`) costs an extra RTT, so keep chains short (ECDSA leaf, one intermediate).
+
+### The Observability Gap: Where Handshake Cost Hides
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Client timing** (`curl -w time_connect, time_appconnect`; browser `secureConnectionStart` -> `connectEnd`) | TCP, TLS, and TTFB phases separately. | Server CPU cost and why a handshake was slow (RTT vs. CPU vs. retry). |
+| **LB / proxy TLS metrics** (`ssl_handshake_total`, `ssl_session_reused`, Envoy `ssl.handshake`, `ssl.fail_verify_*`) | Handshake rate, failure reasons, resumption ratio, negotiated version/cipher. | End-user latency by geography. |
+| **HTTP access logs** | Only requests that **completed** the handshake. | **Failed handshakes entirely**: expired cert, no shared cipher, bad `SNI`, protocol mismatch never reach HTTP, so they are invisible to access logs and `5xx` dashboards. |
+| **Packet capture** | `ClientHello` contents (`SNI`, groups, `ALPN`), `HelloRetryRequest`, alerts. | Everything after `ServerHello` (encrypted) unless `SSLKEYLOGFILE` is supplied. |
+| **Metrics to add** | Handshake p50/p95, resumption ratio (target `> 80%`), `HelloRetryRequest` rate (target `~0`), TLS 1.2 share, `0-RTT` accepted/rejected (`425`) counts, certificate expiry days. | Nothing: they separate "network is slow" from "we pay full handshakes we should not". |
+
+---
+
+## Mathematical Model of Handshake Latency, CPU & Replay Exposure
+
+### 1. Time to First Byte on a Cold Connection
+
+$$T_{\text{TTFB}} = (N_{\text{TCP}} + N_{\text{TLS}} + N_{\text{HTTP}}) \times \text{RTT} + T_{\text{server}}$$
+
+| Protocol Stack | $N_{\text{TCP}}$ | $N_{\text{TLS}}$ | $N_{\text{HTTP}}$ | Total RTTs |
+| :--- | :--- | :--- | :--- | :--- |
+| Plain HTTP | `1` | `0` | `1` | `2` |
+| TCP + TLS 1.2 | `1` | `2` | `1` | **`4`** |
+| TCP + TLS 1.3 (`1-RTT`, full or `PSK`) | `1` | `1` | `1` | **`3`** |
+| TCP + TLS 1.3 (`0-RTT`, idempotent only) | `1` | `0` | `1` | **`2`** |
+| QUIC / HTTP/3 (`1-RTT`) | `0` | `1` (combined) | `1` | **`2`** |
+| QUIC / HTTP/3 (`0-RTT`) | `0` | `0` | `1` | **`1`** |
+
+| RTT | TLS 1.2 (`4x`) | TLS 1.3 (`3x`) | TLS 1.3 `0-RTT` (`2x`) | HTTP/3 (`2x`) | HTTP/3 `0-RTT` (`1x`) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `20 ms` (same metro) | `80 ms` | `60 ms` | `40 ms` | `40 ms` | `20 ms` |
+| `50 ms` (same continent) | `200 ms` | `150 ms` | `100 ms` | `100 ms` | `50 ms` |
+| `100 ms` (mobile / cross-ocean) | **`400 ms`** | **`300 ms`** | **`200 ms`** | `200 ms` | `100 ms` |
+| `200 ms` (poor mobile / far) | `800 ms` | `600 ms` | `400 ms` | `400 ms` | `200 ms` |
+
+TLS 1.3 saves exactly **one RTT** (`-25%` at `100 ms`); `0-RTT` saves another (`-50%` total) but only for requests that are safe to replay. These figures exclude `T_server` (processing) and TCP slow-start effects.
+
+### 2. Server CPU: Why Certificate Type Matters
+
+Approximate single-core full-handshake capacity (benchmark your own hardware with `openssl speed`): **RSA-2048 certificate `~1,000 handshakes/s`** (the `~1 ms` signature dominates) versus **ECDSA P-256 `~6,000 handshakes/s`**.
+
+$$\text{Cores} = \frac{\text{New connections/s}}{\text{Handshakes/s per core}}$$
+
+| New Connections/s | RSA-2048 Cores | ECDSA P-256 Cores |
+| :--- | :--- | :--- |
+| `6,000` | `6` | `1` |
+| `60,000` | `60` | `10` |
+| `600,000` (traffic spike / DDoS) | `600` | `100` |
+
+ECDSA certificates are a `~6x` handshake-CPU saving and also shrink the chain (`~1.5-2 KB` vs `3-5 KB`).
+
+### 3. Bandwidth Saved by Resumption
+
+Resumed `PSK` handshakes omit the certificate chain. At `60,000` new connections/s and a `4 KB` chain:
+
+$$\text{No resumption: } 60{,}000 \times 4\ \text{KB} = 240\ \text{MB/s} \approx 1.9\ \text{Gbps}$$
+
+$$\text{80\% resumption: } 0.2 \times 240 = 48\ \text{MB/s} \approx 0.38\ \text{Gbps}\;\;(-80\%)$$
+
+Resumption also skips signature verification on the client, saving battery on mobile.
+
+### 4. `0-RTT` Replay Exposure
+
+$$\text{Max replays} \approx \begin{cases} P & \text{per-PoP single-use strike register, tickets shared by } P \text{ PoPs} \\ \text{attacker rate} \times W & \text{only a time-window check } (W) \text{ and no strike register} \end{cases}$$
+
+In the war story below, `4` PoPs sharing a ticket key with no global strike register let one captured packet redeem a `USD 50` coupon `312` times: $312 \times 50 = \text{USD } 15{,}600$ from a single recorded `ClientHello`. Anti-replay for `0-RTT` therefore needs *global* single-use state, a very short acceptance window (`~10 s`), a bounded ticket lifetime (RFC 8446 max `7 days`, practical `<= 24 h`, rotating ticket keys every `2 h`), **and** method-level rejection (`425 Too Early` for anything not safe).
+
+### 5. Post-Quantum Hybrid Key Shares (Size Effects)
+
+Hybrid groups such as `X25519MLKEM768` add roughly `1.2 KB` to the `ClientHello` key share (`32 B` X25519 + `1,184 B` ML-KEM-768 public key), pushing it past a single `1,460 B` TCP segment and sometimes triggering middlebox bugs. Handshake **RTT count is unchanged**, but `ClientHello` fragmentation and larger flights are a new thing to watch in captures.
 
 ---
 
@@ -464,53 +581,142 @@ Because the server cannot compute a shared secret from the client's `X25519` `ke
 
 ## Interview Practice Questions
 
-> [!interview] How does TLS 1.3 achieve a 1-RTT handshake compared to TLS 1.2's 2-RTT handshake? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. Walk through a TLS 1.3 handshake. [BASIC]</strong></summary>
 
-In TLS 1.2, the client and server spend one RTT just negotiating algorithms and certificates before exchanging key-agreement messages in a second RTT. In TLS 1.3, the client optimistically guesses a key-exchange curve (typically `X25519`) and sends its ephemeral `key_share` directly inside `ClientHello`. The server immediately responds with `ServerHello` and its own share, derives handshake keys via `HKDF`, and sends an encrypted `Certificate`, `CertificateVerify`, and `Finished` in that same single RTT.
-
-</details>
-
-> [!interview] What security algorithms did TLS 1.3 remove, and why? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-TLS 1.3 removed static `RSA` key transport (which lacked forward secrecy), static Diffie-Hellman, weak ciphers like `RC4` and `3DES`, `CBC`-mode encryption (vulnerable to padding oracles like `BEAST` and `POODLE`), `SHA-1`/`MD5`, and TLS compression (`CRIME`). Only ephemeral `(EC)DHE` key exchange for mandatory forward secrecy and modern `AEAD` ciphers (`AES-GCM` and `ChaCha20-Poly1305`) remain.
+<strong>What a strong answer covers:</strong>
+The client sends `ClientHello` with supported AEAD suites, `SNI`, `ALPN`, and an `X25519` `key_share`. The server replies with `ServerHello` and its own key share; both derive the same secret via `ECDHE` and run `HKDF` to get handshake keys. Encrypted from then on, the server sends `EncryptedExtensions`, its `Certificate`, a `CertificateVerify` signature over the transcript, and `Finished`. The client verifies, sends its `Finished` and the first HTTP request in the same flight: **one round trip**, then application keys.
 
 </details>
 
-> [!interview] What is `0-RTT` early data in TLS 1.3, and why is it dangerous for `POST` endpoints? (Scenario)
+<details>
+<summary><strong>2. What is forward secrecy, and how does TLS 1.3 enforce it? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-With `PSK` session resumption, `0-RTT` lets a client encrypt an HTTP request under the resumed ticket key and attach it directly to `ClientHello` before receiving a fresh `ServerHello`. Because no fresh server randomness is mixed into that first flight, an attacker can capture and replay that exact encrypted `ClientHello + early_data` packet multiple times across edge PoPs. Servers must reject non-idempotent requests like `POST` payments arriving in `0-RTT` with `425 Too Early`.
-
-</details>
-
-> [!interview] What is the difference between `SNI` and `ALPN` inside `ClientHello`? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-`SNI` (Server Name Indication) tells a multi-tenant TLS terminator which domain name the client wants so it picks the right X.509 certificate before encryption keys are established. `ALPN` (Application-Layer Protocol Negotiation) agrees on the higher-level protocol—such as HTTP/2 (`h2`) vs `http/1.1`—inside the TLS handshake itself, avoiding an extra post-handshake upgrade round trip.
+<strong>What a strong answer covers:</strong>
+Each session uses ephemeral `ECDHE` keys that are deleted afterwards, and the long-term certificate key only **signs** the handshake. Stealing that key later lets an attacker impersonate the server from then on but not decrypt recorded traffic. TLS 1.3 removed static `RSA` key transport and static DH, so forward secrecy is mandatory for every connection.
 
 </details>
 
-> [!interview] If TLS 1.3 encrypts the server's certificate, what metadata is still visible to a Wi-Fi snooper? (Tricky)
+<details>
+<summary><strong>3. Why switch to symmetric encryption after the handshake? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Public-key operations cost on the order of `50 µs-1 ms` of CPU each, whereas AES-GCM with hardware support encrypts several GB/s per core (`~21,000x` cheaper per byte than RSA). The handshake pays for asymmetric math once (key agreement + signature), then both sides derive symmetric session keys with `HKDF` and every record is protected by fast `AEAD` ciphers (`AES-GCM`, `ChaCha20-Poly1305`).
 
-IP addresses, TCP ports, packet sizes and timing, plus the cleartext **`SNI` hostname** in `ClientHello` (unless Encrypted Client Hello / `ECH` is enabled). Encrypting the `Certificate` in Flight 2 still protects internal SAN lists and user/client certificates (`mTLS`) from passive eavesdropping, while URL paths, cookies, and JSON bodies remain completely hidden inside the TLS tunnel.
+</details>
+
+<details>
+<summary><strong>4. What did TLS 1.3 remove, and why? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Static `RSA` key transport and static DH (no forward secrecy), `CBC`-mode ciphers (padding oracles like `BEAST`/`POODLE`), `RC4`, `3DES`, `SHA-1`/`MD5`, TLS compression (`CRIME`), renegotiation, and custom DH groups. Only five `AEAD` suites remain, key exchange is always ephemeral, and the server certificate is encrypted. Less negotiation means fewer downgrade attacks and a shorter handshake.
 
 </details>
 
-> [!interview] What triggers a `HelloRetryRequest` in TLS 1.3, and what does it cost? (Tricky)
+<details>
+<summary><strong>5. Your app has `100 ms` RTT and users complain about slow first loads. What does TLS 1.3 buy you? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-It fires when the server supports TLS 1.3 and a compatible group, but the client's optimistic `key_share` guess in `ClientHello` doesn't match the server's allowed curves (for example, the client guessed `X25519` while a FIPS-locked server only allows `P-256`). The server asks the client to retry `ClientHello` with the matching group, costing one extra round trip (`2 RTT` total).
+<strong>What a strong answer covers:</strong>
+One round trip per new connection: $(1+2+1)\times100 = 400\ \text{ms}$ with TLS 1.2 becomes $(1+1+1)\times100 = 300\ \text{ms}$. Add session resumption (smaller flights, less CPU) and `0-RTT` for idempotent `GET`s to reach about `200 ms`; `POST /orders` still waits for the full handshake. Reuse connections (keep-alive, pooling), consider HTTP/3 (merges the TCP handshake), and serve from a nearby PoP to lower the RTT itself.
 
 </details>
+
+<details>
+<summary><strong>6. Security wants encryption inside the data center, but you route by URL path at the load balancer. What do you do? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Terminate and re-encrypt**: the LB terminates client TLS (it needs plaintext HTTP to route by path/header, add `X-Forwarded-Proto`, run a WAF), then opens a **second TLS** (or mTLS) connection to backends with internal certificates, often through a service mesh. Passthrough preserves end-to-end encryption but blinds the L4 LB to paths. Plain-HTTP "offload" inside the network fails zero-trust and compliance (PCI DSS, HIPAA) expectations.
+
+</details>
+
+<details>
+<summary><strong>7. Should you enable `0-RTT` for your whole API? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+No. Early data has no fresh server randomness, so an attacker (or a flaky proxy) can replay a captured `ClientHello + early_data` and the server cannot tell on its own. Allow `0-RTT` only for safe, idempotent routes (`GET`/`HEAD`), forward `Early-Data: 1`, and return `425 Too Early` for `POST`/`PUT`/`PATCH`/`DELETE` and payments (RFC 8470). Add global anti-replay state, short ticket lifetimes, and rotating ticket keys.
+
+</details>
+
+<details>
+<summary><strong>8. An attacker steals your TLS private key today. What can they do with TLS 1.3? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+They can impersonate your server to clients going forward (until the certificate is revoked and the key replaced) and sign handshakes as you, but they **cannot decrypt past recorded sessions** thanks to ephemeral `ECDHE`. Response: revoke the certificate, rotate to a new key in an HSM/KMS, redeploy, search for the leak path, and monitor for misuse; also check for any legacy `TLS_RSA_*` or TLS 1.2 non-ECDHE suites still enabled, since those do expose history.
+
+</details>
+
+<details>
+<summary><strong>9. TLS 1.3 encrypts the certificate. Can a network observer still see which site you visit? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Usually yes: the destination IP is visible, DNS may be visible, and the `SNI` hostname in `ClientHello` is plaintext because the server needs it to pick a certificate before keys exist. TLS 1.3 hides the certificate (and `ALPN` selection), not the destination. **Encrypted Client Hello (ECH)** plus encrypted DNS (DoH/DoT) conceals the `SNI`, but the IP often still identifies shared-CDN sites weakly.
+
+</details>
+
+<details>
+<summary><strong>10. What is a `HelloRetryRequest`, and what does it cost? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The client guessed a key-exchange group (say `X25519`) that the server will not use (a FIPS-locked server allowing only `P-256`). The server cannot compute a secret, so it sends `HelloRetryRequest` naming an acceptable group and the client sends a new `ClientHello`: **one extra RTT** (`2` TLS RTTs, back to TLS 1.2 latency). Mitigate by offering shares for multiple groups or remembering the preferred group per host, and monitor the HRR rate.
+
+</details>
+
+<details>
+<summary><strong>11. Why does a TLS 1.3 `ClientHello` claim to be TLS 1.2 in its legacy version field? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Middleboxes (corporate firewalls, load balancers) had ossified around TLS 1.2 and dropped or crashed on `0x0304`. TLS 1.3 therefore sets `legacy_version = 0x0303` (and a dummy session ID / compatibility mode) and advertises the real version in the `supported_versions` extension. It is a pragmatic compatibility hack that also prevents version-downgrade confusion because the real choice is authenticated in the transcript.
+
+</details>
+
+<details>
+<summary><strong>12. What is the difference between `SNI` and `ALPN`, and what does each leak or save? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`SNI` carries the requested hostname so a multi-tenant terminator can pick the right certificate; it is cleartext and thus leaks the destination unless ECH is used. `ALPN` lists application protocols (`h2`, `http/1.1`) so client and server settle on HTTP/2 inside the handshake with no extra upgrade round trip; the server's choice is encrypted in `EncryptedExtensions`. Omitting `SNI` yields a default-certificate mismatch; omitting `ALPN` silently falls back to HTTP/1.1.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                          THE TLS 1.3 HANDSHAKE STEP BY STEP  —  CHEAT SHEET
+====================================================================================================
+GUARANTEES   confidentiality | integrity | authentication      HTTPS = HTTP inside TLS (port 443)
+
+HANDSHAKE (1 TLS RTT)
+  F1 ClientHello  : AEAD suites, SNI, ALPN, supported_groups, key_share X25519 (cleartext, legacy_version 0x0303)
+  F2 ServerHello  : server key_share (cleartext) + {EncryptedExtensions}{Certificate}{CertificateVerify}{Finished}
+  F3 Client       : {Finished} + first HTTP request in the same flight ; server then sends {NewSessionTicket}
+  Keys: HKDF key schedule -> separate handshake / client-app / server-app / resumption keys ; ephemeral (EC)DHE
+
+TLS 1.3 vs 1.2   RTTs 1 vs 2 | forward secrecy mandatory vs optional | 5 AEAD suites vs hundreds | cert encrypted
+  Removed: static RSA, static DH, CBC, RC4, 3DES, SHA-1/MD5, compression, renegotiation
+
+LATENCY MATH   TTFB = (N_tcp + N_tls + N_http) * RTT   TLS1.2 = 4x | TLS1.3 = 3x | 0-RTT = 2x | HTTP/3 = 2x (0-RTT 1x)
+  @100 ms RTT : 400 -> 300 -> 200 ms          HelloRetryRequest = +1 RTT (wrong group guess)
+CPU MATH       cores = new_conn/s / handshakes/s/core ; RSA-2048 ~1,000/s vs ECDSA P-256 ~6,000/s per core
+BANDWIDTH      60k conn/s * 4 KB chain = 240 MB/s ; 80% PSK resumption => 48 MB/s ; keep flight < 14.6 KB (IW10)
+RECORD         <=16,384 B plaintext + 22 B overhead (5 hdr + 1 type + 16 tag) = 0.13%
+
+0-RTT RULES    replayable ! only GET/HEAD | Early-Data: 1 | 425 Too Early for POST/PUT/PATCH/DELETE
+               global strike register, ~10 s window, ticket keys rotate ~2 h | 4 PoPs / 312 replays * $50 = $15,600
+
+TLS TERMINATION   terminate + re-encrypt (default) | passthrough (E2E, no L7 routing) | offload (plain inside = AVOID)
+
+VISIBLE TO SNOOPER   IPs, ports, SNI (unless ECH), sizes, timing      HIDDEN: certificate, ALPN choice, URL, headers, body
+OBSERVE        handshake p95, resumption ratio >80%, HRR ~0, TLS1.2 share, 425 counts, cert expiry ; failed handshakes
+               NEVER appear in HTTP access logs
+
+ANTI-PATTERNS  X 0-RTT on POST   X TLS 1.2 + TLS_RSA_* fallback   X no SNI/ALPN in custom clients
+               X plain HTTP behind the LB   X RSA certs at huge handshake rates   X ignoring failed-handshake metrics
+====================================================================================================
+```
 
 ---
 

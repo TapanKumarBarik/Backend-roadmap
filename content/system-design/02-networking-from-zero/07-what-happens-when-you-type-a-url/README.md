@@ -1,9 +1,12 @@
 # Lesson 07: What Happens When You Type a URL
 
 > **Prerequisites:** [Lesson 05: Protocols and Layers](../05-protocols-and-layers/README.md) and [Lesson 06: The OSI Model, Made Simple](../06-osi-model/README.md) ([Networking From Zero Overview](../README.md)).  
-> **Estimated Reading Time:** 22 minutes  
+> **Estimated Reading Time:** 31 minutes  
 > **Target Audience:** Backend engineers and SREs mastering the end-to-end browser-to-origin request lifecycle, cold-start RTT accounting, connection reuse, and per-phase failure diagnosis.  
 > **Free PDF Notes:** [Download SD-N-007.pdf](https://backendroadmap.com/notes/system-design/SD-N-007.pdf)
+
+> [!NOTE]
+> **In one line:** pressing Enter starts four conversations in order (DNS, the TCP handshake, the TLS handshake and HTTP), each about one round trip, so a cold page load waits about four round trips before the first byte; the error you see tells you which step failed.
 
 > [!TIP]
 > **The Golden Rule of URL Resolution:** Pressing Enter triggers four serial conversations—**DNS**, the **TCP handshake**, the **TLS handshake**, and **HTTP**—each costing about one round trip (`RTT`), so a cold page load waits roughly four round trips before receiving its first byte. Because latency is governed by physical distance and serial handshakes rather than bandwidth or server CPU, the error message tells you exactly which step failed, and real speedups come from caching, keep-alive connection reuse, HTTP/3, and CDNs.
@@ -24,6 +27,22 @@ Before tracing a URL across DNS resolvers, TCP sockets, and TLS certificates, an
 | **Certificate** | The server's proof of who it is. | X.509 chain signed by a trusted Certificate Authority (CA) binding domain name to public key. |
 | **Round trip (RTT)** | A message there and the reply back. | Fundamental unit of network waiting (`~50 ms` regional, `~200 ms` transoceanic). |
 | **Cold start** | A first visit, with nothing cached and no connection open. | Pays full DNS + TCP + TLS + HTTP latency before the first application byte arrives. |
+
+---
+
+## What It Is vs. What It Isn't
+
+"Loading a page" is really a chain of different protocols owned by different systems. Keep them separate:
+
+| Term | Precise Meaning | What It Is **NOT** | Production Example |
+| :--- | :--- | :--- | :--- |
+| **URL** | A structured address: `scheme://host[:port]/path?query#fragment` (RFC 3986). | Not an IP address, not a file path on the server, and the `#fragment` is **never sent** to the server. | `https://backendroadmap.com/system-design` -> port `443`, `Host: backendroadmap.com`, path `/system-design`. |
+| **DNS lookup** | Translating a hostname to IP addresses (UDP/TCP `53`), cached up to the record's **TTL**. | Not part of HTTP; not a connection to the website; it talks to *resolvers*, not your server. | `dig backendroadmap.com A` -> `198.51.100.10`, TTL `300`. |
+| **TCP handshake** | `SYN`, `SYN-ACK`, `ACK`: both sides agree they can talk and pick initial sequence numbers. | Not encryption and not a request; no application bytes (except TCP Fast Open) travel yet. | `nc -zv host 443` measures only this step. |
+| **TLS handshake** | Agreeing keys and ciphers and verifying the **certificate** so data is private and tamper-evident. | Not authentication of *you*, and not the same as the TCP connection; TLS fails independently of TCP. | `openssl s_client -connect host:443`. |
+| **HTTP request/response** | Application message (`GET /path`, headers) answered by status + body. | Not a connection: HTTP *rides on* the TCP+TLS connection (or QUIC for HTTP/3) and can reuse it. | `curl -v https://host/path` -> `200 OK`. |
+
+> **Four conversations, four owners, four failure modes:** resolver (DNS), network/firewall (TCP), certificate/clock (TLS), application (HTTP). The error string tells you whose problem it is.
 
 ---
 
@@ -162,6 +181,70 @@ So reading the error tells you which step, and which layer, to fix.
 | **2. TCP** | `ERR_CONNECTION_REFUSED` or `TIMED_OUT` | `RST` packet (refused) or silent drop of `SYN` (timeout) | Service crashed/not listening on `443`, security group or firewall drop |
 | **3. TLS** | `ERR_CERT_DATE_INVALID` / `NET::ERR_CERT_AUTHORITY_INVALID` | TLS Alert (`certificate_expired`, `handshake_failure`) | Expired X.509 cert, missing intermediate chain, hostname/SAN mismatch |
 | **4. HTTP** | `404 Not Found`, `502 Bad Gateway`, `504 Gateway Timeout` | Valid TLS stream carrying HTTP status code | Wrong route path, upstream crash (`502`), upstream slow beyond proxy timeout (`504`) |
+
+### Cold-Start Math: Distance, Round Trips, and Hidden RTTs
+
+**1. The physics floor.** Light in optical fibre travels at roughly $\tfrac{2}{3}c \approx 200{,}000$ km/s $= 200$ km/ms, so the *minimum* round-trip time over a straight fibre of length $d$ is
+
+$$\text{RTT}_{\min} = \frac{2d}{200\ \text{km/ms}} = \frac{d}{100\ \text{km}}\ \text{ms}$$
+
+Real routes are longer than the great-circle distance (cable landings, switching, queueing), typically **1.3x-2x**:
+
+| Path (approximate) | Distance | $\text{RTT}_{\min}$ (physics) | Typical real RTT |
+| :--- | :--- | :--- | :--- |
+| Same metro / same AZ | `< 100 km` | `~1 ms` | `0.5-2 ms` |
+| Mumbai -> Bengaluru | `~1,000 km` | `~10 ms` | `20-35 ms` |
+| New York -> London | `~5,600 km` | `~56 ms` | `65-80 ms` |
+| Frankfurt -> N. Virginia | `~6,500 km` | `~65 ms` | `85-100 ms` |
+| Mumbai -> San Francisco | `~14,000 km` | `~140 ms` | `220-260 ms` |
+| Sydney -> London | `~17,000 km` | `~170 ms` | `270-300 ms` |
+
+No server upgrade can beat this floor — only **moving the endpoint closer** (CDN / edge / region) can.
+
+**2. Time to first byte (TTFB) for a cold request.**
+
+$$\text{TTFB} \approx n \cdot \text{RTT} + T_{\text{server}}$$
+
+where $n$ counts the serial round trips (DNS + transport + TLS + HTTP):
+
+| Connection Profile | $n$ | RTT `10 ms` (same region) | RTT `50 ms` | RTT `100 ms` | RTT `200 ms` (far away) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Warm** (DNS cached, socket reused) | `1` | `10 ms` | `50 ms` | `100 ms` | `200 ms` |
+| **Cold HTTP/3** (DNS + QUIC 1-RTT + HTTP) | `3` | `30 ms` | `150 ms` | `300 ms` | `600 ms` |
+| **Cold HTTPS, TLS 1.3** (DNS + TCP + TLS + HTTP) | `4` | `40 ms` | `200 ms` | `400 ms` | `800 ms` |
+| **Cold HTTPS, TLS 1.2** (DNS + TCP + 2 TLS + HTTP) | `5` | `50 ms` | `250 ms` | `500 ms` | `1,000 ms` |
+| **`http://` typed + redirect to HTTPS, no HSTS** (full cold start *twice*) | `~1 + 1 + 4 = 6-8` | `60-80 ms` | `300-400 ms` | `600-800 ms` | `1.2-1.6 s` |
+
+*(Add $T_{\text{server}}$ to every cell. DNS is counted as one RTT to the resolver, which is usually **closer** than the origin, so the first round trip is often cheaper than shown; an uncached recursive lookup that walks root -> TLD -> authoritative can cost several.)*
+
+**3. Hidden extra round trips: TCP slow start.** The first response burst is limited by the initial congestion window (`IW10` $\approx$ `10 × 1,460 = 14,600 B`), which then **doubles every RTT**. To deliver a $S$-byte HTML response:
+
+$$\text{segments} = \left\lceil \frac{S}{1{,}460} \right\rceil \qquad \text{rounds} = \min\{k : 10\,(2^k - 1) \ge \text{segments}\}$$
+
+| Response Size | Segments | Slow-start rounds (`10, 20, 40, 80...`) | Extra RTTs after the request |
+| :--- | :--- | :--- | :--- |
+| `10 KB` | `7` | `1` | `0` |
+| `100 KB` | `69` | `3` (`10 + 20 + 40 = 70`) | `+2` |
+| `1 MB` | `685` | `7` (`10 + 20 + ... + 320 = 630` is not enough; the 7th round reaches `1,270`) | `+6` |
+
+This is why **small HTML, compression (brotli/gzip), and warm connections with a grown congestion window** matter as much as the handshakes. A `100 KB` uncompressed page at `100 ms` RTT adds `~200 ms` before the last byte.
+
+**4. DNS caching math.** If a record has TTL $T$ and a client makes $r$ requests/s on a *cold* path, resolver QPS from $N$ clients is up to $\tfrac{N}{T}$ per name when each client caches properly, but **$N \times r$** when caching or keep-alive is broken. With $N = 2{,}000$ pods: TTL `300 s` -> `~7 QPS`; TTL `5 s`, no local DNS cache and no connection reuse at `50 req/s` per pod -> **`100,000 QPS`** at CoreDNS.
+
+### The Observability Gap: Who Measures Which Part of the Page Load?
+
+| Where It Is Measured | What It Captures | What It **Hides** |
+| :--- | :--- | :--- |
+| **Browser Navigation Timing / RUM** (`domainLookupEnd-domainLookupStart`, `connectEnd-connectStart`, `secureConnectionStart`, `responseStart`) | **All four phases** as the user lived them | Aggregates across networks; needs sampling and privacy care; blind to why a phase was slow. |
+| **`curl -w`** (`time_namelookup`, `time_connect`, `time_appconnect`, `time_starttransfer`) | Per-phase timeline from *your* vantage point | One location, one moment; not representative of mobile users. |
+| **Origin access log** (`$request_time`, `$upstream_response_time` in nginx) | Handler / upstream time only | **DNS, TCP, TLS, and queueing before the request is read** — the server log shows `40 ms` while the user waited `800 ms`. |
+| **Load balancer metrics** (`TargetResponseTime`) | Time between LB and target | Everything on the client side of the LB, including TLS handshake time and long-haul RTT. |
+| **Synthetic probes from many regions** | Geographic latency maps, cert expiry, DNS failures | Real-user device/network diversity. |
+| **Packet capture** (`tcpdump`, Wireshark) | Ground truth for SYN/TLS/HTTP timing and retransmits | Encrypted HTTP content; heavy to run at scale. |
+
+**Rule:** server-side latency metrics are *lower bounds* on user-perceived latency. If your SLO is a user SLO, measure at the user (RUM + synthetic), and use server metrics to explain the part the server owns.
+
+---
 
 ---
 
@@ -525,6 +608,11 @@ A startup upgrades its server network interface from 1 Gbps to 10 Gbps and doubl
 - **"A faster server fixes a slow page."** Often not. On a cold load most of the time is round trips; fewer and shorter round trips (caching, keep-alive, CDNs) usually help more.
 - **Ignoring TLS 1.2 vs. TLS 1.3 on cold connections.** Older load balancers pinned to TLS 1.2 burn **two** RTTs on the TLS handshake instead of one—adding a hidden 25–30% latency tax on every uncached mobile request.
 - **Shortening DNS TTLs without local caching.** Dropping DNS TTL to `5 s` without keep-alive pooling or a node-local DNS cache forces constant UDP port 53 lookups on hot paths.
+- **Trusting server-side latency as user latency.** `$request_time` and `TargetResponseTime` start after DNS, TCP, and TLS; measure with RUM, synthetic probes, or `curl -w` for the real picture.
+- **Forgetting the `http://` -> `https://` redirect hop.** Without HSTS (and preload) a typed bare domain can cost an entire extra cold start.
+- **Debugging slowness without a per-phase breakdown.** "The site is slow" is four different problems (DNS, TCP, TLS, HTTP); split the timeline before choosing a fix.
+- **Ignoring TCP slow start and response size.** A `100 KB` uncompressed page adds about two extra RTTs after the request; compress and keep connections warm.
+- **Setting client idle timeouts longer than load-balancer/NAT idle timeouts.** Stale pooled connections fail on first use; keep the client's timeout shorter and retry idempotent calls.
 
 ---
 
@@ -538,53 +626,152 @@ A startup upgrades its server network interface from 1 Gbps to 10 Gbps and doubl
 
 ## Interview Practice Questions
 
-> [!interview] What happens when you type a URL into a browser and press Enter? (Basic)
+Exactly **12 questions**, tagged by kind: **[BASIC]** (Q1-Q4, definitions), **[SCENARIO]** (Q5-Q8, apply it to a system), and **[TRICKY]** (Q9-Q12, deep follow-ups). Answer out loud for 30 seconds before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Q1: What happens when you type a URL into a browser and press Enter? [BASIC]</strong></summary>
 
-The browser parses the URL, resolves the name to an IP address with DNS (usually from a cache), opens a TCP connection with the three-way handshake, and for HTTPS does a TLS handshake that agrees keys and checks the certificate. Then it sends the HTTP request, the server responds with the HTML, and the browser fetches the other files, CSS, scripts and images, usually over the same connection, and renders the page.
-
-</details>
-
-> [!interview] Which protocols, at which layers, are involved? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-DNS (application layer, normally over UDP port 53) to find the address; TCP (transport) for the connection; TLS for encryption, which runs above TCP inside the application; HTTP (application) for the request and response; IP (network) carries every packet; and Ethernet or Wi-Fi (link) moves them hop by hop.
-
-</details>
-
-> [!interview] Why is the first visit to a site slower than the second? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-A cold start pays for DNS, the TCP handshake and the TLS handshake before the request, about four round trips in all. A minute later the DNS answer is cached and the connection is usually still open (keep-alive), so only the HTTP request and response remain, often one round trip. Browser caching of files saves even more.
+<strong>What a strong answer covers:</strong>
+1. **Parse the URL** (scheme -> port `443`, host, path); check HSTS / caches / service workers.
+2. **DNS:** resolve the name to an IP (browser -> OS -> recursive resolver caches; otherwise root -> TLD -> authoritative) over UDP `53`.
+3. **TCP handshake:** `SYN`, `SYN-ACK`, `ACK` to `IP:443`.
+4. **TLS handshake:** agree keys, verify the **certificate chain** and hostname (TLS 1.3 = 1 RTT).
+5. **HTTP request** `GET /path` with headers; the server (maybe via CDN/LB/app/DB) replies `200 OK` + HTML.
+6. **Render:** parse HTML, fetch CSS/JS/images (usually over the same connection or HTTP/2 multiplexing), build the DOM/CSSOM, paint.
+Mention that each of steps 2-5 costs about **one round trip**, so a cold load waits ~4 RTTs before the first byte.
 
 </details>
 
-> [!interview] A user sees “connection timed out”. Which step failed, and what would you check? (Scenario)
+<details>
+<summary><strong>Q2: Which protocols, at which layers, are involved? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-DNS worked, because there is an address; the TCP handshake failed, because nothing answered on that port. Check that the server is up and listening on 443, firewall and security-group rules, and the load balancer's health. If it said the IP address could not be found, it would be DNS; “not private” would be TLS; a 500 would be the application.
-
-</details>
-
-> [!interview] How long does a cold page load take, at minimum, if the round-trip time is 50 ms? (Tricky)
-
-<details><summary>What to say in 30 seconds</summary>
-
-About four round trips before the first byte: DNS (one or more if not cached), the TCP handshake (one), TLS 1.3 (one) and the HTTP request (one): roughly 200 ms, plus the server's processing time. TLS 1.2 costs two round trips, and HTTP/3 over QUIC combines the transport and TLS handshakes into one.
+<strong>What a strong answer covers:</strong>
+**DNS** (Application; usually UDP/53, TCP fallback; DoH/DoT variants), **TCP** (Transport) for the connection and ports, **TLS** (runs above TCP, inside the application/library; OSI "layer 6"), **HTTP** (Application) for the request/response, **IP** (Network) for hop-by-hop addressing and routing, **Ethernet/Wi-Fi** (Link) for each physical hop, plus **ARP** to find the next-hop MAC and **DHCP** that gave the laptop its IP and DNS server in the first place. With HTTP/3, TCP+TLS are replaced by **QUIC over UDP/443**.
 
 </details>
 
-> [!interview] Most of that time isn't data. What does that mean for design? (Tricky)
+<details>
+<summary><strong>Q3: Why must DNS, TCP, TLS and HTTP happen in that order? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Latency, not bandwidth, dominates small requests, and latency is mostly distance. So reduce round trips (keep connections open, cache DNS and files, use HTTP/2 or 3) and shorten them (put content close to users with a CDN). Making the server faster helps only the small part of the time it owns.
+<strong>What a strong answer covers:</strong>
+**Each step needs the output of the previous one.** Packets need an **IP address**, so DNS first. TLS records need a **reliable ordered byte stream**, so TCP before TLS. You must not send secrets or cookies until the **identity is verified and keys exist**, so TLS before HTTP. HTTP then carries the application request. That serial dependency is exactly why latency adds up and why the usual optimisations are *removing* steps (cache DNS, reuse the connection, resume sessions, use QUIC) rather than speeding each one.
 
 </details>
+
+<details>
+<summary><strong>Q4: What is the difference between latency and bandwidth, and which dominates a cold page load? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Bandwidth** = how many bits per second the pipe carries (a wide highway). **Latency** = how long one bit/message takes to travel (the speed limit and distance). Handshakes and a first HTML request are **tiny (`< 2 KB`) and serial**, so they are **latency-bound**: `TTFB ≈ n·RTT + T_server`. A 10x bandwidth upgrade barely moves TTFB; **halving the distance** (CDN/edge) or **removing round trips** (keep-alive, TLS 1.3, HTTP/3) does. Bandwidth only matters for large bodies (video, downloads).
+
+</details>
+
+<details>
+<summary><strong>Q5: Why is the first visit to a site slower than the second one a minute later? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A **cold start** pays for DNS + TCP + TLS + HTTP (`~4 RTTs`). One minute later: **DNS is cached** (TTL), the **connection is still open** (keep-alive / HTTP/2 idle timeout), so the TCP and TLS handshakes are skipped and only the HTTP request remains (`~1 RTT`); files may also hit the **HTTP cache** (`Cache-Control`, `ETag` -> `304`) and the TCP congestion window is already **grown**. Even after the connection closes, **TLS session resumption** saves a full certificate exchange. Caveat: browsers cap idle connections (`~60-300 s`), servers close idle sockets (nginx `keepalive_timeout 75s`), so "a minute later" is on the edge — an interesting follow-up.
+
+</details>
+
+<details>
+<summary><strong>Q6: A user sees "connection timed out". Which step failed and what do you check? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+DNS **worked** (there is an IP), so the failure is the **TCP handshake**: the `SYN` got **no reply**. Check in order: (1) is the host up and **listening** on `443` (`ss -ltn`)? (2) **security group / firewall / NACL** rules silently **dropping** the SYN (timeout = DROP; "refused" = host sent `RST`, nobody listening); (3) the **load balancer** (listener, target health, subnet routing, idle IPs); (4) route/NAT problems and **asymmetric routing**; (5) SYN backlog/accept queue overflow on the server (`nstat -az TcpExtListenOverflows`). Compare: *"IP could not be found"* = DNS, *"connection is not private"* = TLS, `502/504` = HTTP/upstream.
+
+</details>
+
+<details>
+<summary><strong>Q7: A Frankfurt service makes a cold HTTPS call (TLS 1.3, uncached DNS) to Virginia (RTT 95 ms). The DB query takes 25 ms. Estimate TTFB and say what you'd optimise. [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+$\text{TTFB} \approx 4 \times 95 + 25 = \mathbf{405\ ms}$ (DNS may be cheaper if the resolver is local, so `~310-405 ms`). Making the DB query **0 ms** only saves `25 ms` (`6%`). Real wins, in order: **keep-alive / connection pooling** (4 -> 1 RTT = `~120 ms` instead of `405 ms`), **HTTP/2 or 3**, **TLS 1.3 + session resumption**, **cache DNS** (NodeLocal DNSCache), **place the service in the same region** or front it with a **CDN/edge** so RTT drops from `95 ms` to `~10 ms`, and **batch** calls so you pay RTT once. It's *latency-bound*, not CPU- or bandwidth-bound.
+
+</details>
+
+<details>
+<summary><strong>Q8: After a client-library upgrade, checkout p99 goes from 180 ms to 760 ms. Server CPU and DB are unchanged. Where do you look? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A signature of **lost connection reuse** (the lesson's war story). Check: (1) **per-phase timings** (`curl -w`, `httptrace`/Navigation Timing): did DNS, TCP and TLS time reappear in the client's breakdown? (2) `ss -s` / `TIME_WAIT` and **new connections per second** to the dependency — a jump means pooling/keep-alive broke (`Connection: close`, `MaxIdleConnsPerHost`, `IdleConnTimeout`); (3) **TLS handshakes/s** on the peer and **resolver QPS** (e.g. CoreDNS CPU 98%, TTL dropped to `5 s`); (4) ephemeral port exhaustion (Lesson 04); (5) TLS version fallback (1.2 = +1 RTT). Server-side latency looks fine because `$request_time` only starts **after** handshakes. Fix: restore pooling, TLS 1.3, node-local DNS cache, sane TTLs, and alert on *new connections per request*.
+
+</details>
+
+<details>
+<summary><strong>Q9: At minimum, how long does a cold page load take if RTT is 50 ms — and how do TLS 1.2, TLS 1.3 and HTTP/3 change it? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**TLS 1.3 over TCP:** DNS (1) + TCP (1) + TLS (1) + HTTP (1) = **4 RTT ≈ 200 ms + server time** before the first byte. **TLS 1.2:** two TLS round trips -> **5 RTT ≈ 250 ms**. **HTTP/3 (QUIC):** transport + TLS merged in **1 RTT** -> DNS + QUIC + HTTP = **3 RTT ≈ 150 ms**. **Warm / resumed:** `1 RTT`; **QUIC or TLS 1.3 0-RTT resumption** can send the request with the first flight (`~0` extra handshake RTT) — but only for **idempotent** requests because 0-RTT data is **replayable**. Also mention hidden costs: certificate-chain size and **TCP slow start** for large responses.
+
+</details>
+
+<details>
+<summary><strong>Q10: "Most of that time isn't data." What does that imply for system design? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Small requests are **latency-bound**, and latency is mostly **distance x serial round trips**. So (a) **reduce round trips**: connection reuse, HTTP/2 multiplexing, HTTP/3, TLS 1.3/resumption, DNS prefetch/`preconnect`, bundling/inlining critical resources, fewer serial dependent calls (avoid chatty N+1 patterns); (b) **shorten each round trip**: CDN/edge termination, multi-region deploys, anycast, closer resolvers; (c) **cache** aggressively (DNS, HTTP, edge); (d) **measure at the user**, because server metrics omit handshakes. Faster servers improve only $T_{\text{server}}$, often the *smallest* term. The physics floor is $\text{RTT}_{\min} = d / 100\ \text{km per ms}$ — you cannot out-engineer it, only move closer.
+
+</details>
+
+<details>
+<summary><strong>Q11: A user types `example.com` (no scheme) and your site is HTTPS-only. Why can the first load cost twice as many round trips, and how do you fix it? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Without a scheme the browser may try **`http://example.com:80`** first. That costs **DNS + TCP**, then the server answers `301 Location: https://...`; the browser then performs **another TCP + TLS + HTTP** on port `443`. That is a *second* connection (~`6-8 RTTs` total). Fixes: send **HSTS** (`Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`) so the browser upgrades internally with **no network hop**; get on the **HSTS preload list** to remove even the *first-visit* exposure; publish **HTTPS/SVCB DNS records** so clients learn about HTTPS/H3 up front; terminate `:80` redirects at the **CDN edge** (cheap RTT); modern browsers also increasingly try HTTPS first. Security bonus: the plain-HTTP first hop is exposed to **SSL-stripping** attacks.
+
+</details>
+
+<details>
+<summary><strong>Q12: How do HTTP/2, HTTP/3, TLS session resumption and keep-alive each cut round trips — and what are the risks or limits? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+- **Keep-alive / pooling:** skips TCP+TLS entirely for later requests; risk: **stale connections** closed by LB/NAT idle timeouts (set client idle timeout < server/LB timeout, enable retries on idempotent requests).
+- **HTTP/2:** one TCP connection, **multiplexed streams** (no 6-connection hack, header compression); limit: **TCP head-of-line blocking** — one lost packet stalls every stream.
+- **HTTP/3 (QUIC):** per-stream loss recovery (no TCP HoL blocking), **1-RTT** combined transport+TLS, **connection migration** across IPs; cost: UDP may be blocked/throttled by middleboxes (fallback to H2 needed), more CPU in user space.
+- **TLS session resumption / 0-RTT:** avoids the full certificate exchange; **0-RTT data is replayable** — only allow safe, idempotent methods.
+- **Limits:** none of them beats the **physics floor** or the extra RTTs from **slow start** on large responses.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                       WHAT HAPPENS WHEN YOU TYPE A URL — ONE-PAGE CHEAT SHEET
+====================================================================================================
+THE FOUR CONVERSATIONS (each ~1 RTT; each needs the previous one)
+  0 Parse URL   scheme->port (https=443) | host | path | #fragment NEVER sent | HSTS/cache checks
+  1 DNS         name -> IP        UDP/53 (TCP fallback)  cached up to TTL   fail: NXDOMAIN / "IP not found"
+  2 TCP         SYN, SYN-ACK, ACK -> ESTABLISHED          refused = RST | timed out = SYN dropped
+  3 TLS 1.3     hello+keys, cert + Finished (1 RTT)       fail: "not private" (expired / chain / SAN / clock)
+  4 HTTP        GET /path -> 200 OK + HTML                fail: 404 / 500 / 502 (bad upstream) / 504 (slow upstream)
+  5 Render      HTML references CSS/JS/images -> same connection (H2/H3 multiplex) -> paint
+
+FORMULAS
+  TTFB ~= n x RTT + T_server       n: warm=1 | HTTP/3 cold=3 | TLS1.3 cold=4 | TLS1.2 cold=5 | http->https redirect ~6-8
+  RTT_min (ms) = distance_km / 100         (light in fibre = 200 km/ms; real routes 1.3x-2x longer)
+  At RTT 50 ms: warm 50 | H3 150 | TLS1.3 200 | TLS1.2 250 (+ server time)     At RTT 200 ms: 200 | 600 | 800 | 1000
+  Slow start: 10 segs x 1,460 B ~= 14.6 KB first flight, doubles each RTT -> 100 KB needs 3 rounds, 1 MB needs 7
+  Resolver QPS ~= clients / TTL (cached)  vs  clients x req/s (cache or keep-alive broken)
+
+WINS (in order of impact)
+  1 Reuse connections (keep-alive, pools, H2)   2 Move closer (CDN, edge, regional deploy)   3 TLS 1.3 + resumption
+  4 HTTP/3 (QUIC)   5 Cache DNS + HTTP (TTL >= 60 s, NodeLocal DNSCache)   6 HSTS + preload (skip the http:// hop)
+  7 Smaller responses (brotli, fewer round trips, inline critical CSS)      8 Preconnect / dns-prefetch hints
+
+MEASURE
+  curl -w "dns=%{time_namelookup} tcp=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total}\n"
+  dig +stats host | openssl s_client -connect host:443 -tls1_3 | Navigation Timing API | tcpdump / Wireshark
+  Server logs ($request_time) EXCLUDE DNS/TCP/TLS -> use RUM + synthetic probes for user SLOs.
+
+DIAGNOSE BY ERROR
+  NXDOMAIN -> DNS | ECONNREFUSED -> nobody listening | ETIMEDOUT -> DROP/route/SG | CERT_* -> TLS | 5xx -> app/upstream
+  p99 jumps, server CPU flat -> lost keep-alive / DNS TTL / TLS fallback / port exhaustion
+====================================================================================================
+```
 
 ---
 

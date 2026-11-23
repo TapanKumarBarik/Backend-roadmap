@@ -68,48 +68,67 @@ Path: `content/system-design/02-networking-from-zero/`
 | `01-what-is-a-network` | What is a Network? | `SD-N-001.pdf` | 🟢 **Completed** | Full 16-point rubric, waterfall math & 12 Q&As |
 | `02-packets` | Packets: Small Pieces on the Wire | `SD-N-002.pdf` | 🟢 **Completed** | Full 16-point rubric, MTU/MSS math & 12 Q&As |
 | `03-ip-addresses` | IP Addresses | `SD-N-003.pdf` | 🟢 **Completed** | Full 16-point rubric, capacity math & 12 Q&As |
-| `04-ports-and-sockets` | Ports and Sockets | `SD-N-004.pdf` | 🟡 Pending | Pending standardization |
-| `05-protocols-and-layers` | Protocols and Layers | `SD-N-005.pdf` | 🟡 Pending | Pending standardization |
-| `06-osi-model` | The OSI Model Made Simple | `SD-N-006.pdf` | 🟡 Pending | Pending standardization |
-| `07-what-happens-when-you-type-a-url` | What Happens When You Type a URL | `SD-N-007.pdf` | 🟡 Pending | Pending standardization |
-| `08-tcp-sequence-numbers-and-acks` | TCP: Sequence Numbers & ACKs | `SD-N-008.pdf` | 🟡 Pending | Pending standardization |
-| `09-tcp-three-way-handshake` | TCP: The Three-Way Handshake | `SD-N-009.pdf` | 🟡 Pending | Pending standardization |
-| `10-tcp-flow-and-congestion-control` | TCP: Flow & Congestion Control | `SD-N-010.pdf` | 🟡 Pending | Pending standardization |
-| `11-tcp-closing-time-wait-and-ports` | TCP: Closing, TIME_WAIT & Port Exhaustion | `SD-N-011.pdf` | 🟡 Pending | Pending standardization |
-| `12-udp-vs-tcp` | UDP vs. TCP | `SD-N-012.pdf` | 🟡 Pending | Pending standardization |
-| `13-subnets-and-cidr` | IP Addresses, Subnets & CIDR | `SD-N-013.pdf` | 🟡 Pending | Pending standardization |
-| `14-routing-and-nat` | Ports, Sockets & Routing | `SD-N-014.pdf` | 🟡 Pending | Pending standardization |
-| `15-dns-lookup-step-by-step` | DNS Resolution: Resolvers, Records & TTL | `SD-N-015.pdf` | 🟡 Pending | Pending standardization |
-| `16-dns-records-ttl-and-migrations` | DNS Records, TTL & Migrations | `SD-N-016.pdf` | 🟡 Pending | Pending standardization |
-| `17-dns-traffic-management` | DNS Traffic: GeoDNS, Weighted, Anycast | `SD-N-017.pdf` | 🟡 Pending | Pending standardization |
-| `18-http-requests-responses-and-methods` | HTTP: Methods, Status Codes & ETags | `SD-N-018.pdf` | 🟡 Pending | Pending standardization |
-| `19-http-status-codes-and-caching` | HTTP Status Codes & Caching | `SD-N-019.pdf` | 🟡 Pending | Pending standardization |
-| `20-why-encryption-public-and-private-keys` | Why Encryption: Public & Private Keys | `SD-N-020.pdf` | 🟡 Pending | Pending standardization |
-| `21-tls-1-3-handshake` | HTTPS & TLS 1.3 Handshake | `SD-N-021.pdf` | 🟡 Pending | Pending standardization |
-| `22-certificates-and-pki` | Certificates & PKI | `SD-N-022.pdf` | 🟡 Pending | Pending standardization |
-| `23-http-1-1-vs-http-2-vs-http-3` | HTTP/1.1 vs. HTTP/2 vs. HTTP/3 | `SD-N-023.pdf` | 🟡 Pending | Pending standardization |
-| `24-websockets` | WebSockets | `SD-N-024.pdf` | 🟡 Pending | Pending standardization |
-| `25-sse-vs-long-polling-vs-websockets` | SSE vs. Long Polling vs. WebSockets | `SD-N-025.pdf` | 🟡 Pending | Pending standardization |
-| `26-http-streaming-and-backpressure` | HTTP Streaming & Backpressure | `SD-N-026.pdf` | 🟡 Pending | Pending standardization |
-| `27-forward-and-reverse-proxies` | Forward vs. Reverse Proxy | `SD-N-027.pdf` | 🟡 Pending | Pending standardization |
-| `28-cdns` | CDNs Explained | `SD-N-028.pdf` | 🟡 Pending | Pending standardization |
-| `29-connection-pooling-and-keep-alive` | Connection Pooling & Keep-Alive | `SD-N-029.pdf` | 🟡 Pending | Pending standardization |
-| `30-timeouts-and-502s` | Network Timeouts & 502s | `SD-N-030.pdf` | 🟡 Pending | Pending standardization |
+| `04-ports-and-sockets` | Ports and Sockets | `SD-N-004.pdf` | 🟢 **Completed** | Full 16-point rubric, ephemeral-port & 4-tuple capacity math, observability gap & 12 Q&As |
+| `05-protocols-and-layers` | Protocols and Layers | `SD-N-005.pdf` | 🟢 **Completed** | Full 16-point rubric, header-overhead/serialization math, per-layer observability & 12 Q&As |
+| `06-osi-model` | The OSI Model Made Simple | `SD-N-006.pdf` | 🟢 **Completed** | Full 16-point rubric, L2/L3/L4/L7 cost & health-check math, L4-vs-L7 observability gap & 12 Q&As |
+| `07-what-happens-when-you-type-a-url` | What Happens When You Type a URL | `SD-N-007.pdf` | 🟢 **Completed** | Full 16-point rubric, RTT/TTFB & slow-start math, RUM-vs-server observability & 12 Q&As |
+| `08-tcp-sequence-numbers-and-acks` | TCP: Sequence Numbers & ACKs | `SD-N-008.pdf` | 🟢 **Completed** | Full 16-point rubric, RTO/backoff, seq-wrap & Mathis loss math, ACK-ladder observability & 12 Q&As |
+| `09-tcp-three-way-handshake` | TCP: The Three-Way Handshake | `SD-N-009.pdf` | 🟢 **Completed** | Full 16-point rubric, SYN-retry/flood/accept-queue math, handshake observability gap & 12 Q&As |
+| `10-tcp-flow-and-congestion-control` | TCP: Flow & Congestion Control | `SD-N-010.pdf` | 🟢 **Completed** | Full 16-point rubric, BDP/slow-start/Mathis loss math, window-health observability & 12 Q&As |
+| `11-tcp-closing-time-wait-and-ports` | TCP: Closing, TIME_WAIT & Port Exhaustion | `SD-N-011.pdf` | 🟢 **Completed** | Full 16-point rubric, port-budget/TIME_WAIT/pool-sizing math, socket-state observability & 12 Q&As |
+| `12-udp-vs-tcp` | UDP vs. TCP | `SD-N-012.pdf` | 🟢 **Completed** | Full 16-point rubric, header-efficiency/fragmentation-loss/jitter & keepalive math, UDP observability & 12 Q&As |
+| `13-subnets-and-cidr` | IP Addresses, Subnets & CIDR | `SD-N-013.pdf` | 🟢 **Completed** | Full 16-point rubric, mask/alignment/overlap & subnet-sizing math, VPC address-plan observability & 12 Q&As |
+| `14-routing-and-nat` | Ports, Sockets & Routing | `SD-N-014.pdf` | 🟢 **Completed** | Full 16-point rubric, 5-tuple/SNAT-port/conntrack/asymmetry math, NAT observability & 12 Q&As |
+| `15-dns-lookup-step-by-step` | DNS Resolution: Resolvers, Records & TTL | `SD-N-015.pdf` | 🟢 **Completed** | Full 16-point rubric, cache-hit/TTL-staleness/ndots math, CoreDNS observability & 12 Q&As |
+| `16-dns-records-ttl-and-migrations` | DNS Records, TTL & Migrations | `SD-N-016.pdf` | 🟢 **Completed** | Full 16-point rubric, TTL/cache-hit & cutover math & 12 Q&As |
+| `17-dns-traffic-management` | DNS Traffic: GeoDNS, Weighted, Anycast | `SD-N-017.pdf` | 🟢 **Completed** | Full 16-point rubric, failover budget & canary-skew math & 12 Q&As |
+| `18-http-requests-responses-and-methods` | HTTP: Methods, Status Codes & ETags | `SD-N-018.pdf` | 🟢 **Completed** | Full 16-point rubric, retry/idempotency & framing math & 12 Q&As |
+| `19-http-status-codes-and-caching` | HTTP Status Codes & Caching | `SD-N-019.pdf` | 🟢 **Completed** | Full 16-point rubric, freshness/ETag savings & backoff math & 12 Q&As |
+| `20-why-encryption-public-and-private-keys` | Why Encryption: Public & Private Keys | `SD-N-020.pdf` | 🟢 **Completed** | Full 16-point rubric, key-strength/speed & DH math & 12 Q&As |
+| `21-tls-1-3-handshake` | HTTPS & TLS 1.3 Handshake | `SD-N-021.pdf` | 🟢 **Completed** | Full 16-point rubric, RTT/CPU/replay math & 12 Q&As |
+| `22-certificates-and-pki` | Certificates & PKI | `SD-N-022.pdf` | 🟢 **Completed** | Full 16-point rubric, renewal/exposure math & 12 Q&As |
+| `23-http-1-1-vs-http-2-vs-http-3` | HTTP/1.1 vs. HTTP/2 vs. HTTP/3 | `SD-N-023.pdf` | 🟢 **Completed** | Full 16-point rubric, HOL/loss multiplexing math & 12 Q&As |
+| `24-websockets` | WebSockets | `SD-N-024.pdf` | 🟢 **Completed** | Full 16-point rubric, fan-out/heartbeat math & 12 Q&As |
+| `25-sse-vs-long-polling-vs-websockets` | SSE vs. Long Polling vs. WebSockets | `SD-N-025.pdf` | 🟢 **Completed** | Full 16-point rubric, poll-waste/SSE math & 12 Q&As |
+| `26-http-streaming-and-backpressure` | HTTP Streaming & Backpressure | `SD-N-026.pdf` | 🟢 **Completed** | Full 16-point rubric, chunked/OOM backpressure math & 12 Q&As |
+| `27-forward-and-reverse-proxies` | Forward vs. Reverse Proxy | `SD-N-027.pdf` | 🟢 **Completed** | Full 16-point rubric, worker-pin/XFF hop math & 12 Q&As |
+| `28-cdns` | CDNs Explained | `SD-N-028.pdf` | 🟢 **Completed** | Full 16-point rubric, hit-ratio/compounding math & 12 Q&As |
+| `29-connection-pooling-and-keep-alive` | Connection Pooling & Keep-Alive | `SD-N-029.pdf` | 🟢 **Completed** | Full 16-point rubric, Little's Law/idle-race math & 12 Q&As |
+| `30-timeouts-and-502s` | Network Timeouts & 502s | `SD-N-030.pdf` | 🟢 **Completed** | Full 16-point rubric, deadline/retry-amplification math & 12 Q&As |
 
 ---
 
 ## Phase Roadmap Overview
 
-| Phase Name | PDF Note Prefix | Total PDFs | Target Content Directory | Status |
-| :--- | :---: | :---: | :--- | :---: |
-| **Phase 1: Core Fundamentals** | `SD-A-*` | 19 | `content/system-design/01-core-fundamentals/` | 🟢 **Completed (19/19)** |
-| **Phase 2: Networking From Zero** | `SD-N-*` | 30 | `content/system-design/02-networking-from-zero/` | 🔵 **In Progress (3/30)** |
-| **Phase 2: Networking & APIs (Advanced)** | `SD-B-*` | 20 | `content/system-design/02-networking-and-apis/` | 🟡 Pending |
-| **Phase 3: Databases & Storage** | `SD-C-*` | 23 | `content/system-design/03-databases-and-storage/` | 🟡 Pending |
-| **Phase 4: Estimation & Numbers** | `SD-D-*` | 14 | `content/system-design/04-estimation-and-numbers/` | 🟡 Pending |
-| **Phase 5: Caching & Traffic** | `SD-E-*` | 33 | `content/system-design/05-caching-and-traffic/` | 🟡 Pending |
-| **Phase 6: Distributed Systems** | `SD-F-*` to `SD-I-*` | 75 | `content/system-design/06-distributed-systems/` | 🟡 Pending |
-| **Phase 7: Reliability & SRE** | `SD-J-*` to `SD-M-*` | 75 | `content/system-design/07-reliability-and-sre/` | 🟡 Pending |
+Aligned with the YouTube playlists in `content/videos.json` and `C:\Users\tapan\Videos\System Design Videos`. Tracks **03–23** are scaffolded as planned (*Coming soon*) stubs; rewrite them with the 16-point rubric when ready. Videos may still play on related `backend/` / `learn/` / `genai/` modules until remounted here.
+
+| Phase | Lesson prefixes | Tracks | Status |
+| :--- | :--- | :--- | :---: |
+| **1 Core Fundamentals** | `SD-A-*` (19) | `01-core-fundamentals` | 🟢 Live (19/19) |
+| **2 Networking** | `SD-N-*` (30) | `02-networking-from-zero` | 🟢 Live (30/30) |
+| **2 API Design** | `SD-C-*` (23) | `03-api-design` | 🟡 Coming soon (scaffolded) |
+| **2 Databases** | `SD-E-*` (33) | `04-databases` | 🟡 Coming soon (scaffolded) |
+| **2 Estimation** | `SD-D-*` (14) | `05-estimation-and-numbers` | 🟡 Coming soon (scaffolded) |
+| **3 Load balancing** | `SD-G-*` (14) | `06-load-balancing` | 🟡 Coming soon (scaffolded) |
+| **3 Caching** | `SD-F-*` (19) | `07-caching` | 🟡 Coming soon (scaffolded) |
+| **3 Performance** | `SD-J-*` (15) | `08-performance-and-traffic` | 🟡 Coming soon (scaffolded) |
+| **4 Distributed systems** | `SD-H-*` (22) | `09-distributed-systems` | 🟡 Coming soon (scaffolded) |
+| **4 Messaging** | `SD-I-*` (20) | `10-messaging` | 🟡 Coming soon (scaffolded) |
+| **5 Reliability / SRE** | `SD-K-*` (18) | `11-reliability-and-sre` | 🟡 Coming soon (scaffolded) |
+| **5 Architecture** | `SD-L-*` (20) | `12-architecture-patterns` | 🟡 Coming soon (scaffolded) |
+| **5 Security** | `SD-M-*` (20) | `13-security` | 🟡 Coming soon (scaffolded) |
+| **5 Observability & delivery** | `P5-SD-N-*` (18) | `14-observability-and-delivery` | 🟡 Coming soon (scaffolded) |
+| **6 Storage** | `SD-O-*` (13) | `15-storage` | 🟡 Coming soon (scaffolded) |
+| **6 Search** | `SD-P-*` (12) | `16-search` | 🟡 Coming soon (scaffolded) |
+| **6 Real-time & data** | `SD-Q-*` (15) | `17-realtime-and-data` | 🟡 Coming soon (scaffolded) |
+| **6 Multi-tenant SaaS** | `SD-R-*` (10) | `18-multi-tenant-saas` | 🟡 Coming soon (scaffolded) |
+| **6 Cloud & platform** | `SD-V-*` (23) | `19-cloud-and-platform` | 🟡 Coming soon (scaffolded) |
+| **7 AI & GenAI SD** | `SD-S-*` (39) | `20-ai-and-genai-system-design` | 🟡 Coming soon (scaffolded) |
+| **8 Interview framework** | `SD-T-*` (15) | `21-interview-framework` | 🟡 Coming soon (scaffolded) |
+| **8 Design problems** | `SD-U-*` (37) | `22-interview-design-problems` | 🟡 Coming soon (scaffolded) |
+| **9 Revision & mocks** | `SD-W-*` (13) | `23-revision-and-mock-interviews` | 🟡 Coming soon (scaffolded) |
+
+Re-scaffold stubs (never overwrites written lessons): `node scripts/scaffold-sd-coming-soon.mjs`
 
 ---
 

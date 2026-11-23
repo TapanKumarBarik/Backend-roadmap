@@ -131,8 +131,67 @@
       "system-design": {
         "label": "System Design Interview Prep",
         "short": "System design",
-        "blurb": "Short lectures on requirements, scaling, latency, availability, CAP and consistency. Each has a video on YouTube and the written version beside it.",
-        "groups": []
+        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Phase 1 and Networking From Zero are live; every later track is scaffolded as Coming soon with the full lesson list.",
+        "groups": [
+          {
+            "label": "Live",
+            "tracks": [
+              "01-core-fundamentals",
+              "02-networking-from-zero"
+            ]
+          },
+          {
+            "label": "Phase 2 — APIs, data, numbers (coming soon)",
+            "tracks": [
+              "03-api-design",
+              "04-databases",
+              "05-estimation-and-numbers"
+            ]
+          },
+          {
+            "label": "Phase 3 — Caching, scaling, traffic (coming soon)",
+            "tracks": [
+              "06-load-balancing",
+              "07-caching",
+              "08-performance-and-traffic"
+            ]
+          },
+          {
+            "label": "Phase 4 — Distributed systems & messaging (coming soon)",
+            "tracks": [
+              "09-distributed-systems",
+              "10-messaging"
+            ]
+          },
+          {
+            "label": "Phase 5 — Architecture, reliability, security, ops (coming soon)",
+            "tracks": [
+              "11-reliability-and-sre",
+              "12-architecture-patterns",
+              "13-security",
+              "14-observability-and-delivery"
+            ]
+          },
+          {
+            "label": "Phase 6 — Specialized systems (coming soon)",
+            "tracks": [
+              "15-storage",
+              "16-search",
+              "17-realtime-and-data",
+              "18-multi-tenant-saas",
+              "19-cloud-and-platform"
+            ]
+          },
+          {
+            "label": "Phase 7–9 — GenAI, interviews, revision (coming soon)",
+            "tracks": [
+              "20-ai-and-genai-system-design",
+              "21-interview-framework",
+              "22-interview-design-problems",
+              "23-revision-and-mock-interviews"
+            ]
+          }
+        ]
       },
       "ml": {
         "label": "Machine Learning",

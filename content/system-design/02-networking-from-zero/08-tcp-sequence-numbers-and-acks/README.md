@@ -1,9 +1,12 @@
 # Lesson 08: TCP Part 1, Sequence Numbers and ACKs
 
 > **Prerequisites:** [Lesson 07: What Happens When You Type a URL](../07-what-happens-when-you-type-a-url/README.md) ([Networking From Zero Overview](../README.md)).  
-> **Estimated Reading Time:** 20 minutes  
+> **Estimated Reading Time:** 33 minutes  
 > **Target Audience:** Backend engineers and SREs understanding byte-stream sequencing, cumulative and duplicate ACKs, fast retransmit, RTO exponential backoff, and why TCP ACKs never prove application persistence.  
 > **Free PDF Notes:** [Download SD-N-008.pdf](https://backendroadmap.com/notes/system-design/SD-N-008.pdf)
+
+> [!NOTE]
+> **In one line:** TCP numbers every byte; the receiver answers with an ACK that names the next byte it expects; a lost segment is sent again after three duplicate ACKs or a timeout.
 
 > [!TIP]
 > **The Golden Rule of TCP Reliability:** TCP numbers every byte in the stream rather than counting messages; the receiver replies with a cumulative **ACK** naming the next byte it expects, and a lost segment is resent either after **three duplicate ACKs** (fast retransmit) or when the retransmission timer (**RTO**) expires and doubles. Because the receiver's OS kernel emits ACKs upon writing bytes into the socket buffer, a TCP ACK never proves the application processed or persisted the request.
@@ -28,6 +31,22 @@ Before inspecting sequence numbers and retransmission timers on the wire, anchor
 | **Retransmit** | Send the same piece again. | Re-sending an unacknowledged byte range from the sender's socket send buffer. |
 | **Fast retransmit** | Resend right away after 3 duplicate ACKs. | Heals mid-stream packet loss in ~1 RTT without waiting for the slower RTO timer. |
 | **Round trip** | Data going there plus the ACK coming back. | Sets baseline RTO calculation (`SRTT + 4 * RTTVAR`) and fast-retransmit speed. |
+
+---
+
+## What It Is vs. What It Isn't
+
+TCP's reliability vocabulary is precise, and interviewers probe the edges. Keep these apart:
+
+| Term | Precise Meaning | What It Is **NOT** | Production Example |
+| :--- | :--- | :--- | :--- |
+| **Sequence number** | A 32-bit counter of **bytes**; a segment carries the number of its **first** payload byte (offset by a random **ISN**). | Not a segment counter, not a message ID, and not unique forever (it wraps at $2^{32}$ bytes). | `seq 1001:2001` = bytes `1001-2000`, `length 1000`. |
+| **ACK number** | The **next byte the receiver expects**; cumulative: everything before it arrived in order. | Not "the last byte received", and not a per-segment receipt. | `ack 5001` = "I have `1-5000`, send `5001`". |
+| **Duplicate ACK** | The same ACK number repeated because a segment arrived **above a gap**. | Not an error by itself — 1-2 are normal under mild reordering. | `ack 1001` x3 -> fast retransmit of `1001`. |
+| **Fast retransmit vs. RTO** | Fast retransmit = resend after **3 dup ACKs** (`~1 RTT`); RTO = resend when the **timer** expires (`>= 200 ms` on Linux) and **double** it. | Not the same speed: RTO is often **100-1000x** slower; tail packets can *only* use RTO/TLP. | `nstat`: `TcpExtTCPFastRetrans` vs `TcpExtTCPTimeouts`. |
+| **TCP ACK vs. application ACK** | TCP ACK = the receiver's **kernel** buffered the bytes. App ACK = the app **processed (and maybe persisted)** them. | A TCP ACK is **not** proof the app read, validated, committed, or `fsync`ed anything. | A DB ACKs `COMMIT` bytes at the kernel, crashes before `fsync` -> transaction lost. |
+
+> **TCP guarantees order and completeness of a *byte stream* between two kernels — or an error. It does not guarantee speed, message boundaries, or that the app did its job.**
 
 ---
 
@@ -174,6 +193,97 @@ With every segment it sends, the sender starts a timer a little longer than one 
 | **Acknowledgement Number (`ack`)** | 32 bits (`4 bytes`) | Next expected byte offset when `ACK` flag is set (`cumulative`). |
 | **`ACK` Control Flag** | 1 bit | Indicates the Acknowledgment Number field is valid (set on almost all packets after initial `SYN`). |
 | **Out-of-Order Buffer (`OFO`)** | Kernel memory | Receiver socket storage holding future segments above a gap until the missing bytes arrive. |
+
+### Math of Reliability: Sequence Space, RTO, Backoff, and Loss
+
+**1. The sequence space wraps.** Sequence and ACK numbers are 32-bit, so the byte space is $2^{32} = 4{,}294{,}967{,}296$ bytes $= 4$ GiB. Time to wrap at line rate $B$ is
+
+$$t_{\text{wrap}} = \frac{2^{32}\ \text{bytes}}{B / 8}$$
+
+| Link Speed | $t_{\text{wrap}}$ | Consequence |
+| :--- | :--- | :--- |
+| `100 Mbps` | `~343 s` (5.7 min) | Wrap is slower than the `2 min` maximum segment lifetime (MSL) — safe-ish. |
+| `1 Gbps` | `~34 s` | An old duplicate from the *previous wrap* could look valid -> needs **PAWS** (TCP timestamps, RFC 7323). |
+| `10 Gbps` | `~3.4 s` | Without TCP timestamps, sequence numbers repeat while old segments may still be in flight. |
+| `100 Gbps` | `~0.34 s` | Timestamps are mandatory; this is why Linux enables them by default. |
+
+**2. The retransmission timer (RFC 6298).** The sender measures round-trip samples $R'$ and keeps a smoothed RTT and variance:
+
+$$\text{SRTT} \leftarrow (1-\alpha)\,\text{SRTT} + \alpha R' \quad (\alpha = \tfrac{1}{8}) \qquad \text{RTTVAR} \leftarrow (1-\beta)\,\text{RTTVAR} + \beta\,|\text{SRTT} - R'| \quad (\beta = \tfrac{1}{4})$$
+
+$$\text{RTO} = \text{SRTT} + \max(G,\ 4\cdot\text{RTTVAR}) \qquad \text{RTO}_{\text{first}} = 3R\ \ (\text{SRTT}=R,\ \text{RTTVAR}=R/2)$$
+
+The RFC suggests a `1 s` floor; **Linux uses a `200 ms` minimum** (`TCP_RTO_MIN`) which effectively adds ~`200 ms` to SRTT. That is why `ss -ti` shows `rtt:48.12` but `rto:248`. A tail-loss stall therefore costs **`~RTO`, not `~RTT`** — `200+ ms` versus `48 ms`.
+
+**3. Exponential backoff — how long until TCP gives up?** After each timeout the RTO doubles (capped at `120 s`, `TCP_RTO_MAX`). With base `200 ms`:
+
+| Retransmission # | Timer waited before it | Cumulative time |
+| :--- | :--- | :--- |
+| 1 | `0.2 s` | `0.2 s` |
+| 2 | `0.4 s` | `0.6 s` |
+| 3 | `0.8 s` | `1.4 s` |
+| 4 | `1.6 s` | `3.0 s` |
+| 5 | `3.2 s` | `6.2 s` |
+| 6 | `6.4 s` | `12.6 s` |
+| 7 | `12.8 s` | `25.4 s` |
+| 8 | `25.6 s` | `51.0 s` |
+| 9 | `51.2 s` | `102.2 s` |
+| 15 (`tcp_retries2` default) | capped at `120 s` | **`~924 s` (~15.4 min)** until the socket errors with `ETIMEDOUT` |
+
+Application timeouts (`250 ms` RPC, `30 s` HTTP) fire **long before** TCP gives up, so the *app* decides what happens to an in-flight request — which is exactly where duplicate charges come from.
+
+**4. When can fast retransmit even fire?** It needs **3 duplicate ACKs**, i.e. at least **3 segments sent after the lost one**. So the window must be $\ge 4$ segments and the loss must not be in the *tail*:
+
+| Pattern | Segments after the loss | Dup ACKs generated | Recovery path | Typical stall |
+| :--- | :--- | :--- | :--- | :--- |
+| Mid-stream loss in a large transfer | many | `>= 3` | **Fast retransmit** | `~1 RTT` |
+| Loss of the **last** segment | `0` | `0` | **TLP** (Linux, `~2 RTT`) or **RTO** | `~2 RTT` / `>= 200 ms` |
+| Single-segment RPC (`< 1,460 B`) | `0` | `0` | RTO / TLP | `>= 200 ms` |
+| Loss with only 2 later segments | `2` | `2` | RACK/Early Retransmit or RTO | `~RTT` to `RTO` |
+
+**Probability a response suffers at least one loss**, for $n$ segments at loss rate $p$: $P = 1 - (1-p)^n$. At $p = 1\%$: $n = 1 \to 1\%$; $n = 10 \to 9.6\%$; $n = 69$ (a `100 KB` page) $\to 50\%$; $n = 685$ (`1 MB`) $\to 99.9\%$. Large transfers *always* meet loss, so loss **recovery speed** (SACK, RACK, fast retransmit) dominates their latency.
+
+**5. Why loss cripples throughput (Mathis model).** For loss-based congestion control the steady-state rate of one flow is bounded by
+
+$$\text{BW} \lesssim \frac{\text{MSS}}{\text{RTT}} \cdot \frac{C}{\sqrt{p}}, \qquad C \approx 1.22$$
+
+With $\text{MSS} = 1{,}460$ B:
+
+| Loss rate $p$ | RTT `10 ms` | RTT `50 ms` | RTT `200 ms` |
+| :--- | :--- | :--- | :--- |
+| `1%` | `14.2 Mbps` | **`2.85 Mbps`** | `0.71 Mbps` |
+| `0.1%` | `45 Mbps` | `9.0 Mbps` | `2.3 Mbps` |
+| `0.01%` | `142 Mbps` | `28.5 Mbps` | `7.1 Mbps` |
+| `0.0001%` (`10^-6`) | `1.4 Gbps` | `285 Mbps` | `71 Mbps` |
+
+A single TCP flow over a lossy long-distance path **cannot fill a fat pipe** regardless of link capacity (CUBIC and BBR do better than this Reno-style bound, but the trend holds). That is why storage replication over WANs uses parallel streams, tuned congestion control, or QUIC/BBR.
+
+**6. ACK overhead.** With delayed ACKs (one per two full segments) a `3 MB` upload (`2,055` segments) generates `~1,028` ACKs of `~52-66 B` each: `~60 KB` of reverse traffic, `~2%` of the data volume — small, but on asymmetric links (ADSL, cellular uplink) the **ACK stream can throttle the download**.
+
+### The Observability Gap: What Does "Acknowledged" Actually Prove?
+
+There are many different things an engineer may call "acknowledged", and each one is visible at a different place:
+
+| Level | What Is True | Visible At | **Not** Proven |
+| :--- | :--- | :--- | :--- |
+| **1. Sender wrote** | `write()`/`send()` returned: bytes were **copied into the local send buffer** | App logs | That a single byte left the machine. |
+| **2. On the wire** | Segment transmitted | `tcpdump` on sender | That it arrived. |
+| **3. TCP ACK** | Peer **kernel** buffered the bytes | `tcpdump`, `ss -ti` (`unacked`, `bytes_acked`) | That the app has called `read()`. |
+| **4. App read** | Peer process pulled bytes from the socket | Peer app logs, `Recv-Q` drains | That the request was valid or executed. |
+| **5. App processed** | Business logic ran, response generated | Application metrics/tracing | That it is **durable**. |
+| **6. Durable** | Written and **`fsync`ed** (WAL/disk) | DB commit log | That replicas have it. |
+| **7. Replicated** | Quorum of replicas acknowledged | Replication metrics | — |
+
+**Transport-health signals to export:**
+
+| Metric | Source | Healthy Signal | Warning Sign |
+| :--- | :--- | :--- | :--- |
+| Retransmit ratio $\frac{\text{RetransSegs}}{\text{OutSegs}}$ | `nstat` / `node_netstat_Tcp_RetransSegs` | `≪ 1%` | Sustained `> 1-2%` -> loss or reordering on the path. |
+| Fast retransmits vs. timeouts | `TcpExtTCPFastRetrans`, `TcpExtTCPTimeouts` | Fast retransmits dominate | Timeouts dominate -> tail loss, tiny windows, dead peers. |
+| Per-socket `rto`, `rtt`, `retrans`, `unacked` | `ss -ti` | `rto ≈ rtt + 200 ms` | `rto` climbing in `x2` steps -> a blackhole is forming. |
+| Duplicate-ACK spikes with ~0% loss | `TcpExtTCPDSACKRecv`, `TCPSACKReorder` | Rare | ECMP/path **reordering** causing false fast retransmits. |
+
+---
 
 ---
 
@@ -601,6 +711,11 @@ A developer runs `tcpdump` and verifies that the database server sent `ACK 4,501
 - **"Sequence numbers count segments."** No, they count bytes. That's why they jump by `1,000`.
 - **"TCP guarantees fast delivery."** No. It guarantees your data arrives complete and in order, or you get an error. Resending takes time, so on a weak mobile signal a page loads slowly, but nothing is lost.
 - **"An ACK means the app handled the data."** No. The receiver's operating system sends the ACK when the bytes reach its memory; the app may not have read them yet. That's why apps add their own confirmations, like WhatsApp's ticks, or a UPI success screen.
+- **Retrying non-idempotent writes after an app timeout.** TCP may still deliver the first copy; without an idempotency key you create duplicates (double charges, duplicate orders).
+- **Setting RPC timeouts below the recovery time of one tail loss.** A `250 ms` timeout beside a `200 ms+` RTO guarantees spurious retries during the very congestion that caused the stall.
+- **Assuming `write()` success means delivery.** It only means bytes were copied into the local send buffer; use application-level confirmations.
+- **Treating dup ACKs as always meaning loss.** One or two are normal reordering; check `DSACK`/`TCPSACKReorder` before declaring the path lossy.
+- **Disabling TCP timestamps or SACK "for performance".** You lose PAWS (wrap protection on fast links), better RTT estimates, and precise loss recovery.
 - **Misreading `ss -ti` `retrans` spikes during packet reordering.** If `TcpExtTCPFastRetrans` climbs while real packet loss is near zero, network paths (like ECMP hashing issues) are reordering packets by `>= 3` segments, tricking TCP into false Fast Retransmits.
 
 ---
@@ -615,55 +730,149 @@ A developer runs `tcpdump` and verifies that the database server sent `ACK 4,501
 
 ## Interview Practice Questions
 
-Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it) and **Tricky** (the follow-ups interviewers use to go deeper). Each answer is what to say in about 30 seconds. Answer out loud before you open it.
+Exactly **12 questions**, tagged by kind: **[BASIC]** (Q1-Q4, definitions), **[SCENARIO]** (Q5-Q8, apply it to a system), and **[TRICKY]** (Q9-Q12, deep follow-ups). Answer out loud for 30 seconds before opening the solution.
 
-> [!interview] How does TCP make sure data is never lost? (Basic)
+<details>
+<summary><strong>Q1: How does TCP make sure data is never lost? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-TCP numbers every byte. The receiver sends cumulative ACKs with the next byte it expects, and uses sequence numbers to reorder data and drop duplicates. A lost segment is retransmitted after three duplicate ACKs, called fast retransmit, or when the retransmission timer expires.
-
-</details>
-
-> [!interview] The server sends "ACK 1,001". What exactly does that mean? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-"I have every byte up to 1,000; send me 1,001 next." It is the next byte expected, not the last one received, and it is cumulative: it confirms everything before it, so a lost ACK is covered by the next.
+<strong>What a strong answer covers:</strong>
+TCP **numbers every byte**. The receiver returns **cumulative ACKs** naming the **next byte it expects**, uses the sequence numbers to **reorder** out-of-order data and **discard duplicates**, and the sender keeps unacknowledged bytes in its **send buffer**. A missing segment is **retransmitted** after **three duplicate ACKs** (*fast retransmit*) or when the **retransmission timer (RTO)** expires — and the RTO **doubles** on each failure (exponential backoff). If the peer never answers, TCP eventually **fails with an error** (`ETIMEDOUT`, after `~15 min` with default `tcp_retries2`) rather than silently losing data.
 
 </details>
 
-> [!interview] Five 1,000-byte segments, the second is lost. Walk through the ACKs. (Scenario)
+<details>
+<summary><strong>Q2: The server sends "ACK 1,001". What exactly does that mean? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-ACK 1,001; then nothing for the lost segment; then ACK 1,001 three more times as 2,001, 3,001 and 4,001 arrive and are kept aside. Three duplicates trigger fast retransmit of 1,001; the server then has bytes 1 to 5,000 and answers ACK 5,001.
-
-</details>
-
-> [!interview] What if the lost segment is the last one? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-No later segments, so no duplicate ACKs. The retransmission timer covers it: a little longer than one measured round trip. When it runs out with no ACK, the sender retransmits and doubles the timer (exponential backoff).
+<strong>What a strong answer covers:</strong>
+*"I have every byte up to and including `1,000`; send me `1,001` next."* It is the **next expected byte**, not the last received (a common slip), and it is **cumulative**: one ACK confirms *everything* before it, so a lost ACK is covered by the next. It says nothing about bytes **above** a gap (those are held in the out-of-order buffer and only reported with **SACK** blocks). It also does not mean the application read the data.
 
 </details>
 
-> [!interview] Why wait for three duplicate ACKs, not one? (Tricky)
+<details>
+<summary><strong>Q3: Why does TCP number bytes instead of segments, and what is the ISN? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+TCP presents an **undelimited byte stream**; segment boundaries are an implementation detail (the sender can **re-segment** on retransmit, coalesce small writes, or split at the MSS). Numbering **bytes** lets the receiver reassemble regardless of how data was chunked, and lets a retransmission **cover a different range** than the original. A segment's `seq` is the number of its **first byte**. The **Initial Sequence Number (ISN)** is **random** (RFC 9293: clock-driven plus a keyed hash) and is agreed in the **three-way handshake** (Lesson 09), so *(a)* **old duplicates** from a prior connection on the same 4-tuple are not mistaken for new data, and *(b)* off-path attackers cannot easily **inject** packets. Wireshark shows *relative* numbers starting at 1 for readability.
 
-Reordering also causes a duplicate ACK or two with nothing lost. Three duplicates are strong evidence of a real loss while later data still gets through, so the sender resends without waiting for the slower timeout.
+</details>
+
+<details>
+<summary><strong>Q4: The network can lose, reorder, or duplicate packets. How does TCP handle each? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+- **Lost:** no ACK progress -> **fast retransmit** (3 dup ACKs) or **RTO**; **SACK** pinpoints exactly which ranges to resend.
+- **Reordered:** sequence numbers let the receiver **buffer and sort**; a few duplicate ACKs may appear, which is why the threshold is **3**, not 1.
+- **Duplicated:** the receiver sees `seq` below its `ack` point and **drops** the duplicate (and may send a DSACK).
+TCP runs **only on the two endpoints**; routers know nothing about it. It cannot make the network reliable — it **works around** an unreliable one.
 
 </details>
 
-> [!interview] The server's TCP ACKed your request. Has the app processed it? (Tricky)
+<details>
+<summary><strong>Q5: Five 1,000-byte segments are sent and the second is lost. Walk through the ACKs. [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Not necessarily. The receiver's operating system sends the ACK when the bytes reach its memory; the app may not have read them yet, or may crash first. That's why apps add their own confirmations, like WhatsApp's ticks or a UPI success screen.
+<strong>What a strong answer covers:</strong>
+Sequence numbers `1, 1001, 2001, 3001, 4001`. Seg `1` -> `ACK 1001`. Seg `1001` **lost** -> nothing. Seg `2001` arrives above the gap, **buffered**, -> `ACK 1001` (dup #1). Seg `3001` -> `ACK 1001` (dup #2). Seg `4001` -> `ACK 1001` (dup #3). **Three dup ACKs -> fast retransmit** of `1001` (also entering fast recovery and halving `cwnd`, Lesson 10). The retransmission fills the gap, so the receiver now holds `1-5000` and sends a cumulative **`ACK 5001`** — it jumps over the buffered data. With **SACK** the dup ACKs also carry ranges `2001-5001`, so the sender resends *only* `1001-2000`.
 
 </details>
+
+<details>
+<summary><strong>Q6: What if the lost segment is the last one in the flight? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+There are **no later segments**, hence **no duplicate ACKs**, so fast retransmit cannot fire. Recovery falls to the **timer**: either Linux's **Tail Loss Probe (TLP)** — which sends a probe after `~2 × SRTT` — or the full **RTO**, which is `≥ 200 ms` on Linux (`1 s` in RFC 6298) and **doubles** on each repeat. The cost is `~RTO`, **not** `~RTT` — often **4-20x** slower. This is the **tail-loss blind spot** affecting small RPCs, the last packet of a response, and handshake packets.
+
+</details>
+
+<details>
+<summary><strong>Q7: A service sends small single-packet RPCs over a WAN with 1% loss and 40 ms RTT. p99 latency shows up in ~240 ms buckets. Why, and what do you change? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Roughly **1% of requests lose their only segment**, so there are no dup ACKs and each pays `RTO ≈ 200 ms + 40 ms RTT ≈ 240 ms` — landing exactly in the **p99 bucket** (1% of traffic). Options: enable/verify **TLP/RACK** (`net.ipv4.tcp_early_retrans`, default on modern kernels), lower `TCP_RTO_MIN` via `ip route ... rto_min 50ms` for **datacenter** paths (not the open internet), **reuse connections** so there is traffic behind a loss to trigger dup ACKs, use **QUIC/HTTP/3** (per-packet loss detection, no TCP HoL blocking), **hedge** requests (send a second copy after the p95 latency), fix the **lossy link**, and make requests **idempotent**.
+
+</details>
+
+<details>
+<summary><strong>Q8: A client timed out after 250 ms and retried a `POST /charges`; the customer was charged twice even though TCP is "reliable". How do you design against this? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+TCP guarantees **delivery of bytes to the peer's kernel buffer**, not **exactly-once execution**. The first request was delayed by an RTO stall and the client's **application timeout fired first**, so it sent a *new request on a new connection*; the server processed **both**. Defence: **idempotency keys** (`Idempotency-Key` header, stored with a **unique constraint** and the saved response, so a replay returns the first result), **timeouts > worst-case recovery** (`> 2×RTO_min + p99 service time`), **retry only idempotent methods or keyed requests**, **exponential backoff with jitter**, and a **reconciliation job**. "At-least-once delivery + idempotent handler = effectively exactly-once".
+
+</details>
+
+<details>
+<summary><strong>Q9: Why wait for three duplicate ACKs instead of retransmitting after one? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Reordering** also produces duplicate ACKs: if packet `n+1` overtakes packet `n`, the receiver ACKs `n` twice with *nothing lost*. Retransmitting on the first dup would waste bandwidth (**spurious retransmits**) and needlessly **shrink `cwnd`**. Empirically, reordering rarely exceeds 2 segments, so **3 dup ACKs** = strong evidence that a segment is truly lost while later data still flows (RFC 5681). Modern stacks refine this: **SACK** (exact holes), **RACK** (time-based loss detection, tolerant to reordering), **DSACK** (detects spurious retransmits), and **Early Retransmit** for small windows. Under heavy **ECMP reordering** you can see fast retransmits with ~0% real loss.
+
+</details>
+
+<details>
+<summary><strong>Q10: The server's TCP ACKed your request. Has the application processed it? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**No.** The ACK is emitted by the peer's **kernel** as soon as bytes land in the **socket receive buffer** — before the app calls `read()`, parses the request, writes a WAL, or `fsync`s. If the process crashes, the host panics, or the app is stuck (full queue, deadlock), the ACK was still sent. Hence **application-level acknowledgements** (HTTP `200`, `COMMIT OK`, a UPI success screen, WhatsApp ticks), **durability levels** (written -> fsync'd -> replicated), and **idempotent retries**. Also, `write()` returning only means the bytes reached the **local** send buffer. TCP gives *transport* reliability, never *business* reliability.
+
+</details>
+
+<details>
+<summary><strong>Q11: Sequence numbers are 32-bit. What happens when they wrap, and why do we need TCP timestamps (PAWS)? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The space is $2^{32}$ bytes = **4 GiB**; arithmetic is **modulo $2^{32}$**, so wrapping is routine in long transfers. The danger is a **delayed old segment** from the *previous lap* whose sequence number now looks valid. At `1 Gbps` the wrap takes `~34 s`, `10 Gbps` `~3.4 s` — shorter than the `2 min` **maximum segment lifetime** — so sequence numbers alone cannot distinguish old from new. **PAWS** (*Protection Against Wrapped Sequences*, RFC 7323) uses the **TCP timestamp option** (`+12 B` per segment): a segment with an *older* timestamp than the most recent one is discarded. Timestamps also give better **RTT samples** for the RTO. Note the **window scale** option extends the *receive window* (`up to 1 GiB`) but does **not** extend the sequence space.
+
+</details>
+
+<details>
+<summary><strong>Q12: Why does 1% packet loss at 50 ms RTT cap a single TCP flow near 3 Mbps — even on a 10 Gbps link? What do you do about it? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Loss-based congestion control (Reno-like) halves `cwnd` on each loss event, so steady-state throughput follows the **Mathis model**: $\text{BW} \lesssim \frac{\text{MSS}}{\text{RTT}} \cdot \frac{1.22}{\sqrt{p}} = \frac{11{,}680\ \text{bits}}{0.05\ \text{s}} \times 12.2 \approx \mathbf{2.85\ Mbps}$. Link capacity is irrelevant — the **window never grows large enough**. At $p = 10^{-6}$ the same flow can reach `~285 Mbps`; at `10 ms` RTT, `1.4 Gbps`. Mitigations: **fix loss** (bad optics, buffer drops, Wi-Fi), **shorten RTT** (CDN/edge), **parallel flows**, **BBR** (model-based, much less sensitive to random loss), **QUIC**, **SACK/RACK** to recover faster, and avoid *bufferbloat*. Distinguish **loss** from **reordering** (`DSACK`, `nstat`) before blaming the network.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                     TCP PART 1: SEQUENCE NUMBERS & ACKs — ONE-PAGE CHEAT SHEET
+====================================================================================================
+THE CORE RULES
+  * The network may LOSE, REORDER, DUPLICATE packets.  TCP (endpoints only) fixes it with numbers + ACKs.
+  * seq  = number of the segment's FIRST BYTE (32-bit, starts at a random ISN; tools show relative from 1).
+  * ack  = the NEXT BYTE EXPECTED. Cumulative: "I have everything below this."   ack 1001 = have 1..1000.
+  * Duplicate ACK = same ack repeated -> there is a GAP.  1-2 may just be reordering.
+  * 3 dup ACKs  -> FAST RETRANSMIT (~1 RTT).   No dup ACKs (tail loss) -> TLP (~2 RTT) or RTO (>=200 ms).
+  * RTO doubles on every timeout (0.2, 0.4, 0.8 ... cap 120 s); Linux gives up at ~15 retries ~= 924 s.
+
+WORKED TRACE (5 x 1000 B, 2nd lost)
+  seq 1 -> ACK 1001 | seq 1001 LOST | 2001 -> ACK 1001 (d1) | 3001 -> ACK 1001 (d2) | 4001 -> ACK 1001 (d3)
+  => fast retransmit seq 1001 => ACK 5001 (jumps: 1..5000 contiguous).   SACK adds exact ranges.
+
+FORMULAS
+  Wrap time = 2^32 B / (B/8):  100 Mbps 343 s | 1 Gbps 34 s | 10 Gbps 3.4 s  -> PAWS / TCP timestamps required
+  RTO = SRTT + max(G, 4*RTTVAR);  first RTO = 3R;  Linux floor 200 ms  (ss: rtt:48 -> rto:248)
+  P(>=1 loss in n segs) = 1 - (1-p)^n :  p=1%: n=10 -> 9.6% | n=69 -> 50% | n=685 -> 99.9%
+  Mathis: BW <= (MSS/RTT) * 1.22/sqrt(p) :  1% @50 ms = 2.85 Mbps | 0.01% = 28.5 Mbps | 1e-6 = 285 Mbps
+  Fast retransmit needs >= 3 segments AFTER the loss  (window >= 4, loss not in the tail)
+
+"ACKNOWLEDGED" LADDER  (each level proves less than the next)
+  write() returned < on the wire < TCP ACK (peer KERNEL) < app read < app processed < fsync'd < replicated
+  => A TCP ACK NEVER proves the app processed or persisted anything.  Use app-level ACKs + idempotency keys.
+
+OBSERVE
+  tcpdump -nn 'tcp port 443'            seq/ack/length on the wire     ss -ti       rto rtt retrans unacked
+  nstat -az TcpRetransSegs TcpExtTCPFastRetrans TcpExtTCPTimeouts TcpExtTCPDSACKRecv
+  Alert: retransmit ratio > 1-2% sustained | timeouts >> fast retransmits | rto climbing x2 | dup-ACK spikes w/o loss
+
+DESIGN RULES
+  1 Idempotency keys on every retried write.   2 App timeout > 2*RTO_min + p99 service time.
+  3 Reuse connections (traffic behind a loss enables fast retransmit).   4 Retry with backoff + jitter.
+  5 Fix loss at the source; consider BBR / QUIC / parallel streams for long fat pipes.
+====================================================================================================
+```
 
 ---
 

@@ -1,9 +1,12 @@
 # Lesson 27: Forward and Reverse Proxies
 
 > **Prerequisites:** [Lesson 18: HTTP Part 1](../18-http-requests-responses-and-methods/README.md), [Lesson 21: The TLS 1.3 Handshake Step by Step](../21-tls-1-3-handshake/README.md), and [Networking From Zero Overview](../README.md) (Lesson 27 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend and platform engineers configuring Nginx, Envoy, HAProxy, or cloud ALBs for TLS termination, WAF filtering, outlier health checks, and IP-safe header forwarding.  
 > **Free PDF Notes:** [Download SD-N-027.pdf](https://backendroadmap.com/notes/system-design/SD-N-027.pdf)
+
+> [!NOTE]
+> **In one line:** a forward proxy acts for clients, controlling and hiding their outbound traffic; a reverse proxy acts for servers, sitting in front of them, hiding the backends and taking work off the app.
 
 > [!TIP]
 > **The Golden Rule of Proxies:** A **forward proxy** represents clients on outbound traffic (filtering egress, caching, and tunneling HTTPS via `CONNECT`), whereas a **reverse proxy** represents origin servers on inbound traffic (terminating TLS, enforcing WAF/rate limits, and routing to healthy backends). Choose deliberately between **L4 TCP/SNI passthrough** and **L7 HTTP termination**, strip RFC 9110 hop-by-hop headers (`Connection`, `TE`, `Keep-Alive`), and extract the client IP from `X-Forwarded-For` by counting **trusted proxy hops from the right** so callers cannot spoof their IP.
@@ -164,6 +167,75 @@ Whereas with L4 passthrough on a brand-new connection, the backend pod absorbs t
 | **Standard Hop-by-Hop** | `Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`, `Proxy-Authorization` | **Strip unconditionally** on ingress & egress |
 | **Dynamic Hop-by-Hop** | Any header named inside `Connection: Foo, Bar` | **Strip before proxy adds trusted internal headers** |
 | **Trusted Forwarding** | `X-Forwarded-For`, `X-Forwarded-Proto`, `Forwarded`, `Via` | **Append/overwrite** using verified peer `remote_addr` |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**Two machines sit in the middle of web traffic; both are called proxies—and mixing them up is a classic interview slip.** A **forward proxy** works for clients (egress control, hide client IPs, `CONNECT` tunnels). A **reverse proxy** works for servers (TLS, WAF, routing, hide backends). **What it is not:** a NAT gateway alone is not egress *policy* (it hides addresses but does not filter by domain), and a load balancer is not a forward proxy.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **Forward** vs. **reverse** | Forward: client chose it; hides clients. Reverse: site owner put it there; hides servers. | Squid/egress firewall vs Nginx/ALB/Envoy. |
+| **L4 passthrough** vs. **L7 termination** | L4: forward TCP/TLS bytes (SNI-only visibility). L7: decrypt HTTP, route by path/header, re-encrypt or plain upstream. | mTLS to pods → L4. Path canaries + WAF → L7. |
+| **`CONNECT` tunnel** vs. **TLS intercept** | Normal HTTPS forward proxy only tunnels after `CONNECT`; sees hostname, not content—unless corp installs a custom root and re-encrypts. | Corporate SSL inspection vs plain Squid tunnel. |
+| **`X-Forwarded-For` leftmost** vs. **rightmost trusted** | Clients can spoof left entries. Walk from the right, skip trusted proxy CIDRs, stop at first untrusted IP. | Rate limits that trusted leftmost → bot bypass. |
+| **Hop-by-hop** vs. **end-to-end** headers | `Connection`, `TE`, `Keep-Alive`, and any name listed *inside* `Connection` must be stripped per hop. | Smuggling auth headers via `Connection: X-User-Role`. |
+
+**Business impact.** Proxies are where TLS keys, client identity, and abuse controls live. One wrong `XFF` parse or hop-by-hop strip order turns into rate-limit bypass and internal-route exposure.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy: Classic Nginx → Gunicorn → Uvicorn
+
+```text
+ Clients (fast/slow) --HTTPS--> Nginx reverse proxy
+                                  | terminate TLS :443
+                                  | /static from disk, gzip/brotli
+                                  | buffer slow clients, rate + body limits
+                                  | proxy_set_header X-Forwarded-For ...
+                                  v
+                              Gunicorn 127.0.0.1:8000 (plain HTTP, pool)
+                                  v
+                              Uvicorn workers (FastAPI)  ← only see complete, fast local requests
+```
+
+### The Observability Gap: Who Is the Real Client?
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **App `remote_addr`** | Often just the proxy IP after reverse proxying. | True client unless `XFF`/`Forwarded` parsed from the **right**. |
+| **Access logs at origin** | Upstream timing after proxy buffering. | Client TTFB while Nginx trickles a slow download. |
+| **L4 LB metrics** | Conn count, bytes—no HTTP status. | WAF blocks, `4xx` auth failures, path routing bugs. |
+| **Metrics to add** | Trusted-hop `XFF` client IP, TLS terminate vs passthrough mix, hop-by-hop strip rejects, egress allow-list denials, outlier ejections capped by `%`. | Nothing: they separate "proxy healthy" from "identity and policy are correct". |
+
+---
+
+## Mathematical Model of Worker Pinning, Hops & Trusted XFF
+
+### 1. Worked Example: Why Buffering Slow Clients Matters
+
+$4$ Uvicorn workers. Upload $2$ MB at $100$ KB/s ⇒ $20$ s. Without a proxy, one worker is pinned $20$ s per upload; four concurrent slow uploads **stall the whole app**. With Nginx reading the full body first (and `client_max_body_size` rejecting oversize), the handoff to Gunicorn over localhost is ~$1$ ms—workers stay free.
+
+### 2. Right-to-Left Trusted Hop Count
+
+Given `X-Forwarded-For: client, proxy1, proxy2` and TCP peer = `proxy2`:
+
+$$\text{client IP} = \text{walk right-to-left, skip CIDRs}(\text{trusted}),\ \text{stop at first untrusted}$$
+
+If you instead take the **leftmost** value, attackers set `X-Forwarded-For: 1.2.3.4` and bypass IP rate limits.
+
+### 3. Latency Budget: L7 Terminate + Warm Pool
+
+$$T \approx (T_{\text{TCP}}+T_{\text{TLS}})_{\text{client↔proxy}} + T_{\text{WAF}} + T_{\text{upstream HTTP on pooled conn}}$$
+
+L4 passthrough pushes the TLS CPU and RTTs onto every backend pod instead.
+
+### 4. Outlier Ejection Cap
+
+If passive ejection can remove up to $p$ of the pool, a correlated blip can take the service dark. Cap $\text{max\_ejection\_percent} \approx 30\text{–}50\%$ so active `/healthz` + passive detection cannot empty the cluster.
 
 ---
 
@@ -600,53 +672,130 @@ Enable **HAProxy `PROXY protocol v2`** on both the L4 load balancer and the back
 
 ## Interview Practice Questions
 
-> [!interview] What is the difference between a forward proxy and a reverse proxy? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. What's the difference between a forward and a reverse proxy? [BASIC]</strong></summary>
 
-A forward proxy sits in front of clients to manage their outbound traffic—enforcing egress policies, caching, and hiding client IPs from external sites. A reverse proxy sits in front of backend servers to accept inbound internet requests—terminating TLS, applying WAF rules and rate limits, and load-balancing across private backend instances that clients never reach directly.
-
-</details>
-
-> [!interview] How does an HTTPS request travel through an un-decrypting forward proxy? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The browser opens a TCP connection to the forward proxy and sends a plaintext `HTTP CONNECT host:443` request. After checking policy and opening a TCP socket to that host, the proxy replies `200 Connection Established` and turns into a transparent byte pipe, letting the browser run a full end-to-end TLS 1.3 handshake directly with the remote server.
+<strong>What a strong answer covers:</strong>
+Forward acts for clients (outbound control/hiding). Reverse acts for servers (inbound TLS/WAF/routing, hiding backends). Ask who put it there and whose identity it hides.
 
 </details>
 
-> [!interview] When would you choose an L4 passthrough load balancer instead of an L7 reverse proxy? (Scenario)
+<details>
+<summary><strong>2. What can a reverse proxy offload from app servers? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Choose L4 passthrough when backend pods must terminate TLS or mTLS directly—so load balancers never hold private keys or decrypted PII—or when forwarding non-HTTP TCP protocols and millions of connections at microsecond latency. Choose L7 termination whenever you need path- or header-based routing, canary traffic splitting, WAF inspection, rate limiting, or upstream HTTP connection pooling.
-
-</details>
-
-> [!interview] An attacker bypasses your IP rate limiter even though your reverse proxy appends `X-Forwarded-For`. What went wrong and how do you fix it? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The backend almost certainly trusted the leftmost IP in `X-Forwarded-For`, which is controlled by the client's initial header. Because each proxy appends the peer IP to the right, you fix this by walking `X-Forwarded-For` plus the TCP `remote_addr` from right to left, skipping only your known trusted proxy CIDRs, and stopping at the first untrusted IP.
+<strong>What a strong answer covers:</strong>
+TLS termination, host/path routing, load balancing, caching, gzip/brotli, rate and body-size limits, and buffering slow clients so workers are not pinned for seconds.
 
 </details>
 
-> [!interview] What are hop-by-hop headers, and what security bug occurs if a reverse proxy handles `Connection` poorly? (Tricky)
+<details>
+<summary><strong>3. How does HTTPS travel through a non-intercepting forward proxy? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Client sends `CONNECT host:443`; proxy replies `200 Connection Established` and tunnels bytes. TLS is end-to-end—proxy sees hostname (SNI/`CONNECT` target), not content.
 
-Hop-by-hop headers like `Connection`, `Keep-Alive`, `TE`, and `Transfer-Encoding` apply only to a single TCP link and must not be forwarded upstream. Under RFC 9110, any header name listed inside the `Connection` header also becomes hop-by-hop—so if a proxy runs authentication headers first and strips `Connection`-listed headers afterward, an attacker can delete internal trust headers like `X-User-Role`. Always strip hop-by-hop headers before adding trusted headers.
+</details>
+
+<details>
+<summary><strong>4. Is a load balancer a forward or reverse proxy? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Reverse. The site owner runs it; clients never see the backends. API gateways and cloud ALBs are reverse proxies with extra auth/policy features.
 
 </details>
 
-> [!interview] Why isn't an active `/healthz` check enough for a reverse proxy, and what guardrails does passive outlier detection need? (Tricky)
+<details>
+<summary><strong>5. Servers must call only Stripe and a package mirror. How? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Active `/healthz` checks run periodically every few seconds and often miss gray failures where `/healthz` returns 200 while real business endpoints fail with 502 or timeouts. Passive outlier detection monitors live customer responses and ejects pods immediately on consecutive 5xx errors or resets—but it must cap `max_ejection_percent`, usually around 30 to 50 percent, so a transient cluster-wide blip never takes the entire fleet offline.
+<strong>What a strong answer covers:</strong>
+Force egress through a forward/egress proxy or cloud firewall allow-list, block direct internet in network rules, log every request, deny by default.
 
 </details>
+
+<details>
+<summary><strong>6. Why put Nginx in front of Gunicorn/Uvicorn? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Nginx terminates TLS, serves static files, compresses, enforces limits, and buffers slow clients. Four 20 s mobile uploads would otherwise pin all four workers; with Nginx each worker is busy ~milliseconds.
+
+</details>
+
+<details>
+<summary><strong>7. After adding a reverse proxy, every log shows the same client IP. Why? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The app sees the proxy. Set `X-Forwarded-For`/`Forwarded` and trust it **only** from the proxy's IP, resolving client identity right-to-left across trusted hops.
+
+</details>
+
+<details>
+<summary><strong>8. When L4 passthrough vs L7 termination? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+L4 when backends must terminate TLS/mTLS or you need raw TCP at huge scale. L7 when you need path/header routing, WAF, canaries, or upstream HTTP pooling.
+
+</details>
+
+<details>
+<summary><strong>9. Can a corporate forward proxy read HTTPS? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Normally no—`CONNECT` tunnels ciphertext. It can only read content with TLS interception: install a corp root on laptops and re-encrypt at the proxy.
+
+</details>
+
+<details>
+<summary><strong>10. Attacker bypasses IP rate limits despite `X-Forwarded-For`. Fix? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Stop trusting the leftmost value. Walk from the right with TCP `remote_addr`, skip only trusted proxy CIDRs, use the first untrusted IP as the client.
+
+</details>
+
+<details>
+<summary><strong>11. What are hop-by-hop headers, and how does `Connection` smuggling work? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Hop-by-hop headers apply to one TCP link and must not be forwarded. Names listed inside `Connection` also become hop-by-hop—strip them **before** adding trusted internal headers, or attackers can delete auth roles.
+
+</details>
+
+<details>
+<summary><strong>12. Why isn't `/healthz` enough, and what cap does outlier detection need? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Active checks miss gray failures (`/healthz` 200 while business routes 502). Passive outlier ejection helps but must cap `max_ejection_percent` (~30–50%) so a blip cannot empty the pool. NAT alone ≠ egress domain control.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                    FORWARD vs REVERSE PROXIES  —  CHEAT SHEET
+====================================================================================================
+IN ONE LINE   Forward = for clients (egress) | Reverse = for servers (ingress shield)
+
+ASK           Who put it there? Whose identity does it hide?
+FORWARD       Squid / egress firewall / CONNECT tunnel | optional TLS intercept with corp root
+REVERSE       Nginx, HAProxy, Envoy, ALB, API gateway | TLS, WAF, route, cache, compress, buffer
+
+L4 vs L7      L4 passthrough = E2E TLS/mTLS, SNI only | L7 = decrypt, path route, pool upstream
+CLASSIC       Internet -> Nginx (TLS/static/limits) -> Gunicorn -> Uvicorn workers on localhost
+
+XFF MATH      Append peer on the right | resolve RIGHT-to-LEFT skipping trusted CIDRs
+              leftmost trust = rate-limit bypass
+HOP-BY-HOP    Connection, TE, Keep-Alive, Upgrade, + any name inside Connection → STRIP FIRST
+WORKERS       2 MB @ 100 KB/s = 20 s pin without buffer | Nginx handoff ~1 ms after full body
+
+ANTI-PATTERNS X call LB a "forward proxy"   X log proxy IP as client   X expose Gunicorn to internet
+              X NAT-only "egress control"   X strip Connection after setting trust headers
+====================================================================================================
+```
 
 ---
 

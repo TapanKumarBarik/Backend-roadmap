@@ -1,9 +1,12 @@
 # Lesson 17: DNS Traffic Management — GeoDNS, Weighted, Failover and Anycast
 
 > **Prerequisites:** [Lesson 16: DNS Part 2 — Records, TTL and Safe Migrations](../16-dns-records-ttl-and-migrations/README.md) and [Networking From Zero Overview](../README.md) (Lesson 17 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend, SRE, and platform engineers operating multi-region services, canary rollouts, global load balancing, and disaster recovery over DNS and BGP Anycast.  
 > **Free PDF Notes:** [Download SD-N-017.pdf](https://backendroadmap.com/notes/system-design/SD-N-017.pdf)
+
+> [!NOTE]
+> **In one line:** An authoritative DNS server can give different answers to different users (by location, measured latency, weights, or health) to route traffic between regions, but DNS failover is slow because of health-check time and caching, so use an anycast global load balancer when you need seconds.
 
 > [!TIP]
 > **The Golden Rule of DNS Traffic Management:** Authoritative DNS steers clients *before* a TCP socket ever opens using **Weighted**, **GeoDNS**, **Latency**, or **Failover** policies, whereas **BGP Anycast** advertises one global IP from many locations so internet routers pick the shortest path. Because recursive resolvers, browsers, and JVM caches hold stale IPs—and public resolvers obscure user geography without **EDNS Client Subnet (`ECS`)**—pair short TTLs and active health checks with edge proxies or application-level connection draining for fast, predictable failover.
@@ -153,6 +156,113 @@ For example, if probes trigger after `3 × 10 s = 30 s`, an enterprise resolver 
 | **OS Stub (`systemd-resolved`)** | Honors `TTL` (or caps max) | Local stub keeps old IP until local expiry | Keep `TTL` at `30–60 s`; verify `resolvectl` config on workers |
 | **JVM `InetAddress` Cache** | `30 s` (or `-1` forever with `SecurityManager`) | Never re-resolves DNS after first lookup | Explicitly set `-Dsun.net.inetaddr.ttl=10` and `negative=5` |
 | **HTTP / DB Connection Pool** | Keeps sockets open indefinitely | Established TCP connections never re-query DNS | Configure `MaxConnLifetime` (`2–5 min`) + short `DialTimeout` |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**DNS traffic management** means making the authoritative server return a *different, deliberately chosen answer* for the same name, depending on who is asking, how healthy each target is, and what share of traffic each target should get. It happens **once per lookup, before any TCP socket exists**. What it is not: a load balancer. It cannot see requests, drain connections, or react faster than caches expire.
+
+Six mechanisms are regularly mixed up in architecture discussions:
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **Weighted routing** | Return answer $i$ with probability $w_i / \sum w$ **per DNS lookup** (not per HTTP request). | `95` -> `v1` stack, `5` -> canary stack in Route 53 / NS1. |
+| **GeoDNS (geolocation)** | Map the *resolver's* (or `ECS` prefix's) country/state to a fixed region; deterministic. | `DE`, `FR`, `IT` -> `eu-central-1` for GDPR data residency. |
+| **Latency-based routing (`LBR`)** | Return the region with the lowest *measured* RTT from the asking network; dynamic, not geographic. | Mumbai users reach `ap-south-1` or `ap-southeast-1`, whichever measures faster that hour. |
+| **DNS failover** | Remove an unhealthy target from answers after health checks fail; promote a secondary. | Active-passive `us-east` -> `us-west` DR with `TTL = 30 s`. |
+| **Anycast** | The **same IP prefix** announced by many PoPs over `BGP`; the *network* picks the nearest. DNS answer never changes. | `1.1.1.1`, `8.8.8.8`, root servers, CDN edges (`/24` announcements). |
+| **Global load balancer (GLB / GSLB)** | An anycast front door that health-checks regional backends and shifts traffic **behind one stable IP**. | AWS Global Accelerator, Cloudflare Load Balancing, GCP global external ALB. |
+
+**Which layer decides?** DNS policies decide at **L7-ish name resolution time** (answer-level, cached); anycast decides at **L3 routing time** (packet-level, no cache); a GLB decides at **L4/L7 connection time** (per connection/request, health-aware). Moving a decision down the stack gives you faster reaction but more infrastructure.
+
+**Business impact.** Region selection sets p50 latency (and therefore conversion), data residency (legal exposure), blast radius of a bad canary, and the length of a regional outage. A routing policy chosen by habit instead of arithmetic is how a "30-second failover" becomes a `45 min` incident.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy of One Routed Answer
+
+```text
+  Tokyo phone ──> carrier / ISP resolver ──> [ECS?] ──> AUTHORITATIVE GSLB (Route 53 / NS1 / Cloudflare)
+                                                         │
+                       1. Health gate     : drop targets whose last N probes failed        (state: UP/DOWN)
+                       2. Geo / latency   : match resolver IP or ECS /24 -> region table   (state: RTT map)
+                       3. Weighted split  : roll dice over healthy targets by weight       (state: weights)
+                       4. Build answer    : A / AAAA set + TTL (30-60 s for failover records)
+                                                         │
+  answer cached at ISP resolver ─> OS stub ─> browser/JVM/pool ─> TCP connect to ONE unicast IP
+                                          (each layer keeps its OWN countdown and its own stickiness)
+```
+
+### The Observability Gap: Where Each Metric Lies
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Authoritative DNS query log** | Resolver IP (and `ECS` prefix if sent), chosen answer, health state at that instant. | The real *user* location (you see the resolver); cached repeats; whether the client actually connected. |
+| **Health-check dashboard** (`HealthCheckStatus`, probe success %) | Whether probes from N vantage points reach `/health`. | Whether a **real user** can complete checkout (shallow `/health` passes while the DB is down). |
+| **Client / SDK logs** (resolved IP, connect time, `X-Region` header) | The IP *this client* actually used and its latency. | Fleet-wide distribution unless aggregated; stale pooled sockets look healthy until they time out. |
+| **RUM / synthetic probes** (per-region p50/p95, RIPE Atlas) | End-to-end latency by user geography; mis-steering shows as a bimodal histogram. | Root cause: ECS missing vs. VPN vs. wrong policy all look like "high latency in Tokyo". |
+| **BGP looking glass / `RIPE RIS`, CDN trace (`colo=`)** | Which PoP is serving a prefix right now; withdrawals and flaps. | Per-connection impact of a flap (TCP `RST` shows only in app/edge logs). |
+
+**Rule:** measure from the *user's* side (RUM) and from *each cache layer*, never from the policy engine alone. The policy engine always reports success because it did exactly what you configured.
+
+---
+
+## Mathematical Model of Failover, Canary Skew & Distance
+
+### 1. The Failover Budget
+
+For health checks every $\Delta$ seconds that declare failure after $n$ consecutive misses, a record TTL of $T$ (or the resolver clamp $T_{\text{clamp}}$ if larger), and client connection lifetime $T_{\text{conn}}$:
+
+$$T_{\text{detect}} = n\,\Delta,\qquad T_{\text{failover}}^{\max} = n\,\Delta + \max(T,\ T_{\text{clamp}}) + T_{\text{conn}},\qquad \mathbb{E}\!\left[T_{\text{failover}}\right] \approx n\,\Delta + \frac{\max(T,T_{\text{clamp}})}{2}$$
+
+| Configuration | Detect ($n\Delta$) | Cache ($T$) | Worst Case (most users) | Mean User |
+| :--- | :--- | :--- | :--- | :--- |
+| Aggressive: `10 s x 3`, `TTL 30` | `30 s` | `30 s` | **`60 s`** | `45 s` |
+| Typical: `10 s x 3`, `TTL 60` | `30 s` | `60 s` | **`90 s`** | `60 s` |
+| Conservative: `30 s x 3`, `TTL 300` | `90 s` | `300 s` | **`390 s` (6.5 min)** | `240 s` |
+| ISP clamp: `10 s x 3`, `TTL 30` but resolver floor `300 s` | `30 s` | `300 s` | **`330 s`** | `180 s` |
+| Add a client holding sockets `60 s` + `10 s` dial timeout | -- | -- | **`+70 s` on top** | -- |
+| Anycast GLB: `2 s x 3` probes + `~3 s` shift | `6 s` | `0` | **`~9 s`** | `~9 s` |
+
+### 2. Availability Impact
+
+With $k$ regional incidents per year, each costing $T_{\text{failover}}$ of user-visible downtime:
+
+$$A = 1 - \frac{k \cdot T_{\text{failover}}}{31{,}536{,}000\ \text{s}}$$
+
+At $k = 4$: DNS conservative (`390 s`) $\Rightarrow$ `1,560 s` $\Rightarrow$ **99.9950%**; DNS typical (`90 s`) $\Rightarrow$ `360 s` $\Rightarrow$ **99.9989%**; anycast GLB (`10 s`) $\Rightarrow$ `40 s` $\Rightarrow$ **99.99987%**. Two independent `99.9%` regions give $1-(0.001)^2 = 99.9999\%$ **only if failover is instantaneous**; the failover time is what actually sets your ceiling.
+
+### 3. Why a `5%` Canary Is Not `5%`
+
+Resolvers cache one weighted answer per TTL, so a resolver carrying fraction $f_i$ of your traffic contributes either $0$ or $f_i$ to the canary. With canary probability $p$ and a Bernoulli draw $B_i$ per resolver per TTL:
+
+$$\text{Canary share} = \sum_i f_i B_i,\quad \mathbb{E} = p,\quad \sigma = \sqrt{p(1-p)\sum_i f_i^2}$$
+
+| Resolver Population ($p = 5\%$) | $\sum f_i^2$ | $\sigma$ of Canary Share | Typical Observed Range (±2σ) |
+| :--- | :--- | :--- | :--- |
+| `10,000` equal-size resolvers | `0.0001` | `0.22%` | `4.6% - 5.4%` |
+| `100` equal-size resolvers | `0.01` | `2.18%` | `0.6% - 9.4%` |
+| One `40%` corporate NAT + `6,000` small | `0.160` | `8.72%` | `0% - 22%` |
+
+A `40%` resolver draws the canary with probability `5%` per TTL; when it does, canary traffic jumps to **at least `40%`** for a full TTL, exactly the "5% became 42%" incident. Use DNS weights only for *coarse* steps (`5 -> 25 -> 50 -> 100`) and enforce exact splits at an L7 proxy.
+
+### 4. Distance Sets the Floor
+
+Light in fiber travels about `200,000 km/s`, so the physical minimum round trip is:
+
+$$\text{RTT}_{\min}\ (\text{ms}) \approx \frac{d\ (\text{km})}{100}$$
+
+| Client -> Region | Distance | $\text{RTT}_{\min}$ | Typical Real RTT |
+| :--- | :--- | :--- | :--- |
+| Paris -> Ireland (`eu-west-1`) | `~780 km` | `~8 ms` | `15-25 ms` |
+| Paris -> Virginia (`us-east-1`) | `~6,200 km` | `~62 ms` | `80-100 ms` |
+| Tokyo -> Tokyo (`ap-northeast-1`) | `<50 km` | `<1 ms` | `5-15 ms` |
+| Tokyo -> Virginia | `~10,900 km` | `~109 ms` | `150-170 ms` |
+
+A mis-steered Tokyo user pays roughly **`140 ms` extra per round trip**, and TLS plus HTTP multiplies that by `3-4` round trips on a cold connection (`~420-560 ms`).
 
 ---
 
@@ -491,53 +601,144 @@ Cloudflare deploys `1.1.1.1` via **Anycast across 300+ cities**, so a Tokyo user
 
 ## Interview Practice Questions
 
-> [!interview] What is the difference between GeoDNS and Anycast? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. What is the difference between GeoDNS and Anycast? [BASIC]</strong></summary>
 
-GeoDNS works at the DNS layer: the authoritative server inspects the requester's IP (or ECS prefix) and returns a different unicast IP for each region, subject to DNS TTL caching. Anycast works at the BGP IP routing layer: every PoP worldwide advertises the exact same IP prefix, and internet routers automatically deliver packets along the shortest topological path with zero DNS cache lag.
-
-</details>
-
-> [!interview] What is EDNS Client Subnet (`ECS`), and when can GeoDNS still get a user's location wrong? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-ECS (RFC 7871) attaches the user's truncated IP prefix (like a /24) to recursive DNS queries so authoritative GeoDNS servers don't accidentally route based on a remote public resolver's IP. GeoDNS still misroutes when privacy resolvers like 1.1.1.1 omit ECS (solved via Anycast resolvers), when corporate VPNs centralize egress, or when an authoritative server caches poorly across subnets.
+<strong>What a strong answer covers:</strong>
+GeoDNS works at the DNS layer: the authoritative server inspects the resolver's IP (or the `ECS` prefix) and returns a **different unicast IP** per region, subject to DNS `TTL` caching. Anycast works at the BGP routing layer: every PoP announces the **same prefix**, and internet routers deliver each packet along the shortest AS path, so there is no DNS cache lag. GeoDNS is policy (you choose), anycast is topology (the network chooses).
 
 </details>
 
-> [!interview] Why does setting a 30-second DNS TTL not guarantee 30-second failover? (Scenario)
+<details>
+<summary><strong>2. What is EDNS Client Subnet (ECS), and why does GeoDNS need it? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-First, health checks need multiple failed probes to detect an outage safely. Second, some ISP resolvers enforce minimum TTL floors above 30 seconds. Third, OS caches, browsers, and especially JVM runtimes or HTTP connection pools keep reusing cached IPs and already-established TCP sockets long after DNS changes. You need bounded connection lifetimes and client-side failover alongside short TTLs.
-
-</details>
-
-> [!interview] Why is Weighted DNS inaccurate for a 1% canary rollout? (Tricky)
-
-<details><summary>What to say in 30 seconds</summary>
-
-DNS weights apply per recursive resolver query, not per HTTP request. One huge ISP or corporate NAT resolver serving tens of thousands of users caches a single returned IP for the full TTL—giving 100% of its users either the stable or canary IP—and HTTP/2 keep-alive pins them there. Use an L7 proxy or ingress controller for fine-grained canary splits.
+<strong>What a strong answer covers:</strong>
+Authoritative servers see the **recursive resolver's** IP, not the user's. `ECS` (RFC 7871) lets the resolver attach a truncated client prefix (typically `/24` IPv4, `/56` IPv6) so GeoDNS can choose the user's region. Without it, a Tokyo user on a centralized resolver in Oregon is routed to Oregon. Privacy trade-off: `8.8.8.8` sends `ECS`; `1.1.1.1` does not, but compensates by running anycast resolver nodes in hundreds of cities.
 
 </details>
 
-> [!interview] Why does Anycast excel for DNS and HTTP/3, yet risk breaking long-lived TCP connections? (Tricky)
+<details>
+<summary><strong>3. Why is DNS failover slow? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+Four stacked delays: (1) **detection**, $n\Delta$ (`3 x 10 s = 30 s`) to avoid flapping on transient loss; (2) **caching**, resolvers keep the old answer until its `TTL` (and some clamp to `300 s`+); (3) **client caches**, OS stub, browser, and the JVM `InetAddress` cache; (4) **open connections**, pools and WebSockets never re-resolve until they break. Worst case $= n\Delta + \max(T, T_{\text{clamp}}) + T_{\text{conn}}$.
 
-DNS is stateless UDP and HTTP/3 (QUIC) carries connection IDs that survive path changes. A long-lived TCP connection depends on a specific PoP holding its socket state; if a BGP route flap shifts packets to a different Anycast PoP mid-stream, that PoP lacks the socket state and immediately sends a TCP RST. Production CDNs avoid this by keeping Anycast at a stateless edge tier that tunnels to unicast origins.
+</details>
+
+<details>
+<summary><strong>4. What is the smallest IPv4 prefix you can announce over BGP, and why does it matter for anycast? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A `/24` (`256` addresses) for IPv4, a `/48` for IPv6. Transit providers filter longer prefixes (`/25`-`/32`) to keep the global routing table from exploding. So you cannot anycast a single IP or a `/28`: you must own and announce at least a `/24`, which is why small teams usually rent anycast from a CDN or accelerator service instead of running their own.
 
 </details>
 
-> [!interview] What is the minimum IPv4 prefix size you can advertise over BGP Anycast, and why? (Basic)
+<details>
+<summary><strong>5. Roll out a new version to 5% of users at the DNS level. How? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-A /24 (256 IPv4 addresses), or /48 for IPv6. Global Tier-1 transit routers filter out more specific prefixes like /25 or /28 to stop the global BGP routing table from exploding in size, so anything smaller simply won't propagate across the internet.
+<strong>What a strong answer covers:</strong>
+Weighted records `95` (current) and `5` (new) with a short `TTL` (`60 s`) so you can roll back fast. Watch error rate and latency of the canary, then step `5 -> 25 -> 50 -> 100`. State the caveat: weights apply to *DNS answers*, not requests, so the real split is noisy (`σ` depends on resolver concentration) and long-lived connections stay pinned. For exact per-request percentages use an L7 proxy or service-mesh traffic split.
 
 </details>
+
+<details>
+<summary><strong>6. Users in Paris sometimes land in us-east. Why? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+GeoDNS sees the resolver's location. If those users use a resolver located in the US (corporate VPN egress, a centralized public resolver, a mobile carrier gateway) that does not forward `ECS`, the authoritative server answers for the US. Diagnose with `dig +subnet=` tests and RUM latency histograms; mitigate with `ECS`-aware policy, latency-based routing, or an anycast front door whose routing follows the packets rather than the resolver.
+
+</details>
+
+<details>
+<summary><strong>7. The requirement is region failover in under 10 seconds. Design it. [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Do not rely on DNS: $90\text{-}390\ \text{s}$ is the realistic envelope. Put a **global load balancer on an anycast IP** (Global Accelerator, Cloudflare, GCP global ALB) in front of both regions; it health-checks regional backends every `1-2 s` and shifts traffic behind the same IP, so no cache has to expire. Add bounded connection lifetimes and client retries with a circuit breaker; keep DNS failover only as a slow secondary layer. Mention that health checks must test *dependencies*, not just "web server is up".
+
+</details>
+
+<details>
+<summary><strong>8. You run EU and US regions with EU data-residency rules. Which DNS policies do you combine? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Geolocation** records pin EU countries to `eu-central-1` (a legal requirement, not just a speed optimization) with a default record for the rest of the world; **latency-based** routing only among regions that are allowed for that user; **health checks** remove an unhealthy region, but *for EU users failover must stay inside the EU* (a second EU region), never silently to `us-east`. Confirm `ECS` behavior, test from VPN and mobile networks, and keep a runbook for the compliance-vs-availability decision.
+
+</details>
+
+<details>
+<summary><strong>9. You set TTL to 60 s, but after failover some traffic hits the dead region for 30 minutes. Why? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Some resolvers and runtimes cache longer than the TTL (`min-ttl` floors, JVM `networkaddress.cache.ttl = -1` under a `SecurityManager`), and long-lived connections (HTTP/2 pools, WebSockets, DB pools) never re-resolve until they break. Fixes: set explicit runtime DNS TTLs (`10 s`), cap `MaxConnLifetime` (`2-5 min`), return multiple healthy IPs, and use client-side circuit breakers that retry against a fresh lookup.
+
+</details>
+
+<details>
+<summary><strong>10. Weighted 90/10, but the canary gets 30% of traffic. How? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Weights apply per **lookup**, not per **request**. A few large resolvers (a big ISP, a corporate NAT) that drew the canary answer serve it to *all* their users for the whole TTL, and keep-alive connections prolong it. The expected share is still `10%` but the variance is $\sigma = \sqrt{p(1-p)\sum f_i^2}$, huge when one resolver carries `30-40%` of traffic. It evens out over many TTLs, not per minute.
+
+</details>
+
+<details>
+<summary><strong>11. Why does anycast excel for DNS and HTTP/3 but risk breaking long-lived TCP connections? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+DNS over UDP is stateless, and QUIC/HTTP/3 identifies connections by a Connection ID that survives path changes. A TCP flow depends on one PoP holding its socket state; if a BGP flap shifts packets to another PoP mid-stream, that PoP has no state for the 4-tuple and replies with `RST`. Production designs keep anycast at a **stateless edge tier** (ECMP + consistent hashing, e.g. Maglev-style) and tunnel over private unicast to stateful origins, and use BGP graceful shutdown for planned drains.
+
+</details>
+
+<details>
+<summary><strong>12. Cloudflare's 1.1.1.1 does not send ECS, yet GeoDNS usually works for its users. Why? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`1.1.1.1` is itself **anycast**: the resolver node that answers a Tokyo user is physically in Tokyo, so the authoritative server sees a Tokyo source IP and answers correctly with no `ECS`. The failure case is a *non-anycast* centralized resolver (enterprise VPN egress in Frankfurt) where both the resolver IP and any `ECS` prefix point at the wrong place. Lesson: anycast the *resolver* and the *service*, or give GeoDNS better signals (`ECS`, latency maps).
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                     DNS TRAFFIC MANAGEMENT: GEO, WEIGHTED, FAILOVER & ANYCAST  —  CHEAT SHEET
+====================================================================================================
+WHO DECIDES WHEN
+  DNS policy (weighted / geo / latency / failover) : at LOOKUP time, answer-level, CACHED (T + clamp)
+  BGP anycast                                      : at ROUTING time, packet-level, NO cache (5-30 s BGP)
+  Global load balancer on anycast IP               : at CONNECTION time, health-aware (seconds)
+
+POLICY PIPELINE (authoritative GSLB)   1 health gate -> 2 geo/latency filter -> 3 weighted split -> answer
+  GeoDNS sees the RESOLVER (or ECS /24, /56), NOT the user.   1.1.1.1 = no ECS but anycast resolvers.
+
+FAILOVER MATH
+  T_detect = n * interval            T_failover(max)  = n*interval + max(TTL, resolver clamp) + T_conn
+  Mean user ~ n*interval + TTL/2     10s x3 + TTL 60 = 90 s | 30s x3 + TTL 300 = 390 s | anycast GLB ~ 10 s
+  Availability = 1 - k * T_failover / 31,536,000 s   (k incidents per year)
+
+CANARY MATH
+  share = sum(f_i * B_i)   E = p   sigma = sqrt( p(1-p) * sum(f_i^2) )     one 40% resolver -> jumps of 40%
+  Use DNS weights only for coarse steps (5/25/50/100); exact splits belong at an L7 proxy.
+
+PHYSICS
+  RTT_min (ms) ~ distance_km / 100    Tokyo->Virginia ~109 ms floor (150-170 real)   Paris->Dublin ~8 ms
+
+ANYCAST RULES
+  Announce >= /24 (v4) or /48 (v6)   |   Great for DNS, QUIC/HTTP3, CDN edge   |   TCP + BGP flap => RST
+  Terminate at STATELESS edge, tunnel over unicast to origins   |   Withdraw prefix = fast failover, no TTL wait
+
+CLIENT HARDENING
+  JVM -Dsun.net.inetaddr.ttl=10   MaxConnLifetime 2-5 min   multi-IP answers   circuit breaker + retry fresh lookup
+
+ANTI-PATTERNS
+  X promise instant failover with DNS alone     X long TTL on a failover record    X trust GeoDNS location
+  X shallow /health checks                      X weights as exact percentages     X stateful TCP origin on raw anycast
+====================================================================================================
+```
 
 ---
 

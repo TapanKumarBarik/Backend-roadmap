@@ -1,9 +1,12 @@
 # Lesson 19: HTTP Part 2, Status Codes, 401 vs 403, Caching and ETags
 
 > **Prerequisites:** [Lesson 18: HTTP Part 1, Requests, Responses and Methods](../18-http-requests-responses-and-methods/README.md), [Lesson 16: DNS Records, TTL and Safe Migrations](../16-dns-records-ttl-and-migrations/README.md), and [Networking From Zero Overview](../README.md) (Lesson 19 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend and full-stack engineers designing resilient HTTP APIs, retry logic, authentication responses (`401` vs `403`), CDN `Cache-Control` policies, and conditional `ETag`/`304` validation.  
 > **Free PDF Notes:** [Download SD-N-019.pdf](https://backendroadmap.com/notes/system-design/SD-N-019.pdf)
+
+> [!NOTE]
+> **In one line:** The first digit names the family (`2xx` success, `3xx` redirect, `4xx` the client's fault, `5xx` the server's); `401` is "who are you?", `403` is "not allowed"; `Cache-Control` says how long to reuse a response, and `ETag`s with `304` make checking cheap.
 
 > [!TIP]
 > **The Golden Rule of HTTP Semantics & Caching:** The first status-code digit names who owns the outcome (`2xx` success, `3xx` redirect, `4xx` client fault, `5xx` server fault): `401` asks "who are you?" while `403` declares "not allowed." Only retry `429` and `5xx` safely, mark personal data `private` or `no-store`, and pair `Cache-Control` with `ETag` and `304 Not Modified` so revalidation ships headers with zero body bytes.
@@ -145,6 +148,123 @@ sequenceDiagram
 | **`no-cache`** | Yes | Yes (unless `private`) | **Always** (`If-None-Match`) | Root `index.html`, semi-dynamic metadata |
 | **`private, max-age=60`** | Yes | **No** | After 60s | Logged-in user profile/settings |
 | **`no-store`** | **Never** (not on disk) | **Never** | Always full fetch | Banking statements, OTPs, PII tokens |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**An HTTP status code is the server's machine-readable verdict on a request; HTTP caching is the contract that lets copies of a response be reused without asking again.** The first digit assigns ownership of the problem (`4xx` = fix the request, `5xx` = fix the server), and the cache headers assign ownership of the *copy* (who may keep it, for how long, and how to check it is still true). What they are not: status codes are not a place for application error detail (that belongs in the body, as `application/problem+json`), and `Cache-Control` is not a security boundary against a malicious client, only a contract that well-behaved caches follow.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **`301`** vs. **`302`** vs. **`307`** vs. **`308`** | `301` permanent (clients/crawlers remember; historically rewrites `POST` to `GET`). `302` temporary (same ambiguity). `307` temporary and **preserves method + body**. `308` permanent and preserves method. | `http -> https` upgrade uses `301`/`308`; a maintenance redirect for a `POST /upload` must be `307`, or the body is lost. |
+| **Fresh** vs. **stale** vs. **revalidated** | *Fresh*: `age < freshness lifetime`, served with **0 RTT, 0 bytes**. *Stale*: lifetime exceeded, must check or refetch. *Revalidated*: stale entry confirmed by `304`, then fresh again. | `max-age=60` page: view at `t = 30 s` is fresh; at `t = 90 s` it sends `If-None-Match` and gets `304`. |
+| **Strong `ETag`** vs. **weak `ETag`** (`W/"v7"`) vs. **`Last-Modified`** | Strong: byte-for-byte identical (needed for range requests). Weak: semantically equivalent (survives gzip/re-serialization). `Last-Modified`: timestamp validator with 1-second resolution, weaker still. | Hash of body for static JSON (strong); `W/"catalog-2026-11"` for dynamically compressed HTML. |
+| **Private cache** vs. **shared cache** (+ `Vary`) | A *private* cache serves one user (the browser); a *shared* cache serves many (CDN, corporate proxy). `Vary: Accept-Encoding` makes a request header part of the cache key; `private`/`s-maxage` target one tier only. | `Cache-Control: private, max-age=60` for `/account`; `public, s-maxage=300` + `Vary: Accept-Encoding` for `/catalog`. |
+| **`no-cache`** vs. **`no-store`** vs. **`must-revalidate`** | `no-cache`: *store*, but revalidate before **every** use. `no-store`: never keep a copy. `must-revalidate`: once stale, never serve without a successful check (even if the origin is down). | `no-store` for statements and tokens; `no-cache` for `index.html`; `must-revalidate` for prices. |
+
+**Business impact.** A correct status code decides whether a mobile SDK retries, a circuit breaker opens, a CDN caches an error, and whether on-call is paged. A correct cache policy is typically the cheapest performance and cost lever a backend has (`90-99%` fewer origin hits), and the most common cause of cross-user data leaks when it is wrong.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### The Anatomy of a Cache Decision
+
+```text
+  GET /app.html
+      │
+      ▼
+ [Browser cache]──fresh?──────────yes──> serve from memory/disk                 0 bytes, 0 RTT   (DevTools: "(disk cache)")
+      │ no (stale or missing)
+      ▼
+ [CDN / shared cache]──fresh? (s-maxage / max-age − Age)──yes──> serve at edge    ~0.5 RTT to PoP  (header: Age, X-Cache: HIT)
+      │ no
+      ▼
+ conditional request: If-None-Match: "v7"  (and/or If-Modified-Since)
+      │
+      ▼
+ [Origin]──ETag still "v7"?──yes──> 304 Not Modified, no body                     ~300 B, 1 RTT
+      │ no
+      ▼
+      200 OK + new ETag + new Cache-Control + body                                full size S, 1 RTT
+```
+
+### The Observability Gap: What Each Layer Can and Cannot See
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Browser DevTools / RUM** | `from disk cache` vs. `304` vs. `200`, transfer size, timing. | Other users' experience; whether the CDN or the origin served the body. |
+| **CDN analytics** (`X-Cache`, `CF-Cache-Status`, `Age`) | Edge hit ratio, bytes saved, `Age` distribution. | Requests that never left the browser cache (fresh hits are invisible to every server). |
+| **Origin access log** | Only misses and revalidations (`200` vs. `304` split). | Hit traffic entirely; **a falling request rate can mean a better hit ratio or lost users**. |
+| **SLO dashboard by status class** | `5xx` ratio, `4xx` ratio. | **`200 OK` error envelopes** (`{"ok":false}`) count as success; availability reads `100%` during an outage. |
+| **Metrics to add** | `cache_status` per route, `304_ratio`, `Age` histogram, `Vary` key cardinality, authenticated-route `Cache-Control` audit. | Nothing: these catch both silent staleness and silent leaks. |
+
+**Rule:** graph *status code, cache status, and bytes* together per route. A route with high `200` and `Cache-Control: public` but an `Authorization` header is a data-leak alert, not a performance win.
+
+---
+
+## Mathematical Model of Freshness, Savings & Retry Back-off
+
+### 1. Freshness Lifetime and Heuristic Caching
+
+$$\text{fresh} \iff \text{current age} < \text{freshness lifetime},\qquad \text{current age} \approx \text{Age} + \text{response delay} + \text{time since stored}$$
+
+Freshness lifetime is `s-maxage` (shared caches) or `max-age`, else `Expires - Date`. **If none is present**, caches may *guess*: RFC 9111 §4.2.2 suggests `10%` of the time since `Last-Modified`:
+
+$$\text{lifetime}_{\text{heuristic}} \approx 0.1 \times (\text{Date} - \text{Last-Modified})$$
+
+A file last modified `100 days` ago is silently cacheable for **`10 days`** with no `Cache-Control` at all. Always send an explicit policy.
+
+### 2. Bytes and Round Trips per View
+
+For an object of size $S$ viewed $n$ times with $n_{200}$ full downloads, $n_{304}$ conditional hits (cost $c \approx 300\ \text{B}$), and $n_{\text{fresh}}$ local hits:
+
+$$\text{Bytes} = n_{200}\,S + n_{304}\,c,\qquad \text{RTTs} = n_{200} + n_{304}\quad(n_{\text{fresh}} \text{ costs } 0)$$
+
+| Policy for a `200 KB` logo viewed `5` times | Bytes Downloaded | Network RTTs |
+| :--- | :--- | :--- |
+| `no-store` | `1,000 KB` | `5` |
+| `no-cache` + `ETag` | `200 KB + 4 x 0.3 KB = 201.2 KB` | `5` |
+| `public, max-age=3600` (fingerprinted name) | `200 KB` | `1` |
+| `public, max-age=31536000, immutable` | `200 KB` | `1` (and never revalidates) |
+
+### 3. Worked Example: The 2 MB Catalog
+
+`100,000` app opens per day from `5,000` devices (`20` opens each); the catalog changes `3` times a day.
+
+- **No caching:** $100{,}000 \times 2\ \text{MB} = 200\ \text{GB/day}$.
+- **`ETag` only:** at most one full download per device per change: $5{,}000 \times 3 = 15{,}000$ full fetches $= 30\ \text{GB}$, plus $85{,}000 \times 300\ \text{B} \approx 25.5\ \text{MB}$ of `304`s, a **~85% saving**.
+- **Add `max-age=300`:** repeat opens within `5 min` need no request at all, cutting origin requests further, and a CDN with `s-maxage` collapses the `15,000` full fetches into roughly one per PoP per change.
+
+### 4. CDN Hit Ratio and Origin Load
+
+$$\text{Origin RPS} = \text{Edge RPS} \times (1 - h)$$
+
+| Hit Ratio $h$ | Origin RPS at `20,000` Edge RPS | Origin Reduction |
+| :--- | :--- | :--- |
+| `0%` (all `no-store`) | `20,000` | none |
+| `90%` | `2,000` | `10x` |
+| `95%` | `1,000` | `20x` |
+| `99%` | `200` | `100x` |
+
+### 5. Retry Back-off Schedule for `429` / `5xx`
+
+Full-jitter back-off sleeps $U\!\left(0,\ \min(\text{cap},\ b\cdot 2^{a})\right)$ before attempt $a$. With $b = 100\ \text{ms}$, cap `10 s`:
+
+| Attempt $a$ | Upper Bound | Expected Sleep |
+| :--- | :--- | :--- |
+| `0` | `100 ms` | `50 ms` |
+| `1` | `200 ms` | `100 ms` |
+| `2` | `400 ms` | `200 ms` |
+| `3` | `800 ms` | `400 ms` |
+| `4` | `1,600 ms` | `800 ms` |
+
+Total expected wait over five retries is **`1.55 s`**. Jitter prevents the *thundering herd* where thousands of clients retry on the same beat; if the response carries `Retry-After`, that value **overrides** the computed delay.
+
+### 6. How Much Does a `200 OK` Error Envelope Hide?
+
+If a fraction $f$ of requests fail but are returned as `200`, the status-based SLI reads $1 - 0 = 100\%$ while true availability is $1 - f$. At $f = 3\%$ the real error budget burn is `~10.9 days` of annual downtime-equivalent while the dashboard stays green.
 
 ---
 
@@ -510,53 +630,137 @@ The first is 403: the server knows who they are, and the answer is no. The secon
 
 ## Interview Practice Questions
 
-> [!interview] What do the HTTP status code families mean? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. What do the HTTP status code families mean? [BASIC]</strong></summary>
 
-1xx is informational; 2xx success, such as 200, 201 and 204; 3xx redirects, with the new URL in the Location header; 4xx client errors, such as 400, 404 and 429, where the request needs fixing; 5xx server errors, such as 500, 502, 503 and 504, where the server or something behind it failed.
-
-</details>
-
-> [!interview] What's the difference between 401 and 403? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-401 (named Unauthorized) means not authenticated: the server doesn't know who you are, or your credentials are missing, invalid or expired, so authenticate and retry. 403 Forbidden means the server knows who you are and you're not allowed; logging in again won't help.
+<strong>What a strong answer covers:</strong>
+`1xx` informational (rare, e.g. `100 Continue`, `103 Early Hints`); `2xx` success (`200`, `201` with `Location`, `204`); `3xx` redirects or "use your cache" (`301`, `302`, `304`); `4xx` the client's request needs fixing (`400`, `401`, `403`, `404`, `409`, `429`); `5xx` the server or something behind it failed (`500`, `502`, `503`, `504`). The first digit tells you whom to look at.
 
 </details>
 
-> [!interview] Which errors should a client retry? (Scenario)
+<details>
+<summary><strong>2. What is the difference between 401 and 403? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-5xx errors such as 502, 503 and 504, and 429 Too Many Requests, may succeed later: retry with exponential backoff and jitter, honour Retry-After, and only retry requests that are safe to repeat (idempotent, or protected by an idempotency key). Most 4xx errors won't fix themselves, so don't retry them.
-
-</details>
-
-> [!interview] How would you cache static files and HTML for a web app? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Put a content hash in static file names (app.3f9a.js) and serve them with a long max-age, even a year, marked immutable; a deploy changes the name, so users get the new file at once. Serve HTML with a short max-age or no-cache plus an ETag, so browsers revalidate cheaply. Mark personal pages private or no-store.
+<strong>What a strong answer covers:</strong>
+`401` (named Unauthorized) means **unauthenticated**: credentials are missing, invalid, or expired; the response should include `WWW-Authenticate`, and the client may refresh the token once and retry. `403 Forbidden` means the server knows who you are and you are **not allowed**; logging in again will not help. Some APIs return `404` instead of `403` to avoid revealing that a resource exists.
 
 </details>
 
-> [!interview] What's the difference between no-cache and no-store? (Tricky)
+<details>
+<summary><strong>3. What is the difference between 301, 302, 307 and 308, and how does a redirect differ from a CNAME? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+All send the client to the URL in `Location`, and the address bar changes. `301`/`308` are permanent (cacheable, remembered by browsers and search engines); `302`/`307` are temporary. `307` and `308` **preserve the method and body**, whereas `301`/`302` may be rewritten to `GET`; use `307`/`308` for redirected `POST`s. A `CNAME` is resolved inside DNS and never changes the URL (Lesson 16).
 
-no-cache allows storing a copy but requires revalidation with the server before every use, typically with an ETag and If-None-Match. no-store forbids keeping a copy at all, for sensitive responses like bank statements.
+</details>
+
+<details>
+<summary><strong>4. What does `Cache-Control: max-age=3600` mean, and how is it like a DNS TTL? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The response may be reused for `3,600 s` without contacting the server (zero bytes, zero round trips). It is the same countdown idea as a DNS TTL, but for an HTTP response and enforced by browsers and CDNs. The two **stack**: a CDN's `Age` header shows how long it has held the copy, and a stale DNS answer can still point at the wrong origin even when the page cache is fine.
 
 </details>
 
-> [!interview] How do ETags and 304 work, and what do they save? (Tricky)
+<details>
+<summary><strong>5. Which errors should a client retry? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-The server labels a response with an ETag, a version fingerprint. When the cached copy is stale, the browser sends If-None-Match with that ETag; if the content hasn't changed the server replies 304 Not Modified with no body. That saves the bytes of the response, though it still costs a round trip; only a fresh max-age saves the round trip too.
+<strong>What a strong answer covers:</strong>
+`429` and the transient `5xx` (`502`, `503`, `504`) may succeed later: retry with exponential back-off **and jitter**, honor `Retry-After`, cap attempts, and retry only requests that are safe to repeat (idempotent, or protected by an `Idempotency-Key`). Do not retry `400`, `403`, `404`, `409`, `410`. For `401`, refresh the token **once** and retry once. Blind retry of every non-`2xx` turned an expired-token rollout into a `5x` origin spike.
 
 </details>
+
+<details>
+<summary><strong>6. How would you cache static files and HTML for a web app? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Put a content hash in static file names (`app.3f9a.js`) and serve them `Cache-Control: public, max-age=31536000, immutable`; a deploy changes the name so users get new files immediately. Serve HTML with `no-cache` (or a very short `max-age`) plus an `ETag`, so browsers revalidate cheaply. Mark personal responses `private` or `no-store`. Add `Vary: Accept-Encoding` where compression varies.
+
+</details>
+
+<details>
+<summary><strong>7. An API returns `200 OK` with `{"ok": false, "error": "busy"}` for failures. Why is that harmful and how do you fix it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Every layer that reads only the status treats it as success: monitoring and SLOs show `100%` availability, retry logic never fires, circuit breakers stay closed, and CDNs happily cache the error for the whole `max-age`. Fix by mapping failures to real statuses (`429`, `503`, `4xx`) with an `application/problem+json` body, add contract tests that reject error envelopes with `200`, and purge any cached error objects.
+
+</details>
+
+<details>
+<summary><strong>8. A CDN served one user's account JSON to another user. How did it happen and how do you prevent it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+An authenticated `GET` had no explicit `Cache-Control`, and a default edge rule treated it as `public, max-age=300`, keyed only by URL (no `Vary: Authorization`/cookie). Prevent it with secure defaults (`private, no-store` on all authenticated routes, opt-in to caching), CDN rules that **bypass** the cache when `Authorization` or session cookies are present, a test that scans responses for personalized routes lacking `private`/`no-store`, and an immediate purge procedure.
+
+</details>
+
+<details>
+<summary><strong>9. What is the difference between `no-cache` and `no-store`? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`no-cache` allows a copy to be **stored** but requires revalidation (typically `If-None-Match` -> `304`) before every reuse. `no-store` forbids keeping a copy at all, which is what sensitive responses (statements, tokens, lab results) need; a `no-cache` response can still sit on disk of a shared kiosk. `no-cache` still saves bytes via `304`, but not round trips.
+
+</details>
+
+<details>
+<summary><strong>10. How do `ETag` and `304` work, and what exactly do they save? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The server labels a response with an `ETag` (a version fingerprint). When the cached copy is stale, the client sends `If-None-Match: "v7"`; if unchanged the server replies `304 Not Modified` with **no body**, so the client reuses its copy. That saves the body bytes (`~300 B` instead of `2 MB`), but **still costs one round trip**; only a fresh `max-age` saves the round trip too. Bytes $= n_{200}S + n_{304}c$.
+
+</details>
+
+<details>
+<summary><strong>11. What is `Vary`, and what goes wrong without it? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`Vary` lists request headers that influence the response, adding them to the cache key. Without `Vary: Accept-Encoding`, a cache can serve gzip bytes to a client that did not ask for them; without `Vary: Accept-Language`/`Origin`, one user's language or CORS headers are served to everyone. Too much variation (`Vary: Cookie`, `User-Agent`) destroys the hit ratio by exploding key cardinality. Normalize the varying header at the edge when possible.
+
+</details>
+
+<details>
+<summary><strong>12. How do 502, 503 and 504 differ, and which would you page on? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+All three come from the layer in front of the failing service. `502`: invalid response or abruptly closed connection from upstream (crash, protocol mismatch, keep-alive race). `503`: the service is overloaded, has no healthy backends, or is in maintenance (often with `Retry-After`). `504`: upstream did not answer before the proxy's timeout. Page on **rate and duration** (SLO burn), not single occurrences; a `502` spike right after a deploy points at connection reuse or crashes, `504`s at slow dependencies, `503`s at capacity or shedding.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                   HTTP STATUS CODES, 401 vs 403, CACHING & ETAGS  —  CHEAT SHEET
+====================================================================================================
+FAMILIES   1xx info | 2xx success | 3xx redirect/use cache | 4xx YOUR request | 5xx THE SERVER
+  200 OK  201 Created (+Location)  204 No Content   301/308 permanent  302/307 temporary (307/308 keep method)
+  304 Not Modified (no body)   400 bad request   401 who are you?   403 known, not allowed   404 / 410 gone
+  409 conflict   429 rate limit (+Retry-After)   500 bug   502 bad upstream answer   503 overload   504 upstream slow
+
+RETRY RULES   retry: 429, 502, 503, 504 (idempotent or keyed)   backoff = U(0, min(cap, b*2^a)) + honor Retry-After
+              401 -> refresh token ONCE   400 / 403 / 404 / 409 / 410 -> never retry, fix the request
+
+CACHE-CONTROL   max-age=N fresh N s | s-maxage shared caches | no-cache store + REVALIDATE every use
+                no-store never keep | private browser only | public CDNs ok | immutable never revalidate | must-revalidate
+VALIDATORS      ETag + If-None-Match -> 304   Last-Modified + If-Modified-Since   Vary = request headers in cache key
+
+FRESHNESS MATH  fresh iff age < lifetime ; heuristic lifetime ~ 0.1 * (Date - Last-Modified) if no policy sent
+BYTES / RTT     bytes = n200*S + n304*~300B ; 304 saves bytes NOT the round trip ; fresh hit = 0 B, 0 RTT
+ORIGIN LOAD     origin_rps = edge_rps * (1 - hit_ratio)    90% -> 10x less, 99% -> 100x less
+CATALOG EXAMPLE 2 MB x 100,000 opens = 200 GB ; ETag => ~30 GB (-85%) ; + max-age/CDN => far less
+
+STATIC ASSETS   app.3f9a.js : public, max-age=31536000, immutable    HTML : no-cache + ETag
+PERSONAL DATA   private, no-store on every authenticated route; CDN bypass on Authorization / session cookies
+
+OBSERVABILITY   graph status class + cache status + bytes per route ; never trust SLOs built on 200-with-error
+ANTI-PATTERNS   X errors as 200   X public on personal pages   X long max-age on un-fingerprinted URLs
+                X no-cache when you mean no-store   X retry all 4xx   X heuristic caching with no Cache-Control
+====================================================================================================
+```
 
 ---
 

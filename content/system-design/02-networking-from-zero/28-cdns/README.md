@@ -1,12 +1,15 @@
 # Lesson 28: CDNs — Moving Bytes Closer to the Speed of Light
 
 > **Prerequisites:** [Lesson 27: Forward and Reverse Proxies](../27-forward-and-reverse-proxies/README.md), [Lesson 19: HTTP Status Codes and Caching](../19-http-status-codes-and-caching/README.md), [Lesson 17: DNS Traffic Management](../17-dns-traffic-management/README.md), and [Networking From Zero Overview](../README.md) (Lesson 28 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend and platform engineers designing low-latency global APIs, preventing cache stampedes with Origin Shielding, tuning `s-maxage`/`stale-while-revalidate` policies, and locking origins against WAF bypass.  
 > **Free PDF Notes:** [Download SD-N-028.pdf](https://backendroadmap.com/notes/system-design/SD-N-028.pdf)
 
+> [!NOTE]
+> **In one line:** a CDN serves your content from edge servers near users, so handshakes and round trips are short and cache hits never reach the origin; after a deploy, change file names instead of purging.
+
 > [!TIP]
-> **The Golden Rule of CDNs:** Light travels through fiber optic glass at roughly `200,000 km/s`—so a New York-to-Tokyo round trip costs `~140 ms` even with a zero-latency origin. Terminating TCP and TLS at a nearby **Anycast Edge POP (`~10 ms`)** immediately deletes `3–4×` cross-ocean handshakes even for uncached requests; combine **normalized cache keys**, **Origin Shielding with request coalescing**, `s-maxage` / `stale-while-revalidate` / `Cache-Tag` purges, and **mTLS origin lockdown** so traffic spikes never melt your database or bypass your WAF.
+> **The Golden Rule of CDNs:** Light travels through fiber optic glass at roughly `200,000 km/s`—so a New York-to-Tokyo round trip costs `~140 ms` even with a zero-latency origin. Terminating TCP and TLS at a nearby **Anycast Edge POP (`~10 ms`)** immediately deletes `3–4×` cross-ocean handshakes even for uncached requests; combine **normalized cache keys**, **Origin Shielding with request coalescing**, `s-maxage` / `stale-while-revalidate` / `Cache-Tag` purges, and **mTLS origin lockdown** so traffic spikes never melt your database or bypass your WAF. Prefer **content-hashed file names** (`app.3f9a.js` with `max-age=31536000, immutable`) and short-TTL HTML so deploys need almost no purge.
 
 ---
 
@@ -144,6 +147,141 @@ From [lesson 19](../19-http-status-codes-and-caching/README.md), `Cache-Control:
 | **`stale-if-error=86400`** | RFC 5861 Shared Caches | Serves cached copy if origin returns `5xx` or times out | Caching `5xx` accidentally via misconfigured error-TTL rules |
 | **`Vary: Accept-Encoding`** | All HTTP Caches | Partitions cache by `br` / `gzip` / identity | Using `Vary: User-Agent` or `Vary: Cookie` destroys hit ratio |
 | **`Cache-Tag` / `Surrogate-Key`** | Edge CDN (stripped before client) | Enables `< 150 ms` tag-based global invalidation | Exceeding header/tag count limits per object (keep `< 50` tags) |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**A CDN is a global mesh of edge PoPs that terminate TCP/TLS near the user and serve (or fetch) content on their behalf.** Your servers are the **origin**; users connect to the nearest PoP via anycast or DNS. A cache hit never leaves the edge. A miss still wins, because the edge reuses warm, tuned connections back to the origin.
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **CDN Edge PoP** vs. **Origin** vs. **Origin Shield** | *Edge PoP*: cache + TLS terminator near users. *Origin*: your source of truth. *Shield*: one middle cache that all edges miss into, so the origin sees one fetch, not hundreds. | Mumbai shopper hits Mumbai PoP (`~5 ms`); miss goes to a Virginia shield, then your origin once. |
+| **Pull CDN** vs. **Push CDN** | *Pull*: edge fetches on first miss and caches (default for websites). *Push*: you upload content ahead of time (video libraries, OS ISOs). | `app.3f9a.js` pulled on first miss; a `50 GB` game build pushed overnight. |
+| **Cache key** vs. **URL** vs. **`Vary`** | The cache key is what makes two requests "the same object" (URL ± chosen headers/query). `Vary` partitions that key further. Too much in either collapses hit ratio. | Key = `/img/shoe.jpg` → one copy, `95%` hits. Key = URL + session cookie → one copy per user. |
+| **Purge / invalidation** vs. **versioned URLs** | *Purge*: tell every PoP to drop a path/tag (seconds–minutes, sometimes billed per path). *Versioned URLs*: new content gets a new name, so nothing needs invalidating. | `app.3f9a.js` → `app.7c21.js` after deploy; HTML `max-age=60` points to the new name. |
+
+**Business impact.** At a `95%` hit ratio, `1,000,000` edge requests/hour become only `50,000` at the origin (`1 in 20`). At `80%`, origin load is `4×` higher. Hit ratio drives both latency *and* origin cost.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy of One CDN Request
+
+```text
+ USER (Mumbai)                    EDGE PoP (Mumbai)                 SHIELD (optional)              ORIGIN (Virginia)
+   |  TCP+TLS (~5 ms RTT) ------> |                                   |                              |
+   |  GET /img/shoe.jpg           |                                   |                              |
+   |                              |-- HIT? serve from NVMe (~few ms)  |                              |
+   |                              |-- MISS + coalesce --------------->|-- MISS? fetch once ---------->|
+   |                              |<-- 200 + Cache-Control -----------|<-- 200 + body ----------------|
+   |<-- 200 from edge             |  store under cache key            |  warm keep-alive pool        |
+ Cache key = scheme+host+path (+ selected query/headers); ignore utm_*/fbclid or hit ratio collapses
+```
+
+### The Observability Gap: Where CDN Metrics Lie
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **CDN analytics** (`Hit/Miss`, `Cache Status`, `Edge TTFB`) | Per-PoP hit ratio, bandwidth saved, purge lag. | Whether *your* origin CPU is healthy; shield vs edge miss distinction if not enabled. |
+| **Origin access logs** | Only misses that reached you (plus shield collapses). | The `95%` of traffic served at the edge—origin QPS looking "fine" can hide a collapsing hit ratio. |
+| **RUM / browser timings** | Real user TTFB by geography. | Whether a slow TTFB is DNS, TLS at edge, or origin miss (needs `Server-Timing` / CDN headers). |
+| **`curl -I` from one laptop** | One PoP's `cf-cache-status` / `x-cache` / `Age`. | Other PoPs still cold after a purge; anycast may land you on a different PoP next hop. |
+| **Metrics to add** | Hit ratio by path class, origin RPS, shield coalesced-miss count, purge propagation p95, `4xx`/`5xx` cached ratio. | Nothing useful if you only watch origin CPU during a marketing campaign. |
+
+**Operational rule:** declare a deploy "cached" only when **edge hit ratio and origin RPS** both look right—not when one laptop sees `HIT`.
+
+---
+
+## Mathematical Model of Edge Latency, Hit Ratio & Origin Load
+
+### 1. Cold HTTPS Cost: Origin vs Nearby PoP
+
+A new HTTPS connection needs about `2` RTTs (TCP + TLS 1.3) before the first request, plus `1` more for the response:
+
+$$T_{\text{TTFB}} \approx 3 \times \text{RTT} + T_{\text{serve}}$$
+
+| Path | RTT | Cold TTFB (`3 × RTT`) | Notes |
+| :--- | :--- | :--- | :--- |
+| Mumbai → Virginia (no CDN) | `200 ms` | **`600 ms`** | Every image/bundle pays this |
+| Mumbai → Mumbai PoP (hit) | `5 ms` | **`~15 ms`** + cache read | Handshakes stay local |
+| Mumbai → PoP miss, warm origin pool | `5 ms` + `200 ms` | **`~220 ms`** | Edge skips new origin handshake |
+
+### 2. Origin Offload from Hit Ratio
+
+$$\text{Origin QPS} = \lambda_{\text{edge}} \times (1 - h), \qquad h = \text{cache hit ratio}$$
+
+| Edge RPS ($\lambda$) | Hit ratio $h$ | Origin RPS | Relative origin load |
+| :--- | :--- | :--- | :--- |
+| `1,000,000 / h` ≈ `278 / s` | `95%` | `~14 / s` (`50k/h`) | **1×** (baseline) |
+| same | `80%` | `~56 / s` | **4×** |
+| same | `50%` | `~139 / s` | **10×** |
+| same | `30%` (polluted keys) | `~194 / s` | **~14×** |
+
+**Worked example (PDF):** at `95%` hits, `1,000,000` requests/hour → only `50,000` at the origin (`1 in 20`).
+
+### 3. Percentiles: Why Average Hit Ratio Lies
+
+Suppose `90` PoPs at `99%` hit, `9` at `80%`, and `1` viral PoP at `10%` after a campaign polluted keys:
+
+$$\bar{h} = 0.90\times0.99 + 0.09\times0.80 + 0.01\times0.10 = 0.964 = 96.4\%$$
+
+That looks healthy—yet the viral PoP's origin miss storm can still SEV-1 the database. Track **p95 / worst-PoP hit ratio**, not only the fleet average.
+
+| Metric | Who it describes | CDN action |
+| :--- | :--- | :--- |
+| **$p_{50}$ edge TTFB** | Typical cache-hit user | Should be single-digit–low tens of ms near a PoP |
+| **$p_{95}$ edge TTFB** | Users on cold PoPs / misses | Watch after deploys and purges |
+| **$p_{99}$ origin TTFB** | Miss path + origin queueing | Pair with shield + `stale-while-revalidate` |
+| **Worst-PoP hit ratio** | The PoP with polluted keys | Alert when any PoP drops below `70%` on public assets |
+
+### 4. Compounding: Many Assets Per Page
+
+A home page with $N$ images/bundles, each independently cached at hit ratio $h$:
+
+$$P(\text{at least one miss}) = 1 - h^{N}$$
+
+| $N$ assets | $h = 0.99$ | $h = 0.95$ | $h = 0.80$ |
+| :--- | :--- | :--- | :--- |
+| `1` | `1%` | `5%` | `20%` |
+| `5` | `5%` | `23%` | `67%` |
+| `10` | `10%` | `40%` | `89%` |
+| `20` | `18%` | `64%` | `99%` |
+| `40` (typical storefront) | `33%` | **`87%`** | `~100%` |
+
+At `95%` hit ratio, an `40`-asset page still has an **`87%` chance of at least one origin-bound miss**—so shield + coalescing matter even when "the CDN looks fine."
+
+### 5. Numbers Every Backend Engineer Must Know
+
+| Operation / Fact | Typical Value | Architectural Implication |
+| :--- | :--- | :--- |
+| Fiber speed in glass | `~200,000 km/s` | Cross-ocean RTT floor `~140–200 ms` |
+| Mumbai ↔ Virginia RTT | `~200 ms` | Cold HTTPS ≈ `600 ms` without edge |
+| Nearby PoP RTT | `5–20 ms` | Cold HTTPS ≈ `15–60 ms` on hit |
+| Good static hit ratio | `90–99%` | Origin offload `10–100×` |
+| Immutable hashed asset TTL | `1 year` (`31536000`) | Deploy = new URL; no purge |
+| HTML / entry document TTL | `30–60 s` | Must update to point at new hashes |
+| Purge propagation | seconds–minutes | Exception, not the deploy plan |
+| Origin shield coalescing | `N` misses → `1` fetch | Survives `200+` PoP stampedes |
+
+### 6. Hierarchical Latency Budget (Global Page)
+
+| Tier | Budget (example) | Notes |
+| :--- | :--- | :--- |
+| DNS / anycast steering | `5–30 ms` | See [Lesson 17](../17-dns-traffic-management/README.md) |
+| Edge TCP + TLS 1.3 | `10–40 ms` | Dominates on hits |
+| Edge cache read (hit) | `1–10 ms` | NVMe / memory |
+| Shield + origin (miss) | `50–250 ms` | Warm pool preferred |
+| Browser parse / remaining | rest of `2 s` SLA | Keep HTML short-TTL |
+
+### 7. Top Engineering Mitigations
+
+1. **Anycast / GeoDNS edge termination** — cut cross-ocean handshakes even for dynamic APIs.
+2. **Normalized cache keys** — strip `utm_*`, `fbclid`; keep `Vary: Accept-Encoding` only.
+3. **Origin Shield + request coalescing** — one origin fetch per object under stampede.
+4. **Versioned assets + short HTML** — avoid purge-driven deploys.
+5. **`s-maxage` + `stale-while-revalidate` + `stale-if-error` + mTLS origin lockdown** — tail latency, resilience, and WAF integrity.
 
 ---
 
@@ -521,53 +659,135 @@ Another user hitting that cached edge URL could receive the first user's `Set-Co
 
 ## Interview Practice Questions
 
-> [!interview] How does a CDN speed up uncached, dynamic API requests? (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. How does a CDN reduce latency? [BASIC]</strong></summary>
 
-Even when a response cannot be cached, terminating TCP and TLS 1.3 at a nearby Anycast Edge POP 10 milliseconds from the user eliminates two or three cross-ocean handshake round trips. The edge then forwards the request to the origin over a pre-warmed, persistent backbone connection pool, cutting dynamic TTFB by hundreds of milliseconds.
-
-</details>
-
-> [!interview] What is the difference between `max-age` and `s-maxage`? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-`max-age` controls how long both private browser caches and shared caches may reuse a response, whereas `s-maxage` overrides `max-age` exclusively for shared caches like CDNs. Using a short `max-age` like 30 seconds with a long `s-maxage` like 3,600 seconds keeps your CDN hit ratio high while ensuring instant CDN purges reach user browsers quickly.
+<strong>What a strong answer covers:</strong>
+It serves content from edge PoPs near users: TCP/TLS handshakes and round trips are short (`~5 ms` instead of `~200 ms`), cache hits skip the origin entirely, and misses reuse warm edge-to-origin connections so the client still avoids a cold cross-ocean handshake.
 
 </details>
 
-> [!interview] How do Origin Shielding and Request Coalescing prevent a cache stampede? (Scenario)
+<details>
+<summary><strong>2. Pull CDN vs push CDN? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Without an Origin Shield, hundreds of Edge POPs worldwide hit the origin independently when a popular cached item expires or gets purged. Origin Shield routes all POP misses through one central shield tier near the origin, and Request Coalescing collapses thousands of simultaneous requests for the same expired key into a single upstream origin fetch, broadcasting that response to all waiting clients.
-
-</details>
-
-> [!interview] Your CDN hit ratio dropped from 95% to 12% right after a marketing campaign and mobile app launch. What are the first two things you check? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-First, check whether campaign query parameters like `utm_source` or `fbclid` are polluting the CDN cache key so every click creates a brand-new miss. Second, inspect the origin's `Vary` response header—if the app emits `Vary: User-Agent` or `Vary: Cookie`, it fragments every URL into thousands of tiny unshared buckets.
+<strong>What a strong answer covers:</strong>
+**Pull:** the edge fetches from the origin on the first miss and caches it—easy, and the default for websites. **Push:** you upload content to the CDN ahead of time—good for large, rarely changing files like video libraries and software downloads.
 
 </details>
 
-> [!interview] How do `stale-while-revalidate` and `stale-if-error` improve tail latency and availability? (Tricky)
+<details>
+<summary><strong>3. What is the cache hit ratio, and why does it matter? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+The share of requests served from the edge. At `95%`, the origin sees `1` request in `20`; at `80%`, `1` in `5`—about `4×` more origin load. Hit ratio drives both latency and origin cost. Also watch **worst-PoP** hit ratio; a healthy fleet average can hide one viral PoP melting the origin.
 
-`stale-while-revalidate` instructs the CDN to serve an expired object immediately in a few milliseconds while refreshing it asynchronously in the background, shielding callers from origin revalidation latency spikes. `stale-if-error` lets the CDN continue serving a stale cached copy if the origin returns 5xx errors or times out, turning brief backend outages into invisible blips.
+</details>
+
+<details>
+<summary><strong>4. What is a cache key, and what ruins it? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The tuple that makes two requests the "same" cached object—usually URL plus chosen headers/query params. Including session cookies, `utm_*`, `fbclid`, or `Vary: User-Agent` / `Cookie` creates per-user or per-browser copies so the hit ratio collapses. Strip tracking params; keep `Vary: Accept-Encoding` only on public assets.
 
 </details>
 
-> [!interview] Why isn't pointing DNS at a CDN enough to protect your backend from DDoS and WAF bypass? (Tricky)
+<details>
+<summary><strong>5. How do you invalidate CDN content after a deploy? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Anyone who uncovers your origin's raw IP address from historical DNS records or certificate logs can send HTTP requests straight to that IP with a spoofed `Host` header, bypassing the CDN WAF and rate limits completely. You must lock down origin firewalls to CDN IP ranges and enable mTLS Authenticated Origin Pulls so the origin rejects any TLS handshake lacking the CDN's client certificate.
+<strong>What a strong answer covers:</strong>
+Prefer **versioned (content-hashed) file names** with `Cache-Control: public, max-age=31536000, immutable`, and keep the HTML short-lived (e.g. `max-age=60`) so it points to new names. Old copies age out; nothing to purge. Purge only the few same-URL paths that must change in place—purges take seconds to minutes per PoP and some CDNs bill per path.
 
 </details>
+
+<details>
+<summary><strong>6. Your hit ratio dropped from 95% to 30% after a marketing launch. What do you check? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The **cache key**. Likely new query parameters (`utm_*`) or a cookie are now part of it, so each visitor creates a new copy. Strip or ignore them in the key, and check `Vary` headers. Confirm with CDN analytics per path and a `curl -I` before/after appending `?utm_source=test`.
+
+</details>
+
+<details>
+<summary><strong>7. A new 50 MB video goes live and 300 PoPs miss at once. What protects the origin? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Origin shielding:** all edge misses go to one shield PoP, which fetches the file once. The CDN also **collapses concurrent misses** for the same object into one origin request. Without that, `300` PoPs × concurrent viewers can stampede the origin.
+
+</details>
+
+<details>
+<summary><strong>8. How does a CDN speed up uncached dynamic API requests? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Even when the response cannot be cached, terminating TCP and TLS at a nearby Anycast edge deletes `2–3` cross-ocean handshake RTTs. The edge forwards over a warm backbone pool to the origin. Cache only public, non-personalized `GET`s with short TTLs; send `private` / `no-store` for per-user data.
+
+</details>
+
+<details>
+<summary><strong>9. Can you put an API behind a CDN? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Yes. Even uncached traffic gains nearby TLS termination and warm connections. Cache only public, non-personalized `GET` responses with short TTLs; never cache responses with `Set-Cookie` or auth-bound bodies as `public`. Mark personalized endpoints `private, no-store`.
+
+</details>
+
+<details>
+<summary><strong>10. Why is the HTML not given the same one-year TTL as the bundles? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The HTML's URL never changes, so a long TTL would pin users to the old page, which points to old hashed bundles. It is the entry point that must update, so it gets a short TTL or revalidation. Bundles can be immutable because a content change produces a **new URL**.
+
+</details>
+
+<details>
+<summary><strong>11. How do `stale-while-revalidate` and `stale-if-error` help? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+`stale-while-revalidate` serves an expired object immediately while refreshing asynchronously—hiding origin revalidation from `p99`. `stale-if-error` keeps serving the last healthy copy if the origin returns `5xx` or times out. Pair with short error TTLs so you do not accidentally cache a `500` for hours.
+
+</details>
+
+<details>
+<summary><strong>12. Why isn't pointing DNS at a CDN enough to protect the origin? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Attackers who find the origin IP (historical DNS, cert transparency) can hit it directly with `Host: your.domain` and bypass CDN WAF/rate limits. Lock the origin firewall to CDN egress CIDRs **and** require **mTLS Authenticated Origin Pulls** so handshakes without the CDN client cert are rejected.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                              CDNs EXPLAINED  —  CHEAT SHEET
+====================================================================================================
+IN ONE LINE   Edge PoPs near users: short handshakes, hits never hit origin; deploy = new filenames, not purges
+
+ANATOMY       User -> Anycast/DNS PoP -> (hit: local) | (miss: Shield coalesce -> Origin warm pool)
+CACHE KEY     scheme+host+path (+ chosen query/headers)   Strip utm_*/fbclid   Vary: Accept-Encoding ONLY
+PULL vs PUSH  Pull = fetch on miss (websites)   Push = upload ahead (video/ISO libraries)
+
+LATENCY MATH  Cold HTTPS TTFB ≈ 3 × RTT
+  Mumbai↔Virginia 200 ms -> 600 ms direct | Mumbai PoP 5 ms -> ~15 ms hit | miss+warm pool ~220 ms
+HIT RATIO     Origin QPS = λ_edge × (1 − h)     95% => 1/20 origin   80% => 1/5 (4× load)
+COMPOUNDING   P(≥1 miss on N assets) = 1 − h^N     40 assets @ 95% => ~87% chance of a miss
+PERCENTILES   Watch worst-PoP hit ratio, not only fleet average (one viral PoP can SEV-1 you)
+
+DEPLOY        Hashed assets: max-age=31536000, immutable   HTML: max-age=30–60   Purge = exception
+HEADERS       s-maxage (CDN) vs max-age (browser)   stale-while-revalidate   stale-if-error
+              Surrogate-Key / Cache-Tag for <150 ms tag purges
+SHIELD        200+ PoP misses -> 1 shield fetch + request coalescing
+LOCKDOWN      CDN IP allowlist + mTLS Authenticated Origin Pulls (DNS-to-CDN alone is NOT enough)
+
+OBSERVE       Edge hit/miss, Age, origin RPS, shield coalesce count, purge p95, RUM TTFB by geo
+ANTI-PATTERNS X long TTL on app.js without hash   X cookies/utm in cache key   X public cache of personalized APIs
+              X purge every deploy   X Vary: User-Agent/Cookie   X open origin 0.0.0.0/0 behind CDN
+====================================================================================================
+```
 
 ---
 

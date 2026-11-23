@@ -1,9 +1,12 @@
 # Lesson 06: The OSI Model, Made Simple
 
 > **Prerequisites:** [Lesson 05: Protocols and Layers](../05-protocols-and-layers/README.md) ([Networking From Zero Overview](../README.md)).  
-> **Estimated Reading Time:** 20 minutes  
+> **Estimated Reading Time:** 30 minutes  
 > **Target Audience:** Backend and infrastructure engineers decoding L2/L3/L4/L7 terminology, packet encapsulation headers, load balancer placement, and bottom-up network triage.  
 > **Free PDF Notes:** [Download SD-N-006.pdf](https://backendroadmap.com/notes/system-design/SD-N-006.pdf)
+
+> [!NOTE]
+> **In one line:** the OSI model splits networking into seven layers (physical, data link, network, transport, session, presentation and application); the real internet runs the four-layer TCP/IP model, and engineers use the OSI numbers as shorthand: a switch is layer 2, a router layer 3, and load balancers layer 4 or 7.
 
 > [!TIP]
 > **The Golden Rule of the OSI Model:** The OSI model splits networking into seven layers—physical, data link, network, transport, session, presentation, and application—while the real internet runs the four-layer TCP/IP stack. Engineers use OSI numbers as universal shorthand to identify *which header* a device reads, *where* encapsulation stops, and *which layer* to troubleshoot first from the bottom up: a switch works at layer 2, a router at layer 3, and load balancers at layer 4 or layer 7.
@@ -24,6 +27,22 @@ Before mapping cables to HTTP headers, anchor these eight foundational terms in 
 | **Router** | A box that moves packets between networks (layer 3). | Gateway or BGP core router rewriting L2 frames per hop using IP routing tables. |
 | **Session / presentation (5, 6)** | The conversation state, plus data format, compression, and encryption. | Implemented inside application libraries (TLS encryption, UTF-8/JSON/Protobuf encoding). |
 | **Load balancer** | A box that spreads requests over many servers (layer 4 or 7). | `IPVS`/NLB forwarding TCP tuples at L4, or Envoy/ALB/Nginx routing HTTP paths at L7. |
+
+---
+
+## What It Is vs. What It Isn't
+
+OSI vocabulary is easy to repeat and easy to misuse. Five concepts that are routinely blurred:
+
+| Term | Precise Meaning | What It Is **NOT** | Production Example |
+| :--- | :--- | :--- | :--- |
+| **OSI model** | A **7-layer reference model** (ISO/IEC 7498-1) used to *name* where a function lives. | Not what the internet runs; no kernel ships a separate "session layer" module. | "That's an L4 problem", "put an L7 LB in front". |
+| **TCP/IP model** | The **4-layer** model the real internet implements (RFC 1122): Application, Transport, Internet, Link. | Not a competitor you must memorise separately — OSI 5-7 collapse into its Application layer, OSI 1-2 into Link. | What Wireshark's packet dissector tree actually shows. |
+| **"Layer 7"** | The **protocol** an application speaks (HTTP, DNS, gRPC). | Not "the application" — Chrome is software; HTTP is layer 7. | An ALB routing `/api` vs `/images` by URL path. |
+| **Layer 2 vs Layer 3 device** | A **switch** forwards *frames* by **MAC** inside one network; a **router** forwards *packets* by **IP** between networks. | A router is not "a bigger switch": it rewrites the L2 header and decrements the TTL at every hop. | ToR switch inside a rack vs. the core router at the data-centre edge. |
+| **L4 vs L7 load balancer** | L4 balances by **IP + port (5-tuple)** without parsing the payload; L7 **terminates TLS and reads HTTP**. | Not "L7 is just a faster L4": it holds *two* connections per request and costs far more CPU. | AWS NLB / IPVS (L4) vs ALB / Envoy / NGINX (L7). |
+
+> **Reading rule:** the *layer number* tells you the **highest header a device must understand**. Anything above that is opaque payload to it.
 
 ---
 
@@ -186,6 +205,59 @@ The first layer that fails is your problem. Everything above it fails too, so do
 | **Stateless Firewall / ACL** | Layer 3–4 | IP CIDR + TCP/UDP port | Permits or drops packets by header match without tracking session state |
 | **L4 Load Balancer** | Layer 4 (Transport) | IP + Port (`5-tuple`) | Rewrites destination IP/port (NAT) or L2 MAC (DSR) without parsing payload |
 | **L7 Reverse Proxy / Ingress** | Layer 7 (Application) | Host, Path, Headers, JWT | Terminates TCP + TLS, parses HTTP, selects backend pool, opens upstream request |
+
+### Capacity & Cost Math Across the Layers
+
+**1. Address-space math (L2 vs L3).**
+
+$$N_{\text{MAC}} = 2^{48} = 281{,}474{,}976{,}710{,}656 \approx 2.8 \times 10^{14} \qquad N_{\text{OUI blocks}} = 2^{24} \approx 16.7\text{M vendors} \times 2^{24}\ \text{NICs each}$$
+
+MACs are **flat** (no hierarchy), so a switch must remember every one it hears in a **CAM/MAC table** (typically `16K-128K` entries on data-centre ToR gear). IP addresses are **hierarchical** (prefix + host), so a router summarises millions of destinations in a few hundred thousand prefixes (the global IPv4 BGP table is on the order of `~1M` routes). That is exactly why L2 domains must stay small (broadcast + flooding) while L3 scales to the planet.
+
+**2. Ethernet frame envelope.**
+
+| Quantity | Value | Why |
+| :--- | :--- | :--- |
+| Minimum frame | `64 B` (`14` hdr + `46` min payload + `4` FCS) | Short payloads are padded; originally sized so a sender detects a collision within `512` bit-times (`51.2 µs` at 10 Mbps). |
+| Standard maximum frame | `1,518 B` (`14 + 1,500 + 4`) | IP MTU `1,500 B` + header + FCS. |
+| With 802.1Q VLAN tag | `1,522 B` | `+4 B` tag. |
+| Jumbo frame | `9,018 B` (MTU `9,000`) | Fewer headers per byte; must be supported on **every** hop of the path. |
+| Per-hop rewrites | **11 routers -> 12 links -> 12 different Ethernet frames** around the *same* IP packet | L2 header/FCS rebuilt at each hop; IP addresses and TCP ports stay untouched (barring NAT); TTL drops by `1` per router. |
+
+**3. What each layer costs to process (order of magnitude, hardware-dependent).**
+
+| Box | Highest Layer Parsed | Typical Work per Unit | Scales By | Typical Bottleneck |
+| :--- | :--- | :--- | :--- | :--- |
+| **L2 switch** | 2 (MAC lookup) | ASIC, **nanoseconds** per frame, line rate | Ports x line speed | CAM table size, broadcast storms. |
+| **L3 router** | 3 (FIB longest-prefix match) | ASIC, **sub-microsecond to microseconds** | Packets per second | FIB/TCAM size, BGP convergence. |
+| **L4 LB** (NLB, IPVS, XDP) | 4 (5-tuple hash + conntrack) | **Microseconds**, millions of pps per box | New flows/s, conntrack entries | `nf_conntrack` table full. |
+| **L7 LB** (ALB, Envoy, NGINX) | 7 (TLS + HTTP parse + routing) | **~0.1-several ms CPU** per new TLS connection (ECDSA cheaper than RSA-2048), tens of µs per reused-connection request | CPU cores, memory per connection | TLS handshakes/s, FDs, upstream port exhaustion. |
+
+**4. L7 load balancer connection math.** An L7 proxy terminates the client TCP/TLS connection and opens a *separate* upstream connection, so file descriptors double:
+
+$$\text{FDs} \approx C_{\text{client}} + C_{\text{upstream}}, \qquad C_{\text{upstream}} = B \times p \ \ (\text{backends} \times \text{pool size per backend})$$
+
+Example: `1,000,000` idle client connections + `200` backends x `64` pooled sockets = `1,012,800` FDs -> raise `ulimit -n` far above the default `1,024`. Without upstream pooling, **Lesson 04's math returns**: one proxy IP to one backend `ip:port` is capped at $28{,}232 / 60\,\text{s} \approx 470$ new connections/s.
+
+**5. Health-check detection time.**
+
+$$T_{\text{eject}} = \text{interval} \times \text{unhealthy threshold} \qquad\text{e.g. } 5\,\text{s} \times 2 = 10\,\text{s (L7)}\quad\text{vs.}\quad \infty\ \text{(L4 probe on a deadlocked app)}$$
+
+That single formula is the entire post-mortem below: a probe that cannot fail is not a probe.
+
+### The Observability Gap: Green at L4, Red at L7
+
+| Vantage Point | Layer Seen | What It Tells You | What It **Hides** |
+| :--- | :--- | :--- | :--- |
+| **Switch/NIC counters** (`ethtool -S`, SNMP `ifInErrors`) | 1-2 | Cable, optics, CRC, duplex, MAC flapping | Anything above the frame: a perfectly clean link can carry a dead service. |
+| **L4 LB metrics** (`HealthyHostCount`, `ActiveFlowCount`, `TCP_Target_Reset_Count`) | 3-4 | Port reachable, flows balanced, resets | Whether the application behind the open port can do useful work. **100% healthy while 100% of requests return `503`.** |
+| **L7 LB / ingress metrics** (`HTTPCode_Target_5XX_Count`, `TargetResponseTime`, p99) | 7 | Per-route status codes and latency | Which lower layer is at fault; TLS or upstream-connect failures often appear as a generic `502`. |
+| **App internals** (pool wait time, queue depth, GC pause) | 7 (inside the process) | Why the handler is slow | Network path problems; the app only sees its own socket. |
+| **Kernel socket state** (`ss -ltn` Recv-Q/Send-Q, `nstat`) | 3-4 | Accept-queue overflows, retransmits | Per-request business impact. |
+
+**Principle:** alert on the **highest layer your users touch** (synthetic L7 checks, SLO error budgets) and use lower-layer metrics for *diagnosis*, not for *declaring health*.
+
+---
 
 ---
 
@@ -636,6 +708,11 @@ You run a PostgreSQL cluster requiring strict end-to-end mutual TLS (`mTLS`) dir
 - **"Layer 7 means the app."** No. It means the app's protocol, such as HTTP. A browser or a mobile app uses layer 7; it isn't layer 7.
 - **Debugging top-down instead of bottom-up.** Starting with HTTP headers (`L7`) or firewall rules (`L4`) wastes time when an unplugged cable (`L1`), wrong VLAN (`L2`), or missing DHCP route (`L3` / `169.254.x.x`) broke everything above it.
 - **Assuming L4 health checks verify L7 readiness.** A TCP `SYN-ACK` only confirms the kernel socket queue is open—not that application worker threads, caches, or database pools are healthy.
+- **Calling a router "a bigger switch" (or an L3 switch "just a router").** Switches forward frames by MAC inside one broadcast domain; routers rebuild the L2 header, decrement TTL, and forward between networks.
+- **Putting an L7 load balancer in front of a protocol that needs end-to-end TLS/mTLS.** Terminating TLS breaks the guarantee; use L4 passthrough (with SNI routing if needed).
+- **Forgetting the per-request cost of L7.** Two connections per request, TLS handshakes, and HTTP parsing multiply FDs, CPU, and upstream ephemeral-port pressure—pool upstream connections.
+- **Declaring a service healthy from L1-L4 dashboards.** Green links and open ports say nothing about whether users get `200`s; alert on L7 SLOs.
+- **Treating OSI as a strict wiring diagram.** NAT, firewalls, VPN tunnels, and QUIC deliberately cross layers; use OSI to name the *highest header a device reads*.
 
 ---
 
@@ -649,53 +726,156 @@ You run a PostgreSQL cluster requiring strict end-to-end mutual TLS (`mTLS`) dir
 
 ## Interview Practice Questions
 
-> [!interview] What are the seven layers of the OSI model? (Basic)
+Exactly **12 questions**, tagged by kind: **[BASIC]** (Q1-Q4, definitions), **[SCENARIO]** (Q5-Q8, apply it to a system), and **[TRICKY]** (Q9-Q12, deep follow-ups). Answer out loud for 30 seconds before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Q1: What are the seven layers of the OSI model? [BASIC]</strong></summary>
 
-From the bottom: 1 physical (cables, radio, bits), 2 data link (frames on one network, MAC addresses, switches), 3 network (IP, routing between networks), 4 transport (TCP, UDP, ports), 5 session (the conversation), 6 presentation (format, compression, encryption), 7 application (the protocol the app speaks, such as HTTP or DNS).
-
-</details>
-
-> [!interview] How does the OSI model relate to the TCP/IP model the internet uses? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-OSI is a reference model; the internet follows the four-layer TCP/IP model. OSI layers 1 and 2 are the link layer, 3 is the network layer, 4 is transport, and 5 to 7 are squeezed into the application layer. For example, TLS does layer 6's job, encryption, but it runs inside the application. We keep the OSI numbers as shorthand.
+<strong>What a strong answer covers:</strong>
+From the bottom: **1 Physical** (cables, fibre, radio, bits), **2 Data Link** (frames on one network, MAC addresses, switches), **3 Network** (IP, routing between networks, routers), **4 Transport** (TCP/UDP, ports), **5 Session** (conversation state), **6 Presentation** (format, compression, encryption), **7 Application** (the protocol the app speaks: HTTP, DNS). Mnemonic: *Please Do Not Throw Sausage Pizza Away*. Add that **layer 7 is the protocol, not the app** (Chrome isn't L7, HTTP is).
 
 </details>
 
-> [!interview] What is the difference between a switch and a router? (Basic)
+<details>
+<summary><strong>Q2: How does OSI relate to the TCP/IP model the internet actually uses? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-A switch works at layer 2: it forwards frames between devices on the same local network, using MAC addresses. A router works at layer 3: it forwards packets between networks, using IP addresses, unwrapping each frame and putting the packet in a new frame for the next hop.
-
-</details>
-
-> [!interview] When would you choose a layer 7 load balancer over a layer 4 one? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-When routing needs the request's content: send `/api` and `/images` to different servers, route by header or cookie, or end TLS and add security checks. A layer 4 balancer only sees IP addresses and ports, so it is faster and simpler and suits plain TCP traffic, such as databases, or very high throughput.
+<strong>What a strong answer covers:</strong>
+OSI is a **reference/teaching model**; the internet implements the **4-layer TCP/IP model** (RFC 1122). Mapping: **OSI 1+2 -> Link**, **OSI 3 -> Internet/Network**, **OSI 4 -> Transport**, **OSI 5+6+7 -> Application**. For instance, TLS does layer 6's job (encryption) but runs *inside* the application on top of TCP. We keep OSI numbers because they are a **shared vocabulary** for incident triage and design ("L4 LB", "L7 firewall"). RFC 3439 even argues rigid layering is not how the internet is built.
 
 </details>
 
-> [!interview] Your laptop shows “connected, no internet”. How do you debug it? (Scenario)
+<details>
+<summary><strong>Q3: What is the difference between a switch and a router? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+A **switch (L2)** forwards **frames** between devices on the **same network** using **MAC addresses** and a learned MAC table; it does not change the frame. A **router (L3)** forwards **packets between different networks** using **IP addresses** and a routing table (longest-prefix match): it strips the incoming L2 header, **decrements the TTL**, and wraps the packet in a **new L2 frame** for the next hop. Switches have broadcast domains; routers *separate* them. Modern "L3 switches" do both in hardware.
 
-Bottom up. Layer 1: cable in, Wi-Fi on. Layer 2: joined the right network. Layer 3: got an IP address (`169.254.x.x` means DHCP failed) and a route. Then DNS and layer 4: is a firewall blocking the port? Layer 7: does the site itself answer with an error? The first failing layer is the problem, since everything above fails too.
+</details>
+
+<details>
+<summary><strong>Q4: Why does a device need both a MAC address and an IP address? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+They answer different questions at different scopes. A **MAC (48-bit, flat, burned into the NIC)** identifies *the next device on this link*; it only matters for **one hop**. An **IP address (hierarchical)** identifies *the final destination* across networks; it stays (mostly) constant end to end. A packet to `198.51.100.10` is wrapped in a frame addressed to your **router's MAC** (found via **ARP**); the router then picks the next hop's MAC. Flat MACs would not scale to routing; IPs alone cannot tell a switch which physical port to use.
 
 </details>
 
-> [!interview] Which layer does TLS belong to? (Tricky)
+<details>
+<summary><strong>Q5: When would you choose a Layer 7 load balancer over a Layer 4 one, and what does it cost? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-It doesn't fit neatly, which is a good thing to say. Its job, encryption and agreeing a format, is OSI layer 6, but it runs on top of TCP inside the application, so in the TCP/IP model it is part of the application layer. That's why a layer 7 load balancer must terminate TLS before it can read the HTTP path.
+<strong>What a strong answer covers:</strong>
+Choose **L7** when routing needs the **content** of the request: path (`/api` vs `/images`), `Host`, headers/cookies, **canary** by header, **gRPC** method routing, **WAF**, rate limiting, per-request retries and outlier detection, or **TLS termination** at the edge. Choose **L4** for raw **TCP/UDP** (databases, Kafka, MQTT), **end-to-end mTLS passthrough**, preserving client IP with DSR, or extreme throughput. **Cost of L7:** terminates TLS (CPU), parses HTTP, keeps **two** connections per request (double FDs), and adds latency; a common design is **L4 NLB at the edge -> fleet of L7 Envoy/NGINX** behind it.
 
 </details>
+
+<details>
+<summary><strong>Q6: Your laptop says "connected" but nothing loads. How do you debug it layer by layer? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Bottom-up; stop at the first failing layer** (everything above it fails too):
+1. **L1:** cable seated, Wi-Fi on, `ip -br link` shows `LOWER_UP`.
+2. **L2:** joined the right SSID/VLAN; `ip neigh` shows the gateway's MAC.
+3. **L3:** `ip -br addr` — a **`169.254.x.x`** address means **DHCP failed**; check the default route with `ip route`, then `ping 1.1.1.1` (separates routing from DNS).
+4. **DNS:** `dig example.com` — can names resolve?
+5. **L4:** `nc -zv host 443` — is a firewall blocking the port?
+6. **L7:** `curl -v` — TLS cert errors, `4xx/5xx`.
+`ping` by IP works but names fail -> DNS; both fail -> layer 3 or below.
+
+</details>
+
+<details>
+<summary><strong>Q7: Your NLB reports 100% healthy targets, yet every checkout returns HTTP 503. What happened and how do you fix it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A **layer mismatch in health checking**. The NLB's TCP probe completes `SYN -> SYN-ACK -> ACK` against port `443`, which the **kernel** answers from the listen backlog **independently of whether the app's worker threads can serve requests** (here, a deadlocked DB pool). Fix: use **L7 readiness checks** (`GET /healthz/ready` that verifies the dependency pool and returns `200`), add **outlier detection** at an L7 proxy tier (eject pods after N consecutive `5xx`), separate **liveness** (restart me) from **readiness** (send me traffic), and alert on **L7 SLO signals** (5xx rate, p99), not on L4 target health. Detection time becomes `interval × unhealthy_threshold` (e.g. `5 s × 2 = 10 s`).
+
+</details>
+
+<details>
+<summary><strong>Q8: A database cluster requires end-to-end mutual TLS and the DB's private keys must never sit on a proxy. L4 or L7 in front? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**L4 (TCP passthrough).** An L7 proxy must **terminate TLS** to read plaintext, which means holding the key (or issuing its own certificate), breaking end-to-end mTLS and client-certificate identity. An L4 balancer reads only IP + port (`5432`) and forwards the **opaque ciphertext stream** untouched. Trade-offs: no content-based routing or per-query metrics at the proxy; health checks are TCP-only, so add an **application-level check** (e.g. a sidecar/agent running `SELECT 1` or `pg_isready`) and use connection-aware pooling (PgBouncer) deliberately, knowing it terminates the protocol itself. Passing SNI through lets an L4 balancer route TLS by hostname without decrypting.
+
+</details>
+
+<details>
+<summary><strong>Q9: Which OSI layer does TLS belong to? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+"It doesn't fit neatly, and that's the point." By **function** (encryption, agreeing a format, session resumption) it is **OSI layer 6** (and arguably 5). By **implementation** it runs **on top of TCP, inside the application/library** (OpenSSL, BoringSSL, Go `crypto/tls`), so in the TCP/IP model it is part of the **Application layer**. That is why an **L7 LB must terminate TLS** before reading the HTTP path, why an **L4 LB can pass it through**, and why on-path devices see only the **SNI** (until Encrypted Client Hello). **QUIC** pushes this further: TLS 1.3 is built into the transport itself.
+
+</details>
+
+<details>
+<summary><strong>Q10: A packet crosses 11 routers. Which headers change at each hop and which stay the same? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Changes at every router:** the **L2 header + FCS** (new source/destination MAC for the next link), the **IP TTL** (decremented; the header checksum is recomputed in IPv4), and possibly the **DSCP/ECN** bits. **Stay the same end-to-end:** **IP source/destination**, **TCP/UDP ports**, the TLS ciphertext, and the HTTP payload — *unless a NAT or L4 LB rewrites IPs/ports.* So there are **12 different Ethernet frames** carrying the *same* IP packet. If TTL hits `0`, the router drops it and sends **ICMP Time Exceeded** — the basis of `traceroute`. Routers never decrypt TLS or parse HTTP.
+
+</details>
+
+<details>
+<summary><strong>Q11: Where do NAT, firewalls, VPNs/tunnels, Kubernetes Services, and QUIC fit in OSI — and why does "layering" break down? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+They are **layer violations by design**:
+- **NAT (L3 + L4):** rewrites IPs *and* ports, so it must track L4 flows (conntrack).
+- **Stateful firewall / security group (L3-L4):** matches 5-tuples and TCP flags; **WAF/next-gen firewall** goes to L7.
+- **VPN / VXLAN / WireGuard / GRE:** **L2 or L3 payload carried inside L3/L4** (tunnels) — encapsulation inside encapsulation, which shrinks the MTU.
+- **kube-proxy / Service:** L4 DNAT via iptables/IPVS/eBPF; **Ingress** is L7.
+- **QUIC/HTTP/3:** a "transport" built on UDP **with TLS 1.3 and streams inside** — spans L4-L7.
+Takeaway: OSI is a **vocabulary for the highest header a box must read**, not a strict module diagram.
+
+</details>
+
+<details>
+<summary><strong>Q12: Your laptop sends to `198.51.100.10`. How does it learn the MAC address to put in the Ethernet frame — and what if the destination is on the same subnet? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+It first applies its **subnet mask**: if `198.51.100.10` is **off-subnet**, the next hop is the **default gateway**; if **on-subnet**, the next hop is the destination itself. It then needs that next hop's MAC: it checks the **ARP cache** (`ip neigh`); on a miss it **broadcasts an ARP request** (`ff:ff:ff:ff:ff:ff`: *"who has 192.168.1.1?"*) and the owner **unicasts back its MAC**. The frame carries **destination MAC = gateway** but **destination IP = the real server** — the signature of L2 vs L3 roles. (IPv6 uses **Neighbor Discovery** instead.) Security note: ARP is unauthenticated, so **ARP spoofing** poisons the cache; the defence is dynamic ARP inspection, 802.1X, or encrypted traffic (TLS).
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                          THE OSI MODEL, MADE SIMPLE — ONE-PAGE CHEAT SHEET
+====================================================================================================
+THE SEVEN LAYERS (Please Do Not Throw Sausage Pizza Away = 1..7)       TCP/IP MAP       BOX THAT LIVES HERE
+  7 Application   protocol your app speaks (HTTP, DNS, gRPC)           \                L7 LB, ingress, WAF, API gateway
+  6 Presentation  format / compression / ENCRYPTION (TLS's job)         > Application
+  5 Session       conversation state (usually inside the app)          /
+  4 Transport     ports; TCP: order + resend (TCP, UDP, QUIC)           Transport       L4 LB (NLB/IPVS), firewall, NAT
+  3 Network       IP addressing + routing, TTL                          Internet        Router, L3 switch
+  2 Data Link     frames, MAC addresses, ARP, VLAN                      \ Link           Switch, Wi-Fi AP
+  1 Physical      bits on copper / fibre / radio                        /
+
+NUMBERS
+  MAC = 48 bits (6 hex pairs) = 2^48 ~= 2.8 x 10^14       OUI = first 24 bits = vendor
+  Frame: 14 B hdr + up to 1,500 B packet + 4 B FCS = 1,518 B   (VLAN tag +4 -> 1,522 | min frame 64 B)
+  Per hop: NEW L2 frame, TTL-1, same IP + ports (unless NAT).  11 routers => 12 frames, same packet.
+  L7 LB FDs ~= client conns + (backends x pool size).  No pooling: 28,232 / 60 s ~= 470 new conn/s per backend.
+  Health-check eject time = interval x unhealthy_threshold   (L4 probe on a deadlocked app = never)
+
+L4 vs L7 LOAD BALANCER
+  L4: sees IP + port (5-tuple) | fast, cheap, TLS passthrough, DB/Kafka/MQTT, DSR | cannot read request
+  L7: terminates TLS, reads path/headers/cookies | routing, canary, WAF, retries | 2 conns/request, more CPU
+  Common pattern: NLB (L4) -> Envoy/NGINX fleet (L7) -> pods.   mTLS end-to-end => stay at L4.
+
+DEBUG BOTTOM-UP (first failing layer wins)
+  L1 ip -br link (LOWER_UP) -> L2 ip neigh -> L3 ip -br addr (169.254.x.x = DHCP failed), ip route, ping IP
+  -> DNS dig -> L4 nc -zv host port -> L7 curl -v / -w "%{http_code}"
+
+TRAPS
+  * "Internet runs OSI"  -> no, TCP/IP's 4 layers.     * "Layer 7 = the app" -> no, the app's PROTOCOL.
+  * L4 health check green != service healthy.           * NAT, VPN, QUIC, firewalls blur layers (by design).
+  * Alert on L7 SLOs (5xx, p99); use L1-L4 metrics to DIAGNOSE, not to declare health.
+====================================================================================================
+```
 
 ---
 

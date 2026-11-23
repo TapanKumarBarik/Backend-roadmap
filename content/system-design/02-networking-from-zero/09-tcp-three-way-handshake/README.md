@@ -1,9 +1,12 @@
 # Lesson 09: TCP Part 2, the Three-Way Handshake
 
 > **Prerequisites:** [Lesson 08: TCP Part 1, Sequence Numbers and ACKs](../08-tcp-sequence-numbers-and-acks/README.md) and [Lesson 06: The OSI Model, Made Simple](../06-osi-model/README.md) ([Networking From Zero Overview](../README.md)).  
-> **Estimated Reading Time:** 22 minutes  
+> **Estimated Reading Time:** 33 minutes  
 > **Target Audience:** Backend engineers and SREs mastering TCP connection establishment, ISN security, MSS negotiation, SYN retransmission backoff, kernel backlog queues, and SYN flood defenses.  
 > **Free PDF Notes:** [Download SD-N-009.pdf](https://backendroadmap.com/notes/system-design/SD-N-009.pdf)
+
+> [!NOTE]
+> **In one line:** before any data, TCP sends three messages (SYN, SYN-ACK and ACK); each side sends a random starting number and the other confirms it with that number plus one; it costs one round trip, and a lost SYN waits a full second or more.
 
 > [!TIP]
 > **The Golden Rule of the TCP Handshake:** Before a single application byte moves, TCP exchanges three control segments—**SYN**, **SYN-ACK**, and **ACK**—so both ends share random **Initial Sequence Numbers (ISNs)**, confirm each other's reachability with `ISN + 1`, and negotiate options such as **MSS** in one round trip. A dropped `SYN` stalls for `1 s` before retrying with exponential doubling (`1, 2, 4, 8, 16, 32, 64 ≈ 127 s`), making bounded connect timeouts, connection reuse, and kernel backlog sizing essential for production reliability.
@@ -24,6 +27,22 @@ Before watching packets synchronize across ports and kernel queues, anchor these
 | **ESTABLISHED** | The state once the handshake is done and data can flow. | Both directions confirmed; socket moves into the server's `Accept` queue for `accept()`. |
 | **MSS** | Maximum segment size: the most data in one segment, often `1,460` bytes. | Negotiated during `SYN`/`SYN-ACK` (`1,500 B MTU - 20 B IP - 20 B TCP = 1,460 B`). |
 | **RST** | Reset: a flag meaning no, or stop, this connection. | Emitted immediately when no socket listens on the target port (`connection refused`). |
+
+---
+
+## What It Is vs. What It Isn't
+
+The handshake is small, but it is misread in four different ways. Separate them:
+
+| Term | Precise Meaning | What It Is **NOT** | Production Example |
+| :--- | :--- | :--- | :--- |
+| **Three-way handshake** | `SYN` -> `SYN-ACK` -> `ACK`: each side sends its **ISN** and the peer confirms it with `ISN + 1`, plus option negotiation (MSS, window scale, SACK, timestamps). | Not per request, not encryption, not authentication — only agreement on numbers and options. | `curl` opens one connection, then reuses it for later requests. |
+| **ISN** | A **random 32-bit** start number per direction. The `SYN` flag itself consumes **one** sequence number. | Not `0`, not predictable, not "bytes received". | `SYN seq=4000` -> first data byte `4001`. |
+| **`ESTABLISHED`** | Both directions confirmed; the kernel can accept data. On the server the socket first waits in the **accept queue**. | Not "the app is talking to the client yet": the app only sees the socket when it calls `accept()`. | `ss -lnt` `Recv-Q` = sockets waiting for `accept()`. |
+| **`RST` vs. silence** | `RST` = an immediate, explicit **no** (`connection refused`). Silence = a **drop**; the client retries with doubling waits (`connection timed out`). | Not equivalent: one fails in `~1 RTT`, the other can take **`127 s`** on Linux. | Security-group `DROP` vs. an unbound port. |
+| **Half-open connection** | A server socket in `SYN_RECV` that has sent `SYN-ACK` but not yet received the final `ACK`. | Not an established connection and not free: it occupies a **SYN-queue slot** (until SYN cookies). | The resource a **SYN flood** exhausts. |
+
+> **The handshake proves reachability and agrees on numbers, nothing more.** A completed `connect()` means the *kernel* answered — it says nothing about whether the application behind the port is healthy (Lesson 06's L4-vs-L7 lesson, again).
 
 ---
 
@@ -156,6 +175,82 @@ You pay it once per connection, which is why opening connections is expensive, a
 | **`net.core.somaxconn`** | `4096` (older kernels `128`) | Ceiling on the `Accept` queue of fully `ESTABLISHED` sockets waiting for app `accept()`. |
 | **`net.ipv4.tcp_syncookies`** | `1` (enabled on overflow) | Encodes MSS and connection hash into server's `ISN` so half-open floods use zero RAM. |
 | **`TCP_FASTOPEN` (`RFC 7413`)** | Opt-in cookie | Allows repeat clients to carry HTTP payload inside the initial `SYN`, saving 1 RTT. |
+
+### Handshake Math: Retry Schedules, Queues, and Flood Economics
+
+**1. The client SYN retry schedule (Linux `tcp_syn_retries = 6`).** The initial RTO is `1 s` and doubles after each loss. The retransmissions go out at $t = 1, 3, 7, 15, 31, 63$ s, and the kernel aborts at $127$ s:
+
+$$T_{\text{abort}} = \sum_{k=0}^{6} 2^k = 2^7 - 1 = 127\ \text{s}$$
+
+**Time to ESTABLISHED when the first $k$ SYNs are lost** (RTT = `100 ms`):
+
+| SYNs lost | Last SYN sent at | `connect()` returns after | User-visible effect |
+| :--- | :--- | :--- | :--- |
+| `0` | `0 s` | `0.1 s` | Normal |
+| `1` | `1 s` | **`1.1 s`** | Page "feels stuck" |
+| `2` | `3 s` | `3.1 s` | Visibly broken |
+| `3` | `7 s` | `7.1 s` | Users reload / give up |
+| `4` | `15 s` | `15.1 s` | Mobile apps time out |
+| `6` | `63 s` | `63.1 s` | Thread pools exhausted |
+| all `7` | `63 s` | **`127 s` -> `ETIMEDOUT`** | Outage if no `connectTimeout` |
+
+The default OS wait varies: **Linux `~127 s`**, **Windows `~21 s`** (`3 + 6 + 12`), **macOS `~75 s`**. A bounded application `connectTimeout` of `~3x` the normal p99 RTT (`200-500 ms` internally) beats all of them.
+
+**2. Tail latency from handshake loss.** A handshake stalls if the `SYN` **or** the `SYN-ACK` is lost (a lost final `ACK` is repaired by the first data segment). With independent per-packet loss $p$:
+
+$$P(\text{handshake retried}) = 1 - (1-p)^2 \approx 2p$$
+
+| Packet loss $p$ | $P(\text{retry})$ | Mean extra latency ($\approx P \times 1\,\text{s}$) | What users see |
+| :--- | :--- | :--- | :--- |
+| `0.1%` | `0.2%` | `+2 ms` | Invisible in the mean, **visible at p99.9** (`~1.1 s`). |
+| `1%` | `2.0%` | `+20 ms` | **p98 jumps from `~RTT` to `~1 s`.** |
+| `5%` | `9.75%` | `+98 ms` | Roughly 1 in 10 connections stalls for a full second. |
+
+The *mean* hides it; the **tail** shows it. That is why TCP connect time must be a **histogram metric**, not an average.
+
+**3. The server-side `SYN-ACK` schedule.** `net.ipv4.tcp_synack_retries = 5`: the server resends `SYN-ACK` at `1, 3, 7, 15, 31 s` and drops the half-open entry at `63 s`. A half-open slot therefore lives **up to ~63 s**.
+
+**4. SYN-flood economics — why a *small* attack works.** To keep a backlog of $Q$ half-open slots permanently full, the attacker needs only
+
+$$R_{\text{attack}} = \frac{Q}{T_{\text{slot}}} = \frac{4{,}096}{63\ \text{s}} \approx \mathbf{65\ SYN/s} \qquad \left(Q = 1{,}024 \Rightarrow 16\ \text{SYN/s}\right)$$
+
+~65 packets per second (`~28 kbit/s`!) can lock out a default-sized listener, because **each SYN costs the attacker `~54 bytes` and the victim a memory slot for a full minute**. With **SYN cookies** the slot cost is `0`: state is recomputed from the returning `ACK`. Trade-offs: the cookie can encode only a handful of MSS values, and without TCP timestamps it loses options such as window scale and SACK; Linux therefore uses cookies **only when the queue overflows** (`tcp_syncookies = 1`).
+
+**5. The accept queue and how to size it.** After the final `ACK`, the socket waits in the **accept queue** whose depth is capped at $\min(\texttt{backlog},\ \texttt{somaxconn})$. It drains only as fast as the app calls `accept()`:
+
+$$\text{queue depth needed} \approx \lambda_{\text{peak}} \times t_{\text{stall}}$$
+
+Example: a burst of `5,000 new conn/s` and an event loop that stalls for `100 ms` (GC pause, blocking call) needs `~500` slots. If the app passes `listen(fd, 128)`, `~370` clients lose their handshake: `ListenOverflows` rises and those clients retry the `SYN` after **1 s** — the mysterious "p99 = 1.0 s" connect spikes with idle CPUs.
+
+**6. Cost of the handshake in serial call chains.** Cold connections multiply by the number of *serial* dependencies:
+
+| Scenario | RTT | Handshake cost / hop | 5 serial cold calls | Same chain with pooled connections |
+| :--- | :--- | :--- | :--- | :--- |
+| Same AZ | `0.5 ms` | `0.5 ms` | `2.5 ms` | `0 ms` of handshake |
+| Same region, cross-AZ | `2 ms` | `2 ms` | `10 ms` | `0 ms` |
+| India -> Singapore | `60 ms` | `60 ms` | `300 ms` | `0 ms` |
+| India -> US east | `225 ms` | `225 ms` | **`1.1 s`** | `0 ms` |
+
+Add `+1 RTT` per hop for TLS 1.3 (`+2` for TLS 1.2). **TCP Fast Open** (cookie-based, RFC 7413) can carry data in the `SYN` of a *repeat* connection, saving one RTT; **QUIC** folds transport and TLS into a single round trip and offers `0-RTT` resumption.
+
+**7. MSS negotiation.** Each side advertises its `MSS` in the `SYN`; the effective value is the **minimum** of the two (and of the path-MTU-derived limit): $\text{MSS} = \min(\text{MSS}_c, \text{MSS}_s)$. Typical values: `1460` (IPv4/Ethernet), `1440` (IPv6/Ethernet, or `MTU 1480` tunnels), `1432` (PPPoE-style `MTU 1492`), `1380` (many VPNs). The lesson's `tcpdump` capture shows `mss 1460` vs `mss 1440` -> the connection uses `1440`. **MSS clamping** on gateways fixes MTU black holes without relying on ICMP.
+
+### The Observability Gap: Where Do Handshake Failures Show Up?
+
+A dropped `SYN` never reaches your application, so **your access logs cannot show it**.
+
+| Vantage Point | What It Shows | What It **Hides** |
+| :--- | :--- | :--- |
+| **Client app** (`connect` error + elapsed time) | `ECONNREFUSED` vs `ETIMEDOUT`, exact connect duration | Whether the cause is the firewall, the host, or the accept queue. Many clients don't even record connect time **separately** from request time. |
+| **Server access / application logs** | Nothing for failed or dropped handshakes | **100% of handshake failures** — the app only sees sockets after `accept()`. |
+| **`ss -ltn` on the server** | `LISTEN` `Recv-Q` = accept-queue depth, `Send-Q` = its limit | Historical overflows; needs sampling. |
+| **`nstat`** (`TcpExtListenOverflows`, `TcpExtListenDrops`, `TcpExtTCPReqQFullDrop`, `TcpExtTCPReqQFullDoCookies`, `TcpExtSyncookiesSent/Recv/Failed`, `TcpAttemptFails`, `TcpPassiveOpens`) | Kernel-level counters for queue overflows and cookies | Which clients/source IPs. |
+| **Load balancer metrics** (`TCP_Target_Reset_Count`, `ClientTLSNegotiationErrorCount`, `UnHealthyHostCount`) | Resets and failed target connects | The reason the target reset. |
+| **Packet capture** (`tcpdump 'tcp[tcpflags] & (tcp-syn\|tcp-rst) != 0'`) | Ground truth: SYN retransmits, RSTs, MSS, options | Encrypted content; heavy at scale. |
+
+**Instrument these three things:** (1) **TCP connect latency histogram** per dependency (separate from request latency), (2) **`ListenOverflows` / `ListenDrops` rate** on every server, (3) **ratio of connect timeouts to refused** per target. A rising *timeout* ratio signals firewall/routing; a rising *refused* ratio signals a dead process.
+
+---
 
 ---
 
@@ -528,6 +623,12 @@ During a massive `SYN` flood from spoofed source IPs, `net.ipv4.tcp_max_syn_back
 - **"There's a handshake for every request."** No. It happens once per connection, and many requests can reuse it ([lesson 29](../29-connection-pooling-and-keep-alive/README.md)).
 - **"The handshake makes the connection secure."** No. It only agrees numbers. Encryption is TLS, which starts after it ([lesson 21](../21-tls-1-3-handshake/README.md)).
 - **"ACK 4,001 means 4,001 bytes were received."** No. It means: the next number I expect is `4,001`.
+- **Measuring only total request latency.** Without a separate **connect-latency histogram**, handshake stalls (`1 s`, `3 s`, `7 s` steps) vanish into a blended average.
+- **Relying on server access logs to find handshake failures.** Dropped `SYN`s and accept-queue overflows never reach the application; read `ss -lnt` and `nstat` counters instead.
+- **Passing a tiny `listen()` backlog (e.g. `128`) and assuming `somaxconn` fixes it.** The accept queue is `min(backlog, somaxconn)`; raise both.
+- **Using silent `DROP` rules inside private networks.** A forgotten rule becomes a `127 s` hang instead of an instant `connection refused`.
+- **Treating a successful `connect()` as "the service is healthy".** The kernel can complete the handshake for an application that is deadlocked (the Lesson 06 L4-vs-L7 trap).
+- **Churning short-lived connections to one destination.** Each one costs a handshake RTT, an ephemeral port, and `TIME_WAIT` (Lessons 04 and 11); pool them.
 - **Setting only HTTP read timeouts without a TCP connect timeout.** Read timeouts do not start until the handshake finishes; an un-bounded `connect()` against a silently dropped IP stalls threads for `~127 s` (`tcp_syn_retries=6`).
 
 ---
@@ -542,53 +643,150 @@ During a massive `SYN` flood from spoofed source IPs, `net.ipv4.tcp_max_syn_back
 
 ## Interview Practice Questions
 
-> [!interview] Explain the TCP three-way handshake. (Basic)
+Exactly **12 questions**, tagged by kind: **[BASIC]** (Q1-Q4, definitions), **[SCENARIO]** (Q5-Q8, apply it to a system), and **[TRICKY]** (Q9-Q12, deep follow-ups). Answer out loud for 30 seconds before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>Q1: Explain the TCP three-way handshake. [BASIC]</strong></summary>
 
-The client sends a SYN with its initial sequence number. The server replies with a SYN-ACK: its own initial sequence number, and an acknowledgement of the client's number plus one. The client acknowledges the server's number plus one, and both sides are established. Data can start with, or right after, that final ACK.
-
-</details>
-
-> [!interview] Why three messages and not two? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Each direction needs its own starting number sent and confirmed, which is four jobs. The server combines its acknowledgement and its own SYN in one segment, so it takes three. With only two, the server would never learn that the client received its number, so the server-to-client direction would be unconfirmed.
+<strong>What a strong answer covers:</strong>
+1. **SYN:** the client picks a random **ISN** (say `4000`) and sends `SYN, seq=4000` (+ options: MSS, window scale, SACK, timestamps). *State: `SYN_SENT`.*
+2. **SYN-ACK:** the server (in `LISTEN`) picks its own random ISN (`9000`) and replies `SYN+ACK, seq=9000, ack=4001`. *State: `SYN_RCVD`.*
+3. **ACK:** the client replies `ACK, ack=9001` — and may carry the first data. *Both sides: `ESTABLISHED`.*
+The `SYN` consumes one sequence number, hence `+1`; the first data byte is `4001` (client) and `9001` (server). The handshake costs **one RTT** before the client can send data and is paid **once per connection**.
 
 </details>
 
-> [!interview] A client sees “connection refused” on one server and “connection timed out” on another. What's the difference? (Scenario)
+<details>
+<summary><strong>Q2: Why three messages and not two? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Refused means the host answered with an RST: it is up, but no program is listening on that port (or a firewall actively rejects). Timed out means the SYN got no reply at all: the host is down, unreachable, or a firewall silently drops the packet, so the client kept retrying with doubling waits until it gave up.
-
-</details>
-
-> [!interview] What is a SYN flood, and how do you defend against it? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-An attacker sends many SYNs, often from fake addresses, and never completes the handshake, so the server's queue of half-open connections fills and real clients can't connect. Defences: SYN cookies (the server keeps no state and encodes it in its initial sequence number), larger backlog queues, rate limiting, and absorbing it upstream at a load balancer or DDoS protection service.
+<strong>What a strong answer covers:</strong>
+Each **direction** needs its own starting number **sent and confirmed** — four jobs (client sends ISN, server confirms it, server sends ISN, client confirms it). The server combines its confirmation and its own `SYN` into one `SYN-ACK`, so **four jobs fit in three messages**. With only two, the server would never learn that the client received *its* ISN, so the server-to-client direction is unconfirmed. It also protects against **old duplicate SYNs**: the final ACK lets the server verify the client really wants *this* connection. (Four messages would also work, but is wasteful.)
 
 </details>
 
-> [!interview] Why are initial sequence numbers random instead of starting at 0? (Tricky)
+<details>
+<summary><strong>Q3: Which states do the client and the server pass through, and where does the connection wait on the server? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
+<strong>What a strong answer covers:</strong>
+**Client:** `CLOSED -> SYN_SENT -> ESTABLISHED`. **Server:** `LISTEN -> SYN_RCVD (half-open) -> ESTABLISHED`. Linux keeps two queues: the **SYN queue** (half-open, sized by `tcp_max_syn_backlog`) and the **accept queue** (fully established, waiting for `accept()`, capped at `min(listen backlog, somaxconn)`). The application only sees a connection when it calls `accept()`. Observe with `ss -ant state syn-recv`, and for `LISTEN` sockets `ss -lnt` where **`Recv-Q` = current accept-queue depth** and **`Send-Q` = its limit**.
 
-So a delayed segment from an earlier connection on the same address and ports doesn't fall inside the new connection's numbers and get accepted as data, and so an off-path attacker can't guess the numbers to inject data or fake a connection (blind spoofing).
+</details>
+
+<details>
+<summary><strong>Q4: What is the MSS, and how is it negotiated? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The **Maximum Segment Size** is the largest TCP *payload* per segment. Each side announces its MSS in a **`SYN` option**; the connection uses the **minimum** of the two. On Ethernet `MSS = MTU - IP header - TCP header = 1500 - 20 - 20 = 1460` (IPv6: `1440`). The same `SYN` also negotiates **window scale** (windows `> 64 KiB`), **SACK-permitted**, and **timestamps**. Options are **only** negotiated in the `SYN`/`SYN-ACK`, which is why middleboxes that strip them hurt performance, and why **MSS clamping** (`--clamp-mss-to-pmtu`) is the standard fix for MTU black holes behind tunnels/VPNs.
 
 </details>
 
-> [!interview] How does the handshake affect latency, and what reduces it? (Tricky)
+<details>
+<summary><strong>Q5: One server returns "connection refused" and another "connection timed out". What is the difference on the wire? [SCENARIO]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-It costs one round trip before the request can be sent, paid for every new connection, plus TLS on top. Reuse connections (keep-alive, connection pools), put servers closer (CDNs), and use TCP Fast Open or QUIC (HTTP/3), which can send data in the first flight on repeat connections.
+<strong>What a strong answer covers:</strong>
+**Refused:** the host's kernel answers the `SYN` with an immediate **`RST`** (`~1 RTT`, a few ms): the machine is up and reachable but **nothing is listening** on that port (or a firewall *rejects*). **Timed out:** **no reply at all**; the client resends the `SYN` at `1, 3, 7, 15, 31, 63 s` and gives up at **`~127 s`** (Linux): a firewall/security group **dropping** packets, a dead host, a routing blackhole, or a full queue. Diagnose: refused -> `ss -lnt` on the host, check the bind address/port; timed out -> SG/NACL/firewall rules, routes, `traceroute`/`mtr`, `tcpdump` on both ends (does the SYN arrive? is there a SYN-ACK?), and `nstat` for `ListenOverflows`.
 
 </details>
+
+<details>
+<summary><strong>Q6: What is a SYN flood, and how do you defend against it? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+An attacker sends many `SYN`s (often from **spoofed** sources) and never completes the handshake. Each leaves a **half-open** slot for up to `~63 s`, so just `backlog / 63 s ≈ 65 SYN/s` fills a `4096`-entry queue and real users cannot connect. Defences: **SYN cookies** (`tcp_syncookies=1`: no state, validation data encoded in the server ISN), larger `tcp_max_syn_backlog` and `somaxconn`, lower `tcp_synack_retries`, **rate limiting** (`iptables hashlimit`, nftables), **upstream scrubbing** (cloud LB, CDN, DDoS protection absorbs the SYNs), **BCP 38 ingress filtering**, and eBPF/XDP filters. Trade-off: cookies drop some options unless timestamps are on.
+
+</details>
+
+<details>
+<summary><strong>Q7: You set a 200 ms read timeout on your Redis client, yet requests to a newly added shard hang for ~2 minutes and exhaust the thread pool. Why? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**Read timeouts start only after `ESTABLISHED`.** The new shard's security group **silently drops** `SYN`s, so `connect()` blocks in the kernel for the full SYN-retry schedule: **`1+2+4+8+16+32+64 = 127 s`** per attempt, holding a worker the whole time. Fix: set an explicit **`connectTimeout` (`<= 500 ms`)** separately from read/write timeouts; add **circuit breakers/bulkheads** so one dead dependency cannot absorb all workers; run **TCP reachability canaries** during blue/green cutovers; prefer explicit **REJECT** (RST/ICMP) in internal ACLs so mistakes fail in milliseconds; and use async/non-blocking I/O with deadlines. Always give every network call **connect, TLS, read, and total** deadlines.
+
+</details>
+
+<details>
+<summary><strong>Q8: During traffic spikes clients see occasional exactly-1-second connect latencies, but CPU is idle and nothing errors. What do you check? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A **dropped `SYN` or final `ACK`** is retried after **1 s** (the initial RTO). The most common server-side cause is **accept-queue overflow**: the app stalls (GC pause, blocking call, too few acceptors) and the queue (`min(backlog, somaxconn)`) fills, so the kernel **drops/ignores** new handshakes. Check `ss -lnt` (`Recv-Q` close to `Send-Q`), `nstat -az TcpExtListenOverflows TcpExtListenDrops`, `TcpExtTCPReqQFullDrop`; also **conntrack table full**, NIC/ECMP drops, and `tcp_max_syn_backlog`. Fixes: raise `somaxconn` **and** the app's `listen()` backlog (Go, Nginx `backlog=`, Node `server.listen(port, backlog)`), use `SO_REUSEPORT` with multiple acceptors, fix the stall, and **pool connections** to avoid bursts of new handshakes.
+
+</details>
+
+<details>
+<summary><strong>Q9: Why are initial sequence numbers random instead of starting at 0? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Two reasons. **(1) Stale segments:** a delayed packet from a *previous* incarnation of the same 4-tuple must not land inside the new connection's window and be accepted as data. **(2) Security:** if ISNs were predictable, an off-path attacker could **blindly spoof** a connection or inject data/RSTs (Mitnick-style attacks). RFC 6528 recommends `ISN = M + F(src IP, src port, dst IP, dst port, secret)`, where `M` is a ~4 µs clock tick (so ISNs for the same 4-tuple still grow, which helps `TIME_WAIT` reuse, Lesson 11) and `F` is a keyed hash. Randomness is **per direction**: both sides pick their own.
+
+</details>
+
+<details>
+<summary><strong>Q10: How does the handshake affect latency, and what reduces its cost? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+It adds **1 RTT before the first request byte**, and TLS adds **1** (TLS 1.3) or **2** (TLS 1.2) more, so a cold HTTPS call costs `2-3 RTT` before the request — and `5 serial cold hops x 225 ms ≈ 1.1 s` cross-ocean. Remedies, in order: **reuse connections** (keep-alive, pools, HTTP/2 multiplexing); **move closer** (CDN/edge termination, regional deploys); **TLS 1.3 + session resumption**; **TCP Fast Open** (data in the `SYN`; limited by middlebox support and replay/security caveats); **QUIC/HTTP/3** (transport + TLS in 1 RTT, 0-RTT resumption); **preconnect** hints. Also **avoid** churning connections: it burns ephemeral ports (Lesson 04) and `TIME_WAIT` (Lesson 11).
+
+</details>
+
+<details>
+<summary><strong>Q11: What happens if the final ACK of the handshake is lost? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+The client believes it is `ESTABLISHED` and may immediately send data; the server is still in `SYN_RCVD`. **Two repair paths:** (1) the client's **first data segment carries `ACK = server_ISN + 1`**, which completes the handshake at the server (so the loss is silent if the client talks first); (2) if the client waits for the server to speak first (SMTP, MySQL, SSH banner), the server's **retransmitted `SYN-ACK`** (`1, 3, 7, 15, 31 s`, `tcp_synack_retries`) makes the client **re-send the ACK**. Failure mode: if the server's accept queue is full, Linux (default `tcp_abort_on_overflow=0`) **ignores** the final ACK, so the **client sees a successful connect** but the server never delivers it — requests then stall until retransmits succeed. That asymmetry explains "connected but no response" under load.
+
+</details>
+
+<details>
+<summary><strong>Q12: How do SYN cookies work, what do they sacrifice, and why isn't TCP Fast Open universally enabled? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+**SYN cookies:** when the SYN queue overflows, the server stops storing state and encodes `hash(4-tuple, coarse timestamp, secret)` plus a small **MSS index** into the **ISN of its `SYN-ACK`**. A legitimate client answers with `ack = ISN + 1`; the server subtracts `1`, recomputes and verifies the hash, rebuilds the socket directly into `ESTABLISHED`, and a spoofed source never completes. **Sacrifices:** only a few MSS values can be encoded, and options (window scale, SACK) are lost unless TCP timestamps carry them — so throughput is slightly worse during an attack, and cookies are used only **on overflow**. **TCP Fast Open** saves 1 RTT on **repeat** connections by sending data in the `SYN` with a cookie, but many middleboxes drop SYNs with data/unknown options, the data may be **replayed** (so the first request must be idempotent), and it needs client+server opt-in — which is why **QUIC** (0-RTT with similar replay caveats) largely replaced it as the answer to handshake latency.
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                    TCP PART 2: THE THREE-WAY HANDSHAKE — ONE-PAGE CHEAT SHEET
+====================================================================================================
+THE HANDSHAKE (1 RTT, once per connection, NO data yet — data may ride with the final ACK)
+  1 Client -> Server  SYN            seq = ISN_c (random)                          client: SYN_SENT
+  2 Server -> Client  SYN + ACK      seq = ISN_s (random), ack = ISN_c + 1         server: SYN_RCVD (half-open)
+  3 Client -> Server  ACK            seq = ISN_c + 1,      ack = ISN_s + 1         both : ESTABLISHED
+  * SYN consumes ONE sequence number => first data byte = ISN + 1.   4 jobs (2 ISNs sent + confirmed) = 3 msgs.
+  * Options live ONLY in SYN/SYN-ACK: MSS (min of both: 1460 v4 / 1440 v6), window scale, SACK-ok, timestamps.
+
+FAILURE SIGNATURES
+  RST back, ~1 RTT           -> "connection refused": host up, nobody listening / REJECT rule
+  Silence                    -> "timed out": SYN retries at 1,3,7,15,31,63 s, abort at 127 s (Linux; Win ~21 s; mac ~75 s)
+  Idle CPU + 1.0 s connects  -> accept-queue overflow / SYN drop (retry after 1 s) -> check ListenOverflows
+  Connected but no response  -> final ACK ignored on full accept queue (tcp_abort_on_overflow=0)
+
+NUMBERS
+  Time to connect with k lost SYNs @ RTT 100 ms : k=1 1.1 s | k=2 3.1 s | k=3 7.1 s | k=6 63.1 s | all lost 127 s
+  P(handshake retried) = 1-(1-p)^2 ~= 2p  (p=1% -> 2% of connects pay +1 s: p98 explodes, mean looks fine)
+  SYN-flood: attack rate to fill queue = backlog / 63 s  (4096 -> ~65 SYN/s ~ 28 kbit/s)  -> use SYN COOKIES
+  Accept-queue depth ~= peak_conn_rate x app_stall  (5000/s x 0.1 s = 500)    cap = min(listen backlog, somaxconn)
+  Cold hop cost = 1 RTT (+1 TLS1.3 / +2 TLS1.2):  5 serial cold calls x 225 ms ~= 1.1 s  -> POOL connections
+
+KERNEL KNOBS (Linux)
+  tcp_syn_retries=6 (127 s) | tcp_synack_retries=5 (63 s) | tcp_max_syn_backlog 1024-4096 | somaxconn 4096
+  tcp_syncookies=1 (on overflow) | tcp_abort_on_overflow=0 | TCP_FASTOPEN opt-in (RFC 7413)
+
+OBSERVE
+  tcpdump -S -nn 'tcp[tcpflags] & (tcp-syn|tcp-rst) != 0'     ss -lnt (Recv-Q/Send-Q = accept q depth/limit)
+  ss -ant state syn-recv       nstat -az TcpExtListenOverflows TcpExtListenDrops TcpExtSyncookiesSent TcpAttemptFails
+  Instrument: connect-latency HISTOGRAM per dependency | ListenOverflows rate | timeouts:refused ratio.
+  Server access logs NEVER show dropped handshakes.
+
+RULES
+  1 ALWAYS set connectTimeout (<=500 ms internal) separate from read/total timeouts.   2 Reuse connections.
+  3 Size listen backlog + somaxconn for bursts.   4 Prefer REJECT over DROP on internal ACLs.   5 SYN cookies on.
+====================================================================================================
+```
 
 ---
 

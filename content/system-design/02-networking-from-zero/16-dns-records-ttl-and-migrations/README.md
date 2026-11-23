@@ -1,9 +1,12 @@
 # Lesson 16: DNS Part 2, Records, TTL and Safe Migrations
 
 > **Prerequisites:** [Lesson 15: DNS Part 1, Tracing One Lookup Step by Step](../15-dns-lookup-step-by-step/README.md) and [Networking From Zero Overview](../README.md) (Lesson 16 of 30).  
-> **Estimated Reading Time:** 25 minutes  
+> **Estimated Reading Time:** 35 minutes  
 > **Target Audience:** Backend and platform engineers planning zero-downtime IP/CDN cutovers, managing `A`/`AAAA`/`CNAME`/`MX`/`TXT`/`NS` records, and avoiding resolver cache and negative-caching traps.  
 > **Free PDF Notes:** [Download SD-N-016.pdf](https://backendroadmap.com/notes/system-design/SD-N-016.pdf)
+
+> [!NOTE]
+> **In one line:** DNS stores records (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `NS`); every answer is cached for its `TTL`; to change safely, lower the `TTL` early, wait out the old `TTL`, switch while both servers run, then raise the `TTL`.
 
 > [!TIP]
 > **The Golden Rule of DNS Migrations:** DNS stores typed records (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `NS`) on authoritative servers, and every resolver caches answers—including `NXDOMAIN` ("no such name")—for their `TTL`. To migrate cleanly without outages, **lower the `TTL` early, wait out at least one full old `TTL`, switch records while both old and new origins stay live, and raise the `TTL` only after old traffic drains**.
@@ -142,6 +145,117 @@ flowchart LR
 | **Agile / Migration** | `300 s` (`5 min`) | `~5 minutes` | Moderate | Pre-cutover staging window and dynamic APIs |
 | **Standard Web** | `3,600 s` (`1 hr`) | `1 hour` | High | Steady-state web apps, `MX`, `TXT` SPF policies |
 | **Static Glue** | `86,400 s` (`24 hr`) | `24 hours` | Maximum | Rarely changed `NS` delegation and root infrastructure |
+
+---
+
+## Core Definition & Taxonomic Comparison
+
+**DNS records are typed, cached facts.** Every record is a four-part tuple (`name`, `type`, `TTL`, `value`) stored on **authoritative** servers and copied, for at most `TTL` seconds, by every **recursive resolver**, OS stub, browser, and runtime between your user and your zone. **What it is not:** DNS is not a push system. The authoritative server never tells caches "this changed"; caches only discover the change when their own countdown reaches zero.
+
+Four pairs of ideas are routinely conflated in design reviews and incident channels:
+
+| Term | Precise Meaning | Production Example |
+| :--- | :--- | :--- |
+| **DNS `TTL`** vs. **HTTP `max-age`** | `TTL` is how long a *name -> address* answer may be cached by resolvers; `max-age` is how long an *HTTP response body* may be reused by browsers/CDNs. They stack: a stale IP can hide behind a fresh page. | `api.example.com A 198.51.100.10 TTL 300` while `/v1/config` carries `Cache-Control: max-age=3600`. |
+| **`CNAME`** vs. **`ALIAS` / `ANAME`** vs. **HTTP `301`** | `CNAME`: the resolver follows to another *name* (visible to every client, illegal at the apex). `ALIAS`/`ANAME`: the *provider* flattens the target and serves `A`/`AAAA` at the apex. `301`: the *web server* tells the browser to fetch a different URL. | `www -> d123.cloudfront.net` (`CNAME`); `example.com -> d123.cloudfront.net` (`ALIAS`); `http://example.com -> https://example.com` (`301`). |
+| **`NXDOMAIN`** vs. **`NODATA`** vs. **`SERVFAIL`** | `NXDOMAIN`: the *name* does not exist at all. `NODATA` (`NOERROR`, empty answer): the name exists but not for that *type* (an `AAAA` query on an IPv4-only host). `SERVFAIL`: the resolver could not get a trustworthy answer (broken delegation, `DNSSEC` failure). | `pay-eu.example.com` before Terraform runs -> `NXDOMAIN`, cached for the `SOA` minimum (`900 s`). |
+| **"Propagation"** vs. **cache expiry** | There is no propagation: the authoritative server answers with the new value immediately. What "propagates" is the *expiry of old copies* spread uniformly across `[0, T_old]`. | A `TTL = 86,400` record changed at `10:00` is still served from some caches until `10:00` the next day. |
+
+**Human and business impact.** DNS is the first dependency of every request, so a bad record is a total outage with a long tail: a typo behind a `24 h` TTL is a `24 h` incident that no deploy, rollback, or restart can shorten. Conversely, an unnecessarily tiny TTL silently multiplies resolver traffic, lookup latency (`20-100 ms` per miss), and your DNS provider bill.
+
+---
+
+## Component Anatomy & The Observability Gap
+
+### Anatomy of One Answer: From Zone File to Browser
+
+```text
+ AUTHORITATIVE ZONE (source of truth)                     CACHE LAYERS (each keeps its own countdown)
+ +-----------------------------------------+   miss   +--------------------+   +---------------+   +-------------+
+ | api.example.com. 300 IN A 198.51.100.10 | -------> | Recursive Resolver | ->| OS Stub Cache | ->| App / JVM / |
+ |  ^     ^          ^   ^  ^               |  TTL=300 | (ISP, 8.8.8.8, VPC)|   | (systemd-     |   | Browser     |
+ |  |     |          |   |  +-- RDATA       |          | counts 300 -> 0    |   | resolved...)  |   | Pool Cache  |
+ |  |     |          |   +---- TYPE         |          +--------------------+   +---------------+   +-------------+
+ |  |     |          +-------- CLASS (IN)   |
+ |  |     +------------------- TTL (seconds)|     Wire format (RFC 1035): NAME | TYPE(2B) | CLASS(2B) | TTL(4B) | RDLENGTH(2B) | RDATA
+ |  +------------------------- NAME         |     TTL is an unsigned 32-bit integer: max 2^32-1 s, practical cap 604,800 s (7 days)
+ +-----------------------------------------+
+```
+
+A resolver that fetched the record `T_age` seconds ago reports **`TTL_remaining = TTL_published - T_age`** to its clients, which is why repeating `dig` against a recursive resolver shows a *decaying* number while the same query against the authoritative server always shows the full value.
+
+### The Observability Gap: Who Can Actually See a DNS Migration?
+
+| Vantage Point | What It Captures | What It Hides |
+| :--- | :--- | :--- |
+| **Authoritative query log** (Route 53 query logging, BIND `querylog`) | Only cache **misses**: one entry per resolver per TTL window. | Every cache **hit**. A busy resolver serving `10,000` users shows up as *one* line per `TTL`. |
+| **Recursive resolver metrics** (cache hit ratio, `NXDOMAIN` rate) | Cache hit/miss, upstream latency, `SERVFAIL` spikes. | Which *clients* hold the old answer; stale entries cannot be enumerated. |
+| **Client stub** (`dig`, `resolvectl query`, app logs) | Real remaining TTL as *that one client* sees it. | Everyone else's view; JVM/pool caches that never call the stub again. |
+| **Old origin access logs / LB metrics** | The **only ground truth** for "who still uses the old IP" (requests per second, unique source ASNs). | Why they are stale (resolver clamp vs. open pool vs. hard-coded IP). |
+| **Synthetic multi-vantage probes** (RIPE Atlas, Pingdom, `dig @8.8.8.8 / @1.1.1.1 / @9.9.9.9`) | Spot checks across public resolvers and regions. | Private enterprise resolvers and mobile carrier forwarders. |
+
+**Operational rule:** never declare a migration complete from the authoritative side. The exit criterion is **old-origin traffic ≈ 0 for at least one full old TTL**, measured at the origin, not in DNS.
+
+---
+
+## Mathematical Model of TTL, Cache Hit Ratio & Cutover Time
+
+### 1. Staleness Window After a Change
+
+Let the record change at $t_0$ with old TTL $T_{\text{old}}$. A cache that last refreshed at time $t_r \in [t_0 - T_{\text{old}},\, t_0]$ keeps serving the old value until $t_r + T_{\text{old}}$. If refreshes are uniformly spread:
+
+$$W_{\max} = T_{\text{old}}, \qquad \mathbb{E}[W] = \frac{T_{\text{old}}}{2}$$
+
+After lowering the TTL to $T_{\text{new}}$ and **waiting at least $T_{\text{old}}$**, every cache holds a short entry, so the staleness window of the *real* cutover collapses to:
+
+$$W_{\text{cutover}} = T_{\text{new}}, \qquad \text{Fraction migrated at } t \text{ after switch} = \min\!\left(1,\ \frac{t}{T_{\text{new}}}\right)$$
+
+| Strategy | Max Stale Window | 50% Migrated | 95% Migrated | Rollback Time |
+| :--- | :--- | :--- | :--- | :--- |
+| Change IP, keep `TTL = 86,400` | `24 h` | `12 h` | `22.8 h` | `24 h` |
+| Lower to `300` and change in the same minute (**the bug**) | `24 h` | `12 h` | `22.8 h` | `24 h` |
+| Lower to `300`, **wait `86,400 s`**, then change | `5 min` | `2.5 min` | `4.75 min` | `5 min` |
+| Lower to `60`, wait old TTL, then change | `1 min` | `30 s` | `57 s` | `1 min` |
+
+### 2. Cache Hit Ratio and Authoritative Load
+
+For one resolver receiving $\lambda$ queries/second for a name, it contacts the authoritative server at most once per TTL, so:
+
+$$h = 1 - \frac{1}{\lambda\,T}, \qquad \text{Auth QPS} \approx \frac{R}{T}\quad(R = \text{number of active resolvers asking})$$
+
+With $\lambda = 10\ \text{q/s}$ at one resolver: $T = 30 \Rightarrow h = 99.67\%$, $T = 300 \Rightarrow h = 99.97\%$. Across $R = 200{,}000$ active resolvers:
+
+| `TTL` | Authoritative QPS ($R/T$) | Queries/Day to Authoritative | Cutover Window |
+| :--- | :--- | :--- | :--- |
+| `30 s` | `6,667` | `576 M` | `30 s` |
+| `60 s` | `3,333` | `288 M` | `1 min` |
+| `300 s` | `667` | `57.6 M` | `5 min` |
+| `3,600 s` | `56` | `4.8 M` | `1 h` |
+| `86,400 s` | `2.3` | `0.2 M` | `24 h` |
+
+**Reading the table:** going from `3,600 s` to `300 s` costs about `12x` more authoritative queries but buys a `12x` faster cutover. That trade is only worth paying *around changes* and for failover records; steady-state records belong at `1 h`+.
+
+### 3. Latency Cost of a Short TTL
+
+Each cache miss adds a resolver round trip ($L_{\text{dns}} \approx 20\text{-}100\ \text{ms}$). Expected extra latency per request on a connection that re-resolves every request is:
+
+$$\mathbb{E}[\Delta L] = (1 - h)\cdot L_{\text{dns}}$$
+
+At $h = 99.67\%$ and $L_{\text{dns}} = 80\ \text{ms}$: $\mathbb{E}[\Delta L] = 0.0033 \times 80 = 0.26\ \text{ms}$, so a `30 s` TTL is nearly free for hot names but expensive for rarely visited ones (a name queried once per hour has $h = 0$ at any TTL below `3,600 s`).
+
+### 4. Negative Caching (RFC 2308)
+
+$$T_{\text{NXDOMAIN cached}} = \min\!\left(\text{SOA TTL},\ \text{SOA MINIMUM}\right)$$
+
+With `SOA MINIMUM = 900`, one premature lookup of a not-yet-created name poisons that resolver for up to **15 minutes**, regardless of how fast you publish the record afterwards.
+
+### 5. Worked Example: Planning the Window
+
+An API has `TTL = 43,200` (`12 h`) and must cut over Friday `14:00 UTC` with a `5 min` maximum window:
+
+1. Latest moment to lower TTL to `300`: $14{:}00 - 12\text{ h} = 02{:}00$ UTC Friday (**add a 1-2 h safety margin**, so `00:00` UTC).
+2. Cutover at `14:00`: 95% of users move by `14:04:45`; keep the old origin alive until its logs show zero for `>= 12 h`.
+3. Only then raise TTL back to `3,600` and decommission.
 
 ---
 
@@ -484,53 +598,148 @@ A health check or monitoring script queried `billing-v2.example.com` *before* th
 
 ## Interview Practice Questions
 
-> [!interview] Name the common DNS record types and what they do. (Basic)
+Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system), and **Tricky** (deep follow-ups). Answer out loud before opening the solution.
 
-<details><summary>What to say in 30 seconds</summary>
+<details>
+<summary><strong>1. Name the common DNS record types and what they do. [BASIC]</strong></summary>
 
-A maps a name to an IPv4 address and AAAA to an IPv6 address; CNAME makes a name an alias of another name; MX lists mail servers with priorities; TXT holds text such as ownership proofs and SPF/DKIM for email; NS names the authoritative servers for a domain. Each record also carries a TTL.
-
-</details>
-
-> [!interview] What is a TTL in DNS, and what's the trade-off in choosing it? (Basic)
-
-<details><summary>What to say in 30 seconds</summary>
-
-The time, in seconds, a resolver may cache an answer before asking again. A short TTL (like 300) makes changes reach users fast but causes more lookups and a little more latency; a long TTL (like 86,400) saves lookups but makes changes take up to that long.
-
-</details>
-
-> [!interview] How do you move a website to a new IP address with no downtime? (Scenario)
-
-<details><summary>What to say in 30 seconds</summary>
-
-Days before, lower the record's TTL, say from a day to five minutes, and wait at least the old TTL so every cache holds the short one. Switch the A record while both old and new servers run, watch traffic move to the new one, keep the old server a little longer for slow caches, then raise the TTL again. Rollback is quick throughout.
+<strong>What a strong answer covers:</strong>
+- **`A` / `AAAA`:** map a name to an IPv4 / IPv6 address.
+- **`CNAME`:** makes a name an alias of another name; the resolver follows it and looks the target up.
+- **`MX`:** lists mail servers with priorities; the lowest number is tried first.
+- **`TXT`:** free text, used for ownership proofs and email security (`SPF`, `DKIM`, `DMARC`).
+- **`NS`:** names the authoritative servers for the zone (delegation). **`SOA`** carries zone metadata including the negative-caching timer.
+Every record also carries a `TTL`.
 
 </details>
 
-> [!interview] Users still reach the old server hours after a DNS change. Why, and what can you do? (Scenario)
+<details>
+<summary><strong>2. What is a TTL in DNS, and what is the trade-off in choosing it? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-Resolvers cached the old answer with its old TTL and will keep it until that expires; some resolvers and clients also hold answers longer. You can't flush other people's caches, so keep the old server running (or proxying to the new one) until traffic drains, and lower TTLs ahead of time next time.
-
-</details>
-
-> [!interview] What's the difference between a CNAME and an HTTP redirect? (Tricky)
-
-<details><summary>What to say in 30 seconds</summary>
-
-A CNAME is resolved inside DNS: the resolver follows the alias to another name and returns its address, and the browser's URL doesn't change. An HTTP redirect (301 or 302) is the web server telling the browser to request a different URL, so the address bar changes.
+<strong>What a strong answer covers:</strong>
+The time, in seconds, a resolver may cache an answer before asking again. A short TTL (`300`) makes changes reach users fast, but multiplies lookups and adds `20-100 ms` per cache miss. A long TTL (`86,400`) saves lookups and provider cost, but a change (or a mistake) can take up to that long to disappear. Rule of thumb: short around changes and for failover records, `1 h`+ in steady state. Quantify it: authoritative load is roughly $R/T$ for $R$ active resolvers.
 
 </details>
 
-> [!interview] Why can't you put a CNAME at the root of a domain? (Tricky)
+<details>
+<summary><strong>3. What is the difference between an authoritative server and a recursive resolver, and who caches what? [BASIC]</strong></summary>
 
-<details><summary>What to say in 30 seconds</summary>
-
-A CNAME means the name has no other data of its own, but the root (apex) must have NS and SOA records, and usually MX and TXT. So DNS forbids a CNAME there. Providers offer ALIAS or ANAME records, or CNAME flattening, which resolve the target themselves and return its addresses as A and AAAA records.
+<strong>What a strong answer covers:</strong>
+The **authoritative** server holds the zone and gives the source-of-truth answer with the published `TTL`. The **recursive resolver** (ISP, `8.8.8.8`, VPC resolver) walks the hierarchy on behalf of clients and **caches** answers for the remaining TTL. Caching also happens in the OS stub (`systemd-resolved`, `mDNSResponder`), browsers, and language runtimes (the JVM `InetAddress` cache). Only the authoritative server can be asked for the "real" value, which is why `dig @ns1.provider.net` is the right pre-launch check.
 
 </details>
+
+<details>
+<summary><strong>4. What is negative caching, and how long does it last? [BASIC]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Resolvers cache "this name does not exist" (`NXDOMAIN`) just like positive answers (RFC 2308). The lifetime is the smaller of the `SOA` record's own TTL and its `MINIMUM` field (often `300-900 s`). Consequence: if anything looks up a hostname *before* you create it, that resolver keeps answering `NXDOMAIN` for minutes after the record exists. Mitigate by lowering the `SOA` minimum (`60-300 s`) and verifying new names against the authoritative server first.
+
+</details>
+
+<details>
+<summary><strong>5. How do you move a website to a new IP address with no downtime? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+1. Days before: lower the record's TTL (say `86,400` to `300`).
+2. **Wait at least the old TTL** so every cache holds the short one.
+3. Keep both origins live and switch the `A` record; most users move within about `T_new`.
+4. Watch the old origin's traffic fall to zero and keep it up a little longer for TTL-ignoring clients.
+5. Raise the TTL back (for example `3,600`) and only then decommission the old server.
+Rollback is a `5 min` operation for the entire window. Bonus points: add a temporary reverse proxy on the old IP.
+
+</details>
+
+<details>
+<summary><strong>6. Users still reach the old server hours after a DNS change. Why, and what can you do? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Resolvers cached the old answer under the *old* TTL and keep it until it expires; some resolvers clamp low TTLs to a floor (`300 s`+), and clients with pools, keep-alive sockets, or runtime caches (JVM) never re-resolve. You cannot flush other people's caches. Keep the old origin running (or proxying to the new one) until its logs drain, and plan the TTL drop ahead of time on the next migration.
+
+</details>
+
+<details>
+<summary><strong>7. After moving the website behind a CDN, company email stops arriving. What probably happened? [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Someone replaced the apex `A` record with a `CNAME` (or the provider deleted the other apex records to accept it). A `CNAME` means "this name has no other data", so `MX`, `TXT` (`SPF`), `NS`, and `SOA` at that node are invalidated or rejected; mail senders can no longer find `MX`. Fix: restore the `MX`/`TXT` records and use the provider's `ALIAS`/`ANAME`/CNAME-flattening record at the apex, or CNAME only `www`. Remember the repaired records still take up to the `MX` TTL to be seen everywhere.
+
+</details>
+
+<details>
+<summary><strong>8. Terraform creates `pay-eu.example.com`, but CI still gets `NXDOMAIN` for 15 minutes. Diagnose it. [SCENARIO]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A readiness probe queried the name before the record was published, so the shared recursive resolver cached `NXDOMAIN` for the `SOA` negative TTL (`900 s`). `dig @ns1.provider.net pay-eu.example.com` will return the real answer immediately, proving the zone is correct. Fixes: have CI poll the **authoritative** server first, gate on `SOA`-aware backoff, lower the `SOA MINIMUM` to `60 s`, and create the record before anything is told to look it up.
+
+</details>
+
+<details>
+<summary><strong>9. What is the difference between a CNAME and an HTTP redirect? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A `CNAME` is resolved **inside DNS**: the resolver follows the alias, returns the final address, and the browser URL never changes (the `Host` header still carries the original name). An HTTP `301`/`302` is the web server telling the browser to request a different URL, so the address bar changes and the request is repeated. A `CNAME` cannot change paths or scheme; a redirect can. They also cache differently: DNS `TTL` vs. `Cache-Control`.
+
+</details>
+
+<details>
+<summary><strong>10. Why can't you put a CNAME at the root (apex) of a domain? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A `CNAME` says the name has no other data of its own, but the apex *must* carry `NS` and `SOA` and usually `MX` and `TXT`. Under RFC 1034 a `CNAME` cannot coexist with other record types at the same name. Providers offer `ALIAS`/`ANAME` records or CNAME flattening: they resolve the target server-side and answer with synthetic `A`/`AAAA` records. Trade-off: flattened answers use the provider's own TTL and can ignore EDNS Client Subnet, which affects CDN geo-steering.
+
+</details>
+
+<details>
+<summary><strong>11. You lowered the TTL to 60 s and changed the IP in the same minute, yet users saw the old IP for a day. Why? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+A resolver that cached the record moments before the change holds it for the **old** `86,400 s`; it never saw the new `60 s` TTL. Lowering a TTL only affects caches that refresh *afterward*, so the lowering step needs a head start of at least the old TTL. Max stale window is $T_{\text{old}}$ (expected $T_{\text{old}}/2$). This is the single most common DNS-migration mistake.
+
+</details>
+
+<details>
+<summary><strong>12. Why not just set every TTL to 0 or 1 second so changes are instant? [TRICKY]</strong></summary>
+
+<strong>What a strong answer covers:</strong>
+Authoritative load grows as $R/T$; at `1 s` that is `200,000` QPS for `200,000` resolvers, the lookup latency (`20-100 ms`) lands on user requests, and the provider bill grows. Many ISP and enterprise resolvers **clamp** TTLs to a minimum (`30-300 s`+) and some ignore them, so the benefit is unreliable. Long-lived connections and runtime caches (`JVM`, pools) bypass DNS entirely. Use short TTLs only around changes or for health-checked failover, and get fast failover from an anycast front door instead (Lesson 17).
+
+</details>
+
+---
+
+## One-Page Master Cheat Sheet
+
+```text
+====================================================================================================
+                      DNS RECORDS, TTL & SAFE MIGRATIONS  —  CHEAT SHEET
+====================================================================================================
+RECORD = (NAME, TYPE, TTL, VALUE)           Wire: NAME | TYPE 2B | CLASS 2B | TTL 4B | RDLENGTH 2B | RDATA
+  A / AAAA : name -> IPv4 / IPv6             CNAME : alias, NEVER at zone apex or beside other records
+  MX       : "10 mail.example.com." low=first   TXT : SPF / DKIM / DMARC / ownership tokens
+  NS / SOA : delegation / zone metadata + negative-cache MINIMUM      ALIAS/ANAME : provider apex flattening
+
+TTL MATH
+  Stale window after change     : max = T_old,  mean = T_old / 2   (there is NO "propagation", only cache expiry)
+  Safe cutover window           : T_new   (after waiting >= T_old)   Fraction moved at t = min(1, t / T_new)
+  Cache hit ratio (1 resolver)  : h = 1 - 1/(lambda * T)             Authoritative QPS ~ R / T
+  Negative cache (RFC 2308)     : NXDOMAIN lives min(SOA TTL, SOA MINIMUM)   (typ. 300-900 s)
+  Typical TTLs                  : failover 30-60 s | migration 300 s | steady web 3,600 s | NS 86,400+ s
+
+SAFE MIGRATION (5 STEPS)
+  1 Lower TTL (86,400 -> 300)  2 WAIT >= old TTL  3 Switch record, BOTH origins live
+  4 Watch OLD origin logs -> 0  5 Raise TTL (-> 3,600), then decommission.   Rollback = T_new.
+
+OBSERVABILITY
+  Authoritative logs = misses only  | Truth = old-origin traffic | Check: dig @ns1.provider.net vs @8.8.8.8
+  Exit criterion: old-origin RPS ~ 0 for >= one full old TTL.
+
+ANTI-PATTERNS
+  X lower TTL + change IP same minute   X kill old server early        X typo under long TTL
+  X probe a name before creating it     X CNAME at apex                X assume 48 h "propagation"
+  X TTL = 1 s everywhere                X trust authoritative-only view of a migration
+====================================================================================================
+```
 
 ---
 
