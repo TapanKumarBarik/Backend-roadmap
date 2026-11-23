@@ -123,7 +123,7 @@ When upstream auth servers suffered a 10-second hiccup, the circular decoration 
 
 Below are production implementations of the **Adapter** (adapting a third-party payment vendor) and **Decorator** (transparently adding logging and metrics to a data repository).
 
-### Python
+````carousel
 ```python
 from abc import ABC, abstractmethod
 import time
@@ -179,7 +179,8 @@ if __name__ == "__main__":
     u = repo.get_user("usr_42")
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 using System.Diagnostics;
@@ -238,7 +239,8 @@ public class LoggingDataServiceDecorator : IDataService
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -279,7 +281,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 // Facade Pattern: Simplifying a complex multi-system checkout process
 class InventorySystem { checkStock(sku: string): boolean { return true; } }
@@ -300,6 +303,7 @@ export class OrderCheckoutFacade {
   }
 }
 ```
+````
 
 ---
 

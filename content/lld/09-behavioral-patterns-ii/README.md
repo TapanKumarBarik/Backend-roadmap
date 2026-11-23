@@ -118,7 +118,7 @@ Because the handler neither forwarded the request to `_next.Handle()` nor sent a
 
 ## 5. Multi-Language Production Code: Chain of Responsibility & Mediator Patterns
 
-### Python (Chain of Responsibility Pipeline)
+````carousel
 ```python
 from __future__ import annotations
 from abc import ABC, abstractmethod
@@ -168,7 +168,8 @@ if __name__ == "__main__":
     chain.handle(HttpRequest("/orders", token="secret-token-xyz"))
 ```
 
-### C# (.NET) — The Mediator Pattern (In-Process CQRS Dispatcher)
+<!-- slide -->
+
 ```csharp
 using System;
 using System.Collections.Generic;
@@ -205,7 +206,8 @@ public class Mediator
 }
 ```
 
-### Go (Iterator Pattern)
+<!-- slide -->
+
 ```go
 package main
 
@@ -238,7 +240,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js (Visitor Pattern: AST / Calculation)
+<!-- slide -->
+
 ```typescript
 interface ShapeVisitor {
   visitCircle(circle: Circle): number;
@@ -269,6 +272,7 @@ class AreaCalculatorVisitor implements ShapeVisitor {
   }
 }
 ```
+````
 
 ---
 

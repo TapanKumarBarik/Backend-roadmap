@@ -140,7 +140,7 @@ public class BankAccount {
 
 Below is an enterprise implementation of a domain entity enforcing strict invariants, currency boundaries, and immutable identifiers across four languages.
 
-### Python
+````carousel
 ```python
 from decimal import Decimal
 from typing import Final
@@ -181,7 +181,8 @@ if __name__ == "__main__":
     print(f"Account {acc.account_id} balance: ${acc.balance}")
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 
@@ -223,7 +224,8 @@ public class BankAccount
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -283,7 +285,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 export class BankAccount {
   readonly #accountId: string;
@@ -327,6 +330,7 @@ export class BankAccount {
   }
 }
 ```
+````
 
 ---
 

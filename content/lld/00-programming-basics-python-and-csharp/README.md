@@ -133,7 +133,7 @@ def register_user(username: str, roles: list = None):
 
 Below is an enterprise demonstration of safe parameter handling, immutability, and defensive copying across four core backend languages.
 
-### Python
+````carousel
 ```python
 from typing import List, Optional
 from dataclasses import dataclass, field
@@ -160,7 +160,8 @@ if __name__ == "__main__":
     print("✅ Verified: Zero state leakage between invocations.")
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 using System.Collections.Generic;
@@ -188,7 +189,8 @@ public class Program
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -230,7 +232,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 interface UserAccount {
   readonly username: string;
@@ -249,6 +252,7 @@ export function createUser(username: string, initialRoles?: readonly string[]): 
 const user = createUser('Asha');
 console.log(`User created: ${user.username}, Roles: [${user.roles.join(', ')}]`);
 ```
+````
 
 ---
 

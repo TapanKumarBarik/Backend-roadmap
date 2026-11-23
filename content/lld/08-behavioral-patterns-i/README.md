@@ -124,7 +124,7 @@ public class UserDashboard : IObserver, IDisposable {
 
 Below are production implementations of the **Command Pattern** (with undo capability) and the **State Pattern** (Finite State Machine).
 
-### Python (Command Pattern with Undo)
+````carousel
 ```python
 from abc import ABC, abstractmethod
 from typing import List
@@ -185,7 +185,8 @@ if __name__ == "__main__":
     print("After Undo:", doc.text) # "Hello "
 ```
 
-### C# (.NET) — The State Pattern (Order State Machine)
+<!-- slide -->
+
 ```csharp
 using System;
 
@@ -258,7 +259,8 @@ public class CancelledState : IOrderState
 }
 ```
 
-### Go (Strategy Pattern)
+<!-- slide -->
+
 ```go
 package main
 
@@ -304,7 +306,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js (Observer Pattern)
+<!-- slide -->
+
 ```typescript
 interface Observer<T> {
   update(data: T): void;
@@ -326,6 +329,7 @@ export class EventEmitterSubject<T> {
   }
 }
 ```
+````
 
 ---
 

@@ -145,7 +145,7 @@ public class Order {
 
 Below is an enterprise notification dispatch pipeline demonstrating polymorphism and composition without deep inheritance hierarchies.
 
-### Python
+````carousel
 ```python
 from abc import ABC, abstractmethod
 from typing import List
@@ -179,7 +179,8 @@ if __name__ == "__main__":
     dispatcher.broadcast("user@example.com", "Your order #102 has shipped!")
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 using System.Collections.Generic;
@@ -220,7 +221,8 @@ public class NotificationDispatcher
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -264,7 +266,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 interface NotificationChannel {
   send(recipient: string, message: string): Promise<void>;
@@ -290,6 +293,7 @@ class NotificationDispatcher {
   }
 }
 ```
+````
 
 ---
 

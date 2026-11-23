@@ -119,7 +119,7 @@ public bool TryGetUser(string id, out User user) {
 
 Below is an enterprise implementation of an immutable `Money` Value Object and a generic `Result<T, E>` pattern across four backend languages.
 
-### Python
+````carousel
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
@@ -168,7 +168,8 @@ if __name__ == "__main__":
     print(f"Total: ${m3.amount} {m3.currency}")
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 
@@ -211,7 +212,8 @@ public readonly struct Result<T, TError>
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -255,7 +257,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 export class Money {
   readonly #amountCents: bigint;
@@ -289,6 +292,7 @@ export type Result<T, E> =
   | { success: true; value: T }
   | { success: false; error: E };
 ```
+````
 
 ---
 

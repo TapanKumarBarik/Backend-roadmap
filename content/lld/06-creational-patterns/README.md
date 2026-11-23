@@ -148,7 +148,7 @@ func GetDatabasePool() *DatabasePool {
 
 Below is an enterprise notification dispatcher using the **Factory Method** to instantiate delivery channels, and the **Builder Pattern** to construct complex notification payloads.
 
-### Python
+````carousel
 ```python
 from __future__ import annotations
 from abc import ABC, abstractmethod
@@ -213,7 +213,8 @@ if __name__ == "__main__":
     sender.send(msg)
 ```
 
-### C# (.NET)
+<!-- slide -->
+
 ```csharp
 using System;
 using System.Collections.Generic;
@@ -259,7 +260,8 @@ public class EmailMessage
 }
 ```
 
-### Go
+<!-- slide -->
+
 ```go
 package main
 
@@ -318,7 +320,8 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js
+<!-- slide -->
+
 ```typescript
 // Abstract Factory Pattern
 interface Button { render(): string; }
@@ -345,6 +348,7 @@ export function renderUI(factory: GUIFactory) {
   console.log(`Rendered: ${btn.render()} and ${chk.toggle()}`);
 }
 ```
+````
 
 ---
 
