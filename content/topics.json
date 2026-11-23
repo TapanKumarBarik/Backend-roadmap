@@ -4,15 +4,19 @@
       "id": "python-refresher",
       "title": "Python refresher",
       "short": "Python refresher",
-      "summary": "Just enough Python to write classes: how values and references behave, then a ladder of small problems to get your hands moving again.",
-      "why": "Object-oriented code is mostly Python you already know, arranged into classes. Knowing how Python holds values, and the classic traps, saves hours later.",
+      "summary": "Python from the ground up in nine short lessons: values, text, lists, dictionaries, loops, functions and references. Every example runs in the page.",
+      "why": "Classes and objects are Python you already know, arranged differently. If lists, dictionaries and functions feel solid, object-oriented code is a small step. The one idea people miss is that two names can point at the same object.",
       "level": "beginner",
       "prerequisites": [],
       "stages": [
-        { "title": "How Python holds values", "lessons": ["lld/00-programming-basics-python-and-csharp/README.md"] }
+        { "title": "Values and text", "lessons": ["learn/00-python-refresher/00-running-python-values-and-types/README.md", "learn/00-python-refresher/01-strings-and-text/README.md"] },
+        { "title": "Collections and control flow", "lessons": ["learn/00-python-refresher/02-lists-tuples-and-sets/README.md", "learn/00-python-refresher/03-dictionaries/README.md", "learn/00-python-refresher/04-decisions-and-loops/README.md"] },
+        { "title": "Functions", "lessons": ["learn/00-python-refresher/05-functions/README.md"] },
+        { "title": "How Python really holds things", "lessons": ["learn/00-python-refresher/06-names-references-and-mutability/README.md"] },
+        { "title": "Real programs", "lessons": ["learn/00-python-refresher/07-errors-files-and-modules/README.md", "learn/00-python-refresher/08-capstone-expense-tracker/README.md"] }
       ],
       "practice": {
-        "code": ["contains-duplicate", "valid-anagram", "valid-palindrome", "two-sum", "run-length-encoding", "majority-element", "pascals-triangle", "fix-the-mutable-default-argument", "fix-shallow-copy", "fix-mutating-while-iterating"]
+        "code": ["valid-palindrome", "contains-duplicate", "valid-anagram", "move-zeroes", "two-sum", "majority-element", "fix-float-money", "fix-mutating-while-iterating", "fix-the-mutable-default-argument", "fix-shallow-copy"]
       },
       "next": ["oop-python"]
     },

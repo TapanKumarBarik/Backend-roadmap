@@ -75,6 +75,7 @@ structured to fight that:
 
 | # | Track | What you'll be able to do after | Depends on |
 |---|-------|-----------------------------------|------------|
+| 0 | [00-python-refresher](00-python-refresher/README.md) | Python from the ground up in nine short lessons, every example runnable, ending in a small expense tracker. Take it first if Python is rusty, before classes and objects | none |
 | 1 | [01-linux](01-linux/README.md) | Navigate, manage, script, and troubleshoot a Linux system confidently from the shell | nothing |
 | 2 | [02-docker](02-docker/README.md) | Build, ship, and run containers, and deploy them to Azure | Linux |
 | 3 | [03-kubernetes](03-kubernetes/README.md) | Understand and operate a Kubernetes cluster and its core objects, on a local cluster | Docker |

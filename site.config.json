@@ -266,6 +266,7 @@
           {
             "label": "Foundations",
             "tracks": [
+              "00-python-refresher",
               "01-linux",
               "02-docker",
               "03-kubernetes",
