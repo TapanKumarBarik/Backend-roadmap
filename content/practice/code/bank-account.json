@@ -1,0 +1,35 @@
+{
+  "title": "Bank Account",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a BankAccount that keeps its balance valid: deposits, withdrawals and transfers that refuse bad amounts.",
+  "statement": "Write a class `BankAccount` with `__init__(self, owner, balance=0)` and the attributes `owner` and `balance`.\n\n**Methods**\n\n- `deposit(amount)` adds `amount` to the balance and **returns the new balance**.\n- `withdraw(amount)` takes `amount` from the balance and **returns the new balance**.\n- `transfer(other, amount)` moves `amount` from this account to the account `other` (it returns nothing).\n\n**Rules**\n\n- An amount must be greater than 0: otherwise raise `ValueError(\"Amount must be positive\")` and change nothing.\n- A withdrawal (and so a transfer) may not take more than the balance: otherwise raise `ValueError(\"Insufficient funds\")` and change **nothing**, on either account.\n- A new account starts at `0` unless a balance is given.\n\n**Example**\n\n```\nasha = BankAccount(\"Asha\", 100)\nasha.deposit(50)                     # returns 150\nasha.withdraw(500)                   # raises ValueError(\"Insufficient funds\"); balance is still 150\nben = BankAccount(\"Ben\", 10)\nasha.transfer(ben, 20)               # asha.balance is 130, ben.balance is 30\n```",
+  "starter": "class BankAccount:\n    def __init__(self, owner, balance=0):\n        \"\"\"An account for `owner` that starts with `balance`.\"\"\"\n        ...\n\n    def deposit(self, amount):\n        \"\"\"Add the amount and return the new balance.\"\"\"\n        ...\n\n    def withdraw(self, amount):\n        \"\"\"Take the amount out and return the new balance.\"\"\"\n        ...\n\n    def transfer(self, other, amount):\n        \"\"\"Move the amount from this account to `other`.\"\"\"\n        ...\n",
+  "tests": [
+    "def error_of(action, *args):\n    \"\"\"The message of the ValueError a call raises, or None when it does not.\"\"\"\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\naccount = BankAccount(\"Asha\", 100)",
+    "assert (account.owner, account.balance) == (\"Asha\", 100)",
+    "assert BankAccount(\"Ben\").balance == 0",
+    "assert account.deposit(50) == 150",
+    "assert account.balance == 150",
+    "assert account.withdraw(30) == 120",
+    "assert error_of(account.withdraw, 500) == \"Insufficient funds\"",
+    "assert account.balance == 120",
+    "assert error_of(account.deposit, 0) == \"Amount must be positive\"",
+    "assert error_of(account.withdraw, -5) == \"Amount must be positive\"",
+    "assert account.balance == 120",
+    "other = BankAccount(\"Ben\", 10)\naccount.transfer(other, 20)",
+    "assert (account.balance, other.balance) == (100, 30)",
+    "assert error_of(account.transfer, other, 1000) == \"Insufficient funds\"",
+    "assert (account.balance, other.balance) == (100, 30)",
+    "assert error_of(account.transfer, other, 0) == \"Amount must be positive\"",
+    "assert (account.balance, other.balance) == (100, 30)"
+  ],
+  "hints": [
+    "Give `balance` a default in `__init__` (`balance=0`) and store both `owner` and `balance` on `self`.",
+    "Validate before you change anything: raise `ValueError(\"Amount must be positive\")` when the amount is 0 or less, and `ValueError(\"Insufficient funds\")` when a withdrawal is larger than the balance.",
+    "`transfer` should not repeat those rules: call `self.withdraw(amount)` and then `other.deposit(amount)`. If the withdrawal raises, the deposit never happens."
+  ],
+  "solution": "class BankAccount:\n    def __init__(self, owner, balance=0):\n        self.owner = owner\n        self.balance = balance\n\n    def deposit(self, amount):\n        if amount <= 0:\n            raise ValueError(\"Amount must be positive\")\n        self.balance += amount\n        return self.balance\n\n    def withdraw(self, amount):\n        if amount <= 0:\n            raise ValueError(\"Amount must be positive\")\n        if amount > self.balance:\n            raise ValueError(\"Insufficient funds\")\n        self.balance -= amount\n        return self.balance\n\n    def transfer(self, other, amount):\n        self.withdraw(amount)      # raises, and changes nothing, if the amount is bad or too large\n        other.deposit(amount)\n",
+  "explanation": "**The idea.** An object is responsible for keeping its own data valid. Instead of letting any code set `balance` to anything, the account exposes `deposit` and `withdraw`, and those refuse bad requests. This is encapsulation in its simplest form: the rules live next to the data they protect.\n\n**Check before you change.** Each method validates *first* and only then updates the balance, so a refused request leaves the account exactly as it was. Raising an exception (rather than printing a message and carrying on) makes the caller deal with the failure.\n\n**Reuse your own methods.** `transfer` does not repeat the rules. It calls `withdraw` (which raises if the amount is bad or too large, before anything has moved) and only then `deposit`s into the other account. If `withdraw` raises, the `deposit` line never runs, which is why neither account changes on a failed transfer.\n\n**Going further.** What if `deposit` into the other account could fail after the withdrawal succeeded? Real banking code makes the two steps one atomic transaction; that idea returns in the databases and distributed-systems lessons."
+}

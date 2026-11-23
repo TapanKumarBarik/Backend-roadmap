@@ -1,0 +1,36 @@
+{
+  "title": "Shopping Cart",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a Cart class that adds and removes items and works out the total.",
+  "statement": "Write a class `Cart` with no arguments to `__init__`. It starts empty.\n\n**Methods**\n\n- `add(item, price, quantity=1)` puts `quantity` of the item in the cart. If the item is **already in the cart**, its quantity goes up and its **first price stays**. `quantity` must be at least 1: otherwise raise `ValueError(\"Quantity must be at least 1\")` and change nothing.\n- `remove(item)` takes the item out completely and returns `True`, or returns `False` when it was not in the cart.\n- `quantity_of(item)` returns how many of the item are in the cart (`0` when none).\n- `item_count()` returns the total number of things in the cart (all quantities added up).\n- `total()` returns the price to pay: each item's price times its quantity, added up and rounded to 2 decimal places. An empty cart is `0`.\n\n**Example**\n\n```\ncart = Cart()\ncart.add(\"pen\", 1.5, 4)\ncart.add(\"notebook\", 3.25)\ncart.item_count()      # 5\ncart.total()           # 9.25\ncart.add(\"pen\", 99, 2) # the pen is already there: 6 pens now, still at 1.5 each\ncart.total()           # 12.25\n```",
+  "starter": "class Cart:\n    def __init__(self):\n        \"\"\"An empty cart.\"\"\"\n        ...\n\n    def add(self, item, price, quantity=1):\n        \"\"\"Put the item in the cart (more of it, at its first price, if it is already there).\"\"\"\n        ...\n\n    def remove(self, item):\n        \"\"\"Take the item out. Return True if it was there, False if not.\"\"\"\n        ...\n\n    def quantity_of(self, item):\n        \"\"\"How many of the item are in the cart.\"\"\"\n        ...\n\n    def item_count(self):\n        \"\"\"How many things are in the cart in all.\"\"\"\n        ...\n\n    def total(self):\n        \"\"\"The price to pay, rounded to 2 decimal places.\"\"\"\n        ...\n",
+  "tests": [
+    "def error_of(action, *args):\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\ncart = Cart()",
+    "assert cart.total() == 0",
+    "assert cart.item_count() == 0",
+    "cart.add(\"pen\", 1.5, 4)\ncart.add(\"notebook\", 3.25)",
+    "assert cart.item_count() == 5",
+    "assert cart.total() == 9.25",
+    "cart.add(\"pen\", 99, 2)",
+    "assert cart.quantity_of(\"pen\") == 6",
+    "assert cart.total() == 12.25",
+    "assert cart.quantity_of(\"stapler\") == 0",
+    "assert cart.remove(\"pen\") is True",
+    "assert cart.remove(\"pen\") is False",
+    "assert cart.item_count() == 1",
+    "assert cart.total() == 3.25",
+    "assert error_of(cart.add, \"ruler\", 1, 0) == \"Quantity must be at least 1\"",
+    "assert cart.quantity_of(\"ruler\") == 0",
+    "other = Cart()\nother.add(\"pen\", 2)",
+    "assert (cart.quantity_of(\"pen\"), other.quantity_of(\"pen\")) == (0, 1)"
+  ],
+  "hints": [
+    "Keep a dictionary from the item to its price and quantity, created inside `__init__`. A second `Cart` must have its own.",
+    "In `add`, check the quantity first. If the item is already in the dictionary, only increase its quantity; do not touch the price.",
+    "`total()` is the sum of `price * quantity` over all lines, rounded to 2 decimals. `item_count()` is the sum of the quantities only."
+  ],
+  "solution": "class Cart:\n    def __init__(self):\n        self._lines = {}                      # item -> [price, quantity]\n\n    def add(self, item, price, quantity=1):\n        if quantity < 1:\n            raise ValueError(\"Quantity must be at least 1\")\n        if item in self._lines:\n            self._lines[item][1] += quantity   # the first price stays\n        else:\n            self._lines[item] = [price, quantity]\n\n    def remove(self, item):\n        return self._lines.pop(item, None) is not None\n\n    def quantity_of(self, item):\n        return self._lines[item][1] if item in self._lines else 0\n\n    def item_count(self):\n        return sum(quantity for _, quantity in self._lines.values())\n\n    def total(self):\n        return round(sum(price * quantity for price, quantity in self._lines.values()), 2)\n",
+  "explanation": "**The idea.** The cart keeps one *line* per item: its price and how many there are. A dictionary from item name to a line makes \"is it already here?\" a single check, and adding more of the same item just increases the quantity.\n\n**Keep the inside private.** The dictionary is named `_lines` (the leading underscore is Python's way of saying \"internal\"). Callers use `add`, `remove` and the question methods, so you can change how the cart stores things later without breaking anyone. That freedom is the point of encapsulation.\n\n**Small decisions.** `pop(item, None)` removes the line and returns what was there, so `is not None` turns \"was it there?\" into the `True`/`False` the statement asks for. Rounding the total to 2 decimals keeps floating-point noise (like `9.250000000000002`) out of a price.\n\n**Going further.** Money in floating point is risky; real systems store whole cents. The \"Fix the Float Money Bug\" problem shows why."
+}

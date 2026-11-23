@@ -16077,6 +16077,41 @@
    "solution": "import random\n\n\ndef backoff_schedule(attempts, base, cap, rng=random.random, factor=2):\n    delays = []\n    ceiling = min(cap, base)                     # the most the next delay may be\n    for _ in range(attempts):\n        delays.append(rng() * ceiling)           # full jitter: anywhere from 0 up to the ceiling\n        ceiling = min(cap, ceiling * factor)     # grow, but stop at the cap (which also keeps the numbers small)\n    return delays\n",
    "explanation": "**The idea.** After the k-th failure a client waits up to `base * factor ** (k - 1)` seconds, never more than `cap`. The growing ceiling gives a struggling service room to recover, and the cap keeps one unlucky job from sleeping for hours. **Full jitter** then picks the real delay uniformly between 0 and the ceiling. Without it, clients that failed together retry together, in waves (a thundering herd); spreading them out is what makes backoff actually relieve the service.\n\n**Why the ceiling is updated step by step.** `factor ** k` overflows for large `k` (a float raises `OverflowError`, an int becomes huge), and a job can be retried thousands of times. Multiplying the ceiling by `factor` each step and stopping at `cap` keeps the numbers small. Passing `rng` in is what makes the function testable: with a fake source the \"random\" delays are exact.\n\n**Complexity.** O(attempts) time and space.\n\n**Usual mistakes.** An off-by-one in the exponent (the first ceiling is `base`, not `base * factor`); forgetting that the cap also applies to the first delay; calling `rng` once and reusing the number.\n\n**Follow-up.** The AWS Architecture Blog compares \"equal jitter\" (half the ceiling fixed, half random) and \"decorrelated jitter\" (each delay random between `base` and three times the previous one). Real retry code also stops after a maximum number of attempts or a total deadline."
   },
+  "bank-account": {
+   "title": "Bank Account",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a BankAccount that keeps its balance valid: deposits, withdrawals and transfers that refuse bad amounts.",
+   "statement": "Write a class `BankAccount` with `__init__(self, owner, balance=0)` and the attributes `owner` and `balance`.\n\n**Methods**\n\n- `deposit(amount)` adds `amount` to the balance and **returns the new balance**.\n- `withdraw(amount)` takes `amount` from the balance and **returns the new balance**.\n- `transfer(other, amount)` moves `amount` from this account to the account `other` (it returns nothing).\n\n**Rules**\n\n- An amount must be greater than 0: otherwise raise `ValueError(\"Amount must be positive\")` and change nothing.\n- A withdrawal (and so a transfer) may not take more than the balance: otherwise raise `ValueError(\"Insufficient funds\")` and change **nothing**, on either account.\n- A new account starts at `0` unless a balance is given.\n\n**Example**\n\n```\nasha = BankAccount(\"Asha\", 100)\nasha.deposit(50)                     # returns 150\nasha.withdraw(500)                   # raises ValueError(\"Insufficient funds\"); balance is still 150\nben = BankAccount(\"Ben\", 10)\nasha.transfer(ben, 20)               # asha.balance is 130, ben.balance is 30\n```",
+   "starter": "class BankAccount:\n    def __init__(self, owner, balance=0):\n        \"\"\"An account for `owner` that starts with `balance`.\"\"\"\n        ...\n\n    def deposit(self, amount):\n        \"\"\"Add the amount and return the new balance.\"\"\"\n        ...\n\n    def withdraw(self, amount):\n        \"\"\"Take the amount out and return the new balance.\"\"\"\n        ...\n\n    def transfer(self, other, amount):\n        \"\"\"Move the amount from this account to `other`.\"\"\"\n        ...\n",
+   "tests": [
+    "def error_of(action, *args):\n    \"\"\"The message of the ValueError a call raises, or None when it does not.\"\"\"\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\naccount = BankAccount(\"Asha\", 100)",
+    "assert (account.owner, account.balance) == (\"Asha\", 100)",
+    "assert BankAccount(\"Ben\").balance == 0",
+    "assert account.deposit(50) == 150",
+    "assert account.balance == 150",
+    "assert account.withdraw(30) == 120",
+    "assert error_of(account.withdraw, 500) == \"Insufficient funds\"",
+    "assert account.balance == 120",
+    "assert error_of(account.deposit, 0) == \"Amount must be positive\"",
+    "assert error_of(account.withdraw, -5) == \"Amount must be positive\"",
+    "assert account.balance == 120",
+    "other = BankAccount(\"Ben\", 10)\naccount.transfer(other, 20)",
+    "assert (account.balance, other.balance) == (100, 30)",
+    "assert error_of(account.transfer, other, 1000) == \"Insufficient funds\"",
+    "assert (account.balance, other.balance) == (100, 30)",
+    "assert error_of(account.transfer, other, 0) == \"Amount must be positive\"",
+    "assert (account.balance, other.balance) == (100, 30)"
+   ],
+   "hints": [
+    "Give `balance` a default in `__init__` (`balance=0`) and store both `owner` and `balance` on `self`.",
+    "Validate before you change anything: raise `ValueError(\"Amount must be positive\")` when the amount is 0 or less, and `ValueError(\"Insufficient funds\")` when a withdrawal is larger than the balance.",
+    "`transfer` should not repeat those rules: call `self.withdraw(amount)` and then `other.deposit(amount)`. If the withdrawal raises, the deposit never happens."
+   ],
+   "solution": "class BankAccount:\n    def __init__(self, owner, balance=0):\n        self.owner = owner\n        self.balance = balance\n\n    def deposit(self, amount):\n        if amount <= 0:\n            raise ValueError(\"Amount must be positive\")\n        self.balance += amount\n        return self.balance\n\n    def withdraw(self, amount):\n        if amount <= 0:\n            raise ValueError(\"Amount must be positive\")\n        if amount > self.balance:\n            raise ValueError(\"Insufficient funds\")\n        self.balance -= amount\n        return self.balance\n\n    def transfer(self, other, amount):\n        self.withdraw(amount)      # raises, and changes nothing, if the amount is bad or too large\n        other.deposit(amount)\n",
+   "explanation": "**The idea.** An object is responsible for keeping its own data valid. Instead of letting any code set `balance` to anything, the account exposes `deposit` and `withdraw`, and those refuse bad requests. This is encapsulation in its simplest form: the rules live next to the data they protect.\n\n**Check before you change.** Each method validates *first* and only then updates the balance, so a refused request leaves the account exactly as it was. Raising an exception (rather than printing a message and carrying on) makes the caller deal with the failure.\n\n**Reuse your own methods.** `transfer` does not repeat the rules. It calls `withdraw` (which raises if the amount is bad or too large, before anything has moved) and only then `deposit`s into the other account. If `withdraw` raises, the `deposit` line never runs, which is why neither account changes on a failed transfer.\n\n**Going further.** What if `deposit` into the other account could fail after the withdrawal succeeded? Real banking code makes the two steps one atomic transaction; that idea returns in the databases and distributed-systems lessons."
+  },
   "base62-url-shortener": {
    "title": "Base62 URL Shortener",
    "topic": "backend-coding",
@@ -20908,6 +20943,42 @@
    "solution": "from collections import OrderedDict, defaultdict\n\n\nclass LFUCache:\n    def __init__(self, capacity):\n        self._capacity = capacity\n        self._values = {}                          # key -> value\n        self._uses = {}                            # key -> how many times it has been used\n        self._buckets = defaultdict(OrderedDict)   # uses -> the keys with that many uses, least recently used first\n        self._fewest = 0                           # the smallest use count that has a bucket\n\n    def _count_use(self, key):\n        \"\"\"Move key from its bucket to the next one.\"\"\"\n        uses = self._uses[key]\n        bucket = self._buckets[uses]\n        del bucket[key]\n        if not bucket:\n            del self._buckets[uses]\n            if self._fewest == uses:\n                self._fewest = uses + 1\n        self._uses[key] = uses + 1\n        self._buckets[uses + 1][key] = None        # last in the bucket = most recently used\n\n    def get(self, key):\n        if key not in self._values:\n            return None\n        self._count_use(key)\n        return self._values[key]\n\n    def put(self, key, value):\n        if self._capacity <= 0:\n            return\n        if key in self._values:\n            self._values[key] = value\n            self._count_use(key)\n            return\n        if len(self._values) >= self._capacity:\n            bucket = self._buckets[self._fewest]\n            victim, _ = bucket.popitem(last=False)     # the least recently used of the least used\n            if not bucket:\n                del self._buckets[self._fewest]\n            del self._values[victim]\n            del self._uses[victim]\n        self._values[key] = value\n        self._uses[key] = 1\n        self._buckets[1][key] = None\n        self._fewest = 1                               # a new key has been used once\n",
    "explanation": "**The idea.** Eviction needs the entry with the smallest use count and, among those, the oldest use. One list of all entries makes that a scan. Instead group the keys by use count: `buckets[n]` holds the keys used exactly `n` times, in order of last use. An `OrderedDict` is a hash map that remembers order, so it can remove a key from the middle and pop the oldest one in O(1). Also remember `fewest`, the smallest count that has a bucket. A hit moves a key from bucket `n` to bucket `n + 1`; an eviction pops the oldest key of bucket `fewest`.\n\n**The bookkeeping people get wrong.** `fewest` must go up when a hit empties the smallest bucket, and must be reset to 1 whenever a new key is inserted. A `put` on an existing key is a use. An evicted key must forget its count, or it comes back as a veteran.\n\n**Complexity.** O(1) per `get` and `put`. A heap of `(uses, last_use, key)` with lazy deletion is O(log n) and also passes.\n\n**Follow-up.** Pure LFU keeps yesterday's favourites forever: a key that was hot once and is never used again outlives newer keys. Real caches age the counts (TinyLFU in Caffeine, for example). LRU has the opposite weakness, where one big scan flushes everything."
   },
+  "library-lending": {
+   "title": "Library Lending",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a Library class that lends and takes back copies of books and says what is available.",
+   "statement": "Write a class `Library` with no arguments to `__init__`. It starts with no books.\n\n**Methods**\n\n- `add_book(title, copies=1)` adds copies of a book. If the library already has that title, the new copies are **added to** the ones it has.\n- `borrow(title)` lends one copy and returns `True`. It returns `False`, and changes nothing, when the title is unknown or every copy is already out.\n- `return_book(title)` takes one copy back and returns `True`. It returns `False`, and changes nothing, when the title is unknown or none of its copies are out.\n- `available(title)` returns how many copies are on the shelf right now (`0` for an unknown title).\n\n**Example**\n\n```\nlibrary = Library()\nlibrary.add_book(\"Dune\", 2)\nlibrary.borrow(\"Dune\")        # True\nlibrary.borrow(\"Dune\")        # True\nlibrary.borrow(\"Dune\")        # False: both copies are out\nlibrary.return_book(\"Dune\")   # True\nlibrary.available(\"Dune\")     # 1\n```",
+   "starter": "class Library:\n    def __init__(self):\n        \"\"\"A library with no books.\"\"\"\n        ...\n\n    def add_book(self, title, copies=1):\n        \"\"\"Add copies of a book (to the copies it already has).\"\"\"\n        ...\n\n    def borrow(self, title):\n        \"\"\"Lend one copy: True, or False when there is none to lend.\"\"\"\n        ...\n\n    def return_book(self, title):\n        \"\"\"Take one copy back: True, or False when none of its copies are out.\"\"\"\n        ...\n\n    def available(self, title):\n        \"\"\"How many copies are on the shelf.\"\"\"\n        ...\n",
+   "tests": [
+    "library = Library()",
+    "assert library.available(\"Dune\") == 0",
+    "library.add_book(\"Dune\", 2)\nlibrary.add_book(\"Emma\")",
+    "assert library.available(\"Dune\") == 2",
+    "assert library.available(\"Emma\") == 1",
+    "assert library.borrow(\"Dune\") is True",
+    "assert library.borrow(\"Dune\") is True",
+    "assert library.available(\"Dune\") == 0",
+    "assert library.borrow(\"Dune\") is False",
+    "assert library.borrow(\"Missing\") is False",
+    "assert library.return_book(\"Dune\") is True",
+    "assert library.available(\"Dune\") == 1",
+    "assert library.return_book(\"Emma\") is False",
+    "assert library.return_book(\"Missing\") is False",
+    "assert library.available(\"Emma\") == 1",
+    "library.add_book(\"Dune\", 3)",
+    "assert library.available(\"Dune\") == 4",
+    "assert Library().available(\"Dune\") == 0"
+   ],
+   "hints": [
+    "Track two numbers per title: how many copies the library owns and how many are out. Create both dictionaries inside `__init__`.",
+    "`available(title)` is owned minus out. Use `dict.get(title, 0)` so an unknown title gives 0 instead of an error.",
+    "`borrow` should check `available` first; `return_book` should check how many are *out*. Only change a number after the check passes."
+   ],
+   "solution": "class Library:\n    def __init__(self):\n        self._copies = {}            # title -> how many copies the library owns\n        self._out = {}               # title -> how many of them are borrowed\n\n    def add_book(self, title, copies=1):\n        self._copies[title] = self._copies.get(title, 0) + copies\n        self._out.setdefault(title, 0)\n\n    def available(self, title):\n        return self._copies.get(title, 0) - self._out.get(title, 0)\n\n    def borrow(self, title):\n        if self.available(title) < 1:\n            return False\n        self._out[title] += 1\n        return True\n\n    def return_book(self, title):\n        if self._out.get(title, 0) < 1:\n            return False\n        self._out[title] -= 1\n        return True\n",
+   "explanation": "**The idea.** Two numbers describe each title: how many copies the library owns, and how many of those are out. What is on the shelf is the difference, so `available` works it out and the other methods use it.\n\n**One place for the rule.** `borrow` asks `available`, rather than repeating the subtraction. If the rule for \"is a copy free?\" ever changes (say, reserved copies), it changes in one place.\n\n**Unknown titles.** `dict.get(title, 0)` answers \"none\" for a title the library has never seen, so `available`, `borrow` and `return_book` all handle unknown titles without a special case. Note what `return_book` checks: the number *out*, not the number owned. A library cannot take back a copy that nobody borrowed.\n\n**Going further.** Who borrowed which copy, and when it is due, would need a small object for each loan: a natural next step in a real design."
+  },
   "linear-regression-gradient-descent": {
    "title": "Linear Regression by Gradient Descent",
    "topic": "ml-from-scratch",
@@ -21978,6 +22049,37 @@
    ],
    "solution": "def move_zeroes(nums):\n    next_slot = 0                       # everything before this index is a non-zero item, still in its original order\n    for i, value in enumerate(nums):\n        if value != 0:\n            nums[next_slot], nums[i] = nums[i], nums[next_slot]   # the zeros skipped so far end up behind the writer\n            next_slot += 1\n",
    "explanation": "**The idea (two pointers).** One pointer, `i`, reads every item. The other, `next_slot`, marks where the next non-zero item belongs. Whenever the reader finds a non-zero item it is swapped into `next_slot`, and `next_slot` moves one step on. The non-zero items arrive in `next_slot` in the order the reader met them, which is why their order is kept, and the zeros are pushed behind the writer without ever being moved on purpose.\n\n**Complexity.** One pass: O(n) time and O(1) extra space.\n\n**Fewer writes.** The swap writes two slots even when `next_slot == i` (no zero has been skipped yet). Skipping the swap in that case, or copying the non-zero items forward and then filling the tail with zeros, writes less. The tests do not care, but it matters when writes are expensive (flash memory, a database).\n\n**Mistakes to avoid.** Calling `remove(0)` or `pop(i)` while walking the list: every call shifts the rest, so it is O(n²), and removing during a `for` loop makes you skip the item after each removal. Building a new list and returning it: the caller's list stays as it was.\n\n**Follow-up.** The same writer-and-reader pattern removes duplicates from a sorted list in place, or removes every occurrence of a given value."
+  },
+  "movie-ticket-booking": {
+   "title": "Movie Ticket Booking",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a Movie class that remembers its seats, books tickets and reports its status.",
+   "statement": "Write a class `Movie` for a cinema's booking desk.\n\n**Attributes** (set in `__init__(self, movie_name, total_seats, ticket_price)`):\n\n- `movie_name`: the name of the movie\n- `total_seats`: how many seats the theatre has\n- `ticket_price`: the price of one ticket\n- `booked_seats`: how many seats are booked so far. It starts at `0`.\n\n**Methods**\n\n- `book_ticket(num_tickets)` books that many tickets if enough seats are still free, and **prints** one line:\n  - enough seats: `Booked 3 ticket(s). Total to pay: 750`, with your number of tickets and the amount `num_tickets * ticket_price`, written the way Python prints it (a price of `99.5` for 2 tickets gives `199.0`). The seats become booked.\n  - not enough seats: `Sorry, not enough seats available`. Nothing is booked.\n- `show_status()` **prints** three lines, in this order: `Movie: <name>`, `Seats available: <free seats>`, `Seats booked: <booked seats>`.\n\nRules: `num_tickets` is a positive whole number. Booking exactly the seats that are left is allowed. Two `Movie` objects are independent: booking one does not touch the other.\n\n**Example**\n\n```\nmovie = Movie(\"Dune\", 50, 250)\nmovie.book_ticket(3)      # prints: Booked 3 ticket(s). Total to pay: 750\nmovie.book_ticket(48)     # prints: Sorry, not enough seats available   (only 47 are free)\nmovie.show_status()       # prints: Movie: Dune\n                          #         Seats available: 47\n                          #         Seats booked: 3\n```",
+   "starter": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        \"\"\"Remember the movie's details. No seats are booked yet.\"\"\"\n        ...\n\n    def book_ticket(self, num_tickets):\n        \"\"\"Book the tickets and print the total to pay, or print that there are not enough seats.\"\"\"\n        ...\n\n    def show_status(self):\n        \"\"\"Print the movie name, the seats available and the seats booked.\"\"\"\n        ...\n",
+   "tests": [
+    "import contextlib\nimport io\ndef printed(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    out = io.StringIO()\n    with contextlib.redirect_stdout(out):\n        action(*args)\n    return out.getvalue().strip().split(\"\\n\")\nmovie = Movie(\"Dune\", 50, 250)",
+    "assert (movie.movie_name, movie.total_seats, movie.ticket_price, movie.booked_seats) == (\"Dune\", 50, 250, 0)",
+    "assert printed(movie.book_ticket, 3) == [\"Booked 3 ticket(s). Total to pay: 750\"]",
+    "assert movie.booked_seats == 3",
+    "assert printed(movie.book_ticket, 48) == [\"Sorry, not enough seats available\"]",
+    "assert movie.booked_seats == 3",
+    "assert printed(movie.show_status) == [\"Movie: Dune\", \"Seats available: 47\", \"Seats booked: 3\"]",
+    "assert printed(movie.book_ticket, 47) == [\"Booked 47 ticket(s). Total to pay: 11750\"]",
+    "assert movie.booked_seats == 50",
+    "assert printed(movie.book_ticket, 1) == [\"Sorry, not enough seats available\"]",
+    "other = Movie(\"Arrival\", 10, 99.5)",
+    "assert printed(other.book_ticket, 2) == [\"Booked 2 ticket(s). Total to pay: 199.0\"]",
+    "assert (movie.booked_seats, other.booked_seats) == (50, 2)"
+   ],
+   "hints": [
+    "`__init__` runs when the object is created. `self.movie_name = movie_name` is how the object remembers the value for its other methods, and `self.booked_seats = 0` is the starting value.",
+    "Do not store the free seats: work them out with `total_seats - booked_seats` whenever you need them, so they can never disagree with the booked count.",
+    "Compare first, change second: only when `num_tickets` fits in the free seats do you add to `booked_seats` and print the total. Otherwise print the sorry line and touch nothing."
+   ],
+   "solution": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        self.movie_name = movie_name\n        self.total_seats = total_seats\n        self.ticket_price = ticket_price\n        self.booked_seats = 0\n\n    def seats_available(self):\n        return self.total_seats - self.booked_seats\n\n    def book_ticket(self, num_tickets):\n        if num_tickets <= self.seats_available():\n            self.booked_seats += num_tickets\n            print(f\"Booked {num_tickets} ticket(s). Total to pay: {num_tickets * self.ticket_price}\")\n        else:\n            print(\"Sorry, not enough seats available\")\n\n    def show_status(self):\n        print(f\"Movie: {self.movie_name}\")\n        print(f\"Seats available: {self.seats_available()}\")\n        print(f\"Seats booked: {self.booked_seats}\")\n",
+   "explanation": "**The idea.** A class is a template, and each object made from it remembers its own facts. `__init__` runs when you write `Movie(\"Dune\", 50, 250)`, and `self.movie_name = ...` is how an object keeps something for later. Because the facts live on `self`, a second `Movie` has its own `booked_seats`: booking one never touches the other.\n\n**What to store and what to work out.** The free seats are not stored. They are always `total_seats - booked_seats`, so computing them when needed means they can never disagree with the booked count. Storing both is a classic source of bugs: you update one and forget the other.\n\n**The check comes first.** `book_ticket` compares the request with the free seats *before* changing anything. Only a booking that fits adds to `booked_seats`, so a refused booking leaves the object exactly as it was. Note `<=`: booking exactly the seats that are left is fine.\n\n**Going further.** What should happen for `book_ticket(0)` or a negative number? Real code would refuse them (usually by raising `ValueError`), which is the next step in the Bank Account exercise."
   },
   "mvcc-tuple-visibility": {
    "title": "MVCC Snapshot Isolation Tuple Visibility",
@@ -26099,6 +26201,73 @@
    "solution": "def set_zeroes(matrix):\n    zero_rows = set()\n    zero_cols = set()\n    for r, row in enumerate(matrix):              # pass 1: only look, and note where the zeros are\n        for c, value in enumerate(row):\n            if value == 0:\n                zero_rows.add(r)\n                zero_cols.add(c)\n    for r, row in enumerate(matrix):              # pass 2: only write, judging each cell by the notes\n        for c in range(len(row)):\n            if r in zero_rows or c in zero_cols:\n                row[c] = 0\n",
    "explanation": "**The idea.** Never mix looking with writing. A zero you have just written looks exactly like a zero that was there from the start, so if you clear a row the moment you find a 0, the scan meets your own zeros and spreads them until the whole matrix is 0 (try the first example on paper). Instead:\n\n1. Pass 1 only reads. For every 0, note its row in one set and its column in another.\n2. Pass 2 only writes. Set a cell to 0 if its row or its column is in the notes.\n\n**Complexity.** O(rows × columns) time and O(rows + columns) extra space for the two sets.\n\n**Follow-up: O(1) extra space.** Use the matrix itself as the notes: the first row records \"this column has a zero\" and the first column records \"this row has a zero\". Two booleans remember whether the first row and the first column had a zero of their own. Careful with the order: apply the notes to the inner cells first and to the first row and column last, or you destroy the notes before you have used them.\n\n**Mistakes to avoid.** Marking with a value such as `-1` (negative numbers are legal data). Zeroing only rows or only columns. Rebuilding a new matrix instead of changing the one you were given."
   },
+  "shapes-polymorphism": {
+   "title": "Shapes: Inheritance and Polymorphism",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Build a Shape base class and subclasses that each work out their own area, then use them through the base class.",
+   "statement": "Write four classes: `Shape`, `Rectangle`, `Circle` and `Square`.\n\n**`Shape`**\n\n- `Shape(name)` stores the name in the attribute `name`.\n- `area()` is not known for a general shape: it raises `NotImplementedError`. Subclasses provide it.\n- `describe()` returns the text `\"<name> with area <area>\"`, where the area is written with 2 decimal places, for example `\"Rectangle with area 12.00\"`. It must work for **every** subclass without being written again in them: it calls `self.area()`.\n\n**Subclasses**\n\n- `Rectangle(width, height, name=\"Rectangle\")` is a `Shape` whose area is `width * height`.\n- `Circle(radius)` is a `Shape` named `\"Circle\"` whose area is `math.pi * radius ** 2`.\n- `Square(side)` **is a** `Rectangle` (use inheritance: do not write a new `area`) named `\"Square\"`.\n\n**Example**\n\n```\nshapes = [Rectangle(2, 3), Circle(1), Square(2)]\n[shape.describe() for shape in shapes]\n# [\"Rectangle with area 6.00\", \"Circle with area 3.14\", \"Square with area 4.00\"]\n```",
+   "starter": "import math\n\n\nclass Shape:\n    def __init__(self, name):\n        ...\n\n    def area(self):\n        \"\"\"A general shape has no area: subclasses provide it.\"\"\"\n        ...\n\n    def describe(self):\n        \"\"\"For example \"Rectangle with area 12.00\".\"\"\"\n        ...\n\n\nclass Rectangle(Shape):\n    ...\n\n\nclass Circle(Shape):\n    ...\n\n\nclass Square(Rectangle):\n    ...\n",
+   "tests": [
+    "import math\ndef raises_not_implemented(action):\n    try:\n        action()\n    except NotImplementedError:\n        return True\n    return False",
+    "assert Rectangle(3, 4).area() == 12",
+    "assert Rectangle(3, 4).describe() == \"Rectangle with area 12.00\"",
+    "assert Circle(1).describe() == \"Circle with area 3.14\"",
+    "assert round(Circle(2).area(), 6) == round(math.pi * 4, 6)",
+    "assert Square(5).area() == 25",
+    "assert Square(5).describe() == \"Square with area 25.00\"",
+    "assert isinstance(Square(2), Rectangle) and isinstance(Square(2), Shape)",
+    "assert Square(3).name == \"Square\" and Rectangle(1, 2).name == \"Rectangle\" and Circle(1).name == \"Circle\"",
+    "assert raises_not_implemented(Shape(\"blob\").area)",
+    "shapes = [Rectangle(2, 3), Circle(1), Square(2)]",
+    "assert [shape.describe() for shape in shapes] == [\"Rectangle with area 6.00\", \"Circle with area 3.14\", \"Square with area 4.00\"]",
+    "assert Square.area is Rectangle.area"
+   ],
+   "hints": [
+    "`Shape.__init__` only needs to store the name. A subclass should call `super().__init__(name)` to pass its name up.",
+    "`describe` is written once, in `Shape`, and calls `self.area()`: Python finds the subclass's `area` by itself. Format the area with `:.2f`.",
+    "`Square` should not have an `area` of its own. Make it a `Rectangle` and call `super().__init__(side, side, name=\"Square\")`, which is why `Rectangle` takes a `name` argument."
+   ],
+   "solution": "import math\n\n\nclass Shape:\n    def __init__(self, name):\n        self.name = name\n\n    def area(self):\n        raise NotImplementedError(\"Subclasses must implement area\")\n\n    def describe(self):\n        return f\"{self.name} with area {self.area():.2f}\"\n\n\nclass Rectangle(Shape):\n    def __init__(self, width, height, name=\"Rectangle\"):\n        super().__init__(name)\n        self.width = width\n        self.height = height\n\n    def area(self):\n        return self.width * self.height\n\n\nclass Circle(Shape):\n    def __init__(self, radius):\n        super().__init__(\"Circle\")\n        self.radius = radius\n\n    def area(self):\n        return math.pi * self.radius ** 2\n\n\nclass Square(Rectangle):\n    def __init__(self, side):\n        super().__init__(side, side, name=\"Square\")\n",
+   "explanation": "**The idea.** `Shape` says what every shape can do (`area`, `describe`) and the subclasses say *how* for their own kind. Code that holds a list of shapes can call `describe()` on each without asking what kind it is: `Rectangle`, `Circle` and `Square` each answer in their own way. That is polymorphism.\n\n**Inheritance.** A subclass starts with everything its parent has. `Rectangle` adds a width and a height and its own `area`. `Square` is *a* rectangle whose two sides are equal, so it only needs to pass `side` twice to `Rectangle.__init__`; it inherits `area` as it is (the last test checks it did not write its own).\n\n**`super()`.** `super().__init__(name)` runs the parent's setup, so `name` is stored in one place. Without it the subclass would have to set `self.name` itself, and a change to `Shape.__init__` would not reach it.\n\n**The base class contract.** `Shape.area` raises `NotImplementedError` so that forgetting to write `area` in a new subclass fails loudly instead of returning nonsense. `describe` is written once, in `Shape`, and calls `self.area()`, which finds the subclass's version.\n\n**Going further.** Python's `abc` module can make `Shape` impossible to create at all; this exercise uses the plain version to keep the idea in view."
+  },
+  "shopping-cart": {
+   "title": "Shopping Cart",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a Cart class that adds and removes items and works out the total.",
+   "statement": "Write a class `Cart` with no arguments to `__init__`. It starts empty.\n\n**Methods**\n\n- `add(item, price, quantity=1)` puts `quantity` of the item in the cart. If the item is **already in the cart**, its quantity goes up and its **first price stays**. `quantity` must be at least 1: otherwise raise `ValueError(\"Quantity must be at least 1\")` and change nothing.\n- `remove(item)` takes the item out completely and returns `True`, or returns `False` when it was not in the cart.\n- `quantity_of(item)` returns how many of the item are in the cart (`0` when none).\n- `item_count()` returns the total number of things in the cart (all quantities added up).\n- `total()` returns the price to pay: each item's price times its quantity, added up and rounded to 2 decimal places. An empty cart is `0`.\n\n**Example**\n\n```\ncart = Cart()\ncart.add(\"pen\", 1.5, 4)\ncart.add(\"notebook\", 3.25)\ncart.item_count()      # 5\ncart.total()           # 9.25\ncart.add(\"pen\", 99, 2) # the pen is already there: 6 pens now, still at 1.5 each\ncart.total()           # 12.25\n```",
+   "starter": "class Cart:\n    def __init__(self):\n        \"\"\"An empty cart.\"\"\"\n        ...\n\n    def add(self, item, price, quantity=1):\n        \"\"\"Put the item in the cart (more of it, at its first price, if it is already there).\"\"\"\n        ...\n\n    def remove(self, item):\n        \"\"\"Take the item out. Return True if it was there, False if not.\"\"\"\n        ...\n\n    def quantity_of(self, item):\n        \"\"\"How many of the item are in the cart.\"\"\"\n        ...\n\n    def item_count(self):\n        \"\"\"How many things are in the cart in all.\"\"\"\n        ...\n\n    def total(self):\n        \"\"\"The price to pay, rounded to 2 decimal places.\"\"\"\n        ...\n",
+   "tests": [
+    "def error_of(action, *args):\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\ncart = Cart()",
+    "assert cart.total() == 0",
+    "assert cart.item_count() == 0",
+    "cart.add(\"pen\", 1.5, 4)\ncart.add(\"notebook\", 3.25)",
+    "assert cart.item_count() == 5",
+    "assert cart.total() == 9.25",
+    "cart.add(\"pen\", 99, 2)",
+    "assert cart.quantity_of(\"pen\") == 6",
+    "assert cart.total() == 12.25",
+    "assert cart.quantity_of(\"stapler\") == 0",
+    "assert cart.remove(\"pen\") is True",
+    "assert cart.remove(\"pen\") is False",
+    "assert cart.item_count() == 1",
+    "assert cart.total() == 3.25",
+    "assert error_of(cart.add, \"ruler\", 1, 0) == \"Quantity must be at least 1\"",
+    "assert cart.quantity_of(\"ruler\") == 0",
+    "other = Cart()\nother.add(\"pen\", 2)",
+    "assert (cart.quantity_of(\"pen\"), other.quantity_of(\"pen\")) == (0, 1)"
+   ],
+   "hints": [
+    "Keep a dictionary from the item to its price and quantity, created inside `__init__`. A second `Cart` must have its own.",
+    "In `add`, check the quantity first. If the item is already in the dictionary, only increase its quantity; do not touch the price.",
+    "`total()` is the sum of `price * quantity` over all lines, rounded to 2 decimals. `item_count()` is the sum of the quantities only."
+   ],
+   "solution": "class Cart:\n    def __init__(self):\n        self._lines = {}                      # item -> [price, quantity]\n\n    def add(self, item, price, quantity=1):\n        if quantity < 1:\n            raise ValueError(\"Quantity must be at least 1\")\n        if item in self._lines:\n            self._lines[item][1] += quantity   # the first price stays\n        else:\n            self._lines[item] = [price, quantity]\n\n    def remove(self, item):\n        return self._lines.pop(item, None) is not None\n\n    def quantity_of(self, item):\n        return self._lines[item][1] if item in self._lines else 0\n\n    def item_count(self):\n        return sum(quantity for _, quantity in self._lines.values())\n\n    def total(self):\n        return round(sum(price * quantity for price, quantity in self._lines.values()), 2)\n",
+   "explanation": "**The idea.** The cart keeps one *line* per item: its price and how many there are. A dictionary from item name to a line makes \"is it already here?\" a single check, and adding more of the same item just increases the quantity.\n\n**Keep the inside private.** The dictionary is named `_lines` (the leading underscore is Python's way of saying \"internal\"). Callers use `add`, `remove` and the question methods, so you can change how the cart stores things later without breaking anyone. That freedom is the point of encapsulation.\n\n**Small decisions.** `pop(item, None)` removes the line and returns what was there, so `is not None` turns \"was it there?\" into the `True`/`False` the statement asks for. Rounding the total to 2 decimals keeps floating-point noise (like `9.250000000000002`) out of a price.\n\n**Going further.** Money in floating point is risky; real systems store whole cents. The \"Fix the Float Money Bug\" problem shows why."
+  },
   "shortest-path-in-a-grid": {
    "title": "Shortest Path in a Grid",
    "topic": "graphs-and-backtracking",
@@ -26618,6 +26787,43 @@
    ],
    "solution": "def string_to_int(text):\n    i = 0\n    while i < len(text) and text[i] == \" \":\n        i += 1\n\n    sign = 1\n    if i < len(text) and text[i] in \"+-\":\n        if text[i] == \"-\":\n            sign = -1\n        i += 1\n\n    value = 0\n    while i < len(text) and \"0\" <= text[i] <= \"9\":\n        value = value * 10 + (ord(text[i]) - ord(\"0\"))\n        if value > 2**31:                      # already beyond both limits: the rest cannot change the clamped result\n            break\n        i += 1\n\n    return max(-2**31, min(2**31 - 1, sign * value))\n",
    "explanation": "**The idea.** It is a small state machine with four phases in a fixed order: spaces, an optional sign, digits, stop. One index walks the string and each phase moves it as far as it can. Whatever comes after the digits is simply never read.\n\n**Why \"no digits means 0\" needs no special case.** If the digit loop never runs, `value` is still `0`, and `sign * 0` is `0`, so `\"-\"`, `\"abc\"` and `\"- 5\"` all fall out of the same code.\n\n**Clamping.** Build the number as `value * 10 + digit`, apply the sign, then clamp with `max(min(...))`. `-2147483648` is a valid input and must come out unchanged. In a language with fixed-width integers you would have to test for overflow before multiplying; Python integers never overflow, but `int()` refuses a string of more than 4300 digits, and stopping as soon as the value is past the limit is faster on huge input anyway.\n\n**Usual mistakes.** Accepting `\"+-5\"` or `\"- 5\"`, using `str.isdigit()` (it accepts digits from other alphabets, which `int()` then happily parses), and clamping before the sign is applied.\n\n**Follow-up.** Write the same function for 64-bit integers, or let it accept a decimal point and return a float."
+  },
+  "student-report-card": {
+   "title": "Student Report Card",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a Student class that stores marks per subject and reports the average and the best subject.",
+   "statement": "Write a class `Student` with `__init__(self, name)` and the attributes `name` and `grades`, a dictionary from subject to mark that starts **empty** for every student.\n\n**Methods**\n\n- `add_grade(subject, mark)` stores the mark for the subject. A subject graded again **replaces** its old mark. A mark must be between 0 and 100 (both allowed): otherwise raise `ValueError(\"Mark must be between 0 and 100\")` and store nothing.\n- `average()` returns the average of all the marks, rounded to 2 decimal places, or `0` when there are no marks.\n- `best_subject()` returns the subject with the highest mark, or `None` when there are no marks. If two subjects share the highest mark, return the one that was **added first**.\n\n**Example**\n\n```\nmaya = Student(\"Maya\")\nmaya.add_grade(\"Maths\", 90)\nmaya.add_grade(\"English\", 75)\nmaya.add_grade(\"Science\", 90)\nmaya.average()        # 85.0\nmaya.best_subject()   # \"Maths\"   (tied with Science, but added first)\n```",
+   "starter": "class Student:\n    def __init__(self, name):\n        \"\"\"A student with no grades yet.\"\"\"\n        ...\n\n    def add_grade(self, subject, mark):\n        \"\"\"Store the mark for the subject (replacing an earlier one).\"\"\"\n        ...\n\n    def average(self):\n        \"\"\"The average mark, rounded to 2 decimal places (0 when there are none).\"\"\"\n        ...\n\n    def best_subject(self):\n        \"\"\"The subject with the highest mark (the first added wins a tie), or None.\"\"\"\n        ...\n",
+   "tests": [
+    "def error_of(action, *args):\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\nstudent = Student(\"Maya\")",
+    "assert student.name == \"Maya\"",
+    "assert student.grades == {}",
+    "assert student.average() == 0",
+    "assert student.best_subject() is None",
+    "student.add_grade(\"Maths\", 90)\nstudent.add_grade(\"English\", 75)\nstudent.add_grade(\"Science\", 90)",
+    "assert student.grades == {\"Maths\": 90, \"English\": 75, \"Science\": 90}",
+    "assert student.average() == 85.0",
+    "assert student.best_subject() == \"Maths\"",
+    "student.add_grade(\"English\", 95)",
+    "assert student.grades[\"English\"] == 95",
+    "assert student.best_subject() == \"English\"",
+    "assert student.average() == 91.67",
+    "assert error_of(student.add_grade, \"Art\", 101) == \"Mark must be between 0 and 100\"",
+    "assert error_of(student.add_grade, \"Art\", -1) == \"Mark must be between 0 and 100\"",
+    "assert \"Art\" not in student.grades",
+    "first = Student(\"A\")\nsecond = Student(\"B\")\nfirst.add_grade(\"Maths\", 50)",
+    "assert second.grades == {}",
+    "assert Student(\"C\").grades == {}"
+   ],
+   "hints": [
+    "Create the `grades` dictionary inside `__init__`, so each student gets a fresh one. Two students must never share it.",
+    "Check the mark before storing: `0 <= mark <= 100` is true for a valid mark. Raise the `ValueError` first, so a bad mark is never stored.",
+    "For the best subject, `max(self.grades, key=self.grades.get)` returns the key with the largest value, and the first one found when there is a tie. Handle the empty case before calling it."
+   ],
+   "solution": "class Student:\n    def __init__(self, name):\n        self.name = name\n        self.grades = {}                 # a new dictionary for every student\n\n    def add_grade(self, subject, mark):\n        if not 0 <= mark <= 100:\n            raise ValueError(\"Mark must be between 0 and 100\")\n        self.grades[subject] = mark\n\n    def average(self):\n        if not self.grades:\n            return 0\n        return round(sum(self.grades.values()) / len(self.grades), 2)\n\n    def best_subject(self):\n        if not self.grades:\n            return None\n        return max(self.grades, key=self.grades.get)     # max keeps the first of equal values\n",
+   "explanation": "**The idea.** The object holds a collection (a dictionary) and offers methods that answer questions about it. The dictionary maps subject to mark, so grading a subject again simply overwrites the old mark.\n\n**A new dictionary per student.** `self.grades = {}` is written *inside* `__init__`, so every `Student` gets its own. A very common mistake is to share one dictionary between all students (a class-level attribute, or a mutable default argument like `def __init__(self, name, grades={})`); then adding a grade for one student appears on all of them. The tests at the end check exactly that.\n\n**The details.** `0 <= mark <= 100` reads like the rule. `max(self.grades, key=self.grades.get)` walks the subjects in the order they were first added and keeps the first one with the highest mark, which is the tie rule in the statement (replacing a mark keeps the subject's original place in a dictionary). `round(..., 2)` gives `91.67` for `91.666...`.\n\n**Going further.** The empty cases (`0` and `None`) are decisions the statement makes. Whenever you write a method, ask what it should do when there is nothing to work on."
   },
   "subarray-sum-equals-k": {
    "title": "Subarray Sum Equals K",

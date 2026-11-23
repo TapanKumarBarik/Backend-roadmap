@@ -1,0 +1,36 @@
+{
+  "title": "Library Lending",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a Library class that lends and takes back copies of books and says what is available.",
+  "statement": "Write a class `Library` with no arguments to `__init__`. It starts with no books.\n\n**Methods**\n\n- `add_book(title, copies=1)` adds copies of a book. If the library already has that title, the new copies are **added to** the ones it has.\n- `borrow(title)` lends one copy and returns `True`. It returns `False`, and changes nothing, when the title is unknown or every copy is already out.\n- `return_book(title)` takes one copy back and returns `True`. It returns `False`, and changes nothing, when the title is unknown or none of its copies are out.\n- `available(title)` returns how many copies are on the shelf right now (`0` for an unknown title).\n\n**Example**\n\n```\nlibrary = Library()\nlibrary.add_book(\"Dune\", 2)\nlibrary.borrow(\"Dune\")        # True\nlibrary.borrow(\"Dune\")        # True\nlibrary.borrow(\"Dune\")        # False: both copies are out\nlibrary.return_book(\"Dune\")   # True\nlibrary.available(\"Dune\")     # 1\n```",
+  "starter": "class Library:\n    def __init__(self):\n        \"\"\"A library with no books.\"\"\"\n        ...\n\n    def add_book(self, title, copies=1):\n        \"\"\"Add copies of a book (to the copies it already has).\"\"\"\n        ...\n\n    def borrow(self, title):\n        \"\"\"Lend one copy: True, or False when there is none to lend.\"\"\"\n        ...\n\n    def return_book(self, title):\n        \"\"\"Take one copy back: True, or False when none of its copies are out.\"\"\"\n        ...\n\n    def available(self, title):\n        \"\"\"How many copies are on the shelf.\"\"\"\n        ...\n",
+  "tests": [
+    "library = Library()",
+    "assert library.available(\"Dune\") == 0",
+    "library.add_book(\"Dune\", 2)\nlibrary.add_book(\"Emma\")",
+    "assert library.available(\"Dune\") == 2",
+    "assert library.available(\"Emma\") == 1",
+    "assert library.borrow(\"Dune\") is True",
+    "assert library.borrow(\"Dune\") is True",
+    "assert library.available(\"Dune\") == 0",
+    "assert library.borrow(\"Dune\") is False",
+    "assert library.borrow(\"Missing\") is False",
+    "assert library.return_book(\"Dune\") is True",
+    "assert library.available(\"Dune\") == 1",
+    "assert library.return_book(\"Emma\") is False",
+    "assert library.return_book(\"Missing\") is False",
+    "assert library.available(\"Emma\") == 1",
+    "library.add_book(\"Dune\", 3)",
+    "assert library.available(\"Dune\") == 4",
+    "assert Library().available(\"Dune\") == 0"
+  ],
+  "hints": [
+    "Track two numbers per title: how many copies the library owns and how many are out. Create both dictionaries inside `__init__`.",
+    "`available(title)` is owned minus out. Use `dict.get(title, 0)` so an unknown title gives 0 instead of an error.",
+    "`borrow` should check `available` first; `return_book` should check how many are *out*. Only change a number after the check passes."
+  ],
+  "solution": "class Library:\n    def __init__(self):\n        self._copies = {}            # title -> how many copies the library owns\n        self._out = {}               # title -> how many of them are borrowed\n\n    def add_book(self, title, copies=1):\n        self._copies[title] = self._copies.get(title, 0) + copies\n        self._out.setdefault(title, 0)\n\n    def available(self, title):\n        return self._copies.get(title, 0) - self._out.get(title, 0)\n\n    def borrow(self, title):\n        if self.available(title) < 1:\n            return False\n        self._out[title] += 1\n        return True\n\n    def return_book(self, title):\n        if self._out.get(title, 0) < 1:\n            return False\n        self._out[title] -= 1\n        return True\n",
+  "explanation": "**The idea.** Two numbers describe each title: how many copies the library owns, and how many of those are out. What is on the shelf is the difference, so `available` works it out and the other methods use it.\n\n**One place for the rule.** `borrow` asks `available`, rather than repeating the subtraction. If the rule for \"is a copy free?\" ever changes (say, reserved copies), it changes in one place.\n\n**Unknown titles.** `dict.get(title, 0)` answers \"none\" for a title the library has never seen, so `available`, `borrow` and `return_book` all handle unknown titles without a special case. Note what `return_book` checks: the number *out*, not the number owned. A library cannot take back a copy that nobody borrowed.\n\n**Going further.** Who borrowed which copy, and when it is due, would need a small object for each loan: a natural next step in a real design."
+}

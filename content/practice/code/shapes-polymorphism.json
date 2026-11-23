@@ -1,0 +1,31 @@
+{
+  "title": "Shapes: Inheritance and Polymorphism",
+  "topic": "oop-and-classes",
+  "difficulty": "intermediate",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Build a Shape base class and subclasses that each work out their own area, then use them through the base class.",
+  "statement": "Write four classes: `Shape`, `Rectangle`, `Circle` and `Square`.\n\n**`Shape`**\n\n- `Shape(name)` stores the name in the attribute `name`.\n- `area()` is not known for a general shape: it raises `NotImplementedError`. Subclasses provide it.\n- `describe()` returns the text `\"<name> with area <area>\"`, where the area is written with 2 decimal places, for example `\"Rectangle with area 12.00\"`. It must work for **every** subclass without being written again in them: it calls `self.area()`.\n\n**Subclasses**\n\n- `Rectangle(width, height, name=\"Rectangle\")` is a `Shape` whose area is `width * height`.\n- `Circle(radius)` is a `Shape` named `\"Circle\"` whose area is `math.pi * radius ** 2`.\n- `Square(side)` **is a** `Rectangle` (use inheritance: do not write a new `area`) named `\"Square\"`.\n\n**Example**\n\n```\nshapes = [Rectangle(2, 3), Circle(1), Square(2)]\n[shape.describe() for shape in shapes]\n# [\"Rectangle with area 6.00\", \"Circle with area 3.14\", \"Square with area 4.00\"]\n```",
+  "starter": "import math\n\n\nclass Shape:\n    def __init__(self, name):\n        ...\n\n    def area(self):\n        \"\"\"A general shape has no area: subclasses provide it.\"\"\"\n        ...\n\n    def describe(self):\n        \"\"\"For example \"Rectangle with area 12.00\".\"\"\"\n        ...\n\n\nclass Rectangle(Shape):\n    ...\n\n\nclass Circle(Shape):\n    ...\n\n\nclass Square(Rectangle):\n    ...\n",
+  "tests": [
+    "import math\ndef raises_not_implemented(action):\n    try:\n        action()\n    except NotImplementedError:\n        return True\n    return False",
+    "assert Rectangle(3, 4).area() == 12",
+    "assert Rectangle(3, 4).describe() == \"Rectangle with area 12.00\"",
+    "assert Circle(1).describe() == \"Circle with area 3.14\"",
+    "assert round(Circle(2).area(), 6) == round(math.pi * 4, 6)",
+    "assert Square(5).area() == 25",
+    "assert Square(5).describe() == \"Square with area 25.00\"",
+    "assert isinstance(Square(2), Rectangle) and isinstance(Square(2), Shape)",
+    "assert Square(3).name == \"Square\" and Rectangle(1, 2).name == \"Rectangle\" and Circle(1).name == \"Circle\"",
+    "assert raises_not_implemented(Shape(\"blob\").area)",
+    "shapes = [Rectangle(2, 3), Circle(1), Square(2)]",
+    "assert [shape.describe() for shape in shapes] == [\"Rectangle with area 6.00\", \"Circle with area 3.14\", \"Square with area 4.00\"]",
+    "assert Square.area is Rectangle.area"
+  ],
+  "hints": [
+    "`Shape.__init__` only needs to store the name. A subclass should call `super().__init__(name)` to pass its name up.",
+    "`describe` is written once, in `Shape`, and calls `self.area()`: Python finds the subclass's `area` by itself. Format the area with `:.2f`.",
+    "`Square` should not have an `area` of its own. Make it a `Rectangle` and call `super().__init__(side, side, name=\"Square\")`, which is why `Rectangle` takes a `name` argument."
+  ],
+  "solution": "import math\n\n\nclass Shape:\n    def __init__(self, name):\n        self.name = name\n\n    def area(self):\n        raise NotImplementedError(\"Subclasses must implement area\")\n\n    def describe(self):\n        return f\"{self.name} with area {self.area():.2f}\"\n\n\nclass Rectangle(Shape):\n    def __init__(self, width, height, name=\"Rectangle\"):\n        super().__init__(name)\n        self.width = width\n        self.height = height\n\n    def area(self):\n        return self.width * self.height\n\n\nclass Circle(Shape):\n    def __init__(self, radius):\n        super().__init__(\"Circle\")\n        self.radius = radius\n\n    def area(self):\n        return math.pi * self.radius ** 2\n\n\nclass Square(Rectangle):\n    def __init__(self, side):\n        super().__init__(side, side, name=\"Square\")\n",
+  "explanation": "**The idea.** `Shape` says what every shape can do (`area`, `describe`) and the subclasses say *how* for their own kind. Code that holds a list of shapes can call `describe()` on each without asking what kind it is: `Rectangle`, `Circle` and `Square` each answer in their own way. That is polymorphism.\n\n**Inheritance.** A subclass starts with everything its parent has. `Rectangle` adds a width and a height and its own `area`. `Square` is *a* rectangle whose two sides are equal, so it only needs to pass `side` twice to `Rectangle.__init__`; it inherits `area` as it is (the last test checks it did not write its own).\n\n**`super()`.** `super().__init__(name)` runs the parent's setup, so `name` is stored in one place. Without it the subclass would have to set `self.name` itself, and a change to `Shape.__init__` would not reach it.\n\n**The base class contract.** `Shape.area` raises `NotImplementedError` so that forgetting to write `area` in a new subclass fails loudly instead of returning nonsense. `describe` is written once, in `Shape`, and calls `self.area()`, which finds the subclass's version.\n\n**Going further.** Python's `abc` module can make `Shape` impossible to create at all; this exercise uses the plain version to keep the idea in view."
+}

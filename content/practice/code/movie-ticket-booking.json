@@ -1,0 +1,31 @@
+{
+  "title": "Movie Ticket Booking",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a Movie class that remembers its seats, books tickets and reports its status.",
+  "statement": "Write a class `Movie` for a cinema's booking desk.\n\n**Attributes** (set in `__init__(self, movie_name, total_seats, ticket_price)`):\n\n- `movie_name`: the name of the movie\n- `total_seats`: how many seats the theatre has\n- `ticket_price`: the price of one ticket\n- `booked_seats`: how many seats are booked so far. It starts at `0`.\n\n**Methods**\n\n- `book_ticket(num_tickets)` books that many tickets if enough seats are still free, and **prints** one line:\n  - enough seats: `Booked 3 ticket(s). Total to pay: 750`, with your number of tickets and the amount `num_tickets * ticket_price`, written the way Python prints it (a price of `99.5` for 2 tickets gives `199.0`). The seats become booked.\n  - not enough seats: `Sorry, not enough seats available`. Nothing is booked.\n- `show_status()` **prints** three lines, in this order: `Movie: <name>`, `Seats available: <free seats>`, `Seats booked: <booked seats>`.\n\nRules: `num_tickets` is a positive whole number. Booking exactly the seats that are left is allowed. Two `Movie` objects are independent: booking one does not touch the other.\n\n**Example**\n\n```\nmovie = Movie(\"Dune\", 50, 250)\nmovie.book_ticket(3)      # prints: Booked 3 ticket(s). Total to pay: 750\nmovie.book_ticket(48)     # prints: Sorry, not enough seats available   (only 47 are free)\nmovie.show_status()       # prints: Movie: Dune\n                          #         Seats available: 47\n                          #         Seats booked: 3\n```",
+  "starter": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        \"\"\"Remember the movie's details. No seats are booked yet.\"\"\"\n        ...\n\n    def book_ticket(self, num_tickets):\n        \"\"\"Book the tickets and print the total to pay, or print that there are not enough seats.\"\"\"\n        ...\n\n    def show_status(self):\n        \"\"\"Print the movie name, the seats available and the seats booked.\"\"\"\n        ...\n",
+  "tests": [
+    "import contextlib\nimport io\ndef printed(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    out = io.StringIO()\n    with contextlib.redirect_stdout(out):\n        action(*args)\n    return out.getvalue().strip().split(\"\\n\")\nmovie = Movie(\"Dune\", 50, 250)",
+    "assert (movie.movie_name, movie.total_seats, movie.ticket_price, movie.booked_seats) == (\"Dune\", 50, 250, 0)",
+    "assert printed(movie.book_ticket, 3) == [\"Booked 3 ticket(s). Total to pay: 750\"]",
+    "assert movie.booked_seats == 3",
+    "assert printed(movie.book_ticket, 48) == [\"Sorry, not enough seats available\"]",
+    "assert movie.booked_seats == 3",
+    "assert printed(movie.show_status) == [\"Movie: Dune\", \"Seats available: 47\", \"Seats booked: 3\"]",
+    "assert printed(movie.book_ticket, 47) == [\"Booked 47 ticket(s). Total to pay: 11750\"]",
+    "assert movie.booked_seats == 50",
+    "assert printed(movie.book_ticket, 1) == [\"Sorry, not enough seats available\"]",
+    "other = Movie(\"Arrival\", 10, 99.5)",
+    "assert printed(other.book_ticket, 2) == [\"Booked 2 ticket(s). Total to pay: 199.0\"]",
+    "assert (movie.booked_seats, other.booked_seats) == (50, 2)"
+  ],
+  "hints": [
+    "`__init__` runs when the object is created. `self.movie_name = movie_name` is how the object remembers the value for its other methods, and `self.booked_seats = 0` is the starting value.",
+    "Do not store the free seats: work them out with `total_seats - booked_seats` whenever you need them, so they can never disagree with the booked count.",
+    "Compare first, change second: only when `num_tickets` fits in the free seats do you add to `booked_seats` and print the total. Otherwise print the sorry line and touch nothing."
+  ],
+  "solution": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        self.movie_name = movie_name\n        self.total_seats = total_seats\n        self.ticket_price = ticket_price\n        self.booked_seats = 0\n\n    def seats_available(self):\n        return self.total_seats - self.booked_seats\n\n    def book_ticket(self, num_tickets):\n        if num_tickets <= self.seats_available():\n            self.booked_seats += num_tickets\n            print(f\"Booked {num_tickets} ticket(s). Total to pay: {num_tickets * self.ticket_price}\")\n        else:\n            print(\"Sorry, not enough seats available\")\n\n    def show_status(self):\n        print(f\"Movie: {self.movie_name}\")\n        print(f\"Seats available: {self.seats_available()}\")\n        print(f\"Seats booked: {self.booked_seats}\")\n",
+  "explanation": "**The idea.** A class is a template, and each object made from it remembers its own facts. `__init__` runs when you write `Movie(\"Dune\", 50, 250)`, and `self.movie_name = ...` is how an object keeps something for later. Because the facts live on `self`, a second `Movie` has its own `booked_seats`: booking one never touches the other.\n\n**What to store and what to work out.** The free seats are not stored. They are always `total_seats - booked_seats`, so computing them when needed means they can never disagree with the booked count. Storing both is a classic source of bugs: you update one and forget the other.\n\n**The check comes first.** `book_ticket` compares the request with the free seats *before* changing anything. Only a booking that fits adds to `booked_seats`, so a refused booking leaves the object exactly as it was. Note `<=`: booking exactly the seats that are left is fine.\n\n**Going further.** What should happen for `book_ticket(0)` or a negative number? Real code would refuse them (usually by raising `ValueError`), which is the next step in the Bank Account exercise."
+}

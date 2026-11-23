@@ -1,0 +1,37 @@
+{
+  "title": "Student Report Card",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a Student class that stores marks per subject and reports the average and the best subject.",
+  "statement": "Write a class `Student` with `__init__(self, name)` and the attributes `name` and `grades`, a dictionary from subject to mark that starts **empty** for every student.\n\n**Methods**\n\n- `add_grade(subject, mark)` stores the mark for the subject. A subject graded again **replaces** its old mark. A mark must be between 0 and 100 (both allowed): otherwise raise `ValueError(\"Mark must be between 0 and 100\")` and store nothing.\n- `average()` returns the average of all the marks, rounded to 2 decimal places, or `0` when there are no marks.\n- `best_subject()` returns the subject with the highest mark, or `None` when there are no marks. If two subjects share the highest mark, return the one that was **added first**.\n\n**Example**\n\n```\nmaya = Student(\"Maya\")\nmaya.add_grade(\"Maths\", 90)\nmaya.add_grade(\"English\", 75)\nmaya.add_grade(\"Science\", 90)\nmaya.average()        # 85.0\nmaya.best_subject()   # \"Maths\"   (tied with Science, but added first)\n```",
+  "starter": "class Student:\n    def __init__(self, name):\n        \"\"\"A student with no grades yet.\"\"\"\n        ...\n\n    def add_grade(self, subject, mark):\n        \"\"\"Store the mark for the subject (replacing an earlier one).\"\"\"\n        ...\n\n    def average(self):\n        \"\"\"The average mark, rounded to 2 decimal places (0 when there are none).\"\"\"\n        ...\n\n    def best_subject(self):\n        \"\"\"The subject with the highest mark (the first added wins a tie), or None.\"\"\"\n        ...\n",
+  "tests": [
+    "def error_of(action, *args):\n    try:\n        action(*args)\n    except ValueError as error:\n        return str(error)\n    return None\nstudent = Student(\"Maya\")",
+    "assert student.name == \"Maya\"",
+    "assert student.grades == {}",
+    "assert student.average() == 0",
+    "assert student.best_subject() is None",
+    "student.add_grade(\"Maths\", 90)\nstudent.add_grade(\"English\", 75)\nstudent.add_grade(\"Science\", 90)",
+    "assert student.grades == {\"Maths\": 90, \"English\": 75, \"Science\": 90}",
+    "assert student.average() == 85.0",
+    "assert student.best_subject() == \"Maths\"",
+    "student.add_grade(\"English\", 95)",
+    "assert student.grades[\"English\"] == 95",
+    "assert student.best_subject() == \"English\"",
+    "assert student.average() == 91.67",
+    "assert error_of(student.add_grade, \"Art\", 101) == \"Mark must be between 0 and 100\"",
+    "assert error_of(student.add_grade, \"Art\", -1) == \"Mark must be between 0 and 100\"",
+    "assert \"Art\" not in student.grades",
+    "first = Student(\"A\")\nsecond = Student(\"B\")\nfirst.add_grade(\"Maths\", 50)",
+    "assert second.grades == {}",
+    "assert Student(\"C\").grades == {}"
+  ],
+  "hints": [
+    "Create the `grades` dictionary inside `__init__`, so each student gets a fresh one. Two students must never share it.",
+    "Check the mark before storing: `0 <= mark <= 100` is true for a valid mark. Raise the `ValueError` first, so a bad mark is never stored.",
+    "For the best subject, `max(self.grades, key=self.grades.get)` returns the key with the largest value, and the first one found when there is a tie. Handle the empty case before calling it."
+  ],
+  "solution": "class Student:\n    def __init__(self, name):\n        self.name = name\n        self.grades = {}                 # a new dictionary for every student\n\n    def add_grade(self, subject, mark):\n        if not 0 <= mark <= 100:\n            raise ValueError(\"Mark must be between 0 and 100\")\n        self.grades[subject] = mark\n\n    def average(self):\n        if not self.grades:\n            return 0\n        return round(sum(self.grades.values()) / len(self.grades), 2)\n\n    def best_subject(self):\n        if not self.grades:\n            return None\n        return max(self.grades, key=self.grades.get)     # max keeps the first of equal values\n",
+  "explanation": "**The idea.** The object holds a collection (a dictionary) and offers methods that answer questions about it. The dictionary maps subject to mark, so grading a subject again simply overwrites the old mark.\n\n**A new dictionary per student.** `self.grades = {}` is written *inside* `__init__`, so every `Student` gets its own. A very common mistake is to share one dictionary between all students (a class-level attribute, or a mutable default argument like `def __init__(self, name, grades={})`); then adding a grade for one student appears on all of them. The tests at the end check exactly that.\n\n**The details.** `0 <= mark <= 100` reads like the rule. `max(self.grades, key=self.grades.get)` walks the subjects in the order they were first added and keeps the first one with the highest mark, which is the tie rule in the statement (replacing a mark keeps the subject's original place in a dictionary). `round(..., 2)` gives `91.67` for `91.666...`.\n\n**Going further.** The empty cases (`0` and `None`) are decisions the statement makes. Whenever you write a method, ask what it should do when there is nothing to work on."
+}

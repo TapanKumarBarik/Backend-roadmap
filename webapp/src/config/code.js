@@ -11,6 +11,7 @@ export const CODE_TOPICS = [
   { id: 'graphs-and-backtracking', label: 'Graphs & backtracking', glyph: 'nodes' },
   { id: 'dynamic-programming', label: 'Dynamic programming', glyph: 'blocks' },
   { id: 'strings-and-parsing', label: 'Strings & parsing', glyph: 'pencil' },
+  { id: 'oop-and-classes', label: 'Classes & objects (OOP)', glyph: 'cube' },
   { id: 'math-and-bits', label: 'Math & bits', glyph: 'sigma' },
   { id: 'backend-coding', label: 'Backend building blocks', glyph: 'server' },
   { id: 'caching-and-limits', label: 'Caching, limits & resilience', glyph: 'gauge' },
