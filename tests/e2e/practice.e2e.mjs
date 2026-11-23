@@ -691,7 +691,7 @@ test('the home page leads with the new promise, sends you to the learning paths,
   await quiet.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
   assert.equal(await quiet.page.getByRole('heading', { name: 'Popular this month' }).count(), 0, 'nothing is ranked on no readers');
   await quiet.page.getByRole('link', { name: new RegExp(`^${HERO.exploreLabel}`) }).click();
-  await quiet.page.getByRole('heading', { level: 2, name: /Flagship Tracks/ }).waitFor();
+  await quiet.page.getByRole('heading', { level: 2, name: 'Learning paths', exact: true }).waitFor();
   assert.equal(new URL(quiet.page.url()).pathname, '/paths/');
   await quiet.context.close();
 
