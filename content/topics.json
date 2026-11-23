@@ -1,0 +1,164 @@
+{
+  "topics": [
+    {
+      "id": "python-refresher",
+      "title": "Python refresher",
+      "short": "Python refresher",
+      "summary": "Just enough Python to write classes: how values and references behave, then a ladder of small problems to get your hands moving again.",
+      "why": "Object-oriented code is mostly Python you already know, arranged into classes. Knowing how Python holds values, and the classic traps, saves hours later.",
+      "level": "beginner",
+      "prerequisites": [],
+      "stages": [
+        { "title": "How Python holds values", "lessons": ["lld/00-programming-basics-python-and-csharp/README.md"] }
+      ],
+      "practice": {
+        "code": ["contains-duplicate", "valid-anagram", "valid-palindrome", "two-sum", "run-length-encoding", "majority-element", "pascals-triangle", "fix-the-mutable-default-argument", "fix-shallow-copy", "fix-mutating-while-iterating"]
+      },
+      "next": ["oop-python"]
+    },
+    {
+      "id": "oop-python",
+      "title": "Object-oriented programming in Python",
+      "short": "OOP in Python",
+      "summary": "Model things as classes: objects that hold their own data and the methods that work on it, from a first class to inheritance.",
+      "why": "Most real software is organised as objects. Once you can design a small class that keeps its own data valid, larger designs are the same idea repeated.",
+      "level": "beginner",
+      "prerequisites": [
+        { "topic": "python-refresher", "need": "required", "know": ["Write functions and use lists and dictionaries", "Know that two names can point at the same object"] }
+      ],
+      "stages": [
+        { "title": "Classes and objects", "lessons": ["lld/01-classes-objects-and-oop-building-blocks/README.md"] },
+        { "title": "The foundations and UML", "lessons": ["lld/02-oop-foundations-and-uml/README.md"] }
+      ],
+      "practice": {
+        "code": ["movie-ticket-booking", "bank-account", "student-report-card", "shopping-cart", "library-lending", "shapes-polymorphism"],
+        "quizzes": ["oop-principles-and-solid"],
+        "interview": ["oop-four-pillars", "lld-and-oop-interview"]
+      },
+      "deeper": ["lld/04-solid-principles/README.md", "lld/25-design-patterns-one-at-a-time/README.md"],
+      "next": []
+    },
+    {
+      "id": "linux",
+      "title": "Linux command line",
+      "short": "Linux",
+      "summary": "Work confidently in a terminal: files, permissions, processes, pipes and a little scripting.",
+      "why": "Servers, containers and cloud machines run Linux. Docker, Kubernetes and DevOps all assume you can find your way around a shell.",
+      "level": "beginner",
+      "prerequisites": [],
+      "stages": [
+        { "title": "Set up", "lessons": ["learn/01-linux/00-setup-wsl2/README.md"] },
+        { "title": "Find your way", "lessons": ["learn/01-linux/01-shell-basics-and-philosophy/README.md", "learn/01-linux/02-filesystem-navigation/README.md", "learn/01-linux/03-file-permissions-ownership/README.md"] },
+        { "title": "Run and connect things", "lessons": ["learn/01-linux/06-process-management/README.md", "learn/01-linux/07-io-redirection-and-pipes/README.md", "learn/01-linux/10-networking-basics/README.md"] },
+        { "title": "Automate", "lessons": ["learn/01-linux/09-bash-scripting/README.md", "learn/01-linux/13-ssh-remote-access/README.md"] }
+      ],
+      "practice": { "quizzes": ["linux-permissions-streams-and-processes", "linux-kernel-networking"] },
+      "next": ["docker", "networking"]
+    },
+    {
+      "id": "networking",
+      "title": "Networking for developers",
+      "short": "Networking",
+      "summary": "How a request finds a machine and gets there: addresses, DNS, TCP and ports, routing and load balancing.",
+      "why": "Sooner or later every production problem is a network problem. Knowing the layers tells you where to look first.",
+      "level": "beginner",
+      "prerequisites": [],
+      "stages": [
+        { "title": "The mental model", "lessons": ["learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip/README.md"] },
+        { "title": "Addresses and names", "lessons": ["learn/04-networking-fundamentals/01-ip-addressing-and-subnetting/README.md", "learn/04-networking-fundamentals/02-dns-fundamentals/README.md"] },
+        { "title": "Connections", "lessons": ["learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets/README.md", "learn/04-networking-fundamentals/05-routing-nat-and-firewalls/README.md"] },
+        { "title": "At scale", "lessons": ["learn/04-networking-fundamentals/06-load-balancing-concepts/README.md", "learn/04-networking-fundamentals/10-cdn-and-reverse-proxy/README.md"] },
+        { "title": "When it breaks", "lessons": ["learn/04-networking-fundamentals/07-network-troubleshooting-toolkit/README.md"] }
+      ],
+      "practice": { "quizzes": ["tcp-ip-dns-ports-and-nat", "tls-and-https-basics"], "interview": ["networking-for-developers"] },
+      "tools": ["subnet", "page-load-latency", "tcp-congestion"],
+      "deeper": ["system-design/02-networking-from-zero/README.md"],
+      "next": ["docker"]
+    },
+    {
+      "id": "docker",
+      "title": "Docker",
+      "summary": "Package an app and everything it needs into an image, run it as a container anywhere, and ship it.",
+      "why": "Containers are how most software is built, tested and deployed today. If you can write a Dockerfile and run a small stack, you can work in almost any modern team.",
+      "level": "beginner",
+      "prerequisites": [
+        { "topic": "linux", "need": "required", "know": ["Move around the shell and edit files", "Start, list and stop processes"] },
+        { "topic": "networking", "need": "helpful", "know": ["What a port is, and how two programs talk over one"] }
+      ],
+      "stages": [
+        { "title": "Set up and understand", "lessons": ["learn/02-docker/00-setup-docker-desktop-wsl2/README.md", "learn/02-docker/01-containers-vs-vms-concepts/README.md", "learn/02-docker/02-images-and-containers/README.md"] },
+        { "title": "Build and run", "lessons": ["learn/02-docker/03-dockerfile-deep-dive/README.md", "learn/02-docker/04-volumes-and-bind-mounts/README.md", "learn/02-docker/05-docker-networking/README.md", "learn/02-docker/06-docker-compose/README.md"] },
+        { "title": "Make it small and safe", "lessons": ["learn/02-docker/07-multi-stage-builds-and-optimization/README.md", "learn/02-docker/08-container-registries-dockerhub-and-acr/README.md", "learn/02-docker/09-security-best-practices/README.md"] },
+        { "title": "Ship it", "lessons": ["learn/02-docker/12-nginx-reverse-proxy-and-load-balancing/README.md", "learn/02-docker/10-deploy-to-azure-container-instances/README.md", "learn/02-docker/11-deploy-to-azure-app-service/README.md", "learn/02-docker/13-capstone-project/README.md"] }
+      ],
+      "practice": { "quizzes": ["docker-images-containers-and-volumes", "docker-containers-and-ci-cd"], "interview": ["docker-and-deployments"] },
+      "next": ["kubernetes", "grafana"]
+    },
+    {
+      "id": "kubernetes",
+      "title": "Kubernetes",
+      "summary": "Run containers on a cluster: describe what you want, and Kubernetes keeps it running.",
+      "why": "Once there are more than a few containers, something has to place, restart, connect and scale them. That is Kubernetes' job.",
+      "level": "intermediate",
+      "prerequisites": [
+        { "topic": "docker", "need": "required", "know": ["Build an image and run it as a container", "Ports, volumes and environment variables"] },
+        { "topic": "networking", "need": "required", "know": ["IP addresses, ports and DNS", "What a load balancer does"] }
+      ],
+      "stages": [
+        { "title": "Set up and understand", "lessons": ["learn/03-kubernetes/00-setup-local-cluster-kind-minikube/README.md", "learn/03-kubernetes/01-kubernetes-architecture-and-concepts/README.md"] },
+        { "title": "Run workloads", "lessons": ["learn/03-kubernetes/02-pods-and-workloads/README.md", "learn/03-kubernetes/03-deployments-and-replicasets/README.md", "learn/03-kubernetes/04-services-and-networking/README.md"] },
+        { "title": "Configure", "lessons": ["learn/03-kubernetes/05-configmaps-and-secrets/README.md", "learn/03-kubernetes/06-storage-pv-and-pvc/README.md", "learn/03-kubernetes/07-helm-package-manager/README.md"] },
+        { "title": "Expose and scale", "lessons": ["learn/03-kubernetes/08-ingress-controllers/README.md", "learn/03-kubernetes/09-scaling-hpa-and-vpa/README.md"] },
+        { "title": "Operate it", "lessons": ["learn/03-kubernetes/10-observability-logging-and-metrics/README.md", "learn/03-kubernetes/11-security-rbac-and-network-policies/README.md", "learn/03-kubernetes/12-capstone-project/README.md"] }
+      ],
+      "practice": { "quizzes": ["kubernetes-pods-probes-and-services", "kubernetes-networking-and-operations"] },
+      "next": ["grafana"]
+    },
+    {
+      "id": "grafana",
+      "title": "Monitoring with Prometheus and Grafana",
+      "short": "Prometheus and Grafana",
+      "summary": "See what your system is doing: collect metrics with Prometheus, chart them in Grafana, and alert when something is wrong.",
+      "why": "You cannot fix what you cannot see. Dashboards and alerts are how a team notices a problem before its users do.",
+      "level": "intermediate",
+      "prerequisites": [
+        { "topic": "docker", "need": "helpful", "know": ["Run a container with a port and a config file"] },
+        { "lesson": "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics/README.md", "need": "helpful", "know": ["What a metric is: a counter, a gauge, a histogram"] }
+      ],
+      "stages": [
+        { "title": "Why and what", "lessons": ["learn/12-observability-deep-dive/00-observability-concepts-and-three-pillars/README.md"] },
+        { "title": "Collect metrics", "lessons": ["learn/12-observability-deep-dive/01-prometheus-fundamentals/README.md", "learn/12-observability-deep-dive/02-promql-in-depth/README.md"] },
+        { "title": "Draw them", "lessons": ["learn/12-observability-deep-dive/03-grafana-dashboards/README.md"] },
+        { "title": "Act on them", "lessons": ["learn/12-observability-deep-dive/06-alerting-and-on-call-basics/README.md", "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki/README.md", "learn/12-observability-deep-dive/07-correlating-the-three-pillars/README.md"] },
+        { "title": "Put it together", "lessons": ["learn/12-observability-deep-dive/08-capstone-project/README.md"] }
+      ],
+      "practice": { "quizzes": ["observability-logs-metrics-and-traces", "distributed-tracing-and-observability"], "interview": ["observability-and-reliability"] },
+      "tools": ["incident-debugger"],
+      "scene": "metrics-to-dashboard",
+      "next": []
+    },
+    {
+      "id": "caching",
+      "title": "Caching strategies",
+      "short": "Caching",
+      "summary": "Answer repeated reads from fast memory instead of the database, without serving stale data.",
+      "why": "A cache is often the cheapest way to make a slow system fast, and the easiest way to introduce subtle bugs. Knowing the strategies is what separates the two.",
+      "level": "intermediate",
+      "prerequisites": [
+        { "lesson": "backend/01-request-response-fundamentals/06-http-caching/README.md", "need": "required", "know": ["What Cache-Control and ETag do", "What a browser caches on its own"] },
+        { "lesson": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md", "need": "helpful", "know": ["Why a query is slow, and when an index fixes it"] }
+      ],
+      "stages": [
+        { "title": "The idea", "lessons": ["backend/05-caching-and-performance/00-caching-fundamentals/README.md", "backend/05-caching-and-performance/01-caching-strategies/README.md"] },
+        { "title": "Keep it correct", "lessons": ["backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md", "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases/README.md"] },
+        { "title": "Scale it", "lessons": ["backend/05-caching-and-performance/03-multi-level-caching/README.md", "backend/01-request-response-fundamentals/12-cdn-and-edge-caching/README.md"] },
+        { "title": "Find what is slow", "lessons": ["backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them/README.md", "backend/05-caching-and-performance/08-profiling-and-performance-testing/README.md"] },
+        { "title": "Build one", "lessons": ["backend/05-caching-and-performance/09-capstone-project/README.md"] }
+      ],
+      "practice": { "quizzes": ["caching-strategies-and-eviction", "http-caching"], "interview": ["caching"], "code": ["lru-cache", "lfu-cache", "ttl-cache", "fix-stale-cache"] },
+      "tools": ["caching-strategies"],
+      "scene": "caching",
+      "next": []
+    }
+  ]
+}

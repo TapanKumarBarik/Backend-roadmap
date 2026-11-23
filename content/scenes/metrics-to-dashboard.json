@@ -1,0 +1,74 @@
+{
+  "id": "metrics-to-dashboard",
+  "title": "From a metric to a dashboard to an alert",
+  "caption": "Illustrative numbers: a small web service whose error rate rises after a bad deploy.",
+  "nodes": [
+    { "id": "app", "label": "Your app", "icon": "server", "x": 14, "y": 50 },
+    { "id": "prom", "label": "Prometheus", "icon": "database", "x": 47, "y": 50 },
+    { "id": "grafana", "label": "Grafana", "icon": "chart", "x": 84, "y": 22 },
+    { "id": "alert", "label": "Alertmanager", "icon": "bell", "x": 84, "y": 78 },
+    { "id": "person", "label": "On-call engineer", "icon": "users", "x": 47, "y": 86 }
+  ],
+  "metrics": [
+    { "id": "rps", "label": "Requests per second" },
+    { "id": "err", "label": "Error rate", "unit": "%" },
+    { "id": "alerts", "label": "Alerts firing" }
+  ],
+  "steps": [
+    {
+      "title": "Your app counts what it does", "short": "Expose", "show": ["app"],
+      "text": "The app keeps counters and gauges: requests served, errors, how long each request took. It publishes them as plain text at /metrics, so anything can read them.",
+      "idea": "A metric is a named number, with labels, sampled over time.",
+      "set": { "rps": 120, "err": 0.5, "alerts": 0 }
+    },
+    {
+      "title": "Prometheus scrapes it", "short": "Scrape", "show": ["app", "prom"],
+      "text": "Prometheus pulls the numbers on a schedule and stores each one with its timestamp. Stored over time they form a time series you can look back on.",
+      "idea": "Prometheus pulls. Your app does not need to know who is watching.",
+      "flows": [
+        { "from": "prom", "to": "app", "kind": "request", "label": "GET /metrics (every 15 s)" },
+        { "from": "app", "to": "prom", "kind": "response", "label": "the numbers" }
+      ]
+    },
+    {
+      "title": "Ask questions with PromQL", "short": "Query",
+      "text": "PromQL asks the stored series questions. rate(http_requests_total[5m]) is requests per second over the last five minutes, and dividing the error rate by it gives the share of requests that fail.",
+      "idea": "rate() turns an ever-growing counter into something you can read: a speed."
+    },
+    {
+      "title": "Grafana draws the answers", "short": "Dashboard", "show": ["app", "prom", "grafana"],
+      "text": "Grafana stores no metrics itself. A dashboard panel is a query that Grafana runs against Prometheus and draws as a graph, a number or a gauge.",
+      "idea": "A dashboard is saved questions, asked again every few seconds.",
+      "flows": [
+        { "from": "grafana", "to": "prom", "kind": "request", "label": "PromQL query" },
+        { "from": "prom", "to": "grafana", "kind": "response", "label": "time series" }
+      ]
+    },
+    {
+      "title": "Something goes wrong", "short": "Incident",
+      "text": "A bad deploy starts failing requests. The error rate climbs from 0.5% to 6.5%, and the panel shows it before any customer writes in.",
+      "idea": "Watching the error rate is how you notice before your users tell you.",
+      "flows": [
+        { "from": "app", "to": "prom", "kind": "response", "label": "errors rising" },
+        { "from": "grafana", "to": "prom", "kind": "request", "label": "PromQL query" }
+      ],
+      "set": { "err": 6.5 }
+    },
+    {
+      "title": "A rule fires an alert", "short": "Alert", "show": ["app", "prom", "grafana", "alert"],
+      "text": "An alert rule is a PromQL condition that must hold for a while, such as an error rate above 5% for 5 minutes. When it does, Prometheus sends the alert to Alertmanager, which groups it and decides who to tell.",
+      "idea": "The 'for' duration stops a single blip from waking anyone.",
+      "flows": [{ "from": "prom", "to": "alert", "kind": "event", "label": "HighErrorRate firing" }],
+      "set": { "alerts": 1 }
+    },
+    {
+      "title": "A person is told, and looks", "short": "Respond", "show": ["app", "prom", "grafana", "alert", "person"],
+      "text": "Alertmanager notifies the on-call engineer by chat, email or pager. They open the dashboard, see which service is failing and when it began, and go and fix it.",
+      "idea": "Alerts say that something is wrong. Dashboards say where to look.",
+      "flows": [
+        { "from": "alert", "to": "person", "kind": "event", "label": "page" },
+        { "from": "person", "to": "grafana", "kind": "request", "label": "open the dashboard" }
+      ]
+    }
+  ]
+}

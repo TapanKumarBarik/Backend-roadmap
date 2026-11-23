@@ -1,0 +1,58 @@
+/* The topic guides (components/topics/TopicsView.jsx). They sit in #empty like the other screens, and reuse the practice screens' badges and lists
+   (practice.css), so only what is new is here. Built from the app's tokens. */
+
+.tp { max-width: 980px; }
+.tp-why { margin: 0 0 var(--space-3, 12px); max-width: 66ch; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
+.tp-note { margin: 0 0 var(--space-3, 12px); max-width: 66ch; font-size: 13.5px; line-height: 1.55; color: var(--fg-muted); }
+.tp-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; max-width: 520px; margin: 8px 0 0; }
+.tp-progress > :first-child { flex: 1 1 200px; }
+.tp-sec { margin-top: var(--space-6, 32px); }
+.tp-sec > h3 { margin: 0 0 6px; }
+
+/* the list of guides */
+.tp-grid { list-style: none; margin: var(--space-4, 16px) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 12px; }
+.tp-grid--small { margin-top: 8px; }
+.tp-card { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-sm); color: var(--fg); text-decoration: none; transition: border-color .15s ease, box-shadow .15s ease; }
+.tp-card:hover { border-color: var(--fg-subtle); box-shadow: var(--shadow-md); }
+.tp-card:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.tp-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--fg-subtle); }
+.tp-card__title { font-size: 18px; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; }
+.tp-card__text { font-size: 14px; line-height: 1.55; color: var(--fg-muted); }
+.tp-card__progress { margin-top: auto; display: grid; gap: 4px; font-size: 12px; color: var(--fg-subtle); }
+
+/* what to know first */
+.tp-pre { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.tp-pre__item { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); }
+.tp-pre__item.is-done { border-color: var(--done); }
+.tp-pre__head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.tp-pre__title { font-weight: 650; font-size: 15px; }
+.tp-pre__know { margin: 4px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--fg-muted); }
+.tp-need { padding: 1px 8px; border: 1px solid var(--border); border-radius: var(--r-pill); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.tp-need.is-required { border-color: var(--signal); color: var(--signal); background: var(--signal-bg); }
+.tp-order { margin: 0; padding: 10px 14px; border: 1px dashed var(--border-strong, var(--border)); border-radius: var(--r-md); font-size: 14px; line-height: 1.7; }
+
+/* the route */
+.tp-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.tp-stage { padding: 12px 16px 6px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); }
+.tp-stage__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-bottom: 4px; }
+.tp-stage__head h4 { margin: 0; font-size: 16px; }
+.tp-stage__n { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--signal); }
+.tp-lesson { display: flex; align-items: baseline; gap: 4px 10px; padding: 3px 4px; }
+.tp-lesson > a { flex: 1 1 0; min-width: 0; }
+.tp-lesson > .pr-note, .tp-lesson > .pr-badge, .tp-lesson > .path-dot, .tp-lesson > .tp-lesson__n { flex: none; }
+.tp-lesson__n { width: 22px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--fg-subtle); }
+.tp-lesson.is-next > a { font-weight: 700; }
+.tp-lesson.is-next { background: var(--signal-bg); border-radius: var(--r-sm); }
+
+/* practice and tools */
+.tp-group { margin-top: 12px; }
+.tp-group h4 { margin: 0 0 4px; font-size: 14px; }
+.tp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tp-items li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 0; border-bottom: 1px solid var(--border-subtle); }
+.tp-items li:last-child { border-bottom: 0; }
+.pr-badge.is-solved { border-color: var(--done); }
+.tp-tools { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.tp-tool { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; height: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); color: var(--fg); text-decoration: none; font-size: 13.5px; }
+.tp-tool:hover { border-color: var(--fg-subtle); }
+.tp-tool span:last-child { color: var(--fg-muted); line-height: 1.5; }
+.tp-scene-hold { height: 360px; margin: 24px 0; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-sunken); }

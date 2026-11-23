@@ -35,7 +35,7 @@ import { areaOf, areaList, effectiveArea } from './lib/curriculum/areas.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { fetchPracticeCatalog } from './lib/practiceApi.js';
 import { useLoader } from './hooks/useLoader.js';
-import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, ME_ROUTE, PROFILE_ROUTE, pageUrl } from './lib/appPages.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, TOPIC_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, ME_ROUTE, PROFILE_ROUTE, pageUrl } from './lib/appPages.js';
 import { routeUrl } from './lib/curriculum/moduleUrl.js';
 import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
@@ -77,6 +77,7 @@ const smallScreens = {
   practice: () => import('./components/practice/PracticeView.jsx'),
   me: () => import('./components/me/MyLearningView.jsx'),
   path: () => import('./components/paths/PathView.jsx'),
+  topics: () => import('./components/topics/TopicsView.jsx'),
   message: () => import('./components/account/MessageOwnerModal.jsx')
 };
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
@@ -96,6 +97,7 @@ const VideosView = lazy(smallScreens.videos);
 const PracticeView = lazy(smallScreens.practice);
 const MyLearningView = lazy(smallScreens.me);
 const PathView = lazy(smallScreens.path);
+const TopicsView = lazy(smallScreens.topics);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
 const DailyIncidentModal = lazy(() => import('./components/incident/DailyIncidentModal.jsx'));
@@ -213,12 +215,13 @@ export default function App() {
   const isMeRoute = path === ME_ROUTE;
   const isProfileRoute = path === PROFILE_ROUTE && !!heading;
   const isPathRoute = path === PATH_ROUTE;
+  const isTopicRoute = path === TOPIC_ROUTE;
   // The community's articles have addresses of their own (/blog/<slug>, lib/appPages.js) and set their own page title.
   const isBlogRoute = path === BLOG_ROUTE;
   const isAuthorRoute = path === AUTHOR_ROUTE;
   const isWriteRoute = path === WRITE_ROUTE;
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isMeRoute || isProfileRoute || isPathRoute || isPageRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isMeRoute || isProfileRoute || isPathRoute || isTopicRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
   // The paths and the videos have addresses of their own (/paths/<id>/, /videos/), each served with its own <title>; keep it right.
   const listingTitle = isPathRoute ? (heading ? paths.find((p) => p.id === heading)?.title : LISTING_COPY.pathsTitle) : isVideosRoute ? LISTING_COPY.videosTitle : null;
@@ -250,8 +253,8 @@ export default function App() {
     const title = currentFile && pageTitles[currentFile];
     if (title) document.title = title.full;
     else if (listingTitle) document.title = LISTING_COPY.title(listingTitle, SITE.name);
-    else if (!path || (isSpecialRoute && !isPageRoute && !isPracticeRoute)) document.title = SITE.title;
-  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute, isPracticeRoute, listingTitle]);
+    else if (!path || (isSpecialRoute && !isPageRoute && !isPracticeRoute && !isTopicRoute)) document.title = SITE.title; // a topic page sets its own title (TopicsView)
+  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute, isPracticeRoute, isTopicRoute, listingTitle]);
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
@@ -309,7 +312,7 @@ export default function App() {
 
   // The tree belongs to a page you are reading or exploring. It stays visible on Explore so
   // learners can navigate the curriculum tree and roadmap paths side by side.
-  const showSidebar = (!isSpecialRoute || isExploreRoute || isPathRoute) && !showLanding;
+  const showSidebar = (!isSpecialRoute || isExploreRoute || isPathRoute || isTopicRoute) && !showLanding;
 
   const toggleStatus = useCallback((file, forceStatus) => {
     if (forceStatus) { setStatus(file, forceStatus); return; }
@@ -446,6 +449,8 @@ export default function App() {
   const openMe = useCallback(() => navigate(ME_ROUTE), [navigate]);
   const openPathPage = useCallback((id) => navigate(PATH_ROUTE, id), [navigate]);
   const openPathsPage = useCallback(() => navigate(PATH_ROUTE), [navigate]);
+  const openTopicPage = useCallback((id) => navigate(TOPIC_ROUTE, id), [navigate]);
+  const openTopicsPage = useCallback(() => navigate(TOPIC_ROUTE), [navigate]);
   const choosePath = useCallback(() => { setChoosingPath(true); goHome(); }, [goHome]);
   const openBlogs = useCallback(() => navigate(BLOG_ROUTE), [navigate]);
   const openPost = useCallback((slug) => navigate(BLOG_ROUTE, slug), [navigate]);
@@ -455,7 +460,7 @@ export default function App() {
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
   // Where the practice links on the landing page, the dashboard and a lesson go.
-  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenPaths: openPathsPage }), [openPractice, openPathsPage]);
+  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenPaths: openPathsPage, onOpenTopic: openTopicPage, onOpenTopics: openTopicsPage }), [openPractice, openPathsPage, openTopicPage, openTopicsPage]);
 
   // Where the community's links on the landing page and the dashboard go.
   const community = useMemo(() => ({ onOpenPost: openPost, onOpenAuthor: openAuthor, onOpenBlogs: openBlogs, onOpenWrite: openWrite }), [openPost, openAuthor, openBlogs, openWrite]);
@@ -537,7 +542,7 @@ export default function App() {
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   // Where you are, for the rail and the top bar: the place a screen belongs to, null for the curriculum.
-  const activeDest = isSavedRoute ? SAVED_ROUTE : isPathRoute ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null);
+  const activeDest = isSavedRoute ? SAVED_ROUTE : (isPathRoute || isTopicRoute) ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null);
   // The five main places (config/nav.js): links in the top bar on a wide screen, and the rail leaves them out there.
   const communityDot = communityActivity.questions.badgeVisible || communityActivity.posts.badgeVisible;
   const mainNav = useMemo(() => {
@@ -666,7 +671,8 @@ export default function App() {
                     initialTab={path === NOTES_ROUTE ? 'notes' : 'bookmarks'}
                   />
                 )}
-                {(isExploreRoute || (isPathRoute && !heading)) && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} />}
+                {(isExploreRoute || (isPathRoute && !heading)) && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} onOpenTopic={openTopicPage} />}
+                {isTopicRoute && <TopicsView id={heading} nodeByFile={nodeByFile} statusMap={statusMap} onOpenTopic={openTopicPage} onBack={openTopicsPage} onOpenFile={openFile} onOpenPractice={openPractice} />}
                 {isPathRoute && !!heading && (
                   <PathView
                     id={heading}

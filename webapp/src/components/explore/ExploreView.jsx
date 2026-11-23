@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
 import { groupTags } from '../../lib/curriculum/tagDomains.js';
 import PathExplorer from '../paths/PathExplorer.jsx';
+import { TOPICS, TOPIC_COPY } from '../../config/topics.js';
+import { TOPIC_ROUTE, pageUrl } from '../../lib/appPages.js';
 import '../../styles/explore.css';
+import '../../styles/topics.css';
 
 // Explore screen: curriculum directory for learning paths and topics.
-export default function ExploreView({ allTags, onOpenPalette, paths = [], statusMap = {}, nodeByFile = {}, activeId, onOpenPath }) {
+export default function ExploreView({ allTags, onOpenPalette, paths = [], statusMap = {}, nodeByFile = {}, activeId, onOpenPath, onOpenTopic }) {
   const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => groupTags(allTags), [allTags]);
   const total = Object.keys(allTags).length;
@@ -18,6 +21,24 @@ export default function ExploreView({ allTags, onOpenPalette, paths = [], status
           Choose a structured learning track with real-world capstone milestones, or dive deep into specialized backend topics across system design, databases, DevOps, and GenAI.
         </p>
       </header>
+
+      {/* "I want to learn X": a guide for each, with what to know first and the lessons in order. */}
+      {onOpenTopic && (
+        <section className="explore-learn" aria-labelledby="explore-learn-title">
+          <h2 id="explore-learn-title">{TOPIC_COPY.hubHeading}</h2>
+          <p className="explore-topics-lead">{TOPIC_COPY.hubLead}</p>
+          <ul className="tp-grid">
+            {TOPICS.map((t) => (
+              <li key={t.id}>
+                <a className="tp-card" href={pageUrl(TOPIC_ROUTE, t.id)} onClick={(e) => { e.preventDefault(); onOpenTopic(t.id); }}>
+                  <span className="tp-card__title">{t.title}</span>
+                  <span className="tp-card__text">{t.summary}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {paths.length > 0 && (
         <PathExplorer

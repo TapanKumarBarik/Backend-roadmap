@@ -4,7 +4,9 @@
 // replaces all of it when it starts (scripts/build/prerender.mjs writes them, like a module's page).
 import { LISTING_COPY, formatDuration } from '../../webapp/src/config/paths.js';
 import { DIFFICULTY } from '../../webapp/src/config/practice.js';
-import { pageUrl, PATH_ROUTE, PRACTICE_ROUTE, VIDEOS_ROUTE } from '../../webapp/src/lib/appPages.js';
+import { pageUrl, PATH_ROUTE, PRACTICE_ROUTE, TOPIC_ROUTE, VIDEOS_ROUTE } from '../../webapp/src/lib/appPages.js';
+import { TOPIC_COPY } from '../../webapp/src/config/topics.js';
+import { TOOLS_CATALOG } from '../../webapp/src/config/lessonTools.js';
 import { formatClock, formatTotal, totals } from '../../webapp/src/lib/curriculum/videos.js';
 import { escapeHtml } from '../../webapp/src/lib/markdown/escapeHtml.js';
 import { watchUrl } from '../../webapp/src/lib/markdown/video.js';
@@ -28,9 +30,10 @@ const crumbList = (site, crumbs) => ({
  * @param {string} input.siteName
  * @param {{ '@type': string }} input.author
  * @param {{ quizzes: object, exercises: object, interview: object, code?: object } | null} [input.practice]   api/generated/practice-content.json
+ * @param {any[]} [input.topics]   the topic guides (content/topics.json), each with `minutes` (scripts/lib/topics.mjs, resolveTopics)
  * @returns {Array<{ url: string, title: string, fullTitle: string, description: string, body: string, ld: object, noindex?: boolean }>}
  */
-export function listingPages({ paths, videos, playlists, titles, urlOf, site, siteName, author, practice = null }) {
+export function listingPages({ paths, videos, playlists, titles, urlOf, site, siteName, author, practice = null, topics = [] }) {
   const pages = [];
   const home = { title: siteName, url: '/' };
   const full = (title) => LISTING_COPY.title(title, siteName);
@@ -87,6 +90,79 @@ export function listingPages({ paths, videos, playlists, titles, urlOf, site, si
               author,
               isAccessibleForFree: true,
               hasCourseInstance: { '@type': 'CourseInstance', courseMode: 'online', courseWorkload: `PT${Math.max(1, Math.round(p.minutes))}M` }
+            },
+            crumbList(site, crumbs)
+          ]
+        }
+      });
+    }
+  }
+
+  if (topics.length) {
+    const indexUrl = pageUrl(TOPIC_ROUTE);
+    const indexCrumbs = [home, { title: TOPIC_COPY.hubTitle, url: indexUrl }];
+    const topicTitle = (id) => (topics.find((t) => t.id === id) || { title: id }).title;
+    const lessons = (t) => t.stages.reduce((n, s) => n + s.lessons.length, 0);
+    pages.push({
+      url: indexUrl,
+      title: TOPIC_COPY.hubTitle,
+      fullTitle: full(TOPIC_COPY.hubTitle),
+      description: TOPIC_COPY.hubDescription(topics.length),
+      body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(TOPIC_COPY.hubHeading)}</h1><p>${esc(TOPIC_COPY.hubLead)}</p></header>`
+        + `<ul>${topics.map((t) => `<li><h2>${link(pageUrl(TOPIC_ROUTE, t.id), t.title)}</h2><p>${esc(t.summary)}</p><p><small>${esc(DIFFICULTY[t.level])} · ${esc(TOPIC_COPY.lessons(lessons(t)))} · ${esc(formatDuration(t.minutes))}</small></p></li>`).join('')}</ul>`,
+      ld: {
+        '@context': 'https://schema.org',
+        '@graph': [
+          { '@type': 'CollectionPage', name: TOPIC_COPY.hubTitle, url: site + indexUrl, description: TOPIC_COPY.hubDescription(topics.length), inLanguage: 'en', isPartOf: { '@type': 'WebSite', name: siteName, url: site + '/' } },
+          { '@type': 'ItemList', itemListElement: topics.map((t, i) => ({ '@type': 'ListItem', position: i + 1, url: site + pageUrl(TOPIC_ROUTE, t.id), name: t.title })) },
+          crumbList(site, indexCrumbs)
+        ]
+      }
+    });
+
+    const practiceLink = (key, route, slug) => {
+      const item = practice && practice[key] && practice[key][slug];
+      return item ? `<li>${link(pageUrl(PRACTICE_ROUTE, `${route}/${slug}`), item.title)}</li>` : '';
+    };
+    for (const t of topics) {
+      const url = pageUrl(TOPIC_ROUTE, t.id);
+      const crumbs = [...indexCrumbs, { title: t.title, url }];
+      const pre = t.prerequisites.map((p) => {
+        const what = p.topic ? link(pageUrl(TOPIC_ROUTE, p.topic), topicTitle(p.topic)) : (urlOf(p.lesson) ? link(urlOf(p.lesson), titleOf(p.lesson)) : esc(titleOf(p.lesson)));
+        return `<li>${what} <em>(${esc(p.need === 'required' ? TOPIC_COPY.required : TOPIC_COPY.helpful)})</em>: ${esc(TOPIC_COPY.youShouldBeAbleTo)} ${esc(p.know.join('; '))}.</li>`;
+      }).join('');
+      const groups = [['code', 'code', 'code'], ['quizzes', 'quizzes', 'quiz'], ['interview', 'interview', 'interview'], ['exercises', 'exercises', 'exercise']]
+        .map(([kind, key, route]) => ((t.practice && t.practice[key]) || []).length
+          ? `<h3>${esc(TOPIC_COPY.kinds[kind])}</h3><ul>${t.practice[key].map((slug) => practiceLink(key, route, slug)).join('')}</ul>` : '')
+        .join('');
+      const tools = (t.tools || []).map((id) => TOOLS_CATALOG[id]).filter(Boolean);
+      pages.push({
+        url,
+        title: t.title,
+        fullTitle: full(TOPIC_COPY.pageTitle(t.title)),
+        description: t.summary,
+        body: `<nav aria-label="Breadcrumb">${crumbs.slice(0, -1).map((c) => link(c.url, c.title)).join(' › ')}</nav>`
+          + `<header><h1>${esc(t.title)}</h1><p>${esc(t.summary)}</p><p>${esc(t.why)}</p><p><small>${esc(DIFFICULTY[t.level])} · ${esc(TOPIC_COPY.lessons(lessons(t)))} · ${esc(TOPIC_COPY.reading(formatDuration(t.minutes)))}</small></p></header>`
+          + `<section><h2>${esc(TOPIC_COPY.before)}</h2>${pre ? `<ul>${pre}</ul>` : `<p>${esc(TOPIC_COPY.beforeNone)}</p>`}</section>`
+          + `<section><h2>${esc(TOPIC_COPY.route)}</h2><ol>${t.stages.map((s) => `<li><h3>${esc(s.title)}</h3><ol>${s.lessons.filter((f) => urlOf(f)).map((f) => `<li>${link(urlOf(f), titleOf(f))}</li>`).join('')}</ol></li>`).join('')}</ol></section>`
+          + (groups ? `<section><h2>${esc(TOPIC_COPY.practise)}</h2>${groups}</section>` : '')
+          + (tools.length ? `<section><h2>${esc(TOPIC_COPY.lab)}</h2><ul>${tools.map((tool) => `<li>${link(tool.href, tool.title)}: ${esc(tool.tagline)}</li>`).join('')}</ul></section>` : '')
+          + `<p>${(t.next || []).map((id) => `${link(pageUrl(TOPIC_ROUTE, id), topicTitle(id))} · `).join('')}${link(indexUrl, 'All topics')}</p>`,
+        ld: {
+          '@context': 'https://schema.org',
+          '@graph': [
+            {
+              '@type': 'Course',
+              name: t.title,
+              description: t.summary,
+              url: site + url,
+              inLanguage: 'en',
+              educationalLevel: DIFFICULTY[t.level],
+              teaches: t.stages.map((s) => s.title).join(', '),
+              provider: { '@type': 'Organization', name: siteName, url: site + '/' },
+              author,
+              isAccessibleForFree: true,
+              hasCourseInstance: { '@type': 'CourseInstance', courseMode: 'online', courseWorkload: `PT${Math.max(1, Math.round(t.minutes))}M` }
             },
             crumbList(site, crumbs)
           ]

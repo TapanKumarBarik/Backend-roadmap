@@ -69,6 +69,13 @@
 .lp-more { margin: 20px 0 0; }
 .lp-link-button { padding: 0; border: 0; background: none; font: inherit; font-size: 14.5px; font-weight: 500; cursor: pointer; }
 
+/* A line of topic guides under the paths: names a newcomer recognises, as plain links. */
+.lp-topics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 16px 0 0; font-size: 14.5px; }
+.lp-topics > span { color: var(--fg-muted); }
+.lp-topics > a:not(.lp-link) { padding: 3px 12px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--bg-raised); color: var(--fg); font-weight: 600; font-size: 13.5px; }
+.lp-topics > a:not(.lp-link):hover { border-color: var(--fg-subtle); }
+.lp-topics > a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
 /* ── the subjects: a plain list, so it reads as a directory and the paths above stay the only cards ── */
 .lp-areas { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border-subtle); }
 .lp-areas li { border-bottom: 1px solid var(--border-subtle); }

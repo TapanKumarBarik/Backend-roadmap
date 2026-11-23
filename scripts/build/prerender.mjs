@@ -27,6 +27,7 @@ import { gitDates } from '../lib/gitDates.mjs';
 import { homePage } from '../lib/homePage.mjs';
 import { shareImagePath, shareImageUrl } from '../lib/shareImage.mjs';
 import { listingPages } from '../lib/listingPages.mjs';
+import { loadTopics, resolveTopics } from '../lib/topics.mjs';
 import { LEARNING_PATHS } from '../../webapp/src/config/paths.js';
 import { resolvePaths } from '../../webapp/src/lib/curriculum/learningPaths.js';
 import { escapeHtml as esc, shellPage } from '../../webapp/src/lib/seo/shellPage.js';
@@ -289,7 +290,8 @@ const listings = listingPages({
   site: SITE,
   siteName: SITE_NAME,
   author,
-  practice: JSON.parse(fs.readFileSync(path.join(ROOT, 'api/generated/practice-content.json'), 'utf8'))
+  practice: JSON.parse(fs.readFileSync(path.join(ROOT, 'api/generated/practice-content.json'), 'utf8')),
+  topics: resolveTopics(loadTopics(), nodeByFile)
 });
 for (const listing of listings) {
   const out = page({

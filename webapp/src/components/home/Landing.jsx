@@ -9,7 +9,8 @@ import { totals } from '../../lib/curriculum/videos.js';
 import { YOUTUBE, DEVELOPER_EMAIL_LINK } from '../../config/index.js';
 import { TRUST } from '../../config/trust.js';
 import { PATH_ROUTE, pageUrl } from '../../lib/appPages.js';
-import { FALLBACK_START_FILE, HERO, PICK, LIBRARY, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
+import { FALLBACK_START_FILE, HERO, PICK, LIBRARY, TOPICS_LINE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
+import { TOPIC_ROUTE } from '../../lib/appPages.js';
 import '../../styles/landing.css';
 
 // Its own chunk: the front door does not wait for the practice catalog or the page-view ranking.
@@ -44,6 +45,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
   const modules = stats?.modules;
   const startFile = stats?.curricula?.backend?.start || FALLBACK_START_FILE;
   const paths = stats?.paths || [];
+  const topics = stats?.topics || [];
   const flagshipPaths = paths.filter((p) => p.flagship);
   const displayPaths = flagshipPaths.length > 0 ? flagshipPaths : paths.slice(0, 4);
   const heroPath = paths.find((p) => p.id === HERO.startPath) || displayPaths[0];
@@ -93,6 +95,13 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
           <p className="lp-more">
             <a className="lp-link" href={pageUrl(PATH_ROUTE)} onClick={followInApp(practice.onOpenPaths)}>All {paths.length} learning paths <ArrowRightIcon /></a>
           </p>
+          {topics.length > 0 && (
+            <p className="lp-topics">
+              <span>{TOPICS_LINE.lead}</span>
+              {topics.map((t) => <a key={t.id} href={pageUrl(TOPIC_ROUTE, t.id)} onClick={followInApp(() => practice.onOpenTopic(t.id))}>{t.title}</a>)}
+              <a className="lp-link" href={pageUrl(TOPIC_ROUTE)} onClick={followInApp(practice.onOpenTopics)}>{TOPICS_LINE.all} <ArrowRightIcon /></a>
+            </p>
+          )}
         </section>
       )}
 

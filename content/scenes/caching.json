@@ -1,0 +1,107 @@
+{
+  "id": "caching",
+  "title": "Why a cache helps, and what it costs",
+  "caption": "Illustrative numbers: a cache read takes about 1 ms and a database read about 20 ms; a miss pays for both.",
+  "nodes": [
+    { "id": "users", "label": "Shoppers", "icon": "users", "x": 14, "y": 70 },
+    { "id": "app", "label": "App server", "icon": "server", "x": 47, "y": 70 },
+    { "id": "cache", "label": "Cache (memory)", "icon": "bolt", "x": 47, "y": 22 },
+    { "id": "db", "label": "Database", "icon": "database", "x": 84, "y": 70 }
+  ],
+  "metrics": [
+    { "id": "latency", "label": "Average read time", "unit": " ms" },
+    { "id": "hit", "label": "Cache hit rate", "unit": "%" },
+    { "id": "dbload", "label": "Database reads", "unit": "%" },
+    { "id": "fresh", "label": "Data shown" }
+  ],
+  "steps": [
+    {
+      "title": "Every read goes to the database", "short": "No cache", "show": ["users", "app", "db"],
+      "text": "A shop page needs the same product again and again. With no cache, every request asks the database, so reads are slow and the database does all the work.",
+      "idea": "The database repeats the same work for answers that have not changed.",
+      "flows": [
+        { "from": "users", "to": "app", "kind": "request", "label": "GET /product/42" },
+        { "from": "app", "to": "db", "kind": "request", "label": "SELECT …" },
+        { "from": "db", "to": "app", "kind": "response", "label": "the row" },
+        { "from": "app", "to": "users", "kind": "response", "label": "the page" }
+      ],
+      "set": { "latency": 20, "dbload": 100 }
+    },
+    {
+      "title": "Put a cache beside the app", "short": "Add a cache", "show": ["users", "app", "cache", "db"],
+      "text": "A cache is a small, very fast store, usually in memory. The app asks it first. At the start it is empty, so every lookup misses and costs a little extra.",
+      "idea": "Check the fast place first, then fall back to the slow one.",
+      "flows": [{ "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" }],
+      "set": { "latency": 21, "hit": 0, "fresh": "fresh" }
+    },
+    {
+      "title": "A miss: ask the database, then remember", "short": "Miss",
+      "text": "The cache does not have the product yet (a miss). The app reads it from the database and puts a copy in the cache before it answers.",
+      "idea": "A cache fills itself from the reads that miss.",
+      "flows": [
+        { "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" },
+        { "from": "cache", "to": "app", "kind": "miss", "label": "miss" },
+        { "from": "app", "to": "db", "kind": "request", "label": "SELECT …" },
+        { "from": "db", "to": "app", "kind": "response", "label": "the row" },
+        { "from": "app", "to": "cache", "kind": "write", "label": "SET product:42" }
+      ],
+      "set": { "latency": 21, "hit": 0 }
+    },
+    {
+      "title": "A hit: answered from memory", "short": "Hit",
+      "text": "The next request finds the product in the cache (a hit) and the database is not touched. With one miss and one hit so far, half the reads came from memory.",
+      "idea": "A hit costs about 1 ms. A miss costs the cache lookup plus the database read.",
+      "flows": [
+        { "from": "users", "to": "app", "kind": "request", "label": "GET /product/42" },
+        { "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" },
+        { "from": "cache", "to": "app", "kind": "hit", "label": "hit" },
+        { "from": "app", "to": "users", "kind": "response", "label": "the page" }
+      ],
+      "set": { "latency": 11, "hit": 50, "dbload": 50 }
+    },
+    {
+      "title": "The hit rate is everything", "short": "Hit rate",
+      "text": "Average read time = hit rate × 1 ms + miss rate × 21 ms. At 80% hits that is 5 ms; at 95% it is 2 ms, and the database sees only 5% of the reads instead of 20%.",
+      "idea": "From 80% to 95% hits, the average read time more than halves and the database's work drops to a quarter.",
+      "flows": [
+        { "from": "users", "to": "app", "kind": "request", "label": "20,000 shoppers" },
+        { "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" },
+        { "from": "cache", "to": "app", "kind": "hit", "label": "hit" }
+      ],
+      "set": { "latency": 2, "hit": 95, "dbload": 5 }
+    },
+    {
+      "title": "The cached copy goes stale", "short": "Stale",
+      "text": "The product's price changes in the database, but the cache still holds the old copy. Shoppers keep seeing the old price until that copy is replaced.",
+      "idea": "A cache is a copy. The hard part is knowing when the copy is no longer true.",
+      "flows": [
+        { "from": "app", "to": "db", "kind": "write", "label": "UPDATE price" },
+        { "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" },
+        { "from": "cache", "to": "app", "kind": "stale", "label": "old price" }
+      ],
+      "set": { "fresh": "stale" }
+    },
+    {
+      "title": "Keep it fresh: expire or invalidate", "short": "Fresh",
+      "text": "Two ways to fix it: give every entry a time to live so old copies expire on their own, or delete the entry whenever the data changes so the next read fetches the new value.",
+      "idea": "Expiry is simple but can be a little stale. Invalidation is exact but needs care.",
+      "flows": [
+        { "from": "app", "to": "db", "kind": "write", "label": "UPDATE price" },
+        { "from": "app", "to": "cache", "kind": "write", "label": "DELETE product:42" }
+      ],
+      "set": { "fresh": "fresh" }
+    },
+    {
+      "title": "A stampede: everyone misses at once", "short": "Stampede",
+      "text": "When a popular entry expires, every waiting request misses at the same moment and they all reach the database together. Let one request refill the cache while the rest wait, or refresh entries before they expire.",
+      "idea": "A cache protects the database only for as long as it holds the answers.",
+      "flows": [
+        { "from": "users", "to": "app", "kind": "request", "label": "1,000 requests" },
+        { "from": "app", "to": "cache", "kind": "request", "label": "GET product:42" },
+        { "from": "cache", "to": "app", "kind": "miss", "label": "expired" },
+        { "from": "app", "to": "db", "kind": "request", "label": "1,000 × SELECT" }
+      ],
+      "set": { "dbload": 100 }
+    }
+  ]
+}

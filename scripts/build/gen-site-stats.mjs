@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, CONTENT_ROOT, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
 import { loadCatalogue, resolvePath } from '../lib/paths.mjs';
+import { loadTopics } from '../lib/topics.mjs';
 import { readText } from '../lib/content.mjs';
 
 const dirs = (p) => (fs.existsSync(p) ? fs.readdirSync(p, { withFileTypes: true }) : [])
@@ -44,6 +45,9 @@ for (const cur of CURRICULA) {
   out.modules.written += entry.written;
 }
 out.modules.planned = out.modules.total - out.modules.written;
+
+// The topic guides (topics.json): just their names, for the landing page's line of topics.
+out.topics = loadTopics().map(({ id, title, short }) => ({ id, title: short || title }));
 
 // The learning paths (paths.json) as the landing page shows them, before the app has loaded its module index.
 out.paths = loadCatalogue().map((p) => {

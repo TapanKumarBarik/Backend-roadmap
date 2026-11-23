@@ -82,3 +82,43 @@ test('an interview set is a FAQ page: its model answers are there to be read', (
 test('without practice content there are no practice pages', () => {
   assert.deepEqual(build({ practice: null }), []);
 });
+
+test('the topic guides have a list page and a page each, with the lessons, what to know first and the practice as plain links', () => {
+  const topics = [
+    { id: 'linux', title: 'Linux <basics>', summary: 'Work confidently in a terminal: files, permissions and processes.', why: 'Servers run Linux, so everything else assumes it.', level: 'beginner', minutes: 60, prerequisites: [], stages: [{ title: 'Start', lessons: ['learn/01-linux/01-shell/README.md'] }], next: ['docker'] },
+    {
+      id: 'docker', title: 'Docker', summary: 'Package an app and everything it needs into an image and run it anywhere.', why: 'Containers are how most software ships.', level: 'beginner', minutes: 90,
+      prerequisites: [{ topic: 'linux', need: 'required', know: ['Move around the shell'] }, { lesson: 'learn/01-linux/01-shell/README.md', need: 'helpful', know: ['Use the shell a little'] }],
+      stages: [{ title: 'Build', lessons: ['learn/02-docker/01-images/README.md', 'learn/02-docker/02-files/README.md'] }],
+      practice: { quizzes: ['http-caching'], code: ['two-sum'] }, tools: ['subnet'], next: []
+    }
+  ];
+  const lessonUrl = (file) => `/${file.replace(/README\.md$/, '')}`;
+  const titles = { 'learn/01-linux/01-shell/README.md': { title: 'The shell' }, 'learn/02-docker/01-images/README.md': { title: 'Images' }, 'learn/02-docker/02-files/README.md': { title: 'Files' } };
+  const pages = new Map(build({ topics, titles, urlOf: lessonUrl }).map((p) => [p.url, p]));
+
+  const list = pages.get('/topics/');
+  assert.ok(list && !list.noindex, 'the list has a page, and it is indexed');
+  assert.ok(list.body.includes('/topics/docker/') && list.body.includes('/topics/linux/'), 'and links to each guide');
+  assert.ok(list.body.includes('Linux &lt;basics&gt;') && !list.body.includes('<basics>'), 'a title is escaped');
+
+  const docker = pages.get('/topics/docker/');
+  assert.equal(docker.title, 'Docker');
+  assert.equal(docker.description, topics[1].summary, 'a search result shows the summary');
+  assert.ok(docker.description.length <= 160);
+  assert.match(docker.fullTitle, /^Docker: what to know first and how to learn it/);
+  assert.ok(/<h1>Docker<\/h1>/.test(docker.body));
+  assert.ok(docker.body.includes('href="/topics/linux/"') && docker.body.includes('Needed'), 'what to know first is a link to that guide, and says it is needed');
+  assert.ok(docker.body.includes('href="/learn/01-linux/01-shell/"') && docker.body.includes('Helps'), 'or to a lesson');
+  assert.ok(docker.body.includes('href="/learn/02-docker/01-images/"') && docker.body.includes('href="/learn/02-docker/02-files/"'), 'the route is the lessons, as links');
+  assert.ok(docker.body.indexOf('Images') < docker.body.indexOf('Files'), 'in order');
+  assert.ok(docker.body.includes('href="/practice/quiz/http-caching/"') && docker.body.includes('href="/practice/code/two-sum/"'), 'the practice is linked');
+  assert.ok(docker.body.includes('href="/tools/subnet/"'), 'and the tool');
+  const types = docker.ld['@graph'].map((x) => x['@type']);
+  assert.deepEqual(types, ['Course', 'BreadcrumbList']);
+  assert.equal(docker.ld['@graph'][0].isAccessibleForFree, true);
+  assert.equal(docker.ld['@graph'][1].itemListElement.length, 3, 'home, the list, the guide');
+
+  assert.ok(pages.get('/topics/linux/').body.includes('Nothing is needed first'), 'a guide that needs nothing says so');
+  assert.ok(!build({ topics: [] }).some((p) => p.url.startsWith('/topics/')), 'no topics, no pages');
+});

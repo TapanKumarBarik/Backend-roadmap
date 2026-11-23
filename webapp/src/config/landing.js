@@ -43,6 +43,12 @@ export const POPULAR = {
   meta: (views) => `read ${views} times this month`
 };
 
+// A line of guides under the paths, for someone who knows what they want to learn ("Docker", "caching") rather than which route to take.
+export const TOPICS_LINE = {
+  lead: 'Or start from a topic:',
+  all: 'All topics'
+};
+
 // The learning paths, as cards. The numbers come from the stats (`stats.paths`).
 export const PICK = {
   heading: 'Pick a path',
