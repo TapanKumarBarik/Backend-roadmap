@@ -238,7 +238,7 @@ function lessonsFor(prefixes) {
   });
 }
 
-function stubBody({ title, trackTitle, trackDir, lessonId, nextRel }) {
+function stubBody({ title, trackTitle, lessonId, nextRel }) {
   const nextLine = nextRel
     ? ` · Next: [${nextRel.label}](../${nextRel.slug}/README.md)`
     : '';
@@ -267,7 +267,7 @@ Track overview: [Track: ${trackTitle}](../README.md)${nextLine}
 `;
 }
 
-function trackReadme({ track, lessons, rows }) {
+function trackReadme({ track, rows }) {
   const table = rows
     .map(
       (r) =>
