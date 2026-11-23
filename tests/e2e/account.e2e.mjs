@@ -7,6 +7,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import { createGithubFake } from '../../api/tests/githubFake.js';
 
 const LESSON = '/backend/03-authentication-and-authorization/01-sessions-and-cookies/';
 const LESSON_FILE = 'backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md';
@@ -69,19 +70,26 @@ test('the workspace: a page is created, typed into, saved, and its text is there
   await context.close();
 });
 
-test('the admin dashboard opens for the owner with its ten sections, and tells a reader it is not for them', async () => {
-  const owner = await openPage(browser, '/#__admin');
-  await answerApiInProcess(owner.context, { email: OWNER_EMAIL });
-  await owner.goto();
-  await owner.page.waitForSelector('.admin-dashboard');
-  assert.deepEqual(
-    await owner.page.locator('.admin-dashboard .page-tabs button').allTextContents().then((labels) => labels.map((l) => l.trim().replace(/\d+$/, ''))),
-    ['Overview', 'Content', 'Community', 'Articles', 'Practice', 'Site', 'Notices', 'People', 'Analytics', 'System', 'Audit log']
-  );
-  await owner.page.getByRole('button', { name: 'People' }).click();
-  await owner.page.locator('.admin-chip.is-root', { hasText: OWNER_EMAIL }).waitFor();
-  assert.deepEqual(owner.problems, []);
-  await owner.context.close();
+test('the admin dashboard opens for the owner with its sections, and tells a reader it is not for them', async () => {
+  // The dashboard asks GitHub how many edits are staged (the number on the Changes tab), so GitHub is a stand-in here, as in lesson-edit.e2e.mjs:
+  // a real call without the site's token would be a failed request, which the browser logs as an error.
+  const restoreGithub = createGithubFake().install();
+  try {
+    const owner = await openPage(browser, '/#__admin');
+    await answerApiInProcess(owner.context, { email: OWNER_EMAIL });
+    await owner.goto();
+    await owner.page.waitForSelector('.admin-dashboard');
+    assert.deepEqual(
+      await owner.page.locator('.admin-dashboard .page-tabs button').allTextContents().then((labels) => labels.map((l) => l.trim().replace(/\d+$/, ''))),
+      ['Overview', 'Content', 'Changes', 'Community', 'Articles', 'Practice', 'Site', 'Notices', 'People', 'Analytics', 'System', 'Audit log']
+    );
+    await owner.page.getByRole('button', { name: 'People' }).click();
+    await owner.page.locator('.admin-chip.is-root', { hasText: OWNER_EMAIL }).waitFor();
+    assert.deepEqual(owner.problems, []);
+    await owner.context.close();
+  } finally {
+    restoreGithub();
+  }
 
   const reader = await openPage(browser, '/#__admin');
   await answerApiInProcess(reader.context, { email: 'reader@example.com' });
