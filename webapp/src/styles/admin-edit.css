@@ -1,0 +1,22 @@
+/* An admin's controls on a lesson's own page (components/article/AdminBar.jsx, LessonEditor.jsx). Loaded with those two chunks, so it is
+   not part of the first page. Built from the app's tokens, so it follows light, dark and auto. */
+
+.admin-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 var(--space-4, 16px); padding: 6px 10px;
+  border: 1px dashed var(--border-strong, var(--border)); border-radius: var(--r-md); background: var(--bg-sunken);
+}
+.admin-bar__tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle); margin-right: 4px; }
+.admin-bar button {
+  padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-raised); color: var(--fg);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.admin-bar button:hover:not(:disabled) { border-color: var(--fg-subtle); }
+.admin-bar button:disabled { opacity: .5; cursor: default; }
+.admin-bar button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.admin-bar .admin-bar__primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+.lesson-editor { margin: 0 0 var(--space-6, 32px); }
+.lesson-editor__h { margin: 0 0 6px; font-size: 18px; overflow-wrap: anywhere; }
+.lesson-editor__lead { margin: 0 0 var(--space-3, 12px); max-width: 70ch; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
+.lesson-editor .admin-textarea { min-height: 70vh; }
+.admin-editor-confirm { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--r-md); background: var(--bg-sunken); font-size: 14px; }

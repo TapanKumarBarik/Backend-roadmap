@@ -3,7 +3,6 @@ import { useToast } from '../ui/Toast.jsx';
 import { Skeleton } from '../ui/Skeleton.jsx';
 import CommentsModeration from './CommentsModeration.jsx';
 import VisitorStats from './VisitorStats.jsx';
-import ContentEditor from './ContentEditor.jsx';
 import MessagesInbox from './MessagesInbox.jsx';
 import UsageStats from './UsageStats.jsx';
 import PeoplePanel from './PeoplePanel.jsx';
@@ -16,6 +15,8 @@ import { fetchManagedBlogs } from '../../lib/blogApi.js';
 
 // The Site editors (paths, videos, search titles) are a lot of code for a part of the admin that is opened now and then: fetched when its tab is.
 const SiteAdmin = lazy(() => import('./SiteAdmin.jsx'));
+// The editor is shared with a lesson's own page (components/article/LessonEditor.jsx), so it is its own chunk, opened only on the Content tab.
+const ContentEditor = lazy(() => import('./ContentEditor.jsx'));
 
 // Sections instead of sibling tabs. The old row put moderation,
 // analytics, the inbox and the content editor at the same level, so
@@ -124,7 +125,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
         </>
       )}
 
-      {section === 'content' && <ContentEditor initialPath={lastViewedFile} />}
+      {section === 'content' && <Suspense fallback={<Skeleton lines={5} />}><ContentEditor initialPath={lastViewedFile} /></Suspense>}
       {section === 'community' && (
         <>
           <div className="home-h">Comments &amp; moderation</div>

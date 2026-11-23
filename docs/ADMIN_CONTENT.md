@@ -74,6 +74,22 @@ The screen: search for a module, see the title and description the site generate
 search result, save or remove. The generated descriptions come from `dist/seo-defaults.json`, which the build writes beside every page
 (`scripts/build/prerender.mjs`); on a site that was never built the screen says they are not known.
 
+## Editing a lesson from its own page
+
+An admin sees a thin **Admin** row above every lesson (also track overviews and "coming soon" pages) with two buttons. Nobody else gets the row,
+and its code is a separate download (`AdminBar.jsx`, `LessonEditor.jsx`), so no reader pays for it. The endpoint refuses a non-admin whatever the page shows.
+
+- **Copy markdown** puts the page's markdown on the clipboard.
+- **Edit this page** replaces the text with the editor of Admin, Content (`ContentEditor.jsx`), opened on that page's file. It loads the file **from the
+  repository** (not from the deployed site, which may be a deploy behind) with its `sha`; *Save* commits it with that `sha`, so if the file changed since,
+  GitHub answers 409 and nothing is overwritten. *Close the editor* returns to the page.
+- **The site is rebuilt from the repository**, so after a save everyone else sees the change once the deploy has run, usually a few minutes. The admin who
+  saved sees the new text at once: the page keeps it for as long as the tab is open (`rememberEdit` in `useMarkdownDoc.js`).
+- **A draft is kept in the browser** (`storage.lessonDraft` in `site.config.json`) a moment after typing stops, for the version of the file it was made
+  from, and brought back when the editor is opened again; it is cleared by a save or by *Discard*. A closed tab or reload with unsaved changes asks first.
+
+Tests: `tests/e2e/lesson-edit.e2e.mjs` (who sees it, the copy, the edit and the commit, the draft, the close, the 409), with GitHub stood in for.
+
 ## Verifying by hand
 
 1. Open **Admin, Site** as an admin. Each tab loads its file from the repository.

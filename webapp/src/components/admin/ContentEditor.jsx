@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchAdminContent, saveAdminContent, uploadAdminImage } from '../../lib/api.js';
 import { renderMarkdownDoc } from '../../lib/markdown/markdown.js';
 import { BLOCK_TYPES } from '../../lib/markdown/contentBlocks.js';
 import { lineDiff } from '../../lib/lineDiff.js';
 import { friendlyMessage } from '../../lib/errors.js';
-import { REPO } from '../../config/index.js';
+import { readJson, writeJson, writeStored } from '../../lib/storage.js';
+import { REPO, STORAGE } from '../../config/index.js';
+import { ADMIN_EDIT } from '../../config/adminEdit.js';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -15,8 +17,14 @@ function fileToBase64(file) {
   });
 }
 
-export default function ContentEditor({ initialPath }) {
-  const [path, setPath] = useState(initialPath || '');
+// Edits one markdown file of the repository and commits it. In Admin, Content it asks for the path. Pinned to a file with `fixedPath`
+// (a lesson's own page, components/article/LessonEditor.jsx) it loads that file at once and adds what an editor on a live page needs:
+//   onSaved(text)  called after a commit, so the page can show the new text before the site has been rebuilt
+//   onClose()      leaves the editor; if there are unsaved changes it asks first
+//   a draft        what is typed is kept in this browser until it is saved, so a closed tab or a click on another lesson loses nothing
+export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose }) {
+  const fixed = !!fixedPath;
+  const [path, setPath] = useState(fixedPath || initialPath || '');
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
   const [sha, setSha] = useState(null);
@@ -25,10 +33,12 @@ export default function ContentEditor({ initialPath }) {
   const [uploading, setUploading] = useState(false);
   const [mode, setMode] = useState('edit'); // 'edit' | 'preview' | 'diff'
   const [status, setStatus] = useState(null);
+  const [confirmClose, setConfirmClose] = useState(false);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
 
   const dirty = content !== originalContent;
+  const draftKey = STORAGE.lessonDraft + path.trim();
 
   // Insert a block at the cursor rather than appending to the end — these
   // belong next to the paragraph they're about.
@@ -56,11 +66,14 @@ export default function ContentEditor({ initialPath }) {
     setStatus(null);
     try {
       const data = await fetchAdminContent(path.trim());
-      setContent(data.content);
+      // A draft is only good for the version it was made from: if the file has changed in the repository since, it is not offered.
+      const draft = fixed ? readJson(draftKey) : null;
+      const restore = draft && draft.sha === data.sha && typeof draft.content === 'string' && draft.content !== data.content;
+      setContent(restore ? draft.content : data.content);
       setOriginalContent(data.content);
       setSha(data.sha);
       setMode('edit');
-      setStatus({ type: 'ok', text: 'Loaded.' });
+      setStatus({ type: 'ok', text: restore ? ADMIN_EDIT.restored : 'Loaded.' });
     } catch (e) {
       setStatus({ type: 'error', text: friendlyMessage(e) });
       setSha(null);
@@ -68,6 +81,28 @@ export default function ContentEditor({ initialPath }) {
       setLoading(false);
     }
   }
+
+  // A page's own editor opens on its file.
+  useEffect(() => {
+    if (fixed) handleLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixedPath]);
+
+  // The draft: written a moment after typing stops, cleared when what is typed is what is saved.
+  useEffect(() => {
+    if (!fixed || !sha) return undefined;
+    if (!dirty) { writeStored(draftKey, ''); return undefined; }
+    const timer = setTimeout(() => writeJson(draftKey, { sha, content }), 500);
+    return () => clearTimeout(timer);
+  }, [fixed, sha, dirty, content, draftKey]);
+
+  // Closing the tab or reloading with unsaved changes asks first (the draft would bring them back, but not everyone should have to know).
+  useEffect(() => {
+    if (!fixed || !dirty) return undefined;
+    const ask = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', ask);
+    return () => window.removeEventListener('beforeunload', ask);
+  }, [fixed, dirty]);
 
   async function handleSave() {
     if (!sha) return;
@@ -77,12 +112,27 @@ export default function ContentEditor({ initialPath }) {
       const result = await saveAdminContent(path.trim(), content, sha, `Edit ${path} via admin editor`);
       setSha(result.sha);
       setOriginalContent(content);
-      setStatus({ type: 'ok', text: `Saved — committed to ${REPO.branch}.` });
+      setStatus({ type: 'ok', text: fixed ? ADMIN_EDIT.saved(REPO.branch) : `Saved — committed to ${REPO.branch}.` });
+      if (onSaved) onSaved(content);
     } catch (e) {
       setStatus({ type: 'error', text: friendlyMessage(e) });
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setStatus({ type: 'ok', text: ADMIN_EDIT.copied });
+    } catch {
+      setStatus({ type: 'error', text: ADMIN_EDIT.copyFailed });
+    }
+  }
+
+  function handleClose() {
+    if (dirty) setConfirmClose(true);
+    else onClose();
   }
 
   async function handleImagePick(e) {
@@ -106,16 +156,21 @@ export default function ContentEditor({ initialPath }) {
   return (
     <div className="admin-editor">
       <div className="admin-editor-toolbar">
-        <input
-          className="admin-path-input"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          placeholder="learn/01-linux/README.md"
-        />
-        <button onClick={handleLoad} disabled={loading}>Load</button>
+        {!fixed && (
+          <>
+            <input
+              className="admin-path-input"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="learn/01-linux/README.md"
+            />
+            <button onClick={handleLoad} disabled={loading}>Load</button>
+          </>
+        )}
         <button onClick={handleSave} disabled={!sha || saving || !dirty}>
           {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
         </button>
+        {fixed && <button onClick={handleCopy} disabled={!sha}>{ADMIN_EDIT.copy}</button>}
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? 'Uploading…' : 'Insert image'}
         </button>
@@ -126,8 +181,17 @@ export default function ContentEditor({ initialPath }) {
             Diff{dirty ? '' : ' (no changes)'}
           </button>
         </div>
+        {fixed && onClose && <button onClick={handleClose}>{ADMIN_EDIT.close}</button>}
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImagePick} />
       </div>
+
+      {confirmClose && (
+        <p role="alert" className="admin-editor-confirm">
+          {ADMIN_EDIT.unsaved}{' '}
+          <button onClick={() => { writeStored(draftKey, ''); onClose(); }}>{ADMIN_EDIT.discard}</button>{' '}
+          <button onClick={() => setConfirmClose(false)}>{ADMIN_EDIT.keep}</button>
+        </p>
+      )}
 
       {/* So structured blocks are the path of least resistance when writing
           a new module, rather than something you have to remember. */}
@@ -140,7 +204,8 @@ export default function ContentEditor({ initialPath }) {
         ))}
       </div>
 
-      {status && <p style={{ color: status.type === 'error' ? 'var(--danger)' : 'var(--fg-muted)' }}>{status.text}</p>}
+      {loading && fixed && <p role="status" style={{ color: 'var(--fg-muted)' }}>{ADMIN_EDIT.loading}</p>}
+      {status && <p role={status.type === 'error' ? 'alert' : 'status'} style={{ color: status.type === 'error' ? 'var(--danger)' : 'var(--fg-muted)' }}>{status.text}</p>}
 
       {mode === 'preview' && (
         <div className="admin-preview" dangerouslySetInnerHTML={{ __html: renderMarkdownDoc(content) }} />
@@ -150,7 +215,7 @@ export default function ContentEditor({ initialPath }) {
           {lineDiff(originalContent, content).map((line, i) => (
             <div key={i} className={'diff-line diff-' + line.type}>
               <span className="diff-marker">{line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' '}</span>
-              <span className="diff-text">{line.text || ' '}</span>
+              <span className="diff-text">{line.text || ' '}</span>
             </div>
           ))}
         </div>
@@ -161,7 +226,8 @@ export default function ContentEditor({ initialPath }) {
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Load a file to start editing…"
+          placeholder={fixed ? '' : 'Load a file to start editing…'}
+          aria-label={fixed ? ADMIN_EDIT.heading(path) : 'The file'}
           spellCheck="false"
         />
       )}

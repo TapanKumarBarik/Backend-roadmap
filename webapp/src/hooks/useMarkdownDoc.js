@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeNewlines, renderMarkdownDoc } from '../lib/markdown/markdown.js';
 import { ApiError } from '../lib/errors.js';
 
+// What an admin saved from the page's own editor, by module, for as long as the tab is open. The site is rebuilt from the repository, so
+// for a few minutes the deployed file is still the old one; the admin who just changed it should not be shown the old text meanwhile.
+const savedEdits = new Map();
+export const rememberEdit = (path, text) => { savedEdits.set(path, text); };
+
 // Fetches the raw .md file and runs it through the tabs+marked pipeline to
 // an HTML string. DOM-dependent post-processing (heading anchors, code
 // blocks, link rewriting, TOC) happens separately in ArticleView, after
@@ -16,11 +21,13 @@ export function useMarkdownDoc(path) {
   const fetchDoc = useCallback((target) => {
     const mine = ++newest.current;
     const current = () => mine === newest.current; // a slow answer for a page we have left must not land
-    return fetch('/' + target)
-      .then((res) => {
-        if (!res.ok) throw new ApiError(res.status + ' ' + res.statusText, { status: res.status, url: res.url });
-        return res.text();
-      })
+    return (savedEdits.has(target)
+      ? Promise.resolve(savedEdits.get(target))
+      : fetch('/' + target)
+        .then((res) => {
+          if (!res.ok) throw new ApiError(res.status + ' ' + res.statusText, { status: res.status, url: res.url });
+          return res.text();
+        }))
       .then((text) => normalizeNewlines(text))
       .then((rawText) => ({ html: renderMarkdownDoc(rawText), rawText }))
       .then(

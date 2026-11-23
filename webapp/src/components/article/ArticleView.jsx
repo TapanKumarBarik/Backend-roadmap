@@ -1,5 +1,5 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
+import { useMarkdownDoc, rememberEdit } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
@@ -31,6 +31,9 @@ import ProgressBar from '../common/ProgressBar.jsx';
 const CommentsSection = lazy(() => import('./CommentsSection.jsx'));
 // The focus bar only exists in focus mode, so it is not in the first download either.
 const FocusBar = lazy(() => import('./FocusBar.jsx'));
+// An admin's copy-and-edit controls: nobody else downloads them.
+const AdminBar = lazy(() => import('./AdminBar.jsx'));
+const LessonEditor = lazy(() => import('./LessonEditor.jsx'));
 import RelatedPractice from './RelatedPractice.jsx';
 import FinishCheck from './FinishCheck.jsx';
 import ReadingOptions from './ReadingOptions.jsx';
@@ -66,6 +69,11 @@ export default function ArticleView({
   const { html, rawText, loading, error, reload: reloadDoc } = useMarkdownDoc(path);
   const contentRef = useRef(null);
   const observerRef = useRef(null);
+
+  // An admin can edit the page where it is (the editor takes the place of the text). Reading is the default on every page.
+  const isAdmin = !!user?.isAdmin;
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { setEditing(false); }, [path]);
 
   // Where you'd got to last time, offered rather than applied: silently
   // scrolling someone into the middle of a page they just opened is
@@ -124,7 +132,7 @@ export default function ArticleView({
       if (observerRef.current) observerRef.current.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, path]);
+  }, [html, path, editing]); // closing the editor puts the text back into a fresh element, which has to be enhanced again
 
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0;
@@ -232,6 +240,7 @@ export default function ArticleView({
   return (
     <article id="article">
       {focus.on && <Suspense fallback={null}><FocusBar minutes={readTime ? readTime.minutes : 0} text={html} onExit={focus.toggle} onSetStatus={onSetStatus} onToast={onToast} /></Suspense>}
+      {isAdmin && <Suspense fallback={null}><AdminBar rawText={rawText} editing={editing} onEdit={() => setEditing(true)} onToast={onToast} /></Suspense>}
       <header id="docHead">
         {/* The folders above this page, by their titles (the folder names are the content repo's business), with the
             page's place among its siblings alongside. The page's own title is the heading right below, so it is not
@@ -335,6 +344,13 @@ export default function ArticleView({
         </div>
       )}
 
+      {/* An admin who is editing sees the editor where the text would be; the text, and everything that belongs to it, is back when it closes. */}
+      {editing && (
+        <Suspense fallback={null}>
+          <LessonEditor path={path} onClose={() => setEditing(false)} onSaved={(text) => { rememberEdit(path, text); reloadDoc(); }} />
+        </Suspense>
+      )}
+      {!editing && <>
       {placeholder && (
         <aside className="help-write" aria-label="This module is coming soon">
           <div className="help-write-h">This module is coming soon</div>
@@ -422,6 +438,7 @@ export default function ArticleView({
         </Suspense>
         </>
       )}
+      </>}
 
       {/* Only the very first and very last module of the curriculum have a
           single neighbour — those used to reserve a hidden half-width cell,
