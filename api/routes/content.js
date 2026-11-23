@@ -10,6 +10,8 @@ import { upstreamStatus } from '../lib/util.js';
 import { IMAGE_CONTAINER, blobBase, bytesFromBase64, putBlob } from '../lib/blob.js';
 import { isPracticePath, practiceFileProblems } from '../../webapp/src/lib/practice/validate.js';
 import { isSiteFile, serializeSiteFile, siteFileProblems } from '../../webapp/src/lib/siteContent/index.js';
+import { lessonProblems } from '../../webapp/src/lib/siteContent/lesson.js';
+import { STAGING, commitFile, ensureStagingBranch, failure, stagedChanges } from '../lib/github.js';
 
 const content = createRouter();
 
@@ -117,13 +119,19 @@ content.get('/manage/content', async (c) => {
   const repoPath = repoPathFor(path);
   if (!repoPath) return c.json({ error: 'path must be a lesson inside a curriculum folder' }, 400);
 
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}?ref=${GITHUB_BRANCH}`, {
+  // A lesson's own page asks for the staged version when there is one: an edit that has been saved but not published yet.
+  const wantsStaged = c.req.query('staged') === '1' && !isPracticePath(path) && !isSiteFile(path);
+  let ref = GITHUB_BRANCH;
+  let staged = false;
+  if (wantsStaged && (await stagedChanges(c.env)).files.some((f) => f.path === path)) { ref = STAGING; staged = true; }
+
+  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}?ref=${ref}`, {
     headers: githubHeaders(c.env)
   });
   if (!res.ok) return c.json({ error: 'GitHub fetch failed: ' + res.status }, upstreamStatus(res));
   const data = await res.json();
   const decoded = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8');
-  return c.json({ path, content: decoded, sha: data.sha });
+  return c.json(wantsStaged ? { path, content: decoded, sha: data.sha, staged } : { path, content: decoded, sha: data.sha });
 });
 
 content.put('/manage/content', async (c) => {
@@ -145,6 +153,24 @@ content.put('/manage/content', async (c) => {
     const checked = await contentProblems(c, path, fileContent);
     if (checked.problems.length) return c.json({ error: 'this file has problems, so it was not saved', problems: checked.problems }, 400);
     text = checked.text;
+  } else {
+    // A lesson the build would reject would stop this deploy and every one after it, so it is refused here, with the reason.
+    const problems = lessonProblems(path, fileContent);
+    if (problems.length) return c.json({ error: 'this lesson has problems, so it was not saved', problems }, 400);
+  }
+
+  // Staged: the edit waits on the staging branch, and nothing is deployed until an admin publishes (routes/changes.js).
+  if (body.stage === true) {
+    if (checkable) return c.json({ error: 'only a lesson can be staged' }, 400);
+    const ready = await ensureStagingBranch(c.env);
+    if (!ready.ok) return c.json({ error: ready.error }, /** @type {any} */ (ready.status));
+    const staged = await commitFile(c.env, repoPath, text, sha, STAGING, body.message || `Stage an edit to ${path}`);
+    if (!staged.ok) {
+      if (staged.status === 409) return c.json({ error: 'this file changed in the repository since you opened it; reload it and make your change again' }, 409);
+      const f = failure(staged, 'could not stage the edit');
+      return c.json({ error: f.error }, f.status);
+    }
+    return c.json({ path, sha: staged.data.content.sha, commit: staged.data.commit.sha, staged: true });
   }
 
   const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}`, {

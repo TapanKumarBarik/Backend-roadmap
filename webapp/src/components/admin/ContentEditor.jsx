@@ -19,7 +19,9 @@ function fileToBase64(file) {
 
 // Edits one markdown file of the repository and commits it. In Admin, Content it asks for the path. Pinned to a file with `fixedPath`
 // (a lesson's own page, components/article/LessonEditor.jsx) it loads that file at once and adds what an editor on a live page needs:
-//   onSaved(text)  called after a commit, so the page can show the new text before the site has been rebuilt
+//   staging        a save is a staged change, not a commit to main: it waits until the changes are published (Admin, Changes), and what
+//                  is read is the staged version when there is one
+//   onSaved(text)  called after a save, so the page can show the new text before the site has been rebuilt
 //   onClose()      leaves the editor; if there are unsaved changes it asks first
 //   a draft        what is typed is kept in this browser until it is saved, so a closed tab or a click on another lesson loses nothing
 export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose }) {
@@ -33,6 +35,7 @@ export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose
   const [uploading, setUploading] = useState(false);
   const [mode, setMode] = useState('edit'); // 'edit' | 'preview' | 'diff'
   const [status, setStatus] = useState(null);
+  const [problems, setProblems] = useState([]); // what the server found wrong with the text it refused
   const [confirmClose, setConfirmClose] = useState(false);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -64,8 +67,9 @@ export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose
     if (!path.trim()) return;
     setLoading(true);
     setStatus(null);
+    setProblems([]);
     try {
-      const data = await fetchAdminContent(path.trim());
+      const data = await fetchAdminContent(path.trim(), fixed ? { staged: true } : undefined);
       // A draft is only good for the version it was made from: if the file has changed in the repository since, it is not offered.
       const draft = fixed ? readJson(draftKey) : null;
       const restore = draft && draft.sha === data.sha && typeof draft.content === 'string' && draft.content !== data.content;
@@ -73,7 +77,7 @@ export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose
       setOriginalContent(data.content);
       setSha(data.sha);
       setMode('edit');
-      setStatus({ type: 'ok', text: restore ? ADMIN_EDIT.restored : 'Loaded.' });
+      setStatus({ type: 'ok', text: restore ? ADMIN_EDIT.restored : data.staged ? ADMIN_EDIT.loadedStaged : 'Loaded.' });
     } catch (e) {
       setStatus({ type: 'error', text: friendlyMessage(e) });
       setSha(null);
@@ -108,14 +112,16 @@ export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose
     if (!sha) return;
     setSaving(true);
     setStatus(null);
+    setProblems([]);
     try {
-      const result = await saveAdminContent(path.trim(), content, sha, `Edit ${path} via admin editor`);
+      const result = await saveAdminContent(path.trim(), content, sha, `Edit ${path} via admin editor`, fixed ? { stage: true } : undefined);
       setSha(result.sha);
       setOriginalContent(content);
-      setStatus({ type: 'ok', text: fixed ? ADMIN_EDIT.saved(REPO.branch) : `Saved — committed to ${REPO.branch}.` });
+      setStatus({ type: 'ok', text: fixed ? ADMIN_EDIT.saved : `Saved — committed to ${REPO.branch}.` });
       if (onSaved) onSaved(content);
     } catch (e) {
       setStatus({ type: 'error', text: friendlyMessage(e) });
+      if (e && e.problems) setProblems(e.problems);
     } finally {
       setSaving(false);
     }
@@ -206,6 +212,11 @@ export default function ContentEditor({ initialPath, fixedPath, onSaved, onClose
 
       {loading && fixed && <p role="status" style={{ color: 'var(--fg-muted)' }}>{ADMIN_EDIT.loading}</p>}
       {status && <p role={status.type === 'error' ? 'alert' : 'status'} style={{ color: status.type === 'error' ? 'var(--danger)' : 'var(--fg-muted)' }}>{status.text}</p>}
+      {problems.length > 0 && (
+        <ul className="admin-editor-problems" role="alert">
+          {problems.map((p) => <li key={p}>{p}</li>)}
+        </ul>
+      )}
 
       {mode === 'preview' && (
         <div className="admin-preview" dangerouslySetInnerHTML={{ __html: renderMarkdownDoc(content) }} />

@@ -20,3 +20,33 @@
 .lesson-editor__lead { margin: 0 0 var(--space-3, 12px); max-width: 70ch; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
 .lesson-editor .admin-textarea { min-height: 70vh; }
 .admin-editor-confirm { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--r-md); background: var(--bg-sunken); font-size: 14px; }
+
+/* ── Admin, Changes (components/admin/ChangesPanel.jsx) ── */
+.changes { margin: 0 0 var(--space-6, 32px); }
+.changes-note { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--fg-muted); }
+.changes > .changes-note { margin-bottom: 12px; max-width: 72ch; }
+.changes-error { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); font-size: 14px; }
+.changes-error p, .changes-error ul { margin: 0; }
+.changes-error ul { padding-left: 20px; }
+.changes-ok { margin: 8px 0; font-size: 14px; color: var(--fg); }
+.changes-deploy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 12px 0 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-sunken); font-size: 14px; }
+.changes-deploy button, .changes-acts button, .changes-file__head button {
+  padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-raised); color: var(--fg); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.changes-deploy button { margin-left: auto; }
+.changes-deploy button:disabled, .changes-acts button:disabled, .changes-file__head button:disabled { opacity: .5; cursor: default; }
+.changes-acts .btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.changes-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.changes-ask { margin: 0; font-size: 14px; }
+.changes-pill { padding: 2px 8px; border-radius: var(--r-pill); border: 1px solid var(--border); font-size: 12px; font-weight: 600; background: var(--bg-raised); }
+.changes-pill.is-live { border-color: var(--done, var(--border)); }
+.changes-pill.is-failed { border-color: var(--danger); color: var(--danger); }
+.changes-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.changes-file { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); padding: 10px 12px; }
+.changes-file__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.changes-file__path { flex: 1 1 260px; min-width: 0; font-weight: 650; font-size: 14px; overflow-wrap: anywhere; }
+.changes-counts { font-family: var(--mono); font-size: 12.5px; color: var(--fg-subtle); }
+.changes-file .diff-view { margin-top: 10px; min-height: 0; max-height: 360px; max-width: 100%; overflow: auto; }
+.changes-file .diff-hunk { color: var(--fg-subtle); }
+.admin-bar__staged { padding: 2px 10px; border-radius: var(--r-pill); border: 1px solid var(--reward-line, var(--border-strong)); background: var(--reward-bg, var(--bg-raised)); font-size: 12px; font-weight: 700; }
+.admin-editor-problems { margin: 8px 0; padding: 8px 12px 8px 28px; border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); font-size: 14px; }

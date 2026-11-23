@@ -74,21 +74,41 @@ The screen: search for a module, see the title and description the site generate
 search result, save or remove. The generated descriptions come from `dist/seo-defaults.json`, which the build writes beside every page
 (`scripts/build/prerender.mjs`); on a site that was never built the screen says they are not known.
 
-## Editing a lesson from its own page
+## Editing a lesson from its own page, and publishing the changes
 
-An admin sees a thin **Admin** row above every lesson (also track overviews and "coming soon" pages) with two buttons. Nobody else gets the row,
-and its code is a separate download (`AdminBar.jsx`, `LessonEditor.jsx`), so no reader pays for it. The endpoint refuses a non-admin whatever the page shows.
+An admin sees a thin **Admin** row above every lesson (also track overviews and "coming soon" pages) with two buttons. Nobody else gets the row, and its
+code is a separate download (`AdminBar.jsx`, `LessonEditor.jsx`, `ChangesPanel.jsx`, `lib/changesApi.js`), so no reader pays for it. Every endpoint refuses a
+non-admin whatever the page shows.
 
 - **Copy markdown** puts the page's markdown on the clipboard.
 - **Edit this page** replaces the text with the editor of Admin, Content (`ContentEditor.jsx`), opened on that page's file. It loads the file **from the
-  repository** (not from the deployed site, which may be a deploy behind) with its `sha`; *Save* commits it with that `sha`, so if the file changed since,
-  GitHub answers 409 and nothing is overwritten. *Close the editor* returns to the page.
-- **The site is rebuilt from the repository**, so after a save everyone else sees the change once the deploy has run, usually a few minutes. The admin who
-  saved sees the new text at once: the page keeps it for as long as the tab is open (`rememberEdit` in `useMarkdownDoc.js`).
-- **A draft is kept in the browser** (`storage.lessonDraft` in `site.config.json`) a moment after typing stops, for the version of the file it was made
-  from, and brought back when the editor is opened again; it is cleared by a save or by *Discard*. A closed tab or reload with unsaved changes asks first.
+  repository** (not from the deployed site, which may be a deploy behind), and the **staged** version if there is one.
+- **Save is a staged change, not a publish.** It is a commit on a staging branch of the repository (`site.config.json` -> `repo.stagingBranch`,
+  `admin-edits`), made from main on the first edit and kept up to date with main. The deploy workflow runs only for pushes to `main` (and by hand), so
+  nothing is built and nothing goes live. The admin sees the edit on the page straight away, with an *Unpublished changes* note; a reader sees the published lesson.
+- **Admin, Changes** lists every staged lesson with its diff (GitHub's own), and the site's last deploy. **Publish** merges the staging branch into main:
+  one push, so **one deploy for all of them**, which takes about ten minutes (the checks and the browser tests run first). The page follows the deploy
+  (*Building… / Live / Failed*, every 20 seconds while it runs). **Discard** puts one lesson, or all of them, back to what main has.
+  **Rebuild the site now** starts the same deploy with no change (the workflow's manual trigger).
+- **A bad lesson cannot be saved.** `webapp/src/lib/siteContent/lesson.js` holds what the build would reject (no title, empty, over 300 KB, a carousel
+  whose slides have no marker line); the server applies it when a lesson is staged or committed and again, file by file, before a publish, and names the
+  reasons. Without it one bad save would fail the deploy, and then every deploy after it.
+- **Conflicts are not overwritten.** A save carries the `sha` the editor read: if the file changed since, GitHub answers 409 and the editor says so. If main
+  changed a lesson that is staged, the publish answers 409 and keeps the staged edit, to discard or redo.
+- **A draft is kept in the browser** (`storage.lessonDraft`) a moment after typing stops, for the version it was made from, and brought back when the
+  editor is opened again; a save or *Discard* clears it. A closed tab or reload with unsaved changes asks first.
+- Publish, discard and the manual deploy are written to the **audit log**.
 
-Tests: `tests/e2e/lesson-edit.e2e.mjs` (who sees it, the copy, the edit and the commit, the draft, the close, the 409), with GitHub stood in for.
+The site's GitHub token (`GITHUB_PAT`) needs **Contents: read and write** (staging, merging, deleting the staging branch), **Actions: read** (the deploy status)
+and **Actions: write** (only for *Rebuild the site now*; without it the button says so). No database migration is involved.
+
+Not covered: only a lesson's `README.md` is edited this way (practice sets, `paths.json`, `videos.json` and `seo.json` have their own editors above and commit
+at once); a very large change has no line-by-line view; and the page keeps an admin's saved text for as long as the tab is open, so a lesson changed in git
+meanwhile shows its old text in that tab until it is reloaded.
+
+Tests: `api/tests/changes.test.js` (staging, the staged read, the list and its diff, publishing as one merge, the checks, a conflict, discarding, the manual
+deploy, who may call), `webapp/src/lib/siteContent/lesson.test.js` (the rules), `tests/e2e/lesson-edit.e2e.mjs` (the row, the copy, editing and the draft,
+the staged change, the Changes page, publishing, discarding, a conflict, what a reader sees). GitHub is a stand-in that keeps state (`api/tests/githubFake.js`).
 
 ## Verifying by hand
 

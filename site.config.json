@@ -42,7 +42,9 @@
   "repo": {
     "owner": "TapanKumarBarik",
     "name": "Backend-roadmap",
-    "branch": "main"
+    "branch": "main",
+    "stagingBranch": "admin-edits",
+    "deployWorkflow": "cloudflare-pages.yml"
   },
   "content": {
     "dir": "content",

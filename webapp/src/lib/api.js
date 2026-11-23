@@ -233,17 +233,19 @@ export async function fetchPageViews() {
   return res.json();
 }
 
-export async function fetchAdminContent(path) {
-  const res = await fetch('/api/manage/content?path=' + encodeURIComponent(path));
+/** A lesson's file from the repository: { path, content, sha }. With `staged`, the edit that is saved but not published yet if there is one, and `staged` says which it is. */
+export async function fetchAdminContent(path, { staged = false } = {}) {
+  const res = await fetch('/api/manage/content?path=' + encodeURIComponent(path) + (staged ? '&staged=1' : ''));
   if (!res.ok) throw await apiError(res, 'failed to load file (check the path)');
   return res.json();
 }
 
-export async function saveAdminContent(path, content, sha, message) {
+/** Commits a file. With `stage`, a lesson waits on the staging branch until the changes are published (Admin, Changes) and nothing is deployed. */
+export async function saveAdminContent(path, content, sha, message, { stage = false } = {}) {
   const res = await fetch('/api/manage/content', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content, sha, message })
+    body: JSON.stringify({ path, content, sha, message, ...(stage ? { stage: true } : {}) })
   });
   if (!res.ok) throw await apiError(res, 'failed to save');
   return res.json();

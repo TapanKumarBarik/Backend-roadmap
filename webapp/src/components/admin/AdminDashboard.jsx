@@ -11,12 +11,15 @@ import PracticeAdmin from './PracticeAdmin.jsx';
 import NoticesAdmin from './NoticesAdmin.jsx';
 import AuditLog from './AuditLog.jsx';
 import { fetchQuestions } from '../../lib/api.js';
+import { fetchChanges } from '../../lib/changesApi.js';
 import { fetchManagedBlogs } from '../../lib/blogApi.js';
 
 // The Site editors (paths, videos, search titles) are a lot of code for a part of the admin that is opened now and then: fetched when its tab is.
 const SiteAdmin = lazy(() => import('./SiteAdmin.jsx'));
 // The editor is shared with a lesson's own page (components/article/LessonEditor.jsx), so it is its own chunk, opened only on the Content tab.
 const ContentEditor = lazy(() => import('./ContentEditor.jsx'));
+// The lessons edited from their own pages, waiting to be published (components/article/LessonEditor.jsx saves them there).
+const ChangesPanel = lazy(() => import('./ChangesPanel.jsx'));
 
 // Sections instead of sibling tabs. The old row put moderation,
 // analytics, the inbox and the content editor at the same level, so
@@ -25,6 +28,7 @@ const ContentEditor = lazy(() => import('./ContentEditor.jsx'));
 const SECTIONS = [
   { key: 'overview', label: 'Overview' },
   { key: 'content', label: 'Content' },
+  { key: 'changes', label: 'Changes' },
   { key: 'community', label: 'Community' },
   { key: 'articles', label: 'Articles' },
   { key: 'practice', label: 'Practice' },
@@ -42,12 +46,15 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
   const [questions, setQuestions] = useState(null);
   // Articles that are live but not yet approved for search engines: the number on the Articles tab.
   const [pending, setPending] = useState(null);
+  // Lessons edited on their own pages and not published yet: the number on the Changes tab. 0 when it cannot be read (the panel says why).
+  const [staged, setStaged] = useState(0);
   const countPending = () => fetchManagedBlogs('pending').then((list) => setPending(list.length)).catch(() => setPending(0));
 
   useEffect(() => {
     if (!isAdmin) return;
     fetchQuestions().then(setQuestions).catch(() => setQuestions([]));
     countPending();
+    fetchChanges().then((c) => setStaged(c.staged.length)).catch(() => setStaged(0));
   }, [isAdmin]);
 
   if (!isAdmin) {
@@ -73,6 +80,9 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
             )}
             {s.key === 'articles' && pending > 0 && (
               <span className="tab-badge">{pending}</span>
+            )}
+            {s.key === 'changes' && staged > 0 && (
+              <span className="tab-badge">{staged}</span>
             )}
           </button>
         ))}
@@ -126,6 +136,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
       )}
 
       {section === 'content' && <Suspense fallback={<Skeleton lines={5} />}><ContentEditor initialPath={lastViewedFile} /></Suspense>}
+      {section === 'changes' && <Suspense fallback={<Skeleton lines={5} />}><ChangesPanel onOpenFile={onOpenFile} onChanged={setStaged} /></Suspense>}
       {section === 'community' && (
         <>
           <div className="home-h">Comments &amp; moderation</div>

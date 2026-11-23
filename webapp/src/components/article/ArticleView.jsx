@@ -240,7 +240,14 @@ export default function ArticleView({
   return (
     <article id="article">
       {focus.on && <Suspense fallback={null}><FocusBar minutes={readTime ? readTime.minutes : 0} text={html} onExit={focus.toggle} onSetStatus={onSetStatus} onToast={onToast} /></Suspense>}
-      {isAdmin && <Suspense fallback={null}><AdminBar rawText={rawText} editing={editing} onEdit={() => setEditing(true)} onToast={onToast} /></Suspense>}
+      {isAdmin && (
+        <Suspense fallback={null}>
+          <AdminBar
+            path={path} rawText={rawText} editing={editing} onEdit={() => setEditing(true)} onToast={onToast}
+            onShowStaged={(text) => { if (text.replace(/\r\n/g, '\n') !== rawText) { rememberEdit(path, text); reloadDoc(); } }}
+          />
+        </Suspense>
+      )}
       <header id="docHead">
         {/* The folders above this page, by their titles (the folder names are the content repo's business), with the
             page's place among its siblings alongside. The page's own title is the heading right below, so it is not
