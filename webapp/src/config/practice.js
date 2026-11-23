@@ -117,7 +117,9 @@ export const STRIP = {
   codeLevel: 'beginner',
   quizzes: 'Test yourself',
   coding: 'Coding interview questions',
-  codingShown: 3
+  codingShown: 3,
+  // On the front door there is one way in for each kind of practice, not a list of each.
+  start: { code: 'Solve a problem', quiz: 'Take a quiz', interview: 'Rehearse an interview' }
 };
 
 export { RELATED } from './related.js';

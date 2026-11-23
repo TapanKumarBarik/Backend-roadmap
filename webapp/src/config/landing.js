@@ -2,7 +2,7 @@
 // the wording, a path blurb or a route stop means editing this file and nothing else.
 // Numbers come from build-time stats (scripts/gen-site-stats.mjs) and are passed to the functions below.
 // The learning paths themselves (titles, goals, steps) are in content/paths.json.
-import { PATH_COPY, formatDuration } from './paths.js';
+import { formatDuration } from './paths.js';
 import { AREAS } from './index.js';
 import { formatTotal } from '../lib/curriculum/videos.js';
 
@@ -22,28 +22,17 @@ export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-
 export const HERO = {
   eyebrow: 'Free · No sign-up to read',
   headline: 'Build the engineering skills that matter.',
-  lead: (modules) => `Learn backend development, low-level design (OOP, Design Patterns, Python and C#), distributed systems, cloud DevOps and AI engineering through focused flagship tracks, hands-on practice arenas and real-world failure post-mortems.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
+  // Said once, in plain words, and only what is true of every module: the interview questions are in the newer ones (see INSIDE).
+  lead: (modules) => `Backend, system design, low-level design, machine learning and GenAI, taught one short lesson at a time with code you can run, diagrams and practice.${modules ? ` ${fmt(modules.written)} modules, written and free to read.` : ''}`,
   // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
   // FALLBACK_START_FILE instead.
   startPath: 'production-core',
-  exploreLabel: 'Explore Flagship Tracks',
+  exploreLabel: 'See all learning paths',
   startLabel: 'Start Production Core',
-  browseLabel: 'Browse All Curricula',
   searchLabel: (modules) => (modules ? `Search ${fmt(modules.written)} modules and topics` : 'Search modules and topics'),
-  routeCaption: 'The 4 Milestones'
+  // The line under the search box: what there is, in numbers that come from the build (the videos from videos.json).
+  facts: (modules, videos) => [modules && `${fmt(modules.written)} modules`, videos && `${videos} video lectures`, 'free to read'].filter(Boolean).join(' · ')
 };
-
-// One concrete route through the written material: every stop is a real track overview.
-export const ROUTE = [
-  { label: 'Production Core', sub: 'APIs, SQL, Auth, Caching', file: 'backend/01-request-response-fundamentals/README.md' },
-  { label: 'Milestone 1', sub: 'Idempotent Payment Engine', file: 'backend/04-databases-and-data-layer/README.md' },
-  { label: 'High-Scale Systems', sub: 'Kafka, Sagas, gRPC, Sharding', file: 'backend/10-distributed-systems-patterns/README.md' },
-  { label: 'Milestone 2', sub: 'Distributed Rate Limiter', file: 'backend/17-kafka-and-streaming/README.md' },
-  { label: 'DevOps & SRE', sub: 'Docker, K8s, Metrics, SLOs', file: 'learn/03-kubernetes/README.md' },
-  { label: 'Milestone 3', sub: 'Self-Healing Canary Pipeline', file: 'learn/12-observability-deep-dive/README.md' },
-  { label: 'AI Backend', sub: 'Vector DBs, RAG, LLM APIs', file: 'genai/06-openai-and-the-model-landscape/README.md' },
-  { label: 'Milestone 4', sub: 'Semantic Cache Gateway', file: 'genai/08-embeddings-and-vector-databases/README.md' }
-];
 
 // The lessons read most this month (api/routes/popular.js): shown only when there are enough of them to be a real list.
 export const POPULAR = {
@@ -56,19 +45,24 @@ export const POPULAR = {
 
 // The learning paths, as cards. The numbers come from the stats (`stats.paths`).
 export const PICK = {
-  heading: 'The 4 Flagship Tracks',
-  sub: 'Master the curriculum through 4 actionable milestones instead of a 400-module wall. Each track culminates in a production-ready milestone project.',
-  startLabel: 'Start this track',
-  meta: (p) => PATH_COPY.meta(p.modules, formatDuration(p.minutes), p.tracks)
+  heading: 'Pick a path',
+  sub: 'A path is a short, ordered route with a finish line. Choose one and work through it in order.',
+  startLabel: 'Start this path',
+  // The flagship paths each end in a project; the card names it on one line.
+  projectLabel: (title) => `Final project: ${title}`,
+  // Short enough to stay on one line in a card, and with no "tracks": that word also means a folder of modules (see docs/SITE_AUDIT_2026-11-21.md).
+  meta: (p) => `${p.modules} modules · about ${formatDuration(p.minutes)}`
 };
 
-// The whole library, one card per area. The names and the lines about them are site.config.json -> content.areas (the id is the
+// The whole library, one row per area. The names and the lines about them are site.config.json -> content.areas (the id is the
 // curriculum folder); the numbers come from the stats.
 export const LIBRARY = {
-  heading: 'Or browse the library',
-  sub: 'Every module, grouped by curriculum. The paths above are routes through this.',
+  heading: 'Or browse by subject',
+  sub: 'Every module belongs to one of these areas. The paths above are routes through them.',
   startLabel: (title) => `Start ${title}`,
   tracksLabel: 'See the tracks',
+  // The way from here to the working curriculum (the sidebar and your progress), for someone who would rather look around.
+  treeLabel: 'Open the full curriculum',
   items: Object.entries(AREAS).map(([id, area]) => ({ id, title: area.label, blurb: area.blurb })),
   // What a curriculum's children are called (lld is a flat course of topics, with no tracks).
   unit: (id, n) => (id === 'lld' ? (n === 1 ? 'topic' : 'topics') : (n === 1 ? 'track' : 'tracks')),
@@ -77,14 +71,7 @@ export const LIBRARY = {
     : `${fmt(c.modules)} modules · ${c.tracks} ${LIBRARY.unit(id, c.tracks)}`)
 };
 
-export const FRESH = {
-  heading: 'New in GenAI',
-  sub: 'The GenAI curriculum is being written in the open. These are the newest tracks.',
-  curriculum: 'genai',
-  finishedShown: 2, // how many of the most recently finished tracks to feature
-  meta: (t) => (t.written === t.modules ? `${t.modules} modules` : `${t.written} of ${t.modules} written`)
-};
-
+// Not on the front door (it reads as a brochure there); it is what the page says to search engines and to readers without JavaScript.
 export const INSIDE = {
   heading: 'What is in a module',
   sub: 'Most modules include these. Interview questions are in the newer modules and are being added to the rest.',

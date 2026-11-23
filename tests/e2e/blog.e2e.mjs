@@ -339,21 +339,16 @@ test('a like pops its icon when it is given, and the icon is still when the page
   await context.close();
 });
 
-test('the front door and the dashboard show the newest articles, and a way in to all of them', async () => {
-  // The landing page, for someone who has not started: the newest three, and no way to write while signed out.
+test('the dashboard shows the newest articles, and a way in to all of them; the front door stays short and leaves them out', async () => {
+  // The landing page, for someone who has not started, is one screen of decisions (where to begin), not a feed: the articles are under Blogs.
   const door = await openBlog('/', { email: null, seenLanding: false });
-  const strip = door.page.locator('section.community-strip');
-  await strip.waitFor();
-  assert.equal(await strip.getByRole('heading', { level: 2, name: 'From the community' }).count(), 1);
-  assert.deepEqual(await strip.locator('.post-card__title').allTextContents(), ['Why retries need idempotency', 'Designing a cache you can trust', 'What a queue is not']);
-  assert.equal(await strip.getByRole('link', { name: /Write an article/ }).count() + await strip.getByRole('button', { name: /Write an article/ }).count(), 0, 'signed out, there is nothing to write with');
-  await strip.getByRole('link', { name: 'Designing a cache you can trust' }).click();
-  await door.page.getByRole('heading', { level: 1, name: 'Designing a cache you can trust' }).waitFor();
-  assert.match(new URL(door.page.url()).pathname, /^\/blog\/designing-a-cache-you-can-trust/);
+  await door.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
+  await door.page.waitForTimeout(600);
+  assert.equal(await door.page.locator('section.community-strip').count(), 0, 'no feed of articles on the front door');
   await door.page.waitForLoadState('networkidle');
   await door.context.close();
 
-  // The dashboard of a signed-in reader: the same, with a way to write, and "All articles" leads to the list.
+  // The dashboard of a signed-in reader: the newest three, a way to write, and "All articles" leads to the list.
   const home = await openBlog('/');
   const mine = home.page.locator('section.community-strip');
   await mine.waitFor();

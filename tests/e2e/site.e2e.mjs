@@ -421,12 +421,21 @@ test('a YouTube link on a line of its own becomes a player that works under the 
   await context.close();
 });
 
-test('the landing page: a route that draws itself, a YouTube link, and none of the motion for anyone who opted out', async () => {
+test('the landing page is short and clear: one thing to do first, the paths, the subjects, a YouTube link, and nothing that moves for anyone who opted out', async () => {
+  const stats = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'site-stats.json'), 'utf8'));
   const moving = await open('/', { seenLanding: false });
   await moving.goto();
-  await moving.page.waitForSelector('.lp-route li');
-  const animations = await moving.page.evaluate(() => [...document.querySelectorAll('.lp-route li')].map((li) => getComputedStyle(li).animationName));
-  assert.ok(animations.every((name) => name === 'lp-stop'), 'each stop is animated');
+  await moving.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
+  await moving.page.locator('.lp-video-strip .vid-card').first().waitFor();
+  // The first screen has one primary action, and the numbers it states are the real ones.
+  assert.equal(await moving.page.locator('.lp-cta .lp-btn-primary').count(), 1, 'one primary button');
+  assert.ok((await moving.page.locator('.lp-facts').textContent()).includes(`${stats.modules.written.toLocaleString('en-US')} modules`));
+  // Every flagship path is a card, so the page cannot say "4" over six cards again; and the page is a handful of sections, not a brochure.
+  assert.equal(await moving.page.locator('.lp-paths .lp-card').count(), stats.paths.filter((p) => p.flagship).length);
+  assert.equal(await moving.page.locator('.lp-areas li').count(), config.content.curricula.length, 'one row for each subject');
+  assert.equal(await moving.page.locator('.lp-route, .lp-incident-banner, .lp-inside').count(), 0, 'no milestone diagram, no incident banner, no feature brochure');
+  const sections = await moving.page.locator('.lp > section h2').allTextContents();
+  assert.ok(sections.length <= 7, `a handful of sections, not a long scroll: ${sections.join(' | ')}`);
   assert.equal(await moving.page.locator('.lp-video-acts a[href*="youtube.com/@"]').count(), 1);
   assert.equal(await moving.page.locator('.lp-video-strip .vid-card').count(), 4, 'the newest videos are shown');
   assert.ok(await moving.page.locator('.site-footer a[href*="youtube.com/@"]').count() >= 1);
@@ -437,9 +446,9 @@ test('the landing page: a route that draws itself, a YouTube link, and none of t
 
   const still = await open('/', { seenLanding: false, motion: 'reduce' });
   await still.goto();
-  await still.page.waitForSelector('.lp-route li');
-  const state = await still.page.evaluate(() => [...document.querySelectorAll('.lp-route li')].map((li) => ({ opacity: getComputedStyle(li).opacity, name: getComputedStyle(li).animationName })));
-  assert.ok(state.every((s) => s.opacity === '1' && s.name === 'none'), 'every stop is simply there: ' + JSON.stringify(state));
+  await still.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
+  const moving2 = await still.page.evaluate(() => [...document.querySelectorAll('.lp *')].filter((el) => { const s = getComputedStyle(el); return s.animationName !== 'none' && parseFloat(s.animationDuration) > 0; }).length);
+  assert.equal(moving2, 0, 'nothing on the page animates');
   assert.equal(await still.page.evaluate(() => getComputedStyle(document.querySelector('#main') || document.body).scrollBehavior), 'auto');
   await still.context.close();
 });
