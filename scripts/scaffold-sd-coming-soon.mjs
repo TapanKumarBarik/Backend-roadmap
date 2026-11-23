@@ -355,7 +355,6 @@ for (const track of TRACKS) {
       stubBody({
         title: r.fullTitle,
         trackTitle: track.title,
-        trackDir: track.dir,
         lessonId: r.lessonId,
         nextRel: next,
       }),
@@ -366,13 +365,13 @@ for (const track of TRACKS) {
 
   const trackReadmePath = path.join(trackDir, 'README.md');
   if (!fs.existsSync(trackReadmePath)) {
-    fs.writeFileSync(trackReadmePath, trackReadme({ track, lessons, rows }), 'utf8');
+    fs.writeFileSync(trackReadmePath, trackReadme({ track, rows }), 'utf8');
     createdTracks++;
   } else {
     // refresh track index if it still looks like a scaffold (optional: always refresh track README)
     const existing = fs.readFileSync(trackReadmePath, 'utf8');
     if (existing.includes('marked *Soon* in the sidebar') || existing.includes('has not been written yet')) {
-      fs.writeFileSync(trackReadmePath, trackReadme({ track, lessons, rows }), 'utf8');
+      fs.writeFileSync(trackReadmePath, trackReadme({ track, rows }), 'utf8');
     } else {
       skipped++;
     }
