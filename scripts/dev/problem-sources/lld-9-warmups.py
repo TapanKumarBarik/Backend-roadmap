@@ -1,6 +1,6 @@
 PROBLEMS = [
 P(
-    slug='lld-shopping-cart', title='Shopping Cart', topic='lld-oop-warmups', difficulty='beginner',
+    slug='lld-shopping-cart', title='Shopping Cart Class', topic='lld-oop-warmups', difficulty='beginner',
     module='lld/01-classes-objects-and-oop-building-blocks/README.md',
     description='Build a shopping cart that adds and removes products, rejects bad quantities and totals the order in cents.',
     statement=r'''Write a class `Cart` that holds products a shopper wants to buy. Money is whole **cents**.

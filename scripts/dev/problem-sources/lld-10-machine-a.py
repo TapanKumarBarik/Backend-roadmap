@@ -1,6 +1,6 @@
 PROBLEMS = [
 P(
-    slug='lld-movie-ticket-booking', title='Movie Ticket Booking', topic='lld-machine-coding', difficulty='intermediate',
+    slug='lld-movie-ticket-booking', title='Movie Tickets With Expiring Holds', topic='lld-machine-coding', difficulty='intermediate',
     module='lld/16-movie-ticket-booking/README.md',
     description='Build a theater seat map where seats are held for a few minutes, then confirmed, released or lost when the hold expires.',
     statement=r'''Write a class `Theater` for one screening.

@@ -17,6 +17,7 @@ export const CODE_TOPICS = [
   { id: 'lld-patterns-in-use', label: 'LLD: design patterns in use', glyph: 'blocks' },
   { id: 'lld-change-requests', label: 'LLD: change requests', glyph: 'repeat' },
   { id: 'lld-testable-design', label: 'LLD: testable design', glyph: 'check' },
+  { id: 'lld-concurrency-design', label: 'LLD: concurrency design', glyph: 'nodes' },
   { id: 'math-and-bits', label: 'Math & bits', glyph: 'sigma' },
   { id: 'backend-coding', label: 'Backend building blocks', glyph: 'server' },
   { id: 'caching-and-limits', label: 'Caching, limits & resilience', glyph: 'gauge' },
