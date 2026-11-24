@@ -32,12 +32,14 @@
       ],
       "stages": [
         { "title": "Classes and objects", "lessons": ["lld/01-classes-objects-and-oop-building-blocks/README.md"] },
-        { "title": "The foundations and UML", "lessons": ["lld/02-oop-foundations-and-uml/README.md"] }
+        { "title": "The foundations and UML", "lessons": ["lld/02-oop-foundations-and-uml/README.md"] },
+        { "title": "The four pillars, one at a time", "lessons": ["lld/29-oop-pillar-1-encapsulation/README.md", "lld/30-oop-pillar-2-abstraction/README.md", "lld/31-oop-pillar-3-inheritance/README.md", "lld/32-oop-pillar-4-polymorphism/README.md"] },
+        { "title": "Drawing it: UML relationships", "lessons": ["lld/33-uml-class-diagram-relationships/README.md"] }
       ],
       "practice": {
-        "code": ["movie-ticket-booking", "bank-account", "student-report-card", "shopping-cart", "library-lending", "shapes-polymorphism"],
+        "code": ["oop-movie-ticket-counter", "oop-rectangle-basics", "oop-person-student-teacher", "oop-class-vs-instance-attributes", "oop-wallet-encapsulation", "oop-static-and-class-methods", "oop-animal-sounds", "oop-vehicle-super", "oop-multilevel-inheritance", "oop-employee-payroll", "oop-abstract-payment", "oop-abstract-report", "oop-discount-polymorphism", "oop-overloading-in-python", "oop-money-operators", "oop-multiple-inheritance-mro", "oop-library-books", "oop-student-grades", "oop-parking-fee", "oop-playlist", "uml-class-and-objects", "uml-inheritance-vehicles", "uml-association-students-courses", "uml-aggregation-team-players", "uml-composition-house-rooms", "uml-dependency-report-printer", "uml-realization-printable", "uml-multiplicity-order-lines", "uml-choose-the-relationship", "uml-library-capstone", "movie-ticket-booking", "bank-account", "student-report-card", "shopping-cart", "library-lending", "shapes-polymorphism"],
         "quizzes": ["oop-principles-and-solid"],
-        "interview": ["oop-four-pillars", "lld-and-oop-interview"]
+        "interview": ["oop-four-pillars", "oop-inheritance-and-polymorphism", "lld-and-oop-interview"]
       },
       "deeper": ["lld/04-solid-principles/README.md", "lld/25-design-patterns-one-at-a-time/README.md"],
       "next": []

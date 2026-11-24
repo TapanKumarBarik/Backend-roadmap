@@ -12,6 +12,7 @@ export const CODE_TOPICS = [
   { id: 'dynamic-programming', label: 'Dynamic programming', glyph: 'blocks' },
   { id: 'strings-and-parsing', label: 'Strings & parsing', glyph: 'pencil' },
   { id: 'oop-and-classes', label: 'Classes & objects (OOP)', glyph: 'cube' },
+  { id: 'oop-uml-and-relationships', label: 'OOP: UML & relationships', glyph: 'branch' },
   { id: 'lld-oop-warmups', label: 'LLD: OOP warm-ups', glyph: 'bulb' },
   { id: 'lld-machine-coding', label: 'LLD: machine coding', glyph: 'terminal' },
   { id: 'lld-patterns-in-use', label: 'LLD: design patterns in use', glyph: 'blocks' },

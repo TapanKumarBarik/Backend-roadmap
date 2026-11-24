@@ -4,6 +4,9 @@
 > **Reading time:** ~20 minutes  
 > **Audience:** Anyone about to do an LLD round in Python or C# who wants the language details that quietly break designs — not a full language course
 
+> [!TIP]
+> **Brand new to Python?** This lesson is a *fast* tour of the details that break designs. If you have never written Python, start with the slow, complete course first: [Python Basics, Step by Step](../28-python-basics-step-by-step/README.md) (values, loops, functions, then lists, tuples, sets and dictionaries with every operation, errors, files and your first classes). Then come back here.
+
 > [!NOTE]
 > **In one line:** In an LLD round the language is a tool for modeling — you must know **what a variable holds** (value or reference), **what `==` means**, **which collection fits the access pattern**, and **why money is never a float**, in both Python and C#.
 

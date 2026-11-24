@@ -315,14 +315,21 @@
       ],
       "skills": [
         "Value and reference types",
+        "Python data structures: lists, tuples, sets, dictionaries",
         "Classes, objects and encapsulation",
-        "The four pillars of OOP",
-        "UML class diagrams"
+        "The four pillars of OOP, one chapter each",
+        "UML class diagrams and relationships"
       ],
       "steps": [
         "lld/00-programming-basics-python-and-csharp",
+        "lld/28-python-basics-step-by-step",
         "lld/01-classes-objects-and-oop-building-blocks",
-        "lld/02-oop-foundations-and-uml"
+        "lld/02-oop-foundations-and-uml",
+        "lld/29-oop-pillar-1-encapsulation",
+        "lld/30-oop-pillar-2-abstraction",
+        "lld/31-oop-pillar-3-inheritance",
+        "lld/32-oop-pillar-4-polymorphism",
+        "lld/33-uml-class-diagram-relationships"
       ],
       "next": "low-level-design"
     },

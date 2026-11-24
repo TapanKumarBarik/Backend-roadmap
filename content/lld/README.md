@@ -177,6 +177,12 @@ flowchart TD
 | **00** | [Programming Basics](00-programming-basics-python-and-csharp/README.md) | Syntax equivalence, memory models, primitives vs references, stack vs heap | Polyglot baseline in Python & C# |
 | **01** | [Classes & OOP Building Blocks](01-classes-objects-and-oop-building-blocks/README.md) | Constructors, access modifiers, properties, static state, collections | Domain entity encapsulation |
 | **02** | [OOP Foundations & UML](02-oop-foundations-and-uml/README.md) | Encapsulation, abstraction, inheritance vs realization, UML Class & Sequence notation | High-fidelity UML diagrams |
+| **28** | [Python Basics, Step by Step](28-python-basics-step-by-step/README.md) | 11 modules: values, loops, functions, lists, tuples, sets and dictionaries (every operation), comprehensions, errors, files, first classes | Zero to comfortable in Python, with C# beside it |
+| **29** | [OOP Pillar 1: Encapsulation](29-oop-pillar-1-encapsulation/README.md) | Invariants, access control, properties, defensive copies, tell-don't-ask | Objects that cannot be corrupted |
+| **30** | [OOP Pillar 2: Abstraction](30-oop-pillar-2-abstraction/README.md) | Abstract methods vs abstract classes vs interfaces, Protocols, dependency inversion | Contracts and fakes for tests |
+| **31** | [OOP Pillar 3: Inheritance](31-oop-pillar-3-inheritance/README.md) | super(), overriding, MRO and the diamond, LSP, composition over inheritance | Hierarchies that do not lie |
+| **32** | [OOP Pillar 4: Polymorphism](32-oop-pillar-4-polymorphism/README.md) | Compile-time vs runtime, overloading vs overriding, operators, duck typing | Replacing if/else ladders |
+| **33** | [UML Class Diagrams and Relationships](33-uml-class-diagram-relationships/README.md) | Class, object, association, aggregation, composition, dependency, realization | Draw it and code it |
 | **03** | [Generics, Exceptions & Value Objects](03-generics-exceptions-and-value-objects/README.md) | Type covariance/contravariance, domain exception hierarchies, immutability | Robust value objects & domain primitives |
 
 ### Tier 2: SOLID & Architectural Principles
