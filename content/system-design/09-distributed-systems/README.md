@@ -28,7 +28,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 12 | [Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It](12-split-brain/README.md) | Prevent two primaries with majority quorums, witnesses and fencing, and size voters correctly | **Live** |
 | 13 | [Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens](13-distributed-locks/README.md) | Decide between efficiency and correctness locks, fence writes at the resource, and weigh the Redlock debate | **Live** |
 | 14 | [Gossip Protocols: How Clusters Spread News (Merkle Trees, SWIM)](14-gossip-protocols/README.md) | Estimate gossip convergence, use push-pull and SWIM, and repair replicas with Merkle trees | **Live** |
-| 15 | [Distributed Transactions in Microservices: 2PC vs Sagas vs Outbox](15-distributed-transactions-in-microservices/README.md) | Distributed Transactions in Microservices: 2PC vs Sagas vs Outbox | *Soon* |
+| 15 | [Distributed Transactions in Microservices: 2PC vs Sagas vs Outbox](15-distributed-transactions-in-microservices/README.md) | Choose between 2PC, sagas and the outbox, and design compensations and reliable publishing | **Live** |
 | 16 | [Two-Phase Commit (2PC) Explained — and Why It Blocks](16-two-phase-commit-explained-and-why-it-blocks/README.md) | Two-Phase Commit (2PC) Explained — and Why It Blocks | *Soon* |
 | 17 | [Saga Pattern: Choreography vs Orchestration & Compensations](17-saga-pattern/README.md) | Saga Pattern: Choreography vs Orchestration & Compensations | *Soon* |
 | 18 | [Eventual Consistency in Practice: Conflicts, Guarantees & UX](18-eventual-consistency-in-practice/README.md) | Eventual Consistency in Practice: Conflicts, Guarantees & UX | *Soon* |
