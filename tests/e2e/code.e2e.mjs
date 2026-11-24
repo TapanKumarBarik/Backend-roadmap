@@ -240,7 +240,7 @@ test('the Practice hub shows today\'s drill and problem, the problems as a map o
   await page.locator('.cm-topic').first().waitFor();
   assert.match(await page.locator('.hub-today').innerText(), /Today's drill[\s\S]*Problem of the day/i);
   assert.ok(await page.getByRole('button', { name: 'Start the drill' }).count() > 0);
-  const total = practiceContent.code ? Object.keys(practiceContent.code).length : 0;
+  const total = practiceContent.code ? Object.values(practiceContent.code).filter((p) => !(p.topic || '').startsWith('lld-')).length : 0; // LLD machine-coding problems are not on the Practice map
   assert.ok(total >= 3, 'there are coding problems');
   await page.locator('.hub-progress').first().waitFor();
   assert.match(await page.locator('.hub-progress').first().innerText(), new RegExp(`1 of ${total} problems solved`));

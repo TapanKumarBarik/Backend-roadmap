@@ -71,7 +71,7 @@ test('a study plan is on the Practice page, is followed from today, and ticks of
   const day1 = plan.days[0].items;
   await seed(page, { [markOf(day1[0])]: 'done', [markOf(day1[1])]: 'done' });
   await goto();
-  await page.getByRole('tab', { name: /Study plans/ }).click();
+  await page.getByRole('tab', { name: /^Plans/ }).click();
   await page.getByRole('link', { name: plan.title }).click();
   await page.getByRole('heading', { level: 2, name: plan.title }).waitFor();
   assert.equal(new URL(page.url()).pathname, `/practice/plan/${PLAN}/`, 'a plan has an address of its own');

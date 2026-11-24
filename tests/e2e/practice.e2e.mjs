@@ -48,15 +48,13 @@ test('the top bar has Practice and My Learning, and Practice lists the coding pr
   assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
 
   const tablist = page.getByRole('tablist', { name: /practice/i });
-  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Code practice', 'Study plans', 'Quizzes', 'Coding questions', 'Interview prep', 'Exercises']);
+  assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Problems', 'Quizzes', 'Interview', 'Plans', 'Exercises']);
   assert.ok(await page.locator('.cm-topic').count() > 0, 'the coding problems are on the first tab, as a map of topics');
   await tablist.getByRole('tab', { name: /^Quizzes/ }).click();
   assert.ok(await page.getByRole('link', { name: /HTTP caching/i }).count() > 0, 'the quizzes are listed');
-  await tablist.getByRole('tab', { name: /^Coding questions/ }).click();
-  assert.ok(await page.locator('.pr-card').count() > 0, 'and the coding sets');
   await tablist.getByRole('tab', { name: 'Exercises' }).click();
   assert.ok(await page.locator('.pr-card').count() > 0, 'and so are the exercises');
-  await tablist.getByRole('tab', { name: 'Interview prep' }).click();
+  await tablist.getByRole('tab', { name: 'Interview' }).click();
   assert.ok(await page.locator('.pr-card').count() > 0, 'and the interview sets');
   assert.deepEqual(real(problems), []);
   await context.close();
@@ -79,7 +77,7 @@ test('a quiz is taken, scored on the server, and kept: the answers are not in th
   await page.locator('.pr-questions > li').first().locator('input').first().check();
   await check.click();
   await page.locator('.pr-score').waitFor();
-  assert.match(await page.locator('.pr-score').innerText(), /\d+ of \d+\s+correct/);
+  assert.match(await page.locator('.pr-score').innerText(), /\d+\/10/);
   assert.match(await page.locator('.pr-score').innerText(), /saved to your account/);
   assert.ok(await page.locator('.pr-explain').count() > 0, 'the explanations come back with the result');
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM quiz_attempts').get().n, 1, 'the try is stored');
@@ -130,17 +128,10 @@ test('signed out, the exercise workspace asks for a sign-in instead of showing a
   await context.close();
 });
 
-test('coding questions have their own tab: a set shows its questions, and a worked solution (with code) stays hidden until asked for', async () => {
-  const { context, page, problems, goto } = await open('/#__practice', { email: null });
+test('a coding questions set opens from its address: it shows its questions, and a worked solution (with code) stays hidden until asked for', async () => {
+  const { context, page, problems, goto } = await open('/#__practice@interview/coding-arrays-and-hashing', { email: null });
   await goto();
-  const tablist = page.getByRole('tablist', { name: /practice/i });
-  await tablist.getByRole('tab', { name: /^Coding questions/ }).click();
-  const cards = page.locator('.pr-card');
-  assert.ok(await cards.count() >= 5, 'there are several coding sets');
-  assert.equal(await page.getByRole('link', { name: 'Arrays and hashing' }).count(), 1);
-  assert.equal(await page.getByRole('link', { name: /^Caching$/ }).count(), 0, 'a concepts set is on the other tab');
-
-  await page.getByRole('link', { name: 'Arrays and hashing' }).click();
+  // the coding sets have no tab of their own now: a set opens from its address
   await page.getByRole('heading', { level: 2, name: 'Arrays and hashing: coding interview questions' }).waitFor();
   assert.equal(new URL(page.url()).pathname, '/practice/interview/coding-arrays-and-hashing/');
   const first = page.locator('.pr-qa > li').first();
@@ -152,7 +143,8 @@ test('coding questions have their own tab: a set shows its questions, and a work
   assert.match(await first.innerText(), /Complexity/);
 
   await page.getByRole('button', { name: '← All practice' }).click();
-  await tablist.getByRole('tab', { name: /^Interview prep/ }).click();
+  const tablist = page.getByRole('tablist', { name: /practice/i });
+  await tablist.getByRole('tab', { name: 'Interview' }).click();
   assert.equal(await page.getByRole('link', { name: /^Caching$/ }).count(), 1, 'the concepts sets are on their own tab');
   assert.equal(await page.getByRole('link', { name: 'Arrays and hashing' }).count(), 0);
   assert.deepEqual(real(problems), []);
@@ -412,9 +404,6 @@ test('a lesson shows the practice that goes with it, and the dashboard and the p
   const strip = home.page.locator('.practice-strip');
   await strip.waitFor();
   assert.ok(await strip.locator('.pr-card').count() > 0, 'the dashboard offers quizzes');
-  await strip.getByRole('link', { name: 'Arrays and hashing' }).click();
-  await home.page.getByRole('heading', { level: 2, name: /Arrays and hashing/ }).waitFor();
-  assert.equal(new URL(home.page.url()).pathname, '/practice/interview/coding-arrays-and-hashing/');
 
   await home.page.keyboard.press('Control+k');
   await home.page.getByPlaceholder(/Search modules/).fill('> two pointers');
