@@ -10,6 +10,7 @@ import { ROOT } from './config.mjs';
 import { testParts } from '../../webapp/src/lib/practice/validate.js';
 
 const RUNNER = path.join(ROOT, 'webapp/public/runner');
+const RESTART_EVERY = 15;
 
 /** The folder of the Pyodide version the site serves, found the way py-worker.js names it. */
 function pyodideDir() {
@@ -28,6 +29,7 @@ export async function createPyodideJudge() {
   const harness = fs.readFileSync(path.join(RUNNER, 'harness.py'), 'utf8');
   let pyodide = null;
   let runAll = null;
+  let runs = 0;
 
   async function boot() {
     pyodide = await loadPyodide({ indexURL: `${dir}${path.sep}`, stdout: () => {}, stderr: () => {} });
@@ -56,7 +58,11 @@ export async function createPyodideJudge() {
         out.destroy();
         codes.destroy();
         names.destroy();
-        return { ...result, loaded: result.loaded ?? null, line: result.line ?? null, ms: Math.round(performance.now() - started) };
+        const ms = Math.round(performance.now() - started);
+        // one interpreter for hundreds of problems ends in "Maximum call stack size exceeded" in whichever problem recurses deeply (it did once the hundred LLD
+        // problems were added): start a fresh one every few problems, after the time of this one has been taken
+        if (++runs % RESTART_EVERY === 0) await boot();
+        return { ...result, loaded: result.loaded ?? null, line: result.line ?? null, ms };
       } catch (error) {
         // a fatal error (the stack ran out) leaves the interpreter unusable: start another for the next problem
         const message = String((error && error.message) || error).split('\n')[0];
