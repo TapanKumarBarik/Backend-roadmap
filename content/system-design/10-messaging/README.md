@@ -2,7 +2,7 @@
 
 Brokers vs streams, delivery semantics, ordering, DLQs, Kafka fundamentals, cloud queues and pub/sub fan-out.
 
-Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). Every lecture already has a video; the written short-lecture notes for this track are being published one at a time. Until then each lesson is marked *Soon* in the sidebar — open it to see what it will cover.
+Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). The written lectures for this track are being published one at a time; a lesson marked *Soon* in the sidebar is still being written.
 
 ## How this track works
 
@@ -14,7 +14,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 
 | # | Lecture | What you'll be able to do | Status |
 |---|---------|---------------------------|--------|
-| 01 | [Why Use a Message Broker? Decoupling, Load Levelling & the Costs](01-why-use-a-message-broker-decoupling-load-levelling-the-costs/README.md) | Why Use a Message Broker? Decoupling, Load Levelling & the Costs | *Soon* |
+| 01 | [Why Use a Message Broker? Decoupling, Load Levelling & the Costs](01-why-use-a-message-broker-decoupling-load-levelling-the-costs/README.md) | Decide what should be a message, level a burst with a queue, and name the costs of a broker | **Live** |
 | 02 | [Message Queues vs Event Streams: RabbitMQ/SQS vs Kafka](02-message-queues-vs-event-streams/README.md) | Message Queues vs Event Streams: RabbitMQ/SQS vs Kafka | *Soon* |
 | 03 | [Kafka Producers & Consumers: acks=all, Batching, Keys & Prefetch](03-kafka-producers-consumers/README.md) | Kafka Producers & Consumers: acks=all, Batching, Keys & Prefetch | *Soon* |
 | 04 | [Kafka Topics, Partitions & Offsets (Retention + Log Compaction)](04-kafka-topics-partitions-offsets/README.md) | Kafka Topics, Partitions & Offsets (Retention + Log Compaction) | *Soon* |
