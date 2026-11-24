@@ -32,7 +32,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 16 | [Two-Phase Commit (2PC) Explained — and Why It Blocks](16-two-phase-commit-explained-and-why-it-blocks/README.md) | Run the two phases, explain the blocking window, and say where 2PC is and is not a good idea | **Live** |
 | 17 | [Saga Pattern: Choreography vs Orchestration & Compensations](17-saga-pattern/README.md) | Order saga steps by reversibility, choose choreography or orchestration, and make compensations durable and idempotent | **Live** |
 | 18 | [Eventual Consistency in Practice: Conflicts, Guarantees & UX](18-eventual-consistency-in-practice/README.md) | Give users read-your-writes and monotonic reads, pick conflict policies, and choose consistency per feature | **Live** |
-| 19 | [CRDTs Explained: G-Counters, OR-Sets & Conflict-Free Merges](19-crdts-explained/README.md) | CRDTs Explained: G-Counters, OR-Sets & Conflict-Free Merges | *Soon* |
+| 19 | [CRDTs Explained: G-Counters, OR-Sets & Conflict-Free Merges](19-crdts-explained/README.md) | Build G-Counters and OR-Sets, property-test merge laws, and know where CRDTs stop | **Live** |
 | 20 | [Idempotent Consumers: Dedup Tables, Upserts & Idempotency Keys](20-idempotent-consumers/README.md) | Idempotent Consumers: Dedup Tables, Upserts & Idempotency Keys | *Soon* |
 | 21 | [Exactly-Once Delivery: Myth vs Reality (and What Kafka EOS Really M…](21-exactly-once-delivery/README.md) | Exactly-Once Delivery: Myth vs Reality (and What Kafka EOS Really Means) | *Soon* |
 | 22 | [Linearizability vs Serializability (and Strict Serializability)](22-linearizability-vs-serializability/README.md) | Linearizability vs Serializability (and Strict Serializability) | *Soon* |
