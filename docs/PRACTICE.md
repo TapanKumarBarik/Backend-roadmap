@@ -89,6 +89,30 @@ writing, `node scripts/check/check-code-problems.mjs <slug> [--pyodide]` checks 
 for a signed-in reader), which is what earns XP (`game.config.json` -> `xp.problem`), keeps the streak and follows the account. `lib/practice/progressKeys.js` names the keys,
 and module counts (`lib/curriculum/progressStats.js`) leave them out.
 
+## LLD problems (machine coding)
+
+Low-level design has no single right answer, so a judged LLD problem does not grade taste; it grades **behaviour** and **extension points**. The first ten live under the
+topics `lld-machine-coding`, `lld-patterns-in-use` and `lld-change-requests` (`webapp/src/config/code.js`), each with `module` pointing at the lesson that teaches it ("Study
+the lesson"). Their conventions, which the next batches follow:
+
+- **The statement fixes the public API** (class, method and exception names, the exact messages, the order refusals are checked in), the way LeetCode's design problems do.
+  A learner is free inside the class, not on its surface.
+- **Tests that grade design, not only output.** An *extension test* defines a class the learner has never seen (a new discount, a new command, a new middleware) and plugs it in;
+  the problem passes only if the code works through the interface (no `isinstance`). An *injection test* hands in a fake clock or a spy (`clock=` or a `pricing` object that
+  records its calls) and checks it was used. Say in the statement that the tests do this: a learner should know how they are marked.
+- **Ladders** (`lld-parking-lot-1`, `-2`, `-3`): each step is a change request on the previous one, and the editor of step N+1 starts with the working solution of step N. Every
+  rule of the earlier step is tested again, so a step cannot be solved by breaking the last.
+- **No threads.** The browser's Python cannot run them, so a concurrency-shaped problem is simulated (a controlled schedule, an injected clock), never `threading`.
+- **Time limits are asserted, not left to the 6 s stop.** A speed requirement (`lld-tic-tac-toe` plays a 600 by 600 game in O(1) per move) is an `assert elapsed < 2.5, "..."`
+  with a margin of two orders of magnitude over the model solution, so slowness fails with a message instead of a hung page.
+- **Every problem has mutants.** `scripts/dev/problem-mutants.mjs` (`npm run problems:mutants [-- <slug>]`) breaks the model solution on purpose in the ways a learner gets it wrong
+  (`scripts/dev/problem-mutants/lld.mjs`: the text to replace must occur exactly once) and requires that a test fails for each. The ten problems have 79; a new problem is not
+  finished until each plausible mistake fails a test. The tool is not in CI (it is a writing aid); run it after editing a problem's tests.
+- **Sources.** `scripts/dev/problem-sources/lld-*.py` are the `P(...)` files the JSON was built from (`python scripts/dev/code-problem-builder.py scripts/dev/problem-sources/lld-2-patterns.py`);
+  edit them and rebuild instead of editing the JSON, then `npm run practice:build`. A test piece is one top-level `assert` or one run of set-up statements and there may be at
+  most 60 (`CODE_RULES.maxTests`): a helper that returns the text after each step (`texts(editor, step, step, ...)`) keeps a long scenario to one assertion.
+- A mermaid diagram in an `explanation` renders on the problem page.
+
 ## The daily drill and the problem of the day
 
 At the top of Practice (and under the quest on the Learn page) are two things to do today, the same for everyone on a given UTC day:
