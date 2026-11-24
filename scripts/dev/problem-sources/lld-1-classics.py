@@ -354,7 +354,7 @@ classDiagram
         +current
         +winner
         +over
-        +move(row, col)
+        +move()
         +board()
     }
     class LineCounters {

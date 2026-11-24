@@ -237,15 +237,15 @@ class Checkout:
 ```mermaid
 classDiagram
     class Checkout {
-        +add(name, unit_price, qty)
-        +add_discount(discount)
+        +add()
+        +add_discount()
         +applied()
         +total()
     }
     class Discount {
         <<interface>>
         +name
-        +amount(items)
+        +amount()
     }
     Checkout o-- Discount : many
     Discount <|.. PercentOff
@@ -535,14 +535,14 @@ classDiagram
         +text
         -undo_stack
         -redo_stack
-        +execute(command)
+        +execute()
         +undo()
         +redo()
     }
     class Command {
         <<interface>>
-        +execute(editor)
-        +undo(editor)
+        +execute()
+        +undo()
     }
     Editor o-- Command : remembers
     Command <|.. Insert

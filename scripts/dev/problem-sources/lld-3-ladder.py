@@ -292,8 +292,8 @@ assert many.available() == {"small": 0, "medium": 0, "large": 0}''',
 ```mermaid
 classDiagram
     class ParkingLot {
-        +park(plate, kind)
-        +unpark(ticket_id)
+        +park()
+        +unpark()
         +available()
     }
     class Ticket {
@@ -451,12 +451,12 @@ assert real.unpark(real.park("R-1", "motorcycle")) == 100''',
 ```mermaid
 classDiagram
     class ParkingLot {
-        +park(plate, kind)
-        +unpark(ticket_id)
+        +park()
+        +unpark()
     }
     class Pricing {
         <<interface>>
-        +fee(kind, minutes)
+        +fee()
     }
     ParkingLot --> Pricing : asks once per unpark
     Pricing <|.. HourlyPricing
@@ -609,18 +609,18 @@ assert len(set(spots)) == 900''',
 ```mermaid
 classDiagram
     class ParkingLot {
-        +park(plate, kind)
-        +unpark(ticket_id)
-        +spot_of(ticket_id)
+        +park()
+        +unpark()
+        +spot_of()
         +available()
     }
     class Pricing {
         <<interface>>
-        +fee(kind, minutes)
+        +fee()
     }
     class Allocator {
         <<interface>>
-        +call(candidates) spot
+        +call() spot
     }
     ParkingLot --> Pricing
     ParkingLot --> Allocator
