@@ -17,7 +17,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 01 | [Distributed Systems 101: Why Distribute & the 8 Fallacies](01-distributed-systems-101/README.md) | Explain why systems distribute, name the 8 fallacies, and make retries safe with idempotency keys | **Live** |
 | 02 | [Partial Failures: Why a Slow Node Is Worse Than a Dead One](02-partial-failures/README.md) | Size timeouts, bulkheads and breakers so one slow dependency cannot take the API down | **Live** |
 | 03 | [Network Partitions: CP vs AP, Split Brain & Reconciliation](03-network-partitions/README.md) | Choose CP or AP per feature, size quorums, and plan reconciliation after a heal | **Live** |
-| 04 | [Failure Detection: Heartbeats, Timeouts & Phi Accrual](04-failure-detection/README.md) | Failure Detection: Heartbeats, Timeouts & Phi Accrual | *Soon* |
+| 04 | [Failure Detection: Heartbeats, Timeouts & Phi Accrual](04-failure-detection/README.md) | Pick heartbeat timeouts, use phi accrual and SWIM suspicion, and keep false positives cheap | **Live** |
 | 05 | [Clock Skew: Why You Can't Trust Timestamps (NTP, TrueTime)](05-clock-skew/README.md) | Clock Skew: Why You Can't Trust Timestamps (NTP, TrueTime) | *Soon* |
 | 06 | [Lamport Clocks & Happens-Before, Explained Simply](06-lamport-clocks-happens-before-explained-simply/README.md) | Lamport Clocks & Happens-Before, Explained Simply | *Soon* |
 | 07 | [Vector Clocks & Hybrid Logical Clocks: Detecting Conflicts](07-vector-clocks-hybrid-logical-clocks/README.md) | Vector Clocks & Hybrid Logical Clocks: Detecting Conflicts | *Soon* |
