@@ -24,7 +24,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 08 | [Leader Election: Leases, etcd & Fencing Tokens vs Zombies](08-leader-election/README.md) | Elect a leader with a lease, size renewals, and fence zombie leaders at the resource | **Live** |
 | 09 | [Raft Consensus Explained: Leader Election & Log Replication](09-raft-consensus-explained/README.md) | Explain Raft elections, log replication and commit, and size a cluster and its timeouts | **Live** |
 | 10 | [Paxos Explained: Prepare, Promise, Accept — and vs Raft](10-paxos-explained/README.md) | Walk through Basic Paxos and Multi-Paxos, explain why the adoption rule matters, and compare it with Raft | **Live** |
-| 11 | [Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff](11-quorums-explained/README.md) | Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff | *Soon* |
+| 11 | [Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff](11-quorums-explained/README.md) | Choose N, W and R, compute stale-read odds, and reason about sloppy quorums and hinted handoff | **Live** |
 | 12 | [Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It](12-split-brain/README.md) | Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It | *Soon* |
 | 13 | [Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens](13-distributed-locks/README.md) | Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens | *Soon* |
 | 14 | [Gossip Protocols: How Clusters Spread News (Merkle Trees, SWIM)](14-gossip-protocols/README.md) | Gossip Protocols: How Clusters Spread News (Merkle Trees, SWIM) | *Soon* |
