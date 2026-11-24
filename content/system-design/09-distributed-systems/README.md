@@ -22,7 +22,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 06 | [Lamport Clocks & Happens-Before, Explained Simply](06-lamport-clocks-happens-before-explained-simply/README.md) | Stamp events with Lamport clocks, build a total order, and know what the numbers cannot tell you | **Live** |
 | 07 | [Vector Clocks & Hybrid Logical Clocks: Detecting Conflicts](07-vector-clocks-hybrid-logical-clocks/README.md) | Detect concurrent updates with vector clocks, merge siblings, and use HLCs for causal timestamps near wall time | **Live** |
 | 08 | [Leader Election: Leases, etcd & Fencing Tokens vs Zombies](08-leader-election/README.md) | Elect a leader with a lease, size renewals, and fence zombie leaders at the resource | **Live** |
-| 09 | [Raft Consensus Explained: Leader Election & Log Replication](09-raft-consensus-explained/README.md) | Raft Consensus Explained: Leader Election & Log Replication | *Soon* |
+| 09 | [Raft Consensus Explained: Leader Election & Log Replication](09-raft-consensus-explained/README.md) | Explain Raft elections, log replication and commit, and size a cluster and its timeouts | **Live** |
 | 10 | [Paxos Explained: Prepare, Promise, Accept — and vs Raft](10-paxos-explained/README.md) | Paxos Explained: Prepare, Promise, Accept — and vs Raft | *Soon* |
 | 11 | [Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff](11-quorums-explained/README.md) | Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff | *Soon* |
 | 12 | [Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It](12-split-brain/README.md) | Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It | *Soon* |
