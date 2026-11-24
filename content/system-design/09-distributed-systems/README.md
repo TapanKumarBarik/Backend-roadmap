@@ -19,7 +19,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 03 | [Network Partitions: CP vs AP, Split Brain & Reconciliation](03-network-partitions/README.md) | Choose CP or AP per feature, size quorums, and plan reconciliation after a heal | **Live** |
 | 04 | [Failure Detection: Heartbeats, Timeouts & Phi Accrual](04-failure-detection/README.md) | Pick heartbeat timeouts, use phi accrual and SWIM suspicion, and keep false positives cheap | **Live** |
 | 05 | [Clock Skew: Why You Can't Trust Timestamps (NTP, TrueTime)](05-clock-skew/README.md) | Explain skew and drift, use monotonic clocks, and replace last-write-wins with versions or bounded clocks | **Live** |
-| 06 | [Lamport Clocks & Happens-Before, Explained Simply](06-lamport-clocks-happens-before-explained-simply/README.md) | Lamport Clocks & Happens-Before, Explained Simply | *Soon* |
+| 06 | [Lamport Clocks & Happens-Before, Explained Simply](06-lamport-clocks-happens-before-explained-simply/README.md) | Stamp events with Lamport clocks, build a total order, and know what the numbers cannot tell you | **Live** |
 | 07 | [Vector Clocks & Hybrid Logical Clocks: Detecting Conflicts](07-vector-clocks-hybrid-logical-clocks/README.md) | Vector Clocks & Hybrid Logical Clocks: Detecting Conflicts | *Soon* |
 | 08 | [Leader Election: Leases, etcd & Fencing Tokens vs Zombies](08-leader-election/README.md) | Leader Election: Leases, etcd & Fencing Tokens vs Zombies | *Soon* |
 | 09 | [Raft Consensus Explained: Leader Election & Log Replication](09-raft-consensus-explained/README.md) | Raft Consensus Explained: Leader Election & Log Replication | *Soon* |
