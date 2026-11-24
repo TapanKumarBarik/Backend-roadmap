@@ -193,11 +193,11 @@ test('every address a tool page links to is one the site serves, so a lesson tha
   }
 });
 
-test('the Network Lab front page lists each tool, in the HTML, and is in the sitemap', () => {
+test('the Interactive Labs front page lists each tool, in the HTML, and is in the sitemap', () => {
   const html = fs.readFileSync(path.join(ROOT, 'dist', 'tools', 'index.html'), 'utf8');
   assert.match(html, /<title>Network Lab[^<]*· [^<]+<\/title>/);
   assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}/tools/">`));
-  assert.match(html, /<h1>Network Lab<\/h1>/);
+  assert.match(html, /<h1>Interactive Labs<\/h1>/);
   for (const tool of config.tools.filter((t) => t.id !== 'hub')) assert.ok(html.includes(`href="${tool.url}"`), `it links to ${tool.url}`);
   assert.doesNotMatch(html, /noindex/);
   assert.ok(sitemap().includes(`${config.site.url}/tools/</loc>`));
