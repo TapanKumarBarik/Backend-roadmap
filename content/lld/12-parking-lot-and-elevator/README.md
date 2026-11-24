@@ -808,18 +808,6 @@ public sealed class ElevatorController
 ```
 ````
 
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> DoorOpen: stop at current floor
-  Idle --> Moving: stops elsewhere (toward nearest)
-  Moving --> Moving: floor passed, not a stop
-  Moving --> DoorOpen: arrived at a stop
-  Moving --> Idle: stops cancelled
-  DoorOpen --> Moving: stop ahead (keep heading) or only behind (reverse)
-  DoorOpen --> Idle: no stops left
-```
-
 **State transition table (put this on the whiteboard)**
 
 ```text

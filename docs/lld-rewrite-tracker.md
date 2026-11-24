@@ -16,22 +16,22 @@ Status: ⬜ Not started · 🟡 In progress / rewritten but not audit-complete �
 | `06-creational-patterns` | Creational patterns | 🟢 | Audited + fixed: runnable Abstract Factory, Prototype shallow/deep, Singleton race vs safe, anti-patterns, Try it |
 | `07-structural-patterns` | Structural patterns | 🟢 | Audited + fixed: runnable Composite + caching Proxy + Facade (with compensation edge), Try it list |
 | `08-behavioral-patterns-i` | Behavioral I | 🟢 | Audited + fixed: runnable Observer / State / Template Method, Command edges, Try it list |
-| `09-behavioral-patterns-ii` | Behavioral II | 🟢 | Audited: strongest module. Fixed Python rate-limiter thread-safety, Mediator leave/unknown-user. Long (~35 min) — split candidate |
-| `12-parking-lot-and-elevator` | Parking Lot & Elevator | 🟢 | Audited 2026-11-23: Python (lot + elevator) executed, C# read. Added elevator `stateDiagram-v2`, hall-call-direction edge (SCAN serves opposing-direction calls) and plate-claim rollback edge, removed dead variable in demo; replaced thin Try it with a runnable find/occupy race demo (40 tickets on 5 spots vs locked 5) + 5 guided exercises with expected results |
-| `15-splitwise-expense-sharing` | Splitwise | 🟡 | Full rewrite by [Splitwise/cache/playbook](d890fd82-b2ae-4709-bb98-48f0f255c0ee); Python+C# exit 0; unaudited for 10/10 |
-| `18-lru-lfu-cache-and-rate-limiter` | Cache & Rate Limiter | 🟡 | Full rewrite (same batch); LRU/LFU + token/sliding window; Studio + rate-limiting tool links |
-| `21-lld-interview-playbook` | 45-minute playbook | 🟡 | Full rewrite (same batch); gantt + timer simulator; unaudited for 10/10 |
+| `09-behavioral-patterns-ii` | Behavioral II | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); Python+C# run-verified; needs re-audit (prior 🟢 audit may be stale after rewrite) |
+| `12-parking-lot-and-elevator` | Parking Lot & Elevator | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); 100-thread demo + race Try it kept; needs re-audit (prior 🟢 audit may be stale) |
+| `15-splitwise-expense-sharing` | Splitwise | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); Python+C# run-verified; unaudited for 10/10 |
+| `18-lru-lfu-cache-and-rate-limiter` | Cache & Rate Limiter | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); LRU/LFU O(1) + token/sliding + Redis Lua; Studio + rate-limiting links; unaudited |
+| `21-lld-interview-playbook` | 45-minute playbook | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); timed protocol + meeting-room walkthrough; unaudited for 10/10 |
 
 ## Wave 2 — Foundations + classic problems
 
 | Module | Title | Status | Notes |
 | :--- | :--- | :---: | :--- |
-| `00-programming-basics-python-and-csharp` | Programming basics | 🟢 | Audited 2026-11-23: Python + C# read in full, 4 Python blocks run. Rebind-vs-mutate snippet now runnable with asserts; `BadCart` labelled runnable-on-purpose anti-pattern; added runnable 7-probe edge lab (aliasing, mutable default, shallow copy, dict mutation, `Decimal(float)`, half-even rounding, identity) + 4 guided exercises |
-| `01-classes-objects-and-oop-building-blocks` | Classes & OOP | 🟡 | Landed, unaudited (structure + Python run OK) |
-| `02-oop-foundations-and-uml` | OOP & UML | 🟡 | Landed, unaudited (structure + Python run OK) |
-| `03-generics-exceptions-and-value-objects` | Generics & VOs | 🟡 | Landed, unaudited. Two Mermaid diagrams (rubric says one) |
-| `10-concurrency-safe-design` | Concurrency-safe design | 🟢 | Audited 2026-11-23: Python + C# read in full, both demos run. Added runnable 4-probe lab (deterministic lost update, deadlock detected via try-lock timeout vs global order, compute-once check-then-act, confinement via queue; 25/25 stable runs) with a what-it-proves/try-next table; added salted `hash(str)` striping edge |
-| `11-requirements-to-class-diagrams` | Requirements → diagrams | 🟡 | Landed, unaudited. Only one Python block |
+| `00-programming-basics-python-and-csharp` | Programming basics | 🟢 | Audited 2026-11-23 (edge lab + BadCart). Refreshed 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa): full 12-point rubric, Python+C# carousel run-verified; edge lab still present |
+| `01-classes-objects-and-oop-building-blocks` | Classes & OOP | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
+| `02-oop-foundations-and-uml` | OOP & UML | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
+| `03-generics-exceptions-and-value-objects` | Generics & VOs | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
+| `10-concurrency-safe-design` | Concurrency-safe design | 🟢 | Audited 2026-11-23 (4-probe lab + striping). Refreshed 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa): ticket race demos run-verified; striping/try-lock content retained |
+| `11-requirements-to-class-diagrams` | Requirements → diagrams | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); CRC + diagrams + race demo; unaudited for 10/10 |
 | `13-library-and-vending-machine` | Library & Vending | 🟡 | Full rewrite by [Wave 2 classics](9e43c18e-0a27-49ba-952f-d11b74916943); Python+C# run-verified by author; unaudited for 10/10 |
 | `14-tic-tac-toe-and-chess` | Tic-Tac-Toe & Chess | 🟡 | Full rewrite (same batch); long (~1100 lines) — split candidate; unaudited for 10/10 |
 | `16-movie-ticket-booking` | Movie booking | 🟡 | Verified 2026-11-23: single runnable Python block (`__main__`, 16-thread race, expiry, refund) executes → `booking ok`. Anti-pattern fragment is a `text` fence, now also introduced by a prose line "ANTI-PATTERN — not runnable". Not yet fully read/audited |

@@ -172,6 +172,76 @@ Path: `content/system-design/04-databases/`
 
 ---
 
+## Phase 2: Estimation Tracking Table
+
+Path: `content/system-design/05-estimation-and-numbers/`
+
+| Lesson Slug | Title | PDF Note | Status | Commit / Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| `01-back-of-the-envelope-estimation` | Back-of-the-Envelope Estimation: Which Numbers to Ask First | `SD-D-001.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `02-latency-numbers-powers-of-two-every-engineer-should-know` | Latency Numbers & Powers of Two | `SD-D-002.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `03-how-to-estimate-rps` | How to Estimate RPS | `SD-D-003.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `04-peak-vs-average-traffic` | Peak vs Average Traffic | `SD-D-004.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `05-read-write-ratio` | Read/Write Ratio | `SD-D-005.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `06-storage-estimation` | Storage Estimation | `SD-D-006.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `07-bandwidth-estimation` | Bandwidth Estimation | `SD-D-007.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `08-cache-sizing` | Cache Sizing | `SD-D-008.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `09-how-many-servers-do-you-need-capacity-60-target-n-2` | How Many Servers Do You Need? | `SD-D-009.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `10-growth-projections` | Growth Projections | `SD-D-010.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `11-back-of-the-envelope-estimation` | Full URL Shortener Drill | `SD-D-011.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `12-architecture-diagrams` | Architecture Diagrams | `SD-D-012.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `13-identifying-bottlenecks` | Identifying Bottlenecks | `SD-D-013.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+| `14-identifying-spofs` | Identifying SPOFs | `SD-D-014.pdf` | 🟢 **Live** | Full 16-point rubric from PDF |
+
+---
+
+## Phase 3: Load Balancing Tracking Table
+
+Path: `content/system-design/06-load-balancing/`
+
+| Lesson Slug | Title | PDF Note | Status | Commit / Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| `01-load-balancer-fundamentals` | Load Balancer Fundamentals | `SD-G-001.pdf` | 🟢 **Completed** | Full 16-point rubric, HA/VIP math & 12 Q&As |
+| `02-layer-4-vs-layer-7-load-balancing` | Layer 4 vs Layer 7 Load Balancing | `SD-G-002.pdf` | 🟢 **Completed** | Full 16-point rubric, HTTP/2 skew math & 12 Q&As |
+| `03-round-robin-vs-weighted-round-robin` | Round Robin vs Weighted Round Robin | `SD-G-003.pdf` | 🟢 **Completed** | Full 16-point rubric, smooth WRR math & 12 Q&As |
+| `04-least-connections-ewma-power-of-two-choices-explained` | Least Connections, EWMA & P2C | `SD-G-004.pdf` | 🟢 **Completed** | Full 16-point rubric, herd/P2C math & 12 Q&As |
+| `05-consistent-hashing-explained` | Consistent Hashing Explained | `SD-G-005.pdf` | 🟢 **Completed** | Full 16-point rubric, 1/N remap math & 12 Q&As |
+| `06-sticky-sessions-ip-hash` | Sticky Sessions & IP Hash | `SD-G-006.pdf` | 🟢 **Completed** | Full 16-point rubric, NAT/affinity math & 12 Q&As |
+| `07-health-checks` | Health Checks | `SD-G-007.pdf` | 🟢 **Completed** | Full 16-point rubric, probe/cascade math & 12 Q&As |
+| `08-service-discovery` | Service Discovery | `SD-G-008.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `09-reverse-proxy-config-in-production` | Reverse Proxy Config in Production | `SD-G-009.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `10-load-shedding-traffic-shaping` | Load Shedding & Traffic Shaping | `SD-G-010.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `11-global-server-load-balancing` | Global Server Load Balancing | `SD-G-011.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `12-failover-strategies` | Failover Strategies | `SD-G-012.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `13-blue-green-deployments-canary-releases-with-weighted-traffic` | Blue-Green & Canary Releases | `SD-G-013.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+| `14-autoscaling-explained` | Autoscaling Explained | `SD-G-014.pdf` | 🟢 **Completed** | Full 16-point rubric (2026-11-24) |
+
+---
+
+## Phase 3: Performance and Traffic Tracking Table
+
+Path: `content/system-design/08-performance-and-traffic/`
+
+| Lesson Slug | Title | PDF Note | Status | Commit / Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| `01-stateless-service-design` | Stateless Service Design | `SD-J-001.pdf` | 🟢 **Completed** | Full 16-point rubric, SIGTERM/idempotency math & 12 Q&As |
+| `02-scaling-stateful-services` | Scaling Stateful Services | `SD-J-002.pdf` | 🟢 **Completed** | Full 16-point rubric, partition/fencing math & 12 Q&As |
+| `03-database-bottlenecks` | Database Bottlenecks | `SD-J-003.pdf` | 🟢 **Completed** | Full 16-point rubric, hot-row/ladder math & 12 Q&As |
+| `04-asynchronous-processing` | Asynchronous Processing | `SD-J-004.pdf` | 🟢 **Completed** | Full 16-point rubric, queue-age/Little's Law & 12 Q&As |
+| `05-python-concurrency` | Python Concurrency Models | `SD-J-005.pdf` | 🟢 **Completed** | Full 16-point rubric, GIL/loop-lag math & 12 Q&As |
+| `06-batching` | Batching | `SD-J-006.pdf` | 🟢 **Completed** | Full 16-point rubric, amortization math & 12 Q&As |
+| `07-compression` | Compression | `SD-J-007.pdf` | 🟢 **Completed** | Full 16-point rubric, CPU-for-bytes math & 12 Q&As |
+| `08-serialization-formats` | Serialization Formats | `SD-J-008.pdf` | 🟢 **Completed** | Full 16-point rubric, bytes/s & schema evolution & 12 Q&As |
+| `09-the-use-method` | The USE Method | `SD-J-009.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `10-profiling-python` | Profiling Python | `SD-J-010.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `11-load-testing-vs-stress-soak-spike-tests` | Load / Stress / Soak / Spike Tests | `SD-J-011.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `12-queueing-theory` | Queueing Theory | `SD-J-012.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `13-tail-latency-at-scale` | Tail Latency at Scale | `SD-J-013.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `14-make-it-faster` | Make It Faster | `SD-J-014.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `15-backpressure` | Backpressure | `SD-J-015.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+
+---
+
 ## Phase Roadmap Overview
 
 Aligned with the YouTube playlists in `content/videos.json` and `C:\Users\tapan\Videos\System Design Videos`. Tracks **03–23** are scaffolded as planned (*Coming soon*) stubs; rewrite them with the 16-point rubric when ready. Videos may still play on related `backend/` / `learn/` / `genai/` modules until remounted here.
@@ -182,10 +252,10 @@ Aligned with the YouTube playlists in `content/videos.json` and `C:\Users\tapan\
 | **2 Networking** | `SD-N-*` (30) | `02-networking-from-zero` | 🟢 Live (30/30) |
 | **2 API Design** | `SD-C-*` (23) | `03-api-design` | 🟢 Live (23/23) |
 | **2 Databases** | `SD-E-*` (33) | `04-databases` | 🟢 Live (33/33) |
-| **2 Estimation** | `SD-D-*` (14) | `05-estimation-and-numbers` | 🟡 Coming soon (scaffolded) |
-| **3 Load balancing** | `SD-G-*` (14) | `06-load-balancing` | 🟡 Coming soon (scaffolded) |
-| **3 Caching** | `SD-F-*` (19) | `07-caching` | 🟡 Coming soon (scaffolded) |
-| **3 Performance** | `SD-J-*` (15) | `08-performance-and-traffic` | 🟡 Coming soon (scaffolded) |
+| **2 Estimation** | `SD-D-*` (14) | `05-estimation-and-numbers` | 🟢 Live (14/14) |
+| **3 Load balancing** | `SD-G-*` (14) | `06-load-balancing` | 🟢 Live (14/14) |
+| **3 Caching** | `SD-F-*` (19) | `07-caching` | 🟢 Live (19/19) |
+| **3 Performance** | `SD-J-*` (15) | `08-performance-and-traffic` | 🟢 Live (15/15) |
 | **4 Distributed systems** | `SD-H-*` (22) | `09-distributed-systems` | 🟡 Coming soon (scaffolded) |
 | **4 Messaging** | `SD-I-*` (20) | `10-messaging` | 🟡 Coming soon (scaffolded) |
 | **5 Reliability / SRE** | `SD-K-*` (18) | `11-reliability-and-sre` | 🟡 Coming soon (scaffolded) |

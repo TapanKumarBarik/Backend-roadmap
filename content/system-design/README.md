@@ -24,8 +24,8 @@ Same convention as `backend/`:
 | Phase | Playlist | Tracks on this course | Written notes |
 |------:|----------|-----------------------|---------------|
 | 1 | [Core Fundamentals](https://www.youtube.com/playlist?list=PLdZs-f1PXX48) | [01-core-fundamentals](01-core-fundamentals/README.md) | Live |
-| 2 | [Networking, APIs & Databases](https://www.youtube.com/playlist?list=PLEBaLYrJs0lI) | [02-networking-from-zero](02-networking-from-zero/README.md) · [03-api-design](03-api-design/README.md) · [04-databases](04-databases/README.md) · [05-estimation-and-numbers](05-estimation-and-numbers/README.md) | Networking + API + Databases live · Estimation *Coming soon* |
-| 3 | [Caching, Scaling & Traffic](https://www.youtube.com/playlist?list=PLWDD-HPgiAnA) | [06-load-balancing](06-load-balancing/README.md) · [07-caching](07-caching/README.md) · [08-performance-and-traffic](08-performance-and-traffic/README.md) | *Coming soon* |
+| 2 | [Networking, APIs & Databases](https://www.youtube.com/playlist?list=PLEBaLYrJs0lI) | [02-networking-from-zero](02-networking-from-zero/README.md) · [03-api-design](03-api-design/README.md) · [04-databases](04-databases/README.md) · [05-estimation-and-numbers](05-estimation-and-numbers/README.md) | Networking + API + Databases + Estimation live |
+| 3 | [Caching, Scaling & Traffic](https://www.youtube.com/playlist?list=PLWDD-HPgiAnA) | [06-load-balancing](06-load-balancing/README.md) · [07-caching](07-caching/README.md) · [08-performance-and-traffic](08-performance-and-traffic/README.md) | Live |
 | 4 | [Distributed Systems & Messaging](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k) | [09-distributed-systems](09-distributed-systems/README.md) · [10-messaging](10-messaging/README.md) | *Coming soon* |
 | 5 | [Architecture, Reliability, Security & Observability](https://www.youtube.com/playlist?list=PLNdzHik9GD0I) | [11-reliability-and-sre](11-reliability-and-sre/README.md) · [12-architecture-patterns](12-architecture-patterns/README.md) · [13-security](13-security/README.md) · [14-observability-and-delivery](14-observability-and-delivery/README.md) | *Coming soon* |
 | 6 | [Advanced & Specialized Systems](https://www.youtube.com/playlist?list=PLbu9hGadb_zQ) | [15-storage](15-storage/README.md) · [16-search](16-search/README.md) · [17-realtime-and-data](17-realtime-and-data/README.md) · [18-multi-tenant-saas](18-multi-tenant-saas/README.md) · [19-cloud-and-platform](19-cloud-and-platform/README.md) | *Coming soon* |
@@ -41,10 +41,10 @@ Same convention as `backend/`:
 | 2 | [02-networking-from-zero](02-networking-from-zero/README.md) | Explain, from nothing, how data crosses the internet: packets, addresses, TCP, DNS, HTTP, TLS and the infrastructure in between | Live |
 | 3 | [03-api-design](03-api-design/README.md) | Design REST/GraphQL/gRPC surfaces, versioning, pagination, idempotency, rate limits and contracts | Live |
 | 4 | [04-databases](04-databases/README.md) | Choose and reason about SQL/NoSQL, indexes, isolation, replication and sharding | Live |
-| 5 | [05-estimation-and-numbers](05-estimation-and-numbers/README.md) | Do back-of-the-envelope traffic, storage, bandwidth and capacity math | Coming soon |
-| 6 | [06-load-balancing](06-load-balancing/README.md) | Pick L4/L7 algorithms, health checks and HA for load balancers | Coming soon |
-| 7 | [07-caching](07-caching/README.md) | Place caches, pick TTLs/eviction and avoid stampedes | Coming soon |
-| 8 | [08-performance-and-traffic](08-performance-and-traffic/README.md) | Scale stateless and stateful services and apply backpressure | Coming soon |
+| 5 | [05-estimation-and-numbers](05-estimation-and-numbers/README.md) | Do back-of-the-envelope traffic, storage, bandwidth and capacity math | Live |
+| 6 | [06-load-balancing](06-load-balancing/README.md) | Pick L4/L7 algorithms, health checks and HA for load balancers | Live |
+| 7 | [07-caching](07-caching/README.md) | Place caches, pick TTLs/eviction and avoid stampedes | Live |
+| 8 | [08-performance-and-traffic](08-performance-and-traffic/README.md) | Scale stateless and stateful services and apply backpressure | Live |
 | 9 | [09-distributed-systems](09-distributed-systems/README.md) | Reason about partitions, consensus, idempotency and consistency | Coming soon |
 | 10 | [10-messaging](10-messaging/README.md) | Choose brokers vs streams and delivery semantics | Coming soon |
 | 11 | [11-reliability-and-sre](11-reliability-and-sre/README.md) | Set SLOs, error budgets and resilience patterns | Coming soon |

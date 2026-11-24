@@ -131,7 +131,7 @@
       "system-design": {
         "label": "System Design Interview Prep",
         "short": "System design",
-        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Fundamentals, Networking, API Design, and Databases are live; later tracks are Coming soon.",
+        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Through Phase 3 (Load Balancing, Caching, Performance) are live; later tracks are Coming soon.",
         "groups": [
           {
             "label": "Live",
@@ -139,18 +139,8 @@
               "01-core-fundamentals",
               "02-networking-from-zero",
               "03-api-design",
-              "04-databases"
-            ]
-          },
-          {
-            "label": "Phase 2 — numbers (coming soon)",
-            "tracks": [
-              "05-estimation-and-numbers"
-            ]
-          },
-          {
-            "label": "Phase 3 — Caching, scaling, traffic (coming soon)",
-            "tracks": [
+              "04-databases",
+              "05-estimation-and-numbers",
               "06-load-balancing",
               "07-caching",
               "08-performance-and-traffic"

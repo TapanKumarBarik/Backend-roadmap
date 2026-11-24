@@ -1,337 +1,248 @@
 # LLD Interview Playbook — The 45-Minute Protocol
 
 > **Prerequisites:** [11 · Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [12 · Parking Lot & Elevator](../12-parking-lot-and-elevator/README.md), [20 · Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md)  
-> **Reading time:** ~25 minutes (plus ~10 to run the timer simulator and one timed dry run)  
+> **Reading time:** ~25 minutes (plus one timed dry run)  
 > **Audience:** Anyone with an LLD / machine-coding round in the next few weeks
 
 > [!NOTE]
-> **In one line:** A 45-minute LLD round is won by **pace and narration**: clarify (5) → model (7) → code the core (18) → extend (8) → edges and tests (5) → wrap (2) — talking the whole time, with working code by about minute 12–15.
+> **In one line:** An LLD interview is graded on **how you think out loud** more than on how fast you type — so run a fixed 45-minute protocol: clarify (5) → entities (5) → diagram + methods (10) → core code (15) → trade-offs (7) → buffer (3), and narrate every step.
 
 > [!TIP]
-> **Golden rule:** The interviewer cannot grade thinking they cannot hear. A good design explained badly scores below a decent design explained well. If you are silent for more than ~30 seconds, say what you are weighing.
+> **Golden rule:** The interviewer can only grade what they hear or see. Silent coding for 25 minutes scores as *"unknown."* Say your assumptions, name your simplifications, and say what you would do with more time. Out loud. Every phase.
 
 > [!TIP]
-> **Try it:** Draw your next practice problem in [LLD Studio](/tools/lld-studio/) in 7 minutes flat, then run the timer simulator below and do one full dry run from the [LLD practice sheet](../PRACTICE.md).
+> **Try it:** Draw your next practice problem in [LLD Studio](/tools/lld-studio/) in 7 minutes flat (entities + relationships + the one method that needs a lock), then run the timed dry run in section 12.
 
 ---
 
 ## 1. Interview pressure
 
-You know SOLID, you know Strategy, you can code an LRU. And you still fail, because:
+*"Design a meeting-room booking system."* (or a parking lot, a rate limiter, an LRU cache, Splitwise…) You have 45 minutes, a shared editor or whiteboard, and someone watching quietly.
 
-- You spent **22 minutes** on a beautiful UML diagram and wrote 15 lines of code.
-- You asked no questions, built the wrong thing, and discovered it at minute 30.
-- You coded in silence; the interviewer wrote "unclear communication."
-- The extension arrived ("now add surge pricing") and your only plan was to edit three classes.
-- At minute 44 you had no tests, no concurrency answer, and no summary.
+**What they actually score** (typical rubric — know it, then feed it):
 
-None of these are knowledge gaps. They are **clock gaps**. This module is the clock.
+| Signal | What earns it | What loses it |
+| :--- | :--- | :--- |
+| **Requirements** | 3–5 targeted questions; written assumptions | Coding on unverified guesses |
+| **Modeling** | Clean entities; value objects vs entities; sensible ownership | A class for every noun; anemic data bags |
+| **Design judgment** | Pattern chosen *because of a stated pain* | Pattern name-dropping |
+| **Correctness** | Edge cases named; concurrency spot identified | "It works on my machine" with a race inside |
+| **Code quality** | Small, readable, compiling-ish code | 200 lines of boilerplate; no core logic |
+| **Communication** | Narration, trade-offs, handling pushback | Silence; defensiveness |
+| **Time management** | Reaches a working core and a trade-off discussion | Out of time with half a class |
 
----
-
-## 2. Mental model
+**The smells interviewers write down:** started typing in the first minute; no questions; one 300-line class; says "singleton" for everything; never mentions threads; claims the design is "done" with zero trade-offs.
 
 ```mermaid
-gantt
-  title 45-minute LLD round (minute marks)
-  dateFormat HH:mm
-  axisFormat %H:%M
-  section Talk
-  Clarify requirements        :a1, 00:00, 5m
-  Model entities and API      :a2, after a1, 7m
-  section Code
-  Code the core path          :a3, after a2, 18m
-  section Grow
-  Handle the extension        :a4, after a3, 8m
-  Edges and one test          :a5, after a4, 5m
-  Wrap up                     :a6, after a5, 2m
+flowchart LR
+  P1["0-5 min<br/>Clarify<br/>scope, scale, threads"] --> P2["5-10 min<br/>Entities<br/>nouns to classes or values"]
+  P2 --> P3["10-20 min<br/>Diagram + methods<br/>relationships, lock spot"]
+  P3 --> P4["20-35 min<br/>Core code<br/>hot path first"]
+  P4 --> P5["35-42 min<br/>Trade-offs<br/>named simplifications, scale"]
+  P5 --> P6["42-45 min<br/>Buffer<br/>summary, questions"]
+  P4 -.->|"behind schedule at 30 min"| R["Rescue: stub the rest,<br/>narrate remaining flow"]
+  R -.-> P5
 ```
 
-Checkpoints you can glance at:
+---
 
-| Minute | You should have |
+## 2. The protocol — minute by minute
+
+| Phase | Minutes | Deliverable on the board | Say out loud | Common fail |
+| :--- | :--- | :--- | :--- | :--- |
+| **1 · Clarify** | 0–5 | 4–6 bullet requirements, 2–3 assumptions, out-of-scope list | "Before I design, let me confirm scope and a few assumptions." | Jumping to code |
+| **2 · Entities** | 5–10 | Noun list marked *entity / value object / drop*; main actor | "These are the core entities; this one is a value object because…" | Class per noun |
+| **3 · Diagram + methods** | 10–20 | Boxes + arrows, public method signatures, **where the lock goes** | "Level owns its spots, so the lock lives there." | Drawing silently |
+| **4 · Core code** | 20–35 | Types, signatures, then the **one hot method** fully written | "I'm writing the hard method first; getters I'll skip." | Boilerplate first |
+| **5 · Trade-offs** | 35–42 | 3 named simplifications + 2 extensions | "I simplified X; here's how I'd extend it." | "It's complete." |
+| **6 · Buffer** | 42–45 | One-sentence summary | "To recap: …" | Silence / panic |
+
+### Phase checklists (copy these into your head)
+
+```text
+PHASE 1  CLARIFY (5 min)
+[ ] Core use cases (2-3 verbs: book, cancel, list)?
+[ ] Scale: one process or distributed?  Threads?
+[ ] Who are the actors? (user, admin, system)
+[ ] What is OUT of scope? (payments, auth, persistence) -> say it
+[ ] Write 3 assumptions on the board and get a nod
+
+PHASE 2  ENTITIES (5 min)
+[ ] List nouns, then circle: Entity (has identity)  /  Value object (immutable)  /  Drop
+[ ] Pick the aggregate that will own the invariant (and the lock)
+[ ] Money = integer cents. Time = injected clock.
+
+PHASE 3  DIAGRAM + METHODS (10 min)
+[ ] Boxes with 1-line responsibilities (no fields yet)
+[ ] Relationships: has-a (composition) vs uses (association)
+[ ] Public method signatures only
+[ ] Mark the ONE critical section ("check + act together")
+[ ] State the pattern + the pain it removes (or say "no pattern needed")
+
+PHASE 4  CORE CODE (15 min)
+[ ] Types and signatures first (2 min)
+[ ] Hot-path method fully written (8 min)
+[ ] One quick test or trace by hand (2 min)
+[ ] Edge cases listed even if not coded (2 min)
+
+PHASE 5  TRADE-OFFS (7 min)
+[ ] 3 named simplifications ("I used a coarse lock because...")
+[ ] Scale story: what changes with 100x load / many machines
+[ ] One extension you'd do next, and which class it touches
+[ ] Testing: how you'd inject time / fake dependencies
+
+PHASE 6  BUFFER (3 min)
+[ ] 20-second recap
+[ ] Ask one question about their system
+```
+
+### What "compressed code" means
+
+| Aspect | Reading-material code (this repo) | Interview code (live) |
+| :--- | :--- | :--- |
+| Docstrings | Full | Spoken, not written |
+| Error handling | Custom exception hierarchy | Guard clause + standard exception |
+| Getters/setters | Full | Public fields / records / dataclasses |
+| Concurrency | Complete | One lock in the right class, **explained** |
+| Tests | Suites | A 3-line demo or hand trace |
+
+---
+
+## 3. Walkthrough — requirements → entities → methods (one problem, live)
+
+The prompt: **"Design a meeting-room booking system."** Here is exactly what ends up on the board.
+
+### Phase 1 — Clarify (what you ask, what you write)
+
+| You ask | Typical answer | You write |
+| :--- | :--- | :--- |
+| "Rooms have capacities, and people book by time slot?" | Yes | Rooms have capacity; booking = `[start, end)` |
+| "Single process or many servers?" | One service, many threads | In-memory, thread-safe |
+| "Back-to-back OK (10:00–11:00 then 11:00–12:00)?" | Yes | **Half-open intervals** |
+| "Recurring meetings, equipment, calendars?" | Not now | Out of scope |
+| "Cancel?" | Yes | `cancel(booking_id)` |
+
+**Board:** *Assumptions: in-memory, concurrent callers, times are integer minutes, half-open `[start, end)`. Out: recurrence, auth, persistence.*
+
+### Phase 2 — Entities (noun triage)
+
+| Noun | Decision |
 | :--- | :--- |
-| **5** | A short written requirements list and 1–2 stated assumptions |
-| **12** | Classes/interfaces named, one diagram, one pattern you can justify |
-| **15** | You are typing real code (hard stop for "still drawing") |
-| **30** | The main use case runs end to end on one example |
-| **38** | The extension is in, without editing the old classes much |
-| **43** | You've said concurrency, invalid input, and shown one test |
+| `Room` | **Entity** — id, capacity, **owns its bookings and its lock** |
+| `Booking` | Immutable record (id, room, start, end) |
+| `TimeSlot` | Fold into `Booking` (two ints) — not worth a class yet |
+| `User` / `Attendee` | Out of scope (just a count) |
+| `Scheduler` | Orchestrator: picks a room, calls `Room.try_book` |
 
-When you are behind, you do not speed up everything — you **cut scope out loud** (see section 5).
+### Phase 3 — Methods and the critical section
 
----
+| Method | Contract |
+| :--- | :--- |
+| `Room.try_book(booking) -> bool` | Check overlap **and** insert, atomically, under the room's lock |
+| `Room.cancel(booking_id) -> bool` | Remove |
+| `Scheduler.book(attendees, start, end) -> Booking \| None` | Try fitting rooms smallest-first |
+| `Scheduler.cancel(booking_id) -> bool` | Delegate |
 
-## 3. Walkthrough — the protocol, phase by phase
+**Say it:** *"The race is check-then-insert on one room, so the lock lives in `Room` — not a global lock on the scheduler. Two requests for different rooms never block each other. Picking the smallest fitting room is a policy; if asked, I'd make it a `RoomSelectionStrategy`."*
 
-### Phase 1 · Clarify (0–5 min)
+**Tiny diagram on the board:**
 
-**Goal:** agree on a *small* problem. Ask 4–6 questions, then restate.
-
-**Checklist**
-
-- [ ] 3–4 core use cases (the "must haves")
-- [ ] Actors (who calls the system)
-- [ ] Single process vs. distributed; concurrent callers?
-- [ ] Explicitly out of scope (payments, auth, persistence...)
-- [ ] One example input/output you'll code against
-
-**What to say**
-
-> "Before I design, let me make sure I'm solving the right problem. Core flows I'll cover are A, B, C. I'll assume single process with multiple threads, in-memory storage, and I'll leave out auth and payments — shout if you want any of those in."
-
-### Phase 2 · Model (5–12 min)
-
-**Goal:** nouns → classes, verbs → methods, who owns the state, one pattern with a reason.
-
-**Checklist**
-
-- [ ] Nouns become entities; verbs become methods on the entity that owns the data
-- [ ] One box-and-arrow diagram (not a UML essay)
-- [ ] Interfaces only where a second implementation is plausible
-- [ ] Name the pattern **and the reason** ("Strategy because pricing varies")
-
-**What to say**
-
-> "The nouns are Vehicle, Spot, Ticket, and a Lot that owns the spots. Pricing varies, so `PricingStrategy` is an interface; everything else stays concrete. I'll start with the entry flow: find spot, issue ticket."
-
-### Phase 3 · Code the core (12–30 min)
-
-**Goal:** the main use case working end to end. Interfaces first, then the happy path, then one example.
-
-**Checklist**
-
-- [ ] Signatures/interfaces first (30 seconds — shows the design)
-- [ ] Happy path fully written, not pseudocode
-- [ ] Invariants enforced in one place (constructor / one method)
-- [ ] Walk one example through the code out loud
-
-**What to say**
-
-> "I'll write the interface first so you can see the contract, then the happy path. I'm keeping validation in the constructor so no one can build an invalid ticket. Let me trace `park(car)` with an empty lot..."
-
-### Phase 4 · Extend (30–38 min)
-
-**Goal:** show the design bends. The extension should be a **new class**, not edits to three old ones.
-
-**Checklist**
-
-- [ ] Restate the new requirement in one sentence
-- [ ] Say where it plugs in *before* typing
-- [ ] Add it; count how many existing classes you touched
-- [ ] Name the principle (OCP, Strategy, DIP)
-
-**What to say**
-
-> "Surge pricing is just another `PricingStrategy`. I add one class and inject it. Nothing in `Lot` or `Ticket` changes — that's the Open/Closed payoff."
-
-### Phase 5 · Edges and a test (38–43 min)
-
-**Goal:** show you think about failure, not just success.
-
-**Checklist**
-
-- [ ] Concurrency: where is the lock / atomic step?
-- [ ] Invalid input and "not found" behavior (exception vs result)
-- [ ] One concrete test or example run, including a failure case
-
-**What to say**
-
-> "Two cars could claim the last spot, so claiming is one atomic step under a lock. Invalid plate raises at construction. Here's a quick test: fill the lot, the next car gets `LotFull`."
-
-### Phase 6 · Wrap (43–45 min)
-
-**Checklist**
-
-- [ ] 30-second recap of the design
-- [ ] Trade-offs and what you'd do with more time (persistence, distribution)
-- [ ] Ask the interviewer something real
-
-**What to say**
-
-> "Summary: entities own their state, pricing is a Strategy, claiming is atomic. With more time I'd add persistence behind a repository interface and an event for ticket issued. Anything you'd like me to go deeper on?"
+```text
+Scheduler --uses--> Room (lock, sorted bookings) --has--> Booking*
+   |
+   +-- RoomSelectionStrategy (only if asked)
+```
 
 ---
 
-## 4. Code — a timer you can rehearse with
+## 4. Code — Phase 4, the "hot method first" shape
 
-Run a mock round against a fake clock. It tracks budget vs. actual per phase, checklist coverage, live advice ("you're 3 minutes over — start coding"), and the red flags an interviewer would write down.
+Write in this order: **types → signatures → the one method that matters → a 3-line demo.** The core is the overlap check on a sorted list.
 
 ````carousel
 ```python
 from __future__ import annotations
 
+import threading
+import uuid
+from bisect import bisect_left
 from dataclasses import dataclass
-from typing import Callable
+from typing import Optional
 
 
 @dataclass(frozen=True)
-class Phase:
-    key: str
-    title: str
-    minutes: int
-    checklist: tuple[str, ...]
-    say: str
+class Booking:
+    id: str
+    room_id: str
+    start: int            # minutes; half-open interval [start, end)
+    end: int
 
 
-PHASES: tuple[Phase, ...] = (
-    Phase("clarify", "Clarify", 5,
-          ("core use cases", "actors", "scale and threads", "out of scope", "example io"),
-          "Core flows are A, B, C. I assume single process, in-memory. Shout if you want more."),
-    Phase("model", "Model", 7,
-          ("nouns to classes", "owner of state", "one diagram", "pattern with reason"),
-          "Pricing varies, so Strategy. Everything else stays concrete."),
-    Phase("code", "Code core", 18,
-          ("interfaces first", "happy path", "invariant in one place", "trace one example"),
-          "Contract first, then the happy path. Tracing park(car) on an empty lot."),
-    Phase("extend", "Extension", 8,
-          ("restate requirement", "say where it plugs in", "count touched classes", "name principle"),
-          "Surge pricing is one new Strategy. Lot and Ticket do not change."),
-    Phase("edges", "Edges + test", 5,
-          ("concurrency point", "invalid input", "one test with a failure"),
-          "Claiming the last spot is atomic. Full lot raises LotFull."),
-    Phase("wrap", "Wrap up", 2,
-          ("recap", "trade-offs", "ask a question"),
-          "Entities own state, pricing is a Strategy, claiming is atomic."),
-)
-BY_KEY = {p.key: p for p in PHASES}
-TOTAL_MINUTES = sum(p.minutes for p in PHASES)
+class Room:
+    def __init__(self, room_id: str, capacity: int) -> None:
+        self.id, self.capacity = room_id, capacity
+        self._lock = threading.Lock()               # the invariant lives here, so the lock does too
+        self._starts: list[int] = []                # sorted starts
+        self._bookings: list[Booking] = []          # same order as _starts
+
+    def try_book(self, b: Booking) -> bool:
+        if b.start >= b.end:
+            raise ValueError("end must be after start")
+        with self._lock:                            # check + insert = ONE step
+            i = bisect_left(self._starts, b.start)
+            if i > 0 and self._bookings[i - 1].end > b.start:           # previous runs into us
+                return False
+            if i < len(self._bookings) and self._bookings[i].start < b.end:  # we run into next
+                return False
+            self._starts.insert(i, b.start)
+            self._bookings.insert(i, b)
+            return True
+
+    def cancel(self, booking_id: str) -> bool:
+        with self._lock:
+            for i, b in enumerate(self._bookings):
+                if b.id == booking_id:
+                    del self._bookings[i]
+                    del self._starts[i]
+                    return True
+            return False
 
 
-def deadlines() -> dict[str, int]:
-    """Minute by which each phase should be finished."""
-    t, out = 0, {}
-    for p in PHASES:
-        t += p.minutes
-        out[p.key] = t
-    return out
+class Scheduler:
+    def __init__(self, rooms: list[Room]) -> None:
+        self._rooms = sorted(rooms, key=lambda r: r.capacity)   # smallest fitting room first
 
-
-DEADLINE = deadlines()
-
-
-class Clock:
-    """Fake clock in minutes so a mock round runs instantly."""
-
-    def __init__(self) -> None:
-        self.t = 0.0
-
-    def __call__(self) -> float:
-        return self.t
-
-    def advance(self, minutes: float) -> None:
-        self.t += minutes
-
-
-class Coach:
-    def __init__(self, clock: Callable[[], float]) -> None:
-        self._clock = clock
-        self._t0 = clock()
-        self._current: str | None = None
-        self._start: dict[str, float] = {}
-        self._end: dict[str, float] = {}
-        self._done: dict[str, set[str]] = {p.key: set() for p in PHASES}
-
-    def now(self) -> float:
-        return self._clock() - self._t0
-
-    def start(self, key: str) -> None:
-        if key not in BY_KEY:
-            raise KeyError(f"unknown phase {key!r}")
-        if self._current is not None:
-            self.end()
-        self._current = key
-        self._start[key] = self.now()
-
-    def tick(self, item: str) -> None:
-        if self._current is None:
-            raise RuntimeError("no active phase")
-        if item not in BY_KEY[self._current].checklist:
-            raise ValueError(f"{item!r} is not on the {self._current} checklist")
-        self._done[self._current].add(item)
-
-    def end(self) -> None:
-        if self._current is not None:
-            self._end[self._current] = self.now()
-            self._current = None
-
-    def advice(self) -> str:
-        if self._current is None:
-            return "no active phase"
-        key = self._current
-        late = self.now() - DEADLINE[key]
-        if late <= 0:
-            return f"on pace ({max(0.0, -late):.0f} min of slack to the {key} deadline)"
-        if key == "model":
-            return f"{late:.0f} min over: stop drawing. Say 'I'll start coding the core now.'"
-        if key == "code":
-            return f"{late:.0f} min over: stub the rest and move to the extension."
-        return f"{late:.0f} min over: wrap this phase now."
-
-    def report(self) -> list[str]:
-        lines = []
-        for p in PHASES:
-            if p.key not in self._start:
-                lines.append(f"{p.title:<14} not reached  (budget {p.minutes} min)")
+    def book(self, attendees: int, start: int, end: int) -> Optional[Booking]:
+        for room in self._rooms:
+            if room.capacity < attendees:
                 continue
-            spent = self._end.get(p.key, self.now()) - self._start[p.key]
-            done = len(self._done[p.key])
-            flag = "OVER" if spent > p.minutes + 1 else "ok"
-            lines.append(f"{p.title:<14} {spent:3.0f}/{p.minutes:<2} min  "
-                         f"{done}/{len(p.checklist)} items  {flag}")
-        return lines
+            booking = Booking(uuid.uuid4().hex[:8], room.id, start, end)
+            if room.try_book(booking):
+                return booking
+        return None                                  # nothing free: say "no", don't throw
 
-    def red_flags(self) -> list[str]:
-        flags = []
-        if "code" not in self._start or self._start["code"] > 15:
-            flags.append("coding started after minute 15 (or never)")
-        if "extend" not in self._start:
-            flags.append("never reached the extension")
-        if not self._done["edges"]:
-            flags.append("no edge cases or tests mentioned")
-        if not self._done["clarify"]:
-            flags.append("no clarifying questions")
-        return flags
-
-
-def simulate(title: str, plan: list[tuple[str, float, int]]) -> Coach:
-    """plan = [(phase_key, minutes_spent, checklist_items_covered)]"""
-    clock = Clock()
-    coach = Coach(clock)
-    print(title)
-    for key, spend, covered in plan:
-        coach.start(key)
-        for item in BY_KEY[key].checklist[:covered]:
-            coach.tick(item)
-        clock.advance(spend)
-        print(f"  min {coach.now():4.0f}  [{key:<7}] {coach.advice()}")
-    coach.end()
-    for line in coach.report():
-        print("   ", line)
-    print("    red flags:", coach.red_flags() or "none")
-    return coach
+    def cancel(self, booking_id: str) -> bool:
+        return any(r.cancel(booking_id) for r in self._rooms)
 
 
 if __name__ == "__main__":
-    assert TOTAL_MINUTES == 45
-    print("Deadlines (minute):", DEADLINE)
+    s = Scheduler([Room("small", 4), Room("big", 12)])
+    a = s.book(3, 600, 660)             # 10:00-11:00 -> small
+    b = s.book(3, 660, 720)             # back-to-back is fine -> small
+    c = s.book(3, 630, 690)             # overlaps small twice -> goes to big
+    print(a.room_id, b.room_id, c.room_id)          # small small big
 
-    rushed = simulate("A) Over-drew the diagram, skipped edges", [
-        ("clarify", 1, 1), ("model", 16, 4), ("code", 17, 3), ("extend", 8, 1), ("wrap", 3, 1),
-    ])
-    assert len(rushed.red_flags()) == 2
-
-    paced = simulate("B) On pace, all checklists covered", [
-        ("clarify", 5, 5), ("model", 7, 4), ("code", 18, 4),
-        ("extend", 8, 4), ("edges", 5, 3), ("wrap", 2, 3),
-    ])
-    assert paced.red_flags() == []
-
-    try:
-        paced.tick("make coffee")
-    except RuntimeError as exc:
-        print("guard:", exc)
-    print("OK")
+    # 50 threads fight for the same 1-hour slot on a single room: exactly one wins.
+    only = Scheduler([Room("r", 10)])
+    wins: list[Booking] = []
+    def go() -> None:
+        got = only.book(2, 900, 960)
+        if got:
+            wins.append(got)
+    ts = [threading.Thread(target=go) for _ in range(50)]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    print("winners:", len(wins))                     # 1
 ```
 <!-- slide -->
 ```csharp
@@ -339,234 +250,246 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-public sealed record Phase(string Key, string Title, int Minutes);
+public sealed record Booking(string Id, string RoomId, int Start, int End);   // half-open [Start, End)
 
-public static class Playbook
+public sealed class Room
 {
-    public static readonly IReadOnlyList<Phase> Phases = new[]
-    {
-        new Phase("clarify", "Clarify", 5),
-        new Phase("model",   "Model",   7),
-        new Phase("code",    "Code core", 18),
-        new Phase("extend",  "Extension", 8),
-        new Phase("edges",   "Edges + test", 5),
-        new Phase("wrap",    "Wrap up", 2),
-    };
+    private static readonly Comparer<Booking> ByStart =
+        Comparer<Booking>.Create((x, y) => x.Start.CompareTo(y.Start));
 
-    public static int Total => Phases.Sum(p => p.Minutes);
+    private readonly object _gate = new();               // the invariant lives here, so the lock does too
+    private readonly List<Booking> _bookings = new();    // sorted by Start
 
-    /// Minute by which the phase should be finished.
-    public static int Deadline(string key)
+    public string Id { get; }
+    public int Capacity { get; }
+    public Room(string id, int capacity) { Id = id; Capacity = capacity; }
+
+    public bool TryBook(Booking b)
     {
-        int t = 0;
-        foreach (var p in Phases)
+        if (b.Start >= b.End) throw new ArgumentException("end must be after start");
+        lock (_gate)                                     // check + insert = ONE step
         {
-            t += p.Minutes;
-            if (p.Key == key) return t;
+            int i = _bookings.BinarySearch(b, ByStart);
+            if (i >= 0) return false;                    // same start => overlap
+            i = ~i;                                      // insertion point
+            if (i > 0 && _bookings[i - 1].End > b.Start) return false;               // previous runs into us
+            if (i < _bookings.Count && _bookings[i].Start < b.End) return false;      // we run into next
+            _bookings.Insert(i, b);
+            return true;
         }
-        throw new ArgumentException($"unknown phase {key}");
     }
 
-    public static string Advice(string key, double elapsedMinutes)
+    public bool Cancel(string bookingId)
     {
-        double late = elapsedMinutes - Deadline(key);
-        if (late <= 0) return $"on pace ({Math.Max(0, -late):0} min slack)";
-        return key switch
-        {
-            "model" => $"{late:0} min over: stop drawing, start coding.",
-            "code"  => $"{late:0} min over: stub the rest, move to the extension.",
-            _       => $"{late:0} min over: wrap this phase now.",
-        };
+        lock (_gate) return _bookings.RemoveAll(x => x.Id == bookingId) > 0;
     }
 }
 
-public static class Demo
+public sealed class Scheduler
 {
-    public static void Main()
+    private readonly IReadOnlyList<Room> _rooms;
+    public Scheduler(IEnumerable<Room> rooms) => _rooms = rooms.OrderBy(r => r.Capacity).ToList();
+
+    public Booking? Book(int attendees, int start, int end)
     {
-        Console.WriteLine($"Total: {Playbook.Total} min");                       // 45
-        Console.WriteLine($"Code core deadline: {Playbook.Deadline("code")}");   // 30
-        Console.WriteLine(Playbook.Advice("model", 15));                          // 3 min over
-        Console.WriteLine(Playbook.Advice("code", 28));                           // on pace
+        foreach (var room in _rooms)
+        {
+            if (room.Capacity < attendees) continue;
+            var booking = new Booking(Guid.NewGuid().ToString("N")[..8], room.Id, start, end);
+            if (room.TryBook(booking)) return booking;
+        }
+        return null;                                     // nothing free: say "no", don't throw
     }
+
+    public bool Cancel(string bookingId) => _rooms.Any(r => r.Cancel(bookingId));
 }
 ```
 ````
 
-Expected Python output (verified, exit code 0):
+**Narration while typing the hot method** (this is the part that scores):
 
-```text
-Deadlines (minute): {'clarify': 5, 'model': 12, 'code': 30, 'extend': 38, 'edges': 43, 'wrap': 45}
-A) Over-drew the diagram, skipped edges
-  min    1  [clarify] on pace (4 min of slack to the clarify deadline)
-  min   17  [model  ] 5 min over: stop drawing. Say 'I'll start coding the core now.'
-  min   34  [code   ] 4 min over: stub the rest and move to the extension.
-  min   42  [extend ] 4 min over: wrap this phase now.
-  min   45  [wrap   ] on pace (0 min of slack to the wrap deadline)
-    Clarify          1/5  min  1/5 items  ok
-    Model           16/7  min  4/4 items  OVER
-    Code core       17/18 min  3/4 items  ok
-    Extension        8/8  min  1/4 items  ok
-    Edges + test   not reached  (budget 5 min)
-    Wrap up          3/2  min  1/3 items  ok
-    red flags: ['coding started after minute 15 (or never)', 'no edge cases or tests mentioned']
-B) On pace, all checklists covered
-  min    5  [clarify] on pace (0 min of slack to the clarify deadline)
-  min   12  [model  ] on pace (0 min of slack to the model deadline)
-  min   30  [code   ] on pace (0 min of slack to the code deadline)
-  min   38  [extend ] on pace (0 min of slack to the extend deadline)
-  min   43  [edges  ] on pace (0 min of slack to the edges deadline)
-  min   45  [wrap   ] on pace (0 min of slack to the wrap deadline)
-    Clarify          5/5  min  5/5 items  ok
-    Model            7/7  min  4/4 items  ok
-    Code core       18/18 min  4/4 items  ok
-    Extension        8/8  min  4/4 items  ok
-    Edges + test     5/5  min  3/3 items  ok
-    Wrap up          2/2  min  3/3 items  ok
-    red flags: none
-guard: no active phase
-OK
-```
-
-What to notice:
-
-- The **fake clock** makes a 45-minute round run in milliseconds — the same trick as an injected clock in a rate limiter ([18](../18-lru-lfu-cache-and-rate-limiter/README.md)).
-- `advice()` encodes the **recovery moves**: over on *model* → stop drawing; over on *code* → stub and move on.
-- `red_flags()` is what a hiring committee writes down: coding late, no extension, no edges, no questions.
-- Real practice: use your phone timer with phase alarms at **5, 12, 30, 38, 43** and compare against your own checklist.
+> "Bookings per room are kept sorted by start, so I binary-search the insertion point. With half-open intervals, a new booking overlaps only if the previous one ends after it starts, or the next one starts before it ends — two neighbor checks, O(log n) search. The lock wraps check and insert together; if I locked them separately, two threads could both pass the check."
 
 ---
 
-## 5. Edges — when the plan breaks
+## 5. Rescue moves (scripts you can borrow)
 
-| Situation | Move |
+| Situation | What to say / do |
 | :--- | :--- |
-| **You blank on the design** | Say it: "Two options: A is simpler, B is more extensible. I'll start with A and keep a seam for B." Then write code. |
-| **You're behind at minute 12** | Cut scope out loud: "I'll cover booking and cancel; I'll leave waitlists as a bullet." |
-| **Interviewer says "just code it"** | Skip the diagram. Write interfaces → code. Keep the narration. |
-| **Extension arrives at minute 10** | Note it ("I'll make sure this plugs in"), finish the model, handle it in Phase 4 — or earlier if they insist. |
-| **Interviewer interrupts with a different design** | Don't defend, evaluate: "That works if X. The trade-off I see is Y. Happy to go that way." |
-| **Language/syntax slip** | Say "pseudo-Python here" and move on; correctness of idea > semicolon. |
-| **Running out of time at minute 40** | Skip new code; verbally cover concurrency + tests, then wrap. A clean ending beats a half-finished feature. |
-| **60-minute or 90-minute format** | Same shape, scale code and edges up; keep clarify at ~10% and wrap at ~5%. |
-
-**When *not* to follow this exactly:** a machine-coding round (runnable program, 90+ min, graded on tests) shifts the weight to code and tests. A design-discussion-only round shifts it to diagrams and trade-offs. Ask the format in the first 30 seconds.
+| **Minute 28 and you only have half the code** | "I want to protect time for trade-offs. Let me stub the remaining methods with signatures and walk through the flow verbally." Then do it. |
+| **Twist at minute 30** ("now add VIP rooms / recurrence") | "Good — that's an extension point. This is the seam: `RoomSelectionStrategy`. I'd add a new strategy; `Room` and `Scheduler` don't change." Don't erase the board. |
+| **Interviewer challenges your pattern** | "Fair point — for one rule a plain `if` is simpler (YAGNI). I'd use Strategy once there are two policies or they change independently." Concede the valid part, restate the reason. |
+| **Blank mind on an API** | "Let me write the contract first: inputs, outputs, failure." Writing the signature unblocks you. |
+| **Interviewer is silent** | Ask: "Does this level of detail work, or should I go deeper on concurrency / extensibility?" |
+| **You spot your own bug** | Say it immediately: "I see a bug — check and insert aren't atomic." Self-correction is a *positive* signal. |
+| **You don't know the answer** | "I haven't used X; here's how I'd reason about it." Then reason from first principles. |
 
 ---
 
-## 6. What you'd say in two minutes (the opener)
+## 6. Edges — when the protocol bends
 
-> "Thanks — before I jump in I'd like to confirm scope. I'll restate: we're designing a [system] that supports [use cases A, B, C]. I'll assume in-memory, single process, multiple threads, and I'll leave out [auth, payments]. If that's right, I'll spend about five minutes on requirements, seven on the model, then write the core flow, and leave time for an extension and edge cases at the end. I'll narrate as I go — please interrupt whenever you want a different direction. The nouns I'm seeing are [X, Y, Z]; I'll start with a Strategy for [the thing that varies] and keep everything else concrete."
+| Format | Adjust |
+| :--- | :--- |
+| **60–90 min machine-coding (runnable code expected)** | Compress phases 1–3 to ~15 min; spend ~45 min on *working, runnable* code with a `main` that demonstrates it; finish with 10 min on extensions. Write a few tests early. |
+| **Whiteboard, no compiler** | Pseudocode is fine, but keep real names and types. Hand-trace one example. |
+| **Take-home** | Same design thinking, plus tests, a README with assumptions, and a short "what I'd do next" list. |
+| **"Just design the classes" (no code)** | Spend phase 4 time on sequence diagrams and invariants instead. |
+| **Language constraints** | Pick the one you can type fastest. Mention the equivalent idiom if the interviewer prefers another. |
+| **Very senior role** | Spend more time on trade-offs, failure modes, and scaling (phase 5 gets 12–15 min). |
+| **Junior / new-grad** | Show clean OOP, a correct core, and tests; concurrency is a bonus unless asked. |
+| **Interviewer takes over** | Follow their path. The protocol is a safety net, not a script. |
 
-Then the **closer**:
-
-> "To recap: [entities] own their state, [varying behavior] is a Strategy so new variants are new classes, and [critical operation] is atomic. If I had more time I'd add persistence behind a repository and events for [X]. What would you like to dig into?"
-
----
-
-## 7. Common fails (anti-patterns)
-
-1. **Silent whiteboarding** — you think for 3 minutes and write nothing. Fix: narrate options, even half-formed.
-2. **The 20-minute UML** — a diagram with 14 classes and no code. Fix: 7-minute cap; start typing by minute 15.
-3. **Skipping clarification** — you solve the wrong problem confidently. Fix: five questions, then restate.
-4. **Pattern name-dropping** — "I'll use Abstract Factory" with no reason. Fix: *"Because X varies and I want Y closed."*
-5. **Everything is an interface** — `IUserService` with one implementation and no plan for a second. Fix: interface when a second implementation is plausible.
-6. **Over-engineering up front** — microservices and Kafka for an in-memory parking lot. Fix: simplest design that handles the stated scope; mention scale as a follow-up.
-7. **Concurrency as an afterthought** — "oh, and we'd add a lock." Fix: name the *critical section* in the model phase.
-8. **No test, no summary** — the round ends mid-sentence. Fix: protect the last 5 minutes.
+**Don't over-engineer:** if a question can be answered with one class and a dictionary, do that and mention how it would grow.
 
 ---
 
-## 8. Interview questions
+## 7. War story (short)
+
+A strong engineer with eight years of experience got the prompt *"design an in-memory cache with eviction."* He typed a thread-safe LRU for 28 minutes without a word. At minute 35 the interviewer asked, *"How does this work across servers?"* He had assumed one process and never said so. Feedback: *"strong coder, no visible design process, unverified assumptions."* Reject.
+
+**Fix:** three questions up front, one diagram, narration at every transition, and a closing paragraph of named simplifications. The same code would have passed.
+
+---
+
+## 8. What you'd say in two minutes (the opener)
+
+> "Before I design anything, let me confirm scope. I'm assuming in-memory, multiple threads, times in integer minutes, and half-open intervals so back-to-back meetings are fine. Out of scope: recurrence, auth, persistence — tell me if that's wrong.
+>
+> Core entities: `Room` owns its bookings and its lock; `Booking` is an immutable record; a `Scheduler` picks a room. The one race is check-then-insert on a room, so the lock goes inside `Room`, and different rooms never contend. I'll write that method first, then a quick demo, then spend the last ten minutes on trade-offs: coarse per-room lock, linear room scan, and how I'd extend to recurring meetings or a selection strategy."
+
+Practice this opener until it takes **under 90 seconds**, then swap the nouns for any problem.
+
+---
+
+## 9. Anti-patterns
+
+1. **Typing in the first minute** — you will solve the wrong problem.
+2. **Silent coding** — the interviewer can't grade thinking they can't hear.
+3. **Class per noun** — dropping nouns is a skill; say which you dropped and why.
+4. **Pattern bingo** — "Singleton, Factory, Observer!" without a pain. Say the problem first.
+5. **Gold-plating** — recurrence, payments, and auth before the core works.
+6. **Boilerplate first** — 10 minutes of getters; zero minutes on the hot path.
+7. **Ignoring concurrency when asked "multiple users"** — at least name the critical section.
+8. **Claiming "done" with no trade-offs** — read as inexperience.
+9. **Defending instead of discussing** — pushback is a design review, not an attack.
+10. **No clock / no tests mentioned** — one sentence about injecting time and faking dependencies earns easy credit.
+
+---
+
+## 10. Interview questions
 
 <details>
 <summary><strong>1. How do you split 45 minutes? [BASIC]</strong></summary>
 
-About 5 clarify, 7 model, 18 code, 8 extension, 5 edges/tests, 2 wrap. Code should start by minute 12–15 at the latest.
+Clarify 5 · entities 5 · diagram + method signatures 10 · core code 15 · trade-offs 7 · buffer 3. Adjust by format: runnable-code rounds shift time from diagrams to code.
 
 </details>
 
 <details>
-<summary><strong>2. What do you ask first? [BASIC]</strong></summary>
+<summary><strong>2. What do you ask in the first five minutes? [BASIC]</strong></summary>
 
-Scope and constraints: the 3–4 core use cases, who the actors are, single process vs distributed, concurrency expectations, what's explicitly out of scope, and one concrete example. Then restate before designing.
-
-</details>
-
-<details>
-<summary><strong>3. Why narrate while coding? [BASIC]</strong></summary>
-
-The interviewer grades reasoning and collaboration, not just the final code. Narration shows design intent, lets them redirect you early, and turns a bug into a visible, recoverable moment.
+Core use cases, scale (one process or distributed), concurrency (multiple threads?), actors, and what's out of scope. Then write three assumptions down and get a nod.
 
 </details>
 
 <details>
-<summary><strong>4. You have 10 minutes left and the core isn't done. [SCENARIO]</strong></summary>
+<summary><strong>3. What does "named simplification" mean and why does it help? [BASIC]</strong></summary>
 
-Stub the rest explicitly ("`cancel()` is the same shape — I'll leave it"), get one path runnable, then spend two minutes on concurrency and a test, and one on the summary. A working, narrated core beats a complete, untested sprawl.
-
-</details>
-
-<details>
-<summary><strong>5. Mid-round the interviewer adds "now support surge pricing." [SCENARIO]</strong></summary>
-
-Restate it, say where it plugs in (a new `PricingStrategy`), add one class, inject it, and point out nothing else changed. If you can't plug it in cleanly, say so and describe the refactor that would make it clean — that's also a good answer.
+Explicitly saying what you skipped and what you'd do instead: "I used a per-room lock; at scale I'd shard by room id across nodes." It turns an omission into a visible judgment call.
 
 </details>
 
 <details>
-<summary><strong>6. The interviewer proposes a design you think is worse. [SCENARIO]</strong></summary>
+<summary><strong>4. At minute 30 you're far behind. What now? [SCENARIO]</strong></summary>
 
-Don't argue; evaluate. "That works well if X. The trade-off I'd flag is Y. I can go with it — here's how I'd mitigate Y." Disagreeing with data and staying flexible is a senior signal.
-
-</details>
-
-<details>
-<summary><strong>7. Class diagram first, or code first? [TRICKY]</strong></summary>
-
-A small diagram (or just a list of classes and one-line responsibilities) first — cap it at ~7 minutes — then code. A giant UML with no code scores badly; code with no model risks restructuring at minute 30. If the interviewer says "show me code," go to interfaces immediately.
+Stop writing boilerplate. Say "I'm protecting time for trade-offs," stub remaining methods with signatures, walk through the main flow verbally, and make sure the hot method and the critical section are complete. Then do phase 5.
 
 </details>
 
 <details>
-<summary><strong>8. How many patterns should I use? [TRICKY]</strong></summary>
+<summary><strong>5. The interviewer adds a big new requirement mid-way. [SCENARIO]</strong></summary>
 
-As few as the problem demands — usually one or two, each with a stated reason. Forcing five patterns signals pattern-hunting. The best answer names the thing that varies, picks the simplest seam for it, and leaves everything else concrete.
+Identify the seam: "this is an extension point." Name the class or interface that absorbs it (new Strategy, new State, new handler). Implement it in a few minutes without rewriting existing classes. If you can't, say what would have to change and why — that's honest and informative.
+
+</details>
+
+<details>
+<summary><strong>6. Interviewer says "why Strategy? An `if` would be simpler." [SCENARIO]</strong></summary>
+
+Agree on what's true: for one fixed rule, `if` wins (YAGNI). Then give the concrete pain: policies change independently, we need to add them without editing the class, and we want to test each in isolation. Offer to simplify if requirements are static.
+
+</details>
+
+<details>
+<summary><strong>7. Should you write tests in a 45-minute interview? [TRICKY]</strong></summary>
+
+Not a full suite. Do a 3-line demo or a hand trace that covers the happy path and one edge (overlap, last spot, empty input). Mention *how* you'd test (inject clock, fake dependencies, concurrency test with many threads). In a runnable machine-coding round, write a couple of real tests early.
+
+</details>
+
+<details>
+<summary><strong>8. You realize mid-code that your design has a flaw. [TRICKY]</strong></summary>
+
+Say it out loud right away, state the smallest fix, and apply it. "Check and insert must be one atomic step; I'll move both inside the lock." Interviewers read quick, calm self-correction as seniority; hiding the bug reads as the opposite.
 
 </details>
 
 ---
 
-## 9. Try it
+## 11. Problem → pattern quick map
 
-1. Run the Python simulator. Change the "rushed" plan so it still passes all red-flag checks — what's the minimum you must change?
-2. Pick one problem — [Parking Lot](../12-parking-lot-and-elevator/README.md), [Library & Vending Machine](../13-library-and-vending-machine/README.md), [Splitwise](../15-splitwise-expense-sharing/README.md), or [LRU & Rate Limiter](../18-lru-lfu-cache-and-rate-limiter/README.md) — and do a **real timed dry run**: phone timer, alarms at 5/12/30/38/43, talk out loud, record yourself.
-3. In [LLD Studio](/tools/lld-studio/), draw the model for your problem in 7 minutes. Stop when the timer stops.
-4. Replay your recording and count: seconds of silence over 30, number of clarifying questions, minute you started coding, whether you mentioned concurrency and a test.
-5. Work the speed-run checklist and drills in the [LLD practice sheet](../PRACTICE.md), then finish with the [Capstone](../22-capstone-project/README.md).
+| Prompt | Core idea | Where to review |
+| :--- | :--- | :--- |
+| Parking lot / elevator | Atomic reserve per level; Strategy + State | [12](../12-parking-lot-and-elevator/README.md) |
+| Library / vending machine | State machine; inventory invariants | [13](../13-library-and-vending-machine/README.md) |
+| Tic-tac-toe / chess | Board model, rules per piece, win detection | [14](../14-tic-tac-toe-and-chess/README.md) |
+| Splitwise | Integer cents, canonical pair ledger, greedy settle-up | [15](../15-splitwise-expense-sharing/README.md) |
+| Movie tickets | Seat holds with expiry, atomic multi-seat booking | [16](../16-movie-ticket-booking/README.md) |
+| Ride sharing | Matching Strategy, trip State, location indexing | [17](../17-ride-sharing/README.md) |
+| LRU / LFU / rate limiter | Map + list, frequency buckets, token bucket, injected clock | [18](../18-lru-lfu-cache-and-rate-limiter/README.md) |
+| SDK / library API | Fluent builders, DI, versioning | [19](../19-api-library-design-and-di/README.md) |
+| Code review / smell round | Name the smell, pick the refactor | [20](../20-anti-patterns-and-code-smells/README.md) |
 
 ---
 
-## 10. One-page cheat sheet
+## 12. Try it
+
+**The timed dry run (45 minutes, once a week):**
+
+1. Pick a prompt from section 11 (or ask someone to pick one).
+2. Set a countdown and say each phase transition out loud: "Phase 2: entities."
+3. Draw the model in [LLD Studio](/tools/lld-studio/) in 7 minutes (phase 3 rehearsal).
+4. Write code at the pace of section 4: signatures first, then the hot method.
+5. Record yourself (voice is enough). In the replay, count silent stretches longer than 30 seconds.
+6. Self-grade with the signal table in section 1. Fix the lowest score first.
+
+**Drills:**
+
+- Say the two-minute opener for three different problems; keep each under 90 seconds.
+- Take any module in this repo and list its *named simplifications* in one breath.
+- Break your own design: "what if two threads call this at once?" — find the check-then-act.
+
+---
+
+## 13. One-page cheat sheet
 
 ```text
-CLOCK     0-5 clarify | 5-12 model | 12-30 code | 30-38 extend | 38-43 edges+test | 43-45 wrap
-CHECKS    min 5: requirements list | min 12: classes + 1 diagram | min 15: typing code
-          min 30: core runs on 1 example | min 38: extension in | min 43: concurrency + test said
-ASK       use cases (3-4) / actors / threads? / out of scope / one example -> restate
-MODEL     nouns -> classes, verbs -> owner's methods, ONE pattern + reason, interface only if a 2nd impl is plausible
-CODE      interfaces first -> happy path -> invariant in one place -> trace one example aloud
-EXTEND    restate -> where it plugs in -> new class -> count touched classes -> name the principle
-EDGES     critical section / lock | invalid input | one failing test
-BEHIND?   cut scope OUT LOUD. Stub the rest. Protect the last 5 minutes.
-STUCK?    "Two options: A simple, B extensible. Starting with A, leaving a seam for B."
-NEVER     silent > 30s | UML > 7 min | pattern without a reason | no summary
+CLOCK     0-5 clarify | 5-10 entities | 10-20 diagram+methods | 20-35 code | 35-42 trade-offs | 42-45 buffer
+CLARIFY   use cases? scale (1 process / distributed)? threads? actors? OUT of scope? -> write 3 assumptions
+ENTITIES  noun -> entity (identity) / value object (immutable) / drop.  Money = cents.  Time = injected clock.
+DIAGRAM   boxes + 1-line responsibilities, signatures only, MARK the critical section, name pattern + its pain
+CODE      types -> signatures -> hot method -> 3-line demo.  Skip getters and docstrings (say them).
+TRADEOFFS 3 named simplifications + 1 scale story + 1 extension (which class it touches)
+RESCUE    behind? stub + narrate.  twist? "this is the seam".  pushback? concede the true part.  bug? say it first.
 
-Say aloud: "Here's what I'm assuming, here's what I'm building first, here's where it plugs in next."
+NEVER     silent coding | class per noun | pattern bingo | "it's done" | defending instead of discussing
+ALWAYS    narrate | state assumptions | name the lock | name what you skipped
+
+Say aloud: "Here's my assumption... here's the invariant... here's where the lock lives... here's what I skipped."
 ```
 
 ---
 
 ## Next
 
-**[22 · Capstone Project](../22-capstone-project/README.md)** — a full end-to-end design under the clock you just practiced.
+**[22 · Capstone Project](../22-capstone-project/README.md)** — put the full protocol to work on an unguided, end-to-end design.
