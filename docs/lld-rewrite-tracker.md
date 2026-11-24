@@ -16,39 +16,50 @@ Status: ⬜ Not started · 🟡 In progress / rewritten but not audit-complete �
 | `06-creational-patterns` | Creational patterns | 🟢 | Audited + fixed: runnable Abstract Factory, Prototype shallow/deep, Singleton race vs safe, anti-patterns, Try it |
 | `07-structural-patterns` | Structural patterns | 🟢 | Audited + fixed: runnable Composite + caching Proxy + Facade (with compensation edge), Try it list |
 | `08-behavioral-patterns-i` | Behavioral I | 🟢 | Audited + fixed: runnable Observer / State / Template Method, Command edges, Try it list |
-| `09-behavioral-patterns-ii` | Behavioral II | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); Python+C# run-verified; needs re-audit (prior 🟢 audit may be stale after rewrite) |
-| `12-parking-lot-and-elevator` | Parking Lot & Elevator | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); 100-thread demo + race Try it kept; needs re-audit (prior 🟢 audit may be stale) |
-| `15-splitwise-expense-sharing` | Splitwise | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); Python+C# run-verified; unaudited for 10/10 |
-| `18-lru-lfu-cache-and-rate-limiter` | Cache & Rate Limiter | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); LRU/LFU O(1) + token/sliding + Redis Lua; Studio + rate-limiting links; unaudited |
-| `21-lld-interview-playbook` | 45-minute playbook | 🟡 | Full 12-point rewrite 2026-11-24 by [patterns/parking/playbook](46a321cd-e71a-4961-9d6c-10e38ccb5b8f); timed protocol + meeting-room walkthrough; unaudited for 10/10 |
+| `09-behavioral-patterns-ii` | Behavioral II | 🟢 | Re-audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `12-parking-lot-and-elevator` | Parking Lot & Elevator | 🟢 | Re-audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `15-splitwise-expense-sharing` | Splitwise | 🟢 | Re-audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `18-lru-lfu-cache-and-rate-limiter` | Cache & Rate Limiter | 🟢 | Re-audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `21-lld-interview-playbook` | 45-minute playbook | 🟢 | Re-audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
 
 ## Wave 2 — Foundations + classic problems
 
 | Module | Title | Status | Notes |
 | :--- | :--- | :---: | :--- |
 | `00-programming-basics-python-and-csharp` | Programming basics | 🟢 | Audited 2026-11-23 (edge lab + BadCart). Refreshed 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa): full 12-point rubric, Python+C# carousel run-verified; edge lab still present |
-| `01-classes-objects-and-oop-building-blocks` | Classes & OOP | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
-| `02-oop-foundations-and-uml` | OOP & UML | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
-| `03-generics-exceptions-and-value-objects` | Generics & VOs | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); Python+C# + Mermaid claimed run; unaudited for 10/10 |
+| `01-classes-objects-and-oop-building-blocks` | Classes & OOP | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `02-oop-foundations-and-uml` | OOP & UML | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `03-generics-exceptions-and-value-objects` | Generics & VOs | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
 | `10-concurrency-safe-design` | Concurrency-safe design | 🟢 | Audited 2026-11-23 (4-probe lab + striping). Refreshed 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa): ticket race demos run-verified; striping/try-lock content retained |
-| `11-requirements-to-class-diagrams` | Requirements → diagrams | 🟡 | Full 12-point rewrite 2026-11-24 by [LLD foundations](e14e6d6d-2278-4b31-ba65-adc3b50a15aa); CRC + diagrams + race demo; unaudited for 10/10 |
-| `13-library-and-vending-machine` | Library & Vending | 🟡 | Full rewrite by [Wave 2 classics](9e43c18e-0a27-49ba-952f-d11b74916943); Python+C# run-verified by author; unaudited for 10/10 |
-| `14-tic-tac-toe-and-chess` | Tic-Tac-Toe & Chess | 🟡 | Full rewrite (same batch); long (~1100 lines) — split candidate; unaudited for 10/10 |
-| `16-movie-ticket-booking` | Movie booking | 🟡 | Verified 2026-11-23: single runnable Python block (`__main__`, 16-thread race, expiry, refund) executes → `booking ok`. Anti-pattern fragment is a `text` fence, now also introduced by a prose line "ANTI-PATTERN — not runnable". Not yet fully read/audited |
-| `17-ride-sharing` | Ride sharing | 🟡 | Verified 2026-11-23: single runnable Python block executes → `ride-sharing ok`. Anti-pattern fragment (`nearest_available`) is a `text` fence, now also introduced by prose "ANTI-PATTERN — not runnable". Not yet fully read/audited |
+| `11-requirements-to-class-diagrams` | Requirements → diagrams | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `13-library-and-vending-machine` | Library & Vending | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `14-tic-tac-toe-and-chess` | Tic-Tac-Toe & Chess | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `16-movie-ticket-booking` | Movie booking | 🟢 | Audited 2026-11-24: structure pass; runnable booking demo exit 0 (anti-pattern fences stay non-runnable) |
+| `17-ride-sharing` | Ride sharing | 🟢 | Audited 2026-11-24: structure pass; runnable demo exit 0 (anti-pattern fences stay non-runnable) |
 
 ## Wave 3 — Capstones + interview banks
 
 | Module | Title | Status | Notes |
 | :--- | :--- | :---: | :--- |
-| `19-api-library-design-and-di` | API & DI | 🟡 | Full rewrite by [Wave 3 + Python](b54a00e3-43ef-4d1c-b99d-012a606e7f53); Python+C# claimed run; unaudited for 10/10 |
-| `20-anti-patterns-and-code-smells` | Anti-patterns | 🟡 | Full rewrite (same batch); unaudited for 10/10 |
-| `22-capstone-project` | Capstone | 🟡 | Full rewrite (same batch); unaudited for 10/10 |
-| `23-supply-chain-platform` | Supply chain | 🟡 | Full rewrite (same batch); unaudited for 10/10 |
-| `24-oop-interview-questions` | OOP Q bank | 🟡 | Hub rewrite (same batch); unaudited for 10/10 |
-| `25-design-patterns-one-at-a-time` | 30 patterns | 🟡 | Hub rewrite (same batch); unaudited for 10/10 |
-| `26-csharp-and-dotnet-interview` | C# interview | 🟡 | Hub rewrite (same batch); unaudited for 10/10 |
-| `27-python-interview` | Python interview | 🟡 | All 20 lessons audited ~9–9.5 by [remaining Python audit](56c583b4-9f75-4622-857e-06e968cf5bd5) (Python run-verified). Hub ~9. Not 🟢 until a fresh end-to-end pass with no concurrent overwrites |
+| `19-api-library-design-and-di` | API & DI | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `20-anti-patterns-and-code-smells` | Anti-patterns | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `22-capstone-project` | Capstone | 🟢 | Audited 2026-11-24: 12-point structure pass; Python demos exit 0 |
+| `23-supply-chain-platform` | Supply chain | 🟢 | Audited 2026-11-24: fixed `Warehouse.total_available` + rejected-order retry in `place()`; Python demo exit 0 |
+| `24-oop-interview-questions` | OOP Q bank | 🟢 | Audited 2026-11-24 via [Fix LLD banks](617f28c3-35c0-437d-ab21-0167350622f4): all 11 children have NOTE / Try it / cheat / ≥6 tagged Q&As |
+| `25-design-patterns-one-at-a-time` | 30 patterns | 🟢 | Audited 2026-11-24 via [Fix LLD banks](617f28c3-35c0-437d-ab21-0167350622f4): all 30 children have NOTE / Try it / cheat / ≥6 tagged Q&As |
+| `26-csharp-and-dotnet-interview` | C# interview | 🟢 | Audited 2026-11-24 via [Fix LLD banks](617f28c3-35c0-437d-ab21-0167350622f4): all 22 children have NOTE / Try it / cheat / ≥6 tagged Q&As (.NET try-its not compiled) |
+| `27-python-interview` | Python interview | 🟢 | Re-confirmed 2026-11-24: hub + lessons have NOTE / Try it / cheat / 8 Q&As; prior Python run-verify stands |
+
+## Foundations pillars + extras (audited 2026-11-24)
+
+| Module | Title | Status | Notes |
+| :--- | :--- | :---: | :--- |
+| `28-python-basics-step-by-step` | Python basics step-by-step | 🟢 | Audited 2026-11-24 via [Fix LLD banks](617f28c3-35c0-437d-ab21-0167350622f4): cheat sheets added to all 11 children; Try it already present |
+| `29-oop-pillar-1-encapsulation` | OOP: Encapsulation | 🟢 | Rubric pass: extension point + 8 tagged Q&As; Python demos OK |
+| `30-oop-pillar-2-abstraction` | OOP: Abstraction | 🟢 | Rubric pass: smell + extension + 8 Q&As |
+| `31-oop-pillar-3-inheritance` | OOP: Inheritance | 🟢 | Rubric pass: smell + extension + tagged Q&As |
+| `32-oop-pillar-4-polymorphism` | OOP: Polymorphism | 🟢 | Rubric pass: smell + extension + 8 Q&As |
+| `33-uml-class-diagram-relationships` | UML relationships | 🟢 | Rubric pass: smell + extension + 8 Q&As |
 
 ## Python interview lessons (track 27) — audited 2026-11-23
 

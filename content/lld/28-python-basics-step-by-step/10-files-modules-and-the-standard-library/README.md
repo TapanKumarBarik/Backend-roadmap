@@ -802,6 +802,20 @@ A private copy of the Python packages for one project, created with `python -m v
 Python uses `pip` with PyPI and `requirements.txt`. .NET uses NuGet with `dotnet add package`, and the dependency list is stored in the `.csproj` file.
 </details>
 
+## Cheat sheet
+
+```text
+with open(path, "r", encoding="utf-8") as f:   modes r w a x  (+ "b" for bytes)
+f.read()  f.readline()  for line in f  (memory-friendly)  f.write(s)  writelines
+pathlib: Path("a") / "b.txt"  .exists() .read_text() .write_text() .mkdir(parents=True, exist_ok=True)
+csv.reader / DictReader / DictWriter (newline="")   json.load / dump / loads / dumps
+import x | from x import y | import x as z   file = module, folder with __init__.py = package
+if __name__ == "__main__": runs only when executed directly
+Stdlib: math random datetime collections itertools sys os argparse logging
+pip install pkg  inside a venv: python -m venv .venv
+Always encoding="utf-8"; use with so files close
+```
+
 ---
 
 ## Further reading

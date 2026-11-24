@@ -15,6 +15,20 @@
 
 ---
 
+## The smell: why interviewers ask this
+
+Prompt: *"Send notifications by email today. SMS and push come next quarter. And I want to unit-test without sending anything."*
+
+The smell in the first draft:
+
+- `if channel == "email": ... elif channel == "sms": ...` inside the core class.
+- `Notifier` builds `EmailSender()` itself, so a test sends real email.
+- A method like `send(smtp_host, region, ...)` forces every caller to know one backend's details.
+
+If you ignore it, every new backend edits core code and every test touches the network. The fix is a small contract the core depends on, with the details plugged in behind it.
+
+---
+
 ## 1. Roadmap: what you will learn
 
 You will go through the chapter in this order. Each step builds on the one before.
@@ -1224,6 +1238,8 @@ What this example shows:
 - `CachedStore` is both a `BlobStore` and *holds* a `BlobStore`. Abstraction makes this layering easy.
 - Tests use `InMemoryStore`, so they are fast and need no disk.
 
+**Extension point.** Interviewer says "now archive to S3." Write one new subclass that fills in `_write` and `_read`. `archive_report` does not change. If you had to edit it, the abstraction leaked. A second axis, such as compression, is another wrapper in the style of `CachedStore`, not a new branch in the base class.
+
 ---
 
 ## 10. Edge cases interviewers push on
@@ -1447,72 +1463,58 @@ Remove the interface for now. It is premature abstraction: one implementation an
 ## 16. Interview questions and model answers
 
 <details>
-<summary><strong>Q1. What is abstraction, and how is it different from encapsulation?</strong></summary>
+<summary><strong>1. What is abstraction, and how is it different from encapsulation? [BASIC]</strong></summary>
 
 Abstraction shows the essential contract and hides the complexity behind it. Encapsulation protects the internal data with access control and validation. Abstraction is about what the outside **sees** (a small, stable set of operations). Encapsulation is about what the outside **cannot touch** (private state). Car example: pedals and steering wheel are the abstraction. The sealed engine bay is the encapsulation.
 
 </details>
 
 <details>
-<summary><strong>Q2. What is the difference between an abstract method and an abstract class?</strong></summary>
+<summary><strong>2. Abstract class or interface? And what is an abstract method? [BASIC]</strong></summary>
 
-An **abstract method** is a single operation with a signature and no implementation. Subclasses must provide it. An **abstract class** is a whole class that is incomplete on purpose and cannot be instantiated. It *may* contain abstract methods (usually it does), but also concrete methods, fields and a constructor. In C#, a class with an abstract method must itself be marked `abstract`. In Python, a class becomes uninstantiable if it uses `ABC` and still has at least one unimplemented `@abstractmethod`.
-
-</details>
-
-<details>
-<summary><strong>Q3. What is the difference between an abstract class and an interface?</strong></summary>
-
-An interface is a pure contract: what a type **can do**. A class can implement many, and an interface has no instance state or constructor. An abstract class is a partial implementation: what a type **is**. It can hold state, a constructor and shared code (template methods), but in C# a class can inherit only one. Use an abstract class when implementations share code or state. Use an interface for a capability across unrelated types or at a dependency boundary. In C# 8+ interfaces can have default method bodies, but still no instance fields. In Python, the closest to an interface is a `Protocol` or an ABC with only abstract methods.
+An **abstract method** is one operation with a signature and no body. An **abstract class** is incomplete on purpose and cannot be instantiated. It may mix abstract methods with concrete methods, state and a constructor. An **interface** is a pure contract: what a type **can do**, no instance state, and a class can implement many. Use an abstract class when implementations share code or state (template method). Use an interface for a capability across unrelated types or at a dependency boundary. C# allows one base class only. In Python the closest to an interface is a `Protocol` or an ABC with only abstract methods.
 
 </details>
 
 <details>
-<summary><strong>Q4. Can you instantiate an abstract class?</strong></summary>
+<summary><strong>3. Can you instantiate an abstract class? Can it have a constructor? [TRICKY]</strong></summary>
 
-No. In C# the compiler rejects `new Shape()` with CS0144. In Python, `Shape()` raises `TypeError: Can't instantiate abstract class Shape ...` when the class uses `ABC` and has unimplemented abstract methods. The same applies to a subclass that did not implement all the abstract methods. You can, however, hold a **variable of the abstract type** that refers to a concrete subclass object: `Shape s = new Circle(1);`.
-
-</details>
-
-<details>
-<summary><strong>Q5. Can an abstract class have a constructor?</strong></summary>
-
-Yes. You never call it directly with `new`, but each subclass constructor calls it (`super().__init__(...)` in Python, `: base(...)` in C#). It is used to set shared state and enforce rules that every subclass must satisfy. A good follow-up point: do not call an abstract or virtual method from that constructor, because the subclass is not fully built yet.
+No to the first. C# rejects `new Shape()` with CS0144. Python raises `TypeError: Can't instantiate abstract class ...` when the class uses `ABC` and a method is still unimplemented. The same applies to a subclass that skipped one. You can hold a variable of the abstract type that refers to a concrete object: `Shape s = new Circle(1);`. Yes to the second: subclasses call it through `super().__init__(...)` or `: base(...)`, and it is the right place for shared validation. Follow-up: never call an abstract or virtual method from it, because the subclass is not built yet. One more trap: in Python, without `ABC` the `@abstractmethod` decorator is silently ignored.
 
 </details>
 
 <details>
-<summary><strong>Q6. Does Python have interfaces?</strong></summary>
+<summary><strong>4. Does Python have interfaces? [BASIC]</strong></summary>
 
-Not as a keyword, but it has three ways to get the same effect. **Duck typing**: just call the method and trust the object. **ABCs** (`abc.ABC` plus `@abstractmethod`): nominal, you must inherit, and Python enforces the contract at instantiation. **`typing.Protocol`**: structural, a type checker verifies that a class has the right methods without inheritance. With `@runtime_checkable`, `isinstance` also works, but it only checks that the methods exist.
-
-</details>
-
-<details>
-<summary><strong>Q7. What is a leaky abstraction?</strong></summary>
-
-One that forces callers to know the hidden detail to use it correctly. Examples: a `send` method that requires an SMTP host, a `Storage` that works only if you call `connect()` first, or code that does `isinstance(store, FileStore)` to special-case. The fix is to make the contract speak in the caller's language and push the details into the implementations and their constructors.
+Not as a keyword, but it has three ways to get the same effect. **Duck typing**: call the method and trust the object. **ABCs** (`abc.ABC` plus `@abstractmethod`): nominal, you must inherit, and Python enforces the contract at instantiation. **`typing.Protocol`**: structural, a type checker verifies the methods without inheritance. With `@runtime_checkable`, `isinstance` works too, but it only checks that the methods exist.
 
 </details>
 
 <details>
-<summary><strong>Q8. How does abstraction help testing? (dependency inversion)</strong></summary>
+<summary><strong>5. A teammate's `Storage.save(bucket_name, aws_region, key, data)` feels wrong. What is it, and how do you fix it? [SCENARIO]</strong></summary>
 
-If `Notifier` depends on a `Channel` contract and receives it through its constructor, a test can pass a `FakeChannel` that records messages instead of sending them. The test is fast and has no network, no real email and no flakiness. If `Notifier` created `EmailSender` itself, you could not test it without side effects. This is the Dependency Inversion Principle: high-level code and low-level code both depend on an abstraction, and the details plug into it.
-
-</details>
-
-<details>
-<summary><strong>Q9. When should you not use abstraction?</strong></summary>
-
-When there is only one implementation, no fake, and no realistic second case. Extra interfaces and base classes add files, indirection and names without adding flexibility. This is premature abstraction or speculative generality. Wait for the second real case, because then you can see what actually varies. A wrong abstraction is harder to fix than a little duplication.
+It is a **leaky abstraction**: callers must know a detail of one implementation, and a `FileStore` has no bucket or region. Other signs: `connect()` must be called first, or code does `isinstance(store, FileStore)`. Fix: make the contract speak the caller's language (`save(key, data)`) and push bucket and region into the constructor of `BucketStore`.
 
 </details>
 
 <details>
-<summary><strong>Q10. What is the template method pattern and why does it use an abstract class?</strong></summary>
+<summary><strong>6. How does abstraction help testing? [SCENARIO]</strong></summary>
 
-A base class defines a fixed algorithm in a concrete method (`generate()`), and leaves some steps as abstract methods (`title()`, `body_lines()`) for subclasses. The order of steps is guaranteed because subclasses do not control it. An abstract class fits well because it can hold the concrete algorithm, shared state and the abstract steps in one place. An interface cannot hold shared state, and a default method is a poor home for a real algorithm.
+If `Notifier` depends on a `Channel` contract and receives it through its constructor, a test passes a `FakeChannel` that records messages. The test is fast, with no network and no flakiness. If `Notifier` created `EmailSender` itself, you could not test it without side effects. This is Dependency Inversion: high-level code and low-level code both depend on an abstraction.
+
+</details>
+
+<details>
+<summary><strong>7. A teammate adds `IEmailValidator` with one implementation and no fake. What do you say in review? [SCENARIO]</strong></summary>
+
+Remove it for now. That is premature abstraction: one implementation, no test double, no realistic second case. It adds files and indirection with no flexibility. Introduce the interface the day a second validator or a fake is truly needed. A wrong abstraction is harder to fix than a little duplication.
+
+</details>
+
+<details>
+<summary><strong>8. What is the template method pattern and why does it use an abstract class? [TRICKY]</strong></summary>
+
+A base class defines a fixed algorithm in a concrete method (`generate()`) and leaves some steps abstract (`title()`, `body_lines()`). The order is guaranteed because subclasses do not control it. An abstract class fits because it can hold the algorithm, shared state and the abstract steps in one place. An interface cannot hold shared state, and a default method is a poor home for a real algorithm.
 
 </details>
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Handle errors once, centrally: exception-handling middleware (or `IExceptionHandler`) converts failures into **RFC 9457 `ProblemDetails`** with the right status code, hiding stack traces in production.
+
 > [!TIP]
 > **The One Rule of Error Handling:** Exceptions are reserved for exceptional failures, not expected business control flow; handle them centrally at the top of the HTTP pipeline using modern .NET 8+ `IExceptionHandler` and `app.UseExceptionHandler()`, emitting standardized RFC 9457 `ProblemDetails` with unique trace IDs and sanitized machine-readable error codes—never leaking internal stack traces or database schemas to public API consumers.
 
@@ -487,30 +490,81 @@ The `TryHandleAsync` method returns a `ValueTask<bool>`:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: How do you handle exceptions globally in ASP.NET Core?**  
-> **Strong Answer:**  
-> "In modern ASP.NET Core (.NET 8+), global exception handling is achieved through the **`app.UseExceptionHandler()` middleware** combined with the **`IExceptionHandler` abstraction**.
-> 
-> We register one or more implementations of `IExceptionHandler` into the DI container using `builder.Services.AddExceptionHandler<TExceptionHandler>()` and enable ProblemDetails with `builder.Services.AddProblemDetails()`. At application startup, we add `app.UseExceptionHandler()` as the very first middleware in the pipeline.
-> 
-> When an unhandled exception is thrown anywhere downstream—whether in an endpoint, controller, or intermediate middleware—`UseExceptionHandler` catches it and invokes the registered `IExceptionHandler` pipeline. The handler maps the exception to the appropriate HTTP status code (e.g. 404 for missing entities, 422 for domain rule violations, 500 for system faults), logs the complete exception stack trace along with the ambient correlation `traceId`, and writes a standardized RFC 9457 `ProblemDetails` JSON response to the client. This guarantees centralized, robust, leak-free error handling across both MVC and Minimal APIs."
+<details>
+<summary><strong>1. How do you handle exceptions globally in ASP.NET Core? [BASIC]</strong></summary>
+
+In modern ASP.NET Core (.NET 8+), global exception handling is achieved through the **`app.UseExceptionHandler()` middleware** combined with the **`IExceptionHandler` abstraction**.
+
+We register one or more implementations of `IExceptionHandler` into the DI container using `builder.Services.AddExceptionHandler<TExceptionHandler>()` and enable ProblemDetails with `builder.Services.AddProblemDetails()`. At application startup, we add `app.UseExceptionHandler()` as the very first middleware in the pipeline.
+
+When an unhandled exception is thrown anywhere downstream—whether in an endpoint, controller, or intermediate middleware—`UseExceptionHandler` catches it and invokes the registered `IExceptionHandler` pipeline. The handler maps the exception to the appropriate HTTP status code (e.g. 404 for missing entities, 422 for domain rule violations, 500 for system faults), logs the complete exception stack trace along with the ambient correlation `traceId`, and writes a standardized RFC 9457 `ProblemDetails` JSON response to the client. This guarantees centralized, robust, leak-free error handling across both MVC and Minimal APIs.
+
+</details>
+
+<details>
+<summary><strong>2. What is `ProblemDetails`? [BASIC]</strong></summary>
+
+`ProblemDetails` is a standardized machine-readable HTTP response format defined by **RFC 9457** (which obsoleted RFC 7807) to communicate error details from HTTP APIs. Its media type is `application/problem+json`.
+
+Prior to ProblemDetails, every development team invented ad-hoc JSON error structures (e.g. `{"success": false, "err": "msg"}`), making client SDK error parsing fragile and non-standard. RFC 9457 standardizes five core members:
+1. `status` (number): The HTTP status code (e.g. 400, 404, 500).
+2. `type` (URI): A URI reference that identifies the problem category and points to human-readable documentation.
+3. `title` (string): A short summary of the problem that does not change across occurrences (e.g. 'Resource Not Found').
+4. `detail` (string): A human-readable explanation specific to this occurrence.
+5. `instance` (URI): A URI reference identifying the specific endpoint or resource where the failure occurred.
+
+Additionally, ProblemDetails supports an **Extensions** dictionary for custom attributes. In enterprise systems, we leverage extensions to include a correlation `traceId` (for matching client reports to server telemetry) and a stable machine-readable `errorCode` (such as `CARD_EXPIRED` or `INSUFFICIENT_FUNDS`), allowing client applications to trigger programmatic remediation.
+
+</details>
+
+<details>
+<summary><strong>3. How would you return 404 for a domain `NotFoundException` and 500 for anything else? [SCENARIO]</strong></summary>
+
+Implement `IExceptionHandler`: if the exception is `NotFoundException`, write a `ProblemDetails` with status 404; otherwise return `false` (or a generic 500) so the default handler logs it. Controllers just throw domain exceptions.
+
+</details>
+
+<details>
+<summary><strong>4. Why shouldn't the error body include `ex.Message` for unexpected exceptions? [TRICKY]</strong></summary>
+
+Messages and stack traces can leak internals (SQL, file paths, secrets) to attackers. Log the details with a trace id and return a generic message plus that id.
+
+</details>
+
+<details>
+<summary><strong>5. Which status code for validation failure: 400 or 422? [SCENARIO]</strong></summary>
+
+ASP.NET Core defaults to 400 with `ValidationProblemDetails`. 422 is common for semantic validation failures; the key point is to be consistent and document it.
+
+</details>
+
+<details>
+<summary><strong>6. What content type does `ProblemDetails` use? [BASIC]</strong></summary>
+
+`application/problem+json` (or `application/problem+xml`), defined by RFC 9457 (formerly RFC 7807).
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is `ProblemDetails`?**  
-> **Strong Answer:**  
-> "`ProblemDetails` is a standardized machine-readable HTTP response format defined by **RFC 9457** (which obsoleted RFC 7807) to communicate error details from HTTP APIs. Its media type is `application/problem+json`.
-> 
-> Prior to ProblemDetails, every development team invented ad-hoc JSON error structures (e.g. `{"success": false, "err": "msg"}`), making client SDK error parsing fragile and non-standard. RFC 9457 standardizes five core members:
-> 1. `status` (number): The HTTP status code (e.g. 400, 404, 500).
-> 2. `type` (URI): A URI reference that identifies the problem category and points to human-readable documentation.
-> 3. `title` (string): A short summary of the problem that does not change across occurrences (e.g. 'Resource Not Found').
-> 4. `detail` (string): A human-readable explanation specific to this occurrence.
-> 5. `instance` (URI): A URI reference identifying the specific endpoint or resource where the failure occurred.
-> 
-> Additionally, ProblemDetails supports an **Extensions** dictionary for custom attributes. In enterprise systems, we leverage extensions to include a correlation `traceId` (for matching client reports to server telemetry) and a stable machine-readable `errorCode` (such as `CARD_EXPIRED` or `INSUFFICIENT_FUNDS`), allowing client applications to trigger programmatic remediation."
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Call `builder.Services.AddProblemDetails(); app.UseExceptionHandler();` and add `app.MapGet("/boom", () => { throw new InvalidOperationException("x"); });`; hit `/boom` and compare the JSON body in Development vs Production. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
+
+---
+
+## One-page cheat sheet
+
+```text
+Global: app.UseExceptionHandler() + services.AddProblemDetails() | IExceptionHandler (.NET 8)
+ProblemDetails: { type, title, status, detail, instance, extensions } - content-type application/problem+json
+Map exceptions -> status: NotFound 404 | Validation 400/422 | Conflict 409 | Unauthorized 401/403 | else 500
+Never leak stack traces/SQL in production (UseDeveloperExceptionPage only in Dev)
+[ApiController] auto 400 uses ValidationProblemDetails (errors dictionary)
+Include a trace id / correlation id for support
+Expected failures: Results.Problem(...) / Result<T> | exceptions for unexpected
+Don't catch-all in controllers; let the handler log once
+```
 
 ---
 

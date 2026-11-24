@@ -948,6 +948,21 @@ Try these real exercises in the browser. They use exactly what you learned in th
 - [Rectangle basics](/practice/code/oop-rectangle-basics/)
 - [Class versus instance attributes](/practice/code/oop-class-vs-instance-attributes/)
 
+## Cheat sheet
+
+```text
+class Name:  def __init__(self, a): self.a = a    obj = Name(1)   (self = "this object")
+Instance attribute: self.x (per object) | class attribute: shared by all
+Method: def m(self, ...) -> obj.m(...)   __str__ for print, __repr__ for debugging
+Encapsulation by convention: self._internal  (no real private)
+Objects are references: b = a is the SAME object; copy.copy / deepcopy to clone
+Mutable class attribute ([]) is shared across instances -> create in __init__
+@dataclass gives __init__, __repr__, __eq__ for free
+Composition: an object HAS other objects (Library has Books)
+Design check: one clear job per class, methods act on its own data
+isinstance(x, Cls)   vars(obj)   obj.__dict__
+```
+
 ---
 
 ## Further reading

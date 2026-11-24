@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 17 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Memento** captures an object's internal state in an opaque snapshot so it can be restored later (undo, checkpoints) without breaking encapsulation.
+
 > [!TIP]
 > **The One Rule of the Memento Pattern:** A memento must remain an **opaque black box** to all external classes (including the Caretaker); only the Originator that created the memento may inspect, unpack, or restore its internal snapshot. If the Caretaker or any other consumer reads, mutates, or couples to the memento's private state fields, encapsulation is shattered and the pattern degenerates into a leaky data bag.
 
@@ -516,43 +519,104 @@ Identify two serious design flaws in this implementation.
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Memento pattern?**  
-> **Strong Answer:**  
-> "The Memento pattern is a Gang of Four behavioral design pattern that allows an application to capture and externalize an object's internal state snapshot so that the object can be restored to that state later, all without violating the principle of encapsulation.  
-> 
-> The pattern decouples the state lifecycle into three distinct roles:  
-> 1. **Originator:** The domain object that owns the state. It alone creates memento snapshots containing its private data and restores its state when supplied with a memento.  
-> 2. **Memento:** An immutable object holding the state snapshot. It exposes a 'narrow interface' to the outside world (only metadata like timestamps) and a 'wide interface' to the Originator, preserving encapsulation.  
-> 3. **Caretaker:** The orchestrator (such as an undo manager or transaction coordinator) that schedules snapshots and maintains undo/redo stacks. Crucially, the Caretaker treats mementos as opaque tokens and never inspects or mutates their internal contents."
+<details>
+<summary><strong>1. What is the Memento pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: How would you implement undo with a memento?**  
-> **Strong Answer:**  
-> "To implement undo with a memento:  
-> 1. The **Originator** exposes two methods: `CreateMemento()` which returns an opaque snapshot of its current state, and `RestoreMemento(memento)` which unpacks the snapshot into its private fields.  
-> 2. The **Caretaker** maintains two LIFO data structures: an `UndoStack` and a `RedoStack`.  
-> 3. Before any state mutation occurs, the Caretaker asks the Originator for a snapshot and pushes it onto the `UndoStack`, while clearing the `RedoStack`.  
-> 4. When an **Undo** request arrives: the Caretaker pops the top snapshot from the `UndoStack`, captures the current state and pushes it onto the `RedoStack`, and invokes `Originator.RestoreMemento(snapshot)`.  
-> 5. For **Redo**, the reverse occurs: pop from `RedoStack`, push current state onto `UndoStack`, and restore.  
-> To prevent memory exhaustion, the Caretaker should enforce a bounded capacity (e.g., maximum 50 entries using a circular buffer) and evict oldest snapshots."
+The Memento pattern is a Gang of Four behavioral design pattern that allows an application to capture and externalize an object's internal state snapshot so that the object can be restored to that state later, all without violating the principle of encapsulation.
 
-> [!interview]
-> **Question 3: How does Memento compare to Command for implementing undo/redo?**  
-> **Strong Answer:**  
-> "Memento and Command represent two fundamentally different philosophies for undo/redo:  
-> 
-> 1. **Mechanism:**  
->    - **Memento** is **state-based**: it captures snapshots of the object's data at specific moments. Undo simply restores the previous snapshot.  
->    - **Command** is **behavior-based**: it captures the user's action and implements an inverse method (`Unexecute()`) that programmatically reverses the mutation.  
-> 2. **Memory Footprint:**  
->    - Memento consumes significant memory because each snapshot stores state data (full or delta copies).  
->    - Command consumes minimal memory because it only stores the operation parameters (e.g., 'Delete character at index 5').  
-> 3. **Complexity & Reliability:**  
->    - Memento is simpler and virtually immune to synchronization bugs, floating-point drift, or non-commutative operation errors. It is essential for irreversible lossy operations (e.g., image convolution filters).  
->    - Command requires writing error-free inverse logic for every single action in the application, which becomes complex for multi-entity cascades.  
-> 
-> In enterprise systems, architects often combine both: Command orchestrates the undoable workflow, while individual commands use Mementos to snapshot entities prior to execution."
+The pattern decouples the state lifecycle into three distinct roles:
+1. **Originator:** The domain object that owns the state. It alone creates memento snapshots containing its private data and restores its state when supplied with a memento.
+2. **Memento:** An immutable object holding the state snapshot. It exposes a 'narrow interface' to the outside world (only metadata like timestamps) and a 'wide interface' to the Originator, preserving encapsulation.
+3. **Caretaker:** The orchestrator (such as an undo manager or transaction coordinator) that schedules snapshots and maintains undo/redo stacks. Crucially, the Caretaker treats mementos as opaque tokens and never inspects or mutates their internal contents.
+
+</details>
+
+<details>
+<summary><strong>2. How would you implement undo with a memento? [SCENARIO]</strong></summary>
+
+To implement undo with a memento:
+1. The **Originator** exposes two methods: `CreateMemento()` which returns an opaque snapshot of its current state, and `RestoreMemento(memento)` which unpacks the snapshot into its private fields.
+2. The **Caretaker** maintains two LIFO data structures: an `UndoStack` and a `RedoStack`.
+3. Before any state mutation occurs, the Caretaker asks the Originator for a snapshot and pushes it onto the `UndoStack`, while clearing the `RedoStack`.
+4. When an **Undo** request arrives: the Caretaker pops the top snapshot from the `UndoStack`, captures the current state and pushes it onto the `RedoStack`, and invokes `Originator.RestoreMemento(snapshot)`.
+5. For **Redo**, the reverse occurs: pop from `RedoStack`, push current state onto `UndoStack`, and restore.
+To prevent memory exhaustion, the Caretaker should enforce a bounded capacity (e.g., maximum 50 entries using a circular buffer) and evict oldest snapshots.
+
+</details>
+
+<details>
+<summary><strong>3. How does Memento compare to Command for implementing undo/redo? [BASIC]</strong></summary>
+
+Memento and Command represent two fundamentally different philosophies for undo/redo:
+
+1. **Mechanism:**
+   - **Memento** is **state-based**: it captures snapshots of the object's data at specific moments. Undo simply restores the previous snapshot.
+   - **Command** is **behavior-based**: it captures the user's action and implements an inverse method (`Unexecute()`) that programmatically reverses the mutation.
+2. **Memory Footprint:**
+   - Memento consumes significant memory because each snapshot stores state data (full or delta copies).
+   - Command consumes minimal memory because it only stores the operation parameters (e.g., 'Delete character at index 5').
+3. **Complexity & Reliability:**
+   - Memento is simpler and virtually immune to synchronization bugs, floating-point drift, or non-commutative operation errors. It is essential for irreversible lossy operations (e.g., image convolution filters).
+   - Command requires writing error-free inverse logic for every single action in the application, which becomes complex for multi-entity cascades.
+
+In enterprise systems, architects often combine both: Command orchestrates the undoable workflow, while individual commands use Mementos to snapshot entities prior to execution.
+
+</details>
+
+<details>
+<summary><strong>4. A text editor needs 100-level undo for 10 MB documents. Memento naive copies are too big. What now? [SCENARIO]</strong></summary>
+
+Cap the stack, snapshot only on meaningful boundaries, or store deltas (diffs/commands) instead of full copies. Persistent/immutable structures also share unchanged parts between snapshots.
+
+</details>
+
+<details>
+<summary><strong>5. Why can a Memento snapshot silently be wrong? [TRICKY]</strong></summary>
+
+If it stores references to mutable nested objects (a shallow copy), later edits change the "saved" state too. The snapshot must be immutable or a deep copy.
+
+</details>
+
+<details>
+<summary><strong>6. When would you choose Command-undo over Memento? [SCENARIO]</strong></summary>
+
+When operations are small and reversible and full state is large (reverse the action cheaply). Use Memento when reversing is hard or the state is small and easy to copy.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the editor hands out snapshots; only it can read them back. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Editor:
+    def __init__(self): self.text = ""
+    def save(self): return self.text                 # memento (immutable str)
+    def restore(self, m): self.text = m
+
+e, stack = Editor(), []
+e.text = "v1"; stack.append(e.save())
+e.text = "v2"; stack.append(e.save())
+e.text = "oops"
+e.restore(stack.pop()); assert e.text == "v2"
+e.restore(stack.pop()); assert e.text == "v1"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+MEMENTO  Originator.save() -> Memento ; Originator.restore(Memento) ; Caretaker holds them
+Snapshot is opaque and immutable; caretaker never inspects it
+Undo/redo, checkpoints, transaction rollback, game saves
+Command-undo (reverse the ACTION) | Memento (restore the STATE) - often combined
+Cost: memory for every snapshot -> cap history, store diffs, or use persistent data
+Python: copy.deepcopy / dataclasses.replace | C#: record `with`, serialise
+Pitfall: snapshots holding live references (shallow copy bug)
+```
 
 ---
 

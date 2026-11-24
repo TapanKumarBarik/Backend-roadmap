@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Strategy** puts interchangeable algorithms behind one interface and injects the choice, so adding a rule means adding a class — not another `if` branch.
+
 > [!TIP]
 > **The One Rule of Strategy:** Prefer composition over conditional branching: encapsulate varying algorithms behind a shared interface and inject them into a context object. If adding a new business rule requires adding an `else if` or `case` branch to existing core code, you are violating the Open/Closed Principle and need a Strategy.
 
@@ -465,37 +468,92 @@ Which should use the Strategy pattern, which should use the State pattern, and w
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Strategy pattern? Give an example.**  
-> **Strong Answer:**  
-> "The Strategy pattern is a behavioral design pattern that defines a family of algorithms, encapsulates each one inside a separate class, and makes them interchangeable at runtime. It allows the algorithm to vary independently from the context or clients that use it.  
-> 
-> A canonical example is an e-commerce **Payment Processing Engine**. The checkout service acts as the context, maintaining a reference to an `IPaymentStrategy` contract with a `Pay(amount)` method. Concrete implementations include `CreditCardStrategy`, `PayPalStrategy`, and `CryptoStrategy`. When a customer checks out, the client or DI container injects the appropriate strategy based on the customer's selection. Other daily examples include tax calculation across differing jurisdictions, compression algorithms (`Gzip`, `Bzip2`, `Zstandard`), and sorting algorithms."
+<details>
+<summary><strong>1. What is the Strategy pattern? Give an example. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: How does Strategy help with the Open/Closed principle?**  
-> **Strong Answer:**  
-> "Without the Strategy pattern, selecting an algorithm typically relies on hardcoded `switch` or `if/elif` blocks within the context class. Every time product management introduces a new rule—such as supporting Apple Pay or a new regional tax calculation—the developer must open, modify, and re-test the core context class. This directly violates the Open/Closed Principle: the class is open to modification rather than closed.  
-> 
-> With the Strategy pattern, the context class depends exclusively on an abstraction (`IPaymentStrategy`). To introduce Apple Pay, we simply create a new `ApplePayStrategy` class implementing the interface and register it. The existing context class, test suites, and other payment strategies remain 100% untouched and re-compiled safely. The system is open for extension, but closed for modification."
+The Strategy pattern is a behavioral design pattern that defines a family of algorithms, encapsulates each one inside a separate class, and makes them interchangeable at runtime. It allows the algorithm to vary independently from the context or clients that use it.
 
-> [!interview]
-> **Question 3: What is the difference between Strategy and State?**  
-> **Strong Answer:**  
-> "While both patterns share almost identical UML class diagrams—a context class holding a reference to an interface and delegating execution to it—they differ fundamentally in **intent, selection, and lifecycle transitions**:  
-> 
-> 1. **Intent & Selection:** Strategy is about *how* a specific task is done. The strategy is typically chosen from the outside by the client or dependency injection at initialization. State is about *what* an object can do based on its internal condition; the object changes its behavior automatically as its state changes.  
-> 2. **Awareness of Siblings:** Strategy classes are completely isolated and independent; `CreditCardStrategy` has zero knowledge of `PayPalStrategy`. In contrast, concrete State classes frequently know about each other and explicitly trigger transitions from one state to the next (e.g., `DraftState` transitions the document to `ModerationState`).  
-> 3. **Frequency of Change:** A Strategy usually remains constant for the duration of a specific operation or request, whereas an object's State changes continuously across its lifecycle."
+A canonical example is an e-commerce **Payment Processing Engine**. The checkout service acts as the context, maintaining a reference to an `IPaymentStrategy` contract with a `Pay(amount)` method. Concrete implementations include `CreditCardStrategy`, `PayPalStrategy`, and `CryptoStrategy`. When a customer checks out, the client or DI container injects the appropriate strategy based on the customer's selection. Other daily examples include tax calculation across differing jurisdictions, compression algorithms (`Gzip`, `Bzip2`, `Zstandard`), and sorting algorithms.
 
-> [!interview]
-> **Question 4: Can a strategy just be a function?**  
-> **Strong Answer:**  
-> "Yes, absolutely. In modern programming languages with first-class functions, a strategy does not need to be a formal class unless it needs to hold private state or manage its own complex dependencies.  
-> 
-> In **Python**, any callable function or lambda matches the strategy contract. For instance, the built-in `sorted(data, key=lambda x: x.age)` uses a lambda function as a comparison strategy.  
-> 
-> In **C#**, a delegate such as `Func<TInput, TResult>` or `Action<T>` frequently replaces single-method strategy interfaces. For example, instead of declaring an `IDiscountStrategy` interface with one `decimal Apply(decimal total)` method, a service can simply take a `Func<decimal, decimal>` parameter. This eliminates boilerplate class definitions while retaining runtime substitutability and testability."
+</details>
+
+<details>
+<summary><strong>2. How does Strategy help with the Open/Closed principle? [BASIC]</strong></summary>
+
+Without the Strategy pattern, selecting an algorithm typically relies on hardcoded `switch` or `if/elif` blocks within the context class. Every time product management introduces a new rule—such as supporting Apple Pay or a new regional tax calculation—the developer must open, modify, and re-test the core context class. This directly violates the Open/Closed Principle: the class is open to modification rather than closed.
+
+With the Strategy pattern, the context class depends exclusively on an abstraction (`IPaymentStrategy`). To introduce Apple Pay, we simply create a new `ApplePayStrategy` class implementing the interface and register it. The existing context class, test suites, and other payment strategies remain 100% untouched and re-compiled safely. The system is open for extension, but closed for modification.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between Strategy and State? [BASIC]</strong></summary>
+
+While both patterns share almost identical UML class diagrams—a context class holding a reference to an interface and delegating execution to it—they differ fundamentally in **intent, selection, and lifecycle transitions**:
+
+1. **Intent & Selection:** Strategy is about *how* a specific task is done. The strategy is typically chosen from the outside by the client or dependency injection at initialization. State is about *what* an object can do based on its internal condition; the object changes its behavior automatically as its state changes.
+2. **Awareness of Siblings:** Strategy classes are completely isolated and independent; `CreditCardStrategy` has zero knowledge of `PayPalStrategy`. In contrast, concrete State classes frequently know about each other and explicitly trigger transitions from one state to the next (e.g., `DraftState` transitions the document to `ModerationState`).
+3. **Frequency of Change:** A Strategy usually remains constant for the duration of a specific operation or request, whereas an object's State changes continuously across its lifecycle.
+
+</details>
+
+<details>
+<summary><strong>4. Can a strategy just be a function? [BASIC]</strong></summary>
+
+Yes, absolutely. In modern programming languages with first-class functions, a strategy does not need to be a formal class unless it needs to hold private state or manage its own complex dependencies.
+
+In **Python**, any callable function or lambda matches the strategy contract. For instance, the built-in `sorted(data, key=lambda x: x.age)` uses a lambda function as a comparison strategy.
+
+In **C#**, a delegate such as `Func<TInput, TResult>` or `Action<T>` frequently replaces single-method strategy interfaces. For example, instead of declaring an `IDiscountStrategy` interface with one `decimal Apply(decimal total)` method, a service can simply take a `Func<decimal, decimal>` parameter. This eliminates boilerplate class definitions while retaining runtime substitutability and testability.
+
+</details>
+
+<details>
+<summary><strong>5. Shipping cost depends on carrier, weight and country, and rules change monthly. Design it. [SCENARIO]</strong></summary>
+
+An `IShippingCost` strategy per carrier, selected by a registry keyed on carrier. Weight/country rules live inside each strategy or compose smaller ones. Adding a carrier is one new class plus a registration.
+
+</details>
+
+<details>
+<summary><strong>6. Where does the code that *picks* the strategy live, and doesn't that just move the switch? [TRICKY]</strong></summary>
+
+Yes, one selection point remains, but it is a registry/DI lookup in one place (composition root) instead of conditionals scattered through business logic, and new strategies don't touch it.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the discount rule is data, not a branch inside `checkout`. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+def no_discount(t): return t
+def ten_percent(t): return t * 0.9
+def flat_50(t): return max(0, t - 50)
+
+def checkout(total, discount=no_discount):
+    return discount(total)
+
+assert checkout(200) == 200
+assert checkout(200, ten_percent) == 180
+assert checkout(200, flat_50) == 150
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+STRATEGY  Context --has-a--> IStrategy { run() } <- ConcreteA | ConcreteB
+Trigger: if/elif or switch that grows with each new rule
+Python/C#: a function / Func<> is a strategy (class only if it holds state)
+Choose at: construction (DI), per call, or via registry/config
+Strategy: picked from outside, siblings unaware | State: object switches itself
+.NET: IComparer<T>, keyed DI services | Python: sorted(key=...)
+Don't: strategy for 2 stable cases that never change
+```
 
 ---
 

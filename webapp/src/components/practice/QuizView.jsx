@@ -8,7 +8,7 @@ import { quizKey } from '../../lib/practice/progressKeys.js';
 import { percentOf } from '../../lib/practice/questions.js';
 import { questionItem } from '../../lib/practice/review.js';
 import { GAME } from '../../config/game.js';
-import { DIFFICULTY, QUIZ } from '../../config/practice.js';
+import { DIFFICULTY, PRACTICE, QUIZ } from '../../config/practice.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
 import Loading from '../common/Loading.jsx';
@@ -114,7 +114,7 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
           {result && (
             <div className="pr-score" role="status">
               {timeUp && <p>{QUIZ.timeUp}</p>}
-              <strong>{only ? QUIZ.retryResult(result.score, result.max) : <>{result.score} of {result.max}</>}</strong>{only ? null : ' correct'}
+              <strong>{only ? QUIZ.retryResult(result.score, result.max) : PRACTICE.ratingLabel(result.score, result.max)}</strong>{only ? null : ' · out of 10'}
               <span>{only ? QUIZ.retryNote : result.saved ? 'This try is saved to your account.' : user ? 'This try was not saved.' : <>Sign in to keep your tries. <button type="button" className="signin-link" onClick={onLogin}>Sign in with Google</button></>}</span>
             </div>
           )}

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Interface** = a capability contract ("can do"); **abstract class** = a partial implementation with shared state ("is a") — pick the interface unless subclasses genuinely share fields, constructors or a template algorithm.
+
 > [!TIP]
 > **The One Rule of Abstract Classes vs. Interfaces:** Use an **interface** to define a **capability or contract** (*"what an object can do"*, e.g., `IDisposable`, `IComparable`, `Iterable`); use an **abstract class** to define an **identity and reusable foundation** (*"what an object is"*, e.g., `Stream`, `DbConnection`, `Channel`), especially when subclasses must share mutable state, constructors, or template method algorithms.
 
@@ -327,46 +330,111 @@ Categorize each of the following requirements:
 
 ## 8. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between an abstract class and an interface?**  
-> **Strong Answer:**  
-> "An interface defines a **contract of capabilities**—what a class can do—without holding any instance state. A class can implement multiple interfaces, enabling flexible, loose coupling.  
-> 
-> An abstract class defines an **identity and base implementation**—what an object is. It can hold instance fields, maintain constructor invariants, define access modifiers, and implement template methods, but a class can only inherit from one abstract base in languages like C# and Java."
+<details>
+<summary><strong>1. What is the difference between an abstract class and an interface? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: When would you choose an abstract class over an interface?**  
-> **Strong Answer:**  
-> "I choose an abstract class when:  
-> 1. Subclasses share common **mutable instance state** or need **constructor validation** upon initialization.  
-> 2. I am implementing the **Template Method pattern**, where an algorithm's high-level workflow is fixed in the base class, and only specific primitive steps are overridden by subclasses.  
-> 3. I am developing an internal class hierarchy where the types share a genuine **is-a** relationship (like `Stream` in .NET or `IOBase` in Python).  
-> 
-> For public API surfaces and dependency injection boundaries, I default to interfaces."
+An interface defines a **contract of capabilities**—what a class can do—without holding any instance state. A class can implement multiple interfaces, enabling flexible, loose coupling.
 
-> [!interview]
-> **Question 3: Can an interface have a method body in C#?**  
-> **Strong Answer:**  
-> "Yes, since C# 8, interfaces support **Default Interface Methods (DIM)**. They were introduced primarily to allow library authors to evolve interfaces by adding new methods with default implementations without breaking existing third-party implementers.  
-> 
-> However, an interface is still not an abstract class: it cannot define instance fields, cannot have constructors, and the default method is only accessible when the instance is explicitly referenced through the interface type."
+An abstract class defines an **identity and base implementation**—what an object is. It can hold instance fields, maintain constructor invariants, define access modifiers, and implement template methods, but a class can only inherit from one abstract base in languages like C# and Java.
 
-> [!interview]
-> **Question 4: Does Python have interfaces?**  
-> **Strong Answer:**  
-> "Historically, Python relied entirely on **duck typing**—if an object walks like a duck and quacks like a duck, it is treated as a duck, without requiring explicit interface declarations.  
-> 
-> In modern Python, there are two formal ways to define interfaces:  
-> 1. **Nominal subtyping via `abc.ABC` and `@abstractmethod`:** Requires explicit inheritance, and Python prevents instantiation if any abstract methods are missing.  
-> 2. **Structural subtyping via `typing.Protocol` (PEP 544):** Enables static type checkers (like mypy or pyright) to verify that a class matches an interface without requiring explicit inheritance, combining the safety of interfaces with Pythonic duck typing."
+</details>
 
-> [!interview]
-> **Question 5: Can you instantiate an abstract class?**  
-> **Strong Answer:**  
-> "No, abstract classes cannot be directly instantiated.  
-> - In C#, attempting to call `new AbstractClass()` produces a compile-time error (`CS0144`).  
-> - In Python, calling `MyABC()` raises a runtime `TypeError` if the class inherits from `abc.ABC` and contains at least one `@abstractmethod`.  
-> An abstract class exists solely as an incomplete blueprint that must be derived and completed by a concrete subclass."
+<details>
+<summary><strong>2. When would you choose an abstract class over an interface? [SCENARIO]</strong></summary>
+
+I choose an abstract class when:
+1. Subclasses share common **mutable instance state** or need **constructor validation** upon initialization.
+2. I am implementing the **Template Method pattern**, where an algorithm's high-level workflow is fixed in the base class, and only specific primitive steps are overridden by subclasses.
+3. I am developing an internal class hierarchy where the types share a genuine **is-a** relationship (like `Stream` in .NET or `IOBase` in Python).
+
+For public API surfaces and dependency injection boundaries, I default to interfaces.
+
+</details>
+
+<details>
+<summary><strong>3. Can an interface have a method body in C#? [BASIC]</strong></summary>
+
+Yes, since C# 8, interfaces support **Default Interface Methods (DIM)**. They were introduced primarily to allow library authors to evolve interfaces by adding new methods with default implementations without breaking existing third-party implementers.
+
+However, an interface is still not an abstract class: it cannot define instance fields, cannot have constructors, and the default method is only accessible when the instance is explicitly referenced through the interface type.
+
+</details>
+
+<details>
+<summary><strong>4. Does Python have interfaces? [BASIC]</strong></summary>
+
+Historically, Python relied entirely on **duck typing**—if an object walks like a duck and quacks like a duck, it is treated as a duck, without requiring explicit interface declarations.
+
+In modern Python, there are two formal ways to define interfaces:
+1. **Nominal subtyping via `abc.ABC` and `@abstractmethod`:** Requires explicit inheritance, and Python prevents instantiation if any abstract methods are missing.
+2. **Structural subtyping via `typing.Protocol` (PEP 544):** Enables static type checkers (like mypy or pyright) to verify that a class matches an interface without requiring explicit inheritance, combining the safety of interfaces with Pythonic duck typing.
+
+</details>
+
+<details>
+<summary><strong>5. Can you instantiate an abstract class? [TRICKY]</strong></summary>
+
+No, abstract classes cannot be directly instantiated.
+- In C#, attempting to call `new AbstractClass()` produces a compile-time error (`CS0144`).
+- In Python, calling `MyABC()` raises a runtime `TypeError` if the class inherits from `abc.ABC` and contains at least one `@abstractmethod`.
+An abstract class exists solely as an incomplete blueprint that must be derived and completed by a concrete subclass.
+
+</details>
+
+<details>
+<summary><strong>6. You ship a public interface with 40 implementers and must add a method. What do you do? [SCENARIO]</strong></summary>
+
+Adding a member breaks every implementer. In C# use a default interface method, or introduce a new `IFooV2 : IFoo`. With an abstract class you can add a virtual method with a default body safely. This evolution cost is the main practical argument for abstract classes in libraries.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the Protocol needs zero inheritance, the ABC refuses instantiation. Then redraw "Notifier (interface) vs Channel (abstract)" in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) lists the decision matrix questions.
+
+```python
+from abc import ABC, abstractmethod
+from typing import Protocol
+
+class Notifier(Protocol):
+    def send(self, msg: str) -> str: ...
+
+class Channel(ABC):
+    def __init__(self): self.sent = 0           # shared state -> abstract class
+    @abstractmethod
+    def _deliver(self, msg): ...
+    def send(self, msg):                        # template method
+        self.sent += 1
+        return self._deliver(msg)
+
+class Email(Channel):
+    def _deliver(self, msg): return "email:" + msg
+
+class Fake:                                     # duck-typed, no inheritance
+    def send(self, msg): return "fake:" + msg
+
+def notify(n: Notifier): return n.send("hi")
+assert notify(Email()) == "email:hi" and notify(Fake()) == "fake:hi"
+try: Channel()
+except TypeError: pass
+else: raise AssertionError("abstract class instantiated")
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+INTERFACE   can-do contract     many per class    no state (C# 8: default methods)
+ABSTRACT    is-a foundation     one base class    fields, ctor, template method
+Python      ABC (nominal) | Protocol (structural) | duck typing
+Choose      capability across unrelated types -> interface
+            shared state / ctor / algorithm skeleton -> abstract class
+Can't `new` an abstract class; CAN have a ctor (subclasses call it)
+Interface evolution: adding a member breaks implementers (use default method)
+```
 
 ---
 

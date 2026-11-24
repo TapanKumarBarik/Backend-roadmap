@@ -3,6 +3,12 @@
 import { codeKey, isDrillKey } from './progressKeys.js';
 import { shuffled } from './seeded.js';
 
+/** True when a code-practice topic is LLD machine coding (kept out of the Practice hub). */
+export const isLldTopic = (topic) => typeof topic === 'string' && topic.startsWith('lld-');
+
+/** Code problems shown on Practice — everything except LLD topics. */
+export const withoutLldProblems = (problems) => (problems || []).filter((p) => !isLldTopic(p.topic));
+
 /** 'done' (solved), 'wip' (tried) or 'todo' for one problem. */
 export const statusOf = (slug, statusMap) => statusMap[codeKey(slug)] || 'todo';
 

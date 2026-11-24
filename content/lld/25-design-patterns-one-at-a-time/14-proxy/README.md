@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Proxy** is a stand-in with the same interface that *controls access* to the real object — lazy loading (virtual), access checks (protection), remote calls (remote), caching.
+
 > [!TIP]
 > **The One Rule of the Proxy Pattern:** A Proxy is a **surrogate or placeholder** that implements the **exact same interface** as the target object to **control access** to it (such as lazy instantiation, role-based authorization, memoized caching, or network boundary serialization). While a **Decorator** enhances an already existing object provided by the caller, a **Proxy** controls *whether, when, and how* the real subject is created and accessed.
 
@@ -428,38 +431,99 @@ public IActionResult GetRecentOrders()
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Proxy pattern?**  
-> **Strong Answer:**  
-> "The Proxy pattern is a Gang of Four structural design pattern that provides a surrogate, placeholder, or control object for another target object. The proxy implements the exact same interface as the real subject, allowing it to seamlessly substitute for the subject in client code.  
-> 
-> Its primary purpose is **access control and lifecycle management**. Rather than directly executing the target's logic, the proxy intercepts invocations to enforce security rules (Protection Proxy), delay expensive instantiation until first use (Virtual Proxy), cache idempotent responses (Caching Proxy), or marshal calls across network and IPC boundaries (Remote Proxy)."
+<details>
+<summary><strong>1. What is the Proxy pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Proxy and Decorator?**  
-> **Strong Answer:**  
-> "While both Proxy and Decorator implement the exact same interface as the wrapped object, their intent and lifecycle responsibilities differ fundamentally:  
-> 
-> 1. **Lifecycle Management:** A **Decorator** is passed an *already instantiated* object by the client; it enhances that object with new behavior but never controls whether the object exists. A **Proxy** controls the *lifecycle and access* of the real subject—it can instantiate the real subject lazily on demand, reject access entirely, or manage communication with a subject that lives on another server.  
-> 2. **Intent:** Decorator is about *extending functionality* dynamically (such as adding encryption or logging to a stream). Proxy is about *controlling access* (such as lazy loading, RBAC authorization, or caching).  
-> 3. **Client Awareness:** A client explicitly composes decorators in layers, whereas a client is typically oblivious that it is talking to a proxy instead of the real subject."
+The Proxy pattern is a Gang of Four structural design pattern that provides a surrogate, placeholder, or control object for another target object. The proxy implements the exact same interface as the real subject, allowing it to seamlessly substitute for the subject in client code.
 
-> [!interview]
-> **Question 3: How does lazy loading use a proxy?**  
-> **Strong Answer:**  
-> "Lazy loading relies on a **Virtual Proxy**. In ORMs like Entity Framework Core or SQLAlchemy, entity relationship properties (such as `order.Customer` or `order.Items`) are not populated during the initial query. Instead, the framework attaches a dynamic proxy subclass that overrides the property getters.  
-> 
-> When the application code reads `order.Customer.Name`, the proxy interceptor checks if the backing field is null. If it has not been loaded, the proxy intercepts execution, queries the database (`SELECT * FROM Customers WHERE Id = @id`), populates the reference, and then returns the value. To the consumer, it appears as a standard object graph access, but the expensive I/O was deferred until the exact moment of access. The major architectural hazard of this approach is the N+1 query problem, which must be countered with eager loading."
+Its primary purpose is **access control and lifecycle management**. Rather than directly executing the target's logic, the proxy intercepts invocations to enforce security rules (Protection Proxy), delay expensive instantiation until first use (Virtual Proxy), cache idempotent responses (Caching Proxy), or marshal calls across network and IPC boundaries (Remote Proxy).
 
-> [!interview]
-> **Question 4: What kinds of proxies exist?**  
-> **Strong Answer:**  
-> "There are five primary types of proxies:  
-> 1. **Virtual Proxy:** Defers the instantiation of a resource-heavy or slow-loading object until it is actually accessed (e.g., ORM lazy loading, high-res image placeholders).  
-> 2. **Protection Proxy:** Enforces authorization, authentication, and role-based access control (RBAC) before delegating requests to sensitive operations.  
-> 3. **Remote Proxy:** Acts as a local ambassador for an object that exists in a different address space, process, or remote server, marshalling parameters and handling network transport (e.g., gRPC client stubs, WCF channels).  
-> 4. **Caching Proxy:** Intercepts requests to return memoized results from local memory or distributed caches, short-circuiting expensive backend computations.  
-> 5. **Smart Reference Proxy:** Performs bookkeeping actions when an object is accessed, such as reference counting, audit logging, or acquiring thread-safety locks."
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Proxy and Decorator? [BASIC]</strong></summary>
+
+While both Proxy and Decorator implement the exact same interface as the wrapped object, their intent and lifecycle responsibilities differ fundamentally:
+
+1. **Lifecycle Management:** A **Decorator** is passed an *already instantiated* object by the client; it enhances that object with new behavior but never controls whether the object exists. A **Proxy** controls the *lifecycle and access* of the real subject—it can instantiate the real subject lazily on demand, reject access entirely, or manage communication with a subject that lives on another server.
+2. **Intent:** Decorator is about *extending functionality* dynamically (such as adding encryption or logging to a stream). Proxy is about *controlling access* (such as lazy loading, RBAC authorization, or caching).
+3. **Client Awareness:** A client explicitly composes decorators in layers, whereas a client is typically oblivious that it is talking to a proxy instead of the real subject.
+
+</details>
+
+<details>
+<summary><strong>3. How does lazy loading use a proxy? [BASIC]</strong></summary>
+
+Lazy loading relies on a **Virtual Proxy**. In ORMs like Entity Framework Core or SQLAlchemy, entity relationship properties (such as `order.Customer` or `order.Items`) are not populated during the initial query. Instead, the framework attaches a dynamic proxy subclass that overrides the property getters.
+
+When the application code reads `order.Customer.Name`, the proxy interceptor checks if the backing field is null. If it has not been loaded, the proxy intercepts execution, queries the database (`SELECT * FROM Customers WHERE Id = @id`), populates the reference, and then returns the value. To the consumer, it appears as a standard object graph access, but the expensive I/O was deferred until the exact moment of access. The major architectural hazard of this approach is the N+1 query problem, which must be countered with eager loading.
+
+</details>
+
+<details>
+<summary><strong>4. What kinds of proxies exist? [BASIC]</strong></summary>
+
+There are five primary types of proxies:
+1. **Virtual Proxy:** Defers the instantiation of a resource-heavy or slow-loading object until it is actually accessed (e.g., ORM lazy loading, high-res image placeholders).
+2. **Protection Proxy:** Enforces authorization, authentication, and role-based access control (RBAC) before delegating requests to sensitive operations.
+3. **Remote Proxy:** Acts as a local ambassador for an object that exists in a different address space, process, or remote server, marshalling parameters and handling network transport (e.g., gRPC client stubs, WCF channels).
+4. **Caching Proxy:** Intercepts requests to return memoized results from local memory or distributed caches, short-circuiting expensive backend computations.
+5. **Smart Reference Proxy:** Performs bookkeeping actions when an object is accessed, such as reference counting, audit logging, or acquiring thread-safety locks.
+
+</details>
+
+<details>
+<summary><strong>5. Your admin-only service must reject others without changing its code. How? [SCENARIO]</strong></summary>
+
+Wrap it in a protection proxy implementing the same interface; it checks the caller's role and either delegates or throws. The real service stays focused on business logic.
+
+</details>
+
+<details>
+<summary><strong>6. How can a lazy-loading proxy hurt performance? [TRICKY]</strong></summary>
+
+Each first access to an unloaded relation triggers a query, so iterating 100 entities can fire 100 queries (the N+1 problem), and access outside the session/context fails. Prefer explicit eager loading where you know you need the data.
+
+</details>
+
+---
+
+## Try it
+
+Run this lazy-loading proxy: the expensive object is only built on first use. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class RealImage:
+    loaded = 0
+    def __init__(self): RealImage.loaded += 1
+    def show(self): return "image"
+
+class LazyImage:
+    def __init__(self): self._real = None
+    def show(self):
+        if self._real is None: self._real = RealImage()
+        return self._real.show()
+
+img = LazyImage()
+assert RealImage.loaded == 0              # nothing loaded yet
+img.show(); img.show()
+assert RealImage.loaded == 1
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+PROXY  same interface as the real subject, controls access to it
+Virtual   lazy creation (ORM lazy-loading entities)
+Protection  auth / permission check before delegating
+Remote    local object that calls over the network (gRPC/WCF stub)
+Caching / logging / rate-limit proxies
+Proxy CONTROLS access | Decorator ADDS behaviour (often client-composed)
+Python: __getattr__ proxies; C#: DispatchProxy, Castle DynamicProxy, EF lazy proxies
+Pitfalls: surprise latency, N+1 via lazy proxies, identity (proxy != real)
+```
 
 ---
 

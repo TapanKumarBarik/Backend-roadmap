@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** `Program.cs` is the **composition root**: `CreateBuilder` sets up config, logging, DI and Kestrel; `builder.Services` registers dependencies; `app` defines the request pipeline and endpoints.
+
 > [!TIP]
 > **The One Rule of Program.cs and the Host:** `Program.cs` is a strict two-phase architectural lifecycle bifurcated by `builder.Build()`: phase one configures dependencies, configuration, and logging into `builder.Services` (write-only container configuration), and phase two assembles the HTTP execution pipeline on `app` (read-only container, executable pipeline). Never invoke `builder.Services.BuildServiceProvider()` during startup to resolve a dependency—doing so creates a duplicate, unmanaged DI container that leaks memory and fragments service lifecycles.
 
@@ -459,51 +462,95 @@ await app.RunAsync();
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Walk me through Program.cs.**  
-> **Strong Answer:**  
-> "`Program.cs` is the entry point of an ASP.NET Core application, structured around the **Minimal Hosting Model** introduced in .NET 6. The file executes in four distinct, linear stages:  
-> 
-> 1. **Bootstrapping via `WebApplication.CreateBuilder(args)`:** This instantiates a `WebApplicationBuilder` and automatically pre-configures default configuration sources (layered `appsettings.json`, environment variables, user secrets, command-line flags), structured logging providers (Console, Debug, EventLog), Kestrel server options, and the dependency injection collection.  
-> 2. **Service Registration via `builder.Services`:** Here, we register all application dependencies into the `IServiceCollection` using their respective lifetimes (`AddTransient`, `AddScoped`, `AddSingleton`), and add framework features like `AddControllers()`, `AddEndpointsApiExplorer()`, or `AddAuthentication()`.  
-> 3. **The Pivot Point via `builder.Build()`:** Calling `Build()` compiles the `IServiceCollection` into an immutable `IServiceProvider`, validates DI lifetimes and scopes, and creates the `WebApplication` instance (the host). Once `Build()` is called, no more services can be registered.  
-> 4. **Middleware Pipeline Assembly via `app`:** Using the `WebApplication` instance, we configure the bidirectional HTTP request delegate chain (`app.UseExceptionHandler()`, `app.UseAuthentication()`, `app.UseAuthorization()`) and map HTTP endpoints (`app.MapControllers()`, `app.MapGet()`).  
-> 
-> Finally, calling `app.Run()` starts the Kestrel web server, starts all registered `IHostedService` background workers, binds to listening ports, and blocks the main thread waiting for graceful shutdown signals (like SIGTERM)."
+<details>
+<summary><strong>1. Walk me through Program.cs. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What does WebApplication.CreateBuilder do?**  
-> **Strong Answer:**  
-> "`WebApplication.CreateBuilder(args)` is an opinionated factory method that initializes and configures the foundational subsystems required to run an ASP.NET Core application. Specifically, it wires four major components under the hood:  
-> 
-> 1. **Configuration Providers:** It sets up an `IConfiguration` pipeline reading sequentially from `appsettings.json`, `appsettings.{Environment}.json`, User Secrets (in Development environment), Environment Variables, and Command-Line arguments.  
-> 2. **Logging Subsystem:** It configures an `ILoggerFactory` with pre-registered logging providers: Console, Debug, EventSource, and Windows EventLog (when running on Windows).  
-> 3. **Kestrel Web Server:** It configures Kestrel as the in-process web server, binding default endpoints and picking up any server configuration defined in the `Kestrel` configuration section.  
-> 4. **Dependency Injection Container:** It initializes an empty `IServiceCollection` and populates it with internal framework dependencies, while configuring container options (such as verifying that scoped services are not captured by singletons in the Development environment).  
-> 
-> Crucially, `CreateBuilder` also exposes `builder.Environment` and `builder.Configuration` directly, allowing engineers to read environment settings or configuration values immediately during service registration without messy workarounds."
+`Program.cs` is the entry point of an ASP.NET Core application, structured around the **Minimal Hosting Model** introduced in .NET 6. The file executes in four distinct, linear stages:
 
-> [!interview]
-> **Question 3: What is the difference between builder.Services and app?**  
-> **Strong Answer:**  
-> "The difference between `builder.Services` and `app` represents the fundamental separation between **dependency registration** and **HTTP pipeline execution**:  
-> 
-> - **`builder.Services`** is an instance of `IServiceCollection` (a list of `ServiceDescriptor` objects). Its sole purpose is **compile-time dependency registration**. It is write-only: you add services, configure options, and register database contexts. At this stage, the application does not yet have a compiled service provider, Kestrel is not running, and incoming HTTP requests cannot be received.  
-> - **`app`** is an instance of `WebApplication`. It represents the **running host and HTTP pipeline**. It implements `IHost`, `IApplicationBuilder`, and `IEndpointRouteBuilder`. At this stage, the DI container is frozen and immutable (accessible as read-only via `app.Services`). You use `app` to construct the middleware pipeline (via `app.Use...`) and define URL routing endpoints (via `app.Map...`).  
-> 
-> In short: `builder.Services` defines *what dependencies exist*; `app` defines *how HTTP requests flow and execute* across those dependencies."
+1. **Bootstrapping via `WebApplication.CreateBuilder(args)`:** This instantiates a `WebApplicationBuilder` and automatically pre-configures default configuration sources (layered `appsettings.json`, environment variables, user secrets, command-line flags), structured logging providers (Console, Debug, EventLog), Kestrel server options, and the dependency injection collection.
+2. **Service Registration via `builder.Services`:** Here, we register all application dependencies into the `IServiceCollection` using their respective lifetimes (`AddTransient`, `AddScoped`, `AddSingleton`), and add framework features like `AddControllers()`, `AddEndpointsApiExplorer()`, or `AddAuthentication()`.
+3. **The Pivot Point via `builder.Build()`:** Calling `Build()` compiles the `IServiceCollection` into an immutable `IServiceProvider`, validates DI lifetimes and scopes, and creates the `WebApplication` instance (the host). Once `Build()` is called, no more services can be registered.
+4. **Middleware Pipeline Assembly via `app`:** Using the `WebApplication` instance, we configure the bidirectional HTTP request delegate chain (`app.UseExceptionHandler()`, `app.UseAuthentication()`, `app.UseAuthorization()`) and map HTTP endpoints (`app.MapControllers()`, `app.MapGet()`).
 
-> [!interview]
-> **Question 4: What is Kestrel?**  
-> **Strong Answer:**  
-> "**Kestrel** is the cross-platform, high-performance, asynchronous web server built into ASP.NET Core. It is included by default in all ASP.NET Core application templates.  
-> 
-> Key technical aspects of Kestrel include:  
-> 1. **Architecture & Performance:** Kestrel is built on top of managed socket transports using `System.IO.Pipelines` to achieve zero-copy memory reads, minimal GC allocations, and ultra-high throughput. It consistently ranks among the fastest web servers in industry benchmarks (such as TechEmpower).  
-> 2. **Protocol Support:** It natively supports HTTP/1.1, HTTP/2 (including gRPC streaming), and HTTP/3 (over QUIC via UDP), alongside WebSockets.  
-> 3. **Deployment Models:**  
->    - **As an Edge Server:** Kestrel is fully hardened against public internet attacks (with configurable limits on request body sizes, connection rates, header timeouts, and keep-alive intervals) and can be exposed directly to the internet.  
->    - **Behind a Reverse Proxy:** In enterprise production, it is frequently deployed behind a reverse proxy or load balancer (such as Nginx, AWS ALB, Cloudflare, IIS, or YARP). The reverse proxy handles edge responsibilities like DDoS filtering, static file caching, and public SSL termination, forwarding requests internally to Kestrel via HTTP/1.1 or HTTP/2."
+Finally, calling `app.Run()` starts the Kestrel web server, starts all registered `IHostedService` background workers, binds to listening ports, and blocks the main thread waiting for graceful shutdown signals (like SIGTERM).
+
+</details>
+
+<details>
+<summary><strong>2. What does WebApplication.CreateBuilder do? [BASIC]</strong></summary>
+
+`WebApplication.CreateBuilder(args)` is an opinionated factory method that initializes and configures the foundational subsystems required to run an ASP.NET Core application. Specifically, it wires four major components under the hood:
+
+1. **Configuration Providers:** It sets up an `IConfiguration` pipeline reading sequentially from `appsettings.json`, `appsettings.{Environment}.json`, User Secrets (in Development environment), Environment Variables, and Command-Line arguments.
+2. **Logging Subsystem:** It configures an `ILoggerFactory` with pre-registered logging providers: Console, Debug, EventSource, and Windows EventLog (when running on Windows).
+3. **Kestrel Web Server:** It configures Kestrel as the in-process web server, binding default endpoints and picking up any server configuration defined in the `Kestrel` configuration section.
+4. **Dependency Injection Container:** It initializes an empty `IServiceCollection` and populates it with internal framework dependencies, while configuring container options (such as verifying that scoped services are not captured by singletons in the Development environment).
+
+Crucially, `CreateBuilder` also exposes `builder.Environment` and `builder.Configuration` directly, allowing engineers to read environment settings or configuration values immediately during service registration without messy workarounds.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between builder.Services and app? [BASIC]</strong></summary>
+
+The difference between `builder.Services` and `app` represents the fundamental separation between **dependency registration** and **HTTP pipeline execution**:
+
+- **`builder.Services`** is an instance of `IServiceCollection` (a list of `ServiceDescriptor` objects). Its sole purpose is **compile-time dependency registration**. It is write-only: you add services, configure options, and register database contexts. At this stage, the application does not yet have a compiled service provider, Kestrel is not running, and incoming HTTP requests cannot be received.
+- **`app`** is an instance of `WebApplication`. It represents the **running host and HTTP pipeline**. It implements `IHost`, `IApplicationBuilder`, and `IEndpointRouteBuilder`. At this stage, the DI container is frozen and immutable (accessible as read-only via `app.Services`). You use `app` to construct the middleware pipeline (via `app.Use...`) and define URL routing endpoints (via `app.Map...`).
+
+In short: `builder.Services` defines *what dependencies exist*; `app` defines *how HTTP requests flow and execute* across those dependencies.
+
+</details>
+
+<details>
+<summary><strong>4. What is Kestrel? [BASIC]</strong></summary>
+
+**Kestrel** is the cross-platform, high-performance, asynchronous web server built into ASP.NET Core. It is included by default in all ASP.NET Core application templates.
+
+Key technical aspects of Kestrel include:
+1. **Architecture & Performance:** Kestrel is built on top of managed socket transports using `System.IO.Pipelines` to achieve zero-copy memory reads, minimal GC allocations, and ultra-high throughput. It consistently ranks among the fastest web servers in industry benchmarks (such as TechEmpower).
+2. **Protocol Support:** It natively supports HTTP/1.1, HTTP/2 (including gRPC streaming), and HTTP/3 (over QUIC via UDP), alongside WebSockets.
+3. **Deployment Models:**
+   - **As an Edge Server:** Kestrel is fully hardened against public internet attacks (with configurable limits on request body sizes, connection rates, header timeouts, and keep-alive intervals) and can be exposed directly to the internet.
+   - **Behind a Reverse Proxy:** In enterprise production, it is frequently deployed behind a reverse proxy or load balancer (such as Nginx, AWS ALB, Cloudflare, IIS, or YARP). The reverse proxy handles edge responsibilities like DDoS filtering, static file caching, and public SSL termination, forwarding requests internally to Kestrel via HTTP/1.1 or HTTP/2.
+
+</details>
+
+<details>
+<summary><strong>5. A service registered after `builder.Build()` isn't found. Why? [SCENARIO]</strong></summary>
+
+The container is built at `Build()`; registrations after that are not part of it. Register everything on `builder.Services` before calling `Build()`.
+
+</details>
+
+<details>
+<summary><strong>6. Why is Kestrel usually run behind IIS/Nginx/a load balancer in production? [TRICKY]</strong></summary>
+
+For TLS termination, request filtering, load balancing, static files and process management. Kestrel is fast and safe but a reverse proxy adds those operational features.
+
+</details>
+
+---
+
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Add `builder.Services.AddSingleton<Greeter>()` and use it in `app.MapGet`; then move a line between the `builder.Services` section and the `app` section and see why the compiler or the runtime complains. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
+
+---
+
+## One-page cheat sheet
+
+```text
+var builder = WebApplication.CreateBuilder(args);   // config + logging + DI + Kestrel
+builder.Services.AddXxx();                          // REGISTER services (before Build)
+var app = builder.Build();                          // container is now frozen
+app.UseXxx(); app.MapXxx();                         // PIPELINE + endpoints (order matters)
+app.Run();                                          // start Kestrel, block
+Config sources (low->high): appsettings.json, appsettings.{Env}.json, user-secrets, env vars, CLI
+Kestrel = built-in cross-platform web server (often behind a reverse proxy)
+Minimal hosting (.NET 6+) replaced Startup.cs: ConfigureServices -> builder.Services, Configure -> app
+Top-level statements: no explicit Main
+```
 
 ---
 

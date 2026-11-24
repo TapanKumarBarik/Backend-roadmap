@@ -724,6 +724,20 @@ A generator is an iterator and it is exhausted after the first pass. Make a new 
 `Select`, `Where` and a method returning `IEnumerable<T>` that uses `yield return`. LINQ is lazy until you enumerate it (`foreach`, `ToList()`).
 </details>
 
+## Cheat sheet
+
+```text
+[f(x) for x in xs if cond]          list comp        {f(x) for x in xs}   set comp
+{k: v for k, v in pairs}           dict comp        (f(x) for x in xs)   generator (lazy)
+Order: [expr  for ...  if ...]     nested: [x for row in grid for x in row]
+Use comprehension to BUILD; use a plain loop for side effects (print, append elsewhere)
+iterable = can loop | iterator = has next() and is used up after one pass
+enumerate(xs) zip(a, b) sorted reversed any all sum min max
+itertools: chain islice product groupby (sort first!) count cycle
+Generators save memory: sum(x*x for x in xs) - no list needed
+Too clever? write the loop.
+```
+
 ---
 
 ## Further reading

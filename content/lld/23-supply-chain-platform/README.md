@@ -5,7 +5,7 @@
 > **Audience:** Candidates facing a "design an inventory / order fulfilment platform" round, or any prompt with several cooperating subsystems
 
 > [!NOTE]
-> **In one line:** Split the platform into small subsystems — **Inventory, Procurement, Fulfilment, Shipment** — guard stock with a lock per **(warehouse, SKU)**, pick the warehouse through a **Strategy**, make multi-item reservation **all-or-nothing**, and model shipments as an explicit **state machine**.
+> **In one line:** Split the platform into small subsystems — **Inventory, Procurement, Fulfilment, Logistics (shipments)** — guard stock with a lock per **(warehouse, SKU)**, pick the warehouse through a **Strategy**, make multi-item reservation **all-or-nothing**, and model shipments as an explicit **state machine**.
 
 > [!TIP]
 > **Golden rule:** Never write a `SupplyChainManager`. Each subsystem owns its own state and invariant (`reserved <= on_hand`, "no shipping a cancelled order"); the fulfilment service only *coordinates*. And never write stock as an absolute value — apply **deltas**, ideally appended to a ledger.
@@ -158,6 +158,11 @@ class Warehouse:
         with self._create_lock:                    # create-if-missing must be atomic
             return self._items.setdefault(sku, InventoryItem(sku))
 
+    def total_available(self) -> int:
+        with self._create_lock:
+            items = list(self._items.values())
+        return sum(i.available for i in items)
+
     def try_reserve_all(self, lines: list[OrderLine]) -> bool:
         done: list[OrderLine] = []
         for line in lines:
@@ -234,7 +239,7 @@ class NearestFirst:
 
 class MostStockFirst:
     def candidates(self, warehouses: list[Warehouse]) -> list[Warehouse]:
-        return sorted(warehouses, key=lambda w: -sum(i.available for i in w._items.values()))
+        return sorted(warehouses, key=lambda w: -w.total_available())
 
 
 @dataclass
@@ -253,16 +258,21 @@ class FulfilmentService:
         self._lock = threading.Lock()
 
     def place(self, order: Order) -> Shipment | None:
-        with self._lock:                            # idempotency on order id
+        with self._lock:                            # successful places only — rejected stays retryable
             if order.order_id in self._placed:
                 return self._shipments.get(order.order_id)
-            self._placed.add(order.order_id)
         for wh in self._selector.candidates(self._warehouses):
             if wh.try_reserve_all(order.lines):
-                order.status, order.warehouse = "RESERVED", wh.name
-                shipment = Shipment(f"TRK-{order.order_id}", order.order_id)
-                self._shipments[order.order_id] = shipment
-                return shipment
+                with self._lock:
+                    if order.order_id in self._placed:  # lost the race — undo and return winner
+                        for line in order.lines:
+                            wh.item(line.sku).release(line.qty)
+                        return self._shipments.get(order.order_id)
+                    order.status, order.warehouse = "RESERVED", wh.name
+                    shipment = Shipment(f"TRK-{order.order_id}", order.order_id)
+                    self._shipments[order.order_id] = shipment
+                    self._placed.add(order.order_id)
+                    return shipment
         order.status = "REJECTED"
         return None
 
@@ -406,7 +416,7 @@ rejected: illegal transition DELIVERED -> CREATED
 
 ## 4. Edges: where supply-chain designs go wrong
 
-- **Read-modify-write on stock.** The real incident: a receiving worker wrote `on_hand = 5010` while checkout wrote `on_hand = 9` from a stale read; 5,000 delivered monitors vanished and the item showed "sold out" nationwide at peak traffic. Cure: apply **relative deltas** (`UPDATE … SET on_hand = on_hand + :d`), guard with a per-item lock or row lock, and keep an append-only **ledger** so balance = sum of movements and you can audit it.
+- **Read-modify-write on stock.** Illustrative failure (a common pattern, not a named incident): a receiving worker writes `on_hand = 5010` while checkout writes `on_hand = 9` from a stale read; 5,000 delivered monitors vanish and the item shows "sold out" at peak traffic. Cure: apply **relative deltas** (`UPDATE … SET on_hand = on_hand + :d`), guard with a per-item lock or row lock, and keep an append-only **ledger** so balance = sum of movements and you can audit it.
 - **Partial reservation.** Reserving line 1 then failing on line 2 leaves phantom reserved stock. Roll back, or reserve in a transaction.
 - **Lock ordering.** If you ever need two locks (transfer between warehouses), always acquire in a canonical order (e.g., sorted by warehouse id) — otherwise A→B and B→A deadlock.
 - **Idempotency.** Duplicate "PO received" scans, duplicate checkout retries, duplicate carrier webhooks. Each subsystem needs an idempotency rule: ignore an event that doesn't change state; remember order ids.

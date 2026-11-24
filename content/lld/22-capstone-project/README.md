@@ -39,7 +39,7 @@ classDiagram
     +check_in
     +check_out
     +overlaps(other) bool
-    +nights() int
+    +nights() list~date~
   }
   class Reservation {
     +id
@@ -378,7 +378,7 @@ Ada's stay is Sat + Sun + three weekdays: one Saturday night at $437.50 plus fou
 - **Multi-process / multi-node.** An in-process lock is useless once two servers run. The real invariant lives in the database: a PostgreSQL exclusion constraint (`EXCLUDE USING gist (room_id WITH =, daterange(check_in, check_out) WITH &&)`) or optimistic versioning on the room row. Say this out loud — it is the senior answer.
 - **When not to over-build.** Overbooking, loyalty tiers, and channel managers are follow-ups. Mention the extension point and move on.
 
-**Real incident, compressed:** a resort booked New Year's Eve by taking one Redis lock *per date*. Two overlapping stays took locks in different orders, deadlocked, and a timeout handler rolled back halfway — both guests got confirmations for the same penthouse. The fix was one lock per room (the aggregate), the overlap formula above, and a database exclusion constraint as the last line of defence.
+**Illustrative failure (a common pattern, not a named incident):** a booking service takes one Redis lock *per date* for New Year's Eve. Two overlapping stays acquire locks in different orders, deadlock, and a timeout handler rolls back halfway — both guests get confirmations for the same penthouse. The fix was one lock per room (the aggregate), the overlap formula above, and a database exclusion constraint as the last line of defence.
 
 ---
 

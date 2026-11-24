@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Dependency Injection** means a class receives its collaborators instead of creating them — **DIP** is the principle, **DI** the technique, an **IoC container** the tool that wires it.
+
 > [!TIP]
 > **The One Rule of Dependency Injection:** Invert the control of dependency construction. A class should declare what abstractions it requires through its constructor and never instantiate its collaborators directly with `new` or call a global locator.
 
@@ -524,48 +527,103 @@ class NotificationManager:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is dependency injection, and why use it?**  
-> **Strong Answer:**  
-> "Dependency Injection (DI) is a structural design pattern in which an object receives its collaborators from an external provider rather than instantiating them itself. Instead of writing `_repo = new SqlRepository()` inside a service, the service declares `public OrderService(IRepository repo)` in its constructor.  
-> 
-> We use DI for three primary reasons:  
-> 1. **Decoupling and Testability:** By depending on abstractions, we can substitute test doubles (mocks, stubs, or in-memory fakes) in unit tests without touching production code or hitting databases and network endpoints.  
-> 2. **Single Responsibility and Separation of Concerns:** A business class focuses purely on its business logic; it is relieved of the responsibility of knowing how to configure, instantiate, or tear down complex collaborator graphs.  
-> 3. **Centralized Lifecycle and Configuration Management:** Object creation and lifetimes (Transient, Scoped, Singleton) are managed centrally in a Composition Root, making configuration changes uniform across the entire application."
+<details>
+<summary><strong>1. What is dependency injection, and why use it? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between IoC, DI and DIP?**  
-> **Strong Answer:**  
-> "These three terms represent different conceptual levels of software architecture:  
-> 
-> - **Inversion of Control (IoC)** is a broad architectural design philosophy. In traditional programming, application code controls the flow and calls libraries. Under IoC, the framework controls the execution flow and calls custom application code (the Hollywood Principle: *'Don't call us, we'll call you'*). Examples include GUI event loops, web middleware pipelines, and template methods.  
-> - **Dependency Inversion Principle (DIP)** is one of the five SOLID design principles. It states that high-level business policy modules should not depend on low-level implementation details; both must depend on stable abstractions (interfaces or abstract base classes).  
-> - **Dependency Injection (DI)** is a specific design pattern used to achieve Inversion of Control in compliance with the Dependency Inversion Principle. It supplies instantiated concrete dependencies to a class through its constructor, method, or property from the outside.  
-> 
-> In summary: DIP is the **principle** (what to aim for), IoC is the **philosophy** (how control is inverted), and DI is the **concrete pattern** (how dependencies are passed)."
+Dependency Injection (DI) is a structural design pattern in which an object receives its collaborators from an external provider rather than instantiating them itself. Instead of writing `_repo = new SqlRepository()` inside a service, the service declares `public OrderService(IRepository repo)` in its constructor.
 
-> [!interview]
-> **Question 3: What is a DI container?**  
-> **Strong Answer:**  
-> "A DI Container (or IoC container) is an infrastructure library that automates dependency injection and lifetime management across an application's object graph.  
-> 
-> When an application bootstraps in its Composition Root, services and their interfaces are registered with the container alongside their intended lifetimes:  
-> - **Transient:** A fresh instance is created on every resolution.  
-> - **Scoped:** A single instance is shared within a logical boundary, such as an HTTP request.  
-> - **Singleton:** Exactly one instance is created and shared across the entire application process.  
-> 
-> When the application resolves a root component (like an ASP.NET Core controller), the container uses reflection or source-generated factories to inspect constructor parameters, recursively resolves every prerequisite collaborator down the dependency tree, and instantiates the complete object graph automatically. Containers also track disposable objects (`IDisposable` / `IAsyncDisposable`) and trigger cleanup when their scope ends."
+We use DI for three primary reasons:
+1. **Decoupling and Testability:** By depending on abstractions, we can substitute test doubles (mocks, stubs, or in-memory fakes) in unit tests without touching production code or hitting databases and network endpoints.
+2. **Single Responsibility and Separation of Concerns:** A business class focuses purely on its business logic; it is relieved of the responsibility of knowing how to configure, instantiate, or tear down complex collaborator graphs.
+3. **Centralized Lifecycle and Configuration Management:** Object creation and lifetimes (Transient, Scoped, Singleton) are managed centrally in a Composition Root, making configuration changes uniform across the entire application.
 
-> [!interview]
-> **Question 4: Why is the service locator called an anti-pattern?**  
-> **Strong Answer:**  
-> "The Service Locator is considered an anti-pattern because it achieves dependency lookup at the cost of breaking encapsulation, testability, and runtime safety:  
-> 
-> 1. **It Hides Class Dependencies:** When a class accepts an `IServiceProvider` or queries a global `ServiceLocator.Get<T>()`, its public constructor signature lies. A constructor with zero parameters or only a container parameter appears ready to use, but will crash at runtime with a `NullReferenceException` if an internal dependency was omitted from the registry.  
-> 2. **It Couples Code to the Locator Infrastructure:** Classes become tightly coupled to a specific service locator library rather than relying solely on pure domain contracts.  
-> 3. **It Impairs Unit Testing:** To test a class using a service locator, developers must set up, mock, and tear down the global locator's internal dictionary rather than simply passing mock instances directly into a constructor.  
-> 4. **It Converts Compile-Time Checks into Runtime Crashes:** With Constructor Injection, missing a dependency causes a compile-time error. With a Service Locator, failures only surface when execution reaches that specific line of code at runtime."
+</details>
+
+<details>
+<summary><strong>2. What is the difference between IoC, DI and DIP? [BASIC]</strong></summary>
+
+These three terms represent different conceptual levels of software architecture:
+
+- **Inversion of Control (IoC)** is a broad architectural design philosophy. In traditional programming, application code controls the flow and calls libraries. Under IoC, the framework controls the execution flow and calls custom application code (the Hollywood Principle: *'Don't call us, we'll call you'*). Examples include GUI event loops, web middleware pipelines, and template methods.
+- **Dependency Inversion Principle (DIP)** is one of the five SOLID design principles. It states that high-level business policy modules should not depend on low-level implementation details; both must depend on stable abstractions (interfaces or abstract base classes).
+- **Dependency Injection (DI)** is a specific design pattern used to achieve Inversion of Control in compliance with the Dependency Inversion Principle. It supplies instantiated concrete dependencies to a class through its constructor, method, or property from the outside.
+
+In summary: DIP is the **principle** (what to aim for), IoC is the **philosophy** (how control is inverted), and DI is the **concrete pattern** (how dependencies are passed).
+
+</details>
+
+<details>
+<summary><strong>3. What is a DI container? [BASIC]</strong></summary>
+
+A DI Container (or IoC container) is an infrastructure library that automates dependency injection and lifetime management across an application's object graph.
+
+When an application bootstraps in its Composition Root, services and their interfaces are registered with the container alongside their intended lifetimes:
+- **Transient:** A fresh instance is created on every resolution.
+- **Scoped:** A single instance is shared within a logical boundary, such as an HTTP request.
+- **Singleton:** Exactly one instance is created and shared across the entire application process.
+
+When the application resolves a root component (like an ASP.NET Core controller), the container uses reflection or source-generated factories to inspect constructor parameters, recursively resolves every prerequisite collaborator down the dependency tree, and instantiates the complete object graph automatically. Containers also track disposable objects (`IDisposable` / `IAsyncDisposable`) and trigger cleanup when their scope ends.
+
+</details>
+
+<details>
+<summary><strong>4. Why is the service locator called an anti-pattern? [TRICKY]</strong></summary>
+
+The Service Locator is considered an anti-pattern because it achieves dependency lookup at the cost of breaking encapsulation, testability, and runtime safety:
+
+1. **It Hides Class Dependencies:** When a class accepts an `IServiceProvider` or queries a global `ServiceLocator.Get<T>()`, its public constructor signature lies. A constructor with zero parameters or only a container parameter appears ready to use, but will crash at runtime with a `NullReferenceException` if an internal dependency was omitted from the registry.
+2. **It Couples Code to the Locator Infrastructure:** Classes become tightly coupled to a specific service locator library rather than relying solely on pure domain contracts.
+3. **It Impairs Unit Testing:** To test a class using a service locator, developers must set up, mock, and tear down the global locator's internal dictionary rather than simply passing mock instances directly into a constructor.
+4. **It Converts Compile-Time Checks into Runtime Crashes:** With Constructor Injection, missing a dependency causes a compile-time error. With a Service Locator, failures only surface when execution reaches that specific line of code at runtime.
+
+</details>
+
+<details>
+<summary><strong>5. A constructor takes 9 dependencies. What does that tell you? [SCENARIO]</strong></summary>
+
+The class likely has too many responsibilities (SRP). Split it, or group cohesive dependencies into a facade. Hiding them behind a service locator only masks the problem.
+
+</details>
+
+<details>
+<summary><strong>6. What is a captive dependency? [TRICKY]</strong></summary>
+
+A longer-lived service (singleton) that captures a shorter-lived one (scoped, e.g. `DbContext`), keeping it alive far too long and sharing it across requests. Fix by resolving a scope per operation or changing lifetimes.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the same service works with real or fake dependencies because they are passed in. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Clock:
+    def now(self): return "real-time"
+class FixedClock:
+    def now(self): return "2026-01-01"
+
+class Invoice:
+    def __init__(self, clock): self.clock = clock         # constructor injection
+    def stamp(self): return f"issued {self.clock.now()}"
+
+assert Invoice(FixedClock()).stamp() == "issued 2026-01-01"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+DIP principle: depend on abstractions | DI technique: pass them in | IoC container: auto-wires
+Constructor injection = default (required deps) | method injection = per-call | property = optional
+Lifetimes: Transient (new each) | Scoped (per request) | Singleton (one)
+Captive dependency: singleton holding scoped/transient -> bug
+Composition root: ONE place that builds the object graph (Program.cs / main)
+Service Locator = anti-pattern (hidden deps, runtime errors)
+Smell: `new` of a service inside business code; ctor with 8+ params
+```
 
 ---
 

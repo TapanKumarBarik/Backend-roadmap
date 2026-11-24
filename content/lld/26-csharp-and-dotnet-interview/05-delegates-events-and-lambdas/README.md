@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A **delegate** is a type-safe function pointer, an **event** is a delegate that outsiders can only subscribe to (not invoke or overwrite), and a **lambda** closure captures the *variable*, not its value.
+
 > [!TIP]
 > **The One Rule of Callbacks in C#:** A `delegate` is a type-safe object-oriented function pointer (`_target` + `_methodPtr`); an `event` is a compiler-enforced access encapsulation restricting multicast delegate invocation strictly to the declaring class, preventing external callers from clearing subscribers (`= null`) or falsely raising the notification; a closure lifts captured local variables into fields of a compiler-generated heap class.
 
@@ -381,49 +384,99 @@ public void RaiseProcessingFailed(string reason)
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is a delegate?**  
-> **Strong Answer:**  
-> "A delegate in C# is a **type-safe, object-oriented function pointer**. It inherits from `System.MulticastDelegate` (which inherits from `System.Delegate`).  
-> 
-> Unlike a raw C/C++ function pointer that holds only a memory address, a .NET delegate encapsulates two critical pieces of information:  
-> 1. `_methodPtr`: An unmanaged pointer to the executable code of the method.  
-> 2. `_target`: A reference to the specific object instance the method belongs to (or `null` if the target is a static method).  
-> 
-> Furthermore, all delegates in C# are **multicast**: they maintain an internal `_invocationList` array, allowing multiple callbacks to be chained together using the `+` or `+=` operators and invoked sequentially."
+<details>
+<summary><strong>1. What is a delegate? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between a delegate and an event?**  
-> **Strong Answer:**  
-> "A delegate is a **type** and an object representing a method signature and callable reference. An `event` is a **language keyword that provides access encapsulation** over a private multicast delegate.  
-> 
-> The relationship between an event and a delegate is identical to the relationship between a property and a private backing field:  
-> - If you expose a public delegate field (`public Action MyAction;`), any external code can overwrite the delegate (`MyAction = null;`) or invoke it directly from outside (`MyAction();`).  
-> - When you declare an event (`public event Action MyAction;`), the compiler generates a private backing delegate and exposes only two public accessors: `add_MyAction` and `remove_MyAction`.  
-> 
-> As a result, external classes are strictly restricted to subscribing (`+=`) and unsubscribing (`-=`). Only the declaring class has the authority to invoke the event or clear the invocation chain."
+A delegate in C# is a **type-safe, object-oriented function pointer**. It inherits from `System.MulticastDelegate` (which inherits from `System.Delegate`).
 
-> [!interview]
-> **Question 3: What are Func and Action?**  
-> **Strong Answer:**  
-> "`Func` and `Action` are standard generic delegates provided in the `System` namespace to avoid the boilerplate of declaring custom delegate types for every method signature.  
-> 
-> - **`Action<...>`**: Represents a method that accepts between 0 and 16 type parameters and returns **`void`**. It is used for operations with side effects, logging, and notifications.  
-> - **`Func<..., TResult>`**: Represents a method that accepts between 0 and 16 input parameters and returns a value of type **`TResult`** (the last generic parameter). It is heavily used in LINQ for projections, transformations, and mathematical calculations.  
-> - **`Predicate<T>`**: A legacy delegate equivalent to `Func<T, bool>`, used primarily in older collection methods like `Array.FindAll` or `List<T>.RemoveAll`.  
-> 
-> You only need to define a custom `delegate` if your signature requires `ref`, `out`, or `in` parameter modifiers, or when building public APIs where explicit domain parameter names are essential."
+Unlike a raw C/C++ function pointer that holds only a memory address, a .NET delegate encapsulates two critical pieces of information:
+1. `_methodPtr`: An unmanaged pointer to the executable code of the method.
+2. `_target`: A reference to the specific object instance the method belongs to (or `null` if the target is a static method).
 
-> [!interview]
-> **Question 4: What is a closure?**  
-> **Strong Answer:**  
-> "A closure is a language construct where an anonymous method or lambda expression captures and binds variables from its surrounding lexical scope.  
-> 
-> Under the hood, the C# compiler handles closures by synthesizing a private hidden display class (commonly named `<>c__DisplayClass`) on the managed heap. The captured local variables are hoisted into **instance fields** of that display class, and the lambda body is compiled as an **instance method** on that same class.  
-> 
-> Two critical architectural consequences follow:  
-> 1. **Heap Allocation:** Even if the captured variable was a stack-allocated value type (like an `int`), hoisting it to the display class forces a heap allocation, generating GC pressure.  
-> 2. **Lifetime Extension:** The captured variables remain alive on the heap as long as the delegate reference exists, which can easily cause memory leaks if a short-lived variable is captured by a long-lived delegate."
+Furthermore, all delegates in C# are **multicast**: they maintain an internal `_invocationList` array, allowing multiple callbacks to be chained together using the `+` or `+=` operators and invoked sequentially.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between a delegate and an event? [BASIC]</strong></summary>
+
+A delegate is a **type** and an object representing a method signature and callable reference. An `event` is a **language keyword that provides access encapsulation** over a private multicast delegate.
+
+The relationship between an event and a delegate is identical to the relationship between a property and a private backing field:
+- If you expose a public delegate field (`public Action MyAction;`), any external code can overwrite the delegate (`MyAction = null;`) or invoke it directly from outside (`MyAction();`).
+- When you declare an event (`public event Action MyAction;`), the compiler generates a private backing delegate and exposes only two public accessors: `add_MyAction` and `remove_MyAction`.
+
+As a result, external classes are strictly restricted to subscribing (`+=`) and unsubscribing (`-=`). Only the declaring class has the authority to invoke the event or clear the invocation chain.
+
+</details>
+
+<details>
+<summary><strong>3. What are Func and Action? [BASIC]</strong></summary>
+
+`Func` and `Action` are standard generic delegates provided in the `System` namespace to avoid the boilerplate of declaring custom delegate types for every method signature.
+
+- **`Action<...>`**: Represents a method that accepts between 0 and 16 type parameters and returns **`void`**. It is used for operations with side effects, logging, and notifications.
+- **`Func<..., TResult>`**: Represents a method that accepts between 0 and 16 input parameters and returns a value of type **`TResult`** (the last generic parameter). It is heavily used in LINQ for projections, transformations, and mathematical calculations.
+- **`Predicate<T>`**: A legacy delegate equivalent to `Func<T, bool>`, used primarily in older collection methods like `Array.FindAll` or `List<T>.RemoveAll`.
+
+You only need to define a custom `delegate` if your signature requires `ref`, `out`, or `in` parameter modifiers, or when building public APIs where explicit domain parameter names are essential.
+
+</details>
+
+<details>
+<summary><strong>4. What is a closure? [BASIC]</strong></summary>
+
+A closure is a language construct where an anonymous method or lambda expression captures and binds variables from its surrounding lexical scope.
+
+Under the hood, the C# compiler handles closures by synthesizing a private hidden display class (commonly named `<>c__DisplayClass`) on the managed heap. The captured local variables are hoisted into **instance fields** of that display class, and the lambda body is compiled as an **instance method** on that same class.
+
+Two critical architectural consequences follow:
+1. **Heap Allocation:** Even if the captured variable was a stack-allocated value type (like an `int`), hoisting it to the display class forces a heap allocation, generating GC pressure.
+2. **Lifetime Extension:** The captured variables remain alive on the heap as long as the delegate reference exists, which can easily cause memory leaks if a short-lived variable is captured by a long-lived delegate.
+
+</details>
+
+<details>
+<summary><strong>5. Why can you not just make the delegate field `public` instead of using `event`? [TRICKY]</strong></summary>
+
+A public delegate lets any code invoke it or replace all subscribers with `=`. `event` restricts outsiders to `+=`/`-=`; only the declaring class can raise it.
+
+</details>
+
+<details>
+<summary><strong>6. A long-lived service holds an event, and short-lived views subscribe. What goes wrong? [SCENARIO]</strong></summary>
+
+Each subscription references the view, so views never get collected: a leak. Unsubscribe in `Dispose`, or use weak event patterns.
+
+</details>
+
+---
+
+## Try it
+
+Run this closure trap (the same one C# lambdas in loops can hit). Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+fs = [lambda: i for i in range(3)]
+assert [f() for f in fs] == [2, 2, 2]            # all capture the same variable
+fs = [lambda i=i: i for i in range(3)]
+assert [f() for f in fs] == [0, 1, 2]            # bind the value at creation
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+delegate = type-safe method reference (multicast: += / -=)
+Func<..,TResult> (returns) | Action<..> (void) | Predicate<T> (bool) | custom delegate
+event = delegate + restricted access: outsiders can only += / -=, owner raises it
+Raise safely: handler?.Invoke(this, args)
+Lambda captures variables (closure) -> loop capture is fixed per-iteration for foreach in C# 5+
+Unsubscribe long-lived publisher events -> else memory leak
+Prefer EventHandler<TEventArgs> signature | async events are awkward (async void)
+Observer pattern in the language
+```
 
 ---
 

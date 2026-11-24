@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** C# `string` is **immutable** (every "change" allocates a new string), so loops need `StringBuilder`; `const` is a compile-time literal while `readonly` is set at run time once.
+
 > [!TIP]
 > **The One Rule of Strings and Constants:** Strings in .NET are immutable reference types with value semantics, managed in an interned process-wide string pool; `const` values are baked directly into referencing call-sites at compile-time across assemblies, whereas `readonly` fields are evaluated dynamically at runtime and fixed for the object or type's lifecycle.
 
@@ -344,44 +347,96 @@ However, `string.Empty` is often preferred in team style guides because it conve
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Why are strings immutable in C#?**  
-> **Strong Answer:**  
-> "Strings are immutable in C# for four fundamental architectural reasons:  
-> 
-> 1. **Thread Safety:** Because a string's internal character array cannot be modified after construction, strings can be shared across multiple threads without locking, synchronization primitives, or race conditions.  
-> 2. **Hash Code Stability & Collection Integrity:** Strings are the most common keys in hash-based collections (`Dictionary<string, T>` and `HashSet<string>`). Because strings are immutable, their hash code is guaranteed never to change during the object's lifetime. If strings were mutable, altering a string after adding it to a dictionary would corrupt internal hash buckets, making the entry unretrievable.  
-> 3. **Memory Optimization via String Interning:** Immutability enables the CLR to maintain a process-wide String Intern Pool. Identical string literals across different classes or assemblies share the exact same heap memory address, saving substantial RAM.  
-> 4. **Security Integrity:** Critical system components—such as database connection strings, file paths, security tokens, and reflection identifiers—are passed as strings. If strings were mutable, an attacker could pass a security validation check and subsequently alter the string in another thread before execution (a Time-of-Check to Time-of-Use vulnerability)."
+<details>
+<summary><strong>1. Why are strings immutable in C#? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: When should you use `StringBuilder`?**  
-> **Strong Answer:**  
-> "You should use `StringBuilder` when you are concatenating strings in an **unbounded loop**, when the number of string operations is unknown at compile time, or when building large, dynamic text documents (such as CSV or XML exports).  
-> 
-> In contrast, you should **not** use `StringBuilder` for simple concatenations of 2 to 4 strings (e.g., `var full = first + " " + last;`). The C# compiler optimizes simple concatenations into a single call to `string.Concat` which calculates the exact required buffer size and allocates the string on the heap once. Using a `StringBuilder` for small concatenations incurs unnecessary object allocations (the `StringBuilder` instance and its internal buffer).  
-> 
-> When you do use `StringBuilder`, always specify an initial capacity (e.g., `new StringBuilder(1024)`) if the final size is predictable. Otherwise, `StringBuilder` must repeatedly allocate larger internal arrays and copy contents as it grows."
+Strings are immutable in C# for four fundamental architectural reasons:
 
-> [!interview]
-> **Question 3: What is the difference between `const` and `readonly`?**  
-> **Strong Answer:**  
-> "The differences between `const` and `readonly` revolve around evaluation time, memory allocation, and binary versioning:  
-> 
-> 1. **Evaluation & Inlining:** `const` fields are evaluated at **compile time**. The compiler inlines the literal value directly into the calling assembly's CIL code. `readonly` fields are evaluated at **runtime** (either during instance construction for `readonly` or during static class initialization for `static readonly`).  
-> 2. **Allowed Types:** `const` can only be applied to primitive types (`int`, `double`, `bool`), enums, strings, or `null`. `readonly` can be applied to any C# type, including complex objects, collections, and structs.  
-> 3. **Binary Compatibility (The Versioning Trap):** If you define a `public const` in Assembly A and reference it in Assembly B, Assembly B embeds the literal value. If Assembly A is updated and redeployed without recompiling Assembly B, Assembly B continues executing with the old baked-in value. With `static readonly`, Assembly B reads the field dynamically at runtime from Assembly A, correctly receiving the updated value without needing recompilation."
+1. **Thread Safety:** Because a string's internal character array cannot be modified after construction, strings can be shared across multiple threads without locking, synchronization primitives, or race conditions.
+2. **Hash Code Stability & Collection Integrity:** Strings are the most common keys in hash-based collections (`Dictionary<string, T>` and `HashSet<string>`). Because strings are immutable, their hash code is guaranteed never to change during the object's lifetime. If strings were mutable, altering a string after adding it to a dictionary would corrupt internal hash buckets, making the entry unretrievable.
+3. **Memory Optimization via String Interning:** Immutability enables the CLR to maintain a process-wide String Intern Pool. Identical string literals across different classes or assemblies share the exact same heap memory address, saving substantial RAM.
+4. **Security Integrity:** Critical system components—such as database connection strings, file paths, security tokens, and reflection identifiers—are passed as strings. If strings were mutable, an attacker could pass a security validation check and subsequently alter the string in another thread before execution (a Time-of-Check to Time-of-Use vulnerability).
 
-> [!interview]
-> **Question 4: What is the difference between `string` and `String`?**  
-> **Strong Answer:**  
-> "There is **no difference at runtime or in compiled CIL**.  
-> 
-> `string` (lowercase) is a C# language keyword that acts as an alias for `System.String` (the Common Language Infrastructure type). They compile to the exact same IL instructions and refer to the exact same class on the managed heap.  
-> 
-> By standard C# style convention (such as the Microsoft Framework Design Guidelines):  
-> - Use `string` when declaring variables, method parameters, and return types (e.g., `string customerName;`).  
-> - Use `String` when invoking static methods on the class (e.g., `String.IsNullOrEmpty()`, `String.Join()`, or `String.Compare()`), though `string.IsNullOrEmpty()` is equally accepted in modern C# codebases."
+</details>
+
+<details>
+<summary><strong>2. When should you use `StringBuilder`? [SCENARIO]</strong></summary>
+
+You should use `StringBuilder` when you are concatenating strings in an **unbounded loop**, when the number of string operations is unknown at compile time, or when building large, dynamic text documents (such as CSV or XML exports).
+
+In contrast, you should **not** use `StringBuilder` for simple concatenations of 2 to 4 strings (e.g., `var full = first + " " + last;`). The C# compiler optimizes simple concatenations into a single call to `string.Concat` which calculates the exact required buffer size and allocates the string on the heap once. Using a `StringBuilder` for small concatenations incurs unnecessary object allocations (the `StringBuilder` instance and its internal buffer).
+
+When you do use `StringBuilder`, always specify an initial capacity (e.g., `new StringBuilder(1024)`) if the final size is predictable. Otherwise, `StringBuilder` must repeatedly allocate larger internal arrays and copy contents as it grows.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between `const` and `readonly`? [BASIC]</strong></summary>
+
+The differences between `const` and `readonly` revolve around evaluation time, memory allocation, and binary versioning:
+
+1. **Evaluation & Inlining:** `const` fields are evaluated at **compile time**. The compiler inlines the literal value directly into the calling assembly's CIL code. `readonly` fields are evaluated at **runtime** (either during instance construction for `readonly` or during static class initialization for `static readonly`).
+2. **Allowed Types:** `const` can only be applied to primitive types (`int`, `double`, `bool`), enums, strings, or `null`. `readonly` can be applied to any C# type, including complex objects, collections, and structs.
+3. **Binary Compatibility (The Versioning Trap):** If you define a `public const` in Assembly A and reference it in Assembly B, Assembly B embeds the literal value. If Assembly A is updated and redeployed without recompiling Assembly B, Assembly B continues executing with the old baked-in value. With `static readonly`, Assembly B reads the field dynamically at runtime from Assembly A, correctly receiving the updated value without needing recompilation.
+
+</details>
+
+<details>
+<summary><strong>4. What is the difference between `string` and `String`? [BASIC]</strong></summary>
+
+There is **no difference at runtime or in compiled CIL**.
+
+`string` (lowercase) is a C# language keyword that acts as an alias for `System.String` (the Common Language Infrastructure type). They compile to the exact same IL instructions and refer to the exact same class on the managed heap.
+
+By standard C# style convention (such as the Microsoft Framework Design Guidelines):
+- Use `string` when declaring variables, method parameters, and return types (e.g., `string customerName;`).
+- Use `String` when invoking static methods on the class (e.g., `String.IsNullOrEmpty()`, `String.Join()`, or `String.Compare()`), though `string.IsNullOrEmpty()` is equally accepted in modern C# codebases.
+
+</details>
+
+<details>
+<summary><strong>5. Why can changing a `public const` in a library break consumers until they recompile? [TRICKY]</strong></summary>
+
+`const` values are inlined into the consumer's IL at compile time. Updating the library DLL alone leaves the old value in callers. Use `static readonly` for values that may change.
+
+</details>
+
+<details>
+<summary><strong>6. You build a 100k-line CSV string in a loop. What do you do? [SCENARIO]</strong></summary>
+
+Use `StringBuilder` (or write straight to a `StreamWriter`/`TextWriter`). The naive `+=` re-allocates and copies the growing string every iteration.
+
+</details>
+
+---
+
+## Try it
+
+Run this: repeated `+=` creates garbage; `join` builds once. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+parts = [str(i) for i in range(5)]
+s = ""
+for p in parts: s += p                          # new string each time (like C# +=)
+assert s == "".join(parts) == "01234"
+t = "abc"; u = t.upper()
+assert t == "abc" and u == "ABC"                # immutable: original untouched
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+string immutable: Concat in a loop = O(n^2) allocs -> StringBuilder / string.Join / interpolation
+Interning: identical literals share one object (string.Intern)
+== on string compares VALUE (overloaded) ; ReferenceEquals compares identity
+string = System.String (alias) ; prefer string in code, String for static (String.Join)
+const: compile-time, baked into callers, primitives/strings only
+readonly: runtime, set in ctor/initialiser, can be any type
+static readonly = runtime constant (safe across assemblies)
+Culture: use StringComparison.Ordinal / InvariantCulture for keys
+```
 
 ---
 

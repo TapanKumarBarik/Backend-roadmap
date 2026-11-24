@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Singleton** guarantees one instance with a global access point — usually a smell; in modern code prefer a DI container's singleton *lifetime* and keep the classic pattern for rare cases.
+
 > [!TIP]
 > **The One Rule of Singleton:** Never implement the classic GoF static Singleton (with a private constructor and static `GetInstance()`) when you can use **Dependency Injection lifetime management (`AddSingleton`)**. GoF Singleton introduces hidden dependencies, tight coupling, and untestable global state; DI-managed singletons provide exact single-instance semantics while preserving interfaces, loose coupling, and parallel unit test isolation.
 
@@ -416,67 +419,113 @@ public class OrderService
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Where would you use a Singleton? Give a real example.**  
-> **Strong Answer:**  
-> "A Singleton is justified when a system requires strict centralized coordination over a single physical or logical resource to avoid contention, data corruption, or memory waste.  
-> 
-> A prime real-world example is an **In-Memory Cache Manager** or a **Hardware Controller** (such as a serial port driver or printer spooler). If multiple instances of a serial port controller were instantiated, they would collide over the same operating system port handle.  
-> 
-> Another common example is a **Database Connection Pool Manager**. The pool itself must be a single coordinator that rations out physical sockets to worker threads; having multiple connection pool objects would defeat the pool's maximum connection throttle and overwhelm the database. However, in modern practice, I always register that coordinator with a Singleton lifetime inside a Dependency Injection container rather than hardcoding a GoF static `Instance`."
+<details>
+<summary><strong>1. Where would you use a Singleton? Give a real example. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: How do you make a Singleton thread-safe in C#?**  
-> **Strong Answer:**  
-> "In modern C#, the gold standard is using **`System.Lazy<T>`**. You initialize a `private static readonly Lazy<MyClass> _lazy = new Lazy<MyClass>(() => new MyClass(), isThreadSafe: true);` and expose it via `public static MyClass Instance => _lazy.Value;`. `Lazy<T>` is thread-safe by default, executes lazily on first access, guarantees memory barriers, and is highly optimized by the runtime.  
-> 
-> The second approach is **Static Initialization** (`public static readonly MyClass Instance = new MyClass();`). The .NET Common Language Runtime (CLR) guarantees that static initializers execute before any static field is accessed, and the runtime handles thread safety without requiring explicit locks.  
-> 
-> The third, historic approach is **Double-Checked Locking**. You mark the static instance field as `volatile` to prevent CPU instruction reordering, acquire a `lock (_padlock)` only if the instance is null, and verify the instance is still null inside the synchronized block before calling `new`. While valid, `Lazy<T>` has superseded double-checked locking in production."
+A Singleton is justified when a system requires strict centralized coordination over a single physical or logical resource to avoid contention, data corruption, or memory waste.
 
-> [!interview]
-> **Question 3: How do you write a Singleton in Python?**  
-> **Strong Answer:**  
-> "There are three primary approaches in Python, depending on the architecture:  
-> 
-> 1. **The Idiomatic Pythonic Way (Module-Level Singleton):** Python modules are singletons by design. When a module is imported for the first time, its code is executed and the resulting module object is cached in `sys.modules`. Instantiating a class at the module top level and importing that variable elsewhere gives you lazy, thread-safe single-instance semantics with zero boilerplate.  
-> 2. **Metaclass Singleton:** You define a custom `SingletonMeta(type)` class that overrides `__call__`. Inside `__call__`, you implement double-checked locking using a `threading.Lock()` to intercept class instantiation. Classes that require singleton behavior simply declare `class MyService(metaclass=SingletonMeta):`.  
-> 3. **Overriding `__new__`:** You override the class's `__new__` method to check an internal class attribute `_instance`. However, this approach has a famous trap: Python's runtime invokes `__init__` on every call to `MyClass()`, even if `__new__` returns an existing instance, requiring extra guarding inside `__init__`."
+A prime real-world example is an **In-Memory Cache Manager** or a **Hardware Controller** (such as a serial port driver or printer spooler). If multiple instances of a serial port controller were instantiated, they would collide over the same operating system port handle.
 
-> [!interview]
-> **Question 4: What is the difference between a Singleton and a static class?**  
-> **Strong Answer:**  
-> "While both enforce single-point access, they have profound architectural differences:  
-> 
-> 1. **Interface Implementation:** A Singleton is a genuine object that can implement interfaces (e.g., `public class Cache : ICache`). A `static class` cannot implement interfaces or inherit from any class other than `object`.  
-> 2. **Passability:** A Singleton instance can be passed as a parameter to methods, stored in collections, or injected via constructor dependency injection. A static class is not an object; it cannot be passed as an argument or manipulated polymorphically.  
-> 3. **Lifecycle & Loading:** A Singleton can defer its instantiation until explicitly requested (lazy loading) or be disposed via `IDisposable`. A static class is loaded and initialized automatically by the runtime when the class is first accessed and cannot be torn down or garbage-collected independently of the application domain.  
-> 4. **Testability:** A Singleton can be abstracted behind an interface for unit test mocking; static classes hardcode dependencies into calling code, making isolation impossible without third-party bytecode profilers."
+Another common example is a **Database Connection Pool Manager**. The pool itself must be a single coordinator that rations out physical sockets to worker threads; having multiple connection pool objects would defeat the pool's maximum connection throttle and overwhelm the database. However, in modern practice, I always register that coordinator with a Singleton lifetime inside a Dependency Injection container rather than hardcoding a GoF static `Instance`.
 
-> [!interview]
-> **Question 5: Why is Singleton called an anti-pattern?**  
-> **Strong Answer:**  
-> "Singleton is labeled an antipattern because it fundamentally introduces **hidden global state** into an object-oriented codebase.  
-> 
-> First, it violates the **Single Responsibility Principle**: a class becomes responsible for its domain behavior *and* managing its own lifetime across the process.  
-> 
-> Second, it creates **hidden temporal coupling**. When a method calls `UserContext.Instance.CurrentUser`, that dependency is invisible from the class constructor signature. Callers cannot know what the method requires without reading its internal implementation line by line.  
-> 
-> Third, it **destroys automated unit testing**. Parallel unit test runners execute multiple test methods simultaneously across threads. If test A sets `Configuration.Instance.Timeout = 5000` and test B modifies it to `100`, the tests intermittently fail due to shared mutable memory contamination.  
-> 
-> Fourth, it promotes **tight coupling**, making it nearly impossible to swap implementations without refactoring every consumer."
+</details>
 
-> [!interview]
-> **Question 6: What is the difference between the Singleton pattern and `AddSingleton` in ASP.NET Core?**  
-> **Strong Answer:**  
-> "The Gang of Four Singleton pattern is a **creational design pattern enforced by class design**; `AddSingleton` in ASP.NET Core is a **service lifetime managed by an Inversion of Control (IoC) container**.  
-> 
-> In the classic GoF pattern, the class itself enforces single-instance restriction by making its constructor private and hardcoding a static `Instance` property. This pollutes the class with lifecycle management and forces consumers to couple directly to the concrete class.  
-> 
-> In contrast, with `AddSingleton<IService, ServiceImpl>()`:  
-> - The class `ServiceImpl` remains a regular, decoupled class with a `public` constructor and no static fields. It can be instantiated freely in unit tests via `new ServiceImpl()`.  
-> - The DI container takes sole responsibility for creating exactly one instance during application bootstrap and injecting that instance into constructors that request `IService`.  
-> - The application gains all benefits of a single shared instance (memory conservation, centralized state) while maintaining total loose coupling, interface abstraction, and seamless mockability in unit tests."
+<details>
+<summary><strong>2. How do you make a Singleton thread-safe in C#? [SCENARIO]</strong></summary>
+
+In modern C#, the gold standard is using **`System.Lazy<T>`**. You initialize a `private static readonly Lazy<MyClass> _lazy = new Lazy<MyClass>(() => new MyClass(), isThreadSafe: true);` and expose it via `public static MyClass Instance => _lazy.Value;`. `Lazy<T>` is thread-safe by default, executes lazily on first access, guarantees memory barriers, and is highly optimized by the runtime.
+
+The second approach is **Static Initialization** (`public static readonly MyClass Instance = new MyClass();`). The .NET Common Language Runtime (CLR) guarantees that static initializers execute before any static field is accessed, and the runtime handles thread safety without requiring explicit locks.
+
+The third, historic approach is **Double-Checked Locking**. You mark the static instance field as `volatile` to prevent CPU instruction reordering, acquire a `lock (_padlock)` only if the instance is null, and verify the instance is still null inside the synchronized block before calling `new`. While valid, `Lazy<T>` has superseded double-checked locking in production.
+
+</details>
+
+<details>
+<summary><strong>3. How do you write a Singleton in Python? [SCENARIO]</strong></summary>
+
+There are three primary approaches in Python, depending on the architecture:
+
+1. **The Idiomatic Pythonic Way (Module-Level Singleton):** Python modules are singletons by design. When a module is imported for the first time, its code is executed and the resulting module object is cached in `sys.modules`. Instantiating a class at the module top level and importing that variable elsewhere gives you lazy, thread-safe single-instance semantics with zero boilerplate.
+2. **Metaclass Singleton:** You define a custom `SingletonMeta(type)` class that overrides `__call__`. Inside `__call__`, you implement double-checked locking using a `threading.Lock()` to intercept class instantiation. Classes that require singleton behavior simply declare `class MyService(metaclass=SingletonMeta):`.
+3. **Overriding `__new__`:** You override the class's `__new__` method to check an internal class attribute `_instance`. However, this approach has a famous trap: Python's runtime invokes `__init__` on every call to `MyClass()`, even if `__new__` returns an existing instance, requiring extra guarding inside `__init__`.
+
+</details>
+
+<details>
+<summary><strong>4. What is the difference between a Singleton and a static class? [BASIC]</strong></summary>
+
+While both enforce single-point access, they have profound architectural differences:
+
+1. **Interface Implementation:** A Singleton is a genuine object that can implement interfaces (e.g., `public class Cache : ICache`). A `static class` cannot implement interfaces or inherit from any class other than `object`.
+2. **Passability:** A Singleton instance can be passed as a parameter to methods, stored in collections, or injected via constructor dependency injection. A static class is not an object; it cannot be passed as an argument or manipulated polymorphically.
+3. **Lifecycle & Loading:** A Singleton can defer its instantiation until explicitly requested (lazy loading) or be disposed via `IDisposable`. A static class is loaded and initialized automatically by the runtime when the class is first accessed and cannot be torn down or garbage-collected independently of the application domain.
+4. **Testability:** A Singleton can be abstracted behind an interface for unit test mocking; static classes hardcode dependencies into calling code, making isolation impossible without third-party bytecode profilers.
+
+</details>
+
+<details>
+<summary><strong>5. Why is Singleton called an anti-pattern? [TRICKY]</strong></summary>
+
+Singleton is labeled an antipattern because it fundamentally introduces **hidden global state** into an object-oriented codebase.
+
+First, it violates the **Single Responsibility Principle**: a class becomes responsible for its domain behavior *and* managing its own lifetime across the process.
+
+Second, it creates **hidden temporal coupling**. When a method calls `UserContext.Instance.CurrentUser`, that dependency is invisible from the class constructor signature. Callers cannot know what the method requires without reading its internal implementation line by line.
+
+Third, it **destroys automated unit testing**. Parallel unit test runners execute multiple test methods simultaneously across threads. If test A sets `Configuration.Instance.Timeout = 5000` and test B modifies it to `100`, the tests intermittently fail due to shared mutable memory contamination.
+
+Fourth, it promotes **tight coupling**, making it nearly impossible to swap implementations without refactoring every consumer.
+
+</details>
+
+<details>
+<summary><strong>6. What is the difference between the Singleton pattern and `AddSingleton` in ASP.NET Core? [BASIC]</strong></summary>
+
+The Gang of Four Singleton pattern is a **creational design pattern enforced by class design**; `AddSingleton` in ASP.NET Core is a **service lifetime managed by an Inversion of Control (IoC) container**.
+
+In the classic GoF pattern, the class itself enforces single-instance restriction by making its constructor private and hardcoding a static `Instance` property. This pollutes the class with lifecycle management and forces consumers to couple directly to the concrete class.
+
+In contrast, with `AddSingleton<IService, ServiceImpl>()`:
+- The class `ServiceImpl` remains a regular, decoupled class with a `public` constructor and no static fields. It can be instantiated freely in unit tests via `new ServiceImpl()`.
+- The DI container takes sole responsibility for creating exactly one instance during application bootstrap and injecting that instance into constructors that request `IService`.
+- The application gains all benefits of a single shared instance (memory conservation, centralized state) while maintaining total loose coupling, interface abstraction, and seamless mockability in unit tests.
+
+</details>
+
+---
+
+## Try it
+
+Run this: `__new__` returns one object, and a lock keeps creation thread-safe. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+import threading
+
+class Settings:
+    _inst, _lock = None, threading.Lock()
+    def __new__(cls):
+        if cls._inst is None:
+            with cls._lock:
+                if cls._inst is None:            # double-checked
+                    cls._inst = super().__new__(cls)
+        return cls._inst
+
+assert Settings() is Settings()
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+SINGLETON   1 instance + global access      private ctor / __new__
+Thread-safe  C#: Lazy<T> | static readonly   Py: module-level object | lock
+Smells: hidden dependency, shared state in tests, hard to mock
+Prefer: DI AddSingleton<IFoo,Foo>() (lifetime) over the pattern
+Static class != Singleton (no interface, no injection)
+Python idiom: a module IS a singleton
+```
 
 ---
 

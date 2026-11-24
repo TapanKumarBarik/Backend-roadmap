@@ -8,7 +8,7 @@ import { describeActivity } from '../../lib/comments.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { DIFFICULTY, ME, WEAK } from '../../config/practice.js';
 import { CODE_TOPICS } from '../../config/code.js';
-import { continueProblem, groupByTopic, tally } from '../../lib/practice/codeProgress.js';
+import { continueProblem, groupByTopic, tally, withoutLldProblems } from '../../lib/practice/codeProgress.js';
 import { Card } from '../ui/Card.jsx';
 import { Button } from '../ui/Button.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
@@ -56,7 +56,7 @@ export default function MyLearningView({
   }
 
   // Coding problems: counted from the progress marks, so they are there for a reader who is not signed in too.
-  const code = useMemo(() => (catalog && catalog.code) || [], [catalog]);
+  const code = useMemo(() => withoutLldProblems((catalog && catalog.code) || []), [catalog]);
   const codeGroups = useMemo(() => groupByTopic(code, statusMap, CODE_TOPICS, Object.keys(DIFFICULTY)), [code, statusMap]);
   const codeTally = tally(code, statusMap);
   const codeNext = continueProblem(codeGroups, statusMap);

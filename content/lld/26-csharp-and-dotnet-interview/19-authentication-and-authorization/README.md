@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Authentication** proves who you are (JWT, cookies); **authorization** decides what you may do (roles, claims, policies) — 401 means *unauthenticated*, 403 means *forbidden*.
+
 > [!TIP]
 > **The One Rule of Auth:** Authentication establishes **who you are** by cryptographically verifying credentials and populating `HttpContext.User` with a `ClaimsPrincipal`; Authorization determines **what you are allowed to do** by evaluating policies against claims and resource state. In the middleware pipeline, `app.UseAuthentication()` must strictly precede `app.UseAuthorization()`, or every authorization check will evaluate against an anonymous user.
 
@@ -426,44 +429,88 @@ Which authentication mechanisms should you choose for each?
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between authentication and authorization?**  
-> **Strong Answer:**  
-> "Authentication and authorization represent two distinct security phases in the request lifecycle:
-> - **Authentication (AuthN):** Determines **identity** ('Who are you?'). In ASP.NET Core, authentication handlers inspect incoming credentials (cookies, JWT bearer headers, mTLS certificates), validate cryptographic signatures, and construct a `ClaimsPrincipal` attached to `HttpContext.User`. If authentication fails or credentials are omitted, the server returns **HTTP 401 Unauthorized**.
-> - **Authorization (AuthZ):** Determines **permissions** ('What are you permitted to do?'). Once the user's identity is established, authorization checks whether the caller's claims satisfy the policies, roles, or resource rules required for that endpoint. If authorization fails, the server returns **HTTP 403 Forbidden**.
-> 
-> In ASP.NET Core's pipeline, `app.UseAuthentication()` must be positioned strictly before `app.UseAuthorization()`. If the order is reversed, `UseAuthorization` executes while `HttpContext.User` is still unauthenticated (anonymous), immediately rejecting all protected endpoints."
+<details>
+<summary><strong>1. What is the difference between authentication and authorization? [BASIC]</strong></summary>
+
+Authentication and authorization represent two distinct security phases in the request lifecycle:
+- **Authentication (AuthN):** Determines **identity** ('Who are you?'). In ASP.NET Core, authentication handlers inspect incoming credentials (cookies, JWT bearer headers, mTLS certificates), validate cryptographic signatures, and construct a `ClaimsPrincipal` attached to `HttpContext.User`. If authentication fails or credentials are omitted, the server returns **HTTP 401 Unauthorized**.
+- **Authorization (AuthZ):** Determines **permissions** ('What are you permitted to do?'). Once the user's identity is established, authorization checks whether the caller's claims satisfy the policies, roles, or resource rules required for that endpoint. If authorization fails, the server returns **HTTP 403 Forbidden**.
+
+In ASP.NET Core's pipeline, `app.UseAuthentication()` must be positioned strictly before `app.UseAuthorization()`. If the order is reversed, `UseAuthorization` executes while `HttpContext.User` is still unauthenticated (anonymous), immediately rejecting all protected endpoints.
+
+</details>
+
+<details>
+<summary><strong>2. How does JWT authentication work in ASP.NET Core? [BASIC]</strong></summary>
+
+JWT (JSON Web Token) authentication in ASP.NET Core operates statelessly via the `Microsoft.AspNetCore.Authentication.JwtBearer` package:
+1. **Client Header:** The client makes an HTTP request with the header `Authorization: Bearer <jwt-token>`.
+2. **Token Structure:** The token consists of three Base64URL-encoded parts: Header (`alg`, `typ`), Payload (standard claims like `iss`, `aud`, `exp`, `sub`, plus custom claims), and the Cryptographic Signature.
+3. **Validation Pipeline:** The `JwtBearerHandler` intercepts the request and validates the token using configured `TokenValidationParameters`:
+   - **Signature Verification:** Validates the signature against the server's symmetric secret key (HMAC SHA-256) or the identity provider's public key (RSA SHA-256 obtained via OpenID Connect JWKS).
+   - **Issuer & Audience:** Confirms that `ValidIssuer` and `ValidAudience` match the token's `iss` and `aud` claims.
+   - **Lifetime & Skew:** Validates that `DateTime.UtcNow` falls between `nbf` (not before) and `exp` (expires), factoring in `ClockSkew`.
+4. **Principal Construction:** If valid, the handler translates the JWT claims into `Claim` objects, populates a `ClaimsIdentity`, and sets `HttpContext.User = new ClaimsPrincipal(identity)`. Downstream controllers and endpoints can now read `User.Identity.Name`, `User.Claims`, or use `[Authorize]`.
+
+</details>
+
+<details>
+<summary><strong>3. What is policy-based authorization? [BASIC]</strong></summary>
+
+Policy-based authorization in ASP.NET Core is a decoupled, extensible authorization model that replaces rigid, hard-coded roles with composable business requirements.
+
+Under Role-Based Authorization (`[Authorize(Roles = "Admin,Manager")]`), authorization logic is tightly coupled to string role names scattered across controllers, making testing difficult and making it impossible to handle dynamic conditions.
+
+Policy-based authorization splits the problem into three decoupled parts:
+1. **Policy Registration:** Configured in `Program.cs` via `options.AddPolicy("CanApproveRefund", policy => policy.RequireClaim("Department", "Billing").Requirements.Add(new MinimumLimitRequirement(5000)))`.
+2. **Requirements:** POCO classes implementing `IAuthorizationRequirement` representing the business rule.
+3. **Handlers:** Classes inheriting `AuthorizationHandler<TRequirement>` (or `AuthorizationHandler<TRequirement, TResource>` for **Resource-Based Authorization**). Handlers inject dependencies (like databases or remote APIs) and evaluate the requirement against the `ClaimsPrincipal` and the specific resource being accessed.
+
+This approach supports **Resource-Based Authorization** (`_authService.AuthorizeAsync(User, document, "EditPolicy")`), allowing rules such as 'A user can only edit this document if they are the original author and the document is not locked'—something traditional role attributes cannot accomplish.
+
+</details>
+
+<details>
+<summary><strong>4. Why should JWTs have short lifetimes and what about revocation? [TRICKY]</strong></summary>
+
+A JWT is valid until it expires and is self-contained, so you can't easily revoke it. Use short access tokens (minutes) with refresh tokens you can revoke, or keep a deny-list for critical cases.
+
+</details>
+
+<details>
+<summary><strong>5. A user may edit only their own orders. Role-based auth isn't enough. What now? [SCENARIO]</strong></summary>
+
+Use resource-based authorization: load the order, call `IAuthorizationService.AuthorizeAsync(User, order, "OwnerOnly")` with a handler that compares the claim's user id to `order.OwnerId`.
+
+</details>
+
+<details>
+<summary><strong>6. What's the difference between a role and a policy? [BASIC]</strong></summary>
+
+A role is one kind of claim. A policy is a named set of requirements (role, claim, age, custom handler), so it can express richer rules and is the preferred approach.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: How does JWT authentication work in ASP.NET Core?**  
-> **Strong Answer:**  
-> "JWT (JSON Web Token) authentication in ASP.NET Core operates statelessly via the `Microsoft.AspNetCore.Authentication.JwtBearer` package:
-> 1. **Client Header:** The client makes an HTTP request with the header `Authorization: Bearer <jwt-token>`.
-> 2. **Token Structure:** The token consists of three Base64URL-encoded parts: Header (`alg`, `typ`), Payload (standard claims like `iss`, `aud`, `exp`, `sub`, plus custom claims), and the Cryptographic Signature.
-> 3. **Validation Pipeline:** The `JwtBearerHandler` intercepts the request and validates the token using configured `TokenValidationParameters`:
->    - **Signature Verification:** Validates the signature against the server's symmetric secret key (HMAC SHA-256) or the identity provider's public key (RSA SHA-256 obtained via OpenID Connect JWKS).
->    - **Issuer & Audience:** Confirms that `ValidIssuer` and `ValidAudience` match the token's `iss` and `aud` claims.
->    - **Lifetime & Skew:** Validates that `DateTime.UtcNow` falls between `nbf` (not before) and `exp` (expires), factoring in `ClockSkew`.
-> 4. **Principal Construction:** If valid, the handler translates the JWT claims into `Claim` objects, populates a `ClaimsIdentity`, and sets `HttpContext.User = new ClaimsPrincipal(identity)`. Downstream controllers and endpoints can now read `User.Identity.Name`, `User.Claims`, or use `[Authorize]`."
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Add `AddAuthentication().AddJwtBearer()` + `AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole("admin")))`, protect an endpoint with `.RequireAuthorization("Admin")`, and call it with no token (401) and a token without the role (403). Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
 
 ---
 
-> [!interview]
-> **Question 3: What is policy-based authorization?**  
-> **Strong Answer:**  
-> "Policy-based authorization in ASP.NET Core is a decoupled, extensible authorization model that replaces rigid, hard-coded roles with composable business requirements.
-> 
-> Under Role-Based Authorization (`[Authorize(Roles = "Admin,Manager")]`), authorization logic is tightly coupled to string role names scattered across controllers, making testing difficult and making it impossible to handle dynamic conditions.
-> 
-> Policy-based authorization splits the problem into three decoupled parts:
-> 1. **Policy Registration:** Configured in `Program.cs` via `options.AddPolicy("CanApproveRefund", policy => policy.RequireClaim("Department", "Billing").Requirements.Add(new MinimumLimitRequirement(5000)))`.
-> 2. **Requirements:** POCO classes implementing `IAuthorizationRequirement` representing the business rule.
-> 3. **Handlers:** Classes inheriting `AuthorizationHandler<TRequirement>` (or `AuthorizationHandler<TRequirement, TResource>` for **Resource-Based Authorization**). Handlers inject dependencies (like databases or remote APIs) and evaluate the requirement against the `ClaimsPrincipal` and the specific resource being accessed.
-> 
-> This approach supports **Resource-Based Authorization** (`_authService.AuthorizeAsync(User, document, "EditPolicy")`), allowing rules such as 'A user can only edit this document if they are the original author and the document is not locked'—something traditional role attributes cannot accomplish."
+## One-page cheat sheet
+
+```text
+401 Unauthorized = not authenticated | 403 Forbidden = authenticated but not allowed
+AuthN: who are you? (JWT bearer, cookies, OIDC) | AuthZ: what can you do?
+Order: UseAuthentication() BEFORE UseAuthorization()
+JWT: header.payload.signature, validated by issuer, audience, lifetime, signing key; stateless
+Claims -> ClaimsPrincipal | roles are claims | policies = named requirements (+ handlers)
+[Authorize] / [AllowAnonymous] / .RequireAuthorization("policy")
+Resource-based: IAuthorizationService.AuthorizeAsync(user, resource, policy)
+Never put secrets in JWT payload (it's only signed) | short expiry + refresh tokens
+```
 
 ---
 

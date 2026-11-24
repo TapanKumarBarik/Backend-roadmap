@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 22 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **High cohesion + low coupling** is the goal; **SOLID** is the five-part checklist for getting there — and every principle should be answerable as *smell → fix → example*.
+
 > [!TIP]
 > **The One Rule of Coupling, Cohesion, and SOLID:** Aim for **high cohesion** (code that changes for the same business reason stays together) and **low coupling** (modules interact through minimal, stable contracts). The five SOLID principles are not dogmatic laws; they are the concrete tactical patterns that produce high cohesion (SRP) and low coupling (OCP, LSP, ISP, DIP).
 
@@ -733,48 +736,105 @@ Identify which term (**DIP**, **DI**, or **IoC Container**) best describes each 
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Explain SOLID with an example of each.**  
-> **Strong Answer:**  
-> "SOLID represents five design principles that promote high cohesion and low coupling:  
-> 1. **Single Responsibility Principle (SRP):** A module should have one reason to change, meaning it serves one business actor. *Example:* Separating an `Invoice` class into an `InvoiceCalculator` (for accounting rules), `InvoiceRepository` (for database persistence), and `InvoicePdfRenderer` (for presentation).  
-> 2. **Open/Closed Principle (OCP):** Software entities should be open for extension but closed for modification. *Example:* In a payment gateway, instead of a `switch` statement checking payment types, define an `IPaymentStrategy` interface. Adding `CryptoPayment` requires authoring a new class without modifying existing, tested code.  
-> 3. **Liskov Substitution Principle (LSP):** Subtypes must be substitutable for their base types without breaking behavioral correctness or invariants. *Example:* A `Square` inheriting from `Rectangle` breaks LSP because altering its width mutates its height, breaking the rectangle's post-conditions.  
-> 4. **Interface Segregation Principle (ISP):** Clients should not be forced to depend on methods they do not use. *Example:* Decomposing a fat `IMachine` interface (`Print`, `Scan`, `Fax`) into `IPrinter`, `IScanner`, and `IFax` so basic desktop printers do not have to throw `NotImplementedException` for scanning.  
-> 5. **Dependency Inversion Principle (DIP):** High-level policy modules must not depend on low-level infrastructure; both must depend on abstractions. *Example:* An `OrderProcessor` depends on an `IPaymentGateway` interface rather than directly instantiating a concrete `StripeClient`."
+<details>
+<summary><strong>1. Explain SOLID with an example of each. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between dependency inversion and dependency injection?**  
-> **Strong Answer:**  
-> "The key distinction is between an **architectural principle** and a **tactical implementation technique**:  
-> - **Dependency Inversion Principle (DIP)** is a high-level architectural rule stating that high-level business modules should not depend on low-level plumbing details; both should depend on abstractions. It dictates the direction of dependencies in an architecture (inverting the traditional top-down flow so business logic owns the contract).  
-> - **Dependency Injection (DI)** is a concrete design pattern used to deliver dependencies to an object from the outside—typically via constructor parameters, method arguments, or properties—rather than having the object instantiate them internally with `new`.  
-> 
-> You can practice Dependency Injection without Dependency Inversion (e.g., injecting a concrete `SqlServerDatabase` directly into `OrderService`). Conversely, Dependency Inversion defines *what* abstractions the architecture requires, while Dependency Injection is the mechanism that *supplies* the concrete implementations at runtime."
+SOLID represents five design principles that promote high cohesion and low coupling:
+1. **Single Responsibility Principle (SRP):** A module should have one reason to change, meaning it serves one business actor. *Example:* Separating an `Invoice` class into an `InvoiceCalculator` (for accounting rules), `InvoiceRepository` (for database persistence), and `InvoicePdfRenderer` (for presentation).
+2. **Open/Closed Principle (OCP):** Software entities should be open for extension but closed for modification. *Example:* In a payment gateway, instead of a `switch` statement checking payment types, define an `IPaymentStrategy` interface. Adding `CryptoPayment` requires authoring a new class without modifying existing, tested code.
+3. **Liskov Substitution Principle (LSP):** Subtypes must be substitutable for their base types without breaking behavioral correctness or invariants. *Example:* A `Square` inheriting from `Rectangle` breaks LSP because altering its width mutates its height, breaking the rectangle's post-conditions.
+4. **Interface Segregation Principle (ISP):** Clients should not be forced to depend on methods they do not use. *Example:* Decomposing a fat `IMachine` interface (`Print`, `Scan`, `Fax`) into `IPrinter`, `IScanner`, and `IFax` so basic desktop printers do not have to throw `NotImplementedException` for scanning.
+5. **Dependency Inversion Principle (DIP):** High-level policy modules must not depend on low-level infrastructure; both must depend on abstractions. *Example:* An `OrderProcessor` depends on an `IPaymentGateway` interface rather than directly instantiating a concrete `StripeClient`.
 
-> [!interview]
-> **Question 3: Give an example of a Liskov violation.**  
-> **Strong Answer:**  
-> "The classic theoretical example is the **Square inheriting from Rectangle**. In mathematics, a square is a rectangle. However, in behavioral software design, a mutable `Rectangle` guarantees that modifying `Width` does not alter `Height`. A `Square` subclass must mutate both dimensions simultaneously to preserve squareness. Any consumer written against `Rectangle` that sets `Width = 10` and `Height = 5` will compute an unexpected area of 25 instead of 50.  
-> 
-> A common production example is **`System.IO.Stream` and `ReadOnlyStream`**. The base `Stream` abstraction defines a `Write(byte[], int, int)` method. When a subclass like a read-only memory stream or compressed stream is substituted, calling `Write()` throws a `NotSupportedException`. The subclass weakens the contract and fails to substitute for the base type safely, forcing the caller to either inspect `stream.CanWrite` defensively or catch unexpected runtime exceptions."
+</details>
 
-> [!interview]
-> **Question 4: What do high cohesion and low coupling mean?**  
-> **Strong Answer:**  
-> "Cohesion and coupling describe the internal focus and external entanglement of software modules:  
-> - **Cohesion** measures how closely related and focused the responsibilities are *within* a single module. High cohesion means a class does one cohesive job and all its members contribute to that single purpose. When requirements for that job change, all edits are contained within that module.  
-> - **Coupling** measures the degree of interdependence *between* different modules. Low coupling means modules interact through minimal, well-defined abstractions and have zero knowledge of each other's internal implementation details.  
-> 
-> In design interviews, the goal is always **high cohesion and low coupling**. High cohesion prevents 'God objects' and minimizes cognitive overhead; low coupling minimizes the blast radius of bugs and allows components to be modified, tested, and replaced in isolation."
+<details>
+<summary><strong>2. What is the difference between dependency inversion and dependency injection? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 5: How does the Open/Closed principle show up in real code?**  
-> **Strong Answer:**  
-> "In production codebases, OCP manifests in three primary architectural patterns:  
-> 1. **The Strategy Pattern:** Instead of a branching `switch` or `if/else` block that evaluates enums (e.g., calculating taxes or discounts based on country codes), the caller delegates to an injected strategy interface (`ITaxCalculator`). Adding support for a new country simply means implementing a new class without editing existing calculator logic.  
-> 2. **Middleware and Pipeline Architectures:** In web frameworks like ASP.NET Core (`IApplicationBuilder`) or Python WSGI/ASGI, HTTP requests pass through an onion-layered pipeline. Developers add logging, rate limiting, authentication, and error handling by chaining new middleware classes without modifying the core server loop.  
-> 3. **Plugin and Event Dispatcher Architectures:** Event-driven systems allow new subscribers or event handlers (`IEventHandler<OrderPlaced>`) to be registered dynamically. When an order is placed, new post-processing workflows (e.g., fraud scanning or analytics ingestion) are introduced by adding listener classes without altering the checkout pipeline."
+The key distinction is between an **architectural principle** and a **tactical implementation technique**:
+- **Dependency Inversion Principle (DIP)** is a high-level architectural rule stating that high-level business modules should not depend on low-level plumbing details; both should depend on abstractions. It dictates the direction of dependencies in an architecture (inverting the traditional top-down flow so business logic owns the contract).
+- **Dependency Injection (DI)** is a concrete design pattern used to deliver dependencies to an object from the outside—typically via constructor parameters, method arguments, or properties—rather than having the object instantiate them internally with `new`.
+
+You can practice Dependency Injection without Dependency Inversion (e.g., injecting a concrete `SqlServerDatabase` directly into `OrderService`). Conversely, Dependency Inversion defines *what* abstractions the architecture requires, while Dependency Injection is the mechanism that *supplies* the concrete implementations at runtime.
+
+</details>
+
+<details>
+<summary><strong>3. Give an example of a Liskov violation. [SCENARIO]</strong></summary>
+
+The classic theoretical example is the **Square inheriting from Rectangle**. In mathematics, a square is a rectangle. However, in behavioral software design, a mutable `Rectangle` guarantees that modifying `Width` does not alter `Height`. A `Square` subclass must mutate both dimensions simultaneously to preserve squareness. Any consumer written against `Rectangle` that sets `Width = 10` and `Height = 5` will compute an unexpected area of 25 instead of 50.
+
+A common production example is **`System.IO.Stream` and `ReadOnlyStream`**. The base `Stream` abstraction defines a `Write(byte[], int, int)` method. When a subclass like a read-only memory stream or compressed stream is substituted, calling `Write()` throws a `NotSupportedException`. The subclass weakens the contract and fails to substitute for the base type safely, forcing the caller to either inspect `stream.CanWrite` defensively or catch unexpected runtime exceptions.
+
+</details>
+
+<details>
+<summary><strong>4. What do high cohesion and low coupling mean? [BASIC]</strong></summary>
+
+Cohesion and coupling describe the internal focus and external entanglement of software modules:
+- **Cohesion** measures how closely related and focused the responsibilities are *within* a single module. High cohesion means a class does one cohesive job and all its members contribute to that single purpose. When requirements for that job change, all edits are contained within that module.
+- **Coupling** measures the degree of interdependence *between* different modules. Low coupling means modules interact through minimal, well-defined abstractions and have zero knowledge of each other's internal implementation details.
+
+In design interviews, the goal is always **high cohesion and low coupling**. High cohesion prevents 'God objects' and minimizes cognitive overhead; low coupling minimizes the blast radius of bugs and allows components to be modified, tested, and replaced in isolation.
+
+</details>
+
+<details>
+<summary><strong>5. How does the Open/Closed principle show up in real code? [SCENARIO]</strong></summary>
+
+In production codebases, OCP manifests in three primary architectural patterns:
+1. **The Strategy Pattern:** Instead of a branching `switch` or `if/else` block that evaluates enums (e.g., calculating taxes or discounts based on country codes), the caller delegates to an injected strategy interface (`ITaxCalculator`). Adding support for a new country simply means implementing a new class without editing existing calculator logic.
+2. **Middleware and Pipeline Architectures:** In web frameworks like ASP.NET Core (`IApplicationBuilder`) or Python WSGI/ASGI, HTTP requests pass through an onion-layered pipeline. Developers add logging, rate limiting, authentication, and error handling by chaining new middleware classes without modifying the core server loop.
+3. **Plugin and Event Dispatcher Architectures:** Event-driven systems allow new subscribers or event handlers (`IEventHandler<OrderPlaced>`) to be registered dynamically. When an order is placed, new post-processing workflows (e.g., fraud scanning or analytics ingestion) are introduced by adding listener classes without altering the checkout pipeline.
+
+</details>
+
+<details>
+<summary><strong>6. A `Report` class loads data, formats it and emails it. How do you refactor? [SCENARIO]</strong></summary>
+
+It has three reasons to change (SRP). Split into `ReportRepository`, `ReportFormatter` and `ReportSender`, each behind a small interface, and a thin `ReportService` that composes them. Each piece can then be tested and swapped independently.
+
+</details>
+
+---
+
+## Try it
+
+Run this tiny DIP example: the service depends on an abstraction and a fake replaces the real thing. Then draw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the SOLID follow-ups.
+
+```python
+from typing import Protocol
+
+class Mailer(Protocol):
+    def send(self, to: str, body: str) -> None: ...
+
+class SignupService:
+    def __init__(self, mailer: Mailer): self.mailer = mailer   # injected abstraction
+    def register(self, email): self.mailer.send(email, "welcome")
+
+class FakeMailer:
+    def __init__(self): self.out = []
+    def send(self, to, body): self.out.append((to, body))
+
+m = FakeMailer(); SignupService(m).register("a@x.com")
+assert m.out == [("a@x.com", "welcome")]
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+S  one reason to change              smell: class with "and" in its name
+O  extend, don't edit (add class)    smell: growing if/switch on type
+L  subtype keeps base promises       smell: override throws NotSupported
+I  small role interfaces             smell: empty/throwing implementations
+D  depend on abstractions            smell: `new` inside business logic
+DIP (principle) != DI (technique) != IoC container (tool)
+Cohesion: things that change together live together
+Coupling: how much one class must know about another
+DRY / KISS / YAGNI: don't repeat knowledge, stay simple, don't build "just in case"
+```
 
 ---
 

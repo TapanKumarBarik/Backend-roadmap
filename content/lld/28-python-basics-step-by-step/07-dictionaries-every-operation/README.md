@@ -1220,6 +1220,21 @@ Keep a dict from value to index. For each number, check whether `target - n` is 
 Both are hash tables with O(1) average lookup. Python keeps insertion order, offers `get`, `setdefault`, `update` and `|`. C# offers `TryGetValue`, `TryAdd`, `GetValueOrDefault`, throws `KeyNotFoundException` on a missing key, and gives no order guarantee (use `SortedDictionary` when order matters).
 </details>
 
+## Cheat sheet
+
+```text
+Create  {"a": 1}  dict(a=1)  dict(zip(ks, vs))  {k: v for ...}  dict.fromkeys(ks, 0)
+Read    d[k] (KeyError) | d.get(k, default) | k in d | d.setdefault(k, v)
+Write   d[k] = v | d.update(other) | d | other (3.9+) | {**a, **b}
+Delete  del d[k] | d.pop(k, default) | popitem() last | clear()
+Loop    for k in d | d.keys() | d.values() | for k, v in d.items()
+Keys must be hashable (str, int, tuple); values can be anything
+Insertion-ordered (3.7+) | get/set/in are O(1) average
+Count: collections.Counter(xs)   group: defaultdict(list)
+Sort by value: sorted(d.items(), key=lambda kv: kv[1])
+Copy: d.copy() shallow, copy.deepcopy(d) deep
+```
+
 ---
 
 ## Further reading

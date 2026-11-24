@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Four pillars = **encapsulation** (guard state), **abstraction** (hide detail behind a contract), **inheritance** (reuse an is-a base), **polymorphism** (one call, many behaviours) — and the interviewer grades your *example*, not the definition.
+
 > [!TIP]
 > **The One Rule of the Four Pillars:** Encapsulation protects **invariants** (data safety), Abstraction hides **complexity** (interface design), Inheritance shares **mechanics** (code reuse), and Polymorphism enables **pluggability** (uniform substitution). Never mix up abstraction with encapsulation: encapsulation is a lock on a bank vault; abstraction is the keypad on the door.
 
@@ -381,40 +384,106 @@ Define a `ShippingStrategy` interface/base class with an abstract method `calcul
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What are the four pillars of OOP? Give an example of each.**  
-> **Strong Answer:**  
-> "The four pillars are Encapsulation, Abstraction, Inheritance, and Polymorphism.  
-> 1. **Encapsulation** bundles state and behavior, restricting direct access to safeguard business invariants. For example, a `BankAccount` keeps its `_balance` private and only permits withdrawals through a method that checks for sufficient funds.  
-> 2. **Abstraction** separates the public contract from internal implementation complexity. For example, a `PaymentGateway` interface exposes a single `ProcessPayment(amount)` method, hiding cryptographic keys, JSON formatting, and HTTP retry policies.  
-> 3. **Inheritance** enables code reuse and subtyping. For example, `CreditCardPayment` inherits currency and transaction logging from a `PaymentMethod` base class.  
-> 4. **Polymorphism** allows different concrete types to be treated uniformly through a shared abstraction at runtime. For example, an e-commerce checkout loops over a list of `PaymentMethod` instances and calls `.Pay()` on each without caring whether an item is a credit card, PayPal, or crypto payment."
+<details>
+<summary><strong>1. What are the four pillars of OOP? Give an example of each. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between abstraction and encapsulation?**  
-> **Strong Answer:**  
-> "Encapsulation is about **containment and data hiding**—bundling data and methods together and restricting direct access to protect internal invariants. It solves the problem of *'How do I keep my object's state valid and safe from outside tampering?'*  
-> 
-> Abstraction is about **simplification and interface design**—hiding background implementation details and exposing only the essential operations needed by the consumer. It solves the problem of *'How do I use this service without needing to understand its internal complexity?'*  
-> 
-> In short: Encapsulation hides the *data* behind private boundaries. Abstraction hides the *implementation* behind an interface."
+The four pillars are Encapsulation, Abstraction, Inheritance, and Polymorphism.
+1. **Encapsulation** bundles state and behavior, restricting direct access to safeguard business invariants. For example, a `BankAccount` keeps its `_balance` private and only permits withdrawals through a method that checks for sufficient funds.
+2. **Abstraction** separates the public contract from internal implementation complexity. For example, a `PaymentGateway` interface exposes a single `ProcessPayment(amount)` method, hiding cryptographic keys, JSON formatting, and HTTP retry policies.
+3. **Inheritance** enables code reuse and subtyping. For example, `CreditCardPayment` inherits currency and transaction logging from a `PaymentMethod` base class.
+4. **Polymorphism** allows different concrete types to be treated uniformly through a shared abstraction at runtime. For example, an e-commerce checkout loops over a list of `PaymentMethod` instances and calls `.Pay()` on each without caring whether an item is a credit card, PayPal, or crypto payment.
 
-> [!interview]
-> **Question 3: Is OOP possible without inheritance?**  
-> **Strong Answer:**  
-> "Yes, absolutely. In fact, modern software architecture heavily encourages composition over inheritance. Languages like **Go** and **Rust** are fully object-oriented in practice without supporting classical class inheritance at all.  
-> 
-> They achieve encapsulation through structs and private fields, abstraction through interfaces and traits, and polymorphism through structural subtyping or trait implementations. Classical inheritance is only one specific mechanism for subtyping and code reuse; encapsulation, abstraction, and polymorphism are the true foundations of object-oriented design."
+</details>
 
-> [!interview]
-> **Question 4: Which pillar does an interface give you?**  
-> **Strong Answer:**  
-> "An interface primarily provides **Abstraction** and enables **Polymorphism**.  
-> 
-> - It delivers **Abstraction** because it specifies a pure contract—*what* an implementing class must do—without providing any implementation details or internal state.  
-> - It enables **Polymorphism** because callers can write code against the interface type (e.g., `ILogger`), allowing any implementing class (`FileLogger`, `ConsoleLogger`, `CloudWatchLogger`) to be substituted at runtime without changing the consuming code.  
-> 
-> An interface does *not* provide encapsulation (it holds no private state) nor classical inheritance (it provides no reusable implementation, excluding modern default interface methods)."
+<details>
+<summary><strong>2. What is the difference between abstraction and encapsulation? [BASIC]</strong></summary>
+
+Encapsulation is about **containment and data hiding**—bundling data and methods together and restricting direct access to protect internal invariants. It solves the problem of *'How do I keep my object's state valid and safe from outside tampering?'*
+
+Abstraction is about **simplification and interface design**—hiding background implementation details and exposing only the essential operations needed by the consumer. It solves the problem of *'How do I use this service without needing to understand its internal complexity?'*
+
+In short: Encapsulation hides the *data* behind private boundaries. Abstraction hides the *implementation* behind an interface.
+
+</details>
+
+<details>
+<summary><strong>3. Is OOP possible without inheritance? [BASIC]</strong></summary>
+
+Yes, absolutely. In fact, modern software architecture heavily encourages composition over inheritance. Languages like **Go** and **Rust** are fully object-oriented in practice without supporting classical class inheritance at all.
+
+They achieve encapsulation through structs and private fields, abstraction through interfaces and traits, and polymorphism through structural subtyping or trait implementations. Classical inheritance is only one specific mechanism for subtyping and code reuse; encapsulation, abstraction, and polymorphism are the true foundations of object-oriented design.
+
+</details>
+
+<details>
+<summary><strong>4. Which pillar does an interface give you? [SCENARIO]</strong></summary>
+
+An interface primarily provides **Abstraction** and enables **Polymorphism**.
+
+- It delivers **Abstraction** because it specifies a pure contract—*what* an implementing class must do—without providing any implementation details or internal state.
+- It enables **Polymorphism** because callers can write code against the interface type (e.g., `ILogger`), allowing any implementing class (`FileLogger`, `ConsoleLogger`, `CloudWatchLogger`) to be substituted at runtime without changing the consuming code.
+
+An interface does *not* provide encapsulation (it holds no private state) nor classical inheritance (it provides no reusable implementation, excluding modern default interface methods).
+
+</details>
+
+<details>
+<summary><strong>5. Your checkout has `if type == 'card' ... elif 'upi' ...`. Which pillar fixes it? [SCENARIO]</strong></summary>
+
+Polymorphism, enabled by abstraction: define `Payment.pay()`, give each method its own subclass, and let checkout call `payment.pay(amount)`. New payment types are added without editing checkout (Open/Closed).
+
+</details>
+
+<details>
+<summary><strong>6. A class has public getters and setters for every field. Is it encapsulated? [TRICKY]</strong></summary>
+
+No. Encapsulation is not "fields are private"; it is *the object protects its invariants*. A setter that accepts any value is a public field in disguise. Expose behaviour (`deposit`, `withdraw`) that validates, and keep the state private.
+
+</details>
+
+---
+
+## Try it
+
+Run this, then name which pillar each line demonstrates. Re-draw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the full 2-minute template.
+
+```python
+from abc import ABC, abstractmethod
+
+class Account:                                   # encapsulation: balance guarded
+    def __init__(self): self._balance = 0
+    def deposit(self, n):
+        if n <= 0: raise ValueError("positive only")
+        self._balance += n
+    @property
+    def balance(self): return self._balance
+
+class Payment(ABC):                              # abstraction: callers see pay()
+    @abstractmethod
+    def pay(self, amt): ...
+
+class Card(Payment):                             # inheritance + polymorphism
+    def pay(self, amt): return f"card {amt}"
+class Upi(Payment):
+    def pay(self, amt): return f"upi {amt}"
+
+a = Account(); a.deposit(50); assert a.balance == 50
+assert [p.pay(5) for p in (Card(), Upi())] == ["card 5", "upi 5"]   # no type branching
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+ENCAPSULATION  guard state, expose behaviour     _balance + deposit()
+ABSTRACTION    hide *how*, show *what*            abstract Payment.pay()
+INHERITANCE    is-a reuse (shallow, stable)       Card(Payment)
+POLYMORPHISM   one call, many behaviours          for p in payments: p.pay()
+Abstraction vs encapsulation: design-level contract vs data-level protection
+OOP without inheritance? Yes - interfaces + composition + polymorphism
+Answer shape: definition -> 1 example -> trade-off -> follow-up
+```
 
 ---
 

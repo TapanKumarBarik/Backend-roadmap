@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Controllers (attribute routing, filters, model binding) and minimal APIs (lambda endpoints) are two ways to map HTTP to code; **filters** wrap MVC actions with knowledge of the action and model, unlike middleware.
+
 > [!TIP]
 > **The One Rule of ASP.NET Core Request Processing:** Middleware operates globally on the raw `HttpContext` before routing and MVC contexts are established, whereas Filters and Endpoint Filters execute *inside* the endpoint execution pipeline with rich access to parsed action parameters, `ModelState`, and return results. Choose Minimal APIs with Endpoint Filters for high-performance, low-allocation microservices, and Controllers with Action Filters for complex enterprise applications requiring rich declarative conventions and cross-cutting view/action orchestration.
 
@@ -464,65 +467,102 @@ public IActionResult GetUser([FromRoute] int routeId, [FromQuery(Name = "id")] i
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between controllers and minimal APIs?**  
-> **Strong Answer:**  
-> "The difference between controllers and Minimal APIs lies in architectural overhead, execution pipelines, and compilation mechanics:  
-> 
-> 1. **Underlying Infrastructure:** Controllers are part of the full ASP.NET Core MVC framework (`Microsoft.AspNetCore.Mvc`). They require class instantiation via DI per request, rely on action descriptors, and route through the five-stage MVC filter pipeline (Authorization, Resource, Action, Exception, Result filters). Minimal APIs, by contrast, map HTTP routes directly to lightweight delegate callbacks or static methods (`RequestDelegate`).  
-> 2. **Performance & Allocations:** Minimal APIs yield approximately **30% to 40% higher throughput** and significantly lower GC heap allocations because they bypass controller activation, reflection-based action descriptor discovery, and MVC filter overhead. In .NET 8+, Minimal APIs utilize compile-time **Request Delegate Generators (RDG)** via Roslyn source generators.  
-> 3. **Native AOT Compatibility:** Minimal APIs are fully trim-safe and Native AOT compatible out of the box. Traditional controllers rely heavily on runtime reflection for model binding and action parameter matching, which frequently breaks under IL trimming.  
-> 4. **Filters:** Controllers use MVC Action Filters (`IActionFilter`), whereas Minimal APIs use lightweight Endpoint Filters (`IEndpointFilter`).  
-> 
-> **When to use which:** Use **Minimal APIs** for high-throughput microservices, serverless functions, or Native AOT targets. Use **Controllers** for large enterprise monoliths where standardized folder conventions, shared base controllers, and complex cross-cutting MVC filters provide better organizational structure."
+<details>
+<summary><strong>1. What is the difference between controllers and minimal APIs? [BASIC]</strong></summary>
+
+The difference between controllers and Minimal APIs lies in architectural overhead, execution pipelines, and compilation mechanics:
+
+1. **Underlying Infrastructure:** Controllers are part of the full ASP.NET Core MVC framework (`Microsoft.AspNetCore.Mvc`). They require class instantiation via DI per request, rely on action descriptors, and route through the five-stage MVC filter pipeline (Authorization, Resource, Action, Exception, Result filters). Minimal APIs, by contrast, map HTTP routes directly to lightweight delegate callbacks or static methods (`RequestDelegate`).
+2. **Performance & Allocations:** Minimal APIs yield approximately **30% to 40% higher throughput** and significantly lower GC heap allocations because they bypass controller activation, reflection-based action descriptor discovery, and MVC filter overhead. In .NET 8+, Minimal APIs utilize compile-time **Request Delegate Generators (RDG)** via Roslyn source generators.
+3. **Native AOT Compatibility:** Minimal APIs are fully trim-safe and Native AOT compatible out of the box. Traditional controllers rely heavily on runtime reflection for model binding and action parameter matching, which frequently breaks under IL trimming.
+4. **Filters:** Controllers use MVC Action Filters (`IActionFilter`), whereas Minimal APIs use lightweight Endpoint Filters (`IEndpointFilter`).
+
+**When to use which:** Use **Minimal APIs** for high-throughput microservices, serverless functions, or Native AOT targets. Use **Controllers** for large enterprise monoliths where standardized folder conventions, shared base controllers, and complex cross-cutting MVC filters provide better organizational structure.
+
+</details>
+
+<details>
+<summary><strong>2. How does model binding work? [SCENARIO]</strong></summary>
+
+Model binding is the ASP.NET Core process that extracts incoming HTTP request data (from URL segments, query strings, headers, form data, and JSON request bodies) and converts it into strongly typed C# objects passed as parameters to action methods or endpoint handlers.
+
+The model binding engine follows a systematic sequence:
+1. **Source Identification:** It determines the data source using explicit binding attributes:
+   - `[FromRoute]`: Matches values from route templates (e.g., `{id}`).
+   - `[FromQuery]`: Extracts key-value pairs from the URL query string.
+   - `[FromBody]`: Deserializes the request body via configured input formatters (`System.Text.Json`).
+   - `[FromHeader]`: Extracts named HTTP request headers.
+   - `[FromServices]`: Injects dependencies directly from the DI container.
+   - `[FromForm]`: Parses multipart/form-data.
+2. **Default Heuristics:** If attributes are omitted, simple types (`int`, `string`, `Guid`, `DateTime`) default to Route values followed by Query strings. Complex types default to `[FromBody]`. Types registered in the DI container are automatically resolved from services.
+3. **Type Conversion & Validation:** The binder parses string values into target primitive types. Next, it evaluates data annotation attributes (`[Required]`, `[Range]`, `[EmailAddress]`). Any conversion or validation failures are recorded in the **`ModelState`** dictionary.
+4. **Short-Circuiting:** In controllers marked with `[ApiController]`, the runtime automatically checks `ModelState.IsValid`. If `false`, it automatically short-circuits execution, returning an HTTP `400 Bad Request` with an RFC 7807 `ValidationProblemDetails` payload without executing the action.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between a filter and a middleware? [BASIC]</strong></summary>
+
+The fundamental difference between a Filter and a Middleware is their **location in the request processing pipeline** and their **level of contextual awareness**:
+
+1. **Middleware operates globally:** Middleware runs in the core ASP.NET Core pipeline around the raw `HttpContext`. It executes before endpoint routing takes place (unless placed after `UseRouting()`). It has no intrinsic knowledge of which action method or handler will execute. It deals strictly with raw request headers and network streams and cannot access action parameters, model validation dictionaries, or typed return objects.
+2. **Filters operate inside the MVC Action pipeline:** Filters execute *only after* routing has matched a specific controller action. They have access to the rich MVC execution context (`ActionExecutingContext`), including:
+   - The specific controller instance and method metadata (`ActionDescriptor`).
+   - The strongly typed arguments parsed by model binding (`ActionArguments`).
+   - The model validation state (`ModelState`).
+   - The final returned action result (`IActionResult`).
+
+**Architectural Rule of Thumb:** Use **Middleware** for cross-cutting HTTP concerns that apply to all incoming requests regardless of endpoint (e.g., CORS, authentication, global exception formatting, request logging, compression). Use **Filters** (or Minimal API Endpoint Filters) for logic that depends on the specific endpoint's parameters or results (e.g., action execution metrics, model validation overrides, custom result caching, transaction commit on 2xx responses).
+
+</details>
+
+<details>
+<summary><strong>4. What are the kinds of filters in MVC? [BASIC]</strong></summary>
+
+ASP.NET Core MVC provides five distinct filter stages that execute in a defined order surrounding the action method:
+
+1. **Authorization Filters (`IAuthorizationFilter` / `IAsyncAuthorizationFilter`):** Run first in the filter pipeline to determine whether the request is authorized. They inspect identity and claims. If unauthorized, they short-circuit the request immediately (`context.Result = new ForbidResult()`).
+2. **Resource Filters (`IResourceFilter` / `IAsyncResourceFilter`):** Run second, wrapping the remainder of the pipeline (including model binding). Because they execute *before* model binding and JSON deserialization, they are optimal for caching: a cached response can be returned immediately, saving substantial CPU and allocation costs.
+3. **Action Filters (`IActionFilter` / `IAsyncActionFilter`):** Wrap the execution of the action method itself. Their `OnActionExecuting` method can inspect and modify `context.ActionArguments` before the method runs; `OnActionExecuted` can inspect or alter the returned `IActionResult`.
+4. **Exception Filters (`IExceptionFilter` / `IAsyncExceptionFilter`):** Executed when an unhandled exception occurs inside a controller action or action filter. They can set `context.ExceptionHandled = true` and return a custom error result.
+5. **Result Filters (`IResultFilter` / `IAsyncResultFilter`):** Wrap the execution of the `IActionResult`. They execute immediately before and after the action result formats and writes to the HTTP response stream (e.g., useful for adding response headers specifically when a view or JSON result completes).
+
+</details>
+
+<details>
+<summary><strong>5. Where would you put request logging, and where would you put "validate this DTO"? [SCENARIO]</strong></summary>
+
+Request logging: middleware (applies to everything). DTO validation: automatic model validation with `[ApiController]`/FluentValidation, or an endpoint/action filter, because it needs model binding results.
+
+</details>
+
+<details>
+<summary><strong>6. Why does a filter's `OnActionExecuting` not run for a request that failed authentication? [TRICKY]</strong></summary>
+
+Authorization (and authentication middleware) run earlier in the pipeline and short-circuit with 401/403, so the action filter stage is never reached.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: How does model binding work?**  
-> **Strong Answer:**  
-> "Model binding is the ASP.NET Core process that extracts incoming HTTP request data (from URL segments, query strings, headers, form data, and JSON request bodies) and converts it into strongly typed C# objects passed as parameters to action methods or endpoint handlers.  
-> 
-> The model binding engine follows a systematic sequence:
-> 1. **Source Identification:** It determines the data source using explicit binding attributes:
->    - `[FromRoute]`: Matches values from route templates (e.g., `{id}`).
->    - `[FromQuery]`: Extracts key-value pairs from the URL query string.
->    - `[FromBody]`: Deserializes the request body via configured input formatters (`System.Text.Json`).
->    - `[FromHeader]`: Extracts named HTTP request headers.
->    - `[FromServices]`: Injects dependencies directly from the DI container.
->    - `[FromForm]`: Parses multipart/form-data.
-> 2. **Default Heuristics:** If attributes are omitted, simple types (`int`, `string`, `Guid`, `DateTime`) default to Route values followed by Query strings. Complex types default to `[FromBody]`. Types registered in the DI container are automatically resolved from services.
-> 3. **Type Conversion & Validation:** The binder parses string values into target primitive types. Next, it evaluates data annotation attributes (`[Required]`, `[Range]`, `[EmailAddress]`). Any conversion or validation failures are recorded in the **`ModelState`** dictionary.
-> 4. **Short-Circuiting:** In controllers marked with `[ApiController]`, the runtime automatically checks `ModelState.IsValid`. If `false`, it automatically short-circuits execution, returning an HTTP `400 Bad Request` with an RFC 7807 `ValidationProblemDetails` payload without executing the action."
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Add a `MapGet("/items/{id:int}", (int id, [FromQuery] bool? full) => ...)` endpoint and call it with `/items/abc` and `/items/5?full=true` to watch binding and route constraints. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
 
 ---
 
-> [!interview]
-> **Question 3: What is the difference between a filter and a middleware?**  
-> **Strong Answer:**  
-> "The fundamental difference between a Filter and a Middleware is their **location in the request processing pipeline** and their **level of contextual awareness**:  
-> 
-> 1. **Middleware operates globally:** Middleware runs in the core ASP.NET Core pipeline around the raw `HttpContext`. It executes before endpoint routing takes place (unless placed after `UseRouting()`). It has no intrinsic knowledge of which action method or handler will execute. It deals strictly with raw request headers and network streams and cannot access action parameters, model validation dictionaries, or typed return objects.  
-> 2. **Filters operate inside the MVC Action pipeline:** Filters execute *only after* routing has matched a specific controller action. They have access to the rich MVC execution context (`ActionExecutingContext`), including:
->    - The specific controller instance and method metadata (`ActionDescriptor`).
->    - The strongly typed arguments parsed by model binding (`ActionArguments`).
->    - The model validation state (`ModelState`).
->    - The final returned action result (`IActionResult`).  
-> 
-> **Architectural Rule of Thumb:** Use **Middleware** for cross-cutting HTTP concerns that apply to all incoming requests regardless of endpoint (e.g., CORS, authentication, global exception formatting, request logging, compression). Use **Filters** (or Minimal API Endpoint Filters) for logic that depends on the specific endpoint's parameters or results (e.g., action execution metrics, model validation overrides, custom result caching, transaction commit on 2xx responses)."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: What are the kinds of filters in MVC?**  
-> **Strong Answer:**  
-> "ASP.NET Core MVC provides five distinct filter stages that execute in a defined order surrounding the action method:  
-> 
-> 1. **Authorization Filters (`IAuthorizationFilter` / `IAsyncAuthorizationFilter`):** Run first in the filter pipeline to determine whether the request is authorized. They inspect identity and claims. If unauthorized, they short-circuit the request immediately (`context.Result = new ForbidResult()`).
-> 2. **Resource Filters (`IResourceFilter` / `IAsyncResourceFilter`):** Run second, wrapping the remainder of the pipeline (including model binding). Because they execute *before* model binding and JSON deserialization, they are optimal for caching: a cached response can be returned immediately, saving substantial CPU and allocation costs.
-> 3. **Action Filters (`IActionFilter` / `IAsyncActionFilter`):** Wrap the execution of the action method itself. Their `OnActionExecuting` method can inspect and modify `context.ActionArguments` before the method runs; `OnActionExecuted` can inspect or alter the returned `IActionResult`.
-> 4. **Exception Filters (`IExceptionFilter` / `IAsyncExceptionFilter`):** Executed when an unhandled exception occurs inside a controller action or action filter. They can set `context.ExceptionHandled = true` and return a custom error result.
-> 5. **Result Filters (`IResultFilter` / `IAsyncResultFilter`):** Wrap the execution of the `IActionResult`. They execute immediately before and after the action result formats and writes to the HTTP response stream (e.g., useful for adding response headers specifically when a view or JSON result completes)."
+```text
+Minimal API: app.MapGet/MapPost(...) lambdas, groups, endpoint filters (.NET 7+)
+Controllers: [ApiController], [Route], action results, filters, model validation automatic
+Model binding order: route -> query -> body (JSON) | [FromRoute/Query/Body/Header/Services]
+[ApiController] => automatic 400 ProblemDetails on invalid model
+Filter order: Authorization -> Resource -> (model binding) -> Action -> Exception -> Result
+Filters: attributes/IFilter, scoped to MVC/endpoints | Middleware: global, HttpContext only
+Route constraints {id:int}, {slug:alpha}, optional {id?}
+Return: IResult / ActionResult<T> / TypedResults
+```
 
 ---
 

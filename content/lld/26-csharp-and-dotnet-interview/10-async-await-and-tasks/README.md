@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** `async/await` frees the thread while waiting on I/O and resumes with a continuation; a `Task` is a promise of a result, not a thread — and `.Result`/`.Wait()` on it can deadlock.
+
 > [!TIP]
 > **The One Rule of async/await:** Asynchrony is not multi-threading; it is thread conservation. `await` yields the executing thread during unmanaged I/O by slicing your method into a compiler-generated state machine, resuming on an available ThreadPool thread (or captured `SynchronizationContext`) upon completion. Never block asynchronously scheduled tasks synchronously (`.Result`, `.Wait()`), or you risk immediate deadlock and catastrophic thread pool starvation.
 
@@ -506,65 +509,119 @@ public async Task ProcessAllImagesAsync(IEnumerable<string> imageUrls, int maxDe
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What does async/await do?**  
-> **Strong Answer:**  
-> "Under the hood, `async` and `await` are compiler features that transform a linear C# method into a compiler-generated state machine implementing `IAsyncStateMachine`. When an `async` method is called, it begins executing synchronously on the calling thread until it encounters the first `await` operator on an incomplete awaitable (such as a `Task`).  
-> 
-> At that moment, the state machine records its current execution position, captures the ambient `ExecutionContext` (and `SynchronizationContext` if present), hooks up the state machine's `MoveNext()` method as the completion callback of the awaited task, and returns an incomplete `Task` back to the caller. The calling thread is immediately freed to perform other work (like handling other HTTP requests or rendering UI).  
-> 
-> Crucially, for true I/O-bound operations (like network sockets or disk reads via I/O Completion Ports), **zero OS threads are active or waiting** during the asynchronous delay. When the hardware interrupt signals that data has arrived, the OS and runtime ThreadPool awaken an available worker thread to resume executing the method from the saved state. In short: `async/await` enables thread conservation and high scalability without writing complex callback pyramids."
+<details>
+<summary><strong>1. What does async/await do? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between a Task and a Thread?**  
-> **Strong Answer:**  
-> "A **`Thread`** is a low-level operating system execution construct. In .NET, allocating a `Thread` incurs substantial system overhead: approximately 1 MB of committed virtual stack memory, OS kernel context data structures, and kernel-level context switching penalties when switching execution. Threads are heavyweight and expensive to instantiate and tear down.  
-> 
-> A **`Task`**, on the other hand, is a lightweight managed object (a promise or future) representing the eventual completion (or failure) of an asynchronous operation. Tasks are scheduled and managed by the .NET `ThreadPool` and `TaskScheduler`. A `Task` consumes only ~64 to 112 bytes of managed heap memory and requires no dedicated OS thread while waiting for asynchronous I/O.  
-> 
-> In modern architecture:
-> 1. Use **`Task`** / **`ValueTask`** for all I/O operations and asynchronous concurrency.
-> 2. Use **`Task.Run`** to offload CPU-bound computations to the ThreadPool.
-> 3. Use dedicated **`Thread`** only in extremely rare scenarios where an operation must run indefinitely on a dedicated thread with specific OS priority or COM apartment affinity."
+Under the hood, `async` and `await` are compiler features that transform a linear C# method into a compiler-generated state machine implementing `IAsyncStateMachine`. When an `async` method is called, it begins executing synchronously on the calling thread until it encounters the first `await` operator on an incomplete awaitable (such as a `Task`).
 
-> [!interview]
-> **Question 3: Why should you avoid `async void`?**  
-> **Strong Answer:**  
-> "You should avoid `async void` for two critical reasons: **unhandled exceptions crash the process** and **callers cannot await or coordinate completion**.  
-> 
-> First, when an exception is thrown inside an `async Task` method, the exception is captured, stored within the returned `Task` object, and re-thrown when the caller awaits it, allowing clean handling via standard `try/catch` blocks. With `async void`, there is no `Task` object to hold the exception. As a result, the unhandled exception is posted directly to the captured `SynchronizationContext` or the `AppDomain.UnhandledException` event handler, which immediately terminates the entire application process.  
-> 
-> Second, because `async void` returns `void`, the caller has no handle to track completion. It cannot be awaited, cannot be coordinated with `Task.WhenAll`, and cannot be tested predictably in unit tests.  
-> 
-> The **only valid exception** to this rule is top-level UI or event handlers (e.g., `private async void OnButtonClicked(object sender, EventArgs e)`), where the event delegate signature strictly requires a `void` return type."
+At that moment, the state machine records its current execution position, captures the ambient `ExecutionContext` (and `SynchronizationContext` if present), hooks up the state machine's `MoveNext()` method as the completion callback of the awaited task, and returns an incomplete `Task` back to the caller. The calling thread is immediately freed to perform other work (like handling other HTTP requests or rendering UI).
 
-> [!interview]
-> **Question 4: What causes a deadlock with `.Result`?**  
-> **Strong Answer:**  
-> "A deadlock with `.Result` or `.Wait()` is caused by the **sync-over-async anti-pattern** interacting with a single-threaded `SynchronizationContext`.  
-> 
-> In environments like WPF, WinForms, or legacy ASP.NET (System.Web), a custom `SynchronizationContext` ensures that continuations are marshaled back to a specific thread (such as the single UI thread or the request thread). When you invoke `var data = GetDataAsync().Result;` on that thread:
-> 1. The calling thread blocks synchronously, refusing to proceed until `GetDataAsync()` finishes.
-> 2. Inside `GetDataAsync()`, an asynchronous operation is awaited without `ConfigureAwait(false)`.
-> 3. When the I/O completes, the task attempts to resume its continuation by queuing it onto the captured `SynchronizationContext`.
-> 4. However, that `SynchronizationContext` can only execute work on the calling thread, which is currently blocked waiting for `.Result`!  
-> 
-> Neither can proceed: Thread A waits for the Task, while the Task's continuation waits for Thread A to be released. This results in a permanent deadlock.  
-> 
-> Note that in **ASP.NET Core**, there is no `SynchronizationContext`, so `.Result` does not trigger this specific single-thread deadlock. However, it causes **ThreadPool starvation**, where blocked worker threads exhaust the pool under load, leading to latency explosions and catastrophic application failure."
+Crucially, for true I/O-bound operations (like network sockets or disk reads via I/O Completion Ports), **zero OS threads are active or waiting** during the asynchronous delay. When the hardware interrupt signals that data has arrived, the OS and runtime ThreadPool awaken an available worker thread to resume executing the method from the saved state. In short: `async/await` enables thread conservation and high scalability without writing complex callback pyramids.
 
-> [!interview]
-> **Question 5: What does `ConfigureAwait(false)` do?**  
-> **Strong Answer:**  
-> "`ConfigureAwait(false)` configures the task awaiter to bypass capturing the current `SynchronizationContext` or `TaskScheduler` when scheduling the continuation.  
-> 
-> By default (`ConfigureAwait(true)`), when an `await` resumes, the runtime captures the ambient context and schedules the remainder of the method to run within that specific context (e.g., returning to the WPF UI thread).  
-> 
-> When you pass `false`:
-> 1. **It prevents deadlocks:** In class libraries or shared components consumed by UI apps or legacy ASP.NET, it guarantees the continuation executes on an available ThreadPool thread rather than queuing back onto the blocked calling thread's `SynchronizationContext`.
-> 2. **It optimizes throughput:** It eliminates the overhead of context capture and thread marshaling. The continuation runs directly on whatever ThreadPool worker thread processed the I/O completion event.  
-> 
-> **Architectural Rule:** Always use `ConfigureAwait(false)` in reusable class libraries, data access layers, and domain services. In UI application code, omit it when you specifically need to update UI controls upon resumption."
+</details>
+
+<details>
+<summary><strong>2. What is the difference between a Task and a Thread? [BASIC]</strong></summary>
+
+A **`Thread`** is a low-level operating system execution construct. In .NET, allocating a `Thread` incurs substantial system overhead: approximately 1 MB of committed virtual stack memory, OS kernel context data structures, and kernel-level context switching penalties when switching execution. Threads are heavyweight and expensive to instantiate and tear down.
+
+A **`Task`**, on the other hand, is a lightweight managed object (a promise or future) representing the eventual completion (or failure) of an asynchronous operation. Tasks are scheduled and managed by the .NET `ThreadPool` and `TaskScheduler`. A `Task` consumes only ~64 to 112 bytes of managed heap memory and requires no dedicated OS thread while waiting for asynchronous I/O.
+
+In modern architecture:
+1. Use **`Task`** / **`ValueTask`** for all I/O operations and asynchronous concurrency.
+2. Use **`Task.Run`** to offload CPU-bound computations to the ThreadPool.
+3. Use dedicated **`Thread`** only in extremely rare scenarios where an operation must run indefinitely on a dedicated thread with specific OS priority or COM apartment affinity.
+
+</details>
+
+<details>
+<summary><strong>3. Why should you avoid `async void`? [TRICKY]</strong></summary>
+
+You should avoid `async void` for two critical reasons: **unhandled exceptions crash the process** and **callers cannot await or coordinate completion**.
+
+First, when an exception is thrown inside an `async Task` method, the exception is captured, stored within the returned `Task` object, and re-thrown when the caller awaits it, allowing clean handling via standard `try/catch` blocks. With `async void`, there is no `Task` object to hold the exception. As a result, the unhandled exception is posted directly to the captured `SynchronizationContext` or the `AppDomain.UnhandledException` event handler, which immediately terminates the entire application process.
+
+Second, because `async void` returns `void`, the caller has no handle to track completion. It cannot be awaited, cannot be coordinated with `Task.WhenAll`, and cannot be tested predictably in unit tests.
+
+The **only valid exception** to this rule is top-level UI or event handlers (e.g., `private async void OnButtonClicked(object sender, EventArgs e)`), where the event delegate signature strictly requires a `void` return type.
+
+</details>
+
+<details>
+<summary><strong>4. What causes a deadlock with `.Result`? [TRICKY]</strong></summary>
+
+A deadlock with `.Result` or `.Wait()` is caused by the **sync-over-async anti-pattern** interacting with a single-threaded `SynchronizationContext`.
+
+In environments like WPF, WinForms, or legacy ASP.NET (System.Web), a custom `SynchronizationContext` ensures that continuations are marshaled back to a specific thread (such as the single UI thread or the request thread). When you invoke `var data = GetDataAsync().Result;` on that thread:
+1. The calling thread blocks synchronously, refusing to proceed until `GetDataAsync()` finishes.
+2. Inside `GetDataAsync()`, an asynchronous operation is awaited without `ConfigureAwait(false)`.
+3. When the I/O completes, the task attempts to resume its continuation by queuing it onto the captured `SynchronizationContext`.
+4. However, that `SynchronizationContext` can only execute work on the calling thread, which is currently blocked waiting for `.Result`!
+
+Neither can proceed: Thread A waits for the Task, while the Task's continuation waits for Thread A to be released. This results in a permanent deadlock.
+
+Note that in **ASP.NET Core**, there is no `SynchronizationContext`, so `.Result` does not trigger this specific single-thread deadlock. However, it causes **ThreadPool starvation**, where blocked worker threads exhaust the pool under load, leading to latency explosions and catastrophic application failure.
+
+</details>
+
+<details>
+<summary><strong>5. What does `ConfigureAwait(false)` do? [BASIC]</strong></summary>
+
+`ConfigureAwait(false)` configures the task awaiter to bypass capturing the current `SynchronizationContext` or `TaskScheduler` when scheduling the continuation.
+
+By default (`ConfigureAwait(true)`), when an `await` resumes, the runtime captures the ambient context and schedules the remainder of the method to run within that specific context (e.g., returning to the WPF UI thread).
+
+When you pass `false`:
+1. **It prevents deadlocks:** In class libraries or shared components consumed by UI apps or legacy ASP.NET, it guarantees the continuation executes on an available ThreadPool thread rather than queuing back onto the blocked calling thread's `SynchronizationContext`.
+2. **It optimizes throughput:** It eliminates the overhead of context capture and thread marshaling. The continuation runs directly on whatever ThreadPool worker thread processed the I/O completion event.
+
+**Architectural Rule:** Always use `ConfigureAwait(false)` in reusable class libraries, data access layers, and domain services. In UI application code, omit it when you specifically need to update UI controls upon resumption.
+
+</details>
+
+<details>
+<summary><strong>6. An endpoint calls three independent APIs sequentially and takes 900 ms. What do you change? [SCENARIO]</strong></summary>
+
+Start all three tasks and `await Task.WhenAll(...)`, so latency becomes the slowest call (~300 ms). Pass a `CancellationToken` and consider timeouts and partial-failure handling.
+
+</details>
+
+---
+
+## Try it
+
+Run this: three 0.1 s waits run concurrently, so the total is ~0.1 s, not 0.3 s. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+import asyncio, time
+
+async def io(n):
+    await asyncio.sleep(0.1)
+    return n
+
+async def main():
+    t = time.perf_counter()
+    r = await asyncio.gather(io(1), io(2), io(3))          # Task.WhenAll
+    return r, time.perf_counter() - t
+
+r, dt = asyncio.run(main())
+assert r == [1, 2, 3] and dt < 0.25
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+async Task/Task<T> : `await` = non-blocking wait, thread returns to pool
+Task = promise/work item (not a thread) | Thread = OS execution unit
+Deadlock: .Result/.Wait() blocking on a captured SynchronizationContext (UI / legacy ASP.NET)
+Go async all the way down; never block on async code
+async void: only for event handlers (can't await, exceptions crash process)
+ConfigureAwait(false): library code doesn't resume on captured context (ASP.NET Core has none)
+Task.WhenAll (parallel) | WhenAny | Task.Run for CPU-bound off-thread
+CancellationToken: pass it down | ValueTask: avoid alloc when often sync
+```
 
 ---
 

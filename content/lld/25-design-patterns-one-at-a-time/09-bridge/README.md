@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Bridge** splits an abstraction from its implementation so the two hierarchies vary independently — it prevents the M×N class explosion (e.g. 3 shapes × 4 renderers).
+
 > [!TIP]
 > **The One Rule of the Bridge Pattern:** Use the Bridge pattern to **decouple an abstraction from its implementation so that both can vary independently**, transforming a multiplicative $M \times N$ combinatorial class explosion into an additive $M + N$ composition structure. Design Bridge **up front** to handle orthogonal dimensions of change; use Adapter **after the fact** to resolve interface incompatibility.
 
@@ -437,29 +440,94 @@ Use the **Adapter Pattern**.
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What problem does the Bridge pattern solve?**  
-> **Strong Answer:**  
-> "The Bridge pattern solves the **combinatorial class explosion** that occurs when a domain concept has two independent, orthogonal dimensions of variation—typically categorized as an **Abstraction** (high-level business rules or domain entities) and an **Implementation** (low-level platform execution, hardware interfaces, or persistence drivers).
-> 
-> If you combine these two dimensions using standard class inheritance, you require $M \times N$ classes (for example, $M$ shapes times $N$ rendering engines). Adding a new shape or a new renderer requires creating multiple redundant subclasses.
-> 
-> The Bridge pattern replaces this inheritance explosion with composition: it splits the domain into two separate, parallel class hierarchies. The Abstraction hierarchy maintains a reference—the bridge—to the Implementor interface. As a result, extending the domain requires only $M + N$ classes, allowing the abstraction and the implementation to vary and evolve completely independently without modifying existing code."
+<details>
+<summary><strong>1. What problem does the Bridge pattern solve? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Bridge and Adapter?**  
-> **Strong Answer:**  
-> "While both Bridge and Adapter use object composition to delegate calls across an interface boundary, their architectural intent and lifecycle timing are fundamentally different:
-> 
-> 1. **Design Timing:**
->    - **Bridge is designed up front (proactively):** You design a Bridge at the architectural phase before code is written, intentionally separating high-level domain abstractions from low-level platform implementations so both can evolve independently.
->    - **Adapter is applied after the fact (retroactively):** You use an Adapter to make two existing, incompatible interfaces collaborate without altering their source code, commonly when integrating third-party SDKs or legacy systems.
-> 2. **Hierarchy Cardinality:**
->    - **Bridge manages two parallel hierarchies:** It links an Abstraction hierarchy ($M$ classes) to an Implementor hierarchy ($N$ classes).
->    - **Adapter typically manages a single target:** It wraps a single concrete adaptee to translate its interface to match a client's target interface.
-> 3. **Interface Intent:**
->    - **Bridge** separates abstraction from implementation (the abstraction often provides higher-level control methods while the implementor provides primitive building blocks).
->    - **Adapter** changes an interface to match an existing contract."
+The Bridge pattern solves the **combinatorial class explosion** that occurs when a domain concept has two independent, orthogonal dimensions of variation—typically categorized as an **Abstraction** (high-level business rules or domain entities) and an **Implementation** (low-level platform execution, hardware interfaces, or persistence drivers).
+
+If you combine these two dimensions using standard class inheritance, you require $M \times N$ classes (for example, $M$ shapes times $N$ rendering engines). Adding a new shape or a new renderer requires creating multiple redundant subclasses.
+
+The Bridge pattern replaces this inheritance explosion with composition: it splits the domain into two separate, parallel class hierarchies. The Abstraction hierarchy maintains a reference—the bridge—to the Implementor interface. As a result, extending the domain requires only $M + N$ classes, allowing the abstraction and the implementation to vary and evolve completely independently without modifying existing code.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Bridge and Adapter? [BASIC]</strong></summary>
+
+While both Bridge and Adapter use object composition to delegate calls across an interface boundary, their architectural intent and lifecycle timing are fundamentally different:
+
+1. **Design Timing:**
+   - **Bridge is designed up front (proactively):** You design a Bridge at the architectural phase before code is written, intentionally separating high-level domain abstractions from low-level platform implementations so both can evolve independently.
+   - **Adapter is applied after the fact (retroactively):** You use an Adapter to make two existing, incompatible interfaces collaborate without altering their source code, commonly when integrating third-party SDKs or legacy systems.
+2. **Hierarchy Cardinality:**
+   - **Bridge manages two parallel hierarchies:** It links an Abstraction hierarchy ($M$ classes) to an Implementor hierarchy ($N$ classes).
+   - **Adapter typically manages a single target:** It wraps a single concrete adaptee to translate its interface to match a client's target interface.
+3. **Interface Intent:**
+   - **Bridge** separates abstraction from implementation (the abstraction often provides higher-level control methods while the implementor provides primitive building blocks).
+   - **Adapter** changes an interface to match an existing contract.
+
+</details>
+
+<details>
+<summary><strong>3. You have Email/SMS/Push notifications, each in Urgent and Digest flavours. How do you avoid 6 classes? [SCENARIO]</strong></summary>
+
+Make `Notification` (Urgent, Digest) the abstraction and `Channel` (Email, SMS, Push) the implementor, and give the notification a channel. You write 2 + 3 classes, and combinations are free.
+
+</details>
+
+<details>
+<summary><strong>4. Bridge and Strategy have the same shape. How do you tell them apart? [TRICKY]</strong></summary>
+
+Strategy swaps one *algorithm* inside a single class. Bridge separates two whole *hierarchies* (what it is vs how it's done) that both keep growing. Intent and scale differ, not the UML.
+
+</details>
+
+<details>
+<summary><strong>5. What is the "M×N explosion"? [BASIC]</strong></summary>
+
+With inheritance only, every combination of two varying dimensions needs its own subclass (3 shapes × 4 renderers = 12 classes). Bridge turns that into 3 + 4 classes plus composition.
+
+</details>
+
+<details>
+<summary><strong>6. Bridge vs Adapter in one sentence? [BASIC]</strong></summary>
+
+Bridge is designed up front to let abstraction and implementation vary; Adapter is applied later to make an existing incompatible class fit.
+
+</details>
+
+---
+
+## Try it
+
+Run this: 2 shapes × 2 renderers is 4 combinations, but only 4 classes (not 4 subclasses of each). Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class SvgRenderer:
+    def circle(self, r): return f"<circle r={r}/>"
+class AsciiRenderer:
+    def circle(self, r): return f"O({r})"
+
+class Circle:                                    # abstraction holds a bridge to implementation
+    def __init__(self, r, renderer): self.r, self.renderer = r, renderer
+    def draw(self): return self.renderer.circle(self.r)
+
+assert Circle(2, SvgRenderer()).draw() == "<circle r=2/>"
+assert Circle(2, AsciiRenderer()).draw() == "O(2)"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+BRIDGE   Abstraction --has-a--> Implementor   (two hierarchies, one link)
+Problem: Shape x Renderer, Notification x Channel -> M*N subclasses
+Fix: composition; pick either side independently, even at runtime
+Designed UP FRONT | Adapter is a retrofit AFTER the fact
+Looks like Strategy; difference is intent (structure of 2 hierarchies vs 1 algorithm)
+.NET/Py: ILogger sinks, DB drivers, GUI toolkits
+```
 
 ---
 

@@ -7,19 +7,21 @@ export { DIFFICULTY } from './difficulty.js';
 
 export const PRACTICE = {
   title: 'Practice',
-  intro: 'Write and run real code against tests in your browser, check what you know with quizzes, and rehearse the questions interviews ask. What you solve counts towards your level and your streak.',
+  intro: 'Solve problems in the browser, take quizzes, and rehearse interview questions. Progress counts toward your level and streak.',
   tabs: [
-    { id: 'code', label: 'Code practice', empty: 'No problem matches those filters.' },
-    { id: 'plans', label: 'Study plans', empty: 'No plan matches those filters.' },
+    { id: 'code', label: 'Problems', empty: 'No problem matches those filters.' },
     { id: 'quizzes', label: 'Quizzes', empty: 'No quiz matches those filters.' },
-    { id: 'coding', label: 'Coding questions', empty: 'No coding set matches those filters.' },
-    { id: 'interview', label: 'Interview prep', empty: 'No interview set matches those filters.' },
+    { id: 'interview', label: 'Interview', empty: 'No interview set matches those filters.' },
+    { id: 'plans', label: 'Plans', empty: 'No plan matches those filters.' },
     { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' }
   ],
-  // The kind of item each tab opens, as it is written in the item's address (an interview set is of concepts or of coding questions).
-  tabKind: { code: 'code', plans: 'plan', quizzes: 'quiz', exercises: 'exercise', interview: 'interview', coding: 'interview' },
+  // The kind of item each tab opens, as it is written in the item's address.
+  tabKind: { code: 'code', plans: 'plan', quizzes: 'quiz', exercises: 'exercise', interview: 'interview' },
   allTopics: 'All topics',
-  allLevels: 'All levels'
+  allLevels: 'All levels',
+  /** Best quiz attempt as a clean /10 rating for the hub cards. */
+  ratingOf10: (score, max) => (max > 0 ? Math.round((score / max) * 10) : 0),
+  ratingLabel: (score, max) => `${max > 0 ? Math.round((score / max) * 10) : 0}/10`
 };
 
 // An interview set: the questions, with an answer kept out of sight until the reader has tried. Coding sets have worked solutions.
@@ -109,15 +111,13 @@ export const ME = {
 // On the front door and the dashboard: a few quizzes and coding sets, and the way in to all of them.
 export const STRIP = {
   heading: 'Practise what you learn',
-  lead: 'Write and run real code in your browser, test yourself with quizzes, and rehearse the questions interviews ask.',
+  lead: 'Solve problems in the browser, take quizzes, and rehearse interview questions.',
   all: 'All practice',
   items: 3, // how many quizzes it shows
   code: 'Solve it in the page',
-  codeShown: 3, // how many coding problems it shows (the easiest ones, by title)
+  codeShown: 3, // how many problems it shows (the easiest ones, by title)
   codeLevel: 'beginner',
   quizzes: 'Test yourself',
-  coding: 'Coding interview questions',
-  codingShown: 3,
   // On the front door there is one way in for each kind of practice, not a list of each.
   start: { code: 'Solve a problem', quiz: 'Take a quiz', interview: 'Rehearse an interview' }
 };

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Template Method** fixes the skeleton of an algorithm in a base class and lets subclasses fill in specific steps — the base class calls the subclass (the "Hollywood principle").
+
 > [!TIP]
 > **The One Rule of Template Method:** Invert control using the Hollywood Principle ("Don't call us, we'll call you"): fix the invariant execution skeleton in a non-overridable base method and let subclasses plug into abstract primitive steps and optional hooks. Never let subclasses override the skeleton itself.
 
@@ -390,30 +393,90 @@ This destroys the entire invariant flow that the Template Method pattern is mean
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Template Method pattern?**  
-> **Strong Answer:**  
-> "The Template Method pattern is a behavioral design pattern that defines the skeleton of an algorithm in a base class method, deferring some steps to subclasses without altering the overall algorithm structure.  
-> 
-> The template method itself is marked non-virtual or final so that its execution sequence cannot be overridden. Inside this skeleton, the base class invokes common invariant methods (implemented in the base class), abstract primitive methods (which subclasses are required to implement), and optional virtual hooks (which subclasses may optionally override). It embodies the **Hollywood Principle** ('Don't call us, we'll call you'): the low-level subclasses do not call the high-level base class; instead, the high-level base class controls the flow and calls downward into the subclasses."
+<details>
+<summary><strong>1. What is the Template Method pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Template Method and Strategy?**  
-> **Strong Answer:**  
-> "While both patterns allow behavior to vary, they differ fundamentally across three architectural dimensions:  
-> 
-> 1. **Mechanism (Inheritance vs. Composition):** Template Method relies on **class inheritance**; algorithm steps are defined in derived classes. Strategy relies on **object composition**; the context delegates algorithm execution to an injected strategy interface.  
-> 2. **Granularity:** Template Method modifies **individual primitive steps** within an algorithm while keeping the overall algorithmic skeleton invariant. Strategy modifies or replaces the **entire algorithm wholesale**.  
-> 3. **Binding Time:** Template Method is bound **statically at compile time** via the class hierarchy. Strategy is bound **dynamically at runtime**, allowing strategies to be switched on the fly based on configuration or input."
+The Template Method pattern is a behavioral design pattern that defines the skeleton of an algorithm in a base class method, deferring some steps to subclasses without altering the overall algorithm structure.
 
-> [!interview]
-> **Question 3: Give an example from daily engineering.**  
-> **Strong Answer:**  
-> "A classic daily engineering example is **`AuthenticationHandler<TOptions>` in ASP.NET Core**.  
-> 
-> When you implement custom authentication (like an API key or HMAC signature handler), you inherit from `AuthenticationHandler<TOptions>`. The base framework class defines the entire template method lifecycle: initializing options, checking for authorization scheme names, handling challenges, and caching authentication results. Developers never touch or override the outer pipeline; they only implement one abstract primitive method: `Task<AuthenticateResult> HandleAuthenticateAsync()`.  
-> 
-> Another ubiquitous example is a **Data Ingestion ETL Pipeline**: the base class `DataIngestionPipeline` defines the template method `Process(file)` which sequentially executes: `OpenFile()` $\to$ `Parse()` $\to$ `Validate()` $\to$ `Persist()` $\to$ `OnSuccess()`. Subclasses like `CsvPipeline` and `JsonPipeline` only implement `Parse()` and `Validate()`, guaranteeing that file buffering, persistence transactions, and telemetry metrics cannot be bypassed."
+The template method itself is marked non-virtual or final so that its execution sequence cannot be overridden. Inside this skeleton, the base class invokes common invariant methods (implemented in the base class), abstract primitive methods (which subclasses are required to implement), and optional virtual hooks (which subclasses may optionally override). It embodies the **Hollywood Principle** ('Don't call us, we'll call you'): the low-level subclasses do not call the high-level base class; instead, the high-level base class controls the flow and calls downward into the subclasses.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Template Method and Strategy? [BASIC]</strong></summary>
+
+While both patterns allow behavior to vary, they differ fundamentally across three architectural dimensions:
+
+1. **Mechanism (Inheritance vs. Composition):** Template Method relies on **class inheritance**; algorithm steps are defined in derived classes. Strategy relies on **object composition**; the context delegates algorithm execution to an injected strategy interface.
+2. **Granularity:** Template Method modifies **individual primitive steps** within an algorithm while keeping the overall algorithmic skeleton invariant. Strategy modifies or replaces the **entire algorithm wholesale**.
+3. **Binding Time:** Template Method is bound **statically at compile time** via the class hierarchy. Strategy is bound **dynamically at runtime**, allowing strategies to be switched on the fly based on configuration or input.
+
+</details>
+
+<details>
+<summary><strong>3. Give an example from daily engineering. [SCENARIO]</strong></summary>
+
+A classic daily engineering example is **`AuthenticationHandler<TOptions>` in ASP.NET Core**.
+
+When you implement custom authentication (like an API key or HMAC signature handler), you inherit from `AuthenticationHandler<TOptions>`. The base framework class defines the entire template method lifecycle: initializing options, checking for authorization scheme names, handling challenges, and caching authentication results. Developers never touch or override the outer pipeline; they only implement one abstract primitive method: `Task<AuthenticateResult> HandleAuthenticateAsync()`.
+
+Another ubiquitous example is a **Data Ingestion ETL Pipeline**: the base class `DataIngestionPipeline` defines the template method `Process(file)` which sequentially executes: `OpenFile()` $\to$ `Parse()` $\to$ `Validate()` $\to$ `Persist()` $\to$ `OnSuccess()`. Subclasses like `CsvPipeline` and `JsonPipeline` only implement `Parse()` and `Validate()`, guaranteeing that file buffering, persistence transactions, and telemetry metrics cannot be bypassed.
+
+</details>
+
+<details>
+<summary><strong>4. Three importers (CSV, JSON, XML) share validate → parse → save. How do you design them? [SCENARIO]</strong></summary>
+
+A base `Importer.run()` that fixes the order, with `parse()` abstract and `validate()`/`save()` shared. Each format subclass implements only `parse()`.
+
+</details>
+
+<details>
+<summary><strong>5. Why is Template Method called a violation of composition-over-inheritance? [TRICKY]</strong></summary>
+
+It uses inheritance, so subclasses are coupled to the base's step order and internals (fragile base class). If you need to vary at runtime or combine variations, switch to Strategy objects.
+
+</details>
+
+<details>
+<summary><strong>6. What is a hook method? [BASIC]</strong></summary>
+
+An optional step with a default (often empty) implementation in the base class that subclasses *may* override to customise behaviour without being forced to.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the base owns the order of steps; subclasses only supply the varying ones. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Report:
+    def generate(self):                          # the template (do not override)
+        return [self.header(), self.body(), "footer"]
+    def header(self): return "header"
+    def body(self): raise NotImplementedError    # required hook
+
+class Sales(Report):
+    def body(self): return "sales"
+
+assert Sales().generate() == ["header", "sales", "footer"]
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+TEMPLATE METHOD  base.run() { step1(); step2() <abstract>; step3() <hook> }
+Invariant order in the base; variation in overridable steps
+Abstract step = must implement | Hook = optional override
+Hollywood principle: "don't call us, we'll call you"
+Template (inheritance, compile-time) | Strategy (composition, runtime)
+C#: protected virtual / abstract | Py: ABC + hooks | frameworks: Controller lifecycle, unittest setUp/tearDown
+Risks: fragile base class, deep hierarchies; prefer Strategy if it varies at runtime
+```
 
 ---
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Overloading** = same name, different signature, resolved at *compile time*; **overriding** = subclass replaces a virtual method, resolved at *run time* through the object's real type.
+
 > [!TIP]
 > **The One Rule of Polymorphism:** **Overloading** is static compile-time polymorphism where the compiler selects a method based on static parameter types in the calling scope; **overriding** is dynamic runtime polymorphism where the runtime engine dispatches calls via an object's Virtual Method Table (vtable in C#) or Method Resolution Order (MRO in Python) based on the actual heap type. Never use method hiding (`new`) when polymorphic substitution is intended.
 
@@ -458,64 +461,113 @@ class EventDispatcher:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between overloading and overriding?**  
-> **Strong Answer:**  
-> "The fundamental difference lies in **when and how method dispatch is resolved**:  
-> 
-> 1. **Method Overloading** is **compile-time (static) polymorphism**. Methods share the exact same name within the same scope but have distinct parameter signatures (count, types, or order). The compiler evaluates the call site and binds it directly to a specific static method symbol. It has zero runtime indirection cost.  
-> 2. **Method Overriding** is **runtime (dynamic) polymorphism**. A subclass redefines the implementation of a `virtual` method inherited from its parent class using the identical signature. The method to execute is resolved dynamically at runtime by dereferencing the actual object's Virtual Method Table (vtable in C#) or traversing the class MRO (in Python).  
-> 
-> Overloading adjusts behavior based on the static caller arguments; overriding adjusts behavior based on the dynamic type of the target object."
+<details>
+<summary><strong>1. What is the difference between overloading and overriding? [BASIC]</strong></summary>
+
+The fundamental difference lies in **when and how method dispatch is resolved**:
+
+1. **Method Overloading** is **compile-time (static) polymorphism**. Methods share the exact same name within the same scope but have distinct parameter signatures (count, types, or order). The compiler evaluates the call site and binds it directly to a specific static method symbol. It has zero runtime indirection cost.
+2. **Method Overriding** is **runtime (dynamic) polymorphism**. A subclass redefines the implementation of a `virtual` method inherited from its parent class using the identical signature. The method to execute is resolved dynamically at runtime by dereferencing the actual object's Virtual Method Table (vtable in C#) or traversing the class MRO (in Python).
+
+Overloading adjusts behavior based on the static caller arguments; overriding adjusts behavior based on the dynamic type of the target object.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between `override` and `new` in C#? [BASIC]</strong></summary>
+
+In C#, both keywords alter method behavior in a derived class, but their effect on the Virtual Method Table (vtable) and polymorphism is fundamentally opposite:
+
+- **`override` extends runtime polymorphism.** It replaces the function pointer in the inherited vtable slot allocated by the base class. Regardless of whether the object is accessed through a base-class reference (`Base b = new Derived()`) or a derived-class reference, `Derived`'s implementation will execute. This honors the Liskov Substitution Principle.
+- **`new` (method hiding) severs polymorphism.** It leaves the inherited base vtable slot untouched and creates an entirely separate, distinct method slot for the derived type. If the object is invoked via a base reference, the **base method** executes; if invoked via a derived reference, the **derived method** executes.
+
+Using `new` is dangerous in domain hierarchies because it causes contradictory behavior depending on how the caller references the instance.
+
+</details>
+
+<details>
+<summary><strong>3. Does Python support method overloading? [TRICKY]</strong></summary>
+
+No, Python does not support compile-time method overloading in the classical C++ or C# sense.
+
+In Python, a class definition is executed sequentially as a dictionary namespace (`class.__dict__`). If you declare two methods with the same name in the same class, the second method definition simply overwrites the first in the class dictionary.
+
+However, Python achieves equivalent functionality through three idiomatic patterns:
+1. **Default & Variadic Arguments:** Defining a single method with optional parameters (`val=None`) or `*args, **kwargs`.
+2. **Single Dispatch:** Using the standard library decorator `@functools.singledispatch` or `@functools.singledispatchmethod` to register distinct handlers based on the argument's type.
+3. **Type Hint Overloads:** Using `@typing.overload` to declare multiple type signatures for static type checkers (Mypy) while providing a single unified implementation function at runtime.
+
+</details>
+
+<details>
+<summary><strong>4. What is runtime polymorphism, and how does the language find the right method? [BASIC]</strong></summary>
+
+Runtime polymorphism is the ability of different concrete objects to respond to the same method invocation in their own specialized way when accessed through a common base abstraction.
+
+Languages resolve the target method at runtime through specific dispatch data structures:
+- **In C# (.NET CLR):** Every heap-allocated object has an object header containing a pointer to its `TypeHandle` (Method Table). For `virtual` methods, the compiler emits a `callvirt` IL instruction. At runtime, the CPU reads the object's method table pointer, navigates to the fixed offset (index) allocated for that virtual slot, and jumps directly to the function pointer stored there. This requires two pointer dereferences.
+- **In Python:** Resolution uses dynamic attribute lookup guided by the class's **Method Resolution Order (MRO)**. When `obj.method()` is called, Python checks `obj.__dict__`, then traverses `type(obj).__mro__` checking each class's `__dict__` until it finds the callable descriptor, binding `self` to create a bound method.
+
+</details>
+
+<details>
+<summary><strong>5. Can you override a static method? [TRICKY]</strong></summary>
+
+No, static methods **cannot** be overridden polymorphically in either C# or Python.
+
+Dynamic overriding requires runtime virtual dispatch, which depends on an instantiated object residing on the heap with an object header pointing to a vtable. Static methods belong strictly to the **type or module namespace**, not to an instance.
+
+- In C#, calling `StaticMethod()` generates a static IL `call` instruction bound directly to the declaring type symbol at compile time. Defining a static method with the same name in a derived class merely **hides** the base method (`new`), resolving according to the declared type reference.
+- In Python, `@staticmethod` creates a callable object inside the class namespace that does not receive an implicit `self` or `cls`. While a subclass can shadow a parent class's static method in its own dictionary, invoking the method through the base class or an unbound reference will never dynamically dispatch to the derived class.
+
+</details>
+
+<details>
+<summary><strong>6. In C#, `Base b = new Derived(); b.Run();` where Derived declares `new void Run()`. Which runs? [TRICKY]</strong></summary>
+
+`Base.Run`. `new` only hides the member; the call is bound by the *static* type, not the runtime type. With `virtual`/`override` the `Derived` version runs. Mixing the two is a classic source of bugs, so prefer `override` and treat the `new` warning as an error.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is the difference between `override` and `new` in C#?**  
-> **Strong Answer:**  
-> "In C#, both keywords alter method behavior in a derived class, but their effect on the Virtual Method Table (vtable) and polymorphism is fundamentally opposite:  
-> 
-> - **`override` extends runtime polymorphism.** It replaces the function pointer in the inherited vtable slot allocated by the base class. Regardless of whether the object is accessed through a base-class reference (`Base b = new Derived()`) or a derived-class reference, `Derived`'s implementation will execute. This honors the Liskov Substitution Principle.  
-> - **`new` (method hiding) severs polymorphism.** It leaves the inherited base vtable slot untouched and creates an entirely separate, distinct method slot for the derived type. If the object is invoked via a base reference, the **base method** executes; if invoked via a derived reference, the **derived method** executes.  
-> 
-> Using `new` is dangerous in domain hierarchies because it causes contradictory behavior depending on how the caller references the instance."
+## Try it
+
+Run this to see runtime dispatch and Python's substitute for overloading. Then draw `Shape.area()` with two subclasses in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the `override` vs `new` question.
+
+```python
+from functools import singledispatch
+
+class Animal:
+    def speak(self): return "..."
+class Dog(Animal):
+    def speak(self): return "woof"              # overriding: run-time dispatch
+
+pets: list[Animal] = [Animal(), Dog()]
+assert [p.speak() for p in pets] == ["...", "woof"]
+
+@singledispatch                                 # Python's "overloading"
+def show(x): return "other"
+@show.register
+def _(x: int): return "int"
+@show.register
+def _(x: str): return "str"
+assert (show(1), show("a"), show(1.5)) == ("int", "str", "other")
+```
 
 ---
 
-> [!interview]
-> **Question 3: Does Python support method overloading?**  
-> **Strong Answer:**  
-> "No, Python does not support compile-time method overloading in the classical C++ or C# sense.  
-> 
-> In Python, a class definition is executed sequentially as a dictionary namespace (`class.__dict__`). If you declare two methods with the same name in the same class, the second method definition simply overwrites the first in the class dictionary.  
-> 
-> However, Python achieves equivalent functionality through three idiomatic patterns:  
-> 1. **Default & Variadic Arguments:** Defining a single method with optional parameters (`val=None`) or `*args, **kwargs`.  
-> 2. **Single Dispatch:** Using the standard library decorator `@functools.singledispatch` or `@functools.singledispatchmethod` to register distinct handlers based on the argument's type.  
-> 3. **Type Hint Overloads:** Using `@typing.overload` to declare multiple type signatures for static type checkers (Mypy) while providing a single unified implementation function at runtime."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: What is runtime polymorphism, and how does the language find the right method?**  
-> **Strong Answer:**  
-> "Runtime polymorphism is the ability of different concrete objects to respond to the same method invocation in their own specialized way when accessed through a common base abstraction.  
-> 
-> Languages resolve the target method at runtime through specific dispatch data structures:  
-> - **In C# (.NET CLR):** Every heap-allocated object has an object header containing a pointer to its `TypeHandle` (Method Table). For `virtual` methods, the compiler emits a `callvirt` IL instruction. At runtime, the CPU reads the object's method table pointer, navigates to the fixed offset (index) allocated for that virtual slot, and jumps directly to the function pointer stored there. This requires two pointer dereferences.  
-> - **In Python:** Resolution uses dynamic attribute lookup guided by the class's **Method Resolution Order (MRO)**. When `obj.method()` is called, Python checks `obj.__dict__`, then traverses `type(obj).__mro__` checking each class's `__dict__` until it finds the callable descriptor, binding `self` to create a bound method."
-
----
-
-> [!interview]
-> **Question 5: Can you override a static method?**  
-> **Strong Answer:**  
-> "No, static methods **cannot** be overridden polymorphically in either C# or Python.  
-> 
-> Dynamic overriding requires runtime virtual dispatch, which depends on an instantiated object residing on the heap with an object header pointing to a vtable. Static methods belong strictly to the **type or module namespace**, not to an instance.  
-> 
-> - In C#, calling `StaticMethod()` generates a static IL `call` instruction bound directly to the declaring type symbol at compile time. Defining a static method with the same name in a derived class merely **hides** the base method (`new`), resolving according to the declared type reference.  
-> - In Python, `@staticmethod` creates a callable object inside the class namespace that does not receive an implicit `self` or `cls`. While a subclass can shadow a parent class's static method in its own dictionary, invoking the method through the base class or an unbound reference will never dynamically dispatch to the derived class."
+```text
+OVERLOAD   same name, different params   compile-time   C#/Java yes, Python no
+OVERRIDE   same signature in subclass     run-time (vtable)   needs virtual/override
+C#  virtual + override -> polymorphic     new -> hides (static type decides!)
+C#  sealed override stops further overriding
+Python  default args | *args | functools.singledispatch | duck typing
+Static methods: hidden, never overridden
+Polymorphism = reference type X, behaviour of object type Y
+```
 
 ---
 

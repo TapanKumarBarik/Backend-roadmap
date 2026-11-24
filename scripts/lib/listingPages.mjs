@@ -232,15 +232,13 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
   const quizzes = entries(practice.quizzes);
   const exercises = entries(practice.exercises);
   const interview = entries(practice.interview);
-  const code = entries(practice.code);
+  const code = entries(practice.code).filter(([, p]) => !(p.topic || '').startsWith('lld-'));
   const plans = entries(practice.plans || {});
-  const isCoding = ([, s]) => s.section === 'coding';
-  const concepts = interview.filter((e) => !isCoding(e));
-  const coding = interview.filter(isCoding);
+  const concepts = interview.filter(([, s]) => s.section !== 'coding');
   const indexUrl = pageUrl(PRACTICE_ROUTE);
   const practiceCrumb = { title: LISTING_COPY.practiceTitle, url: indexUrl };
   const itemLink = (kind, slug, title, extra = '') => `<li>${link(pageUrl(PRACTICE_ROUTE, `${kind}/${slug}`), title)}${extra}</li>`;
-  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, concepts.length, coding.length, code.length);
+  const indexDescription = LISTING_COPY.practiceDescription(quizzes.length, exercises.length, concepts.length, 0, code.length);
   out.push({
     url: indexUrl,
     title: LISTING_COPY.practiceTitle,
@@ -248,11 +246,10 @@ function practicePages({ practice, titles, urlOf, site, siteName, full, home }) 
     description: indexDescription,
     body: `<nav aria-label="Breadcrumb">${link('/', siteName)}</nav><header><h1>${esc(LISTING_COPY.practiceTitle)}</h1><p>${esc(LISTING_COPY.practiceLead)}</p></header>`
       + `<section><h2>${esc(LISTING_COPY.codeProblems)}</h2><ul>${code.map(([slug, p]) => itemLink('code', slug, p.title, ` <small>${level(p)}</small>`)).join('')}</ul></section>`
-      + (plans.length ? `<section><h2>${esc(LISTING_COPY.studyPlans)}</h2><ul>${plans.map(([slug, p]) => itemLink('plan', slug, p.title, ` <small>${p.days.length} days</small>`)).join('')}</ul></section>` : '')
       + `<section><h2>${esc(LISTING_COPY.quizzes)}</h2><ul>${quizzes.map(([slug, q]) => itemLink('quiz', slug, q.title, ` <small>${level(q)} · ${q.questions.length} questions</small>`)).join('')}</ul></section>`
-      + `<section><h2>${esc(LISTING_COPY.exercises)}</h2><ul>${exercises.map(([slug, e]) => itemLink('exercise', slug, e.title, ` <small>${level(e)}</small>`)).join('')}</ul></section>`
-      + `<section><h2>${esc(LISTING_COPY.codingSets)}</h2><ul>${coding.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`
-      + `<section><h2>${esc(LISTING_COPY.interviewSets)}</h2><ul>${concepts.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`,
+      + `<section><h2>${esc(LISTING_COPY.interviewSets)}</h2><ul>${concepts.map(([slug, s]) => itemLink('interview', slug, s.title, ` <small>${level(s)} · ${s.questions.length} questions</small>`)).join('')}</ul></section>`
+      + (plans.length ? `<section><h2>${esc(LISTING_COPY.studyPlans)}</h2><ul>${plans.map(([slug, p]) => itemLink('plan', slug, p.title, ` <small>${p.days.length} days</small>`)).join('')}</ul></section>` : '')
+      + `<section><h2>${esc(LISTING_COPY.exercises)}</h2><ul>${exercises.map(([slug, e]) => itemLink('exercise', slug, e.title, ` <small>${level(e)}</small>`)).join('')}</ul></section>`,
     ld: {
       '@context': 'https://schema.org',
       '@graph': [

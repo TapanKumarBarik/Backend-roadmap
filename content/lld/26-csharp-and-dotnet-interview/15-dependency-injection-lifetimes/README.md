@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** DI lifetimes decide object reuse: **Transient** (new each time), **Scoped** (one per request), **Singleton** (one per app) — and a longer-lived service must never capture a shorter-lived one.
+
 > [!TIP]
 > **The One Rule of DI Lifetimes:** Always align a service's registration lifetime with the lifespan of the state it manages: single instance across the entire application for thread-safe state and caches (**Singleton**), single instance per execution context or HTTP request (**Scoped**), and ephemeral, lightweight, disposable allocators (**Transient**). A longer-lived service must *never* directly capture a shorter-lived service—if a Singleton or background worker requires a Scoped service, it must explicitly create a scope dynamically via `IServiceScopeFactory`.
 
@@ -591,52 +594,90 @@ public class QueueConsumerService : BackgroundService
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between `AddSingleton`, `AddScoped` and `AddTransient`?**  
-> **Strong Answer:**  
-> "These three extension methods determine how ASP.NET Core's IoC container allocates, shares, and disposes service instances:  
-> - **Singleton (`AddSingleton`):** A single instance is instantiated once per application lifetime (either eagerly during startup or lazily on first access) and retained in the root service provider. Every subsequent request across all threads receives the exact same instance. Singletons must be strictly thread-safe.  
-> - **Scoped (`AddScoped`):** A single instance is created per logical scope. In web applications, ASP.NET Core creates a new `IServiceScope` for every incoming HTTP request. All components resolving the service within that same request share that identical instance. At the end of the HTTP request, the container automatically calls `Dispose()` or `DisposeAsync()` on all resolved scoped instances.  
-> - **Transient (`AddTransient`):** A new instance is created every single time the service is injected or requested from the container. It is best suited for lightweight, stateless components. If a transient instance implements `IDisposable`, the container tracks it and disposes it only when its parent scope ends."
+<details>
+<summary><strong>1. What is the difference between `AddSingleton`, `AddScoped` and `AddTransient`? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is a captive dependency?**  
-> **Strong Answer:**  
-> "A captive dependency occurs when a service with a longer lifetime directly injects and holds a service with a shorter lifetime. The classic example is a **Singleton injecting a Scoped service** (e.g., a singleton caching engine injecting an EF Core `DbContext`).  
-> 
-> Because the Singleton lives for the entire application duration, it captures the scoped dependency, preventing it from ever being garbage-collected. This causes three critical failures:  
-> 1. **State Corruption & Concurrency Exceptions:** `DbContext` is non-thread-safe. Multiple concurrent HTTP requests hitting the Singleton will share the same `DbContext`, resulting in `InvalidOperationException` due to concurrent operations.  
-> 2. **`ObjectDisposedException`:** If the captured instance was tied to a request that completed and disposed its internal resources, subsequent access by the singleton fails.  
-> 3. **Data Leakage:** If the scoped service encapsulates user identity or tenant metadata, data will leak across user boundaries.  
-> 
-> ASP.NET Core prevents this during development by enabling `ValidateScopes` on `builder.Host`, throwing an `InvalidOperationException` on startup if a captive dependency is detected."
+These three extension methods determine how ASP.NET Core's IoC container allocates, shares, and disposes service instances:
+- **Singleton (`AddSingleton`):** A single instance is instantiated once per application lifetime (either eagerly during startup or lazily on first access) and retained in the root service provider. Every subsequent request across all threads receives the exact same instance. Singletons must be strictly thread-safe.
+- **Scoped (`AddScoped`):** A single instance is created per logical scope. In web applications, ASP.NET Core creates a new `IServiceScope` for every incoming HTTP request. All components resolving the service within that same request share that identical instance. At the end of the HTTP request, the container automatically calls `Dispose()` or `DisposeAsync()` on all resolved scoped instances.
+- **Transient (`AddTransient`):** A new instance is created every single time the service is injected or requested from the container. It is best suited for lightweight, stateless components. If a transient instance implements `IDisposable`, the container tracks it and disposes it only when its parent scope ends.
 
-> [!interview]
-> **Question 3: How do you use a scoped service in a singleton or a background service?**  
-> **Strong Answer:**  
-> "You should never inject a scoped service directly into the constructor of a Singleton or `BackgroundService`. Instead, inject `IServiceScopeFactory` into the Singleton.  
-> 
-> When the Singleton needs to perform an operation requiring the scoped service, it calls `using var scope = _scopeFactory.CreateScope();`. It then resolves the scoped service directly from `scope.ServiceProvider.GetRequiredService<T>()`.  
-> 
-> When the using block exits, `scope.Dispose()` is called, which cleanly disposes the scoped service, closes database connections, and frees memory. This ensures every background execution or message processing loop receives an isolated, independent unit-of-work with a clean change tracker."
+</details>
 
-> [!interview]
-> **Question 4: Which lifetime should a `DbContext` have?**  
-> **Strong Answer:**  
-> "A `DbContext` should virtually always have a **Scoped** lifetime, which is the default configured by `builder.Services.AddDbContext<T>()`.  
-> 
-> There are three primary reasons:  
-> 1. **Unit of Work Pattern:** `DbContext` is designed to represent a single atomic business transaction or HTTP request. Its internal change tracker accumulates entity snapshots; keeping it alive across multiple requests causes the tracker to bloat, dramatically degrading query performance and consuming excessive memory.  
-> 2. **Thread Safety:** `DbContext` is not thread-safe. A Scoped lifetime ensures that each incoming HTTP request thread operates on its own dedicated instance. A Singleton lifetime would cause race conditions and immediate runtime exceptions under concurrent traffic.  
-> 3. **Transient Overhead:** Registering it as Transient would cause multiple components in the same request (e.g., repositories, validators, unit-of-work) to get separate context instances. This breaks transaction atomicity and prevents sharing tracked entity states."
+<details>
+<summary><strong>2. What is a captive dependency? [TRICKY]</strong></summary>
 
-> [!interview]
-> **Question 5: What is the difference between `IOptions`, `IOptionsSnapshot` and `IOptionsMonitor`?**  
-> **Strong Answer:**  
-> "All three are interfaces in the `Microsoft.Extensions.Options` library used to read strongly-typed configuration, but they differ in registration lifetime, reload behavior, and scope requirements:  
-> 1. **`IOptions<T>` (Singleton):** Reads configuration once when first accessed and never updates during the lifetime of the process. It is registered as a Singleton and has minimal allocation overhead. It is safe to inject anywhere, including other Singletons.  
-> 2. **`IOptionsSnapshot<T>` (Scoped):** Recomputes options for each logical scope (e.g., per HTTP request). If `appsettings.json` changes on disk, the next incoming request will immediately reflect the new values. Because it is Scoped, it **cannot** be injected into Singleton services without triggering a captive dependency exception.  
-> 3. **`IOptionsMonitor<T>` (Singleton with Dynamic Updates):** Maintains a Singleton lifetime but subscribes to configuration change reload tokens. Calling `.CurrentValue` or `Get(name)` always returns the latest configuration in real time. It also exposes an `OnChange(Action<T, string>)` event listener to trigger reactive callbacks. It can be safely injected into Singletons and background services."
+A captive dependency occurs when a service with a longer lifetime directly injects and holds a service with a shorter lifetime. The classic example is a **Singleton injecting a Scoped service** (e.g., a singleton caching engine injecting an EF Core `DbContext`).
+
+Because the Singleton lives for the entire application duration, it captures the scoped dependency, preventing it from ever being garbage-collected. This causes three critical failures:
+1. **State Corruption & Concurrency Exceptions:** `DbContext` is non-thread-safe. Multiple concurrent HTTP requests hitting the Singleton will share the same `DbContext`, resulting in `InvalidOperationException` due to concurrent operations.
+2. **`ObjectDisposedException`:** If the captured instance was tied to a request that completed and disposed its internal resources, subsequent access by the singleton fails.
+3. **Data Leakage:** If the scoped service encapsulates user identity or tenant metadata, data will leak across user boundaries.
+
+ASP.NET Core prevents this during development by enabling `ValidateScopes` on `builder.Host`, throwing an `InvalidOperationException` on startup if a captive dependency is detected.
+
+</details>
+
+<details>
+<summary><strong>3. How do you use a scoped service in a singleton or a background service? [SCENARIO]</strong></summary>
+
+You should never inject a scoped service directly into the constructor of a Singleton or `BackgroundService`. Instead, inject `IServiceScopeFactory` into the Singleton.
+
+When the Singleton needs to perform an operation requiring the scoped service, it calls `using var scope = _scopeFactory.CreateScope();`. It then resolves the scoped service directly from `scope.ServiceProvider.GetRequiredService<T>()`.
+
+When the using block exits, `scope.Dispose()` is called, which cleanly disposes the scoped service, closes database connections, and frees memory. This ensures every background execution or message processing loop receives an isolated, independent unit-of-work with a clean change tracker.
+
+</details>
+
+<details>
+<summary><strong>4. Which lifetime should a `DbContext` have? [SCENARIO]</strong></summary>
+
+A `DbContext` should virtually always have a **Scoped** lifetime, which is the default configured by `builder.Services.AddDbContext<T>()`.
+
+There are three primary reasons:
+1. **Unit of Work Pattern:** `DbContext` is designed to represent a single atomic business transaction or HTTP request. Its internal change tracker accumulates entity snapshots; keeping it alive across multiple requests causes the tracker to bloat, dramatically degrading query performance and consuming excessive memory.
+2. **Thread Safety:** `DbContext` is not thread-safe. A Scoped lifetime ensures that each incoming HTTP request thread operates on its own dedicated instance. A Singleton lifetime would cause race conditions and immediate runtime exceptions under concurrent traffic.
+3. **Transient Overhead:** Registering it as Transient would cause multiple components in the same request (e.g., repositories, validators, unit-of-work) to get separate context instances. This breaks transaction atomicity and prevents sharing tracked entity states.
+
+</details>
+
+<details>
+<summary><strong>5. What is the difference between `IOptions`, `IOptionsSnapshot` and `IOptionsMonitor`? [BASIC]</strong></summary>
+
+All three are interfaces in the `Microsoft.Extensions.Options` library used to read strongly-typed configuration, but they differ in registration lifetime, reload behavior, and scope requirements:
+1. **`IOptions<T>` (Singleton):** Reads configuration once when first accessed and never updates during the lifetime of the process. It is registered as a Singleton and has minimal allocation overhead. It is safe to inject anywhere, including other Singletons.
+2. **`IOptionsSnapshot<T>` (Scoped):** Recomputes options for each logical scope (e.g., per HTTP request). If `appsettings.json` changes on disk, the next incoming request will immediately reflect the new values. Because it is Scoped, it **cannot** be injected into Singleton services without triggering a captive dependency exception.
+3. **`IOptionsMonitor<T>` (Singleton with Dynamic Updates):** Maintains a Singleton lifetime but subscribes to configuration change reload tokens. Calling `.CurrentValue` or `Get(name)` always returns the latest configuration in real time. It also exposes an `OnChange(Action<T, string>)` event listener to trigger reactive callbacks. It can be safely injected into Singletons and background services.
+
+</details>
+
+<details>
+<summary><strong>6. Your `BackgroundService` needs the `DbContext`. How do you wire it? [SCENARIO]</strong></summary>
+
+`DbContext` is scoped but the hosted service is a singleton. Inject `IServiceScopeFactory`, create a scope per loop iteration or message, resolve the `DbContext` from it, and dispose the scope afterwards.
+
+</details>
+
+---
+
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Register one service three ways (`AddTransient`, `AddScoped`, `AddSingleton`), inject it twice into a handler and into a middleware, and print `GetHashCode()` to see which instances are shared. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
+
+---
+
+## One-page cheat sheet
+
+```text
+AddTransient  new per resolve | AddScoped  per HTTP request (scope) | AddSingleton  once per app
+Captive dependency: singleton -> scoped/transient = BUG (kept alive, shared across requests)
+Need scoped in singleton/BackgroundService: inject IServiceScopeFactory, CreateScope() per unit of work
+DbContext = Scoped (not thread-safe, change tracker per request)
+IOptions<T> singleton, no reload | IOptionsSnapshot<T> scoped, reloads per request | IOptionsMonitor<T> singleton + OnChange
+ValidateScopes/ValidateOnBuild in Development catch lifetime bugs
+Keyed services (.NET 8): AddKeyedSingleton("a") + [FromKeyedServices]
+Avoid service locator (GetService everywhere)
+```
 
 ---
 

@@ -15,6 +15,17 @@
 
 ---
 
+## The smell: when inheritance comes up
+
+Two opposite prompts trigger this chapter:
+
+- *"Model `Employee`, `Manager`, `Engineer`, `Intern`."* The smell is sibling classes with copy-pasted fields and the same constructor checks. A shared parent fixes it.
+- *"Why is `class Stack(list)` a bad idea?"* The smell is a child that inherits methods it must not offer (`insert(0, x)`), throws `NotImplementedError`, or overrides something to do nothing.
+
+If you ignore the first, rules get copied and drift. If you ignore the second, code written for the parent breaks on the child (Liskov), and a parent edit silently breaks children (fragile base class). Rule of thumb: **is-a and keeps every promise, inherit; otherwise compose.**
+
+---
+
 ## 1. Roadmap
 
 Here is the path through this chapter. Each step builds on the one before it.
@@ -1244,6 +1255,8 @@ What to notice:
 - Validation lives once, in the base constructor, and every child inherits it by calling `super().__init__`.
 - Every child can stand in for `Employee`, so LSP holds: nobody throws "not supported".
 
+**Extension point.** Interviewer says "add a `Contractor`." One new subclass that overrides `monthly_pay`; `Payroll` is untouched. If the contractor is paid hourly and needs a different constructor shape, stop. Inheritance is now straining, so compose a pay rule object instead (section 15).
+
 ---
 
 ## 17. Edge cases interviewers push on
@@ -1467,49 +1480,49 @@ Build a small system that uses inheritance where it fits and composition where i
 ## 23. Interview questions
 
 <details>
-<summary>1. What is inheritance and why use it?</summary>
+<summary><strong>1. What is inheritance and why use it? [BASIC]</strong></summary>
 
 It is a relationship where a child class reuses and extends a parent class. It gives code reuse and subtyping (a child can be used wherever the parent is expected). Subtyping is the more important benefit because it lets one piece of code work with many kinds of objects.
 </details>
 
 <details>
-<summary>2. What is the difference between overriding and extending?</summary>
+<summary><strong>2. What is the difference between overriding and extending? [BASIC]</strong></summary>
 
 Overriding replaces the parent method. Extending overrides it but also calls `super().method()` (or `base.Method()` in C#) so the parent's behaviour still runs and the child adds to it.
 </details>
 
 <details>
-<summary>3. What does `super()` do in Python?</summary>
+<summary><strong>3. What does `super()` do in Python? [BASIC]</strong></summary>
 
 It returns a proxy to the next class in the object's MRO after the current class. In single inheritance that is the parent. In multiple inheritance it may be a sibling, which is what lets mixins cooperate.
 </details>
 
 <details>
-<summary>4. Explain the diamond problem and how Python and C# handle it.</summary>
+<summary><strong>4. Explain the diamond problem and how Python and C# handle it. [TRICKY]</strong></summary>
 
 It is when `D` inherits from `B` and `C`, which both inherit from `A`, so a call could reach `A` along two paths, with possible double initialisation or an unclear winner. Python builds one flat, repeat-free MRO using C3 linearisation (children before parents, declared order kept), so each class appears once. C# avoids it by allowing one base class only; interfaces may form a diamond and clashing default methods must be resolved explicitly.
 </details>
 
 <details>
-<summary>5. Compute the MRO of <code>class D(B, C)</code>, with B and C both children of A.</summary>
+<summary><strong>5. Compute the MRO of <code>class D(B, C)</code>, with B and C both children of A. [TRICKY]</strong></summary>
 
 `L[D] = D + merge([B, A, object], [C, A, object], [B, C])`. Take `B`. `A` is blocked (in the tail of the second list), so take `C`. Then `A`, then `object`. Result: `D, B, C, A, object`.
 </details>
 
 <details>
-<summary>6. State the Liskov Substitution Principle with an example.</summary>
+<summary><strong>6. State the Liskov Substitution Principle with an example. [BASIC]</strong></summary>
 
 Objects of a subtype must be usable wherever the supertype is expected without breaking correctness. A `Square` that makes `set_width` also change the height breaks code written for `Rectangle` that sets width and height independently. A `Penguin` whose `fly()` throws breaks code that trusts `Bird`.
 </details>
 
 <details>
-<summary>7. What is the fragile base class problem?</summary>
+<summary><strong>7. What is the fragile base class problem? [TRICKY]</strong></summary>
 
 A change inside a parent that keeps its public interface can still break children, because they depend on the parent's internal calls (for example `add_all` calling `add`). It happens because inheritance exposes the parent's implementation to the child. Shallow trees, documented self-use, sealing and composition reduce it.
 </details>
 
 <details>
-<summary>8. Why prefer composition over inheritance? When is inheritance still right?</summary>
+<summary><strong>8. Why prefer composition over inheritance? When is inheritance still right? [SCENARIO]</strong></summary>
 
 Composition couples only to a public interface, can be swapped at run time, is easy to test with fakes, and avoids class explosions when there are several axes of variation. Inheritance is right for a true stable is-a, framework base classes, exception hierarchies, and abstract bases with a template method.
 </details>

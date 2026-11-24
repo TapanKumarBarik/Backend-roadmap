@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Factory** moves `new` out of the caller so you can add new concrete types without editing client code — simple factory = one function with a switch; Factory Method = subclass decides.
+
 > [!TIP]
 > **The One Rule of Factory Patterns:** Use a **Simple Factory** when you just need to centralize conditional object creation (`switch/case`) in one utility class; use the **Factory Method** GoF pattern when an abstract creator defines an end-to-end workflow but delegates *which* concrete product to instantiate to subclasses. "New is glue"—factories decouple consumers from concrete constructors, transforming hardcoded compile-time dependencies into runtime polymorphic flexibility.
 
@@ -383,48 +386,104 @@ Why does Microsoft warn against writing `using var client = new HttpClient()` in
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Factory pattern and why use it?**  
-> **Strong Answer:**  
-> "The Factory pattern is a creational pattern that encapsulates and decouples object instantiation from the client code consuming that object.  
-> 
-> We use it for four primary architectural reasons:  
-> 1. **Decoupling ('New is Glue'):** It prevents business logic from being tightly coupled to concrete classes, programming instead to abstractions or interfaces.  
-> 2. **Centralization of Complex Instantiation Logic:** If an object requires multi-step setup, configuration validation, dependency wiring, or pooling, a factory centralizes that logic rather than scattering it across callers.  
-> 3. **Open/Closed Principle:** Clients remain agnostic of concrete types. New product variations can be introduced without modifying existing client business logic.  
-> 4. **Enhanced Testability:** Because callers rely on factories returning abstractions, unit tests can easily substitute mock objects or test doubles without touching domain execution flows."
+<details>
+<summary><strong>1. What is the Factory pattern and why use it? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between a simple factory and the Factory Method?**  
-> **Strong Answer:**  
-> "The difference lies in **how creation is structured and how OCP is maintained**:  
-> 
-> - A **Simple Factory** is an architectural idiom or utility class. It typically consists of a single concrete class containing a method with conditional logic (`switch/case` or `if/else`) that instantiates and returns one of several product types. Its drawback is that adding a new product requires modifying the factory class itself, violating the Open/Closed Principle.  
-> - The **Factory Method** is a formal Gang of Four design pattern based on **inheritance and polymorphism**. It defines an abstract creator class with an abstract method (e.g., `CreateProduct()`). The base creator contains the invariant business workflow, while concrete creator subclasses override the factory method to return specific concrete products.  
-> 
-> In short: Simple Factory uses a centralized conditional switch in one class; Factory Method defers the decision of which class to instantiate to polymorphic subclasses."
+The Factory pattern is a creational pattern that encapsulates and decouples object instantiation from the client code consuming that object.
 
-> [!interview]
-> **Question 3: How does a factory help with the Open/Closed principle?**  
-> **Strong Answer:**  
-> "The Open/Closed Principle states that software entities should be open for extension but closed for modification.  
-> 
-> A factory adheres to this by ensuring that high-level client business logic only depends on an abstract product interface (e.g., `IExporter`) and an abstract factory or registry.  
-> 
-> When a new business requirement arrives—such as supporting a `JsonExporter` in addition to PDF and CSV—we do not modify the existing client code or existing exporters. In the Factory Method pattern, we simply author a new `JsonExporter` class and a corresponding `JsonExporterCreator` subclass. In a modern registry-based factory, we register `() => new JsonExporter()` at startup.  
-> 
-> Existing client code continues to execute unchanged, eliminating regression risks in battle-tested components."
+We use it for four primary architectural reasons:
+1. **Decoupling ('New is Glue'):** It prevents business logic from being tightly coupled to concrete classes, programming instead to abstractions or interfaces.
+2. **Centralization of Complex Instantiation Logic:** If an object requires multi-step setup, configuration validation, dependency wiring, or pooling, a factory centralizes that logic rather than scattering it across callers.
+3. **Open/Closed Principle:** Clients remain agnostic of concrete types. New product variations can be introduced without modifying existing client business logic.
+4. **Enhanced Testability:** Because callers rely on factories returning abstractions, unit tests can easily substitute mock objects or test doubles without touching domain execution flows.
 
-> [!interview]
-> **Question 4: Give a .NET example of a factory.**  
-> **Strong Answer:**  
-> "A prominent example in the .NET ecosystem is **`IHttpClientFactory`**.  
-> 
-> Rather than manually creating `HttpClient` instances with `new`, developers inject `IHttpClientFactory` and call `factory.CreateClient("GitHubClient")`. Under the hood, the factory manages the pooling and rotation of `HttpMessageHandler` pipelines. This prevents two notorious production bugs:  
-> 1. Socket exhaustion caused by rapid creation and disposal of `HttpClient` instances leaving thousands of TCP sockets in `TIME_WAIT`.  
-> 2. Stale DNS lookups caused by indefinitely caching a single `HttpClient` instance across application lifetime.  
-> 
-> Other prominent .NET examples include **`LoggerFactory.Create()`** for configuring logging subsystems and **`DbProviderFactories.GetFactory()`** in ADO.NET for constructing matched sets of database connection objects."
+</details>
+
+<details>
+<summary><strong>2. What is the difference between a simple factory and the Factory Method? [BASIC]</strong></summary>
+
+The difference lies in **how creation is structured and how OCP is maintained**:
+
+- A **Simple Factory** is an architectural idiom or utility class. It typically consists of a single concrete class containing a method with conditional logic (`switch/case` or `if/else`) that instantiates and returns one of several product types. Its drawback is that adding a new product requires modifying the factory class itself, violating the Open/Closed Principle.
+- The **Factory Method** is a formal Gang of Four design pattern based on **inheritance and polymorphism**. It defines an abstract creator class with an abstract method (e.g., `CreateProduct()`). The base creator contains the invariant business workflow, while concrete creator subclasses override the factory method to return specific concrete products.
+
+In short: Simple Factory uses a centralized conditional switch in one class; Factory Method defers the decision of which class to instantiate to polymorphic subclasses.
+
+</details>
+
+<details>
+<summary><strong>3. How does a factory help with the Open/Closed principle? [BASIC]</strong></summary>
+
+The Open/Closed Principle states that software entities should be open for extension but closed for modification.
+
+A factory adheres to this by ensuring that high-level client business logic only depends on an abstract product interface (e.g., `IExporter`) and an abstract factory or registry.
+
+When a new business requirement arrives—such as supporting a `JsonExporter` in addition to PDF and CSV—we do not modify the existing client code or existing exporters. In the Factory Method pattern, we simply author a new `JsonExporter` class and a corresponding `JsonExporterCreator` subclass. In a modern registry-based factory, we register `() => new JsonExporter()` at startup.
+
+Existing client code continues to execute unchanged, eliminating regression risks in battle-tested components.
+
+</details>
+
+<details>
+<summary><strong>4. Give a .NET example of a factory. [SCENARIO]</strong></summary>
+
+A prominent example in the .NET ecosystem is **`IHttpClientFactory`**.
+
+Rather than manually creating `HttpClient` instances with `new`, developers inject `IHttpClientFactory` and call `factory.CreateClient("GitHubClient")`. Under the hood, the factory manages the pooling and rotation of `HttpMessageHandler` pipelines. This prevents two notorious production bugs:
+1. Socket exhaustion caused by rapid creation and disposal of `HttpClient` instances leaving thousands of TCP sockets in `TIME_WAIT`.
+2. Stale DNS lookups caused by indefinitely caching a single `HttpClient` instance across application lifetime.
+
+Other prominent .NET examples include **`LoggerFactory.Create()`** for configuring logging subsystems and **`DbProviderFactories.GetFactory()`** in ADO.NET for constructing matched sets of database connection objects.
+
+</details>
+
+<details>
+<summary><strong>5. Your factory has a 12-branch `switch`. How do you evolve it? [SCENARIO]</strong></summary>
+
+Replace the switch with a registry (`dict[str, Callable]`) or DI keyed services so new types register themselves. The factory stays closed to modification and each concrete type is added in one place.
+
+</details>
+
+<details>
+<summary><strong>6. Is calling `new` always bad? When is a factory over-engineering? [TRICKY]</strong></summary>
+
+No. If there is one concrete type, it never varies, and construction is trivial, `new` is fine. A factory pays off when the type varies, construction is complex, or you need to swap it in tests.
+
+</details>
+
+---
+
+## Try it
+
+Run this registry-style factory: new types register themselves, no `if/elif` to edit. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Shape:
+    registry = {}
+    def __init_subclass__(cls, **kw):
+        Shape.registry[cls.__name__.lower()] = cls
+
+class Circle(Shape): pass
+class Square(Shape): pass
+
+def make(kind):
+    return Shape.registry[kind]()
+
+assert isinstance(make("circle"), Circle) and isinstance(make("square"), Square)
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+SIMPLE FACTORY   one function/class: make(kind) -> Product (switch inside)
+FACTORY METHOD   base class declares create(); subclass overrides it
+Goal: callers depend on the abstraction, never on `new Concrete()`
+OCP: registry/DI map > switch (add type = add class)
+.NET: ILoggerFactory, HttpClientFactory, IServiceProvider
+Smell: factory that needs a switch edit for every new type
+```
 
 ---
 

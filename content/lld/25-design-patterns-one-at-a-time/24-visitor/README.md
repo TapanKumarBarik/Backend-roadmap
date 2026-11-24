@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Visitor** adds new operations to a stable class hierarchy without editing it, using double dispatch (`node.accept(visitor)` → `visitor.visit_x(node)`) — easy to add operations, hard to add node types.
+
 > [!TIP]
 > **The One Rule of the Visitor Pattern:** Use Visitor when your object structure (class hierarchy) is **stable and rarely changes**, but you frequently need to define **new operations** over that structure without polluting the element classes. Visitor achieves this via **double dispatch**—the element routes to the visitor based on its runtime type (`element.Accept(visitor)`), and the visitor routes based on the element type (`visitor.Visit(this)`). If your class hierarchy changes frequently, Visitor is an architectural antipattern: adding a single new element class forces recompilation and method additions across every visitor in the codebase (the Expression Problem).
 
@@ -551,37 +554,104 @@ public static class ExpressionFormatter
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Visitor pattern?**  
-> **Strong Answer:**  
-> "The Visitor pattern is a Gang of Four behavioral design pattern that allows you to add new operations to an existing class hierarchy without modifying the classes themselves.  
-> 
-> It achieves this by moving the operational logic out of the element classes and into separate visitor objects. The element classes only provide a lightweight hook—an `Accept(visitor)` method—which uses double dispatch to invoke the appropriate overloaded `Visit` method on the visitor.  
-> 
-> The Visitor pattern is ideal when the class hierarchy represents a stable data structure (such as a compiler Abstract Syntax Tree, a document DOM, or a financial portfolio) that rarely changes, but the system frequently needs to perform disparate operations on those nodes (such as type checking, code generation, linting, serialization, or cost calculation)."
+<details>
+<summary><strong>1. What is the Visitor pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is double dispatch?**  
-> **Strong Answer:**  
-> "Double dispatch is a mechanism that binds a method call based on the runtime types of **two objects**: the receiver and the argument.  
-> 
-> Mainstream object-oriented languages like C#, Java, and Python only support **single dispatch** natively: method calls are dynamically dispatched based solely on the runtime type of the caller (`receiver.Method(...)`), while parameter overloads are bound statically at compile time based on the declared type.  
-> 
-> The Visitor pattern simulates double dispatch using two consecutive polymorphic invocations:  
-> 1. **First dispatch (Dynamic):** The client calls `element.Accept(visitor)`. This polymorphically selects the concrete element's `Accept` implementation based on the runtime type of `element`.  
-> 2. **Second dispatch (Static/Dynamic):** Inside `element.Accept`, the element calls `visitor.Visit(this)`. Because `this` is statically known as the concrete type inside that class, the compiler binds to the specific `Visit(ConcreteElement)` overload, while dynamic dispatch selects the concrete visitor algorithm.  
-> 
-> As a result, the executed operation depends on the runtime types of both the visitor and the element."
+The Visitor pattern is a Gang of Four behavioral design pattern that allows you to add new operations to an existing class hierarchy without modifying the classes themselves.
 
-> [!interview]
-> **Question 3: How does the Visitor pattern relate to the Expression Problem?**  
-> **Strong Answer:**  
-> "The Expression Problem represents the fundamental architectural trade-off between adding new types versus adding new operations in software design:  
-> 
-> 1. **Standard OOP (Polymorphism):** Makes it trivial to add **new types** (create a subclass), but difficult to add **new operations** (adding a method to an interface forces edits across every implementing class).  
-> 2. **Visitor Pattern:** Inverts this trade-off. It makes it trivial to add **new operations** (create a new Visitor class without touching the elements), but very difficult to add **new types** (adding a new element class requires updating the visitor interface and every existing visitor implementation in the codebase).  
-> 
-> Therefore, senior engineers only introduce Visitor when the element hierarchy is demonstrably closed and stable, while the set of operations is open-ended."
+It achieves this by moving the operational logic out of the element classes and into separate visitor objects. The element classes only provide a lightweight hook—an `Accept(visitor)` method—which uses double dispatch to invoke the appropriate overloaded `Visit` method on the visitor.
+
+The Visitor pattern is ideal when the class hierarchy represents a stable data structure (such as a compiler Abstract Syntax Tree, a document DOM, or a financial portfolio) that rarely changes, but the system frequently needs to perform disparate operations on those nodes (such as type checking, code generation, linting, serialization, or cost calculation).
+
+</details>
+
+<details>
+<summary><strong>2. What is double dispatch? [BASIC]</strong></summary>
+
+Double dispatch is a mechanism that binds a method call based on the runtime types of **two objects**: the receiver and the argument.
+
+Mainstream object-oriented languages like C#, Java, and Python only support **single dispatch** natively: method calls are dynamically dispatched based solely on the runtime type of the caller (`receiver.Method(...)`), while parameter overloads are bound statically at compile time based on the declared type.
+
+The Visitor pattern simulates double dispatch using two consecutive polymorphic invocations:
+1. **First dispatch (Dynamic):** The client calls `element.Accept(visitor)`. This polymorphically selects the concrete element's `Accept` implementation based on the runtime type of `element`.
+2. **Second dispatch (Static/Dynamic):** Inside `element.Accept`, the element calls `visitor.Visit(this)`. Because `this` is statically known as the concrete type inside that class, the compiler binds to the specific `Visit(ConcreteElement)` overload, while dynamic dispatch selects the concrete visitor algorithm.
+
+As a result, the executed operation depends on the runtime types of both the visitor and the element.
+
+</details>
+
+<details>
+<summary><strong>3. How does the Visitor pattern relate to the Expression Problem? [BASIC]</strong></summary>
+
+The Expression Problem represents the fundamental architectural trade-off between adding new types versus adding new operations in software design:
+
+1. **Standard OOP (Polymorphism):** Makes it trivial to add **new types** (create a subclass), but difficult to add **new operations** (adding a method to an interface forces edits across every implementing class).
+2. **Visitor Pattern:** Inverts this trade-off. It makes it trivial to add **new operations** (create a new Visitor class without touching the elements), but very difficult to add **new types** (adding a new element class requires updating the visitor interface and every existing visitor implementation in the codebase).
+
+Therefore, senior engineers only introduce Visitor when the element hierarchy is demonstrably closed and stable, while the set of operations is open-ended.
+
+</details>
+
+<details>
+<summary><strong>4. You have an expression tree and need evaluate, pretty-print and optimise. Design it. [SCENARIO]</strong></summary>
+
+Keep node classes stable with `accept(visitor)`; write `Evaluate`, `Printer` and `Optimizer` visitors. Each new operation is a new class and the tree never changes.
+
+</details>
+
+<details>
+<summary><strong>5. Why is double dispatch needed, and what does a language with pattern matching change? [TRICKY]</strong></summary>
+
+Single dispatch selects only on the receiver's type; the visitor method must also depend on the *node's* type, so the node calls back with itself. With `match`/switch patterns (C# 8+, Python 3.10+) you can often skip Visitor and match on node type directly.
+
+</details>
+
+<details>
+<summary><strong>6. What is the Expression Problem? [BASIC]</strong></summary>
+
+You can easily extend either operations (Visitor) or data types (subclasses), but not both without editing existing code. Visitor chooses the first.
+
+</details>
+
+---
+
+## Try it
+
+Run this: a new operation is a new visitor, `Num`/`Add` are untouched. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Num:
+    def __init__(self, v): self.v = v
+    def accept(self, vis): return vis.num(self)
+class Add:
+    def __init__(self, l, r): self.l, self.r = l, r
+    def accept(self, vis): return vis.add(self)
+
+class Evaluate:
+    def num(self, n): return n.v
+    def add(self, a): return a.l.accept(self) + a.r.accept(self)
+class Show:
+    def num(self, n): return str(n.v)
+    def add(self, a): return f"({a.l.accept(self)} + {a.r.accept(self)})"
+
+tree = Add(Num(1), Add(Num(2), Num(3)))
+assert tree.accept(Evaluate()) == 6
+assert tree.accept(Show()) == "(1 + (2 + 3))"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+VISITOR  Element.accept(v) -> v.visit_Element(self)   (double dispatch)
+Add OPERATIONS easily (new visitor class) - nodes untouched
+Add NODE TYPES hard (every visitor needs a new method) = Expression Problem
+Use: stable AST/tree + many operations (eval, print, type-check, export)
+C#: `dynamic` dispatch / pattern matching switch | Py: singledispatch / match
+Often paired with Composite
+Don't: when node types change often; when 1-2 operations only
+```
 
 ---
 

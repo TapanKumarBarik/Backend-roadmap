@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 17 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Flyweight** saves memory by sharing the *intrinsic* (immutable, repeated) state across many objects and passing the *extrinsic* (per-use) state in from outside.
+
 > [!TIP]
 > **The One Rule of the Flyweight Pattern:** Separate invariant, shareable state (**intrinsic**) from variable, contextual state (**extrinsic**). A flyweight object stores *only* intrinsic state and remains strictly immutable; callers pass the extrinsic context into methods at invocation time. If a flyweight ever mutates its internal state or directly owns context-dependent coordinates, it corrupts reference sharing across all consumers.
 
@@ -507,39 +510,99 @@ public static class TextFormatFactory
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Flyweight pattern?**  
-> **Strong Answer:**  
-> "The Flyweight pattern is a Gang of Four structural design pattern whose primary purpose is to reduce memory footprint and garbage collection overhead by sharing common, invariant state across massive quantities of fine-grained objects.  
-> 
-> It works by dividing an object's state into two parts:  
-> 1. **Intrinsic state:** Heavy, immutable, context-free data that is identical across multiple instances (such as textures, font metrics, or sprite definitions). This data is stored once inside the Flyweight object.  
-> 2. **Extrinsic state:** Light, context-dependent data that varies per occurrence (such as screen coordinates, velocity, or user selection status). This data is retained by client context objects or passed as parameters directly into the flyweight's methods.  
-> 
-> A centralized Flyweight Factory manages the lifecycle of flyweights, caching created instances in a lookup table so that requests for existing intrinsic states return existing heap references rather than allocating new memory."
+<details>
+<summary><strong>1. What is the Flyweight pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is string interning?**  
-> **Strong Answer:**  
-> "String interning is a runtime-level implementation of the Flyweight pattern applied to immutable strings.  
-> 
-> Because strings are immutable reference types, creating duplicate strings with identical character sequences wastes memory and slows down equality comparisons. Runtimes like the .NET CLR and Python's CPython maintain an internal hash table known as the String Intern Pool.  
-> 
-> When a string is interned:  
-> 1. The runtime checks if an identical character array already exists in the intern pool.  
-> 2. If it does, the runtime discards the duplicate and returns a reference to the existing canonical string.  
-> 3. If it does not, the string is registered into the pool and retained for the process lifetime.  
-> 
-> This provides two major performance advantages: it eliminates duplicate string heap allocations, and it enables $O(1)$ reference equality comparisons (`object.ReferenceEquals` in C#, `is` in Python) instead of $O(N)$ character-by-character scans."
+The Flyweight pattern is a Gang of Four structural design pattern whose primary purpose is to reduce memory footprint and garbage collection overhead by sharing common, invariant state across massive quantities of fine-grained objects.
 
-> [!interview]
-> **Question 3: How does Flyweight differ from Object Pooling and Singleton?**  
-> **Strong Answer:**  
-> "While all three patterns manage object instances to optimize performance, their structural constraints and usage semantics differ fundamentally:  
-> 
-> 1. **Flyweight vs. Object Pool:** An Object Pool manages a collection of **mutable** objects loaned out for **exclusive** use by one consumer at a time (e.g., database connections, network sockets, thread pool workers). The consumer mutates the pooled object and returns it when done. A Flyweight is **strictly immutable** and shared **concurrently and non-exclusively** by thousands of callers simultaneously without checking it out or returning it.  
-> 2. **Flyweight vs. Singleton:** A Singleton enforces that **exactly one** instance of a type exists in the entire application or DI container. A Flyweight system manages **multiple** distinct instances—one for every unique combination of intrinsic attributes (e.g., five tree species, ten particle types, or 128 ASCII glyph formats).  
-> 3. **Context Ownership:** Singletons and Pooled objects own all of their state. Flyweights own only intrinsic state and require callers to inject extrinsic contextual state at runtime."
+It works by dividing an object's state into two parts:
+1. **Intrinsic state:** Heavy, immutable, context-free data that is identical across multiple instances (such as textures, font metrics, or sprite definitions). This data is stored once inside the Flyweight object.
+2. **Extrinsic state:** Light, context-dependent data that varies per occurrence (such as screen coordinates, velocity, or user selection status). This data is retained by client context objects or passed as parameters directly into the flyweight's methods.
+
+A centralized Flyweight Factory manages the lifecycle of flyweights, caching created instances in a lookup table so that requests for existing intrinsic states return existing heap references rather than allocating new memory.
+
+</details>
+
+<details>
+<summary><strong>2. What is string interning? [BASIC]</strong></summary>
+
+String interning is a runtime-level implementation of the Flyweight pattern applied to immutable strings.
+
+Because strings are immutable reference types, creating duplicate strings with identical character sequences wastes memory and slows down equality comparisons. Runtimes like the .NET CLR and Python's CPython maintain an internal hash table known as the String Intern Pool.
+
+When a string is interned:
+1. The runtime checks if an identical character array already exists in the intern pool.
+2. If it does, the runtime discards the duplicate and returns a reference to the existing canonical string.
+3. If it does not, the string is registered into the pool and retained for the process lifetime.
+
+This provides two major performance advantages: it eliminates duplicate string heap allocations, and it enables $O(1)$ reference equality comparisons (`object.ReferenceEquals` in C#, `is` in Python) instead of $O(N)$ character-by-character scans.
+
+</details>
+
+<details>
+<summary><strong>3. How does Flyweight differ from Object Pooling and Singleton? [BASIC]</strong></summary>
+
+While all three patterns manage object instances to optimize performance, their structural constraints and usage semantics differ fundamentally:
+
+1. **Flyweight vs. Object Pool:** An Object Pool manages a collection of **mutable** objects loaned out for **exclusive** use by one consumer at a time (e.g., database connections, network sockets, thread pool workers). The consumer mutates the pooled object and returns it when done. A Flyweight is **strictly immutable** and shared **concurrently and non-exclusively** by thousands of callers simultaneously without checking it out or returning it.
+2. **Flyweight vs. Singleton:** A Singleton enforces that **exactly one** instance of a type exists in the entire application or DI container. A Flyweight system manages **multiple** distinct instances—one for every unique combination of intrinsic attributes (e.g., five tree species, ten particle types, or 128 ASCII glyph formats).
+3. **Context Ownership:** Singletons and Pooled objects own all of their state. Flyweights own only intrinsic state and require callers to inject extrinsic contextual state at runtime.
+
+</details>
+
+<details>
+<summary><strong>4. A map renders 2 million tiles but only 20 tile types exist. What do you do? [SCENARIO]</strong></summary>
+
+Store 20 shared `TileType` flyweights (sprite, walkable) and keep only `(x, y, type_ref)` per tile. Memory drops from millions of sprites to millions of small references.
+
+</details>
+
+<details>
+<summary><strong>5. Why must flyweights be immutable? [TRICKY]</strong></summary>
+
+They are shared by many clients, so a mutation by one would silently change them all. Anything that varies per use must be passed in (extrinsic), not stored.
+
+</details>
+
+<details>
+<summary><strong>6. Flyweight vs Object Pool? [BASIC]</strong></summary>
+
+Flyweight shares one immutable instance among many users at once. A pool lends an exclusive mutable instance to one user at a time and takes it back.
+
+</details>
+
+---
+
+## Try it
+
+Run this: 1,000 glyphs reuse just a few shared style objects. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Style:                                     # intrinsic, immutable, shared
+    def __init__(self, font, size): self.font, self.size = font, size
+
+_cache = {}
+def style(font, size):
+    return _cache.setdefault((font, size), Style(font, size))
+
+glyphs = [("a", style("Arial", 12), i) for i in range(1000)]   # (char, shared, x-position)
+assert len({id(g[1]) for g in glyphs}) == 1
+assert style("Arial", 12) is style("Arial", 12)
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+FLYWEIGHT  shared immutable INTRINSIC state + caller-supplied EXTRINSIC state
+Factory/cache hands out shared instances (key -> flyweight)
+Wins: memory when millions of similar objects (glyphs, tiles, particles)
+Needs: immutability, thread safety on the cache
+String interning = built-in flyweight (sys.intern, string.Intern)
+Flyweight (share data) | Pool (reuse then release) | Singleton (exactly one)
+Measure first: premature optimisation otherwise
+```
 
 ---
 

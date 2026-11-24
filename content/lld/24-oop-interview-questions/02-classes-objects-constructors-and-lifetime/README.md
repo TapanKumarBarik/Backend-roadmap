@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A **class** is the blueprint, an **object** is one instance with its own state; constructors establish valid state, and lifetime (GC, `Dispose`, `__del__`) decides when resources are released — not when memory is.
+
 > [!TIP]
 > **The One Rule of Object Lifetime:** Object construction is a strict two-phase contract: **allocation** reserves memory and establishes type identity, while **initialization** validates and binds state to enforce invariants before a reference escapes. Never leak references (`this` / `self`) before initialization finishes, and never delegate cleanup to non-deterministic garbage collector finalizers (`__del__` / `~Class()`)—always manage critical unmanaged resources deterministically using disposal scopes (`using` / `with`).
 
@@ -595,60 +598,106 @@ class ConnectionPool:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between a class and an object?**  
-> **Strong Answer:**  
-> "A **class** is a static compile-time and runtime type definition—a blueprint stored in runtime metadata containing field layouts, method tables (vtables), and access constraints. It occupies meta-space or type-descriptor memory and exists independently of whether any instances are created.  
-> 
-> An **object** is a dynamic, concrete instance of a class allocated on the managed heap. It possesses identity (a distinct memory address or object ID), state (its own copy of instance fields), and behavior (dispatched via the type's method table pointer in its object header).  
-> 
-> In short: a class defines the *type contract and structure*; an object is an *individual, stateful instantiation* of that structure residing in memory."
+<details>
+<summary><strong>1. What is the difference between a class and an object? [BASIC]</strong></summary>
+
+A **class** is a static compile-time and runtime type definition—a blueprint stored in runtime metadata containing field layouts, method tables (vtables), and access constraints. It occupies meta-space or type-descriptor memory and exists independently of whether any instances are created.
+
+An **object** is a dynamic, concrete instance of a class allocated on the managed heap. It possesses identity (a distinct memory address or object ID), state (its own copy of instance fields), and behavior (dispatched via the type's method table pointer in its object header).
+
+In short: a class defines the *type contract and structure*; an object is an *individual, stateful instantiation* of that structure residing in memory.
+
+</details>
+
+<details>
+<summary><strong>2. What is constructor chaining? [SCENARIO]</strong></summary>
+
+Constructor chaining is the practice of having one constructor invoke another constructor within the same class or across an inheritance hierarchy before executing its own body.
+
+In C#, intra-class chaining uses `this(...)` to route multiple overloaded constructors to a single canonical master constructor, eliminating duplicated invariant validation. Inter-class chaining uses `base(...)` to guarantee that base class state is fully initialized before the derived class executes.
+
+In Python, constructor chaining is achieved using `super().__init__(*args, **kwargs)`, which traverses the class's Method Resolution Order (MRO) to guarantee cooperative multiple inheritance. Chaining enforces DRY principles and guarantees that class invariants are validated top-down without skipping ancestor guarantees.
+
+</details>
+
+<details>
+<summary><strong>3. What is a static constructor and when does it run? [SCENARIO]</strong></summary>
+
+In C#, a **static constructor** (or type initializer) is a parameterless constructor declared with the `static` keyword used to initialize static fields or execute one-off type-level configuration.
+
+The CLR guarantees that a static constructor is thread-safe and runs **exactly once** per application domain. It is triggered lazily: right before the first instance of the class is created or any static member of that class is accessed. If a static constructor throws an unhandled exception, the type remains uninitialized and unusable for the remainder of the AppDomain's lifetime, throwing a `TypeInitializationException` on all subsequent attempts.
+
+In Python, there is no formal static constructor keyword. Instead, the entire class body is executed dynamically line-by-line when the module is imported, achieving equivalent one-time type initialization.
+
+</details>
+
+<details>
+<summary><strong>4. What is the difference between `__new__` and `__init__`? [BASIC]</strong></summary>
+
+In Python's data model, `__new__` and `__init__` represent the separation of **allocation** and **initialization**:
+
+1. `__new__(cls, *args, **kwargs)` is the actual **constructor**. It is a static method (implicitly treated as such) that receives the class `cls` and is responsible for allocating raw memory on the heap and returning a new instance of `cls` (usually by delegating to `super().__new__(cls)`). It runs **first**.
+2. `__init__(self, *args, **kwargs)` is the **initializer**. It receives the newly allocated instance `self` returned by `__new__` and mutates it by binding instance attributes and enforcing invariants.
+
+You override `__new__` when you need to control the instantiation process itself—such as implementing the Singleton pattern, returning cached/flyweight instances, or subclassing immutable built-in types like `tuple`, `str`, or `int` where state must be defined at the moment of creation.
+
+</details>
+
+<details>
+<summary><strong>5. Can a constructor be private? Why would you want one? [SCENARIO]</strong></summary>
+
+Yes, a constructor can be marked `private`. When all constructors of a class are private, external consumers cannot invoke `new ClassName()`.
+
+You use private constructors in three major architectural scenarios:
+1. **Static Utility Classes:** Preventing instantiation of classes that only contain static utility methods (e.g., `System.Math`).
+2. **Controlled Lifetime & Singletons:** Enforcing that only a single instance exists by restricting construction to an internal static accessor (`GetInstance()`).
+3. **Static Factory Methods:** Forcing callers to use descriptive, intention-revealing factory methods (e.g., `ComplexNumber.FromCartesian(x, y)` vs. `ComplexNumber.FromPolar(r, theta)`), or running asynchronous setup logic before returning an initialized instance.
+
+</details>
+
+<details>
+<summary><strong>6. A class opens a file in its constructor. How do you make sure it is closed? [SCENARIO]</strong></summary>
+
+Do not rely on the finalizer or `__del__`; timing is non-deterministic. Implement `IDisposable` + `using` in C#, or `__enter__`/`__exit__` + `with` in Python, so cleanup runs at a known point even when exceptions happen.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is constructor chaining?**  
-> **Strong Answer:**  
-> "Constructor chaining is the practice of having one constructor invoke another constructor within the same class or across an inheritance hierarchy before executing its own body.  
-> 
-> In C#, intra-class chaining uses `this(...)` to route multiple overloaded constructors to a single canonical master constructor, eliminating duplicated invariant validation. Inter-class chaining uses `base(...)` to guarantee that base class state is fully initialized before the derived class executes.  
-> 
-> In Python, constructor chaining is achieved using `super().__init__(*args, **kwargs)`, which traverses the class's Method Resolution Order (MRO) to guarantee cooperative multiple inheritance. Chaining enforces DRY principles and guarantees that class invariants are validated top-down without skipping ancestor guarantees."
+## Try it
+
+Run this to see `__new__` run before `__init__`, and why a "private constructor" is a convention in Python. Then sketch it in [LLD Studio](/tools/lld-studio/); see the [track hub](../README.md) for the constructor-chaining answer.
+
+```python
+order = []
+class Config:
+    _inst = None
+    def __new__(cls):
+        order.append("new")
+        if cls._inst is None:
+            cls._inst = super().__new__(cls)
+        return cls._inst
+    def __init__(self):
+        order.append("init")
+
+a, b = Config(), Config()
+assert a is b                                   # one object
+assert order == ["new", "init", "new", "init"]  # __init__ still runs each call
+```
 
 ---
 
-> [!interview]
-> **Question 3: What is a static constructor and when does it run?**  
-> **Strong Answer:**  
-> "In C#, a **static constructor** (or type initializer) is a parameterless constructor declared with the `static` keyword used to initialize static fields or execute one-off type-level configuration.  
-> 
-> The CLR guarantees that a static constructor is thread-safe and runs **exactly once** per application domain. It is triggered lazily: right before the first instance of the class is created or any static member of that class is accessed. If a static constructor throws an unhandled exception, the type remains uninitialized and unusable for the remainder of the AppDomain's lifetime, throwing a `TypeInitializationException` on all subsequent attempts.  
-> 
-> In Python, there is no formal static constructor keyword. Instead, the entire class body is executed dynamically line-by-line when the module is imported, achieving equivalent one-time type initialization."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: What is the difference between `__new__` and `__init__`?**  
-> **Strong Answer:**  
-> "In Python's data model, `__new__` and `__init__` represent the separation of **allocation** and **initialization**:  
-> 
-> 1. `__new__(cls, *args, **kwargs)` is the actual **constructor**. It is a static method (implicitly treated as such) that receives the class `cls` and is responsible for allocating raw memory on the heap and returning a new instance of `cls` (usually by delegating to `super().__new__(cls)`). It runs **first**.  
-> 2. `__init__(self, *args, **kwargs)` is the **initializer**. It receives the newly allocated instance `self` returned by `__new__` and mutates it by binding instance attributes and enforcing invariants.  
-> 
-> You override `__new__` when you need to control the instantiation process itself—such as implementing the Singleton pattern, returning cached/flyweight instances, or subclassing immutable built-in types like `tuple`, `str`, or `int` where state must be defined at the moment of creation."
-
----
-
-> [!interview]
-> **Question 5: Can a constructor be private? Why would you want one?**  
-> **Strong Answer:**  
-> "Yes, a constructor can be marked `private`. When all constructors of a class are private, external consumers cannot invoke `new ClassName()`.  
-> 
-> You use private constructors in three major architectural scenarios:  
-> 1. **Static Utility Classes:** Preventing instantiation of classes that only contain static utility methods (e.g., `System.Math`).  
-> 2. **Controlled Lifetime & Singletons:** Enforcing that only a single instance exists by restricting construction to an internal static accessor (`GetInstance()`).  
-> 3. **Static Factory Methods:** Forcing callers to use descriptive, intention-revealing factory methods (e.g., `ComplexNumber.FromCartesian(x, y)` vs. `ComplexNumber.FromPolar(r, theta)`), or running asynchronous setup logic before returning an initialized instance."
+```text
+class = blueprint   object/instance = one concrete thing with its own state
+__new__  creates the object   __init__  initialises it   (C#: ctor only)
+Ctor chaining   C#: : base(...) / : this(...)    Py: super().__init__(...)
+Static ctor (C#) runs once, before first use; Python: class body / metaclass
+Private ctor -> factories, singletons, static helpers
+Finalizer/__del__ = timing not guaranteed -> use Dispose / with-statement
+Order (C#): field inits -> base ctor -> ctor body
+```
 
 ---
 

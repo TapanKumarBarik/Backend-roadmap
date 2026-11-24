@@ -11,6 +11,8 @@ const build = (extra = {}) => listingPages({
   paths: [], videos: [], playlists: [], titles: {}, urlOf: () => null, site: 'https://example.com', siteName: 'Example', author, practice, ...extra
 });
 
+const isLld = (problem) => (problem.topic || '').startsWith('lld-');
+
 test('every quiz, exercise, interview set and coding problem has a page, and so does the list', () => {
   const urls = build().map((p) => p.url);
   assert.ok(urls.includes('/practice/'));
@@ -18,7 +20,8 @@ test('every quiz, exercise, interview set and coding problem has a page, and so 
   for (const slug of Object.keys(practice.quizzes)) assert.ok(urls.includes(`/practice/quiz/${slug}/`), slug);
   for (const slug of Object.keys(practice.exercises)) assert.ok(urls.includes(`/practice/exercise/${slug}/`), slug);
   for (const slug of Object.keys(practice.interview)) assert.ok(urls.includes(`/practice/interview/${slug}/`), slug);
-  for (const slug of Object.keys(practice.code)) assert.ok(urls.includes(`/practice/code/${slug}/`), slug);
+  for (const slug of Object.keys(practice.code).filter((s) => !isLld(practice.code[s]))) assert.ok(urls.includes(`/practice/code/${slug}/`), slug); // LLD machine-coding problems are kept out of Practice and have no listing page
+  assert.ok(!urls.some((u) => u.startsWith('/practice/code/lld-')), 'no LLD problem has a page');
   assert.equal(new Set(urls).size, urls.length, 'no two pages share an address');
 });
 
@@ -33,7 +36,7 @@ test("today's drill has an address that opens, and is kept out of search results
 
 test('a coding problem page has the statement and the starting code, and never the solution, the tests or the explanation', () => {
   const pages = new Map(build().map((p) => [p.url, p]));
-  for (const [slug, problem] of Object.entries(practice.code)) {
+  for (const [slug, problem] of Object.entries(practice.code).filter(([, p]) => !isLld(p))) {
     const page = pages.get(`/practice/code/${slug}/`);
     const everything = page.body + JSON.stringify(page.ld) + page.description;
     assert.ok(page.body.includes(escapeHtml(problem.starter.split('\n')[0])), `${slug}: the starting code is on the page`);
@@ -49,7 +52,7 @@ test('a coding problem page has the statement and the starting code, and never t
     assert.equal(page.ld['@graph'][0]['@type'], 'LearningResource');
   }
   const index = pages.get('/practice/');
-  for (const slug of Object.keys(practice.code)) assert.ok(index.body.includes(`/practice/code/${slug}/`), `${slug}: the list links to it`);
+  for (const slug of Object.keys(practice.code).filter((s) => !isLld(practice.code[s]))) assert.ok(index.body.includes(`/practice/code/${slug}/`), `${slug}: the list links to it`);
 });
 
 test('a public quiz page carries its questions but never an answer or an explanation', () => {

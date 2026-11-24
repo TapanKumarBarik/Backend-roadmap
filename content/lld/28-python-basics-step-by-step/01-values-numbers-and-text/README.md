@@ -907,6 +907,20 @@ Always a string. Convert with `int()` or `float()` for numbers, and be ready for
 Python floors: `-7 // 2 == -4`, and `%` takes the sign of the right operand (`-7 % 3 == 2`). C# truncates toward zero: `-7 / 2 == -3`, and `%` takes the sign of the left operand (`-7 % 3 == -1`).
 </details>
 
+## Cheat sheet
+
+```text
+int float str bool None        type(x)   isinstance(x, int)
+/ true div   // floor div   % mod   ** power   divmod(a, b) -> (q, r)
+-7 // 2 == -4 (floors)    -7 % 3 == 2 (sign follows divisor)
+0.1 + 0.2 != 0.3     use math.isclose / round / decimal.Decimal for money
+int("5") float("2.5") str(5)   int("abc") -> ValueError
+and / or / not (short-circuit)   `in` membership   == value, is identity
+Strings immutable: s.upper() returns a NEW string; s[0] = "x" -> TypeError
+s[a:b:c]  s.split()  ",".join(xs)  s.strip()  f"{name}: {x:.2f}"
+input() always returns str -> convert it
+```
+
 ---
 
 ## Further reading

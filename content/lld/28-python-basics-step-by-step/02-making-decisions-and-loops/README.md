@@ -1040,6 +1040,20 @@ Removing shifts the later items left, but the loop index moves on, so it skips i
 Because `elif` runs the first matching branch only. A number divisible by 15 is also divisible by 3, so checking 3 first would print `Fizz` and never `FizzBuzz`.
 </details>
 
+## Cheat sheet
+
+```text
+if / elif / else   (indentation IS the block)   ternary: a if cond else b
+Falsy: 0  0.0  ""  []  {}  ()  set()  None  False    everything else truthy
+chain: 0 < x < 10     match/case (3.10+) for shapes of data
+while cond: ...   for x in iterable: ...   range(start, stop, step)
+enumerate(xs, start=1)   zip(a, b)   reversed(xs)   sorted(xs)
+break (leave loop)  continue (next round)  for/while ... else: runs if NO break
+Never change a list while looping over it; loop over a copy
+Accumulate: total = 0; total += x    build list: out.append(x)
+Infinite loop? make sure the condition can become False
+```
+
 ---
 
 ## Further reading

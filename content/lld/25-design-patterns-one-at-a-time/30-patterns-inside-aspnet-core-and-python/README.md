@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** You already use patterns daily: ASP.NET Core is full of **Chain (middleware), Builder, Factory, Strategy, Options, DI**, and the Python stdlib of **Iterator, Decorator, Context Manager, Strategy, Observer-ish signals**.
+
 > [!TIP]
 > **The One Rule of Framework Patterns:** Frameworks are not magic; they are composed of classical Gang of Four design patterns collaborating at scale. Being able to name the pattern behind a framework feature proves you understand *how* it works beneath the hood, not just *how to call it*.
 
@@ -434,28 +437,82 @@ Now each `User` instance stores its own `_name` attribute in its own instance `_
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Which design patterns does ASP.NET Core use?**  
-> **Strong Answer:**  
-> "ASP.NET Core is built on a foundation of Gang of Four design patterns:  
-> 
-> 1. **Chain of Responsibility (Middleware Pipeline):** The core request pipeline is formed by chained `RequestDelegate` functions. Each middleware handles incoming requests, calls `next(context)`, and processes outgoing responses, with the ability to short-circuit when necessary (e.g., authentication failure).  
-> 2. **Builder Pattern (`WebApplicationBuilder`):** ASP.NET Core uses the Builder pattern to fluently configure services, logging, and configuration sources during initialization, finalizing them into an immutable `WebApplication` host when `builder.Build()` is executed.  
-> 3. **Inversion of Control / Dependency Injection (`IServiceCollection`):** The built-in DI container manages object graph instantiation, recursive constructor resolution, and lifetime scopes (Transient, Scoped, Singleton).  
-> 4. **Decorator Pattern (Action Filters):** Attributes implementing `IActionFilter` wrap controller action execution, injecting cross-cutting logic like audit trails, performance timing, and validation without altering controller logic.  
-> 5. **Factory Method and Object Pool (`IHttpClientFactory`):** Manages `HttpMessageHandler` lifecycles to prevent TCP socket exhaustion while respecting DNS cache expiration.  
-> 6. **Options Pattern (`IOptions<T>`):** Combines the Factory and Singleton patterns to bind configuration sections to strongly typed POCO classes with support for reload tokens (`IOptionsSnapshot`)."
+<details>
+<summary><strong>1. Which design patterns does ASP.NET Core use? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Which design patterns can you find in the Python standard library?**  
-> **Strong Answer:**  
-> "The Python language and standard library embed several classical design patterns:  
-> 
-> 1. **Iterator Pattern:** Python's iteration protocol (`__iter__()` and `__next__()`) and generator functions (`yield`) implement the Iterator pattern natively, enabling lazy, memory-efficient traversal over collections and infinite streams.  
-> 2. **Chain of Responsibility + Observer (`logging`):** The `logging` module dispatches log messages up a hierarchical parent-child logger chain (Chain of Responsibility) and broadcasts `LogRecord` instances to multiple configured `Handler` destinations like consoles, files, and sockets (Observer).  
-> 3. **Proxy Pattern (Descriptors and `@property`):** The descriptor protocol (`__get__`, `__set__`, `__delete__`) provides a Proxy mechanism that transparently intercepts attribute access, enabling lazy properties, type validation, and caching. The `unittest.mock.MagicMock` class is also a comprehensive dynamic proxy.  
-> 4. **Template Method (`unittest.TestCase`):** The base test class defines the algorithmic structure of a test execution, providing hooks like `setUp()` and `tearDown()` that derived test suites override.  
-> 5. **Command / RAII (Context Managers):** The `with` statement leverages `__enter__` and `__exit__` to encapsulate resource setup and deterministic cleanup, shielding client code from resource leaks during unexpected runtime exceptions."
+ASP.NET Core is built on a foundation of Gang of Four design patterns:
+
+1. **Chain of Responsibility (Middleware Pipeline):** The core request pipeline is formed by chained `RequestDelegate` functions. Each middleware handles incoming requests, calls `next(context)`, and processes outgoing responses, with the ability to short-circuit when necessary (e.g., authentication failure).
+2. **Builder Pattern (`WebApplicationBuilder`):** ASP.NET Core uses the Builder pattern to fluently configure services, logging, and configuration sources during initialization, finalizing them into an immutable `WebApplication` host when `builder.Build()` is executed.
+3. **Inversion of Control / Dependency Injection (`IServiceCollection`):** The built-in DI container manages object graph instantiation, recursive constructor resolution, and lifetime scopes (Transient, Scoped, Singleton).
+4. **Decorator Pattern (Action Filters):** Attributes implementing `IActionFilter` wrap controller action execution, injecting cross-cutting logic like audit trails, performance timing, and validation without altering controller logic.
+5. **Factory Method and Object Pool (`IHttpClientFactory`):** Manages `HttpMessageHandler` lifecycles to prevent TCP socket exhaustion while respecting DNS cache expiration.
+6. **Options Pattern (`IOptions<T>`):** Combines the Factory and Singleton patterns to bind configuration sections to strongly typed POCO classes with support for reload tokens (`IOptionsSnapshot`).
+
+</details>
+
+<details>
+<summary><strong>2. Which design patterns can you find in the Python standard library? [TRICKY]</strong></summary>
+
+The Python language and standard library embed several classical design patterns:
+
+1. **Iterator Pattern:** Python's iteration protocol (`__iter__()` and `__next__()`) and generator functions (`yield`) implement the Iterator pattern natively, enabling lazy, memory-efficient traversal over collections and infinite streams.
+2. **Chain of Responsibility + Observer (`logging`):** The `logging` module dispatches log messages up a hierarchical parent-child logger chain (Chain of Responsibility) and broadcasts `LogRecord` instances to multiple configured `Handler` destinations like consoles, files, and sockets (Observer).
+3. **Proxy Pattern (Descriptors and `@property`):** The descriptor protocol (`__get__`, `__set__`, `__delete__`) provides a Proxy mechanism that transparently intercepts attribute access, enabling lazy properties, type validation, and caching. The `unittest.mock.MagicMock` class is also a comprehensive dynamic proxy.
+4. **Template Method (`unittest.TestCase`):** The base test class defines the algorithmic structure of a test execution, providing hooks like `setUp()` and `tearDown()` that derived test suites override.
+5. **Command / RAII (Context Managers):** The `with` statement leverages `__enter__` and `__exit__` to encapsulate resource setup and deterministic cleanup, shielding client code from resource leaks during unexpected runtime exceptions.
+
+</details>
+
+<details>
+<summary><strong>3. A colleague says "we don't use design patterns". How do you respond? [SCENARIO]</strong></summary>
+
+You almost certainly do: DI, middleware, iterators, builders and events are all patterns baked into the framework. The point of learning them is shared vocabulary and recognising when a framework already provides one.
+
+</details>
+
+<details>
+<summary><strong>4. Is ASP.NET Core middleware Chain of Responsibility or Decorator? [TRICKY]</strong></summary>
+
+Both views fit. Each middleware wraps the next like a decorator (code before and after `next`), but it may also stop the chain and respond, which is Chain of Responsibility.
+
+</details>
+
+<details>
+<summary><strong>5. Which pattern does `WebApplication.CreateBuilder(args)` demonstrate? [SCENARIO]</strong></summary>
+
+Builder: it collects configuration, services and logging step by step and `Build()` produces the immutable `WebApplication`.
+
+</details>
+
+<details>
+<summary><strong>6. Which Python features embody Iterator and Decorator? [SCENARIO]</strong></summary>
+
+`for` loops, generators and `__iter__`/`__next__` are Iterator; `@decorator` syntax (function wrapping) and `functools.wraps` are Decorator-style wrapping.
+
+</details>
+
+---
+
+## Try it
+
+Open any `Program.cs` (or the minimal-API sample from track 26) and label every line with a pattern: `CreateBuilder` (Builder), `Use...` (Chain), `AddScoped` (DI/Factory). Then do the same for a Python script using `sorted(key=)`, `with`, and `@lru_cache`. Practice space: [LLD Studio](/tools/lld-studio/); full list in the [track hub](../README.md).
+
+---
+
+## One-page cheat sheet
+
+```text
+ASP.NET Core
+  WebApplication.CreateBuilder   Builder        app.Use/Run/Map     Chain of Responsibility
+  AddScoped/AddSingleton         DI + Factory   ILogger<T>          Facade + DI
+  IOptions<T>                    Strategy-ish config  filters       Decorator/Chain
+  IHttpClientFactory             Factory        MediatR             Mediator
+Python stdlib
+  for / generators   Iterator   @decorator  Decorator-like   with  Template/RAII
+  sorted(key=)  Strategy        functools.singledispatch   Visitor-like
+  logging handlers  Observer/Chain   copy.copy  Prototype   abc  Template Method
+```
 
 ---
 

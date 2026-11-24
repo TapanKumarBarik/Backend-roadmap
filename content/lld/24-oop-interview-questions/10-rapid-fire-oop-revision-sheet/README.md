@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 28 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A **rapid-fire revision sheet**: ~60 OOP questions grouped by domain — use it the night before, answering each in one or two sentences out loud.
+
 > [!TIP]
 > **The One Rule of Rapid-Fire OOP Revision:** In technical screenings and rapid-fire rounds, the difference between a pass and a rejection is **speed and conceptual precision**. Do not ramble with lengthy personal anecdotes; state the core definition in your first sentence, cite the underlying mechanism or trade-off in your second sentence, and provide an idiomatic language example in your third.
 
@@ -680,6 +683,71 @@ In what order does Python search for attributes in `D`?
 > **Question 64: What do DRY, KISS, and YAGNI mean to a senior engineer?**  
 > **Strong Answer:**  
 > "**DRY** (Don't Repeat Yourself) mandates a single unambiguous representation of business *knowledge*, not mindless deduplication of coincidentally similar lines of code. **KISS** (Keep It Simple, Stupid) asserts that simplicity is an architectural feature and unnecessary layers of indirection are technical debt. **YAGNI** (You Aren't Gonna Need It) dictates building only for verified current requirements rather than engineering complex speculative abstractions."
+
+### Top 6 drills (tagged)
+
+<details>
+<summary><strong>1. What is the difference between abstraction and encapsulation? [BASIC]</strong></summary>
+
+Abstraction hides *complexity* by exposing a simple contract (what it does). Encapsulation hides *state* by guarding data behind methods (how it is protected). One is a design-level idea, the other is an implementation-level mechanism.
+
+</details>
+
+<details>
+<summary><strong>2. Abstract class or interface? [BASIC]</strong></summary>
+
+Interface for a capability that unrelated types share; abstract class when subclasses share state, a constructor or a template algorithm. Default to the interface and compose.
+
+</details>
+
+<details>
+<summary><strong>3. How do you stop a growing `switch` on type? [SCENARIO]</strong></summary>
+
+Replace it with polymorphism (Strategy): one abstraction, one class per case. New cases add a class, they do not edit the switch.
+
+</details>
+
+<details>
+<summary><strong>4. How would you make a class safe to use as a dictionary key? [SCENARIO]</strong></summary>
+
+Make it immutable and override equality and hash together, based only on immutable fields (record / frozen dataclass).
+
+</details>
+
+<details>
+<summary><strong>5. Why can `Square : Rectangle` break code? [TRICKY]</strong></summary>
+
+Setting width independently of height is valid for a rectangle but not a square, so callers that rely on rectangle behaviour break. This is a Liskov violation: model them as separate shapes behind a `Shape` interface.
+
+</details>
+
+<details>
+<summary><strong>6. Does Python's `__del__` guarantee cleanup? [TRICKY]</strong></summary>
+
+No. Timing is not deterministic and it may not run at interpreter shutdown. Use a context manager (`with`) for deterministic cleanup; in C# use `using`/`IDisposable`.
+
+</details>
+
+---
+
+## Try it
+
+Set a 10-minute timer and answer five random questions from section 7 out loud, no peeking. Anything you hesitate on, jump to its lesson in the [track hub](../README.md) and then redraw the idea in [LLD Studio](/tools/lld-studio/).
+
+---
+
+## One-page cheat sheet
+
+```text
+PILLARS      encapsulate | abstract | inherit | polymorph
+ABSTRACT/IF  is-a + shared state  vs  can-do contract
+OVERLOAD     compile-time, signature     OVERRIDE  run-time, virtual
+INHERIT      prefer composition; diamond -> C# no / Python MRO
+ENCAPSULATE  modifiers, properties, Python _x / __x
+EQUALITY     Equals<->GetHashCode, __eq__<->__hash__, is vs ==
+STATIC       type-level, no this; avoid mutable statics
+SOLID        S O L I D  = smell -> fix
+```
 
 ---
 

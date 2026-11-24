@@ -1020,6 +1020,21 @@ When a record has more than two or three fields, or is passed around the code. N
 A Python tuple is an immutable reference object and a real sequence (indexable, iterable, any length). A C# `ValueTuple` is a mutable value type with a fixed number of typed fields, not a sequence. For immutable records in C#, use `record` or `readonly record struct`.
 </details>
 
+## Cheat sheet
+
+```text
+Create  (1, 2)  (1,) <- comma makes it  tuple(xs)  t = 1, 2
+Immutable: t[0] = 9 -> TypeError  (but a list INSIDE can still change)
+Ops: t[i]  t[a:b]  len  count  index  in  + and *  (no append/remove)
+Unpack: a, b = t   a, *rest = t   first, *_, last = t   swap: a, b = b, a
+Return many: return x, y  -> caller: x, y = f()
+Hashable (if all items are): usable as dict key / set member
+namedtuple / typing.NamedTuple: p.x instead of p[0]
+Tuple = fixed record of mixed things | List = growing collection of same kind
+Slightly smaller and faster than lists
+Loop pairs: for k, v in d.items()
+```
+
 ---
 
 ## Further reading

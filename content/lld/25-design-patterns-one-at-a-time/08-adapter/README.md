@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Adapter** converts one interface into the one your code expects, so you can use an incompatible class (often third-party) without changing it or your callers.
+
 > [!TIP]
 > **The One Rule of the Adapter Pattern:** Use an Adapter to **bridge incompatible interfaces without modifying existing source code**, translating foreign schemas, parameter conventions, and method signatures into the exact contract your domain expects. An Adapter changes the **interface**, whereas a Decorator enhances **behavior**, and a Facade simplifies an entire **subsystem**.
 
@@ -392,29 +395,89 @@ Stick to the **Object Adapter** pattern using composition.
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Adapter pattern? Give a real example.**  
-> **Strong Answer:**  
-> "The Adapter pattern is a structural design pattern that converts the interface of an existing class into another interface that clients expect, enabling classes with incompatible contracts to collaborate without modifying their source code.
-> 
-> A standard enterprise example is payment processing. Our internal checkout domain defines an `IPaymentGateway` interface with a clean method `ProcessPayment(orderId, amount, currency)`. However, when integrating third-party SDKs like Stripe, PayPal, or Adyen, each vendor provides proprietary SDK classes with completely different method signatures, payload formats (such as expecting amounts in integer cents instead of decimal dollars), and custom status codes. We build a `StripePaymentAdapter` that implements `IPaymentGateway`, wraps the vendor SDK, translates domain arguments into vendor parameters, executes the call, and maps vendor-specific responses and exceptions back into unified domain results."
+<details>
+<summary><strong>1. What is the Adapter pattern? Give a real example. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Adapter and Facade?**  
-> **Strong Answer:**  
-> "While both patterns wrap underlying classes, their intent and interface contracts are fundamentally different:
-> - **Intent:** An **Adapter** solves **incompatibility**. Its goal is to make an existing class fit an *already established target interface*. A **Facade** solves **complexity**. Its goal is to provide a *simplified, high-level interface* over a complex subsystem consisting of many interdependent classes.
-> - **Interface Contract:** An Adapter typically implements an existing interface specified by the client or domain. A Facade defines a *brand new, higher-level interface* tailored for convenience.
-> - **Wrapping Cardinality:** An Adapter typically wraps a single adaptee (or a primary component) to alter its interface. A Facade typically coordinates multiple subsystem components (e.g., an `OrderFacade` coordinating Inventory, Payment, Shipping, and EmailNotification services)."
+The Adapter pattern is a structural design pattern that converts the interface of an existing class into another interface that clients expect, enabling classes with incompatible contracts to collaborate without modifying their source code.
 
-> [!interview]
-> **Question 3: Why wrap a third-party library behind your own interface?**  
-> **Strong Answer:**  
-> "Wrapping a third-party library behind an internal interface establishes an **Anti-Corruption Layer (ACL)**, which provides four vital architectural benefits:
-> 1. **Protection from Vendor Churn:** If the vendor releases breaking changes, changes its SDK method signatures, or if our business decides to switch vendors (e.g., migrating from SendGrid to AWS SES), only the single adapter class needs to change. The rest of the codebase remains untouched.
-> 2. **Unit Testability:** Third-party SDKs are notoriously difficult to mock due to sealed types, static calls, and non-virtual members. By programming our domain services against our own interface (e.g., `IEmailSender`), we can inject fast in-memory mocks during unit testing without spinning up external dependencies.
-> 3. **Encapsulation of Failure Modes:** Third-party SDKs throw vendor-specific exceptions. Wrapping the SDK ensures that foreign exceptions are caught and translated into internal domain models or domain exceptions, preventing external types from polluting our core domain.
-> 4. **Domain Schema Consistency:** External libraries rarely match internal domain terminology or types. The wrapper handles unit conversions (e.g., cents to dollars, epoch timestamps to UTC `DateTimeOffset`) at the boundary."
+A standard enterprise example is payment processing. Our internal checkout domain defines an `IPaymentGateway` interface with a clean method `ProcessPayment(orderId, amount, currency)`. However, when integrating third-party SDKs like Stripe, PayPal, or Adyen, each vendor provides proprietary SDK classes with completely different method signatures, payload formats (such as expecting amounts in integer cents instead of decimal dollars), and custom status codes. We build a `StripePaymentAdapter` that implements `IPaymentGateway`, wraps the vendor SDK, translates domain arguments into vendor parameters, executes the call, and maps vendor-specific responses and exceptions back into unified domain results.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Adapter and Facade? [BASIC]</strong></summary>
+
+While both patterns wrap underlying classes, their intent and interface contracts are fundamentally different:
+- **Intent:** An **Adapter** solves **incompatibility**. Its goal is to make an existing class fit an *already established target interface*. A **Facade** solves **complexity**. Its goal is to provide a *simplified, high-level interface* over a complex subsystem consisting of many interdependent classes.
+- **Interface Contract:** An Adapter typically implements an existing interface specified by the client or domain. A Facade defines a *brand new, higher-level interface* tailored for convenience.
+- **Wrapping Cardinality:** An Adapter typically wraps a single adaptee (or a primary component) to alter its interface. A Facade typically coordinates multiple subsystem components (e.g., an `OrderFacade` coordinating Inventory, Payment, Shipping, and EmailNotification services).
+
+</details>
+
+<details>
+<summary><strong>3. Why wrap a third-party library behind your own interface? [BASIC]</strong></summary>
+
+Wrapping a third-party library behind an internal interface establishes an **Anti-Corruption Layer (ACL)**, which provides four vital architectural benefits:
+1. **Protection from Vendor Churn:** If the vendor releases breaking changes, changes its SDK method signatures, or if our business decides to switch vendors (e.g., migrating from SendGrid to AWS SES), only the single adapter class needs to change. The rest of the codebase remains untouched.
+2. **Unit Testability:** Third-party SDKs are notoriously difficult to mock due to sealed types, static calls, and non-virtual members. By programming our domain services against our own interface (e.g., `IEmailSender`), we can inject fast in-memory mocks during unit testing without spinning up external dependencies.
+3. **Encapsulation of Failure Modes:** Third-party SDKs throw vendor-specific exceptions. Wrapping the SDK ensures that foreign exceptions are caught and translated into internal domain models or domain exceptions, preventing external types from polluting our core domain.
+4. **Domain Schema Consistency:** External libraries rarely match internal domain terminology or types. The wrapper handles unit conversions (e.g., cents to dollars, epoch timestamps to UTC `DateTimeOffset`) at the boundary.
+
+</details>
+
+<details>
+<summary><strong>4. You must integrate two payment providers with different SDKs. How? [SCENARIO]</strong></summary>
+
+Define your own `IPaymentGateway`, write one adapter per SDK, and let the checkout depend only on the interface. Swapping or adding a provider adds an adapter and touches no business code.
+
+</details>
+
+<details>
+<summary><strong>5. Where does an Adapter turn into the wrong tool? [TRICKY]</strong></summary>
+
+When it starts adding rules, caching or retries (that is Decorator/Proxy), or when it hides a whole subsystem behind a simpler API (that is Facade). An adapter should only translate.
+
+</details>
+
+<details>
+<summary><strong>6. Give a .NET or Python example of an adapter. [SCENARIO]</strong></summary>
+
+`StreamReader` adapts a `Stream` to a text-reading interface; Python's `io.TextIOWrapper` adapts a binary buffer to text.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the legacy class keeps its API, callers only see `Logger.log`. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class LegacyPrinter:
+    def print_text(self, s): return f"[legacy] {s}"
+
+class Logger:                                    # target interface
+    def log(self, msg): raise NotImplementedError
+
+class PrinterAdapter(Logger):
+    def __init__(self, p): self._p = p
+    def log(self, msg): return self._p.print_text(msg)
+
+assert PrinterAdapter(LegacyPrinter()).log("hi") == "[legacy] hi"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+ADAPTER   wrap X so it looks like interface Y   (Client -> Target <- Adapter -> Adaptee)
+Object adapter (composition) preferred over class adapter (inheritance)
+Use: 3rd-party SDK, legacy code, different data shapes
+Adapter changes the INTERFACE | Decorator adds BEHAVIOUR | Facade SIMPLIFIES
+Own the interface: app depends on IPaymentGateway, adapter wraps Stripe
+Smell: adapter that also adds business logic
+```
 
 ---
 

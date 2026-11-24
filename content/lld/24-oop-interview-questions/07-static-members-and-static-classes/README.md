@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** `static` means **belongs to the type, not an instance** — good for stateless helpers and factories, bad for hidden global state that you cannot mock or reset between tests.
+
 > [!TIP]
 > **The One Rule of Static:** Static is reserved for **pure, stateless computation** or **immutable constants**. The moment a static member holds **mutable state** or performs **I/O** (network, disk, clock), it becomes a hidden global variable that destroys testability, violates Dependency Inversion, and causes concurrency race conditions.
 
@@ -443,40 +446,95 @@ If the base method had hardcoded `return BaseEntity("DEFAULT-01")` (as a standar
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between a static class and a Singleton?**  
-> **Strong Answer:**  
-> "A static class and a Singleton both guarantee a single point of access, but their architectural properties are completely different:  
-> 1. **Interface Implementation:** A static class in C# cannot implement an interface (`IDatabaseConnection`), whereas a Singleton is a standard object instance that can implement any interface.  
-> 2. **Polymorphism and DI:** Because a Singleton implements interfaces, it can be registered with a Dependency Injection container (`builder.Services.AddSingleton<IService, Service>()`) and injected into consumers. A static class cannot be passed as a parameter or substituted at runtime.  
-> 3. **Unit Testability:** You can easily substitute a Singleton with a mock or fake during unit testing. A static class hardcodes compile-time references into calling code ('static cling'), making isolated testing impossible without IL rewrite tools.  
-> 4. **Initialization Lifecycle:** A Singleton can support thread-safe, deferred lazy initialization and graceful disposal (`IDisposable`), whereas static classes are bound to type initialization rules controlled strictly by the runtime."
+<details>
+<summary><strong>1. What is the difference between a static class and a Singleton? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between `@staticmethod` and `@classmethod` in Python?**  
-> **Strong Answer:**  
-> "Both decorators define methods callable on the class without prior instantiation, but their signatures and dispatch behaviors differ:  
-> - **`@classmethod`:** Automatically receives the class object itself (`cls`) as its first parameter. This makes it ideal for **alternative factory constructors** (e.g., `User.from_json(payload)`) and maintains **inheritance polymorphism**: when invoked on a subclass, `cls` refers to the subclass, ensuring the factory instantiates the correct derived type.  
-> - **`@staticmethod`:** Receives no implicit first parameter (neither `self` nor `cls`). It behaves exactly like a plain module-level function that happens to reside within the class's namespace.  
-> In idiomatic Python, `@staticmethod` is rarely needed; if a function does not interact with class or instance state, PEP 8 recommends defining it as a module-level function instead."
+A static class and a Singleton both guarantee a single point of access, but their architectural properties are completely different:
+1. **Interface Implementation:** A static class in C# cannot implement an interface (`IDatabaseConnection`), whereas a Singleton is a standard object instance that can implement any interface.
+2. **Polymorphism and DI:** Because a Singleton implements interfaces, it can be registered with a Dependency Injection container (`builder.Services.AddSingleton<IService, Service>()`) and injected into consumers. A static class cannot be passed as a parameter or substituted at runtime.
+3. **Unit Testability:** You can easily substitute a Singleton with a mock or fake during unit testing. A static class hardcodes compile-time references into calling code ('static cling'), making isolated testing impossible without IL rewrite tools.
+4. **Initialization Lifecycle:** A Singleton can support thread-safe, deferred lazy initialization and graceful disposal (`IDisposable`), whereas static classes are bound to type initialization rules controlled strictly by the runtime.
 
-> [!interview]
-> **Question 3: Can a static method access instance members?**  
-> **Strong Answer:**  
-> "No, a static method cannot directly access instance members (fields, properties, or methods).  
-> 
-> Static methods belong to the type itself rather than any individual allocated object. When a static method executes, there is no instance pointer—neither `this` in C# nor `self` in Python—passed on the call stack.  
-> 
-> The only way a static method can access instance members is if an explicit instance of the class is passed into the static method as a parameter (for example: `public static void LogUser(User user) => Console.WriteLine(user.Name);`)."
+</details>
 
-> [!interview]
-> **Question 4: When is static a bad idea?**  
-> **Strong Answer:**  
-> "Static is a severe architectural smell under four primary conditions:  
-> 1. **When holding mutable state:** Static mutable fields act as hidden global variables. In multithreaded web applications, they cause race conditions and memory leaks. In test suites, they cause test pollution, making tests pass in isolation but fail when run in parallel.  
-> 2. **When performing I/O or accessing external dependencies:** Static methods that perform database queries, call external HTTP APIs, or read the system clock (`DateTime.UtcNow`) cannot be mocked or intercepted, destroying unit testability.  
-> 3. **When extensibility is required:** Static classes cannot be inherited from, cannot implement interfaces, and cannot override behavior, violating both the Open/Closed and Dependency Inversion principles.  
-> 4. **When initialization involves complex logic:** Static constructors that throw unhandled exceptions cause fatal `TypeInitializationException` crashes that permanently disable the type for the lifetime of the application process."
+<details>
+<summary><strong>2. What is the difference between `@staticmethod` and `@classmethod` in Python? [BASIC]</strong></summary>
+
+Both decorators define methods callable on the class without prior instantiation, but their signatures and dispatch behaviors differ:
+- **`@classmethod`:** Automatically receives the class object itself (`cls`) as its first parameter. This makes it ideal for **alternative factory constructors** (e.g., `User.from_json(payload)`) and maintains **inheritance polymorphism**: when invoked on a subclass, `cls` refers to the subclass, ensuring the factory instantiates the correct derived type.
+- **`@staticmethod`:** Receives no implicit first parameter (neither `self` nor `cls`). It behaves exactly like a plain module-level function that happens to reside within the class's namespace.
+In idiomatic Python, `@staticmethod` is rarely needed; if a function does not interact with class or instance state, PEP 8 recommends defining it as a module-level function instead.
+
+</details>
+
+<details>
+<summary><strong>3. Can a static method access instance members? [BASIC]</strong></summary>
+
+No, a static method cannot directly access instance members (fields, properties, or methods).
+
+Static methods belong to the type itself rather than any individual allocated object. When a static method executes, there is no instance pointer—neither `this` in C# nor `self` in Python—passed on the call stack.
+
+The only way a static method can access instance members is if an explicit instance of the class is passed into the static method as a parameter (for example: `public static void LogUser(User user) => Console.WriteLine(user.Name);`).
+
+</details>
+
+<details>
+<summary><strong>4. When is static a bad idea? [SCENARIO]</strong></summary>
+
+Static is a severe architectural smell under four primary conditions:
+1. **When holding mutable state:** Static mutable fields act as hidden global variables. In multithreaded web applications, they cause race conditions and memory leaks. In test suites, they cause test pollution, making tests pass in isolation but fail when run in parallel.
+2. **When performing I/O or accessing external dependencies:** Static methods that perform database queries, call external HTTP APIs, or read the system clock (`DateTime.UtcNow`) cannot be mocked or intercepted, destroying unit testability.
+3. **When extensibility is required:** Static classes cannot be inherited from, cannot implement interfaces, and cannot override behavior, violating both the Open/Closed and Dependency Inversion principles.
+4. **When initialization involves complex logic:** Static constructors that throw unhandled exceptions cause fatal `TypeInitializationException` crashes that permanently disable the type for the lifetime of the application process.
+
+</details>
+
+<details>
+<summary><strong>5. Two threads read a static counter and increment it. What goes wrong and how do you fix it? [TRICKY]</strong></summary>
+
+`count++` is read-modify-write, so updates are lost. Static fields are shared by every thread. Use `Interlocked.Increment` or a `lock` in C#, and a `threading.Lock` in Python (the GIL does not make `+=` atomic). Better: avoid shared mutable statics.
+
+</details>
+
+<details>
+<summary><strong>6. A service calls `DateTime.Now` statically and tests are flaky. What's the fix? [SCENARIO]</strong></summary>
+
+Hide time behind an injected abstraction (`IClock` / `TimeProvider`, or a `now()` callable in Python). Tests then pass a fixed clock. The principle: static access to the outside world is a hidden dependency.
+
+</details>
+
+---
+
+## Try it
+
+Run this to compare Python's three "static-ish" tools. Then place a `Validator` utility and a `Config` singleton in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the static-class vs Singleton question.
+
+```python
+class Temp:
+    unit = "C"
+    def __init__(self, v): self.v = v
+    @staticmethod
+    def is_valid(v): return v > -273.15          # no cls, no self
+    @classmethod
+    def boiling(cls): return cls(100)            # factory via cls
+
+assert Temp.is_valid(5) and not Temp.is_valid(-300)
+assert Temp.boiling().v == 100
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+static member  1 copy per type, no `this`  -> cannot touch instance state
+static class (C#)  sealed, only static members, no instances
+Static ctor  runs once before first access (thread-safe by CLR)
+Python  @staticmethod (no cls) | @classmethod (gets cls, factories) | module function
+Static class != Singleton: Singleton is an object -> can implement interfaces, be injected
+Smell: static mutable state, static DB/clock access (untestable)
+Use for: pure functions, extension methods, constants
+```
 
 ---
 

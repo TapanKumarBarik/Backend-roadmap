@@ -299,7 +299,7 @@ public sealed class Order(string id)
 - **Don't extract for tiny classes.** A 40-line class with two reasons to change is fine. Split when change pressure or test pain shows up.
 - **DTOs and read models are allowed to be anemic.** The smell is domain *rules* living outside the entity.
 - **Law of Demeter is about collaborators, not data structures.** `df.groupby(...).sum().head()` is a fluent API, not a train wreck.
-- **Null chains.** Real incident: a nullable `address` (for digital-only customers) hit a five-dot chain in an insurance pipeline; thousands of `NullPointerException`s clogged the queue. Cure: ask the owner (`claim.is_eligible_for_auto_settlement()`), model absence explicitly (Optional / Null Object).
+- **Null chains.** Typical failure: a nullable `address` (digital-only customers) hits a five-dot chain in a batch pipeline; thousands of `NullPointerException`s clog the retry queue. Cure: ask the owner (`claim.is_eligible_for_auto_settlement()`), model absence explicitly (Optional / Null Object).
 - **Over-correcting.** Don't replace one God class with 14 one-method classes plus a factory for each. Smell fix = fewer reasons to change, not more files.
 - **Concurrency.** Moving rules into entities helps — a single place to guard invariants with a lock or optimistic version — but extracting classes doesn't make shared state thread-safe by itself.
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 19 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** The GC reclaims *managed memory* in generations (0, 1, 2, LOH); **`IDisposable`/`using`** releases *unmanaged resources* (files, sockets, handles) deterministically — and "leaks" in .NET are usually rooted references like event handlers or statics.
+
 > [!TIP]
 > **The One Rule of Memory in .NET:** Managed memory is reclaimed automatically by the generational Garbage Collector via mark-and-sweep, but unmanaged resources (OS file handles, database connections, sockets, native memory buffers) are **never** released by the GC—they require deterministic disposal via `IDisposable` and the `using` statement. If an object implements `IDisposable`, failure to dispose it leaks OS resources, not managed RAM.
 
@@ -445,79 +448,133 @@ If caller code deterministically calls `Dispose()`, `GC.SuppressFinalize(this)` 
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: How does garbage collection work in .NET?**  
-> **Strong Answer:**  
-> "The .NET Garbage Collector is an automatic, generational, tracing mark-and-sweep collector. It operates based on the **Weak Generational Hypothesis**, which observes that newly allocated objects have very short lifetimes, while older surviving objects tend to remain alive much longer.  
-> 
-> The managed heap is split into three generations and two specialized heaps:  
-> - **Generation 0:** Contains short-lived, newly allocated small objects (e.g., local variables, short strings). Collected frequently (sub-millisecond) with minimal CPU impact.  
-> - **Generation 1:** Acts as a buffer between ephemeral and long-lived objects.  
-> - **Generation 2:** Contains long-lived objects, singletons, static references, and objects surviving Gen 1. A collection here is a 'Full GC' and is significantly more expensive.  
-> - **Large Object Heap (LOH):** Objects >= 85,000 bytes (such as large arrays) are allocated directly on the LOH to prevent high memory copy costs during compaction.  
-> - **Pinned Object Heap (POH):** Introduced in .NET 5 to isolate pinned objects so they do not fragment Gen 0, 1, or 2.  
-> 
-> During a collection, the GC halts execution (or uses Background GC), identifies **GC Roots** (stack variables, CPU registers, static fields, GC handles), **marks** all reachable objects in the object graph, and **sweeps** unmarked dead objects, compacting surviving objects into contiguous memory to eliminate fragmentation."
+<details>
+<summary><strong>1. How does garbage collection work in .NET? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Dispose and Finalize?**  
-> **Strong Answer:**  
-> "The core differences are determinism, timing, and performance:  
-> 
-> 1. **`Dispose()`:**  
->    - Part of the `IDisposable` interface.  
->    - **Deterministic and explicit:** Invoked directly by developer code or via the `using` statement the moment a resource is no longer needed.  
->    - Responsible for releasing unmanaged resources (file handles, database connections, sockets) and disposing child managed disposable dependencies.  
->    - Calls `GC.SuppressFinalize(this)` to ensure zero GC promotion penalties.  
-> 
-> 2. **`Finalize()` (`~ClassName()`):**  
->    - Implemented as a C# finalizer (destructor syntax).  
->    - **Non-deterministic and asynchronous:** Executed by the CLR's background finalizer thread at some unpredictable future time after the GC determines the object is unreachable.  
->    - Intended solely as an emergency fallback to prevent native memory leaks if a developer forgot to call `Dispose()`.  
->    - Can **only clean up unmanaged resources** because child managed objects may have already been collected or finalized.  
->    - Objects requiring finalization survive the initial GC cycle, get promoted to Gen 1 or Gen 2, and increase memory pressure significantly."
+The .NET Garbage Collector is an automatic, generational, tracing mark-and-sweep collector. It operates based on the **Weak Generational Hypothesis**, which observes that newly allocated objects have very short lifetimes, while older surviving objects tend to remain alive much longer.
 
-> [!interview]
-> **Question 3: What does the using statement do?**  
-> **Strong Answer:**  
-> "The `using` statement (and modern C# 8+ `using` declaration) is syntactic sugar that guarantees the deterministic cleanup of types implementing `IDisposable`.  
-> 
-> Under the hood, the Roslyn compiler translates:  
-> ```csharp
-> using (var resource = new ResourceHolder())
-> {
->     resource.DoWork();
-> }
-> ```  
-> Into an exact `try-finally` block:  
-> ```csharp
-> var resource = new ResourceHolder();
-> try
-> {
->     resource.DoWork();
-> }
-> finally
-> {
->     if (resource != null)
->     {
->         ((IDisposable)resource).Dispose();
->     }
-> }
-> ```  
-> This ensures that `Dispose()` is executed 100% of the time, even if `DoWork()` throws an unhandled exception or exits early via `return` or `break`.  
-> 
-> In C# 8+, `await using` provides the asynchronous equivalent for `IAsyncDisposable`, awaiting `DisposeAsync()` to allow non-blocking asynchronous resource flushing."
+The managed heap is split into three generations and two specialized heaps:
+- **Generation 0:** Contains short-lived, newly allocated small objects (e.g., local variables, short strings). Collected frequently (sub-millisecond) with minimal CPU impact.
+- **Generation 1:** Acts as a buffer between ephemeral and long-lived objects.
+- **Generation 2:** Contains long-lived objects, singletons, static references, and objects surviving Gen 1. A collection here is a 'Full GC' and is significantly more expensive.
+- **Large Object Heap (LOH):** Objects >= 85,000 bytes (such as large arrays) are allocated directly on the LOH to prevent high memory copy costs during compaction.
+- **Pinned Object Heap (POH):** Introduced in .NET 5 to isolate pinned objects so they do not fragment Gen 0, 1, or 2.
 
-> [!interview]
-> **Question 4: Can you have a memory leak in .NET?**  
-> **Strong Answer:**  
-> "Yes, absolutely. While .NET prevents unreferenced dangling pointer leaks, it is very easy to cause **logical memory leaks**, where objects remain referenced by an active GC root despite never being used again by the application.  
-> 
-> The four most common production memory leaks are:  
-> 1. **Lapsed Event Listeners:** Subscribing an instance method of a short-lived class to an event on a long-lived publisher (like a singleton or static event). The publisher's multicast delegate holds a strong reference (`_target`) to the subscriber, preventing it from ever being garbage collected until unsubscribed.  
-> 2. **Unbounded Static Collections:** Storing objects in static lists or dictionaries without expiration, eviction policies, or maximum capacity limits.  
-> 3. **Unmanaged Resource Leaks:** Forgetting to dispose types wrapping OS handles (`FileStream`, `Socket`, `GCHandle`). The managed objects may be small, but the operating system eventually runs out of file descriptors or ephemeral network ports.  
-> 4. **Captured Closures and Timers:** Background workers or `System.Threading.Timer` instances capturing local variables inside lambda expressions, inadvertently keeping large object graphs rooted in memory."
+During a collection, the GC halts execution (or uses Background GC), identifies **GC Roots** (stack variables, CPU registers, static fields, GC handles), **marks** all reachable objects in the object graph, and **sweeps** unmarked dead objects, compacting surviving objects into contiguous memory to eliminate fragmentation.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Dispose and Finalize? [BASIC]</strong></summary>
+
+The core differences are determinism, timing, and performance:
+
+1. **`Dispose()`:**
+   - Part of the `IDisposable` interface.
+   - **Deterministic and explicit:** Invoked directly by developer code or via the `using` statement the moment a resource is no longer needed.
+   - Responsible for releasing unmanaged resources (file handles, database connections, sockets) and disposing child managed disposable dependencies.
+   - Calls `GC.SuppressFinalize(this)` to ensure zero GC promotion penalties.
+
+2. **`Finalize()` (`~ClassName()`):**
+   - Implemented as a C# finalizer (destructor syntax).
+   - **Non-deterministic and asynchronous:** Executed by the CLR's background finalizer thread at some unpredictable future time after the GC determines the object is unreachable.
+   - Intended solely as an emergency fallback to prevent native memory leaks if a developer forgot to call `Dispose()`.
+   - Can **only clean up unmanaged resources** because child managed objects may have already been collected or finalized.
+   - Objects requiring finalization survive the initial GC cycle, get promoted to Gen 1 or Gen 2, and increase memory pressure significantly.
+
+</details>
+
+<details>
+<summary><strong>3. What does the using statement do? [BASIC]</strong></summary>
+
+The `using` statement (and modern C# 8+ `using` declaration) is syntactic sugar that guarantees the deterministic cleanup of types implementing `IDisposable`.
+
+Under the hood, the Roslyn compiler translates:
+```csharp
+using (var resource = new ResourceHolder())
+{
+    resource.DoWork();
+}
+```
+Into an exact `try-finally` block:
+```csharp
+var resource = new ResourceHolder();
+try
+{
+    resource.DoWork();
+}
+finally
+{
+    if (resource != null)
+    {
+        ((IDisposable)resource).Dispose();
+    }
+}
+```
+This ensures that `Dispose()` is executed 100% of the time, even if `DoWork()` throws an unhandled exception or exits early via `return` or `break`.
+
+In C# 8+, `await using` provides the asynchronous equivalent for `IAsyncDisposable`, awaiting `DisposeAsync()` to allow non-blocking asynchronous resource flushing.
+
+</details>
+
+<details>
+<summary><strong>4. Can you have a memory leak in .NET? [TRICKY]</strong></summary>
+
+Yes, absolutely. While .NET prevents unreferenced dangling pointer leaks, it is very easy to cause **logical memory leaks**, where objects remain referenced by an active GC root despite never being used again by the application.
+
+The four most common production memory leaks are:
+1. **Lapsed Event Listeners:** Subscribing an instance method of a short-lived class to an event on a long-lived publisher (like a singleton or static event). The publisher's multicast delegate holds a strong reference (`_target`) to the subscriber, preventing it from ever being garbage collected until unsubscribed.
+2. **Unbounded Static Collections:** Storing objects in static lists or dictionaries without expiration, eviction policies, or maximum capacity limits.
+3. **Unmanaged Resource Leaks:** Forgetting to dispose types wrapping OS handles (`FileStream`, `Socket`, `GCHandle`). The managed objects may be small, but the operating system eventually runs out of file descriptors or ephemeral network ports.
+4. **Captured Closures and Timers:** Background workers or `System.Threading.Timer` instances capturing local variables inside lambda expressions, inadvertently keeping large object graphs rooted in memory.
+
+</details>
+
+<details>
+<summary><strong>5. Memory grows steadily in a long-running service. How do you investigate? [SCENARIO]</strong></summary>
+
+Capture a dump or use `dotnet-gcdump`/`dotnet-counters`, look at what is rooted in Gen2/LOH, then find the retaining path: static collections, unsubscribed events, unbounded caches, or `HttpClient`/`DbContext` held too long.
+
+</details>
+
+<details>
+<summary><strong>6. Why shouldn't you call `GC.Collect()` to fix memory problems? [TRICKY]</strong></summary>
+
+It forces expensive full collections, promotes objects prematurely and hides the real leak (a live root). If memory is still reachable, a collection cannot free it.
+
+</details>
+
+---
+
+## Try it
+
+Run this: deterministic cleanup via a context manager, the Python twin of `using`. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+events = []
+class Res:
+    def __enter__(self): events.append("open"); return self
+    def __exit__(self, *a): events.append("close")
+
+with Res():
+    events.append("work")
+assert events == ["open", "work", "close"]        # closed even if work raised
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+GC: generational (Gen0 short-lived -> Gen1 -> Gen2), compacting; LOH for >= 85k objects
+GC frees MEMORY; it does not run your cleanup on time
+IDisposable.Dispose(): deterministic cleanup | finalizer ~Class(): safety net only (slow, nondeterministic)
+using var x = ...;  =  try/finally Dispose   | await using for IAsyncDisposable
+Dispose pattern: Dispose(bool) + GC.SuppressFinalize(this) (only when you own unmanaged handles)
+"Leaks": static refs, event handlers not unsubscribed, caches without eviction, captured closures
+Server GC vs Workstation, concurrent GC; avoid GC.Collect()
+Span<T>/ArrayPool<T> reduce allocations
+```
 
 ---
 

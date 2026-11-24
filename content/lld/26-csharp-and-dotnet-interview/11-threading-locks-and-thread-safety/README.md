@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A **race condition** is two threads reading and writing shared state without coordination; fix with `lock`/`Interlocked`/concurrent collections, or better, avoid shared mutable state.
+
 > [!TIP]
 > **The One Rule of Thread Safety:** Synchronization mechanisms must match your execution model: use `lock` (`Monitor`) for ultra-fast, non-yielding synchronous critical sections, atomic hardware primitives (`Interlocked`) for single memory locations, and asynchronous primitives (`SemaphoreSlim.WaitAsync`) when critical sections involve asynchronous I/O (`await`). Never attempt to `await` inside a thread-affine lock—because an `await` can resume on a different ThreadPool thread, violating mutual exclusion and crashing the runtime.
 
@@ -516,75 +519,127 @@ public void Transfer(Account from, Account to, decimal amount)
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is a race condition?**  
-> **Strong Answer:**  
-> "A race condition is a multi-threaded defect that occurs when the correctness and outcome of a program depend on the non-deterministic scheduling, relative timing, or interleaving of threads.  
-> 
-> Race conditions manifest in two primary forms:
-> 1. **Read-Modify-Write (Lost Update):** Occurs when multiple threads read a shared variable, calculate an updated value, and write it back without mutual exclusion. Operations like `count++` require three CPU instructions (read, modify, write); if interleaved, one or more updates are overwritten and lost.
-> 2. **Check-Then-Act (Time-of-Check to Time-of-Use):** Occurs when a thread validates state (e.g., `if (balance >= amount)`) and acts upon that state (e.g., `balance -= amount`), but another thread mutates the state during the interval between the check and the act.  
-> 
-> Race conditions are resolved by establishing mutual exclusion using hardware atomics (`Interlocked`), synchronized monitors (`lock`), asynchronous throttles (`SemaphoreSlim`), or concurrent collections."
+<details>
+<summary><strong>1. What is a race condition? [BASIC]</strong></summary>
+
+A race condition is a multi-threaded defect that occurs when the correctness and outcome of a program depend on the non-deterministic scheduling, relative timing, or interleaving of threads.
+
+Race conditions manifest in two primary forms:
+1. **Read-Modify-Write (Lost Update):** Occurs when multiple threads read a shared variable, calculate an updated value, and write it back without mutual exclusion. Operations like `count++` require three CPU instructions (read, modify, write); if interleaved, one or more updates are overwritten and lost.
+2. **Check-Then-Act (Time-of-Check to Time-of-Use):** Occurs when a thread validates state (e.g., `if (balance >= amount)`) and acts upon that state (e.g., `balance -= amount`), but another thread mutates the state during the interval between the check and the act.
+
+Race conditions are resolved by establishing mutual exclusion using hardware atomics (`Interlocked`), synchronized monitors (`lock`), asynchronous throttles (`SemaphoreSlim`), or concurrent collections.
+
+</details>
+
+<details>
+<summary><strong>2. What does the `lock` keyword do? [BASIC]</strong></summary>
+
+The C# `lock` keyword is language-level syntactic sugar for entering and exiting an exclusive monitor lock on a managed reference object. When the compiler encounters:
+```csharp
+lock (obj) { /* critical section */ }
+```
+It lowers the code into:
+```csharp
+bool lockTaken = false;
+try {
+    Monitor.Enter(obj, ref lockTaken);
+    /* critical section */
+}
+finally {
+    if (lockTaken) Monitor.Exit(obj);
+}
+```
+
+Internally, the CLR leverages the target object's **Object Header word**:
+1. In an uncontended state, the CLR acquires a lightweight **thin lock** by writing the current thread's managed thread ID directly into the header bits with zero heap allocation.
+2. If contention arises (another thread requests the lock), the runtime escalates to a **fat lock**, allocating a `SyncBlock` in the CLR's SyncBlock Table that wraps an OS kernel synchronization primitive (an event wait handle) to block the contending thread.
+
+The `lock` statement guarantees re-entrancy for the owning thread and guarantees lock release via the `finally` block even if exceptions occur inside the critical section.
+
+</details>
+
+<details>
+<summary><strong>3. Why can you not use `await` inside a `lock`? [TRICKY]</strong></summary>
+
+You cannot use `await` inside a `lock` because `Monitor` is **strictly thread-affine**, whereas asynchronous methods are designed to be **thread-agnostic**. The C# compiler explicitly disallows this with error `CS1996`.
+
+When a thread acquires a lock via `Monitor.Enter(obj)`, the CLR records the entering OS thread's managed Thread ID. When the method reaches an incomplete `await`, it yields that OS thread back to the runtime ThreadPool. When the asynchronous operation finishes, the continuation is scheduled on an available ThreadPool worker, which frequently has a **different Thread ID** than the thread that entered the lock.
+
+If `await` were permitted inside `lock`:
+1. The resuming thread would attempt to execute `Monitor.Exit(obj)` in the `finally` block.
+2. Because the resuming thread does not own the lock, the CLR immediately throws a `SynchronizationLockException`.
+3. Worse, the original acquiring thread never released the lock, leaving the lock held indefinitely and permanently deadlocking any future threads that attempt to acquire it.
+
+To protect asynchronous critical sections across `await` points, you must use **`SemaphoreSlim`** via `await semaphore.WaitAsync()` and `semaphore.Release()`, because semaphores manage token counts and are not bound to thread identity.
+
+</details>
+
+<details>
+<summary><strong>4. When would you use `ConcurrentDictionary`? [SCENARIO]</strong></summary>
+
+You should use `ConcurrentDictionary<TKey, TValue>` when you need a thread-safe key-value store accessed by multiple concurrent threads, particularly in **read-heavy or balanced read/write workloads**, without wrapping a standard `Dictionary` in a coarse-grained `lock`.
+
+`ConcurrentDictionary` is architecturally superior to a manual `lock (dict)` for three reasons:
+1. **Lock-Free Reads:** Read operations like `TryGetValue`, `ContainsKey`, and indexer lookups (`dict[key]`) are completely lock-free. They execute without acquiring any locks, using volatile memory reads and memory barriers for maximum throughput.
+2. **Lock Striping on Writes:** Writes (`TryAdd`, `TryUpdate`, `TryRemove`) do not lock the entire collection. Instead, the dictionary divides its internal hash buckets across a striped array of lock objects (defaulting to the number of CPU cores). Two threads writing to different hash buckets can write simultaneously without blocking each other.
+3. **Atomic Compound Operations:** It provides atomic operations like `AddOrUpdate` and `GetOrAdd` out of the box.
+
+**When NOT to use it:**
+- If the collection is populated once at startup and read-only thereafter, an immutable dictionary (`FrozenDictionary` or `ImmutableDictionary`) offers superior read performance and lower memory footprint.
+- When multi-key transactions must be updated together atomically (e.g., updating two keys simultaneously requires an external transaction lock).
+
+</details>
+
+<details>
+<summary><strong>5. Why is `lock(this)` or `lock(typeof(Foo))` dangerous? [TRICKY]</strong></summary>
+
+Outside code can lock the same object and cause deadlocks or contention you cannot see. Lock a private, readonly object used only inside the class.
+
+</details>
+
+<details>
+<summary><strong>6. You need an async-safe mutual exclusion around a cache refresh. What do you use? [SCENARIO]</strong></summary>
+
+`SemaphoreSlim(1,1)` with `await sem.WaitAsync()` and `try/finally Release()`. `lock` cannot be held across an `await`.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What does the `lock` keyword do?**  
-> **Strong Answer:**  
-> "The C# `lock` keyword is language-level syntactic sugar for entering and exiting an exclusive monitor lock on a managed reference object. When the compiler encounters:
-> ```csharp
-> lock (obj) { /* critical section */ }
-> ```
-> It lowers the code into:
-> ```csharp
-> bool lockTaken = false;
-> try {
->     Monitor.Enter(obj, ref lockTaken);
->     /* critical section */
-> }
-> finally {
->     if (lockTaken) Monitor.Exit(obj);
-> }
-> ```
-> 
-> Internally, the CLR leverages the target object's **Object Header word**:
-> 1. In an uncontended state, the CLR acquires a lightweight **thin lock** by writing the current thread's managed thread ID directly into the header bits with zero heap allocation.
-> 2. If contention arises (another thread requests the lock), the runtime escalates to a **fat lock**, allocating a `SyncBlock` in the CLR's SyncBlock Table that wraps an OS kernel synchronization primitive (an event wait handle) to block the contending thread.
-> 
-> The `lock` statement guarantees re-entrancy for the owning thread and guarantees lock release via the `finally` block even if exceptions occur inside the critical section."
+## Try it
+
+Run this: a lock makes the read-modify-write atomic. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+import threading
+
+count, lock = 0, threading.Lock()
+def work():
+    global count
+    for _ in range(10_000):
+        with lock:                                  # remove it and totals can drift
+            count += 1
+
+ts = [threading.Thread(target=work) for _ in range(4)]
+[t.start() for t in ts]; [t.join() for t in ts]
+assert count == 40_000
+```
 
 ---
 
-> [!interview]
-> **Question 3: Why can you not use `await` inside a `lock`?**  
-> **Strong Answer:**  
-> "You cannot use `await` inside a `lock` because `Monitor` is **strictly thread-affine**, whereas asynchronous methods are designed to be **thread-agnostic**. The C# compiler explicitly disallows this with error `CS1996`.  
-> 
-> When a thread acquires a lock via `Monitor.Enter(obj)`, the CLR records the entering OS thread's managed Thread ID. When the method reaches an incomplete `await`, it yields that OS thread back to the runtime ThreadPool. When the asynchronous operation finishes, the continuation is scheduled on an available ThreadPool worker, which frequently has a **different Thread ID** than the thread that entered the lock.  
-> 
-> If `await` were permitted inside `lock`:
-> 1. The resuming thread would attempt to execute `Monitor.Exit(obj)` in the `finally` block.
-> 2. Because the resuming thread does not own the lock, the CLR immediately throws a `SynchronizationLockException`.
-> 3. Worse, the original acquiring thread never released the lock, leaving the lock held indefinitely and permanently deadlocking any future threads that attempt to acquire it.  
-> 
-> To protect asynchronous critical sections across `await` points, you must use **`SemaphoreSlim`** via `await semaphore.WaitAsync()` and `semaphore.Release()`, because semaphores manage token counts and are not bound to thread identity."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: When would you use `ConcurrentDictionary`?**  
-> **Strong Answer:**  
-> "You should use `ConcurrentDictionary<TKey, TValue>` when you need a thread-safe key-value store accessed by multiple concurrent threads, particularly in **read-heavy or balanced read/write workloads**, without wrapping a standard `Dictionary` in a coarse-grained `lock`.  
-> 
-> `ConcurrentDictionary` is architecturally superior to a manual `lock (dict)` for three reasons:
-> 1. **Lock-Free Reads:** Read operations like `TryGetValue`, `ContainsKey`, and indexer lookups (`dict[key]`) are completely lock-free. They execute without acquiring any locks, using volatile memory reads and memory barriers for maximum throughput.
-> 2. **Lock Striping on Writes:** Writes (`TryAdd`, `TryUpdate`, `TryRemove`) do not lock the entire collection. Instead, the dictionary divides its internal hash buckets across a striped array of lock objects (defaulting to the number of CPU cores). Two threads writing to different hash buckets can write simultaneously without blocking each other.
-> 3. **Atomic Compound Operations:** It provides atomic operations like `AddOrUpdate` and `GetOrAdd` out of the box.  
-> 
-> **When NOT to use it:**
-> - If the collection is populated once at startup and read-only thereafter, an immutable dictionary (`FrozenDictionary` or `ImmutableDictionary`) offers superior read performance and lower memory footprint.
-> - When multi-key transactions must be updated together atomically (e.g., updating two keys simultaneously requires an external transaction lock)."
+```text
+Race: shared mutable state + no sync -> lost updates
+lock(obj) { }  : mutual exclusion; lock a PRIVATE readonly object, never `this`/typeof/string
+Interlocked.Increment/CompareExchange: atomic single ops, no lock
+Monitor, SemaphoreSlim (also async: WaitAsync), ReaderWriterLockSlim
+Cannot `await` inside lock (thread-affine) -> SemaphoreSlim
+Deadlock: lock ordering (A then B vs B then A) -> always same order, timeouts
+ConcurrentDictionary: GetOrAdd factory may run twice | Concurrent*: thread-safe, not transactional
+Immutability + message passing (Channel<T>) avoids locks
+```
 
 ---
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Extension methods** add instance-like methods to a type without touching it, **attributes** attach metadata, and **reflection** reads that metadata at run time — powerful, but slow and not trim/AOT-friendly.
+
 > [!TIP]
 > **The One Rule of Metaprogramming and Extensibility:** Extension methods and partial classes provide compile-time syntactic ergonomics and separation of concerns with zero runtime overhead, whereas Reflection inspects metadata at runtime with significant latency, memory, and AOT-trimming penalties. In modern high-throughput .NET, replace runtime Reflection with Roslyn compile-time **Source Generators** and cached expressions (`Expression.Compile`) to shift metadata discovery from request-time to build-time.
 
@@ -435,48 +438,103 @@ public static class FastPropertyAccessor
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is an extension method?**  
-> **Strong Answer:**  
-> "An extension method is a C# language feature that allows developers to add new methods to existing types without modifying the original source code, creating a derived type, or recompiling the original assembly.  
-> 
-> Under the hood:
-> 1. An extension method is declared as a **static method** inside a non-generic, non-nested **static class**.
-> 2. The first parameter specifies the type it operates on, prefixed with the **`this` modifier**.
-> 3. The C# compiler applies `System.Runtime.CompilerServices.ExtensionAttribute` to both the method and the containing class in IL metadata.
-> 4. When invoked using instance syntax (`myInstance.MyExtension()`), the compiler lowers the call into a standard static method call (`MyExtensions.MyExtension(myInstance)`).  
-> 
-> Key Architectural Rules:
-> - Extension methods are **statically dispatched at compile time**, meaning they cannot be polymorphic, cannot be marked `virtual`, and cannot override behaviors.
-> - An instance method on the type with a matching signature **always takes precedence** over an extension method.
-> - They can be called on `null` instances without throwing an immediate `NullReferenceException` at the call site.
-> - The entire LINQ library (`System.Linq.Enumerable`) is built on extension methods targeting `IEnumerable<T>`."
+<details>
+<summary><strong>1. What is an extension method? [BASIC]</strong></summary>
+
+An extension method is a C# language feature that allows developers to add new methods to existing types without modifying the original source code, creating a derived type, or recompiling the original assembly.
+
+Under the hood:
+1. An extension method is declared as a **static method** inside a non-generic, non-nested **static class**.
+2. The first parameter specifies the type it operates on, prefixed with the **`this` modifier**.
+3. The C# compiler applies `System.Runtime.CompilerServices.ExtensionAttribute` to both the method and the containing class in IL metadata.
+4. When invoked using instance syntax (`myInstance.MyExtension()`), the compiler lowers the call into a standard static method call (`MyExtensions.MyExtension(myInstance)`).
+
+Key Architectural Rules:
+- Extension methods are **statically dispatched at compile time**, meaning they cannot be polymorphic, cannot be marked `virtual`, and cannot override behaviors.
+- An instance method on the type with a matching signature **always takes precedence** over an extension method.
+- They can be called on `null` instances without throwing an immediate `NullReferenceException` at the call site.
+- The entire LINQ library (`System.Linq.Enumerable`) is built on extension methods targeting `IEnumerable<T>`.
+
+</details>
+
+<details>
+<summary><strong>2. What is a partial class? [BASIC]</strong></summary>
+
+A partial class is a C# construct using the `partial` keyword that allows the definition of a single class, struct, record, or interface to be split across multiple `.cs` source files within the same assembly and namespace. When compiled, the Roslyn compiler combines all partial fragments into a single unified type in the output IL.
+
+Primary Architectural Uses:
+1. **Separation of Generated Code from Developer Code:** Used by scaffolding tools, EF Core migrations, WPF/WinForms designers, and Roslyn Source Generators to emit automated boilerplate into one file while engineers write custom business logic in another. This prevents tool regeneration from overwriting human-written code.
+2. **Partial Methods:** A partial class can declare a **partial method** (a method signature without a body) in one file and implement it in another. If the partial method has no implementation, the C# compiler **completely removes the method declaration and all invocations from the emitted IL**, resulting in zero binary size or runtime overhead. This provides an optimal zero-cost hook mechanism for source generators.
+
+</details>
+
+<details>
+<summary><strong>3. What is reflection, and what does it cost? [BASIC]</strong></summary>
+
+Reflection is a capability in .NET provided by the `System.Reflection` namespace that allows a program to inspect its own metadata, assemblies, modules, types, and members at runtime, and dynamically instantiate types or invoke methods.
+
+What it costs:
+1. **Extreme CPU Performance Degradation:** Reflection bypasses the JIT compiler's most aggressive optimizations—specifically method inlining, devirtualization, and loop unrolling. Invoking a method via `MethodInfo.Invoke` is roughly **50 to 100 times slower** than a direct compiled call because the CLR must perform access security checks, argument type verifications, and stack frame marshaling on every invocation.
+2. **Memory Allocations (GC Pressure):** Reflection methods pass arguments as `object[]` arrays and return `object`. For value types (structs, primitives), this causes heavy heap boxing and unboxing allocations, generating unnecessary Garbage Collection pauses.
+3. **Loss of Compile-Time Type Safety:** Errors like misspelled property names or type mismatches become runtime crashes (`MissingMethodException`, `ArgumentException`) rather than build errors.
+4. **Breaks Native AOT & Trimming:** Tree-shaking linkers cannot statically discover members invoked via reflection strings, either stripping required types or requiring extensive manual trimmer attributes (`[DynamicallyAccessedMembers]`).
+
+**Architectural Recommendation:** Avoid reflection in hot execution paths. Use compiled Expression trees (`Expression.Compile`) for startup-time dynamic binding, or prefer **Roslyn Source Generators** to shift reflection tasks entirely into compile-time code generation.
+
+</details>
+
+<details>
+<summary><strong>4. An extension method and an instance method have the same signature. Which is called? [TRICKY]</strong></summary>
+
+The instance method always wins; extension methods are only considered if no applicable instance method exists. So extensions cannot override or silently replace real members.
+
+</details>
+
+<details>
+<summary><strong>5. A serializer uses reflection in a hot path and is slow. Options? [SCENARIO]</strong></summary>
+
+Cache the reflected `MethodInfo`/compiled delegates, or switch to compile-time source generation (e.g. System.Text.Json source generators), which is also AOT/trimming friendly.
+
+</details>
+
+<details>
+<summary><strong>6. Give a real extension-method example. [SCENARIO]</strong></summary>
+
+LINQ itself: `Where`, `Select` are extension methods on `IEnumerable<T>`; also `IServiceCollection.AddXxx(...)` registration helpers.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is a partial class?**  
-> **Strong Answer:**  
-> "A partial class is a C# construct using the `partial` keyword that allows the definition of a single class, struct, record, or interface to be split across multiple `.cs` source files within the same assembly and namespace. When compiled, the Roslyn compiler combines all partial fragments into a single unified type in the output IL.  
-> 
-> Primary Architectural Uses:
-> 1. **Separation of Generated Code from Developer Code:** Used by scaffolding tools, EF Core migrations, WPF/WinForms designers, and Roslyn Source Generators to emit automated boilerplate into one file while engineers write custom business logic in another. This prevents tool regeneration from overwriting human-written code.
-> 2. **Partial Methods:** A partial class can declare a **partial method** (a method signature without a body) in one file and implement it in another. If the partial method has no implementation, the C# compiler **completely removes the method declaration and all invocations from the emitted IL**, resulting in zero binary size or runtime overhead. This provides an optimal zero-cost hook mechanism for source generators."
+## Try it
+
+Run this: metadata + lookup at run time is the Python version of attributes and reflection. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+def route(path):
+    def deco(fn): fn.route = path; return fn          # attach metadata (like an attribute)
+    return deco
+
+@route("/hi")
+def hello(): return "hello"
+
+found = {f.route: f for f in [hello] if hasattr(f, "route")}   # "reflection"
+assert found["/hi"]() == "hello"
+```
 
 ---
 
-> [!interview]
-> **Question 3: What is reflection, and what does it cost?**  
-> **Strong Answer:**  
-> "Reflection is a capability in .NET provided by the `System.Reflection` namespace that allows a program to inspect its own metadata, assemblies, modules, types, and members at runtime, and dynamically instantiate types or invoke methods.  
-> 
-> What it costs:
-> 1. **Extreme CPU Performance Degradation:** Reflection bypasses the JIT compiler's most aggressive optimizations—specifically method inlining, devirtualization, and loop unrolling. Invoking a method via `MethodInfo.Invoke` is roughly **50 to 100 times slower** than a direct compiled call because the CLR must perform access security checks, argument type verifications, and stack frame marshaling on every invocation.
-> 2. **Memory Allocations (GC Pressure):** Reflection methods pass arguments as `object[]` arrays and return `object`. For value types (structs, primitives), this causes heavy heap boxing and unboxing allocations, generating unnecessary Garbage Collection pauses.
-> 3. **Loss of Compile-Time Type Safety:** Errors like misspelled property names or type mismatches become runtime crashes (`MissingMethodException`, `ArgumentException`) rather than build errors.
-> 4. **Breaks Native AOT & Trimming:** Tree-shaking linkers cannot statically discover members invoked via reflection strings, either stripping required types or requiring extensive manual trimmer attributes (`[DynamicallyAccessedMembers]`).  
-> 
-> **Architectural Recommendation:** Avoid reflection in hot execution paths. Use compiled Expression trees (`Expression.Compile`) for startup-time dynamic binding, or prefer **Roslyn Source Generators** to shift reflection tasks entirely into compile-time code generation."
+## One-page cheat sheet
+
+```text
+Extension: static method in static class, first param `this T x`; resolved at compile time
+ - cannot access privates, cannot override, instance method wins on conflict
+Attribute: [Foo(...)] metadata on types/members; read via reflection or source generators
+Reflection: typeof / GetType() / GetMethod / Invoke / Activator.CreateInstance
+Cost: slow, hides errors until run time, breaks with trimming/AOT -> cache delegates or use source generators
+partial class: split across files (generated code + yours)
+Use cases: LINQ, model binding, [ApiController], DI scanning, serializers
+```
 
 ---
 

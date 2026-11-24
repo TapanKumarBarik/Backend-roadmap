@@ -15,6 +15,14 @@
 
 ---
 
+## The smell: the `if/elif` ladder
+
+Prompt: *"Add a Black Friday discount without touching checkout."*
+
+The smell in the first draft: a function with `if kind == "student": ... elif kind == "vip": ...`, or an `isinstance` chain, copied into reports, emails and invoices. Every new rule means opening working code in several files and hoping you did not break a branch. The fix is one class per branch behind one method, so the runtime picks the branch. Section 6 shows the refactor.
+
+---
+
 ## 1. Roadmap: what you will learn
 
 The word "polymorphism" is Greek for "many forms". It sounds scary, but the idea is small. By the end of this chapter you will be able to:
@@ -1034,6 +1042,8 @@ Walk through it step by step:
 3. `Overnight` arrives. It inherits `Shipping`, fills in `cost`, and the old code never learns it exists.
 4. `Shipping()` itself cannot be created, because `ABC` plus `@abstractmethod` blocks it. The base class is a contract, not a product.
 
+**Extension point.** Interviewer says "add Black Friday." One new `Discount` subclass, and `checkout` is untouched. The only place that may change is the single spot that maps a name or rule to a class (a dict or factory). Keep that mapping in one place, or the ladder just moves.
+
 ---
 
 ## 7. Pitfalls, edge cases and anti-patterns
@@ -1428,63 +1438,59 @@ Hint: give `Channel` an `@abstractmethod send`, wrap each `ch.send(...)` in `try
 ## 11. Interview questions
 
 <details>
-<summary><strong>Q1. What is the difference between compile-time and runtime polymorphism?</strong></summary>
+<summary><strong>1. Compile-time vs runtime polymorphism? Overloading vs overriding? [BASIC]</strong></summary>
 
-Compile-time (static, early binding) is resolved before the program runs from the **declared types** of the arguments: overloading, operator overloading, generics. Runtime (dynamic, late binding) is resolved while it runs from the **actual type** of the object: overriding and interfaces. Compile-time picks *which signature*; runtime picks *which implementation* of one signature.
+Compile-time (static, early binding) is resolved from the **declared types** of the arguments: overloading, operator overloading, generics (parametric polymorphism). Runtime (dynamic, late binding) is resolved from the **actual type** of the object: overriding and interfaces. Compile-time picks *which signature*; runtime picks *which implementation* of one signature. Overloading: same name, **different parameters**, no inheritance needed. Overriding: same name and **same parameters** in a child class. A return type alone never distinguishes overloads.
+
 </details>
 
 <details>
-<summary><strong>Q2. What is the difference between overloading and overriding?</strong></summary>
-
-Overloading: same name, **different parameters**, chosen by the compiler from argument types, no inheritance needed. Overriding: same name and **same parameters** in a child class, chosen at runtime from the object's real type. A return type alone never distinguishes overloads.
-</details>
-
-<details>
-<summary><strong>Q3. Does Python support method overloading?</strong></summary>
+<summary><strong>2. Does Python support method overloading? [TRICKY]</strong></summary>
 
 Not directly: a class body fills a dictionary, so a second `def` with the same name replaces the first. Use default arguments, `*args`/`**kwargs`, `functools.singledispatch` / `singledispatchmethod` for type-based dispatch on the first argument, and `typing.overload` only to describe signatures to type checkers. Operator overloading is fully supported through dunder methods.
+
 </details>
 
 <details>
-<summary><strong>Q4. What is dynamic dispatch?</strong></summary>
+<summary><strong>3. What is dynamic dispatch? [BASIC]</strong></summary>
 
-Choosing the method body at call time from the object's real type. In C# each class has a vtable and each object points to it; a virtual call reads a fixed slot and jumps to the stored address, and `override` swaps that address. In Python the interpreter searches the object and then `type(obj).__mro__` and uses the first match, so a base method calling `self.hook()` reaches the child's override.
+Choosing the method body at call time from the object's real type. In C# each class has a vtable and each object points to it; a virtual call reads a fixed slot and jumps, and `override` swaps that address. In Python the interpreter searches the object and then `type(obj).__mro__` and uses the first match, so a base method calling `self.hook()` reaches the child's override.
+
 </details>
 
 <details>
-<summary><strong>Q5. What is the difference between <code>override</code> and <code>new</code> in C#?</strong></summary>
+<summary><strong>4. What is the difference between `override` and `new` in C#? [TRICKY]</strong></summary>
 
 `override` replaces the inherited virtual slot, so every caller gets the child's code. `new` hides: it adds a separate method, so a base-typed variable runs the base method and a child-typed variable runs the child one. One object, two answers, which breaks substitutability.
+
 </details>
 
 <details>
-<summary><strong>Q6. How does polymorphism remove if/else ladders?</strong></summary>
+<summary><strong>5. You see a ladder of `if kind == ...`. How does polymorphism remove it? [SCENARIO]</strong></summary>
 
 Each branch becomes a class behind one interface; the runtime picks the branch. Adding a case means adding a class and editing no tested code, which is the **open/closed principle**. The choice of which class to create still exists, but is made once at the edge (a factory or dictionary).
+
 </details>
 
 <details>
-<summary><strong>Q7. Why not call an overridable method in a constructor?</strong></summary>
+<summary><strong>6. Why not call an overridable method in a constructor? [TRICKY]</strong></summary>
 
 The base constructor runs before the child sets its fields, so the override runs on a half-built object: `AttributeError` in Python, silent default values in C#. Set data first, use lazy properties, or use a factory method.
+
 </details>
 
 <details>
-<summary><strong>Q8. Duck typing vs interface polymorphism?</strong></summary>
+<summary><strong>7. Duck typing vs interface polymorphism? [BASIC]</strong></summary>
 
 An interface must be **declared** and can be enforced; duck typing only needs the right methods and fails at the call. `typing.Protocol` checks the shape statically without inheritance (structural typing), unlike C# interfaces (nominal typing).
+
 </details>
 
 <details>
-<summary><strong>Q9. When should you overload an operator, and what does <code>NotImplemented</code> do?</strong></summary>
+<summary><strong>8. Your `Money` class needs `+` and `==`. How do you do it safely? [SCENARIO]</strong></summary>
 
-Only when the meaning is obvious (money, vectors, dates) and the type is immutable. In Python return `NotImplemented` for operands you do not understand; Python then tries the other side's reflected method (`__radd__`) before raising `TypeError`. Define `__hash__` with `__eq__`. In C#, overload `==` with `!=` and `<` with `>`, and also override `Equals` and `GetHashCode`.
-</details>
+Overload operators only when the meaning is obvious (money, vectors, dates) and the type is immutable. In Python return `NotImplemented` for operands you do not understand; Python then tries the other side's reflected method (`__radd__`) before raising `TypeError`. Define `__hash__` with `__eq__`. In C#, overload `==` with `!=` and `<` with `>`, and also override `Equals` and `GetHashCode`.
 
-<details>
-<summary><strong>Q10. Are generics polymorphism?</strong></summary>
-
-Yes, **parametric polymorphism**: one piece of code (`First<T>`) works for many types, with the type fixed by the caller. It is the compile-time family. C# adds constraints (`where T : IComparable<T>`); Python uses `TypeVar` and `Protocol`.
 </details>
 
 Practice these out loud with the interview sets [Inheritance, Abstraction and Polymorphism](/practice/interview/oop-inheritance-and-polymorphism/) and [OOP four pillars questions](/practice/interview/oop-four-pillars/).

@@ -1266,6 +1266,20 @@ It returns a new reversed list. It copies every item, so it is O(n) time and O(n
 Both are growable arrays with O(1) index and amortized O(1) add. Python lists hold mixed types and have slicing; `List<T>` is typed, uses `Add`, `RemoveAt`, `GetRange`, and its `Sort` is not stable.
 </details>
 
+## Cheat sheet
+
+```text
+Create  []  list(x)  [0]*3  [x for x in xs]       Index xs[0] xs[-1]  Slice xs[a:b:c]
+Add     append(x) O(1) | insert(i, x) O(n) | extend(ys) | xs + ys
+Remove  pop() O(1) | pop(i) O(n) | remove(x) first match | del xs[i] | clear()
+Find    x in xs O(n) | index(x) | count(x)
+Sort    xs.sort() in place -> None | sorted(xs) new list | key=, reverse=True
+min max sum len any all   enumerate  zip   reversed
+Copy    xs[:] / xs.copy() shallow | copy.deepcopy(xs) deep | b = a is an ALIAS
+[[0]*3]*3 shares rows!  use [[0]*3 for _ in range(3)]
+Don't remove while iterating | Stack: append/pop | Queue: collections.deque
+```
+
 ---
 
 ## Further reading

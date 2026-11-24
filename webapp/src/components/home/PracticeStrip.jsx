@@ -3,25 +3,24 @@ import { useLoader } from '../../hooks/useLoader.js';
 import { followInApp } from '../../lib/linkClick.js';
 import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { DIFFICULTY, STRIP } from '../../config/practice.js';
+import { withoutLldProblems } from '../../lib/practice/codeProgress.js';
 import { ArrowRightIcon } from '../common/icons.jsx';
 import { Card } from '../ui/Card.jsx';
 import '../../styles/practice.css';
 
-// A few quizzes and coding sets for the front door and the dashboard, with the way in to all practice. Its own chunk, and
-// nothing at all until the catalog has arrived (or if it cannot).
-//   variant   'landing' or 'dashboard'
-//   practice  { onOpenPractice(item) }: where its links go in the app
+// A few quizzes and problems for the front door and the dashboard, with the way in to all practice.
 export default function PracticeStrip({ variant = 'dashboard', practice }) {
   const { data: catalog } = useLoader(fetchPracticeCatalog);
   if (!catalog || !catalog.quizzes.length) return null;
-  const featured = catalog.coding.slice(0, STRIP.codingShown);
-  const toSolve = (catalog.code || []).filter((p) => p.difficulty === STRIP.codeLevel).sort((a, b) => a.title.localeCompare(b.title)).slice(0, STRIP.codeShown);
+  const toSolve = withoutLldProblems(catalog.code || [])
+    .filter((p) => p.difficulty === STRIP.codeLevel)
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .slice(0, STRIP.codeShown);
+  const interview = (catalog.interview || [])[0];
   const open = (item) => ({ href: pageUrl(PRACTICE_ROUTE, item), onClick: followInApp(() => practice.onOpenPractice(item)) });
 
-  // The front door: one card for each kind of practice, so a newcomer sees there is code, quizzes and interviews without a list of each.
   if (variant === 'landing') {
     const quiz = catalog.quizzes[0];
-    const interview = featured[0];
     const tiles = [
       toSolve[0] && { key: 'code', badge: STRIP.start.code, level: toSolve[0].difficulty, title: toSolve[0].title, text: toSolve[0].description, item: `code/${toSolve[0].slug}` },
       quiz && { key: 'quiz', badge: STRIP.start.quiz, level: quiz.difficulty, title: quiz.title, text: `${quiz.questions} questions`, item: `quiz/${quiz.slug}` },
@@ -49,10 +48,9 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
     );
   }
 
-  const heading = <div className="home-h" id="practice-strip">{STRIP.heading}</div>;
   return (
     <section className="practice-strip" aria-labelledby="practice-strip">
-      {heading}
+      <div className="home-h" id="practice-strip">{STRIP.heading}</div>
       <p className="home-sub">{STRIP.lead}</p>
       {toSolve.length > 0 && (
         <>
@@ -81,21 +79,6 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
           </li>
         ))}
       </ul>
-      {featured.length > 0 && (
-        <>
-          <h3 className="practice-strip__sub">{STRIP.coding}</h3>
-          <ul className="pr-cards">
-            {featured.map((c) => (
-              <li key={c.slug}>
-                <Card as="article" className="pr-card">
-                  <div className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[c.difficulty]}</span><span>{c.topic}</span><span>{c.questions} questions</span></div>
-                  <h3 className="pr-card__title"><a href={pageUrl(PRACTICE_ROUTE, `interview/${c.slug}`)} onClick={followInApp(() => practice.onOpenPractice(`interview/${c.slug}`))}>{c.title}</a></h3>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
       <p className="community-strip__links">
         <a className="community-strip__all" href={pageUrl(PRACTICE_ROUTE)} onClick={followInApp(() => practice.onOpenPractice(null))}>{STRIP.all} <ArrowRightIcon aria-hidden="true" /></a>
       </p>

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 17 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Interpreter** represents a small language's grammar as a tree of expression objects, each with `interpret(context)` — great for tiny DSLs (rules, filters), wrong for real languages.
+
 > [!TIP]
 > **The One Rule of the Interpreter Pattern:** Model each grammar production rule as a distinct composite class containing an `Interpret(context)` method. Reserve the Interpreter pattern strictly for **tiny, well-defined Domain-Specific Languages (DSLs)** or rule engines with simple grammars (e.g., boolean filters, discount criteria, search query ASTs). If your grammar expands to include control flow loops, function closures, complex operator precedence, or deep nesting, abandon the Interpreter pattern immediately in favor of a parser generator (such as ANTLR) and a bytecode compiler.
 
@@ -482,38 +485,101 @@ Would you implement this using the GoF Interpreter pattern? Justify your decisio
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Interpreter pattern, and when is it a good fit?**  
-> **Strong Answer:**  
-> "The Interpreter pattern is a Gang of Four behavioral design pattern that defines a class-based representation for a formal grammar, along with an interpreter that uses the representation to evaluate sentences in the language.  
-> 
-> In this pattern, every grammar rule is modeled as a class:  
-> - **Terminal expressions** represent the leaves of the grammar (literals, constants, variable lookups).  
-> - **Non-terminal expressions** represent grammar combinators (operators, logical conjunctions) that recursively evaluate child expressions.  
-> 
-> The Interpreter pattern is **a good fit** for:  
-> 1. Simple, well-defined Domain-Specific Languages (DSLs) where the grammar is small and stable (typically under 10–15 rules). Examples include boolean rule engines, search query builders, and discount criteria calculators.  
-> 2. Object hierarchies that need to be translated into another query language, such as LINQ Expression Trees translating into SQL in Entity Framework.  
-> 
-> It is **not a good fit** for full programming languages with complex grammars, loops, or operator precedence, where parser generators (like ANTLR) and bytecode compilers are industry standard."
+<details>
+<summary><strong>1. What is the Interpreter pattern, and when is it a good fit? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Terminal and Non-Terminal expressions?**  
-> **Strong Answer:**  
-> "The distinction stems directly from formal language theory:  
-> 
-> 1. **Terminal Expression:** Represents a leaf node in the Abstract Syntax Tree. It does not contain references to other expressions; it directly evaluates to a result using either fixed data or values extracted from the runtime `Context`. Examples include a numeric literal (`42`), a boolean constant (`true`), or a variable lookup (`context.Get('username')`).  
-> 2. **Non-Terminal Expression:** Represents an internal branch node in the Abstract Syntax Tree. It models grammar production rules that combine one or more child expressions. Its `Interpret()` method recursively invokes `Interpret()` on its child expressions and applies a transformation or logical operator to their results. Examples include `AndExpression(left, right)`, `AddExpression(left, right)`, or `NotExpression(inner)`."
+The Interpreter pattern is a Gang of Four behavioral design pattern that defines a class-based representation for a formal grammar, along with an interpreter that uses the representation to evaluate sentences in the language.
 
-> [!interview]
-> **Question 3: How does the Interpreter pattern compare to the Visitor pattern?**  
-> **Strong Answer:**  
-> "While both patterns operate on tree structures:  
-> 
-> 1. **Interpreter** bakes the execution behavior directly into the tree nodes: each AST node owns its own `Interpret(context)` method. This follows standard object-oriented polymorphism where the behavior belongs to the data class.  
-> 2. **Visitor** separates the operations from the tree nodes: the AST nodes remain passive data holders that only provide an `Accept(visitor)` hook. Multiple distinct operations (such as type checking, SQL generation, pretty-printing, and evaluation) are encapsulated in separate Visitor classes.  
-> 
-> When an AST is interpreted in multiple different ways, combining both patterns is common: the tree is structured as an AST, but instead of putting an `Interpret` method on every node, a `Visitor` walks the AST to evaluate or transform it."
+In this pattern, every grammar rule is modeled as a class:
+- **Terminal expressions** represent the leaves of the grammar (literals, constants, variable lookups).
+- **Non-terminal expressions** represent grammar combinators (operators, logical conjunctions) that recursively evaluate child expressions.
+
+The Interpreter pattern is **a good fit** for:
+1. Simple, well-defined Domain-Specific Languages (DSLs) where the grammar is small and stable (typically under 10–15 rules). Examples include boolean rule engines, search query builders, and discount criteria calculators.
+2. Object hierarchies that need to be translated into another query language, such as LINQ Expression Trees translating into SQL in Entity Framework.
+
+It is **not a good fit** for full programming languages with complex grammars, loops, or operator precedence, where parser generators (like ANTLR) and bytecode compilers are industry standard.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Terminal and Non-Terminal expressions? [BASIC]</strong></summary>
+
+The distinction stems directly from formal language theory:
+
+1. **Terminal Expression:** Represents a leaf node in the Abstract Syntax Tree. It does not contain references to other expressions; it directly evaluates to a result using either fixed data or values extracted from the runtime `Context`. Examples include a numeric literal (`42`), a boolean constant (`true`), or a variable lookup (`context.Get('username')`).
+2. **Non-Terminal Expression:** Represents an internal branch node in the Abstract Syntax Tree. It models grammar production rules that combine one or more child expressions. Its `Interpret()` method recursively invokes `Interpret()` on its child expressions and applies a transformation or logical operator to their results. Examples include `AndExpression(left, right)`, `AddExpression(left, right)`, or `NotExpression(inner)`.
+
+</details>
+
+<details>
+<summary><strong>3. How does the Interpreter pattern compare to the Visitor pattern? [BASIC]</strong></summary>
+
+While both patterns operate on tree structures:
+
+1. **Interpreter** bakes the execution behavior directly into the tree nodes: each AST node owns its own `Interpret(context)` method. This follows standard object-oriented polymorphism where the behavior belongs to the data class.
+2. **Visitor** separates the operations from the tree nodes: the AST nodes remain passive data holders that only provide an `Accept(visitor)` hook. Multiple distinct operations (such as type checking, SQL generation, pretty-printing, and evaluation) are encapsulated in separate Visitor classes.
+
+When an AST is interpreted in multiple different ways, combining both patterns is common: the tree is structured as an AST, but instead of putting an `Interpret` method on every node, a `Visitor` walks the AST to evaluate or transform it.
+
+</details>
+
+<details>
+<summary><strong>4. Business wants configurable discount rules ("cart > 100 AND coupon"). Interpreter or if/else? [SCENARIO]</strong></summary>
+
+If rules change often and are non-developer-authored, a tiny rule grammar + Interpreter is reasonable (or an existing rules library). For a handful of fixed rules, plain code or Strategy is simpler.
+
+</details>
+
+<details>
+<summary><strong>5. Why shouldn't you implement a rule engine with `eval()`? [TRICKY]</strong></summary>
+
+It executes arbitrary code, a severe security hole, and gives no control over what is allowed. Parse into your own expression objects so only the grammar you define can run.
+
+</details>
+
+<details>
+<summary><strong>6. Terminal vs non-terminal expression? [BASIC]</strong></summary>
+
+Terminals are leaves that evaluate directly (a number, a variable); non-terminals combine other expressions (And, Add, Not) and recurse.
+
+</details>
+
+---
+
+## Try it
+
+Run this: a rule "age > 18 AND vip" as a tree of expression objects. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Var:
+    def __init__(self, n): self.n = n
+    def eval(self, ctx): return ctx[self.n]
+class Gt:
+    def __init__(self, l, v): self.l, self.v = l, v
+    def eval(self, ctx): return self.l.eval(ctx) > self.v
+class And:
+    def __init__(self, a, b): self.a, self.b = a, b
+    def eval(self, ctx): return self.a.eval(ctx) and self.b.eval(ctx)
+
+rule = And(Gt(Var("age"), 18), Var("vip"))
+assert rule.eval({"age": 30, "vip": True}) is True
+assert rule.eval({"age": 10, "vip": True}) is False
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+INTERPRETER  Expression.interpret(ctx) ; Terminal (leaf) | NonTerminal (composes others)
+Grammar rule -> class ; sentence -> object tree (a Composite)
+Parser builds the tree; interpreter evaluates it
+Good: small, stable DSLs (pricing rules, search filters, feature flags)
+Bad: big/fast languages - use a parser generator, expression trees, or an embedded engine
+.NET: Expression<T>, Roslyn | Py: ast, eval is NOT safe
+Pair with Visitor when you need several operations over the tree
+```
 
 ---
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Iterator** gives sequential access to a collection without exposing its internals — in Python that is `__iter__`/`__next__` (or a generator), in C# `IEnumerable` and `yield return`.
+
 > [!TIP]
 > **The One Rule of Iterator & Generators:** The Iterator pattern decouples aggregate traversal algorithms from underlying data structures, enabling lazy sequential evaluation without exposing memory layout. In modern languages, manual iterator classes are obsolete: the compiler transforms `yield return` in C# and `yield` in Python into an explicit finite state machine with zero manual cursor bookkeeping.
 
@@ -434,31 +437,91 @@ def batch(source: Iterable[T], size: int) -> Iterator[List[T]]:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Iterator pattern?**  
-> **Strong Answer:**  
-> "The Iterator pattern is a behavioral design pattern that provides a standard mechanism to traverse elements of an aggregate data structure sequentially without exposing its internal representation, memory organization, or data structure mechanics (whether an array, linked list, balanced binary tree, or unbuffered network stream).  
-> 
-> The core architectural benefit is separation of concerns: the collection is solely responsible for data storage, while traversal state—such as cursor offsets and boundary validations—is isolated inside independent iterator objects. This allows multiple consumers to traverse the same collection at different rates simultaneously without data races or coupling."
+<details>
+<summary><strong>1. What is the Iterator pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: How does `yield return` work in C#?**  
-> **Strong Answer:**  
-> "In C#, `yield return` is syntactic sugar where the Roslyn compiler synthesizes a hidden, nested state machine class implementing `IEnumerator<T>`, `IEnumerable<T>`, and `IDisposable`.  
-> 
-> The compiler extracts your local variables into fields on this state machine and maps your execution path into a switch-case statement keyed by an internal integer state (`_state`). When the method is first called, no user code runs; it simply instantiates the state machine.  
-> 
-> Each time the consumer calls `MoveNext()`, the state machine jumps to the current state, executes instructions up to the next `yield return`, assigns the yielded value to the `Current` property, updates `_state`, and returns `true`. When execution hits `yield break` or the method exits, it sets `_state = -1` and returns `false`. Any `finally` blocks or `using` statements are translated into the state machine's `Dispose()` method, ensuring resource cleanup even on early iteration exits."
+The Iterator pattern is a behavioral design pattern that provides a standard mechanism to traverse elements of an aggregate data structure sequentially without exposing its internal representation, memory organization, or data structure mechanics (whether an array, linked list, balanced binary tree, or unbuffered network stream).
 
-> [!interview]
-> **Question 3: What is the difference between an iterable and an iterator in Python?**  
-> **Strong Answer:**  
-> "In Python, the difference is defined by the **Iterator Protocol**:  
-> 
-> 1. An **Iterable** is any object that represents a data container or stream and implements `__iter__()`, which returns a new iterator. Examples include `list`, `dict`, `set`, `tuple`, and `str`. An iterable can produce multiple independent iterators and can be traversed repeatedly.  
-> 2. An **Iterator** is a stateful cursor object representing a single traversal stream. It implements both `__next__()` and `__iter__()` (which returns `self`). Calling `next(it)` advances the cursor, yields the next value, and raises `StopIteration` when the sequence is exhausted.  
-> 
-> Crucially, an iterator maintains internal state and is **consumed once**: once it raises `StopIteration`, subsequent calls to `next()` continue to raise `StopIteration`. You cannot reset an iterator; you must request a new one from the original iterable."
+The core architectural benefit is separation of concerns: the collection is solely responsible for data storage, while traversal state—such as cursor offsets and boundary validations—is isolated inside independent iterator objects. This allows multiple consumers to traverse the same collection at different rates simultaneously without data races or coupling.
+
+</details>
+
+<details>
+<summary><strong>2. How does `yield return` work in C#? [BASIC]</strong></summary>
+
+In C#, `yield return` is syntactic sugar where the Roslyn compiler synthesizes a hidden, nested state machine class implementing `IEnumerator<T>`, `IEnumerable<T>`, and `IDisposable`.
+
+The compiler extracts your local variables into fields on this state machine and maps your execution path into a switch-case statement keyed by an internal integer state (`_state`). When the method is first called, no user code runs; it simply instantiates the state machine.
+
+Each time the consumer calls `MoveNext()`, the state machine jumps to the current state, executes instructions up to the next `yield return`, assigns the yielded value to the `Current` property, updates `_state`, and returns `true`. When execution hits `yield break` or the method exits, it sets `_state = -1` and returns `false`. Any `finally` blocks or `using` statements are translated into the state machine's `Dispose()` method, ensuring resource cleanup even on early iteration exits.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between an iterable and an iterator in Python? [BASIC]</strong></summary>
+
+In Python, the difference is defined by the **Iterator Protocol**:
+
+1. An **Iterable** is any object that represents a data container or stream and implements `__iter__()`, which returns a new iterator. Examples include `list`, `dict`, `set`, `tuple`, and `str`. An iterable can produce multiple independent iterators and can be traversed repeatedly.
+2. An **Iterator** is a stateful cursor object representing a single traversal stream. It implements both `__next__()` and `__iter__()` (which returns `self`). Calling `next(it)` advances the cursor, yields the next value, and raises `StopIteration` when the sequence is exhausted.
+
+Crucially, an iterator maintains internal state and is **consumed once**: once it raises `StopIteration`, subsequent calls to `next()` continue to raise `StopIteration`. You cannot reset an iterator; you must request a new one from the original iterable.
+
+</details>
+
+<details>
+<summary><strong>4. You must process a 50 GB file line by line. How does Iterator help? [SCENARIO]</strong></summary>
+
+Expose lines as a lazy iterator/generator (`for line in f`, or `yield return`). Only one line is in memory at a time; the consumer pulls the next one when ready.
+
+</details>
+
+<details>
+<summary><strong>5. Why does iterating the same generator twice give nothing the second time? [TRICKY]</strong></summary>
+
+A generator is its own iterator and is exhausted after one pass. Call the generator function again for a new iterator, or materialise to a list/implement `__iter__` to return a fresh iterator each time.
+
+</details>
+
+<details>
+<summary><strong>6. What happens if you modify a list while iterating over it? [TRICKY]</strong></summary>
+
+In Python, elements may be skipped; in C# `List<T>` throws `InvalidOperationException`. Iterate over a copy or collect changes and apply after the loop.
+
+</details>
+
+---
+
+## Try it
+
+Run this: a generator is a lazy iterator in four lines. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+it = countdown(3)
+assert next(it) == 3
+assert list(it) == [2, 1]          # iterator is consumed
+assert list(it) == []              # ...and exhausted
+assert list(countdown(2)) == [2, 1]  # a fresh call gives a fresh iterator
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+ITERATOR  Iterable.__iter__() -> Iterator.__next__() ; StopIteration ends
+Iterable (can start iteration) != Iterator (the cursor, single-use)
+Generators / yield: lazy, O(1) memory, state kept between yields
+C#: IEnumerable<T> / IEnumerator<T> / yield return ; foreach = pattern
+LINQ is deferred: runs when enumerated (and re-runs each time!)
+Pitfalls: modifying while iterating, multiple enumeration, exhausted iterators
+Different traversals = different iterators over the same collection
+```
 
 ---
 

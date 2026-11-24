@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Encapsulation is **hiding state behind the smallest useful surface** — access modifiers set who can see it, properties let you add validation later without breaking callers.
+
 > [!TIP]
 > **The One Rule of Encapsulation:** Encapsulation is not "making fields private and adding getters and setters." Encapsulation is the protection of **business invariants**. If a caller can bypass your validation or put an object into an invalid state at any point in its lifecycle, encapsulation is broken regardless of how many access modifiers you used.
 
@@ -491,57 +494,112 @@ t.temperature_celsius = 30.0  # Calls setter
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What access modifiers does C# have?**  
-> **Strong Answer:**  
-> "C# has six core access modifiers that govern visibility across types and assembly boundaries:  
-> 1. `public`: Accessible from any code in any assembly.  
-> 2. `private`: Accessible only within the containing class or struct.  
-> 3. `protected`: Accessible within the containing class and any derived classes, even in different assemblies.  
-> 4. `internal`: Accessible by any code within the same compilation assembly (.dll), but hidden from external assemblies.  
-> 5. `protected internal`: A logical **OR (union)**—accessible by any code in the same assembly, OR by derived classes in external assemblies.  
-> 6. `private protected`: A logical **AND (intersection)** introduced in C# 7.2—accessible only by derived classes that reside within the same assembly.  
-> In C# 11, `file` scope was also introduced, restricting type visibility strictly to the source file where it is declared."
+<details>
+<summary><strong>1. What access modifiers does C# have? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the default access modifier of a class member in C#?**  
-> **Strong Answer:**  
-> "In C#, default accessibility always selects the most restrictive sensible scope:  
-> - For members inside a class, struct, or record (fields, methods, properties), the default access modifier is **`private`**.  
-> - For top-level types declared directly in a namespace (classes, structs, interfaces, enums, records), the default is **`internal`**.  
-> - For nested types (a class declared inside another class), the default is **`private`**.  
-> - For interface members, default visibility is historically **`public`** (since C# 8, interfaces can also contain private and protected members for default implementations).  
-> - For enum members, visibility is always **`public`** and cannot be modified."
+C# has six core access modifiers that govern visibility across types and assembly boundaries:
+1. `public`: Accessible from any code in any assembly.
+2. `private`: Accessible only within the containing class or struct.
+3. `protected`: Accessible within the containing class and any derived classes, even in different assemblies.
+4. `internal`: Accessible by any code within the same compilation assembly (.dll), but hidden from external assemblies.
+5. `protected internal`: A logical **OR (union)**—accessible by any code in the same assembly, OR by derived classes in external assemblies.
+6. `private protected`: A logical **AND (intersection)** introduced in C# 7.2—accessible only by derived classes that reside within the same assembly.
+In C# 11, `file` scope was also introduced, restricting type visibility strictly to the source file where it is declared.
 
-> [!interview]
-> **Question 3: How do you make an attribute private in Python?**  
-> **Strong Answer:**  
-> "Python does not have compiler-enforced access modifiers. Instead, it relies on standard naming conventions and runtime mechanisms:  
-> 1. **Single underscore convention (`_attr`):** Indicates an internal implementation detail ('protected/private' by convention). Linters and IDEs warn against outside access, and wildcard imports (`from module import *`) ignore it, but the Python runtime will not prevent access.  
-> 2. **Double underscore name mangling (`__attr`):** The Python interpreter syntactically rewrites the variable name to `_ClassName__attr`. While this prevents accidental name clashes in subclasses, it is not truly private—any caller can still access or mutate `obj._ClassName__attr` directly.  
-> Python's guiding philosophy is *'we are all consenting adults here'*: true encapsulation is achieved by designing clean interface contracts and protecting invariants with the `@property` decorator, rather than relying on false security boundaries."
+</details>
 
-> [!interview]
-> **Question 4: What is the difference between a field and a property?**  
-> **Strong Answer:**  
-> "A field is a variable declared directly inside a class representing raw physical memory storage. Accessing a field reads or writes directly to that memory address without executing logic.  
-> 
-> A property is a language abstraction consisting of a getter and setter method pair. Syntactically, it looks like a field to the consumer (`obj.Value = 10`), but under the hood the compiler converts it into method calls (`set_Value(10)`).  
-> 
-> Key architectural differences:  
-> - **Invariant Enforcement:** Properties allow validation, range checking, and state-transition guards before mutating state.  
-> - **Computed State:** Properties can compute values dynamically on the fly without allocating backing storage.  
-> - **Asymmetric Accessibility:** You can make a getter `public` and its setter `private` or `init`-only.  
-> - **ABI Stability:** Replacing a public field with a property breaks binary compatibility (ABI) in compiled languages like C#, requiring all dependent assemblies to be recompiled. Designing with properties from the start preserves long-term backward compatibility."
+<details>
+<summary><strong>2. What is the default access modifier of a class member in C#? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 5: What is name mangling?**  
-> **Strong Answer:**  
-> "Name mangling is Python's compiler mechanism for identifiers with at least two leading underscores and at most one trailing underscore (e.g., `__attribute`).  
-> 
-> When the Python bytecode compiler encounters such an identifier inside a class definition, it replaces it by prefixing `_ClassName`. For example, `self.__balance` inside class `BankAccount` is stored in the instance `__dict__` as `_BankAccount__balance`.  
-> 
-> Its primary purpose is **subclass namespace isolation**: it prevents a subclass from accidentally clobbering or overriding an internal attribute used by its parent class during inheritance. It was never intended as a data security or privacy feature, because any external code can still inspect and mutate `instance._BankAccount__balance` directly."
+In C#, default accessibility always selects the most restrictive sensible scope:
+- For members inside a class, struct, or record (fields, methods, properties), the default access modifier is **`private`**.
+- For top-level types declared directly in a namespace (classes, structs, interfaces, enums, records), the default is **`internal`**.
+- For nested types (a class declared inside another class), the default is **`private`**.
+- For interface members, default visibility is historically **`public`** (since C# 8, interfaces can also contain private and protected members for default implementations).
+- For enum members, visibility is always **`public`** and cannot be modified.
+
+</details>
+
+<details>
+<summary><strong>3. How do you make an attribute private in Python? [SCENARIO]</strong></summary>
+
+Python does not have compiler-enforced access modifiers. Instead, it relies on standard naming conventions and runtime mechanisms:
+1. **Single underscore convention (`_attr`):** Indicates an internal implementation detail ('protected/private' by convention). Linters and IDEs warn against outside access, and wildcard imports (`from module import *`) ignore it, but the Python runtime will not prevent access.
+2. **Double underscore name mangling (`__attr`):** The Python interpreter syntactically rewrites the variable name to `_ClassName__attr`. While this prevents accidental name clashes in subclasses, it is not truly private—any caller can still access or mutate `obj._ClassName__attr` directly.
+Python's guiding philosophy is *'we are all consenting adults here'*: true encapsulation is achieved by designing clean interface contracts and protecting invariants with the `@property` decorator, rather than relying on false security boundaries.
+
+</details>
+
+<details>
+<summary><strong>4. What is the difference between a field and a property? [BASIC]</strong></summary>
+
+A field is a variable declared directly inside a class representing raw physical memory storage. Accessing a field reads or writes directly to that memory address without executing logic.
+
+A property is a language abstraction consisting of a getter and setter method pair. Syntactically, it looks like a field to the consumer (`obj.Value = 10`), but under the hood the compiler converts it into method calls (`set_Value(10)`).
+
+Key architectural differences:
+- **Invariant Enforcement:** Properties allow validation, range checking, and state-transition guards before mutating state.
+- **Computed State:** Properties can compute values dynamically on the fly without allocating backing storage.
+- **Asymmetric Accessibility:** You can make a getter `public` and its setter `private` or `init`-only.
+- **ABI Stability:** Replacing a public field with a property breaks binary compatibility (ABI) in compiled languages like C#, requiring all dependent assemblies to be recompiled. Designing with properties from the start preserves long-term backward compatibility.
+
+</details>
+
+<details>
+<summary><strong>5. What is name mangling? [BASIC]</strong></summary>
+
+Name mangling is Python's compiler mechanism for identifiers with at least two leading underscores and at most one trailing underscore (e.g., `__attribute`).
+
+When the Python bytecode compiler encounters such an identifier inside a class definition, it replaces it by prefixing `_ClassName`. For example, `self.__balance` inside class `BankAccount` is stored in the instance `__dict__` as `_BankAccount__balance`.
+
+Its primary purpose is **subclass namespace isolation**: it prevents a subclass from accidentally clobbering or overriding an internal attribute used by its parent class during inheritance. It was never intended as a data security or privacy feature, because any external code can still inspect and mutate `instance._BankAccount__balance` directly.
+
+</details>
+
+<details>
+<summary><strong>6. A public field `Price` is used in 200 places and now needs validation. What do you do? [SCENARIO]</strong></summary>
+
+In C# turn it into a property: the call sites recompile unchanged (binary compat aside), and you add the validation in the setter. In Python switch to `@property`; attribute syntax stays the same. That migration path is exactly why properties beat public fields.
+
+</details>
+
+---
+
+## Try it
+
+Run this: a Python property validates, and `__x` is mangled rather than truly private. Then sketch `Account` with a private balance in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the C# modifier table.
+
+```python
+class Account:
+    def __init__(self): self.__balance = 0       # name-mangled
+    @property
+    def balance(self): return self.__balance
+    @balance.setter
+    def balance(self, v):
+        if v < 0: raise ValueError("negative")
+        self.__balance = v
+
+a = Account(); a.balance = 10
+assert a.balance == 10 and a._Account__balance == 10   # mangled, not secret
+try: a.balance = -1
+except ValueError: pass
+else: raise AssertionError
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+C# modifiers: public | internal | protected | private
+              protected internal (either) | private protected (both)
+Defaults: class -> internal ; member -> private
+Field vs property: property = method pair, can validate, can be virtual/in interface
+Auto-prop: { get; set; }   init-only: { get; init; }   (immutable after ctor)
+Python: _x convention | __x mangled to _Class__x | @property for control
+Anemic model (getters/setters only) = encapsulation failed
+Tell, don't ask: expose behaviour, not data
+```
 
 ---
 

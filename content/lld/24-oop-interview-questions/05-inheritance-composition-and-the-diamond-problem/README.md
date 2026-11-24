@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Prefer **composition** (has-a, swappable at runtime) over **inheritance** (is-a, locked at compile time) unless the subtype truly honours the base's contract; multiple inheritance gives you the **diamond**, which C# forbids for classes and Python resolves with the MRO.
+
 > [!TIP]
 > **The One Rule of Inheritance vs. Composition:** Inherit strictly when an authentic, immutable **is-a** relationship exists and you need to substitute subclasses polymorphically under a contract without modifying base behavior; otherwise, **compose**. Composition turns rigid compile-time coupling into dynamic runtime flexibility, completely eliminating fragile base classes and the diamond problem.
 
@@ -497,64 +500,107 @@ The single `Order` class now composes `IDeliveryStrategy`, `IDiscountPolicy`, an
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Why is composition often preferred to inheritance?**  
-> **Strong Answer:**  
-> "Composition is favored over inheritance in modern low-level design for four primary architectural reasons:  
-> 
-> 1. **Preserves Encapsulation (Prevents Fragile Base Class):** Inheritance exposes internal implementation details of ancestors to subclasses ('white-box reuse'). Changes to parent class orchestration frequently break subclass invariants. Composition interacts strictly through public interfaces ('black-box reuse').  
-> 2. **Runtime Flexibility:** Inheritance hierarchies are statically frozen at compile time; an instance of `SqlRepository` cannot transform into `InMemoryRepository` at runtime. With composition, dependencies are injected as interfaces, allowing runtime swapping of strategies.  
-> 3. **Avoids Class Explosions:** Combining multiple orthogonal features via inheritance leads to a combinatorial explosion of subclasses (`EncryptedBufferedFileStream`). Composition handles this linearly through the Decorator or Strategy patterns.  
-> 4. **Testability & Mocking:** Composed dependencies can be trivially replaced with unit test mocks and stubs, whereas hardcoded base class methods often trigger unwanted database connections or external I/O."
+<details>
+<summary><strong>1. Why is composition often preferred to inheritance? [BASIC]</strong></summary>
+
+Composition is favored over inheritance in modern low-level design for four primary architectural reasons:
+
+1. **Preserves Encapsulation (Prevents Fragile Base Class):** Inheritance exposes internal implementation details of ancestors to subclasses ('white-box reuse'). Changes to parent class orchestration frequently break subclass invariants. Composition interacts strictly through public interfaces ('black-box reuse').
+2. **Runtime Flexibility:** Inheritance hierarchies are statically frozen at compile time; an instance of `SqlRepository` cannot transform into `InMemoryRepository` at runtime. With composition, dependencies are injected as interfaces, allowing runtime swapping of strategies.
+3. **Avoids Class Explosions:** Combining multiple orthogonal features via inheritance leads to a combinatorial explosion of subclasses (`EncryptedBufferedFileStream`). Composition handles this linearly through the Decorator or Strategy patterns.
+4. **Testability & Mocking:** Composed dependencies can be trivially replaced with unit test mocks and stubs, whereas hardcoded base class methods often trigger unwanted database connections or external I/O.
+
+</details>
+
+<details>
+<summary><strong>2. What is the diamond problem? [BASIC]</strong></summary>
+
+The diamond problem is an architectural ambiguity that arises in multiple inheritance when a class `D` inherits from two classes `B` and `C`, both of which inherit from a common base class `A`.
+
+The ambiguity occurs on two fronts:
+1. **State Duplication:** Does `D` contain one shared copy of `A`'s fields, or two separate copies (one via `B` and one via `C`)? If `A` has an `int _id`, which `_id` is updated?
+2. **Method Dispatch Collision:** If `A` defines a method `Execute()`, and both `B` and `C` override `Execute()` with different behavior, which method should execute when a caller invokes `d.Execute()`?
+
+Without an unambiguous resolution rule, the compiler or runtime cannot determine the correct dispatch target.
+
+</details>
+
+<details>
+<summary><strong>3. Does C# support multiple inheritance? [TRICKY]</strong></summary>
+
+C# does **not** support multiple inheritance for classes, but it **does** support multiple inheritance for interfaces:
+
+- **Classes:** A C# class can only inherit from a single base class (`class D : B, C` results in compile-time error `CS1721`). This intentional design decision completely eliminates object memory layout ambiguities, duplicate field state, and base constructor chaining conflicts.
+- **Interfaces:** A class can implement an unlimited number of interfaces. Since C# 8, interfaces can contain **Default Interface Methods (DIM)**. If a class implements two interfaces that provide conflicting default implementations for the same method signature, the compiler throws an error unless the implementing class explicitly implements or overrides the method itself to resolve the ambiguity.
+
+</details>
+
+<details>
+<summary><strong>4. How does `super()` decide which method to call in Python? [SCENARIO]</strong></summary>
+
+In Python, `super()` does **not** simply call the syntactic parent class declared in the class definition. Instead, it dynamically queries the **Method Resolution Order (MRO)** of the actual runtime instance `self` (`type(self).__mro__`).
+
+Python computes the MRO at class definition time using the **C3 Linearization algorithm**, which enforces three guarantees:
+1. Subclasses appear before parent classes.
+2. The order of parent classes listed in the class definition is strictly preserved.
+3. Monotonicity: if class `A` precedes class `B` in one linearization, it precedes it in all linearizations across the hierarchy.
+
+When `super().method()` is called inside a class `CurrentClass`, Python looks up `CurrentClass` in `type(self).__mro__` and jumps to the **immediate next class in that sequence** that implements `method()`. This mechanism enables cooperative multiple inheritance, allowing methods across sibling classes in a diamond hierarchy to execute sequentially in a deterministic chain.
+
+</details>
+
+<details>
+<summary><strong>5. What is a mixin? [BASIC]</strong></summary>
+
+A **mixin** is a specialized, lightweight class designed to provide reusable, orthogonal functionality to other classes without acting as a standalone domain entity.
+
+Key characteristics of a mixin:
+1. **No Standalone Identity:** A mixin is never instantiated by itself; it exists solely to be mixed into concrete host classes.
+2. **Stateless / Trait-Focused:** Mixins typically do not maintain independent instance state. Instead, they provide utility methods (e.g., `JsonSerializableMixin`, `AuditLogMixin`, `RateLimiterMixin`) that operate on the host class's existing attributes.
+3. **Non-Hierarchical Reuse:** Mixins enable cross-cutting behavior to be shared across completely unrelated class hierarchies without forcing them into an artificial or fragile base class relationship.
+
+</details>
+
+<details>
+<summary><strong>6. You have `Bird`, then `Penguin` which cannot fly. How do you fix the model? [SCENARIO]</strong></summary>
+
+`Penguin : Bird` with a `Fly()` that throws breaks Liskov. Split the hierarchy: keep `Bird` for shared traits and give flying birds a `Flyer` capability, or compose a `FlyBehavior` (`CanFly`, `CannotFly`). The rule is: inherit only when *every* base promise holds for the subtype.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is the diamond problem?**  
-> **Strong Answer:**  
-> "The diamond problem is an architectural ambiguity that arises in multiple inheritance when a class `D` inherits from two classes `B` and `C`, both of which inherit from a common base class `A`.  
-> 
-> The ambiguity occurs on two fronts:  
-> 1. **State Duplication:** Does `D` contain one shared copy of `A`'s fields, or two separate copies (one via `B` and one via `C`)? If `A` has an `int _id`, which `_id` is updated?  
-> 2. **Method Dispatch Collision:** If `A` defines a method `Execute()`, and both `B` and `C` override `Execute()` with different behavior, which method should execute when a caller invokes `d.Execute()`?  
-> 
-> Without an unambiguous resolution rule, the compiler or runtime cannot determine the correct dispatch target."
+## Try it
+
+Run this: the MRO shows how `super()` walks a diamond. Then redraw "Duck has-a FlyBehavior" in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) lists the composition-vs-inheritance follow-ups.
+
+```python
+class A:
+    def hi(self): return ["A"]
+class B(A):
+    def hi(self): return ["B"] + super().hi()
+class C(A):
+    def hi(self): return ["C"] + super().hi()
+class D(B, C):
+    def hi(self): return ["D"] + super().hi()
+
+assert D().hi() == ["D", "B", "C", "A"]          # A appears once
+assert [k.__name__ for k in D.__mro__] == ["D", "B", "C", "A", "object"]
+```
 
 ---
 
-> [!interview]
-> **Question 3: Does C# support multiple inheritance?**  
-> **Strong Answer:**  
-> "C# does **not** support multiple inheritance for classes, but it **does** support multiple inheritance for interfaces:  
-> 
-> - **Classes:** A C# class can only inherit from a single base class (`class D : B, C` results in compile-time error `CS1721`). This intentional design decision completely eliminates object memory layout ambiguities, duplicate field state, and base constructor chaining conflicts.  
-> - **Interfaces:** A class can implement an unlimited number of interfaces. Since C# 8, interfaces can contain **Default Interface Methods (DIM)**. If a class implements two interfaces that provide conflicting default implementations for the same method signature, the compiler throws an error unless the implementing class explicitly implements or overrides the method itself to resolve the ambiguity."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: How does `super()` decide which method to call in Python?**  
-> **Strong Answer:**  
-> "In Python, `super()` does **not** simply call the syntactic parent class declared in the class definition. Instead, it dynamically queries the **Method Resolution Order (MRO)** of the actual runtime instance `self` (`type(self).__mro__`).  
-> 
-> Python computes the MRO at class definition time using the **C3 Linearization algorithm**, which enforces three guarantees:  
-> 1. Subclasses appear before parent classes.  
-> 2. The order of parent classes listed in the class definition is strictly preserved.  
-> 3. Monotonicity: if class `A` precedes class `B` in one linearization, it precedes it in all linearizations across the hierarchy.  
-> 
-> When `super().method()` is called inside a class `CurrentClass`, Python looks up `CurrentClass` in `type(self).__mro__` and jumps to the **immediate next class in that sequence** that implements `method()`. This mechanism enables cooperative multiple inheritance, allowing methods across sibling classes in a diamond hierarchy to execute sequentially in a deterministic chain."
-
----
-
-> [!interview]
-> **Question 5: What is a mixin?**  
-> **Strong Answer:**  
-> "A **mixin** is a specialized, lightweight class designed to provide reusable, orthogonal functionality to other classes without acting as a standalone domain entity.  
-> 
-> Key characteristics of a mixin:  
-> 1. **No Standalone Identity:** A mixin is never instantiated by itself; it exists solely to be mixed into concrete host classes.  
-> 2. **Stateless / Trait-Focused:** Mixins typically do not maintain independent instance state. Instead, they provide utility methods (e.g., `JsonSerializableMixin`, `AuditLogMixin`, `RateLimiterMixin`) that operate on the host class's existing attributes.  
-> 3. **Non-Hierarchical Reuse:** Mixins enable cross-cutting behavior to be shared across completely unrelated class hierarchies without forcing them into an artificial or fragile base class relationship."
+```text
+is-a  -> inheritance (LSP must hold)     has-a -> composition (default choice)
+Inheritance risks: fragile base class, tight coupling, deep trees
+Composition wins: swap at runtime, test with fakes, no hierarchy explosion
+Diamond: D(B, C), both extend A   C#: classes single only (interfaces many)
+Python: C3 MRO  -> D.__mro__ ; super() = "next in MRO", not "parent"
+Mixin: small, stateless, single-purpose capability class
+Rule: "Favour composition over inheritance" (GoF)
+```
 
 ---
 

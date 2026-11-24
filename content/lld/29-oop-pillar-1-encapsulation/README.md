@@ -980,6 +980,8 @@ The Python side prints the history tuple and then `all checks passed`.
 | `_closed` flag checked in every command | Nothing changes after checkout (rule 4) |
 | Integer cents | No floating point drift |
 
+**Extension point.** Interviewer says "add a discount code." Add one method, `apply_discount(code)`. It goes through `_require_open()`, validates the code, and updates a private `_discount_cents`. `total_cents` stays computed, so it still cannot disagree with the lines. No caller changes and no invariant breaks, because there is still only one door. If they ask for persistence, return an immutable snapshot, never the internal dict.
+
 ---
 
 ## 16. Edge cases interviewers push on
@@ -1356,21 +1358,14 @@ A snapshot is safe to keep and to iterate while the owner changes, at O(n) cost 
 </details>
 
 <details>
-<summary><strong>7. When would you make a class immutable? [DESIGN]</strong></summary>
+<summary><strong>7. When would you make a class immutable? [SCENARIO]</strong></summary>
 
 When the object is a *value*: money, coordinates, dates, ids, ledger entries, configuration. Immutability removes the need for a door: no change, no corruption, safe sharing, safe use as dictionary keys, and no locking. I use a frozen dataclass in Python and a `record` or `init`-only properties in C#. Things with a real lifecycle (an order) stay mutable behind named methods, but their parts are immutable.
 
 </details>
 
 <details>
-<summary><strong>8. What is "tell, don't ask"? [BASIC]</strong></summary>
-
-Tell an object what to do instead of pulling its data out and deciding outside. `acct.withdraw(50)` keeps the sufficient-funds rule inside the account; "read balance, compare, write balance" copies the rule into every caller. It keeps behavior next to the data it protects and avoids anemic objects.
-
-</details>
-
-<details>
-<summary><strong>9. Does encapsulation make a class thread safe? [TRICKY]</strong></summary>
+<summary><strong>8. Does encapsulation make a class thread safe? [TRICKY]</strong></summary>
 
 No. It protects against *invalid* state, not against *concurrent* access. Two threads can both pass a balance check before either subtracts. Thread safety needs a lock, an atomic operation or immutability, placed inside the class so callers cannot forget it. Encapsulation makes this possible because there is one place to put the lock.
 

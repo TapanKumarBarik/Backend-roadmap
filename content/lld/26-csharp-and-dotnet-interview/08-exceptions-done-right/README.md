@@ -558,63 +558,114 @@ private static bool IsTransient(int statusCode) =>
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between `throw` and `throw ex`?**  
-> **Strong Answer:**  
-> "The fundamental difference lies in how the CLR manages the exception's stack trace during unwinding.  
-> 
-> When you invoke bare `throw;`, the CLR rethrows the currently active exception while keeping its original stack trace completely intact. The stack trace continues to reflect the exact method, file, and line number where the exception was originally instantiated and thrown.  
-> 
-> When you invoke `throw ex;`, you are passing the exception reference to a new throw instruction. The CLR treats the current `catch` block as the brand-new origination point of the exception, overwriting `ex.StackTrace`. Any upstream call hierarchy prior to that catch block is eradicated from the trace. In production, this turns deep debugging into guesswork because loggers will point to the catch block instead of the failing line.  
-> 
-> Therefore, `throw ex;` is an anti-pattern. If you need to rethrow, always use bare `throw;` to preserve the stack, or wrap the caught exception as an `innerException` inside a new domain exception (`throw new OrderProcessingException("...", ex)`)."
+<details>
+<summary><strong>1. What is the difference between `throw` and `throw ex`? [BASIC]</strong></summary>
+
+The fundamental difference lies in how the CLR manages the exception's stack trace during unwinding.
+
+When you invoke bare `throw;`, the CLR rethrows the currently active exception while keeping its original stack trace completely intact. The stack trace continues to reflect the exact method, file, and line number where the exception was originally instantiated and thrown.
+
+When you invoke `throw ex;`, you are passing the exception reference to a new throw instruction. The CLR treats the current `catch` block as the brand-new origination point of the exception, overwriting `ex.StackTrace`. Any upstream call hierarchy prior to that catch block is eradicated from the trace. In production, this turns deep debugging into guesswork because loggers will point to the catch block instead of the failing line.
+
+Therefore, `throw ex;` is an anti-pattern. If you need to rethrow, always use bare `throw;` to preserve the stack, or wrap the caught exception as an `innerException` inside a new domain exception (`throw new OrderProcessingException("...", ex)`).
+
+</details>
+
+<details>
+<summary><strong>2. Does `finally` always run? [TRICKY]</strong></summary>
+
+In normal, managed application flow, yes: `finally` blocks are guaranteed to execute whether the `try` block completes normally, returns early, or exits via an unhandled exception. However, there are five critical scenarios where `finally` will **not** run:
+1. **`Environment.FailFast()`:** When this method is called, the CLR immediately terminates the process without unwinding the stack, executing `finally` blocks, or running finalizers. It is typically invoked when unrecoverable memory or application state corruption is detected.
+2. **OS Process Termination (`Process.Kill()` or SIGKILL):** If the host operating system terminates the process externally (e.g., via `kill -9` on Linux or Task Manager on Windows), the address space is reclaimed immediately.
+3. **`StackOverflowException`:** When the thread call stack overflows, the runtime cannot allocate the stack frame required to execute the `finally` block. In modern .NET, this causes immediate process termination.
+4. **Infinite Loops or Hangs inside `try`:** If execution enters an infinite `while(true)` loop or deadlocks on a thread lock inside the `try` block, execution never leaves the `try`, so `finally` never executes.
+5. **Host Eviction or Hardware Power Loss:** Sudden container eviction (OOM Killer) or server power failure.
+
+</details>
+
+<details>
+<summary><strong>3. When should you create a custom exception? [SCENARIO]</strong></summary>
+
+You should create a custom exception only when callers can programmatically handle the failure in a distinct, meaningful way, or when crossing an architectural boundary where implementation details must be abstracted into domain concepts.
+
+Valid reasons to create a custom exception:
+1. **Caller Actionability:** The calling code needs to catch that specific failure to trigger distinct recovery logic (e.g., catching `InsufficientFundsException` to notify a user, versus catching `PaymentGatewayUnavailableException` to queue the transaction for background retry).
+2. **Adding Structured Metadata:** Built-in exceptions only hold a string message. A custom exception can expose structured properties (e.g., `StatusCode`, `RetryAfter`, `CorrelationId`) that logging middleware and retry policies can inspect without fragile string parsing.
+3. **Architectural Encapsulation:** In Clean or Hexagonal Architecture, infrastructure exceptions (like `SqlException` or `CosmosException`) should not leak into application use cases. Wrapping them in a domain-specific `RepositoryException` enforces modular decoupling.
+
+When creating custom exceptions in modern .NET:
+- Inherit from `System.Exception` (never `System.ApplicationException`, which Microsoft considers obsolete).
+- Provide the standard constructors: `()`, `(string message)`, and `(string message, Exception innerException)`.
+- Do not create custom exceptions for expected domain validation—use `Result<T>` instead.
+
+</details>
+
+<details>
+<summary><strong>4. What is an exception filter? [BASIC]</strong></summary>
+
+An exception filter is a C# language feature using the `when` keyword on a `catch` block that evaluates a boolean condition to decide whether that `catch` block should handle the exception.
+
+For example:
+```csharp
+catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.ServiceUnavailable)
+```
+
+The architectural significance of exception filters lies in the **CLR's two-pass exception handling model**:
+1. **Pass 1 (Search Pass):** The runtime traverses up the stack looking for a matching handler. When it encounters a catch block with a `when` clause, it executes the filter expression **without unwinding the stack**. If the expression returns `false`, the search continues upward. The stack frames above remain intact.
+2. **Pass 2 (Unwind Pass):** Only once a filter returns `true` does the CLR begin unwinding the stack, executing intervening `finally` blocks, and popping stack frames down to the handler.
+
+By contrast, if you catch the exception unconditionally and rethrow with `if (!condition) throw;`, the stack has already been unwound to your catch block. Any crash dump, debugger attached at that moment, or Windows Error Reporting will have lost the original stack frames and local variables of the calling methods. Exception filters keep your call stack intact until a true match is confirmed.
+
+</details>
+
+<details>
+<summary><strong>5. Can `finally` fail to run? [TRICKY]</strong></summary>
+
+Yes: process termination (`Environment.FailFast`, power loss, kill), a stack overflow, or an infinite loop/blocked thread before reaching it. Otherwise it runs even after `return` or an unhandled exception unwinding through it.
+
+</details>
+
+<details>
+<summary><strong>6. A repository catches `Exception`, logs, and returns null. What is wrong? [SCENARIO]</strong></summary>
+
+It swallows failures, forces null checks on callers and loses the stack trace. Catch only specific recoverable exceptions, rethrow with `throw;`, and let a global handler turn unknown errors into a 500 `ProblemDetails`.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: Does `finally` always run?**  
-> **Strong Answer:**  
-> "In normal, managed application flow, yes: `finally` blocks are guaranteed to execute whether the `try` block completes normally, returns early, or exits via an unhandled exception. However, there are five critical scenarios where `finally` will **not** run:  
-> 1. **`Environment.FailFast()`:** When this method is called, the CLR immediately terminates the process without unwinding the stack, executing `finally` blocks, or running finalizers. It is typically invoked when unrecoverable memory or application state corruption is detected.  
-> 2. **OS Process Termination (`Process.Kill()` or SIGKILL):** If the host operating system terminates the process externally (e.g., via `kill -9` on Linux or Task Manager on Windows), the address space is reclaimed immediately.  
-> 3. **`StackOverflowException`:** When the thread call stack overflows, the runtime cannot allocate the stack frame required to execute the `finally` block. In modern .NET, this causes immediate process termination.  
-> 4. **Infinite Loops or Hangs inside `try`:** If execution enters an infinite `while(true)` loop or deadlocks on a thread lock inside the `try` block, execution never leaves the `try`, so `finally` never executes.  
-> 5. **Host Eviction or Hardware Power Loss:** Sudden container eviction (OOM Killer) or server power failure."
+## Try it
+
+Run this: `finally` runs even on `return`, and chaining keeps the cause. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+log = []
+def f():
+    try: return "value"
+    finally: log.append("cleanup")                # runs before the caller sees "value"
+assert f() == "value" and log == ["cleanup"]
+
+try:
+    try: 1 / 0
+    except ZeroDivisionError as e: raise ValueError("bad input") from e   # keeps the cause
+except ValueError as e:
+    assert isinstance(e.__cause__, ZeroDivisionError)
+```
 
 ---
 
-> [!interview]
-> **Question 3: When should you create a custom exception?**  
-> **Strong Answer:**  
-> "You should create a custom exception only when callers can programmatically handle the failure in a distinct, meaningful way, or when crossing an architectural boundary where implementation details must be abstracted into domain concepts.  
-> 
-> Valid reasons to create a custom exception:
-> 1. **Caller Actionability:** The calling code needs to catch that specific failure to trigger distinct recovery logic (e.g., catching `InsufficientFundsException` to notify a user, versus catching `PaymentGatewayUnavailableException` to queue the transaction for background retry).
-> 2. **Adding Structured Metadata:** Built-in exceptions only hold a string message. A custom exception can expose structured properties (e.g., `StatusCode`, `RetryAfter`, `CorrelationId`) that logging middleware and retry policies can inspect without fragile string parsing.
-> 3. **Architectural Encapsulation:** In Clean or Hexagonal Architecture, infrastructure exceptions (like `SqlException` or `CosmosException`) should not leak into application use cases. Wrapping them in a domain-specific `RepositoryException` enforces modular decoupling.  
-> 
-> When creating custom exceptions in modern .NET:
-> - Inherit from `System.Exception` (never `System.ApplicationException`, which Microsoft considers obsolete).
-> - Provide the standard constructors: `()`, `(string message)`, and `(string message, Exception innerException)`.
-> - Do not create custom exceptions for expected domain validation—use `Result<T>` instead."
+## One-page cheat sheet
 
----
-
-> [!interview]
-> **Question 4: What is an exception filter?**  
-> **Strong Answer:**  
-> "An exception filter is a C# language feature using the `when` keyword on a `catch` block that evaluates a boolean condition to decide whether that `catch` block should handle the exception.  
-> 
-> For example:
-> ```csharp
-> catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.ServiceUnavailable)
-> ```
-> 
-> The architectural significance of exception filters lies in the **CLR's two-pass exception handling model**:
-> 1. **Pass 1 (Search Pass):** The runtime traverses up the stack looking for a matching handler. When it encounters a catch block with a `when` clause, it executes the filter expression **without unwinding the stack**. If the expression returns `false`, the search continues upward. The stack frames above remain intact.
-> 2. **Pass 2 (Unwind Pass):** Only once a filter returns `true` does the CLR begin unwinding the stack, executing intervening `finally` blocks, and popping stack frames down to the handler.  
-> 
-> By contrast, if you catch the exception unconditionally and rethrow with `if (!condition) throw;`, the stack has already been unwound to your catch block. Any crash dump, debugger attached at that moment, or Windows Error Reporting will have lost the original stack frames and local variables of the calling methods. Exception filters keep your call stack intact until a true match is confirmed."
+```text
+throw;  keeps stack trace | throw ex; RESETS it (don't) | throw new X(.., ex) wraps (inner)
+finally runs on return/exception; NOT on Environment.FailFast / process kill / stack overflow
+catch (X ex) when (cond): filter - no unwinding yet, great for logging/retry
+Never: catch (Exception) {} swallow | exceptions for normal control flow (slow)
+Custom exception: when callers can act on it; inherit Exception, add ctors, [Serializable] no longer needed
+Expected failure -> TryParse / Result<T> | Exceptional -> throw
+async: exceptions surface at await | Task.WhenAll -> first only (inspect Task.Exception)
+Global handler: middleware / UseExceptionHandler -> ProblemDetails
+```
 
 ---
 

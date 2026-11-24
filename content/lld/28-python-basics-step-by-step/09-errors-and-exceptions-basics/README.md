@@ -809,6 +809,21 @@ Python style leans to EAFP: try it and catch the specific error. It avoids check
 `using`, which calls `Dispose()` when the block ends. In C# 8 and later you can also write `using var x = ...;` without braces.
 </details>
 
+## Cheat sheet
+
+```text
+try: ... except SomeError as e: ... else: (no error) ... finally: (always)
+Catch SPECIFIC errors; never bare `except:`; `except Exception` only at the edge
+Common: ValueError TypeError KeyError IndexError ZeroDivisionError AttributeError FileNotFoundError
+raise ValueError("why")     bare `raise` re-raises   raise X from e  chains cause
+Custom: class MyError(Exception): pass
+Read the traceback from the BOTTOM: last line = error, line above = where
+EAFP (try it, catch) is Pythonic | LBYL (check first) when cheap and clear
+with open(...) as f: closes even on error
+assert for programmer bugs, exceptions for bad input/environment
+Don't swallow: at least log it
+```
+
 ---
 
 ## Further reading

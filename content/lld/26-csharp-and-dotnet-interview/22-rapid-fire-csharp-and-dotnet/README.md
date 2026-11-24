@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A **rapid-fire revision sheet** for C# and .NET: ~80 questions grouped by area — answer each in one or two sentences out loud the night before.
+
 > [!TIP]
 > **The One Rule of Rapid-Fire .NET Interviews:** Never answer a conceptual question with vague theory when you can state the **underlying CLR mechanism, the runtime consequence, and the single keyword or pattern that solves it** in two punchy sentences. Deliver the punchline first, then offer to dive into the IL or memory internals.
 
@@ -697,6 +700,56 @@ The C# `lock` statement translates to `Monitor.Enter` and `Monitor.Exit`, which 
 > **Question 81: Code first or database first?**  
 > **Strong Answer:**  
 > "Code First drives database schema changes from C# entity classes and version-controlled EF Core migrations, ideal for greenfield DDD projects. Database First reverse-engineers C# classes from an existing database schema using `dotnet ef dbcontext scaffold`, ideal for legacy databases or strict DBA governance."
+
+### Top 6 drills (tagged)
+
+<details>
+<summary><strong>1. Value type vs reference type? [BASIC]</strong></summary>
+
+Value types are copied on assignment (struct/enum); reference types share one heap object (class/record). Records add value-based equality but are still references.
+
+</details>
+
+<details>
+<summary><strong>2. Singleton, scoped, transient? [BASIC]</strong></summary>
+
+One instance per app / one per request scope / a new instance every resolve. Never inject a shorter-lived service into a longer-lived one.
+
+</details>
+
+<details>
+<summary><strong>3. Where do you handle errors in an ASP.NET Core API? [SCENARIO]</strong></summary>
+
+Once, centrally: exception-handling middleware (`IExceptionHandler`) returning `ProblemDetails`; controllers throw domain exceptions or return typed results.
+
+</details>
+
+<details>
+<summary><strong>4. How do you speed up an endpoint doing three independent HTTP calls? [SCENARIO]</strong></summary>
+
+`await Task.WhenAll(...)` with a `CancellationToken`: total latency becomes the slowest call instead of the sum.
+
+</details>
+
+<details>
+<summary><strong>5. Why does `.Result` deadlock in some apps? [TRICKY]</strong></summary>
+
+It blocks the thread the async continuation needs to resume on (a captured synchronization context in UI/legacy ASP.NET). Use `await` all the way; avoid blocking on tasks.
+
+</details>
+
+<details>
+<summary><strong>6. `throw;` vs `throw ex;`? [TRICKY]</strong></summary>
+
+`throw;` rethrows preserving the original stack trace; `throw ex;` resets it to the current line, destroying the evidence of where the error started.
+
+</details>
+
+---
+
+## Try it
+
+Set a 10-minute timer, pick five random questions from section 7, and answer them aloud with one *run-time detail* each (what the CLR/GC/pipeline actually does). Review misses in the matching lesson via the [track hub](../README.md), then label the flow in [LLD Studio](/tools/lld-studio/).
 
 ---
 

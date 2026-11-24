@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Mediator** centralises how a set of objects talk to each other so they only know the mediator, turning a tangle of N×N references into N spokes — at the risk of a god-object hub.
+
 > [!TIP]
 > **The One Rule of the Mediator Pattern:** Mediator transforms an unmaintainable $O(N^2)$ mesh of direct dependencies between interacting components into an $O(N)$ star topology by routing all inter-component communication through a centralized coordinator. In enterprise .NET and Python backends, this pattern is the industry standard for implementing in-process CQRS (Command Query Responsibility Segregation) pipelines and domain event dispatching.
 
@@ -487,32 +490,96 @@ The Air Traffic Control Tower acts as the **Mediator**. Airplanes only talk to t
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Mediator pattern?**  
-> **Strong Answer:**  
-> "The Mediator pattern is a behavioral design pattern that restricts direct communication between a set of collaborating objects (Colleagues) by forcing all communication to flow through a centralized mediator object.  
-> 
-> Without a mediator, components reference one another directly, resulting in an unmaintainable $O(N^2)$ dependency mesh. The mediator pattern flattens this into an $O(N)$ star topology: each component depends only on the mediator abstraction. The mediator encapsulates the interaction rules and coordination logic, allowing components to be modified, tested, and reused in complete isolation from one another."
+<details>
+<summary><strong>1. What is the Mediator pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What does `MediatR` do in .NET?**  
-> **Strong Answer:**  
-> "In .NET, `MediatR` is an in-process messaging library authored by Jimmy Bogard that implements the Mediator pattern to support Command Query Responsibility Segregation (CQRS) and vertical slice architectures.  
-> 
-> It provides three primary capabilities:  
-> 1. **Request/Response Dispatching (`Send`):** Maps a command or query (`IRequest<TResponse>`) to a single dedicated handler (`IRequestHandler<TRequest, TResponse>`), completely decoupling API controllers from domain service implementations.  
-> 2. **Domain Event Broadcasting (`Publish`):** Dispatches a notification (`INotification`) to zero or more handlers (`INotificationHandler<TNotification>`), enabling side-effects (like sending confirmation emails or invalidating caches) to execute without coupling to the primary command handler.  
-> 3. **Pipeline Behaviors (`IPipelineBehavior`):** Acts as an in-process middleware chain wrapping request handlers. This enables cross-cutting concerns like validation (FluentValidation), logging, performance metrics, and database transaction management to execute transparently around handlers."
+The Mediator pattern is a behavioral design pattern that restricts direct communication between a set of collaborating objects (Colleagues) by forcing all communication to flow through a centralized mediator object.
 
-> [!interview]
-> **Question 3: What is the difference between Mediator and Observer?**  
-> **Strong Answer:**  
-> "While both patterns facilitate decoupled messaging, they differ fundamentally in intent, topology, and communication flow:  
-> 
-> 1. **Communication Flow:** The **Observer pattern** is strictly **unidirectional (one-way)** broadcast. A Subject notifies a list of anonymous observers that a state change occurred; the Subject neither knows who is listening nor expects any response. The **Mediator pattern** coordinates **bidirectional or multi-way** communication. It often facilitates request-response workflows (1-to-1) and orchestrates complex multi-step sequences among collaborating peers.  
-> 2. **Topology & Knowledge:** Observer establishes a distributed 1-to-many relationship where subscribers register themselves directly with the Subject. Mediator establishes a centralized star topology (hub-and-spoke) where colleagues talk only to the mediator, and the mediator directs how colleagues collaborate.  
-> 
-> In practice, a Mediator often *uses* the Observer pattern internally to broadcast domain notifications to multiple event handlers."
+Without a mediator, components reference one another directly, resulting in an unmaintainable $O(N^2)$ dependency mesh. The mediator pattern flattens this into an $O(N)$ star topology: each component depends only on the mediator abstraction. The mediator encapsulates the interaction rules and coordination logic, allowing components to be modified, tested, and reused in complete isolation from one another.
+
+</details>
+
+<details>
+<summary><strong>2. What does `MediatR` do in .NET? [BASIC]</strong></summary>
+
+In .NET, `MediatR` is an in-process messaging library authored by Jimmy Bogard that implements the Mediator pattern to support Command Query Responsibility Segregation (CQRS) and vertical slice architectures.
+
+It provides three primary capabilities:
+1. **Request/Response Dispatching (`Send`):** Maps a command or query (`IRequest<TResponse>`) to a single dedicated handler (`IRequestHandler<TRequest, TResponse>`), completely decoupling API controllers from domain service implementations.
+2. **Domain Event Broadcasting (`Publish`):** Dispatches a notification (`INotification`) to zero or more handlers (`INotificationHandler<TNotification>`), enabling side-effects (like sending confirmation emails or invalidating caches) to execute without coupling to the primary command handler.
+3. **Pipeline Behaviors (`IPipelineBehavior`):** Acts as an in-process middleware chain wrapping request handlers. This enables cross-cutting concerns like validation (FluentValidation), logging, performance metrics, and database transaction management to execute transparently around handlers.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between Mediator and Observer? [BASIC]</strong></summary>
+
+While both patterns facilitate decoupled messaging, they differ fundamentally in intent, topology, and communication flow:
+
+1. **Communication Flow:** The **Observer pattern** is strictly **unidirectional (one-way)** broadcast. A Subject notifies a list of anonymous observers that a state change occurred; the Subject neither knows who is listening nor expects any response. The **Mediator pattern** coordinates **bidirectional or multi-way** communication. It often facilitates request-response workflows (1-to-1) and orchestrates complex multi-step sequences among collaborating peers.
+2. **Topology & Knowledge:** Observer establishes a distributed 1-to-many relationship where subscribers register themselves directly with the Subject. Mediator establishes a centralized star topology (hub-and-spoke) where colleagues talk only to the mediator, and the mediator directs how colleagues collaborate.
+
+In practice, a Mediator often *uses* the Observer pattern internally to broadcast domain notifications to multiple event handlers.
+
+</details>
+
+<details>
+<summary><strong>4. A form has 10 controls that enable/disable each other. How do you tame it? [SCENARIO]</strong></summary>
+
+Introduce a form mediator; controls raise events to it and it updates the others. Each control stays reusable and the interaction rules are in one testable class.
+
+</details>
+
+<details>
+<summary><strong>5. What is the biggest danger of Mediator? [TRICKY]</strong></summary>
+
+It collects all interaction logic and grows into a God object. Split into several mediators by feature or use small request/handler pairs (as MediatR does).
+
+</details>
+
+<details>
+<summary><strong>6. Mediator vs Observer? [BASIC]</strong></summary>
+
+Observer broadcasts from one subject to unknown subscribers. Mediator is a two-way hub that *decides* who talks to whom and applies the coordination rules.
+
+</details>
+
+---
+
+## Try it
+
+Run this: colleagues never reference each other, only the room. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class ChatRoom:
+    def __init__(self): self.users = []
+    def join(self, u): self.users.append(u); u.room = self
+    def send(self, sender, msg):
+        for u in self.users:
+            if u is not sender: u.inbox.append(msg)
+
+class User:
+    def __init__(self): self.inbox, self.room = [], None
+    def say(self, msg): self.room.send(self, msg)
+
+room, a, b = ChatRoom(), User(), User()
+room.join(a); room.join(b); a.say("hi")
+assert b.inbox == ["hi"] and a.inbox == []
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+MEDIATOR  Colleague <-> Mediator <-> Colleague   (no colleague-to-colleague refs)
+Turns many-to-many into one-to-many; logic of interaction lives in one place
+Use: chat room, form controls enabling each other, air-traffic control, MediatR
+MediatR: Send(request) -> one handler | Publish(notification) -> many
+Mediator = coordinate peers | Observer = broadcast | Facade = simplify subsystem
+Risk: mediator becomes a God object with all the logic
+Keep handlers small; one request type -> one handler
+```
 
 ---
 

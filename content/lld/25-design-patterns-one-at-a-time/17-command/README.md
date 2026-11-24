@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Command** turns a request into an object (`execute`, optionally `undo`) so you can queue it, log it, retry it, or reverse it later.
+
 > [!TIP]
 > **The One Rule of Command:** Reify requests into first-class objects: decouple the object invoking the operation from the object that knows how to perform it. By turning an action into an object with `Execute()` and `Undo()`, you transform ephemeral method calls into serializable, schedulable, queueable, and reversible units of work.
 
@@ -503,34 +506,97 @@ Each compensating command must be **idempotent**, persisted in a message broker 
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Command pattern?**  
-> **Strong Answer:**  
-> "The Command pattern is a behavioral design pattern that turns a request into a stand-alone object containing all information about the request: the target receiver, the method to call, and the method arguments.  
-> 
-> By encapsulating requests as objects, it decouples the object that invokes the operation (such as a UI button, scheduler, or HTTP controller) from the receiver that performs the actual business logic. This parameterization enables advanced operational capabilities that standard method calls cannot provide: queuing requests, scheduling delayed execution, logging transaction history for crash recovery (Write-Ahead Logging), and implementing multi-level Undo/Redo mechanisms through an `Undo()` method."
+<details>
+<summary><strong>1. What is the Command pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: How would you implement undo?**  
-> **Strong Answer:**  
-> "Undo is implemented by pairing the Command pattern with a **dual-stack History Manager** (an Undo stack and a Redo stack):  
-> 
-> 1. The command interface exposes two symmetrical methods: `Execute()` and `Undo()`.
-> 2. Each concrete command captures the necessary delta or prior state during execution (for example, `DeleteCommand` stores the exact text it deleted).
-> 3. When a command executes, the invoker pushes it onto the `_undoStack` and clears the `_redoStack`.
-> 4. When the user requests **Undo**, the invoker pops the most recent command from `_undoStack`, calls its `Undo()` method to reverse the mutation, and pushes it onto `_redoStack`.
-> 5. When the user requests **Redo**, the invoker pops from `_redoStack`, calls `Execute()`, and pushes it back onto `_undoStack`.
-> 6. To prevent unbounded memory consumption, the undo stack should be backed by a bounded ring buffer or deque with a fixed capacity."
+The Command pattern is a behavioral design pattern that turns a request into a stand-alone object containing all information about the request: the target receiver, the method to call, and the method arguments.
 
-> [!interview]
-> **Question 3: Where is the Command pattern used in real systems?**  
-> **Strong Answer:**  
-> "The Command pattern is ubiquitous across modern enterprise architectures:  
-> 
-> 1. **CQRS Architectures (MediatR / Axon):** In Command Query Responsibility Segregation, write operations are modeled as discrete Command objects (e.g., `RegisterUserCommand`). Handlers process commands independently from queries, providing clean transaction boundaries and authorization pipelines.  
-> 2. **Desktop and Web GUIs:** In WPF, .NET MAUI, and web applications, buttons and hotkeys bind to `ICommand` instances, allowing buttons to enable or disable automatically via `CanExecute()` without coupling to UI components.  
-> 3. **Asynchronous Job & Task Queues (Hangfire, Celery, Quartz.NET):** When a worker schedules a job, the task arguments and execution path are serialized into a command payload and placed on a Redis or RabbitMQ queue. Worker nodes dequeue the command and invoke `Execute()`.  
-> 4. **Database Migration Engines (EF Core, Flyway):** Database migrations represent schema changes as forward commands (`Up()`) and reverse undo commands (`Down()`)."
+By encapsulating requests as objects, it decouples the object that invokes the operation (such as a UI button, scheduler, or HTTP controller) from the receiver that performs the actual business logic. This parameterization enables advanced operational capabilities that standard method calls cannot provide: queuing requests, scheduling delayed execution, logging transaction history for crash recovery (Write-Ahead Logging), and implementing multi-level Undo/Redo mechanisms through an `Undo()` method.
+
+</details>
+
+<details>
+<summary><strong>2. How would you implement undo? [SCENARIO]</strong></summary>
+
+Undo is implemented by pairing the Command pattern with a **dual-stack History Manager** (an Undo stack and a Redo stack):
+
+1. The command interface exposes two symmetrical methods: `Execute()` and `Undo()`.
+2. Each concrete command captures the necessary delta or prior state during execution (for example, `DeleteCommand` stores the exact text it deleted).
+3. When a command executes, the invoker pushes it onto the `_undoStack` and clears the `_redoStack`.
+4. When the user requests **Undo**, the invoker pops the most recent command from `_undoStack`, calls its `Undo()` method to reverse the mutation, and pushes it onto `_redoStack`.
+5. When the user requests **Redo**, the invoker pops from `_redoStack`, calls `Execute()`, and pushes it back onto `_undoStack`.
+6. To prevent unbounded memory consumption, the undo stack should be backed by a bounded ring buffer or deque with a fixed capacity.
+
+</details>
+
+<details>
+<summary><strong>3. Where is the Command pattern used in real systems? [SCENARIO]</strong></summary>
+
+The Command pattern is ubiquitous across modern enterprise architectures:
+
+1. **CQRS Architectures (MediatR / Axon):** In Command Query Responsibility Segregation, write operations are modeled as discrete Command objects (e.g., `RegisterUserCommand`). Handlers process commands independently from queries, providing clean transaction boundaries and authorization pipelines.
+2. **Desktop and Web GUIs:** In WPF, .NET MAUI, and web applications, buttons and hotkeys bind to `ICommand` instances, allowing buttons to enable or disable automatically via `CanExecute()` without coupling to UI components.
+3. **Asynchronous Job & Task Queues (Hangfire, Celery, Quartz.NET):** When a worker schedules a job, the task arguments and execution path are serialized into a command payload and placed on a Redis or RabbitMQ queue. Worker nodes dequeue the command and invoke `Execute()`.
+4. **Database Migration Engines (EF Core, Flyway):** Database migrations represent schema changes as forward commands (`Up()`) and reverse undo commands (`Down()`).
+
+</details>
+
+<details>
+<summary><strong>4. How would you build a job queue with retries using Command? [SCENARIO]</strong></summary>
+
+Each job is a command object with `execute()` and serialisable data. A worker pulls from the queue, runs it, and on failure re-enqueues with a retry count and backoff. Because it is an object it can be persisted and logged.
+
+</details>
+
+<details>
+<summary><strong>5. How do you undo something that is not reversible, like sending an email? [TRICKY]</strong></summary>
+
+You can't truly undo it; model a *compensating* action (send a correction) or mark the command non-undoable and disable undo for it. Be honest about which commands are reversible.
+
+</details>
+
+<details>
+<summary><strong>6. Command vs Strategy? [BASIC]</strong></summary>
+
+Strategy changes *how* a single operation is done. Command packages *an operation to be done* (with its arguments and receiver) so it can be passed around, queued or undone.
+
+</details>
+
+---
+
+## Try it
+
+Run this: every command knows how to undo itself, and a stack gives you Ctrl+Z. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Doc: text = ""
+
+class Append:
+    def __init__(self, doc, s): self.doc, self.s = doc, s
+    def do(self): self.doc.text += self.s
+    def undo(self): self.doc.text = self.doc.text[:-len(self.s)]
+
+d, history = Doc(), []
+for s in ("a", "b"):
+    c = Append(d, s); c.do(); history.append(c)
+assert d.text == "ab"
+history.pop().undo()
+assert d.text == "a"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+COMMAND  Invoker -> Command { execute(), undo() } -> Receiver
+Request becomes an OBJECT: store, queue, log, serialise, retry, undo
+Undo: keep a history stack (+ redo stack); command stores what it needs to revert
+Macro command = list of commands | Transaction = all-or-nothing batch
+.NET: ICommand (WPF), MediatR requests | Py: callables + partial
+Command (request as object) | Strategy (swap algorithm) | Memento (state snapshot)
+Pitfalls: command bloat, non-reversible side effects (emails)
+```
 
 ---
 

@@ -5,10 +5,17 @@
 #root #empty.pr-screen,
 #empty.pr-screen,
 .pr-screen {
-  max-width: 1040px;
+  max-width: 960px;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
+}
+.pr-screen > .home-sub {
+  max-width: 52ch;
+  margin-bottom: var(--space-5);
+}
+.pr-screen .ui-tabs {
+  margin-top: var(--space-4);
 }
 #root .pr-screen h3 { font-size: var(--text-lg); margin: var(--space-8) 0 var(--space-3); }
 #root .pr-screen .pr-card__title, #root .pr-screen .pr-qa h3 { margin: var(--space-2) 0 var(--space-1); font-size: var(--text-lg); }

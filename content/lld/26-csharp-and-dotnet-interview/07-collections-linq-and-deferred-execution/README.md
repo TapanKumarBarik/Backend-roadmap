@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** LINQ queries are **deferred**: building one runs nothing, enumerating it runs it (every time); `IEnumerable` filters in memory, `IQueryable` translates to SQL.
+
 > [!TIP]
 > **The One Rule of LINQ & Collections:** Choose collection interfaces from weakest contract to strongest (`IEnumerable<T>` for pull-only streaming, `IReadOnlyList<T>` for indexed reads, `IList<T>` for mutable state); remember that LINQ operators never execute on definition—they build iterator pipelines executed lazily on enumeration. If you filter with `IEnumerable` across an ORM boundary, your database downloads entire tables into memory; if you filter with `IQueryable`, your query translates to SQL on the server.
 
@@ -383,52 +386,106 @@ Which of the following LINQ operators trigger **immediate execution** (materiali
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between IEnumerable and IQueryable?**  
-> **Strong Answer:**  
-> "The primary difference lies in how queries are represented and executed:  
-> 
-> 1. **Execution Mechanics:** `IEnumerable<T>` represents an in-memory forward-only collection enumerated using compiled IL delegates (`Func<T, bool>`). Operations execute locally in application memory. `IQueryable<T>` inherits from `IEnumerable<T>` but represents an external data source query evaluated via **Expression Trees** (`Expression<Func<T, bool>>`).  
-> 2. **Provider Translation:** In `IQueryable<T>`, the LINQ provider (such as EF Core) inspects the abstract syntax tree of the expression at runtime and translates it into the native query language of the underlying store (e.g., SQL for relational databases). Filtering, paging, and projections occur directly on the database engine.  
-> 3. **Performance Impact:** Filtering with `IEnumerable` across an ORM boundary causes a table scan, pulling all records over the network into memory before filtering. Filtering with `IQueryable` ensures only the filtered result set is transmitted over the wire."
+<details>
+<summary><strong>1. What is the difference between IEnumerable and IQueryable? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is deferred execution in LINQ?**  
-> **Strong Answer:**  
-> "Deferred execution means that the evaluation of a LINQ expression is delayed until its resolved value is actually required by the program. Defining a LINQ query does not execute any filtering or projection; it simply creates an iterator state machine.  
-> 
-> Execution is triggered only when a terminal operation is called. These include:  
-> 1. Iterating through a `foreach` loop.  
-> 2. Materializing into a collection via `.ToList()`, `.ToArray()`, or `.ToDictionary()`.  
-> 3. Calling scalar aggregation methods like `.Count()`, `.Sum()`, `.First()`, or `.Any()`.  
-> 
-> Deferred execution allows for query composition—you can append multiple conditional `.Where()` filters dynamically across different methods without querying the database until final materialization. The primary risk is **multiple enumeration**, where an unmaterialized query executes multiple times if evaluated in multiple places."
+The primary difference lies in how queries are represented and executed:
 
-> [!interview]
-> **Question 3: What is the difference between First, FirstOrDefault and Single?**  
-> **Strong Answer:**  
-> "These LINQ operators retrieve a single element from a sequence but differ in how they handle empty collections and multiple matches:  
-> 
-> - **`First()`**: Returns the first element of the sequence. If the sequence is empty, it throws an `InvalidOperationException`. In EF Core, it translates to `SELECT TOP 1`.  
-> - **`FirstOrDefault()`**: Returns the first element of the sequence, or the type's default value (`null` for reference types, `0` for numeric types) if the sequence is empty. It stops reading as soon as the first match is encountered.  
-> - **`Single()`**: Returns the single element of the sequence. It throws an `InvalidOperationException` if the sequence is empty **or if it contains more than one element**.  
-> - **`SingleOrDefault()`**: Returns the single element, or `default` if the sequence is empty. However, **it still throws an exception if more than one matching element exists**. In EF Core, it translates to `SELECT TOP 2` to verify uniqueness.  
-> 
-> Use `First`/`FirstOrDefault` when you want the earliest element or know duplicates don't matter. Use `Single`/`SingleOrDefault` when finding more than one match represents a critical data corruption error (such as finding two users with the same unique email)."
+1. **Execution Mechanics:** `IEnumerable<T>` represents an in-memory forward-only collection enumerated using compiled IL delegates (`Func<T, bool>`). Operations execute locally in application memory. `IQueryable<T>` inherits from `IEnumerable<T>` but represents an external data source query evaluated via **Expression Trees** (`Expression<Func<T, bool>>`).
+2. **Provider Translation:** In `IQueryable<T>`, the LINQ provider (such as EF Core) inspects the abstract syntax tree of the expression at runtime and translates it into the native query language of the underlying store (e.g., SQL for relational databases). Filtering, paging, and projections occur directly on the database engine.
+3. **Performance Impact:** Filtering with `IEnumerable` across an ORM boundary causes a table scan, pulling all records over the network into memory before filtering. Filtering with `IQueryable` ensures only the filtered result set is transmitted over the wire.
 
-> [!interview]
-> **Question 4: Which collection gives O(1) lookup?**  
-> **Strong Answer:**  
-> "In .NET, **`Dictionary<TKey, TValue>`** and **`HashSet<T>`** provide average $O(1)$ constant time lookup, insertion, and deletion.  
-> 
-> They achieve this using a hash table implementation. When a key is queried:  
-> 1. The collection calls `comparer.GetHashCode(key)` to generate a 32-bit integer hash code.  
-> 2. It maps the hash code to a specific bucket index using a modulo operation against the internal bucket array size.  
-> 3. It checks the linked bucket entries, using `comparer.Equals(key, entryKey)` to resolve any hash collisions.  
-> 
-> The lookup is $O(1)$ on average. In the pathological worst-case scenario where every key produces the identical hash code (a hash collision attack or poorly written `GetHashCode()`), lookup degrades to $O(N)$ linear search.  
-> 
-> For concurrent multithreaded scenarios, **`ConcurrentDictionary<TKey, TValue>`** provides thread-safe $O(1)$ reads and writes without locking the entire collection."
+</details>
+
+<details>
+<summary><strong>2. What is deferred execution in LINQ? [BASIC]</strong></summary>
+
+Deferred execution means that the evaluation of a LINQ expression is delayed until its resolved value is actually required by the program. Defining a LINQ query does not execute any filtering or projection; it simply creates an iterator state machine.
+
+Execution is triggered only when a terminal operation is called. These include:
+1. Iterating through a `foreach` loop.
+2. Materializing into a collection via `.ToList()`, `.ToArray()`, or `.ToDictionary()`.
+3. Calling scalar aggregation methods like `.Count()`, `.Sum()`, `.First()`, or `.Any()`.
+
+Deferred execution allows for query composition—you can append multiple conditional `.Where()` filters dynamically across different methods without querying the database until final materialization. The primary risk is **multiple enumeration**, where an unmaterialized query executes multiple times if evaluated in multiple places.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between First, FirstOrDefault and Single? [BASIC]</strong></summary>
+
+These LINQ operators retrieve a single element from a sequence but differ in how they handle empty collections and multiple matches:
+
+- **`First()`**: Returns the first element of the sequence. If the sequence is empty, it throws an `InvalidOperationException`. In EF Core, it translates to `SELECT TOP 1`.
+- **`FirstOrDefault()`**: Returns the first element of the sequence, or the type's default value (`null` for reference types, `0` for numeric types) if the sequence is empty. It stops reading as soon as the first match is encountered.
+- **`Single()`**: Returns the single element of the sequence. It throws an `InvalidOperationException` if the sequence is empty **or if it contains more than one element**.
+- **`SingleOrDefault()`**: Returns the single element, or `default` if the sequence is empty. However, **it still throws an exception if more than one matching element exists**. In EF Core, it translates to `SELECT TOP 2` to verify uniqueness.
+
+Use `First`/`FirstOrDefault` when you want the earliest element or know duplicates don't matter. Use `Single`/`SingleOrDefault` when finding more than one match represents a critical data corruption error (such as finding two users with the same unique email).
+
+</details>
+
+<details>
+<summary><strong>4. Which collection gives O(1) lookup? [SCENARIO]</strong></summary>
+
+In .NET, **`Dictionary<TKey, TValue>`** and **`HashSet<T>`** provide average $O(1)$ constant time lookup, insertion, and deletion.
+
+They achieve this using a hash table implementation. When a key is queried:
+1. The collection calls `comparer.GetHashCode(key)` to generate a 32-bit integer hash code.
+2. It maps the hash code to a specific bucket index using a modulo operation against the internal bucket array size.
+3. It checks the linked bucket entries, using `comparer.Equals(key, entryKey)` to resolve any hash collisions.
+
+The lookup is $O(1)$ on average. In the pathological worst-case scenario where every key produces the identical hash code (a hash collision attack or poorly written `GetHashCode()`), lookup degrades to $O(N)$ linear search.
+
+For concurrent multithreaded scenarios, **`ConcurrentDictionary<TKey, TValue>`** provides thread-safe $O(1)$ reads and writes without locking the entire collection.
+
+</details>
+
+<details>
+<summary><strong>5. A LINQ query uses a variable that changes before the query is enumerated. What does it use? [TRICKY]</strong></summary>
+
+The *current* value at enumeration time (deferred execution plus closure capture), not the value when the query was written. Materialise early or copy the variable if you need the old value.
+
+</details>
+
+<details>
+<summary><strong>6. A page loads 10k rows then filters in C#. How would you fix it? [SCENARIO]</strong></summary>
+
+Keep the query as `IQueryable` until the `Where/Skip/Take` are applied so SQL filters and pages. Calling `ToList()` or `AsEnumerable()` early pulls everything into memory first.
+
+</details>
+
+---
+
+## Try it
+
+Run this: lazy pipelines run on enumeration, and run again if enumerated twice. Same idea as the C# version; for the .NET run, use the sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Draw it in [LLD Studio](/tools/lld-studio/).
+
+```python
+calls = []
+def src():
+    for i in range(3):
+        calls.append(i); yield i
+
+q = (x * 2 for x in src())                       # nothing runs yet
+assert calls == []
+assert list(q) == [0, 2, 4] and calls == [0, 1, 2]
+assert list(q) == []                             # exhausted (C# would re-run the query)
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+Deferred: Where/Select/OrderBy build a query | Immediate: ToList/ToArray/Count/First/Sum
+Multiple enumeration = work repeated (or DB hit twice) -> materialise with ToList()
+IEnumerable<T>: LINQ-to-Objects, delegates, in memory
+IQueryable<T> : expression trees -> SQL (EF Core). Don't call AsEnumerable too early
+First (throws if none) | FirstOrDefault (default) | Single (exactly one) | SingleOrDefault (0/1)
+Lookup: Dictionary/HashSet O(1) | List.Contains O(n)
+Beware: closure captures in queries, modifying source while enumerating
+```
 
 ---
 

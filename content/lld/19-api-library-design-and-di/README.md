@@ -85,7 +85,7 @@ flowchart LR
 - `BillingService` — orchestrates; receives both via constructor.
 - `ClientOptionsBuilder` — optional fluent façade that validates in `build()`.
 
-**Key methods:** `ClientOptions.replace(...)` (copy-with-change, since the object is frozen), `BillingService.process_invoice(...)`.
+**Key methods:** `ClientOptions.with_(...)` (copy-with-change via `dataclasses.replace`, since the object is frozen), `BillingService.process_invoice(...)`.
 
 **Extension point:** add a field to `ClientOptions` with a default → existing callers compile and run unchanged. Add a second gateway → new class implementing `PaymentGateway`; `BillingService` untouched.
 
@@ -307,7 +307,7 @@ public static class BillingRegistration
 | Backward-compatible addition | MINOR `1.x.0` | New optional `idempotency_prefix` with a default |
 | Remove / rename / change signature or semantics | MAJOR `x.0.0` | `charge(int)` → `charge(Money)` |
 
-**War story (compressed):** a shared auth SDK added a *required* `region` constructor argument and shipped it as a PATCH. Every service on `^1.4.0` picked it up on the next build; ~240 pipelines failed at once and restarting pods crash-looped. Fixes: options object with defaults, a CI check that diffs the public API against the last release, and a deprecation window (mark old surface `@deprecated` for two minors before removal).
+**Illustrative failure (a common pattern, not a named incident):** a shared auth SDK added a *required* `region` constructor argument and shipped it as a PATCH. Every service on `^1.4.0` picked it up on the next build; ~240 pipelines failed at once and restarting pods crash-looped. Fixes: options object with defaults, a CI check that diffs the public API against the last release, and a deprecation window (mark old surface `@deprecated` for two minors before removal).
 
 ---
 

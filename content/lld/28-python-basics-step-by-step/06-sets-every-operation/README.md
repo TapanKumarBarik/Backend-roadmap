@@ -944,6 +944,20 @@ Union: in either. Intersection: in both. Difference `a - b`: in `a` but not `b`.
 Walk the items and keep a set of those seen. The first item already in the set is the answer. Time O(n), extra space O(n).
 </details>
 
+## Cheat sheet
+
+```text
+Create  {1, 2}  set(xs)  set()  <- {} is an EMPTY DICT, not a set
+add(x)  update(xs)  remove(x) KeyError | discard(x) quiet | pop() arbitrary | clear()
+a | b union   a & b intersection   a - b difference   a ^ b symmetric diff
+a <= b subset   a >= b superset   a.isdisjoint(b)
+Members must be hashable: no list/dict/set inside; use tuple / frozenset
+Unordered, no duplicates, no indexing
+x in s is O(1) average (list is O(n))   dedupe: list(set(xs)) loses order
+Keep order: list(dict.fromkeys(xs))
+Use for: membership, dedupe, "what's in A but not B?"
+```
+
 ---
 
 ## Further reading

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Composite** lets you treat a single object and a tree of objects through the same interface (file/folder, menu/submenu), so clients never ask "leaf or group?".
+
 > [!TIP]
 > **The One Rule of the Composite Pattern:** Treat individual leaf objects and composite tree branches **identically through a single shared interface**, eliminating conditional type checks (`if (item is Directory)`) when traversing, calculating, or operating on hierarchical part-whole structures.
 
@@ -408,30 +411,95 @@ def contains_descendant(self, target: FileSystemItem) -> bool:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Composite pattern?**  
-> **Strong Answer:**  
-> "The Composite pattern is a structural design pattern that composes objects into tree structures to represent **part-whole hierarchies**, allowing client code to treat individual leaf objects and composite collections of objects **identically**.
-> 
-> It consists of three primary components:
-> 1. A **Component** interface declaring common operations (e.g., `GetSize()`, `Render()`, `Execute()`).
-> 2. **Leaf** classes that represent terminal nodes containing business data and no children.
-> 3. **Composite** classes that maintain a collection of child components and implement operations by delegating work recursively across their children.
-> 
-> The major architectural benefit is that it eliminates conditional branching logic (`if (node is Folder) ... else ...`) in client applications, adhering to the Open/Closed Principle."
+<details>
+<summary><strong>1. What is the Composite pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Give an example of a Composite in a real system.**  
-> **Strong Answer:**  
-> "A classic real-world example is an **enterprise file system**:
-> - The component interface is `IFileSystemItem` with methods `GetSize()` and `PrintHierarchy()`.
-> - The leaf is `FileItem`, holding raw file byte size. Its `GetSize()` simply returns its own size.
-> - The composite is `DirectoryItem`, holding a collection of `IFileSystemItem` instances (which can be either files or other directories). Its `GetSize()` recursively sums the sizes of all its children.
-> 
-> Other prominent production examples include:
-> 1. **UI Component Frameworks (WPF / DOM):** A `Container` or `Panel` holds buttons, text fields, and nested sub-panels, rendering the entire tree via uniform layout operations.
-> 2. **Organization Hierarchies:** An `Employee` interface implemented by `IndividualContributor` (leaf) and `Manager` (composite holding a team), calculating total department payroll uniformly.
-> 3. **Composite Validators:** In backend request pipelines, combining multiple independent validation rules into a single `CompositeValidator` that executes all sub-validators polymorphically."
+The Composite pattern is a structural design pattern that composes objects into tree structures to represent **part-whole hierarchies**, allowing client code to treat individual leaf objects and composite collections of objects **identically**.
+
+It consists of three primary components:
+1. A **Component** interface declaring common operations (e.g., `GetSize()`, `Render()`, `Execute()`).
+2. **Leaf** classes that represent terminal nodes containing business data and no children.
+3. **Composite** classes that maintain a collection of child components and implement operations by delegating work recursively across their children.
+
+The major architectural benefit is that it eliminates conditional branching logic (`if (node is Folder) ... else ...`) in client applications, adhering to the Open/Closed Principle.
+
+</details>
+
+<details>
+<summary><strong>2. Give an example of a Composite in a real system. [SCENARIO]</strong></summary>
+
+A classic real-world example is an **enterprise file system**:
+- The component interface is `IFileSystemItem` with methods `GetSize()` and `PrintHierarchy()`.
+- The leaf is `FileItem`, holding raw file byte size. Its `GetSize()` simply returns its own size.
+- The composite is `DirectoryItem`, holding a collection of `IFileSystemItem` instances (which can be either files or other directories). Its `GetSize()` recursively sums the sizes of all its children.
+
+Other prominent production examples include:
+1. **UI Component Frameworks (WPF / DOM):** A `Container` or `Panel` holds buttons, text fields, and nested sub-panels, rendering the entire tree via uniform layout operations.
+2. **Organization Hierarchies:** An `Employee` interface implemented by `IndividualContributor` (leaf) and `Manager` (composite holding a team), calculating total department payroll uniformly.
+3. **Composite Validators:** In backend request pipelines, combining multiple independent validation rules into a single `CompositeValidator` that executes all sub-validators polymorphically.
+
+</details>
+
+<details>
+<summary><strong>3. How would you model a pricing bundle that contains products and other bundles? [SCENARIO]</strong></summary>
+
+A `Priceable` interface with `price()`. `Product` returns its price; `Bundle` sums its children (and may apply a discount). The cart just calls `price()` on whatever it holds.
+
+</details>
+
+<details>
+<summary><strong>4. Should `add()` be on the Component or only on Composite? [TRICKY]</strong></summary>
+
+Putting it on Component gives transparency (uniform) but leaves must throw or no-op, which is unsafe. Putting it only on Composite is type-safe but clients must know which node they have. Most real code chooses safety.
+
+</details>
+
+<details>
+<summary><strong>5. Give a Composite example from a UI toolkit. [SCENARIO]</strong></summary>
+
+A `Panel` contains buttons, labels and other panels; `render()` or `layout()` on the root recurses through the tree.
+
+</details>
+
+<details>
+<summary><strong>6. What can go wrong in a recursive composite? [TRICKY]</strong></summary>
+
+Cycles (a folder containing itself) cause infinite recursion, and very deep trees can overflow the stack. Guard against cycles on `add` and consider iterative traversal for large trees.
+
+</details>
+
+---
+
+## Try it
+
+Run this: `size()` works the same on a file or a nested folder. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class File:
+    def __init__(self, n): self.n = n
+    def size(self): return self.n
+
+class Folder:
+    def __init__(self, *items): self.items = list(items)
+    def add(self, i): self.items.append(i)
+    def size(self): return sum(i.size() for i in self.items)
+
+root = Folder(File(5), Folder(File(3), File(2)))
+assert root.size() == 10
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+COMPOSITE  Component { op() } <- Leaf | Composite(children, op() recurses)
+Uniform treatment: client calls op() on node, never checks leaf/group
+Fits trees: file system, UI controls, org chart, expression trees, menus
+Where do add()/remove() live? safety (Composite only) vs transparency (Component)
+Watch: cycles, deep recursion, parent pointers, ordering
+Combine: Visitor to run new ops over the tree
+```
 
 ---
 

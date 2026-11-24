@@ -1044,6 +1044,22 @@ A base case that stops the recursion, and a recursive case that moves toward the
 It calls `len` on each item and sorts by those results instead of the items themselves. `key` takes any function, including a `lambda`.
 </details>
 
+## Cheat sheet
+
+```text
+def name(a, b=1, *args, key=None, **kwargs): ...   return gives value (default None)
+Order: positional, defaults, *args, keyword-only, **kwargs
+def f(a, /, b, *, c): a positional-only, c keyword-only
+Mutable default (def f(x, bag=[])) is shared! use None, then create inside
+Scope (LEGB): Local > Enclosing > Global > Built-in ; assign inside = new local
+global / nonlocal only when you truly must
+Functions are values: pass, return, store, sorted(xs, key=len)
+lambda x: x * 2  (one expression only)
+Recursion: base case + smaller step; depth limit ~1000
+Pure function: same input -> same output, no side effects (easy to test)
+Test it: assert f(2) == 4
+```
+
 ---
 
 ## Further reading

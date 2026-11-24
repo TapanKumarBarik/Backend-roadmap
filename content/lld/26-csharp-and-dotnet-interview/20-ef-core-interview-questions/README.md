@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** EF Core's `DbContext` is a **Unit of Work + change tracker** (scoped, not thread-safe); the usual interview traps are **N+1 queries**, tracking cost, and deferred execution.
+
 > [!TIP]
 > **The One Rule of EF Core:** Treat `DbContext` as a short-lived, single-threaded **Unit of Work** bound to a single transaction or HTTP request, never as an application-wide data store. For reads, default to `.AsNoTracking()` or explicit projection via `.Select()` to bypass change-tracker snapshots; for relationships, prevent N+1 queries with `.Include()` and eliminate Cartesian product explosions using `.AsSplitQuery()`.
 
@@ -502,61 +505,99 @@ await Task.WhenAll(t1, t2, t3);
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is `DbContext`, and what lifetime should it have?**  
-> **Strong Answer:**  
-> "`DbContext` is EF Core's implementation of Martin Fowler's **Unit of Work** and **Identity Map** patterns. It manages database connections, translates LINQ expressions into database-specific SQL dialect, tracks entity modifications via internal snapshots, and commits changes atomically via `SaveChangesAsync()`.  
-> 
-> A `DbContext` should virtually always have a **Scoped** lifetime (which is the default in `AddDbContext<T>`).  
-> 
-> There are two critical reasons for this:  
-> 1. **Thread-Safety:** `DbContext` is not thread-safe. Registering it as a Singleton would cause multiple concurrent HTTP requests to share the same instance, leading to immediate `InvalidOperationException` concurrency crashes and state corruption.  
-> 2. **Change Tracker Bloat:** The Change Tracker caches entity instances for the lifetime of the context. If kept alive across multiple requests, memory usage grows continuously, and `DetectChanges()` becomes increasingly slow as it compares thousands of historical snapshots."
+<details>
+<summary><strong>1. What is `DbContext`, and what lifetime should it have? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the N+1 problem, and how do you fix it in EF Core?**  
-> **Strong Answer:**  
-> "The N+1 problem occurs when an application executes 1 initial SQL query to retrieve $N$ parent records, and then sequentially executes $N$ separate SQL queries to retrieve the associated children for each parent (typically inside a `foreach` loop or during lazy loading). For 1,000 customers, this triggers 1,001 database network round-trips, severely degrading throughput.  
-> 
-> In EF Core, we fix it using three primary strategies:  
-> 1. **Eager Loading (`.Include()` / `.ThenInclude()`):** Generates a SQL `LEFT JOIN` upfront, fetching parent and child records in a single query.  
-> 2. **Split Queries (`.AsSplitQuery()`):** When loading multiple collections, appending `.AsSplitQuery()` instructs EF Core to execute 2 or 3 separate targeted queries (e.g., `WHERE ParentId IN (...)`) instead of a massive Cartesian product join, stitching them together in memory.  
-> 3. **Projection (`.Select()`):** Selecting directly into a DTO fetches only the exact columns required by the UI or API response, eliminating unused columns and skipping entity change tracking entirely."
+`DbContext` is EF Core's implementation of Martin Fowler's **Unit of Work** and **Identity Map** patterns. It manages database connections, translates LINQ expressions into database-specific SQL dialect, tracks entity modifications via internal snapshots, and commits changes atomically via `SaveChangesAsync()`.
 
-> [!interview]
-> **Question 3: What is the difference between eager and lazy loading?**  
-> **Strong Answer:**  
-> "The difference lies in **when and how related entities are retrieved** from the database:  
-> 
-> - **Eager Loading:** Related entities are fetched upfront as part of the initial database query using `.Include()` or `.Select()`. The SQL query includes the necessary `JOIN` operations (or split queries). It is deterministic, minimizes database network round-trips, and is the recommended default for production web APIs.  
-> - **Lazy Loading:** Related entities are not loaded initially. Instead, EF Core defers loading until the navigation property is accessed for the first time in code (via runtime proxy classes with virtual properties or `ILazyLoader`).  
-> 
-> While convenient, lazy loading is notorious for silently causing the **N+1 query problem**, especially during JSON serialization where accessing navigation properties triggers dozens of unexpected database queries behind the scenes. In modern high-throughput microservices, eager loading or explicit projection is strongly preferred."
+A `DbContext` should virtually always have a **Scoped** lifetime (which is the default in `AddDbContext<T>`).
 
-> [!interview]
-> **Question 4: What does `AsNoTracking` do?**  
-> **Strong Answer:**  
-> "`AsNoTracking()` tells EF Core's Change Tracker to **not create identity map snapshots** for the entities returned by a query.  
-> 
-> Normally, when EF Core executes a query, it retains a copy of every entity's original field values in memory so that when `SaveChangesAsync()` is called, it can perform snapshot change detection to determine what changed.  
-> 
-> When `.AsNoTracking()` is applied:  
-> 1. **Memory Allocations Drop:** EF Core does not allocate change tracking entry objects or snapshot dictionaries.  
-> 2. **CPU Throughput Increases:** Query execution is faster because identity resolution and snapshot creation are skipped.  
-> 
-> It should be applied to all **read-only queries** (e.g., GET endpoints, reports, search queries). However, entities returned with `AsNoTracking()` cannot be updated simply by modifying their properties and calling `SaveChangesAsync()`—they are detached from the context."
+There are two critical reasons for this:
+1. **Thread-Safety:** `DbContext` is not thread-safe. Registering it as a Singleton would cause multiple concurrent HTTP requests to share the same instance, leading to immediate `InvalidOperationException` concurrency crashes and state corruption.
+2. **Change Tracker Bloat:** The Change Tracker caches entity instances for the lifetime of the context. If kept alive across multiple requests, memory usage grows continuously, and `DetectChanges()` becomes increasingly slow as it compares thousands of historical snapshots.
 
-> [!interview]
-> **Question 5: Code first or database first?**  
-> **Strong Answer:**  
-> "The choice depends on team governance, existing infrastructure, and domain modeling strategy:  
-> 
-> - **Code First:** You define domain models and relationships in C# classes and `ModelBuilder` Fluent API configurations. EF Core CLI tools (`dotnet ef migrations add`) generate version-controlled SQL migration scripts that evolve the database schema.  
->   - *Pros:* C# is the single source of truth; migrations can be automated in CI/CD deployment pipelines; refactoring is tracked directly in git.  
->   - *Best For:* Green-field projects, Domain-Driven Design (DDD), and teams owning both application and database schemas.  
-> - **Database First:** The database schema is designed first (often by dedicated DBAs using SQL scripts or tools like SSDT), and you use `dotnet ef dbcontext scaffold` to generate C# entity classes and context configurations from the existing database.  
->   - *Pros:* Enforces strict DBA control, complex indexing, stored procedures, and legacy database schema reuse without breaking external consumers.  
->   - *Best For:* Legacy databases, shared enterprise databases accessed by multiple independent applications, or organizations with strict DBA schema control."
+</details>
+
+<details>
+<summary><strong>2. What is the N+1 problem, and how do you fix it in EF Core? [SCENARIO]</strong></summary>
+
+The N+1 problem occurs when an application executes 1 initial SQL query to retrieve $N$ parent records, and then sequentially executes $N$ separate SQL queries to retrieve the associated children for each parent (typically inside a `foreach` loop or during lazy loading). For 1,000 customers, this triggers 1,001 database network round-trips, severely degrading throughput.
+
+In EF Core, we fix it using three primary strategies:
+1. **Eager Loading (`.Include()` / `.ThenInclude()`):** Generates a SQL `LEFT JOIN` upfront, fetching parent and child records in a single query.
+2. **Split Queries (`.AsSplitQuery()`):** When loading multiple collections, appending `.AsSplitQuery()` instructs EF Core to execute 2 or 3 separate targeted queries (e.g., `WHERE ParentId IN (...)`) instead of a massive Cartesian product join, stitching them together in memory.
+3. **Projection (`.Select()`):** Selecting directly into a DTO fetches only the exact columns required by the UI or API response, eliminating unused columns and skipping entity change tracking entirely.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between eager and lazy loading? [BASIC]</strong></summary>
+
+The difference lies in **when and how related entities are retrieved** from the database:
+
+- **Eager Loading:** Related entities are fetched upfront as part of the initial database query using `.Include()` or `.Select()`. The SQL query includes the necessary `JOIN` operations (or split queries). It is deterministic, minimizes database network round-trips, and is the recommended default for production web APIs.
+- **Lazy Loading:** Related entities are not loaded initially. Instead, EF Core defers loading until the navigation property is accessed for the first time in code (via runtime proxy classes with virtual properties or `ILazyLoader`).
+
+While convenient, lazy loading is notorious for silently causing the **N+1 query problem**, especially during JSON serialization where accessing navigation properties triggers dozens of unexpected database queries behind the scenes. In modern high-throughput microservices, eager loading or explicit projection is strongly preferred.
+
+</details>
+
+<details>
+<summary><strong>4. What does `AsNoTracking` do? [BASIC]</strong></summary>
+
+`AsNoTracking()` tells EF Core's Change Tracker to **not create identity map snapshots** for the entities returned by a query.
+
+Normally, when EF Core executes a query, it retains a copy of every entity's original field values in memory so that when `SaveChangesAsync()` is called, it can perform snapshot change detection to determine what changed.
+
+When `.AsNoTracking()` is applied:
+1. **Memory Allocations Drop:** EF Core does not allocate change tracking entry objects or snapshot dictionaries.
+2. **CPU Throughput Increases:** Query execution is faster because identity resolution and snapshot creation are skipped.
+
+It should be applied to all **read-only queries** (e.g., GET endpoints, reports, search queries). However, entities returned with `AsNoTracking()` cannot be updated simply by modifying their properties and calling `SaveChangesAsync()`—they are detached from the context.
+
+</details>
+
+<details>
+<summary><strong>5. Code first or database first? [SCENARIO]</strong></summary>
+
+The choice depends on team governance, existing infrastructure, and domain modeling strategy:
+
+- **Code First:** You define domain models and relationships in C# classes and `ModelBuilder` Fluent API configurations. EF Core CLI tools (`dotnet ef migrations add`) generate version-controlled SQL migration scripts that evolve the database schema.
+  - *Pros:* C# is the single source of truth; migrations can be automated in CI/CD deployment pipelines; refactoring is tracked directly in git.
+  - *Best For:* Green-field projects, Domain-Driven Design (DDD), and teams owning both application and database schemas.
+- **Database First:** The database schema is designed first (often by dedicated DBAs using SQL scripts or tools like SSDT), and you use `dotnet ef dbcontext scaffold` to generate C# entity classes and context configurations from the existing database.
+  - *Pros:* Enforces strict DBA control, complex indexing, stored procedures, and legacy database schema reuse without breaking external consumers.
+  - *Best For:* Legacy databases, shared enterprise databases accessed by multiple independent applications, or organizations with strict DBA schema control.
+
+</details>
+
+<details>
+<summary><strong>6. Why is `DbContext` registered as scoped, never singleton? [TRICKY]</strong></summary>
+
+It isn't thread-safe and its change tracker grows with every entity it loads. As a singleton it would be shared across concurrent requests (corruption) and accumulate memory.
+
+</details>
+
+---
+
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Enable SQL logging (`LogTo(Console.WriteLine)`), load 5 orders and loop over `order.Items` without `Include`, count the queries (N+1), then add `.Include(o => o.Items)` and compare. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
+
+---
+
+## One-page cheat sheet
+
+```text
+DbContext: scoped lifetime, Unit of Work + Identity Map + change tracker, NOT thread-safe
+N+1: 1 query + N lazy loads -> fix: Include / projection (Select) / split query
+Eager Include | Explicit Load | Lazy (proxies; off by default - avoid)
+AsNoTracking for read-only queries (faster, less memory)
+Projection to DTO (Select) beats loading entities
+Deferred execution: query runs at ToList/First/foreach | SaveChanges commits in one transaction
+Code first (model -> migrations) | DB first (scaffold) | migrations in CI, not at app start in prod
+Concurrency: [Timestamp]/rowversion -> DbUpdateConcurrencyException
+```
 
 ---
 

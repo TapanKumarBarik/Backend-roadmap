@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Unit tests isolate logic using **fakes/mocks** behind interfaces; **integration tests** run the real pipeline with `WebApplicationFactory` and a test database (in-memory SQLite or Testcontainers).
+
 > [!TIP]
 > **The One Rule of Backend Testing:** Unit test domain rules and business calculations with lightweight test doubles (favoring stubs and fakes over brittle interaction mocks); and test the HTTP pipeline, authorization, and data persistence using `WebApplicationFactory` paired with real database containers via **Testcontainers**—never mock `DbContext` or query providers.
 
@@ -501,36 +504,80 @@ Unlike NUnit or MSTest (which reuse a single test class instance across all test
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: How do you unit test a class that depends on a database?**  
-> **Strong Answer:**  
-> "Testing a class that depends on a database requires separating architectural concerns rather than attempting to mock database engines:
-> 1. **Domain Model Isolation:** We separate pure business logic from persistence. Domain entities, state machines, and calculations should reside in the domain layer without any database dependencies, tested via ultra-fast xUnit unit tests.
-> 2. **Application Orchestration:** If testing application services that coordinate workflows, we depend on repository or unit-of-work abstractions (e.g. `IOrderRepository`), substituting them with in-memory **Fakes** or **Stubs**.
-> 3. **Never Mock DbContext:** We strictly avoid mocking Entity Framework Core's `DbContext` or `DbSet<T>` using Moq. Mocking query providers does not validate LINQ-to-Entities SQL generation, foreign key constraints, column data types, or database transactions.
-> 4. **Integration Testing with Real Engines:** To test data access logic and queries, we write integration tests against real database engines using **Testcontainers**. Testcontainers automatically spins up a real PostgreSQL or SQL Server Docker container during test runs, executes migrations, runs queries, and disposes of the container when tests finish, providing 100% fidelity with production."
+<details>
+<summary><strong>1. How do you unit test a class that depends on a database? [BASIC]</strong></summary>
+
+Testing a class that depends on a database requires separating architectural concerns rather than attempting to mock database engines:
+1. **Domain Model Isolation:** We separate pure business logic from persistence. Domain entities, state machines, and calculations should reside in the domain layer without any database dependencies, tested via ultra-fast xUnit unit tests.
+2. **Application Orchestration:** If testing application services that coordinate workflows, we depend on repository or unit-of-work abstractions (e.g. `IOrderRepository`), substituting them with in-memory **Fakes** or **Stubs**.
+3. **Never Mock DbContext:** We strictly avoid mocking Entity Framework Core's `DbContext` or `DbSet<T>` using Moq. Mocking query providers does not validate LINQ-to-Entities SQL generation, foreign key constraints, column data types, or database transactions.
+4. **Integration Testing with Real Engines:** To test data access logic and queries, we write integration tests against real database engines using **Testcontainers**. Testcontainers automatically spins up a real PostgreSQL or SQL Server Docker container during test runs, executes migrations, runs queries, and disposes of the container when tests finish, providing 100% fidelity with production.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between a mock and a stub? [BASIC]</strong></summary>
+
+The distinction between a mock and a stub lies in the **direction of communication and the verification strategy** (as formalized by Gerard Meszaros and Martin Fowler):
+- **A Stub** provides **indirect inputs** to the System Under Test (SUT). It returns canned, pre-configured responses to method calls made during execution (e.g., returning a hard-coded `$100` balance). Tests that use stubs rely on **State Verification**—they invoke the SUT and assert on the final returned value or resulting state. Stubs do not care if unexpected methods are called.
+- **A Mock** verifies **indirect outputs**. It is pre-programmed with expectations about which specific methods must be invoked, what exact arguments must be supplied, how many times they should be called, and in what order. Tests that use mocks rely on **Behavior Verification** (`mock.Verify(x => x.DispatchPayment(...), Times.Once)`).
+
+In production architectures, senior engineers favor stubs and state verification over mocks whenever possible. Over-mocking couples tests directly to internal call paths, resulting in brittle tests that break every time code is refactored, even when the external behavior is completely correct.
+
+</details>
+
+<details>
+<summary><strong>3. How do you integration test an ASP.NET Core API? [SCENARIO]</strong></summary>
+
+We integration test ASP.NET Core APIs using the **`WebApplicationFactory<TProgram>`** harness from `Microsoft.AspNetCore.Mvc.Testing`:
+1. **In-Memory TestServer:** `WebApplicationFactory` bootstraps the complete application hosting environment using an in-memory `TestServer`. It does not bind to an external TCP socket or open physical network ports, making it extremely fast, resilient against port collisions in CI pipelines, and capable of executing hundreds of API tests in seconds.
+2. **Full Pipeline Coverage:** Requests sent via `factory.CreateClient()` pass through the authentic ASP.NET Core pipeline—including routing, custom middleware, authentication, model validation, exception handling, and JSON serialization.
+3. **Dependency Substitution:** We customize the test environment by overriding `ConfigureWebHost` and calling `builder.ConfigureTestServices(services => ...)` to replace third-party external integrations (such as payment providers or third-party webhooks) with test doubles.
+4. **Infrastructure Integration:** For databases, caches, and message brokers, we combine `WebApplicationFactory` with **Testcontainers** (or override connection strings to point to test instances), validating end-to-end HTTP request and response contracts against real infrastructure.
+
+</details>
+
+<details>
+<summary><strong>4. A service uses `DbContext` directly. How do you unit test it? [SCENARIO]</strong></summary>
+
+Either test it against a real lightweight database (SQLite/Testcontainers) as an integration-style test, or move data access behind an interface and fake it. Mocking `DbSet` is brittle and misses query translation issues.
+
+</details>
+
+<details>
+<summary><strong>5. Why can tests pass with the EF Core InMemory provider but fail in production? [TRICKY]</strong></summary>
+
+InMemory doesn't enforce relational constraints, transactions, or SQL translation limits, so invalid queries or FK violations pass silently. Use SQLite or the real database engine for confidence.
+
+</details>
+
+<details>
+<summary><strong>6. What does `WebApplicationFactory<T>` give you? [SCENARIO]</strong></summary>
+
+An in-memory test server that boots your real `Program`/DI/middleware pipeline, with an `HttpClient` to call endpoints and hooks to replace services.
+
+</details>
 
 ---
 
-> [!interview]
-> **Question 2: What is the difference between a mock and a stub?**  
-> **Strong Answer:**  
-> "The distinction between a mock and a stub lies in the **direction of communication and the verification strategy** (as formalized by Gerard Meszaros and Martin Fowler):
-> - **A Stub** provides **indirect inputs** to the System Under Test (SUT). It returns canned, pre-configured responses to method calls made during execution (e.g., returning a hard-coded `$100` balance). Tests that use stubs rely on **State Verification**—they invoke the SUT and assert on the final returned value or resulting state. Stubs do not care if unexpected methods are called.
-> - **A Mock** verifies **indirect outputs**. It is pre-programmed with expectations about which specific methods must be invoked, what exact arguments must be supplied, how many times they should be called, and in what order. Tests that use mocks rely on **Behavior Verification** (`mock.Verify(x => x.DispatchPayment(...), Times.Once)`).
-> 
-> In production architectures, senior engineers favor stubs and state verification over mocks whenever possible. Over-mocking couples tests directly to internal call paths, resulting in brittle tests that break every time code is refactored, even when the external behavior is completely correct."
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Add a test project with `WebApplicationFactory<Program>` (`public partial class Program { }`), call `client.GetAsync("/")`, then override one service with a fake via `WithWebHostBuilder(b => b.ConfigureServices(...))`. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
 
 ---
 
-> [!interview]
-> **Question 3: How do you integration test an ASP.NET Core API?**  
-> **Strong Answer:**  
-> "We integration test ASP.NET Core APIs using the **`WebApplicationFactory<TProgram>`** harness from `Microsoft.AspNetCore.Mvc.Testing`:
-> 1. **In-Memory TestServer:** `WebApplicationFactory` bootstraps the complete application hosting environment using an in-memory `TestServer`. It does not bind to an external TCP socket or open physical network ports, making it extremely fast, resilient against port collisions in CI pipelines, and capable of executing hundreds of API tests in seconds.
-> 2. **Full Pipeline Coverage:** Requests sent via `factory.CreateClient()` pass through the authentic ASP.NET Core pipeline—including routing, custom middleware, authentication, model validation, exception handling, and JSON serialization.
-> 3. **Dependency Substitution:** We customize the test environment by overriding `ConfigureWebHost` and calling `builder.ConfigureTestServices(services => ...)` to replace third-party external integrations (such as payment providers or third-party webhooks) with test doubles.
-> 4. **Infrastructure Integration:** For databases, caches, and message brokers, we combine `WebApplicationFactory` with **Testcontainers** (or override connection strings to point to test instances), validating end-to-end HTTP request and response contracts against real infrastructure."
+## One-page cheat sheet
+
+```text
+Unit test: one class, fakes for dependencies, no network/DB, fast, many
+Integration test: real DI + pipeline, WebApplicationFactory<Program>, few and slower
+Stub = canned answers | Mock = verifies calls/interactions | Fake = working simplified impl
+Arrange / Act / Assert; one reason to fail per test
+EF Core InMemory provider != real SQL behaviour -> prefer SQLite/Testcontainers
+xUnit: [Fact], [Theory]+[InlineData], constructor per test (isolation), IClassFixture for shared setup
+Don't mock what you don't own (wrap it) | Don't test private methods
+Time/Random/IO behind interfaces (TimeProvider)
+```
 
 ---
 

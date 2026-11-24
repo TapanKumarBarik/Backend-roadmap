@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Repository** hides data access behind a collection-like interface for aggregates; **Unit of Work** tracks changes and commits them as one transaction.
+
 > [!TIP]
 > **The One Rule of Repository and Unit of Work:** The Repository pretends persistence is an in-memory collection of domain objects; the Unit of Work tracks every change across all repositories during a business transaction and commits or aborts them atomically.
 
@@ -650,34 +653,89 @@ public interface IInvoiceRepository
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Repository pattern?**  
-> **Strong Answer:**  
-> "The Repository pattern mediates between the domain and data mapping layers, exposing a collection-like interface for accessing domain objects. Its primary purpose is to decouple domain business logic from the specifics of persistence technologies, SQL queries, or ORM APIs.  
-> 
-> Rather than letting controllers or domain services issue database queries directly, consumers interact with an abstraction (like `IOrderRepository`) that behaves as if all domain objects reside in an in-memory collection (`Add()`, `GetById()`, `Remove()`). This guarantees that persistence details remain encapsulated, aggregate root invariants are preserved, and business logic can be tested against in-memory doubles without a live database."
+<details>
+<summary><strong>1. What is the Repository pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is a Unit of Work?**  
-> **Strong Answer:**  
-> "A Unit of Work maintains a list of business objects affected by a business transaction and coordinates the writing out of changes and the resolution of concurrency problems.  
-> 
-> During a business operation, multiple repositories may be queried and updated (for example, deducting customer balance, reserving inventory, and creating an order). Instead of each repository immediately writing to the database, they stage their modifications inside the Unit of Work. When the business transaction finishes successfully, the Unit of Work issues a single atomic commit (e.g., inside an ACID database transaction). If an error occurs, the Unit of Work rolls back all staged mutations, guaranteeing that the database never enters a partially updated or corrupted state."
+The Repository pattern mediates between the domain and data mapping layers, exposing a collection-like interface for accessing domain objects. Its primary purpose is to decouple domain business logic from the specifics of persistence technologies, SQL queries, or ORM APIs.
 
-> [!interview]
-> **Question 3: Should you wrap EF Core in a repository?**  
-> **Strong Answer:**  
-> "In most typical applications, wrapping EF Core in a generic repository is an anti-pattern because EF Core's `DbSet<T>` already implements the Repository pattern and `DbContext` already implements the Unit of Work pattern. Wrapping it naively in `IRepository<T>` adds pointless boilerplate, inhibits EF Core's advanced capabilities (such as compiled queries, change tracker disabling, batch execution, and eager loading via `.Include()`), and either leaks `IQueryable` or causes massive N+1 query performance problems.  
-> 
-> However, wrapping EF Core in **domain-specific repositories** (`IOrderRepository`, `ICustomerRepository`) is justified in **Domain-Driven Design (DDD)** or **Hexagonal / Clean Architecture**. In these architectures, the domain layer must remain pure and free from any external library dependencies. The domain-specific repository returns pure domain aggregate roots (mapping from internal EF Core persistence entities), encapsulates complex query specifications, and enables deterministic unit testing without spinning up relational databases."
+Rather than letting controllers or domain services issue database queries directly, consumers interact with an abstraction (like `IOrderRepository`) that behaves as if all domain objects reside in an in-memory collection (`Add()`, `GetById()`, `Remove()`). This guarantees that persistence details remain encapsulated, aggregate root invariants are preserved, and business logic can be tested against in-memory doubles without a live database.
 
-> [!interview]
-> **Question 4: What is wrong with a generic repository?**  
-> **Strong Answer:**  
-> "A generic repository (`IRepository<T>` with `GetAll()`, `GetById()`, `Add()`, `Update()`, `Delete()`) introduces three major architectural pitfalls:  
-> 1. **It Exposes Raw CRUD Instead of Business Intent:** A domain model should be driven by business use cases (e.g., `GetOverdueInvoicesForCustomer()`), whereas a generic repository encourages anemic data models and pushes business logic out into controllers.  
-> 2. **The Leaky Query Dilemma:** If `GetAll()` returns `IEnumerable<T>`, it tempts developers to pull massive database tables into memory before filtering. If it returns `IQueryable<T>`, it is no longer an abstraction—callers now write Linq expressions that depend on EF Core's SQL translation mechanics, completely leaking persistence concerns into the caller.  
-> 3. **Performance Traps (N+1 Queries):** Generic repositories cannot anticipate what related child entities a specific use case needs. Callers fetch parents, loop through them, and make separate calls for child data, triggering catastrophic N+1 query cascades in production."
+</details>
+
+<details>
+<summary><strong>2. What is a Unit of Work? [BASIC]</strong></summary>
+
+A Unit of Work maintains a list of business objects affected by a business transaction and coordinates the writing out of changes and the resolution of concurrency problems.
+
+During a business operation, multiple repositories may be queried and updated (for example, deducting customer balance, reserving inventory, and creating an order). Instead of each repository immediately writing to the database, they stage their modifications inside the Unit of Work. When the business transaction finishes successfully, the Unit of Work issues a single atomic commit (e.g., inside an ACID database transaction). If an error occurs, the Unit of Work rolls back all staged mutations, guaranteeing that the database never enters a partially updated or corrupted state.
+
+</details>
+
+<details>
+<summary><strong>3. Should you wrap EF Core in a repository? [SCENARIO]</strong></summary>
+
+In most typical applications, wrapping EF Core in a generic repository is an anti-pattern because EF Core's `DbSet<T>` already implements the Repository pattern and `DbContext` already implements the Unit of Work pattern. Wrapping it naively in `IRepository<T>` adds pointless boilerplate, inhibits EF Core's advanced capabilities (such as compiled queries, change tracker disabling, batch execution, and eager loading via `.Include()`), and either leaks `IQueryable` or causes massive N+1 query performance problems.
+
+However, wrapping EF Core in **domain-specific repositories** (`IOrderRepository`, `ICustomerRepository`) is justified in **Domain-Driven Design (DDD)** or **Hexagonal / Clean Architecture**. In these architectures, the domain layer must remain pure and free from any external library dependencies. The domain-specific repository returns pure domain aggregate roots (mapping from internal EF Core persistence entities), encapsulates complex query specifications, and enables deterministic unit testing without spinning up relational databases.
+
+</details>
+
+<details>
+<summary><strong>4. What is wrong with a generic repository? [TRICKY]</strong></summary>
+
+A generic repository (`IRepository<T>` with `GetAll()`, `GetById()`, `Add()`, `Update()`, `Delete()`) introduces three major architectural pitfalls:
+1. **It Exposes Raw CRUD Instead of Business Intent:** A domain model should be driven by business use cases (e.g., `GetOverdueInvoicesForCustomer()`), whereas a generic repository encourages anemic data models and pushes business logic out into controllers.
+2. **The Leaky Query Dilemma:** If `GetAll()` returns `IEnumerable<T>`, it tempts developers to pull massive database tables into memory before filtering. If it returns `IQueryable<T>`, it is no longer an abstraction—callers now write Linq expressions that depend on EF Core's SQL translation mechanics, completely leaking persistence concerns into the caller.
+3. **Performance Traps (N+1 Queries):** Generic repositories cannot anticipate what related child entities a specific use case needs. Callers fetch parents, loop through them, and make separate calls for child data, triggering catastrophic N+1 query cascades in production.
+
+</details>
+
+<details>
+<summary><strong>5. Your team wraps EF Core in `IRepository<T>` with Add/Update/Delete/GetAll. Good idea? [SCENARIO]</strong></summary>
+
+Usually not: `DbContext` is already a repository + unit of work, and a generic wrapper adds indirection and leaks. Prefer specific repositories per aggregate (or query handlers) exposing only the operations that aggregate allows.
+
+</details>
+
+<details>
+<summary><strong>6. Why is returning `IQueryable` from a repository a smell? [TRICKY]</strong></summary>
+
+Callers can add filters that run in the database, leaking persistence concerns, and queries execute in unpredictable places (after the context is gone). Return materialised results or dedicated query methods.
+
+</details>
+
+---
+
+## Try it
+
+Run this: business code talks to a repository interface, tests use the in-memory one. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class InMemoryUsers:
+    def __init__(self): self._d = {}
+    def add(self, u): self._d[u["id"]] = u
+    def get(self, id): return self._d.get(id)
+
+class Signup:
+    def __init__(self, repo): self.repo = repo
+    def run(self, id): self.repo.add({"id": id}); return self.repo.get(id)
+
+assert Signup(InMemoryUsers()).run(1) == {"id": 1}
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+REPOSITORY  collection-like API per AGGREGATE: add / get / find / remove
+UNIT OF WORK  track changes -> commit() once (one transaction)  (EF DbContext IS one)
+Benefit: swap storage, fake in tests, keep queries out of business code
+EF Core already = Repository + UoW; wrapping it adds value only if you need to hide it
+Generic IRepository<T> = leaky, anti-pattern (every entity gets Delete?)
+Return domain objects, not IQueryable (leaks the ORM)
+Use Specification / query objects for complex reads
+```
 
 ---
 

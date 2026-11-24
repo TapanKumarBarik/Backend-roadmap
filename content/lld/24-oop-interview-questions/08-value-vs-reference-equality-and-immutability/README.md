@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Value types/equality** compare by content, **reference types** by identity unless overridden — and if you override `Equals` you must override `GetHashCode` (Python: `__eq__` and `__hash__`) so hashed collections still work.
+
 > [!TIP]
 > **The One Rule of Equality and Immutability:** Two objects that are equal **must** produce identical hash codes, and the state contributing to that hash code **must never mutate** while the object resides in a hash-based collection. If an object is mutable, using it as a dictionary key or set element invites silent data corruption and memory leaks.
 
@@ -386,65 +389,120 @@ def create_profile(username: str, roles: list | None = None) -> dict:
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the difference between a struct and a class?**  
-> **Strong Answer:**  
-> "In C#, the fundamental difference is **value semantics versus reference semantics**:  
-> 1. **Memory Allocation:** A `struct` is a value type (`System.ValueType`), allocated inline where declared—on the stack for local variables, or embedded directly within the containing object if inside a class. A `class` is a reference type (`System.Object`), whose storage always resides on the managed GC heap while callers hold an 8-byte pointer.  
-> 2. **Assignment:** Assigning a `struct` copies the entire memory payload bit-by-bit. Modifying the copy has zero effect on the original. Assigning a `class` copies only the reference pointer; both variables point to the same object on the heap.  
-> 3. **Default Equality:** Classes default to reference identity (`ReferenceEquals`). Structs default to value equality, but because `ValueType.Equals` uses runtime reflection to compare fields, it is slow unless explicitly overridden with `IEquatable<T>`.  
-> 4. **Inheritance & Boxing:** Structs cannot participate in class inheritance (they can only implement interfaces). When a struct is cast to an `object` or interface, the CLR performs **boxing**, allocating an object wrapper on the heap and incurring GC overhead."
+<details>
+<summary><strong>1. What is the difference between a struct and a class? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Why must `GetHashCode` change when you override `Equals`?**  
-> **Strong Answer:**  
-> "Overriding `Equals` without overriding `GetHashCode` violates the fundamental **Hash Contract**:  
-> $$\text{If } a.\text{Equals}(b) == \text{true}, \text{ then } a.\text{GetHashCode}() \text{ MUST equal } b.\text{GetHashCode}()$$  
-> 
-> Hash-based collections like `Dictionary<TKey, TValue>` and `HashSet<T>` rely on a two-step lookup algorithm:  
-> 1. Compute `hash = key.GetHashCode()`.  
-> 2. Map `hash` to a bucket array index via `hash % BucketCount`.  
-> 3. Search that specific bucket for an existing element where `existing.Equals(key)` is true.  
-> 
-> If `Equals` is overridden based on field values, but `GetHashCode` is left to `object.GetHashCode()` (which returns a value based on memory address), two identical objects will produce different hash codes and map to completely different buckets. Lookups will return 'key not found', and sets will insert duplicate records.  
-> 
-> Additionally, any fields used to compute `GetHashCode` **must be immutable**; mutating a key inside a hash table alters its hash code, leaving the element permanently stranded in the wrong bucket."
+In C#, the fundamental difference is **value semantics versus reference semantics**:
+1. **Memory Allocation:** A `struct` is a value type (`System.ValueType`), allocated inline where declared—on the stack for local variables, or embedded directly within the containing object if inside a class. A `class` is a reference type (`System.Object`), whose storage always resides on the managed GC heap while callers hold an 8-byte pointer.
+2. **Assignment:** Assigning a `struct` copies the entire memory payload bit-by-bit. Modifying the copy has zero effect on the original. Assigning a `class` copies only the reference pointer; both variables point to the same object on the heap.
+3. **Default Equality:** Classes default to reference identity (`ReferenceEquals`). Structs default to value equality, but because `ValueType.Equals` uses runtime reflection to compare fields, it is slow unless explicitly overridden with `IEquatable<T>`.
+4. **Inheritance & Boxing:** Structs cannot participate in class inheritance (they can only implement interfaces). When a struct is cast to an `object` or interface, the CLR performs **boxing**, allocating an object wrapper on the heap and incurring GC overhead.
 
-> [!interview]
-> **Question 3: What is the difference between `is` and `==` in Python?**  
-> **Strong Answer:**  
-> "In Python:  
-> - **`is`** checks **identity**: it evaluates whether two variables point to the exact same physical object in memory by comparing their memory addresses (`id(a) == id(b)`).  
-> - **`==`** checks **value equality**: it evaluates whether two objects represent equivalent content by invoking the left operand's `__eq__()` dunder method (`a.__eq__(b)`).  
-> 
-> A common interview trap involves small integers and strings: CPython pre-caches integers between $-5$ and $256$ and interns certain string literals, so `a = 100; b = 100; a is b` evaluates to `True`. However, for numbers outside this range, like `a = 1000; b = 1000; a is b`, it evaluates to `False`.  
-> 
-> Therefore, `is` should strictly be reserved for comparisons against memory singletons (such as `if val is None:`), while `==` must always be used for evaluating data values."
+</details>
 
-> [!interview]
-> **Question 4: Why is a list a bad default argument in Python?**  
-> **Strong Answer:**  
-> "In Python, default arguments are evaluated **once**, at function definition time when the module is compiled and imported, rather than dynamically on each invocation.  
-> 
-> If a mutable object like a `list` (`def add_item(item, items=[]):`) or `dict` is passed as a default, Python instantiates that list once and binds it to the function object's `__defaults__` attribute. Every caller that omits that parameter receives a reference to that **exact same list in memory**. Modifying the list inside the function mutates the default argument for all subsequent invocations throughout the application lifecycle.  
-> 
-> The senior pattern is to use an immutable sentinel (`None`) and perform defensive allocation inside the function body:  
-> `def add_item(item, items=None):`  
-> `    if items is None: items = []`"
+<details>
+<summary><strong>2. Why must `GetHashCode` change when you override `Equals`? [TRICKY]</strong></summary>
 
-> [!interview]
-> **Question 5: What is a `record` in C#?**  
-> **Strong Answer:**  
-> "Introduced in C# 9, a `record` (or `record class`) is a compiler-enhanced reference type specifically designed for immutable data modeling and value semantics.  
-> 
-> When you declare a positional record, such as `public record Money(decimal Amount, string Currency);`, the C# compiler automatically synthesizes:  
-> 1. **Init-only properties:** `{ get; init; }` ensuring the object cannot be mutated after construction.  
-> 2. **Value-based equality:** Overridden `Equals(object)`, strongly typed `IEquatable<T>.Equals`, `operator ==`, and `operator !=` comparing all properties by value instead of memory reference.  
-> 3. **Consistent HashCode:** Overridden `GetHashCode()` factoring in all properties according to the hash contract.  
-> 4. **Non-destructive mutation:** A hidden copy constructor enabling the **`with` expression** (`var discounted = original with { Amount = 80m };`), which shallow-clones the record while updating specified properties.  
-> 5. **Formatted string output:** An overridden `ToString()` displaying readable property names and values.  
-> 
-> In C# 10, Microsoft also introduced `record struct` to provide the same value-based synthesis and `with` expressions for value types."
+Overriding `Equals` without overriding `GetHashCode` violates the fundamental **Hash Contract**:
+$$\text{If } a.\text{Equals}(b) == \text{true}, \text{ then } a.\text{GetHashCode}() \text{ MUST equal } b.\text{GetHashCode}()$$
+
+Hash-based collections like `Dictionary<TKey, TValue>` and `HashSet<T>` rely on a two-step lookup algorithm:
+1. Compute `hash = key.GetHashCode()`.
+2. Map `hash` to a bucket array index via `hash % BucketCount`.
+3. Search that specific bucket for an existing element where `existing.Equals(key)` is true.
+
+If `Equals` is overridden based on field values, but `GetHashCode` is left to `object.GetHashCode()` (which returns a value based on memory address), two identical objects will produce different hash codes and map to completely different buckets. Lookups will return 'key not found', and sets will insert duplicate records.
+
+Additionally, any fields used to compute `GetHashCode` **must be immutable**; mutating a key inside a hash table alters its hash code, leaving the element permanently stranded in the wrong bucket.
+
+</details>
+
+<details>
+<summary><strong>3. What is the difference between `is` and `==` in Python? [BASIC]</strong></summary>
+
+In Python:
+- **`is`** checks **identity**: it evaluates whether two variables point to the exact same physical object in memory by comparing their memory addresses (`id(a) == id(b)`).
+- **`==`** checks **value equality**: it evaluates whether two objects represent equivalent content by invoking the left operand's `__eq__()` dunder method (`a.__eq__(b)`).
+
+A common interview trap involves small integers and strings: CPython pre-caches integers between $-5$ and $256$ and interns certain string literals, so `a = 100; b = 100; a is b` evaluates to `True`. However, for numbers outside this range, like `a = 1000; b = 1000; a is b`, it evaluates to `False`.
+
+Therefore, `is` should strictly be reserved for comparisons against memory singletons (such as `if val is None:`), while `==` must always be used for evaluating data values.
+
+</details>
+
+<details>
+<summary><strong>4. Why is a list a bad default argument in Python? [TRICKY]</strong></summary>
+
+In Python, default arguments are evaluated **once**, at function definition time when the module is compiled and imported, rather than dynamically on each invocation.
+
+If a mutable object like a `list` (`def add_item(item, items=[]):`) or `dict` is passed as a default, Python instantiates that list once and binds it to the function object's `__defaults__` attribute. Every caller that omits that parameter receives a reference to that **exact same list in memory**. Modifying the list inside the function mutates the default argument for all subsequent invocations throughout the application lifecycle.
+
+The senior pattern is to use an immutable sentinel (`None`) and perform defensive allocation inside the function body:
+`def add_item(item, items=None):`
+`    if items is None: items = []`
+
+</details>
+
+<details>
+<summary><strong>5. What is a `record` in C#? [BASIC]</strong></summary>
+
+Introduced in C# 9, a `record` (or `record class`) is a compiler-enhanced reference type specifically designed for immutable data modeling and value semantics.
+
+When you declare a positional record, such as `public record Money(decimal Amount, string Currency);`, the C# compiler automatically synthesizes:
+1. **Init-only properties:** `{ get; init; }` ensuring the object cannot be mutated after construction.
+2. **Value-based equality:** Overridden `Equals(object)`, strongly typed `IEquatable<T>.Equals`, `operator ==`, and `operator !=` comparing all properties by value instead of memory reference.
+3. **Consistent HashCode:** Overridden `GetHashCode()` factoring in all properties according to the hash contract.
+4. **Non-destructive mutation:** A hidden copy constructor enabling the **`with` expression** (`var discounted = original with { Amount = 80m };`), which shallow-clones the record while updating specified properties.
+5. **Formatted string output:** An overridden `ToString()` displaying readable property names and values.
+
+In C# 10, Microsoft also introduced `record struct` to provide the same value-based synthesis and `with` expressions for value types.
+
+</details>
+
+<details>
+<summary><strong>6. You use a mutable object as a dictionary key and later change a field. What happens? [TRICKY]</strong></summary>
+
+Its hash changes, so lookups probe the wrong bucket and the entry appears lost (or is stranded). Keys must be immutable, or at least have hash/equality based only on fields that never change. This is why `list` is unhashable in Python.
+
+</details>
+
+---
+
+## Try it
+
+Run this: `==` vs `is`, the equality/hash contract, and the mutable-default trap. Then model `Money` as a value object in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the immutability follow-ups.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Money:                                    # value equality + hash for free
+    amount: int
+    cur: str
+
+assert Money(5, "INR") == Money(5, "INR")
+assert Money(5, "INR") is not Money(5, "INR")
+assert len({Money(5, "INR"), Money(5, "INR")}) == 1   # hash consistent with eq
+
+def add(x, bag=[]):                              # BUG: shared default
+    bag.append(x); return bag
+add(1); assert add(2) == [1, 2]
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+Python:  is = same object      == = equal value (__eq__)
+C#:      ReferenceEquals / == on class = identity ; record/struct = value
+Contract: a == b  =>  hash(a) == hash(b)   (override both or neither)
+Mutable key in dict/set -> lost entries     Immutable: frozen dataclass, record, readonly
+struct = value, copied on assign, may live on stack ; class = reference, heap
+record (C#) = reference type with value equality + `with`
+Mutable default arg: use None sentinel, create inside
+Boxing: value type -> object (alloc!)
+```
 
 ---
 

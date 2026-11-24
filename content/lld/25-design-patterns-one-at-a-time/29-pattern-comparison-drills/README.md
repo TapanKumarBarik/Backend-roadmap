@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Look-alike patterns are separated by **intent**, not by UML: ask *what changes, who decides, and what is the goal* — then answer in one sentence plus an example.
+
 > [!TIP]
 > **The One Rule of Pattern Comparison:** Design patterns are defined by their **intent and architectural relationships**, never their class diagram. Two patterns can have identical UML structures yet solve opposing engineering problems. When asked to compare, start with the problem each was invented to solve.
 
@@ -528,39 +531,82 @@ With the **Mediator Pattern**, all 50 aircraft communicate solely with the Air T
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Strategy or State?**  
-> **Strong Answer:**  
-> "While Strategy and State share an almost identical UML class diagram—both compose a context class that delegates to an interface—their intent, ownership, and lifecycle are completely different:  
-> 
-> - **Strategy** is about **external variation of an algorithm**. The client chooses a strategy and injects it into the context (e.g., choosing `ZipCompression` vs. `TarCompression`, or `PaypalPayment` vs. `CreditCardPayment`). Strategies are typically stateless, independent of one another, and do not mutate or transition the context.  
-> - **State** is about **internal behavioral variation driven by lifecycle transitions**. The context acts as a state machine. The concrete state objects know about sibling states and transition the context from one state to another (e.g., `Draft -> PendingReview -> Published`). The client does not manually swap states; the object's internal state machine drives itself in response to actions."
+<details>
+<summary><strong>1. Strategy or State? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Decorator, Proxy or Adapter?**  
-> **Strong Answer:**  
-> "All three are structural wrappers that forward calls to an underlying object, but they differ fundamentally in intent and interface parity:  
-> 
-> - **Decorator** adds responsibilities or enhances behavior dynamically **without altering the interface**. Decorator implements `IService` and wraps `IService`. Multiple decorators can be stacked recursively in arbitrary chains (e.g., `LoggingDecorator(CachingDecorator(SqlService))`). The target instance is created externally and injected into the decorator.  
-> - **Proxy** controls access, handles security, coordinates lazy initialization, or caches results **while maintaining the exact same interface**. Crucially, the proxy often manages the lifecycle of the real subject itself, and clients rarely stack multiple proxies. The client believes it is talking directly to the real service.  
-> - **Adapter** converts an **incompatible interface** into a target contract that the client expects. Unlike Decorator and Proxy, an Adapter's interface is *different* from the adaptee's interface. It translates method calls, data types, and parameters between two disparate systems."
+While Strategy and State share an almost identical UML class diagram—both compose a context class that delegates to an interface—their intent, ownership, and lifecycle are completely different:
 
-> [!interview]
-> **Question 3: Factory, Abstract Factory or Builder?**  
-> **Strong Answer:**  
-> "These three creational patterns differ by scope, structure, and assembly complexity:  
-> 
-> - **Factory Method** uses inheritance to defer the creation of a **single product** to subclasses. It defines a method (e.g., `CreateLogger()`) that concrete creators override to return specific implementations (`FileLogger`, `ConsoleLogger`).  
-> - **Abstract Factory** uses composition to produce **families of related or dependent products** without specifying their concrete classes. An `IUIFactory` produces matching buttons, scrollbars, and checkboxes for Windows, macOS, or Linux, ensuring visual consistency across the entire product suite.  
-> - **Builder** separates the **step-by-step construction of a single complex object** from its final representation. It is used when an object requires numerous constructor parameters, optional configurations, or sequential multi-step assembly (e.g., `HttpRequestMessageBuilder` or `WebApplicationBuilder`), allowing fluent chaining and immutable final output."
+- **Strategy** is about **external variation of an algorithm**. The client chooses a strategy and injects it into the context (e.g., choosing `ZipCompression` vs. `TarCompression`, or `PaypalPayment` vs. `CreditCardPayment`). Strategies are typically stateless, independent of one another, and do not mutate or transition the context.
+- **State** is about **internal behavioral variation driven by lifecycle transitions**. The context acts as a state machine. The concrete state objects know about sibling states and transition the context from one state to another (e.g., `Draft -> PendingReview -> Published`). The client does not manually swap states; the object's internal state machine drives itself in response to actions.
 
-> [!interview]
-> **Question 4: Observer or Mediator?**  
-> **Strong Answer:**  
-> "Observer and Mediator both decouple senders and receivers, but they solve different topological communication problems:  
-> 
-> - **Observer** establishes a **one-to-many broadcast relationship**. A single Subject changes state and notifies a dynamic list of subscribers automatically. The communication is unidirectional (publisher to subscribers), and the publisher has no knowledge of how subscribers react.  
-> - **Mediator** centralizes **complex many-to-many coordination** between diverse colleague components. Instead of dozens of components maintaining direct references to one another—forming a fragile $O(N^2)$ mesh—colleagues communicate exclusively through a central mediator hub. The mediator encapsulates the interaction policies, routing logic, and side effects across the entire subsystem."
+</details>
+
+<details>
+<summary><strong>2. Decorator, Proxy or Adapter? [SCENARIO]</strong></summary>
+
+All three are structural wrappers that forward calls to an underlying object, but they differ fundamentally in intent and interface parity:
+
+- **Decorator** adds responsibilities or enhances behavior dynamically **without altering the interface**. Decorator implements `IService` and wraps `IService`. Multiple decorators can be stacked recursively in arbitrary chains (e.g., `LoggingDecorator(CachingDecorator(SqlService))`). The target instance is created externally and injected into the decorator.
+- **Proxy** controls access, handles security, coordinates lazy initialization, or caches results **while maintaining the exact same interface**. Crucially, the proxy often manages the lifecycle of the real subject itself, and clients rarely stack multiple proxies. The client believes it is talking directly to the real service.
+- **Adapter** converts an **incompatible interface** into a target contract that the client expects. Unlike Decorator and Proxy, an Adapter's interface is *different* from the adaptee's interface. It translates method calls, data types, and parameters between two disparate systems.
+
+</details>
+
+<details>
+<summary><strong>3. Factory, Abstract Factory or Builder? [SCENARIO]</strong></summary>
+
+These three creational patterns differ by scope, structure, and assembly complexity:
+
+- **Factory Method** uses inheritance to defer the creation of a **single product** to subclasses. It defines a method (e.g., `CreateLogger()`) that concrete creators override to return specific implementations (`FileLogger`, `ConsoleLogger`).
+- **Abstract Factory** uses composition to produce **families of related or dependent products** without specifying their concrete classes. An `IUIFactory` produces matching buttons, scrollbars, and checkboxes for Windows, macOS, or Linux, ensuring visual consistency across the entire product suite.
+- **Builder** separates the **step-by-step construction of a single complex object** from its final representation. It is used when an object requires numerous constructor parameters, optional configurations, or sequential multi-step assembly (e.g., `HttpRequestMessageBuilder` or `WebApplicationBuilder`), allowing fluent chaining and immutable final output.
+
+</details>
+
+<details>
+<summary><strong>4. Observer or Mediator? [SCENARIO]</strong></summary>
+
+Observer and Mediator both decouple senders and receivers, but they solve different topological communication problems:
+
+- **Observer** establishes a **one-to-many broadcast relationship**. A single Subject changes state and notifies a dynamic list of subscribers automatically. The communication is unidirectional (publisher to subscribers), and the publisher has no knowledge of how subscribers react.
+- **Mediator** centralizes **complex many-to-many coordination** between diverse colleague components. Instead of dozens of components maintaining direct references to one another—forming a fragile $O(N^2)$ mesh—colleagues communicate exclusively through a central mediator hub. The mediator encapsulates the interaction policies, routing logic, and side effects across the entire subsystem.
+
+</details>
+
+<details>
+<summary><strong>5. Interviewer shows a class diagram: Context -> Interface <- A, B. Which pattern is it? [SCENARIO]</strong></summary>
+
+I ask about intent before naming it. If a client picks A or B from outside, it's Strategy; if the context switches between A and B itself as events occur, it's State; if A and B are alternative platforms behind a growing abstraction, Bridge.
+
+</details>
+
+<details>
+<summary><strong>6. Wrap an object with the same interface: Decorator or Proxy? [TRICKY]</strong></summary>
+
+Both do. Decorator adds responsibilities, usually composed by the client in a stackable way. Proxy controls access (lazy, auth, remote, cache) and usually creates or owns the real subject itself.
+
+</details>
+
+---
+
+## Try it
+
+Cover the answers in each drill, say your one-sentence distinction aloud for the four pairs (Strategy/State, Decorator/Proxy/Adapter, Factory/Abstract Factory/Builder, Observer/Mediator), then check against the lesson. Practice space: [LLD Studio](/tools/lld-studio/); full list in the [track hub](../README.md).
+
+---
+
+## One-page cheat sheet
+
+```text
+Strategy vs State       swap algorithm from OUTSIDE | object changes ITSELF
+Decorator/Proxy/Adapter  ADD behaviour | CONTROL access | CHANGE interface
+Factory/AbstractFactory/Builder   WHICH type | WHICH family | HOW assembled
+Observer vs Mediator     broadcast to unknown listeners | hub deciding who talks
+Facade vs Adapter        simplify many | translate one
+Command vs Strategy      request as object | algorithm as object
+Template vs Strategy     inheritance skeleton | composition swap
+Decision question: "what varies, and who chooses it?"
+```
 
 ---
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **State** lets an object change behaviour when its internal state changes by delegating to a state object — replacing giant `if status == ...` blocks with one class per state.
+
 > [!TIP]
 > **The One Rule of the State Pattern:** State encapsulates state-dependent behavior and transitions into discrete polymorphic classes, allowing an object's behavior to vary dynamically as its state changes without monolithic `switch` or `if/elif` statements. If a state machine has rich behavior coupled to each state, use the State pattern; if states are dumb data flags with static transitions, use an enum or lookup table.
 
@@ -639,29 +642,93 @@ This reduces heap allocations during state transitions to **zero**, entirely eli
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the State pattern?**  
-> **Strong Answer:**  
-> "The State pattern is a behavioral design pattern that allows an object to alter its behavior when its internal state changes, appearing to the caller as though the object changed its class.  
-> 
-> Instead of using massive `switch` or `if/else` statements that check flags on every method invocation, the context object delegates all state-dependent behavior to an instance of a concrete state class conforming to a common state interface. When a state transition occurs, the context swaps its current state object for another. This satisfies the Open/Closed Principle by encapsulating state-specific rules and transition logic inside dedicated, cohesive classes."
+<details>
+<summary><strong>1. What is the State pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between State and Strategy?**  
-> **Strong Answer:**  
-> "While State and Strategy share virtually identical UML class diagrams, their architectural intent and coupling are fundamentally different:  
-> 
-> 1. **Intent & Dynamic Mutation:** The **State pattern** models an object whose behavior changes dynamically over time as its internal state progresses through a lifecycle (e.g., an Order transitioning from `New` $\to$ `Paid` $\to$ `Shipped`). The **Strategy pattern** encapsulates interchangeable algorithms or policies (e.g., `CreditCardPayment` vs. `PayPalPayment`), and the strategy chosen at construction rarely changes during the object's lifetime.  
-> 2. **Awareness of Context & Other Options:** State classes are tightly coupled to the Context; they accept the context as a parameter and actively invoke `context.TransitionTo(nextState)`. They know about other states in the transition graph. In contrast, Strategy classes are completely decoupled: a strategy does not know about other strategies or drive changes on the context; it simply executes its algorithm and returns a result."
+The State pattern is a behavioral design pattern that allows an object to alter its behavior when its internal state changes, appearing to the caller as though the object changed its class.
 
-> [!interview]
-> **Question 3: How would you model order status changes?**  
-> **Strong Answer:**  
-> "I evaluate order status changes based on whether the states have behavior or are passive data:  
-> 
-> 1. **If states drive distinct domain behavior:** I model it using the State pattern. I create an abstract `OrderState` with operations like `Pay(amount)`, `Ship(trackingNumber)`, and `Cancel(reason)`. Concrete classes—`NewOrderState`, `PaidOrderState`, `ShippedOrderState`, and `CancelledOrderState`—implement valid transitions and throw domain exceptions (such as `InvalidStateTransitionException` or `InvalidOperationException`) on illegal transitions (e.g., shipping an unpaid order or cancelling a shipped order).  
-> 2. **If states are passive data persisted to a database:** I model it as an enum with an immutable state transition table `Dictionary<(OrderStatus, OrderTrigger), OrderStatus>`. This avoids class bloat when states contain no distinct logic beyond validation guards.  
-> 3. **Persistence & Concurrency:** In production, I combine this with optimistic concurrency control (a database version timestamp) so concurrent requests cannot execute conflicting state transitions simultaneously."
+Instead of using massive `switch` or `if/else` statements that check flags on every method invocation, the context object delegates all state-dependent behavior to an instance of a concrete state class conforming to a common state interface. When a state transition occurs, the context swaps its current state object for another. This satisfies the Open/Closed Principle by encapsulating state-specific rules and transition logic inside dedicated, cohesive classes.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between State and Strategy? [BASIC]</strong></summary>
+
+While State and Strategy share virtually identical UML class diagrams, their architectural intent and coupling are fundamentally different:
+
+1. **Intent & Dynamic Mutation:** The **State pattern** models an object whose behavior changes dynamically over time as its internal state progresses through a lifecycle (e.g., an Order transitioning from `New` $\to$ `Paid` $\to$ `Shipped`). The **Strategy pattern** encapsulates interchangeable algorithms or policies (e.g., `CreditCardPayment` vs. `PayPalPayment`), and the strategy chosen at construction rarely changes during the object's lifetime.
+2. **Awareness of Context & Other Options:** State classes are tightly coupled to the Context; they accept the context as a parameter and actively invoke `context.TransitionTo(nextState)`. They know about other states in the transition graph. In contrast, Strategy classes are completely decoupled: a strategy does not know about other strategies or drive changes on the context; it simply executes its algorithm and returns a result.
+
+</details>
+
+<details>
+<summary><strong>3. How would you model order status changes? [SCENARIO]</strong></summary>
+
+I evaluate order status changes based on whether the states have behavior or are passive data:
+
+1. **If states drive distinct domain behavior:** I model it using the State pattern. I create an abstract `OrderState` with operations like `Pay(amount)`, `Ship(trackingNumber)`, and `Cancel(reason)`. Concrete classes—`NewOrderState`, `PaidOrderState`, `ShippedOrderState`, and `CancelledOrderState`—implement valid transitions and throw domain exceptions (such as `InvalidStateTransitionException` or `InvalidOperationException`) on illegal transitions (e.g., shipping an unpaid order or cancelling a shipped order).
+2. **If states are passive data persisted to a database:** I model it as an enum with an immutable state transition table `Dictionary<(OrderStatus, OrderTrigger), OrderStatus>`. This avoids class bloat when states contain no distinct logic beyond validation guards.
+3. **Persistence & Concurrency:** In production, I combine this with optimistic concurrency control (a database version timestamp) so concurrent requests cannot execute conflicting state transitions simultaneously.
+
+</details>
+
+<details>
+<summary><strong>4. How would you model order statuses with rules like "cannot cancel after shipping"? [SCENARIO]</strong></summary>
+
+One state class per status exposing only the allowed operations; `Shipped.cancel()` raises/returns an error while `Paid.cancel()` transitions to `Cancelled`. The rules sit with the state they belong to.
+
+</details>
+
+<details>
+<summary><strong>5. When is a State class hierarchy overkill? [TRICKY]</strong></summary>
+
+With 3–4 states and simple transitions, an enum plus a transition table (`dict[(state, event)] -> state`) is shorter and easier to audit. Use classes when behaviour per state is rich.
+
+</details>
+
+<details>
+<summary><strong>6. Who owns the transition logic: the context or the states? [SCENARIO]</strong></summary>
+
+Typically the states (they return or set the next state), keeping the context small. A transition table is an alternative that centralises it.
+
+</details>
+
+---
+
+## Try it
+
+Run this: each state knows its own legal transitions, illegal ones fail loudly. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Draft:
+    def submit(self): return Review()
+class Review:
+    def submit(self): raise RuntimeError("already submitted")
+    def approve(self): return Published()
+class Published: pass
+
+state = Draft().submit()
+assert isinstance(state, Review)
+state = state.approve()
+assert isinstance(state, Published)
+try: Review().submit()
+except RuntimeError: pass
+else: raise AssertionError
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+STATE  Context.state -> IState { handle() } ; state objects trigger transitions
+Replace: status enum + switch/if in every method
+Each state: allowed actions + next state (the state machine lives in the classes)
+State knows siblings (transitions) | Strategy doesn't
+Simple machines: table-driven dict[(state, event)] -> next is enough
+Order lifecycle: Draft -> Paid -> Shipped -> Delivered | Cancelled
+Test: illegal transitions throw, every state has a test
+```
 
 ---
 

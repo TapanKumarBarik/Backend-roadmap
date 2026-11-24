@@ -15,6 +15,14 @@
 
 ---
 
+## The smell: when you must draw
+
+Prompt: *"Design a library system. Start with a class diagram."*
+
+The smell in a weak diagram: lines with no meaning, a diamond on every "has a", two-way links everywhere, and no multiplicity. The cost is real. A wrong arrow means wrong lifecycle code: parts that never get deleted, two "owners" for one object, and sync bugs between both ends of a link. Draw the weakest line that is true, and be ready to say why.
+
+---
+
 ## 1. Roadmap: why draw UML at all?
 
 Chapter 02 gave you a short UML table. This chapter goes slowly, one shape at a time. For each shape you will see the **arrow**, the **meaning**, the **lifecycle question**, a **real-world example**, the **Python**, the **C#**, and the **common mistake**.
@@ -1261,6 +1269,8 @@ public class Customer
 
 Notice how each arrow shows up in the code: **dependency** = parameter, **association** = field set from outside, **composition** = `new` inside the constructor, **realization** = `extends` an interface.
 
+**Extension point.** Requirement changes: "add gift cards." That is one new class realizing `PaymentMethod`; `Order.pay` and the diagram's existing lines do not change. "An order can have several shipments" means one new `Order *-- Shipment` composition with multiplicity `*`. If a change forces you to redraw old arrows, your first arrows were wrong.
+
 ---
 
 ## 14. From code back to a diagram
@@ -1717,31 +1727,19 @@ The list itself says nothing. It depends on **who created the objects** and **wh
 </details>
 
 <details>
-<summary><strong>6. Why default to a one-way association? [BASIC]</strong></summary>
-
-Two-way links need both sides kept in sync (add a student to a course and the course to the student). That is where bugs come from. One way is simpler and easier to change. Add the other direction only if you really need to navigate it.
-</details>
-
-<details>
-<summary><strong>7. When is an association class needed? [BASIC]</strong></summary>
+<summary><strong>6. When is an association class needed? [BASIC]</strong></summary>
 
 When the **relationship** has its own data. A grade belongs to the pair (student, course), not to either one. Make `Enrollment` its own class holding both references and the grade.
 </details>
 
 <details>
-<summary><strong>8. Inheritance vs composition: when to pick which? [SCENARIO]</strong></summary>
+<summary><strong>7. Inheritance vs composition: when to pick which? [SCENARIO]</strong></summary>
 
 Inherit for a true is-a where the child can replace the parent anywhere (Liskov). Compose for everything else. A `Stack` is not a `List` (it should not expose `insert(0, x)`), so a stack **has** a list. Composition also lets you swap behaviour at runtime.
 </details>
 
 <details>
-<summary><strong>9. You see a field created with `new` inside a constructor. Which arrow? [SCENARIO]</strong></summary>
-
-Composition, a filled diamond, assuming no one else gets hold of that object. If the object is also handed out and kept by others, the ownership claim is weak and I would say so.
-</details>
-
-<details>
-<summary><strong>10. Turn "a library lends books to members" into a diagram. Talk me through it. [SCENARIO]</strong></summary>
+<summary><strong>8. Turn "a library lends books to members" into a diagram. Talk me through it. [SCENARIO]</strong></summary>
 
 Nouns: Library, Book, Member. Verb: lends, which is a `Loan` with a due date, so an association class between Member and Book. Library holds books and members passed in: aggregation, `Library "1" o-- "*" Book`. Member to Loan to Book is association. I add multiplicity (`Member "1" --> "0..3" Loan`) and read each line aloud to check it.
 </details>

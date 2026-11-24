@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 25 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** A whiteboard hierarchy drill follows one loop — **requirements → nouns → what varies → abstraction → one extension demo** — and the interviewer watches for composition over deep inheritance.
+
 > [!TIP]
 > **The One Rule of Whiteboard Class Hierarchy Design:** Never rush into drawing deep inheritance trees; model **nouns as entities**, **varying behaviors as pluggable strategies or interfaces**, and keep inheritance depth to **two levels or fewer**. If an interviewer introduces a new variation, it should be accommodated by adding a new class implementing an interface, never by modifying an existing class.
 
@@ -587,39 +590,104 @@ No subclass explosion occurs.
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: Design classes for a notification system that sends email, SMS and push.**  
-> **Strong Answer:**  
-> "I structure a notification system by decoupling the **notification payload** from the **dispatch transport mechanism** using the Strategy and Provider patterns.
-> 
-> First, I define a value object or immutable record, `NotificationPayload`, holding recipient identifiers, subject, message body, and metadata.
-> 
-> Second, I create an abstraction, `INotificationChannel`, exposing a `Dispatch(payload)` method and a `ChannelName` property. Concrete implementations—`EmailChannel`, `SmsChannel`, and `PushChannel`—wrap their respective third-party SDKs (such as SendGrid, Twilio, or Firebase Cloud Messaging) acting as Anti-Corruption Layers.
-> 
-> Third, a high-level `NotificationService` accepts a collection of channels via Dependency Injection. Callers invoke `notificationService.Send(payload, ChannelType.Email)`. If requirements expand to include batch dispatch, multi-channel broadcast, or fallback retries, we compose channels using a `CompositeNotificationChannel` or decorate them with a `RetryChannelDecorator` without touching existing provider implementations, fully respecting the Open/Closed and Single Responsibility Principles."
+<details>
+<summary><strong>1. Design classes for a notification system that sends email, SMS and push. [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Model employees with different pay rules.**  
-> **Strong Answer:**  
-> "Modeling employee payroll through pure class inheritance (`SalariedEmployee`, `HourlyEmployee`, `CommissionEmployee`) is an antipattern because an employee's identity is stable, while their compensation structure is volatile and can change over time or be combined.
-> 
-> Instead, I apply **Composition over Inheritance** using the Strategy pattern. The `Employee` class acts as an entity holding identity attributes (ID, name, department) and holds a reference to an `IPayStrategy` interface. 
-> 
-> Concrete pay strategies encapsulate specific arithmetic: `SalariedPay` returns fixed monthly pay, `HourlyPay` computes regular hours plus 1.5x overtime, and `CommissionPay` computes base plus percentage of sales volume.
-> 
-> This architecture yields three major advantages:
-> 1. An employee can transition from hourly to salaried at runtime by simply reassigning the strategy.
-> 2. We can compose multiple compensation rules using the Decorator pattern (e.g., `BonusPayDecorator(new SalariedPay(5000))`) without combinatorial class explosion.
-> 3. Payroll calculation logic can be unit-tested in complete isolation from the employee entity lifecycle."
+I structure a notification system by decoupling the **notification payload** from the **dispatch transport mechanism** using the Strategy and Provider patterns.
 
-> [!interview]
-> **Question 3: Design a shape hierarchy where new shapes do not change existing code.**  
-> **Strong Answer:**  
-> "To design an extensible shape hierarchy conforming to the Open/Closed Principle, I establish an abstract base class or interface, `Shape`, defining pure mathematical invariants common to all two-dimensional geometric entities: `Area()` and `Perimeter()`.
-> 
-> Concrete shapes like `Circle`, `Rectangle`, and `Triangle` inherit from `Shape` and encapsulate their specific geometric dimensions (such as radius or width/height) as immutable constructor arguments with guard validations. High-level modules, such as a `CanvasAreaCalculator`, operate purely against `IEnumerable<Shape>` or `List[Shape]` using polymorphic dispatch: `shapes.Sum(s => s.Area())`. When a new shape like `Pentagon` is added, we write a new class without editing existing shapes or the calculator.
-> 
-> Crucially, to avoid violating the Single Responsibility Principle, I do **not** add rendering (`Draw()`) or serialization (`ToJson()`) directly into the `Shape` classes. Instead, if diverse operations must traverse the hierarchy, I use the **Visitor Pattern** (`IShapeVisitor`) or dedicated external renderers, keeping domain shapes focused strictly on geometric geometry."
+First, I define a value object or immutable record, `NotificationPayload`, holding recipient identifiers, subject, message body, and metadata.
+
+Second, I create an abstraction, `INotificationChannel`, exposing a `Dispatch(payload)` method and a `ChannelName` property. Concrete implementations—`EmailChannel`, `SmsChannel`, and `PushChannel`—wrap their respective third-party SDKs (such as SendGrid, Twilio, or Firebase Cloud Messaging) acting as Anti-Corruption Layers.
+
+Third, a high-level `NotificationService` accepts a collection of channels via Dependency Injection. Callers invoke `notificationService.Send(payload, ChannelType.Email)`. If requirements expand to include batch dispatch, multi-channel broadcast, or fallback retries, we compose channels using a `CompositeNotificationChannel` or decorate them with a `RetryChannelDecorator` without touching existing provider implementations, fully respecting the Open/Closed and Single Responsibility Principles.
+
+</details>
+
+<details>
+<summary><strong>2. Model employees with different pay rules. [SCENARIO]</strong></summary>
+
+Modeling employee payroll through pure class inheritance (`SalariedEmployee`, `HourlyEmployee`, `CommissionEmployee`) is an antipattern because an employee's identity is stable, while their compensation structure is volatile and can change over time or be combined.
+
+Instead, I apply **Composition over Inheritance** using the Strategy pattern. The `Employee` class acts as an entity holding identity attributes (ID, name, department) and holds a reference to an `IPayStrategy` interface.
+
+Concrete pay strategies encapsulate specific arithmetic: `SalariedPay` returns fixed monthly pay, `HourlyPay` computes regular hours plus 1.5x overtime, and `CommissionPay` computes base plus percentage of sales volume.
+
+This architecture yields three major advantages:
+1. An employee can transition from hourly to salaried at runtime by simply reassigning the strategy.
+2. We can compose multiple compensation rules using the Decorator pattern (e.g., `BonusPayDecorator(new SalariedPay(5000))`) without combinatorial class explosion.
+3. Payroll calculation logic can be unit-tested in complete isolation from the employee entity lifecycle.
+
+</details>
+
+<details>
+<summary><strong>3. Design a shape hierarchy where new shapes do not change existing code. [SCENARIO]</strong></summary>
+
+To design an extensible shape hierarchy conforming to the Open/Closed Principle, I establish an abstract base class or interface, `Shape`, defining pure mathematical invariants common to all two-dimensional geometric entities: `Area()` and `Perimeter()`.
+
+Concrete shapes like `Circle`, `Rectangle`, and `Triangle` inherit from `Shape` and encapsulate their specific geometric dimensions (such as radius or width/height) as immutable constructor arguments with guard validations. High-level modules, such as a `CanvasAreaCalculator`, operate purely against `IEnumerable<Shape>` or `List[Shape]` using polymorphic dispatch: `shapes.Sum(s => s.Area())`. When a new shape like `Pentagon` is added, we write a new class without editing existing shapes or the calculator.
+
+Crucially, to avoid violating the Single Responsibility Principle, I do **not** add rendering (`Draw()`) or serialization (`ToJson()`) directly into the `Shape` classes. Instead, if diverse operations must traverse the hierarchy, I use the **Visitor Pattern** (`IShapeVisitor`) or dedicated external renderers, keeping domain shapes focused strictly on geometric geometry.
+
+</details>
+
+<details>
+<summary><strong>4. What is the first thing you do when handed a "design a class hierarchy" prompt? [SCENARIO]</strong></summary>
+
+Clarify requirements and identify *what varies*. I list the nouns, ask which behaviours differ per type and which rules are likely to change, and only then draw an abstraction on that axis.
+
+</details>
+
+<details>
+<summary><strong>5. How do you show the interviewer your design is extensible? [SCENARIO]</strong></summary>
+
+Walk through a new requirement end to end: "to add WhatsApp I create `WhatsAppChannel : Channel` and register it; `NotificationService` is untouched." If the walkthrough edits existing classes, the abstraction is wrong.
+
+</details>
+
+<details>
+<summary><strong>6. When is a deep inheritance tree the *right* answer on a whiteboard? [TRICKY]</strong></summary>
+
+Rarely: only for a stable, genuinely taxonomic domain with shared state and where every subtype honours the base contract. Otherwise one level of abstraction plus composition (strategy objects) is safer and easier to test.
+
+</details>
+
+---
+
+## Try it
+
+Time-box 10 minutes on each prompt in [LLD Studio](/tools/lld-studio/): draw only classes and relationships, then say how a *new* case (new channel / pay rule / shape) is added without editing existing code. Drill order is in the [track hub](../README.md).
+
+```python
+from abc import ABC, abstractmethod
+import math
+
+class Shape(ABC):
+    @abstractmethod
+    def area(self) -> float: ...
+class Circle(Shape):
+    def __init__(self, r): self.r = r
+    def area(self): return math.pi * self.r ** 2
+class Rect(Shape):
+    def __init__(self, w, h): self.w, self.h = w, h
+    def area(self): return self.w * self.h
+
+total = sum(s.area() for s in [Rect(2, 3), Circle(1)])   # new shape = new class only
+assert round(total, 2) == 9.14
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+1 Clarify   who uses it, what varies, scale (2 min)
+2 Nouns -> classes, verbs -> methods, "or" -> abstraction
+3 Pick the axis of change; put an interface on it
+4 Prefer composition; hierarchy <= 2 levels
+5 Show extension: add a class, edit nothing
+6 Name trade-offs + what you'd test
+Smells: type enums + switch | isinstance chains | god class | override that throws
+```
 
 ---
 

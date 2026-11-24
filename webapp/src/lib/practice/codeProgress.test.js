@@ -1,12 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { continueProblem, drillsDone, filterGroups, groupByTopic, nextProblem, problemOfTheDay, statusOf, tally } from './codeProgress.js';
+import { continueProblem, drillsDone, filterGroups, groupByTopic, isLldTopic, nextProblem, problemOfTheDay, statusOf, tally, withoutLldProblems } from './codeProgress.js';
 import { dayName, dayNumber } from './days.js';
 
 const LEVELS = ['beginner', 'intermediate', 'advanced'];
 const TOPICS = [{ id: 'a', label: 'Alpha' }, { id: 'b', label: 'Beta' }];
 const p = (slug, topic, difficulty = 'beginner') => ({ slug, title: slug.toUpperCase(), topic, difficulty });
 const PROBLEMS = [p('x2', 'b', 'advanced'), p('a1', 'a', 'intermediate'), p('a0', 'a'), p('z9', 'zeta'), p('x1', 'b')];
+
+test('LLD topics are filtered out of the Practice hub list', () => {
+  assert.equal(isLldTopic('lld-machine-coding'), true);
+  assert.equal(isLldTopic('backend-coding'), false);
+  const mixed = [p('a0', 'a'), p('lot', 'lld-machine-coding'), p('x1', 'b')];
+  assert.deepEqual(withoutLldProblems(mixed).map((x) => x.slug), ['a0', 'x1']);
+});
 
 test('a problem is solved, tried or untouched by its mark', () => {
   const marks = { 'practice/code/a0': 'done', 'practice/code/a1': 'wip', 'curriculum/other.md': 'done' };

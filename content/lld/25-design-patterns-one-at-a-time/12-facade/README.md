@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 16 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Facade** gives a complex subsystem one simple entry point (`checkout()` instead of 5 service calls) — it hides complexity but does not forbid direct access.
+
 > [!TIP]
 > **The One Rule of the Facade Pattern:** A Facade provides a **simplified, high-level doorway** to a complex subsystem to reduce cognitive load and coupling—it does **not** encapsulate or hide the subsystem classes from callers who genuinely need fine-grained control, nor does it adapt incompatible interfaces. If a facade starts accumulating state, domain business logic, and dozens of unrelated methods, it has degenerated into a God Object antipattern.
 
@@ -457,30 +460,94 @@ Explain why this facade has become an antipattern, and outline how to decompose 
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Facade pattern?**  
-> **Strong Answer:**  
-> "The Facade pattern is a Gang of Four structural design pattern that provides a unified, simplified high-level interface over a complex subsystem of classes, libraries, or frameworks.  
-> 
-> Its primary goal is to minimize cognitive load and loose coupling: instead of forcing client applications to understand, instantiate, and choreograph a multitude of interdependent subsystem classes, the facade exposes a handful of coarse-grained, intention-revealing methods. Crucially, the facade does not encapsulate the subsystem entirely; advanced callers who need fine-grained control can still bypass the facade and interact with subsystem components directly."
+<details>
+<summary><strong>1. What is the Facade pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between Facade and Adapter?**  
-> **Strong Answer:**  
-> "While both patterns wrap other classes, their intent and structure differ fundamentally:  
-> 
-> 1. **Intent:** An **Adapter** exists to achieve *compatibility* between two existing, incompatible interfaces. A **Facade** exists to achieve *simplicity* by providing an easy entry point over a complicated subsystem.  
-> 2. **Interface Creation:** An Adapter conforms to an *existing, predetermined interface* that a client already uses. A Facade defines a *brand-new, high-level interface* tailored to common workflows.  
-> 3. **Cardinality:** An Adapter typically wraps a single object (one-to-one) to convert its interface. A Facade orchestrates an entire ecosystem of multiple classes and services (one-to-many)."
+The Facade pattern is a Gang of Four structural design pattern that provides a unified, simplified high-level interface over a complex subsystem of classes, libraries, or frameworks.
 
-> [!interview]
-> **Question 3: When is Facade a code smell?**  
-> **Strong Answer:**  
-> "A Facade becomes a code smell when it mutates into a **monolithic God Object**.  
-> 
-> This happens when engineers treat the facade not as a thin orchestrator, but as a repository for core business logic, validation algorithms, state mutations, and direct database queries. Signs of a decaying facade include classes with dozens of unrelated methods, thousands of lines of code, and direct dependencies on every infrastructure concern in the project.  
-> 
-> Another common code smell is the **Pass-Through Facade**, where a facade simply wraps a single class with an identical method signature, introducing useless boilerplate without reducing complexity or orchestrating subsystems."
+Its primary goal is to minimize cognitive load and loose coupling: instead of forcing client applications to understand, instantiate, and choreograph a multitude of interdependent subsystem classes, the facade exposes a handful of coarse-grained, intention-revealing methods. Crucially, the facade does not encapsulate the subsystem entirely; advanced callers who need fine-grained control can still bypass the facade and interact with subsystem components directly.
+
+</details>
+
+<details>
+<summary><strong>2. What is the difference between Facade and Adapter? [BASIC]</strong></summary>
+
+While both patterns wrap other classes, their intent and structure differ fundamentally:
+
+1. **Intent:** An **Adapter** exists to achieve *compatibility* between two existing, incompatible interfaces. A **Facade** exists to achieve *simplicity* by providing an easy entry point over a complicated subsystem.
+2. **Interface Creation:** An Adapter conforms to an *existing, predetermined interface* that a client already uses. A Facade defines a *brand-new, high-level interface* tailored to common workflows.
+3. **Cardinality:** An Adapter typically wraps a single object (one-to-one) to convert its interface. A Facade orchestrates an entire ecosystem of multiple classes and services (one-to-many).
+
+</details>
+
+<details>
+<summary><strong>3. When is Facade a code smell? [SCENARIO]</strong></summary>
+
+A Facade becomes a code smell when it mutates into a **monolithic God Object**.
+
+This happens when engineers treat the facade not as a thin orchestrator, but as a repository for core business logic, validation algorithms, state mutations, and direct database queries. Signs of a decaying facade include classes with dozens of unrelated methods, thousands of lines of code, and direct dependencies on every infrastructure concern in the project.
+
+Another common code smell is the **Pass-Through Facade**, where a facade simply wraps a single class with an identical method signature, introducing useless boilerplate without reducing complexity or orchestrating subsystems.
+
+</details>
+
+<details>
+<summary><strong>4. A controller calls 6 services in sequence to place an order. What do you do? [SCENARIO]</strong></summary>
+
+Introduce an `OrderService` (facade) that owns the sequence, and let the controller call one method. The controller becomes thin and the workflow is testable in one place.
+
+</details>
+
+<details>
+<summary><strong>5. Is a Facade the same as an API Gateway? [TRICKY]</strong></summary>
+
+Same idea at a different scale. A facade is an in-process class simplifying a subsystem; a gateway is a network-level facade over many services. Both reduce what clients must know.
+
+</details>
+
+<details>
+<summary><strong>6. Does a Facade stop clients from using the subsystem directly? [BASIC]</strong></summary>
+
+No. It offers a convenient path, but the subsystem stays public for advanced uses. If you must forbid direct use, that is encapsulation/module boundaries, not the pattern itself.
+
+</details>
+
+---
+
+## Try it
+
+Run this: the facade is the only thing the caller touches. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Inventory:
+    def reserve(self, sku): return True
+class Payment:
+    def charge(self, amt): return True
+class Shipping:
+    def schedule(self, sku): return "ship-1"
+
+class OrderFacade:
+    def __init__(self): self.i, self.p, self.s = Inventory(), Payment(), Shipping()
+    def place(self, sku, amt):
+        if self.i.reserve(sku) and self.p.charge(amt):
+            return self.s.schedule(sku)
+
+assert OrderFacade().place("A1", 99) == "ship-1"
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+FACADE  one simple API over a messy subsystem (Client -> Facade -> A,B,C)
+Goal: fewer dependencies for callers, one seam you can mock in tests
+Does NOT hide subsystem classes - power users can still use them
+Facade SIMPLIFIES | Adapter TRANSLATES | Mediator COORDINATES peers
+.NET: HttpClient, ILogger, File.ReadAllText, ASP.NET `app.MapGet`
+Smell: god-facade that grows every method; facade with business rules
+Application services often are facades
+```
 
 ---
 

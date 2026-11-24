@@ -4,7 +4,7 @@ import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { fetchPracticeCatalog, fetchQuizAttempts, fetchWeakAreas } from '../../lib/practiceApi.js';
 import { recommend } from '../../lib/practice/recommend.js';
 import { codeKey, drillKey } from '../../lib/practice/progressKeys.js';
-import { continueProblem, dailyProblem, drillsDone, filterGroups, groupByTopic, tally } from '../../lib/practice/codeProgress.js';
+import { continueProblem, dailyProblem, drillsDone, filterGroups, groupByTopic, tally, withoutLldProblems } from '../../lib/practice/codeProgress.js';
 import { dayName, dayNumber } from '../../lib/practice/days.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { CARDS, DIFFICULTY, PRACTICE, RECOMMEND } from '../../config/practice.js';
@@ -72,7 +72,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
   }) : []), [catalog, attempts, weak]);
   const bySlug = useMemo(() => Object.fromEntries((catalog ? catalog.quizzes : []).map((q) => [q.slug, q])), [catalog]);
 
-  const code = useMemo(() => (catalog && catalog.code) || [], [catalog]);
+  const code = useMemo(() => withoutLldProblems((catalog && catalog.code) || []), [catalog]);
   const groups = useMemo(() => groupByTopic(code, statusMap, CODE_TOPICS, LEVELS), [code, statusMap]);
   const shownGroups = useMemo(() => filterGroups(groups, statusMap, { query, level, unsolved }), [groups, statusMap, query, level, unsolved]);
   const today = dayNumber();
@@ -139,7 +139,17 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
         </>
       )}
 
-      <Tabs label={PRACTICE.title} value={tab} onChange={changeTab} tabs={PRACTICE.tabs.map(({ id, label }) => ({ id, label, badge: catalog ? (catalog[id] || []).length : undefined }))} idPrefix="practice" />
+      <Tabs
+        label={PRACTICE.title}
+        value={tab}
+        onChange={changeTab}
+        tabs={PRACTICE.tabs.map(({ id, label }) => ({
+          id,
+          label,
+          badge: catalog ? (id === 'code' ? code.length : (catalog[id] || []).length) : undefined
+        }))}
+        idPrefix="practice"
+      />
       <TabPanel id={tab} value={tab} idPrefix="practice">
         {error && <LoadError error={error} what={LOAD_WHAT.practice} onRetry={reload} />}
         {!catalog && !error && <Loading />}
@@ -205,7 +215,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
                       {c.questions != null && <span>{c.questions} questions</span>}
                       {c.cards && <span className="pr-tag">{CARDS.tag}</span>}
                       {c.days != null && <span>{TOOLS.planDays(c.days)}</span>}
-                      {tab === 'quizzes' && best[c.slug] && <span className="pr-best">Best {best[c.slug].score}/{best[c.slug].max}</span>}
+                      {tab === 'quizzes' && best[c.slug] && <span className="pr-best">{PRACTICE.ratingLabel(best[c.slug].score, best[c.slug].max)}</span>}
                       {tab === 'quizzes' && best[c.slug] && best[c.slug].score === best[c.slug].max && <span className="pr-done">{RECOMMEND.perfect}</span>}
                     </div>
                     <h3 className="pr-card__title">

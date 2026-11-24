@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 20 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** Middleware is a chain of `next`-calling components: `Use` can continue, `Run` terminates, `Map` branches — and **order is behaviour** (exception handling first, auth before endpoints).
+
 > [!TIP]
 > **The One Rule of Middleware:** The ASP.NET Core request pipeline is a bidirectional Russian doll (Chain of Responsibility) composed of `RequestDelegate` delegates: incoming HTTP requests flow forward through components in the exact order of registration, while outgoing HTTP responses unwind backward in reverse order. If you short-circuit without returning, mutate headers after the response body has started streaming (`Response.HasStarted == true`), or place authorization before authentication, your application will fail silently or throw runtime exceptions.
 
@@ -497,86 +500,118 @@ For each of the following four architectural requirements, decide whether to imp
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is middleware in ASP.NET Core?**  
-> **Strong Answer:**  
-> "In ASP.NET Core, **middleware** is a sequence of software components assembled into an application pipeline to handle incoming HTTP requests and outgoing responses. Architecturally, it is an implementation of the **Chain of Responsibility** design pattern.  
-> 
-> Each middleware component is encapsulated as a `RequestDelegate`—a function taking an `HttpContext` and returning a `Task` (`Func<HttpContext, Task>`). When a request arrives from the web server (Kestrel), it flows sequentially through the chain of delegates. Each middleware has two key responsibilities:  
-> 1. It can inspect, mutate, or short-circuit the request before invoking the `next` delegate.  
-> 2. It can inspect, wrap, or modify the response after the `next` delegate finishes executing.  
-> 
-> Middleware is used for cross-cutting HTTP infrastructure concerns, including exception handling, HTTPS redirection, authentication, authorization, response compression, CORS, and request routing."
+<details>
+<summary><strong>1. What is middleware in ASP.NET Core? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: What is the difference between app.Use and app.Run?**  
-> **Strong Answer:**  
-> "The fundamental difference between `app.Use` and `app.Run` in pipeline configuration is **delegation versus termination**:  
-> 
-> - **`app.Use`** registers a chaining middleware delegate that accepts both the `HttpContext` and a pointer to the next delegate in the pipeline (`Func<HttpContext, RequestDelegate, Task>`). Inside `app.Use`, the component performs work, calls `await next(context)` to pass execution downstream, and resumes work when downstream execution returns. If it intentionally omits calling `next()`, it short-circuits the pipeline.  
-> - **`app.Run`** registers a **terminal middleware delegate**. Its delegate signature receives only `HttpContext` (`RequestDelegate` without a `next` parameter). Because it has no reference to downstream components, it **always terminates the pipeline**. No subsequent middleware registered after `app.Run` can ever execute for that path.  
-> 
-> *(Note: Do not confuse the pipeline configuration method `app.Run(RequestDelegate)` with the parameterless `app.Run()` called at the very end of `Program.cs`, which starts the Kestrel host and begins listening on HTTP ports.)*"
+In ASP.NET Core, **middleware** is a sequence of software components assembled into an application pipeline to handle incoming HTTP requests and outgoing responses. Architecturally, it is an implementation of the **Chain of Responsibility** design pattern.
 
-> [!interview]
-> **Question 3: What do app.Map and app.MapWhen do?**  
-> **Strong Answer:**  
-> "`app.Map` and `app.MapWhen` are branching methods used to fork the middleware pipeline based on request characteristics:  
-> 
-> - **`app.Map(pathMatch, configuration)`** branches the pipeline based on a **URL path prefix**. If the request path begins with the specified prefix (e.g., `/api/v2` or `/healthz`), execution diverts into the separate branch pipeline defined inside the callback. Crucially, `Map` matches by prefix and adjusts `HttpRequest.PathBase` and `Path`. Once a request branches via `app.Map`, it **does not re-join the main pipeline**; the branch must terminate the request.  
-> - **`app.MapWhen(predicate, configuration)`** branches the pipeline based on the result of a custom predicate function: `Func<HttpContext, bool>`. This allows conditional branching based on any aspect of the request—such as incoming headers, query parameters, client IP address, or HTTP methods. Like `app.Map`, branches created with `app.MapWhen` do not re-join the main pipeline.  
-> 
-> In contrast, if you need a conditional branch that **re-joins the main pipeline** after running specialized middleware, use **`app.UseWhen`**."
+Each middleware component is encapsulated as a `RequestDelegate`—a function taking an `HttpContext` and returning a `Task` (`Func<HttpContext, Task>`). When a request arrives from the web server (Kestrel), it flows sequentially through the chain of delegates. Each middleware has two key responsibilities:
+1. It can inspect, mutate, or short-circuit the request before invoking the `next` delegate.
+2. It can inspect, wrap, or modify the response after the `next` delegate finishes executing.
 
-> [!interview]
-> **Question 4: Why does the order of middleware matter? Give the right order.**  
-> **Strong Answer:**  
-> "Middleware order is critical because execution is strictly linear and sequential: each component depends on the state established by preceding components on the way in, and relies on catching errors or unwinding responses on the way out. Misplacing middleware causes silent security holes or crashes.  
-> 
-> For example:
-> - If `UseExceptionHandler` is placed in the middle rather than first, errors in earlier middleware cannot be caught.
-> - If `UseAuthorization` is placed before `UseAuthentication`, authorization evaluates unpopulated anonymous users, causing all protected endpoints to fail with 401.
-> - If `UseCors` runs after `UseAuthorization`, pre-flight `OPTIONS` requests are rejected before CORS headers can be written.  
-> 
-> **The canonical order in ASP.NET Core is:**  
-> 1. `UseExceptionHandler` / `UseDeveloperExceptionPage` (Global error handling)  
-> 2. `UseHsts` (Strict Transport Security header)  
-> 3. `UseHttpsRedirection` (HTTP to HTTPS redirection)  
-> 4. `UseStaticFiles` (Serves physical static assets and short-circuits)  
-> 5. `UseRouting` (Matches URL to endpoint metadata)  
-> 6. `UseCors` (Evaluates cross-origin policies against matched endpoint)  
-> 7. `UseAuthentication` (Identifies user identity from token/cookie)  
-> 8. `UseAuthorization` (Enforces access rules against authenticated identity)  
-> 9. Custom application middleware (Timing, correlation, business policies)  
-> 10. Endpoint handlers (`MapControllers()`, `MapGet()`, `UseEndpoints()`)"
+Middleware is used for cross-cutting HTTP infrastructure concerns, including exception handling, HTTPS redirection, authentication, authorization, response compression, CORS, and request routing.
 
-> [!interview]
-> **Question 5: How do you write custom middleware?**  
-> **Strong Answer:**  
-> "In ASP.NET Core, there are two primary ways to author custom middleware: **Convention-based** and **Factory-based (`IMiddleware`)**.  
-> 
-> 1. **Convention-Based Middleware (Most Common):**  
->    - You create a class that does not need to inherit from any base class.  
->    - Its constructor accepts a `RequestDelegate next` and any **Singleton** dependencies.  
->    - It must define an asynchronous method named `InvokeAsync` or `Invoke` that takes `HttpContext context` as its first parameter.  
->    - **Critical Lifetime Rule:** Any **Scoped** services (like EF Core's `DbContext`) **must be injected into `InvokeAsync`**, not the constructor. Because convention middleware is instantiated once as a singleton at host startup, injecting scoped dependencies into the constructor causes captive dependencies and thread-safety bugs.  
->    - Registered via `app.UseMiddleware<T>()`.  
-> 
-> 2. **Factory-Based Middleware (`IMiddleware`):**  
->    - The class explicitly implements the `IMiddleware` interface, containing `Task InvokeAsync(HttpContext context, RequestDelegate next)`.  
->    - It is registered in the DI container (`builder.Services.AddTransient<MyMiddleware>()`).  
->    - Because it is resolved per-request by `IMiddlewareFactory`, it can safely inject **Scoped** services directly into its constructor.  
->    - Registered via `app.UseMiddleware<T>()`."
+</details>
 
-> [!interview]
-> **Question 6: What is the difference between middleware and filters?**  
-> **Strong Answer:**  
-> "The difference between middleware and filters comes down to **pipeline scope and architectural level of abstraction**:  
-> 
-> - **Middleware** operates at the low-level **global HTTP level**. It runs on raw `HttpContext` before MVC or Minimal API routing executes. It is completely agnostic of MVC constructs: it has no knowledge of which controller action is executing, action arguments, model binding, or `ModelState`. Middleware is best suited for application-wide infrastructure: logging, SSL termination, static file serving, rate limiting, and global authentication.  
-> - **Filters** (`IActionFilter`, `IResourceFilter`, `IExceptionFilter`, `IResultFilter`) run **inside the MVC / Endpoint middleware** pipeline. They have access to the `ActionExecutingContext`, which includes the controller instance, route parameters, model-bound arguments, and `ActionResult` objects. Filters are scoped to specific controllers, actions, or endpoint groups using attributes.  
-> 
-> **Decision Rule:** If your requirement concerns raw HTTP manipulation (like headers, TLS, correlation IDs, or request-level body streams), use **Middleware**. If your requirement needs access to domain action arguments, model validation, or controller return types, use a **Filter**."
+<details>
+<summary><strong>2. What is the difference between app.Use and app.Run? [BASIC]</strong></summary>
+
+The fundamental difference between `app.Use` and `app.Run` in pipeline configuration is **delegation versus termination**:
+
+- **`app.Use`** registers a chaining middleware delegate that accepts both the `HttpContext` and a pointer to the next delegate in the pipeline (`Func<HttpContext, RequestDelegate, Task>`). Inside `app.Use`, the component performs work, calls `await next(context)` to pass execution downstream, and resumes work when downstream execution returns. If it intentionally omits calling `next()`, it short-circuits the pipeline.
+- **`app.Run`** registers a **terminal middleware delegate**. Its delegate signature receives only `HttpContext` (`RequestDelegate` without a `next` parameter). Because it has no reference to downstream components, it **always terminates the pipeline**. No subsequent middleware registered after `app.Run` can ever execute for that path.
+
+*(Note: Do not confuse the pipeline configuration method `app.Run(RequestDelegate)` with the parameterless `app.Run()` called at the very end of `Program.cs`, which starts the Kestrel host and begins listening on HTTP ports.)*
+
+</details>
+
+<details>
+<summary><strong>3. What do app.Map and app.MapWhen do? [BASIC]</strong></summary>
+
+`app.Map` and `app.MapWhen` are branching methods used to fork the middleware pipeline based on request characteristics:
+
+- **`app.Map(pathMatch, configuration)`** branches the pipeline based on a **URL path prefix**. If the request path begins with the specified prefix (e.g., `/api/v2` or `/healthz`), execution diverts into the separate branch pipeline defined inside the callback. Crucially, `Map` matches by prefix and adjusts `HttpRequest.PathBase` and `Path`. Once a request branches via `app.Map`, it **does not re-join the main pipeline**; the branch must terminate the request.
+- **`app.MapWhen(predicate, configuration)`** branches the pipeline based on the result of a custom predicate function: `Func<HttpContext, bool>`. This allows conditional branching based on any aspect of the request—such as incoming headers, query parameters, client IP address, or HTTP methods. Like `app.Map`, branches created with `app.MapWhen` do not re-join the main pipeline.
+
+In contrast, if you need a conditional branch that **re-joins the main pipeline** after running specialized middleware, use **`app.UseWhen`**.
+
+</details>
+
+<details>
+<summary><strong>4. Why does the order of middleware matter? Give the right order. [SCENARIO]</strong></summary>
+
+Middleware order is critical because execution is strictly linear and sequential: each component depends on the state established by preceding components on the way in, and relies on catching errors or unwinding responses on the way out. Misplacing middleware causes silent security holes or crashes.
+
+For example:
+- If `UseExceptionHandler` is placed in the middle rather than first, errors in earlier middleware cannot be caught.
+- If `UseAuthorization` is placed before `UseAuthentication`, authorization evaluates unpopulated anonymous users, causing all protected endpoints to fail with 401.
+- If `UseCors` runs after `UseAuthorization`, pre-flight `OPTIONS` requests are rejected before CORS headers can be written.
+
+**The canonical order in ASP.NET Core is:**
+1. `UseExceptionHandler` / `UseDeveloperExceptionPage` (Global error handling)
+2. `UseHsts` (Strict Transport Security header)
+3. `UseHttpsRedirection` (HTTP to HTTPS redirection)
+4. `UseStaticFiles` (Serves physical static assets and short-circuits)
+5. `UseRouting` (Matches URL to endpoint metadata)
+6. `UseCors` (Evaluates cross-origin policies against matched endpoint)
+7. `UseAuthentication` (Identifies user identity from token/cookie)
+8. `UseAuthorization` (Enforces access rules against authenticated identity)
+9. Custom application middleware (Timing, correlation, business policies)
+10. Endpoint handlers (`MapControllers()`, `MapGet()`, `UseEndpoints()`)
+
+</details>
+
+<details>
+<summary><strong>5. How do you write custom middleware? [SCENARIO]</strong></summary>
+
+In ASP.NET Core, there are two primary ways to author custom middleware: **Convention-based** and **Factory-based (`IMiddleware`)**.
+
+1. **Convention-Based Middleware (Most Common):**
+   - You create a class that does not need to inherit from any base class.
+   - Its constructor accepts a `RequestDelegate next` and any **Singleton** dependencies.
+   - It must define an asynchronous method named `InvokeAsync` or `Invoke` that takes `HttpContext context` as its first parameter.
+   - **Critical Lifetime Rule:** Any **Scoped** services (like EF Core's `DbContext`) **must be injected into `InvokeAsync`**, not the constructor. Because convention middleware is instantiated once as a singleton at host startup, injecting scoped dependencies into the constructor causes captive dependencies and thread-safety bugs.
+   - Registered via `app.UseMiddleware<T>()`.
+
+2. **Factory-Based Middleware (`IMiddleware`):**
+   - The class explicitly implements the `IMiddleware` interface, containing `Task InvokeAsync(HttpContext context, RequestDelegate next)`.
+   - It is registered in the DI container (`builder.Services.AddTransient<MyMiddleware>()`).
+   - Because it is resolved per-request by `IMiddlewareFactory`, it can safely inject **Scoped** services directly into its constructor.
+   - Registered via `app.UseMiddleware<T>()`.
+
+</details>
+
+<details>
+<summary><strong>6. What is the difference between middleware and filters? [BASIC]</strong></summary>
+
+The difference between middleware and filters comes down to **pipeline scope and architectural level of abstraction**:
+
+- **Middleware** operates at the low-level **global HTTP level**. It runs on raw `HttpContext` before MVC or Minimal API routing executes. It is completely agnostic of MVC constructs: it has no knowledge of which controller action is executing, action arguments, model binding, or `ModelState`. Middleware is best suited for application-wide infrastructure: logging, SSL termination, static file serving, rate limiting, and global authentication.
+- **Filters** (`IActionFilter`, `IResourceFilter`, `IExceptionFilter`, `IResultFilter`) run **inside the MVC / Endpoint middleware** pipeline. They have access to the `ActionExecutingContext`, which includes the controller instance, route parameters, model-bound arguments, and `ActionResult` objects. Filters are scoped to specific controllers, actions, or endpoint groups using attributes.
+
+**Decision Rule:** If your requirement concerns raw HTTP manipulation (like headers, TLS, correlation IDs, or request-level body streams), use **Middleware**. If your requirement needs access to domain action arguments, model validation, or controller return types, use a **Filter**.
+
+</details>
+
+---
+
+## Try it
+
+Use the minimal-API sample in section 2 of the [track hub](../README.md) (`dotnet new web`, paste, `dotnet run`). Add `app.Use(async (ctx, next) => { Console.WriteLine("before"); await next(); Console.WriteLine("after"); });` before and after another `Use` to see the in/out ordering. Sketch the moving parts in [LLD Studio](/tools/lld-studio/) if you want a picture to narrate.
+
+---
+
+## One-page cheat sheet
+
+```text
+Use(async (ctx, next) => { before; await next(); after; })   continue the chain
+Run(ctx => ...)   terminal (no next)       Map("/x", branch) / MapWhen(pred, branch)
+Recommended order: ExceptionHandler -> HSTS/HTTPS -> StaticFiles -> Routing -> CORS -> Authentication -> Authorization -> Endpoints
+Short-circuit: don't call next (auth failure, cache hit, static file)
+Custom middleware: class with InvokeAsync(HttpContext, RequestDelegate) or inline
+Response started? can't change headers after body written
+Middleware = whole pipeline (before routing) | Filters = MVC, know the action/model
+```
 
 ---
 

@@ -4,6 +4,9 @@
 > **Estimated Reading Time:** 18 minutes  
 > **Target Audience:** Engineers preparing for LLD, OOP, C#, or Python technical screening and architecture rounds.
 
+> [!NOTE]
+> **In one line:** **Decorator** wraps an object with the same interface to add behaviour (logging, caching, retries) at runtime and stackably — without subclassing or touching the original.
+
 > [!TIP]
 > **The One Rule of the Decorator Pattern:** A Decorator **wraps** an instance while **conforming to the exact same interface** as the wrapped object, dynamically adding behavior before or after delegating work. If it changes the interface, it is an **Adapter**; if it controls object lifecycle and access, it is a **Proxy**; if it is merely a Python `@decorator` function, it is syntactic sugar for callable wrapping, not the object-oriented GoF structural pattern.
 
@@ -486,38 +489,93 @@ If the read pipeline attempts to decompress before decrypting when writing did t
 
 ## 7. Interview Questions & Model Answers
 
-> [!interview]
-> **Question 1: What is the Decorator pattern?**  
-> **Strong Answer:**  
-> "The Decorator pattern is a Gang of Four structural design pattern that dynamically attaches additional responsibilities to an object at runtime. The decorator implements the exact same interface as the object it wraps and maintains a reference to that interface. When a method is called on the decorator, it can execute custom logic before or after delegating the call to the wrapped component.  
-> 
-> It provides a flexible, composable alternative to subclassing. Instead of statically compiling separate classes for every conceivable combination of behaviors, you write isolated single-responsibility decorators and stack them at runtime as needed."
+<details>
+<summary><strong>1. What is the Decorator pattern? [BASIC]</strong></summary>
 
-> [!interview]
-> **Question 2: Is a Python `@decorator` the Decorator pattern?**  
-> **Strong Answer:**  
-> "Strictly speaking, no. While they share the high-level intent of wrapping code to augment behavior, their mechanisms and design paradigms are fundamentally different:  
-> 
-> 1. **Mechanism:** A Python `@decorator` is language-level syntactic sugar for higher-order functions: `@dec def f()` translates to `f = dec(f)`. It operates primarily on bare functions, methods, or classes at definition time using closures. The GoF Decorator is an object-oriented pattern based on subtyping, where a wrapper object shares an interface with its inner instance and delegates at runtime.  
-> 2. **Interface Contract:** The GoF Decorator guarantees polymorphic substitutability: any client expecting `INotifier` can accept a decorated `INotifier`. A Python `@decorator` can return any object or callable and does not enforce an object-oriented contract unless specifically designed to do so.  
-> 
-> In short, the Python `@decorator` is a functional metaprogramming construct, whereas the GoF Decorator is an object-oriented structural composition pattern."
+The Decorator pattern is a Gang of Four structural design pattern that dynamically attaches additional responsibilities to an object at runtime. The decorator implements the exact same interface as the object it wraps and maintains a reference to that interface. When a method is called on the decorator, it can execute custom logic before or after delegating the call to the wrapped component.
 
-> [!interview]
-> **Question 3: Give a .NET example of the Decorator pattern.**  
-> **Strong Answer:**  
-> "The canonical .NET example is `System.IO.Stream`.  
-> 
-> `Stream` is an abstract base class defining core I/O operations (`Read`, `Write`). Concrete components like `FileStream` or `MemoryStream` provide raw byte reading and writing.  
-> 
-> Classes like `BufferedStream`, `GZipStream`, `DeflateStream`, and `CryptoStream` are classic GoF Decorators: they derive from `Stream` and take an inner `Stream` in their constructors. When you call `Write()` on a `GZipStream`, it compresses the incoming byte buffer and forwards the compressed bytes to the inner stream (such as a `FileStream`). Because every decorator conforms to `Stream`, you can nest them seamlessly: `new CryptoStream(new GZipStream(new FileStream(...)))`."
+It provides a flexible, composable alternative to subclassing. Instead of statically compiling separate classes for every conceivable combination of behaviors, you write isolated single-responsibility decorators and stack them at runtime as needed.
 
-> [!interview]
-> **Question 4: Decorator or inheritance: which and why?**  
-> **Strong Answer:**  
-> "Use **Decorator** when you need to combine multiple independent, optional responsibilities dynamically at runtime, or when subclassing would cause a combinatorial explosion of classes. Decorator adheres to the Single Responsibility and Open/Closed principles: each decorator handles one concern (e.g., caching, logging, metrics), and you can introduce new behaviors without modifying existing classes or creating $2^N$ hybrid subclasses.  
-> 
-> Use **Inheritance** when there is a true, immutable 'is-a' conceptual relationship, when you want to share foundational base-class mechanics across closely related subtypes, and when the specialization hierarchy is static and shallow. If the behaviors you are adding can be mixed and matched in arbitrary orders and permutations, inheritance quickly breaks down and Decorator is the superior architectural choice."
+</details>
+
+<details>
+<summary><strong>2. Is a Python `@decorator` the Decorator pattern? [BASIC]</strong></summary>
+
+Strictly speaking, no. While they share the high-level intent of wrapping code to augment behavior, their mechanisms and design paradigms are fundamentally different:
+
+1. **Mechanism:** A Python `@decorator` is language-level syntactic sugar for higher-order functions: `@dec def f()` translates to `f = dec(f)`. It operates primarily on bare functions, methods, or classes at definition time using closures. The GoF Decorator is an object-oriented pattern based on subtyping, where a wrapper object shares an interface with its inner instance and delegates at runtime.
+2. **Interface Contract:** The GoF Decorator guarantees polymorphic substitutability: any client expecting `INotifier` can accept a decorated `INotifier`. A Python `@decorator` can return any object or callable and does not enforce an object-oriented contract unless specifically designed to do so.
+
+In short, the Python `@decorator` is a functional metaprogramming construct, whereas the GoF Decorator is an object-oriented structural composition pattern.
+
+</details>
+
+<details>
+<summary><strong>3. Give a .NET example of the Decorator pattern. [SCENARIO]</strong></summary>
+
+The canonical .NET example is `System.IO.Stream`.
+
+`Stream` is an abstract base class defining core I/O operations (`Read`, `Write`). Concrete components like `FileStream` or `MemoryStream` provide raw byte reading and writing.
+
+Classes like `BufferedStream`, `GZipStream`, `DeflateStream`, and `CryptoStream` are classic GoF Decorators: they derive from `Stream` and take an inner `Stream` in their constructors. When you call `Write()` on a `GZipStream`, it compresses the incoming byte buffer and forwards the compressed bytes to the inner stream (such as a `FileStream`). Because every decorator conforms to `Stream`, you can nest them seamlessly: `new CryptoStream(new GZipStream(new FileStream(...)))`.
+
+</details>
+
+<details>
+<summary><strong>4. Decorator or inheritance: which and why? [SCENARIO]</strong></summary>
+
+Use **Decorator** when you need to combine multiple independent, optional responsibilities dynamically at runtime, or when subclassing would cause a combinatorial explosion of classes. Decorator adheres to the Single Responsibility and Open/Closed principles: each decorator handles one concern (e.g., caching, logging, metrics), and you can introduce new behaviors without modifying existing classes or creating $2^N$ hybrid subclasses.
+
+Use **Inheritance** when there is a true, immutable 'is-a' conceptual relationship, when you want to share foundational base-class mechanics across closely related subtypes, and when the specialization hierarchy is static and shallow. If the behaviors you are adding can be mixed and matched in arbitrary orders and permutations, inheritance quickly breaks down and Decorator is the superior architectural choice.
+
+</details>
+
+<details>
+<summary><strong>5. You need logging, retry and caching around an `IOrderRepository`. How? [SCENARIO]</strong></summary>
+
+Write one decorator per concern, each implementing `IOrderRepository` and wrapping another. Compose them in the DI container (`Logging(Retry(Cache(Sql)))`); the consumers see only the interface.
+
+</details>
+
+<details>
+<summary><strong>6. Does decorator order matter? [TRICKY]</strong></summary>
+
+Yes. `Cache(Auth(x))` serves cached data without an auth check; `Auth(Cache(x))` checks auth first. Retry outside logging logs every attempt; inside it logs once. State the order and why.
+
+</details>
+
+---
+
+## Try it
+
+Run this: wrappers stack, and each one only knows the shared interface. Then redraw it in [LLD Studio](/tools/lld-studio/); the [track hub](../README.md) has the pattern-choice drills.
+
+```python
+class Coffee:
+    def cost(self): return 50
+class Milk:
+    def __init__(self, inner): self.inner = inner
+    def cost(self): return self.inner.cost() + 10
+class Sugar:
+    def __init__(self, inner): self.inner = inner
+    def cost(self): return self.inner.cost() + 5
+
+assert Sugar(Milk(Coffee())).cost() == 65
+```
+
+---
+
+## One-page cheat sheet
+
+```text
+DECORATOR  Wrapper implements X AND holds an X   (same interface, delegate + add)
+Stackable: A(B(C(core))) -- order matters (cache then auth? auth then cache?)
+Avoids subclass explosion (Coffee x Milk x Sugar combos)
+Python @decorator wraps FUNCTIONS - similar idea, not the same pattern
+.NET: Stream wrappers (BufferedStream, GZipStream), Scrutor .Decorate<>
+Decorator ADDS behaviour | Proxy CONTROLS access | Adapter CHANGES interface
+Pitfall: identity/equality changes, long chains hard to debug
+```
 
 ---
 
