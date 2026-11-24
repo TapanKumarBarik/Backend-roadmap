@@ -154,7 +154,7 @@ for (const tool of [...config.tools, ...config.pages]) {
       const style = (selector) => { const el = document.querySelector(selector); return el ? getComputedStyle(el) : null; };
       const body = style('body.tool');
       const column = style('.tool-main');
-      const card = style('.tool-card');
+      const card = style('.tool-card, .sd-interact'); // the cache lab's own layout (sd-shell) keeps its card as .sd-interact
       const button = style('.tool-btn');
       return {
         font: body && body.fontFamily,
