@@ -2,13 +2,13 @@
 
 Why distribute, partial failures, partitions, consensus, clocks, idempotency, outbox, sagas, consistency models and the traps that show up on the whiteboard.
 
-Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). The written lectures for this track are being published one at a time; a lesson marked *Soon* in the sidebar is still being written.
+Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). **All 22 written lectures are Live.**
 
 ## How this track works
 
 - Watch on YouTube (or from the site Videos page) first if you want the spoken version.
 - Related deep modules elsewhere on the site (Backend, Learn, GenAI) may already host the same video beside a longer lesson. This track is the System Design short-lecture home for the same ideas.
-- When a written lecture lands, the *Soon* marker clears and the notes appear under the video.
+- Each lecture follows the same 16-section format as Phase 1 to 3: a measured simulation, code in four languages, and 12 interview answers.
 
 ## Lectures
 
@@ -35,7 +35,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 19 | [CRDTs Explained: G-Counters, OR-Sets & Conflict-Free Merges](19-crdts-explained/README.md) | Build G-Counters and OR-Sets, property-test merge laws, and know where CRDTs stop | **Live** |
 | 20 | [Idempotent Consumers: Dedup Tables, Upserts & Idempotency Keys](20-idempotent-consumers/README.md) | Make consumers exactly-once in effect with atomic dedup, upserts and idempotency keys | **Live** |
 | 21 | [Exactly-Once Delivery: Myth vs Reality (and What Kafka EOS Really M…](21-exactly-once-delivery/README.md) | Explain why exactly-once delivery is a myth, and build exactly-once effects including Kafka EOS | **Live** |
-| 22 | [Linearizability vs Serializability (and Strict Serializability)](22-linearizability-vs-serializability/README.md) | Linearizability vs Serializability (and Strict Serializability) | *Soon* |
+| 22 | [Linearizability vs Serializability (and Strict Serializability)](22-linearizability-vs-serializability/README.md) | Tell linearizability from serializability, and pick isolation levels and read paths that give the guarantee you need | **Live** |
 
 Start here → [Distributed Systems 101: Why Distribute & the 8 Fallacies](01-distributed-systems-101/README.md)
 
