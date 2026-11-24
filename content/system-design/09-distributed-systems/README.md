@@ -2,7 +2,7 @@
 
 Why distribute, partial failures, partitions, consensus, clocks, idempotency, outbox, sagas, consistency models and the traps that show up on the whiteboard.
 
-Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). Every lecture already has a video; the written short-lecture notes for this track are being published one at a time. Until then each lesson is marked *Soon* in the sidebar — open it to see what it will cover.
+Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k). The written lectures for this track are being published one at a time; a lesson marked *Soon* in the sidebar is still being written.
 
 ## How this track works
 
@@ -14,7 +14,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 
 | # | Lecture | What you'll be able to do | Status |
 |---|---------|---------------------------|--------|
-| 01 | [Distributed Systems 101: Why Distribute & the 8 Fallacies](01-distributed-systems-101/README.md) | Distributed Systems 101: Why Distribute & the 8 Fallacies | *Soon* |
+| 01 | [Distributed Systems 101: Why Distribute & the 8 Fallacies](01-distributed-systems-101/README.md) | Explain why systems distribute, name the 8 fallacies, and make retries safe with idempotency keys | **Live** |
 | 02 | [Partial Failures: Why a Slow Node Is Worse Than a Dead One](02-partial-failures/README.md) | Partial Failures: Why a Slow Node Is Worse Than a Dead One | *Soon* |
 | 03 | [Network Partitions: CP vs AP, Split Brain & Reconciliation](03-network-partitions/README.md) | Network Partitions: CP vs AP, Split Brain & Reconciliation | *Soon* |
 | 04 | [Failure Detection: Heartbeats, Timeouts & Phi Accrual](04-failure-detection/README.md) | Failure Detection: Heartbeats, Timeouts & Phi Accrual | *Soon* |
