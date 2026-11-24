@@ -98,6 +98,80 @@ Path: `content/system-design/02-networking-from-zero/`
 
 ---
 
+## Phase 2: API Design Tracking Table
+
+Path: `content/system-design/03-api-design/`
+
+| Lesson Slug | Title | PDF Note | Status | Commit / Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| `01-rest-principles` | REST Principles | `SD-C-001.pdf` | 🟢 **Completed** | Full 16-point rubric, cancel/idempotency math & 12 Q&As |
+| `02-graphql-for-system-design` | GraphQL for System Design | `SD-C-002.pdf` | 🟢 **Completed** | Full 16-point rubric, N+1/cost math & 12 Q&As |
+| `03-grpc-protocol-buffers` | gRPC & Protocol Buffers | `SD-C-003.pdf` | 🟢 **Completed** | Full 16-point rubric, protobuf/deadline math & 12 Q&As |
+| `04-rest-vs-graphql-vs-grpc` | REST vs GraphQL vs gRPC | `SD-C-004.pdf` | 🟢 **Completed** | Full 16-point rubric, caller-choice scorecard & 12 Q&As |
+| `05-api-resource-modeling-uri-design` | API Resource Modeling & URI Design | `SD-C-005.pdf` | 🟢 **Completed** | Full 16-point rubric, bulk/nesting math & 12 Q&As |
+| `06-api-versioning-without-breaking-clients` | API Versioning Without Breaking Clients | `SD-C-006.pdf` | 🟢 **Completed** | Full 16-point rubric, adapter/deprecation math & 12 Q&As |
+| `07-api-pagination` | API Pagination | `SD-C-007.pdf` | 🟢 **Completed** | Full 16-point rubric, offset-vs-cursor math & 12 Q&As |
+| `08-api-filtering-sorting-field-selection-without-table-scans` | Filtering, Sorting & Field Selection | `SD-C-008.pdf` | 🟢 **Completed** | Full 16-point rubric, allow-list/index math & 12 Q&As |
+| `09-idempotency-keys` | Idempotency Keys | `SD-C-009.pdf` | 🟢 **Completed** | Full 16-point rubric, storage/retry math & 12 Q&As |
+| `10-api-request-validation` | API Request Validation | `SD-C-010.pdf` | 🟢 **Completed** | Full 16-point rubric, layered 413/422 math & 12 Q&As |
+| `11-api-error-handling` | API Error Handling | `SD-C-011.pdf` | 🟢 **Completed** | Full 16-point rubric, Problem Details/retry math & 12 Q&As |
+| `12-rate-limiting-algorithms` | Rate Limiting Algorithms | `SD-C-012.pdf` | 🟢 **Completed** | Full 16-point rubric, token-bucket/sliding math & 12 Q&As |
+| `13-distributed-rate-limiting` | Distributed Rate Limiting | `SD-C-013.pdf` | 🟢 **Completed** | Full 16-point rubric, Redis Lua/hybrid math & 12 Q&As |
+| `14-throttling-vs-rate-limiting-vs-quotas` | Throttling vs Rate Limiting vs Quotas | `SD-C-014.pdf` | 🟢 **Completed** | Full 16-point rubric, quota/tier math & 12 Q&As |
+| `15-api-authentication` | API Authentication | `SD-C-015.pdf` | 🟢 **Completed** | Full 16-point rubric, JWT/HMAC/mTLS & 12 Q&As |
+| `16-api-authorization-bola` | API Authorization & BOLA | `SD-C-016.pdf` | 🟢 **Completed** | Full 16-point rubric, ownership/BOLA & 12 Q&As |
+| `17-api-gateway-explained` | API Gateway Explained | `SD-C-017.pdf` | 🟢 **Completed** | Full 16-point rubric, SPOF math & 12 Q&As |
+| `18-retries-exponential-backoff-jitter` | Retries, Backoff & Jitter | `SD-C-018.pdf` | 🟢 **Completed** | Full 16-point rubric, amplification math & 12 Q&As |
+| `19-api-timeouts-deadline-propagation` | API Timeouts & Deadline Propagation | `SD-C-019.pdf` | 🟢 **Completed** | Full 16-point rubric, budget math & 12 Q&As |
+| `20-webhooks` | Webhooks | `SD-C-020.pdf` | 🟢 **Completed** | Full 16-point rubric, HMAC/outbox & 12 Q&As |
+| `21-async-apis-for-long-jobs` | Async APIs for Long Jobs | `SD-C-021.pdf` | 🟢 **Completed** | Full 16-point rubric, poll QPS math & 12 Q&As |
+| `22-api-contracts-openapi` | API Contracts & OpenAPI | `SD-C-022.pdf` | 🟢 **Completed** | Full 16-point rubric, oasdiff/Pact & 12 Q&As |
+| `23-api-backward-compatibility` | API Backward Compatibility | `SD-C-023.pdf` | 🟢 **Completed** | Full 16-point rubric, expand-contract & 12 Q&As |
+
+---
+
+## Phase 2: Databases Tracking Table
+
+Path: `content/system-design/04-databases/`
+
+| Lesson Slug | Title | PDF Note | Status | Commit / Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| `01-relational-model-sql-basics` | Relational Model & SQL Basics | `SD-E-001.pdf` | 🟢 **Completed** | Full 16-point rubric, join/constraint math & 12 Q&As |
+| `02-database-normalization` | Database Normalization | `SD-E-002.pdf` | 🟢 **Completed** | Full 16-point rubric, 1NF–3NF/anomaly math & 12 Q&As |
+| `03-denormalization` | Denormalization | `SD-E-003.pdf` | 🟢 **Completed** | Full 16-point rubric, counter/hot-row math & 12 Q&As |
+| `04-b-tree-indexes-explained` | B-Tree Indexes Explained | `SD-E-004.pdf` | 🟢 **Completed** | Full 16-point rubric, fan-out/UUIDv4 math & 12 Q&As |
+| `05-composite-covering-partial-indexes` | Composite, Covering & Partial Indexes | `SD-E-005.pdf` | 🟢 **Completed** | Full 16-point rubric, leftmost-prefix math & 12 Q&As |
+| `06-lsm-trees-sstables` | LSM Trees & SSTables | `SD-E-006.pdf` | 🟢 **Completed** | Full 16-point rubric, bloom/compaction math & 12 Q&As |
+| `07-sql-query-optimization` | SQL Query Optimization | `SD-E-007.pdf` | 🟢 **Completed** | Full 16-point rubric, EXPLAIN/N+1 math & 12 Q&As |
+| `08-acid-explained` | ACID Explained | `SD-E-008.pdf` | 🟢 **Completed** | Full 16-point rubric, WAL/fsync math & 12 Q&As |
+| `09-isolation-levels-write-skew` | Isolation Levels & Write Skew | `SD-E-009.pdf` | 🟢 **Completed** | Full 16-point rubric, SSI/write-skew math & 12 Q&As |
+| `10-mvcc-explained` | MVCC Explained | `SD-E-010.pdf` | 🟢 **Completed** | Full 16-point rubric, xmin/VACUUM/bloat math & 12 Q&As |
+| `11-database-locks-deadlocks` | Database Locks & Deadlocks | `SD-E-011.pdf` | 🟢 **Completed** | Full 16-point rubric, lock-order/deadlock math & 12 Q&As |
+| `12-optimistic-vs-pessimistic-locking` | Optimistic vs Pessimistic Locking | `SD-E-012.pdf` | 🟢 **Completed** | Full 16-point rubric, CAS/retry math & 12 Q&As |
+| `13-nosql-explained` | NoSQL Explained | `SD-E-013.pdf` | 🟢 **Completed** | Full 16-point rubric, BASE/partition math & 12 Q&As |
+| `14-key-value-stores-explained` | Key-Value Stores Explained | `SD-E-014.pdf` | 🟢 **Completed** | Full 16-point rubric, hot-key/hash math & 12 Q&As |
+| `15-document-databases-explained` | Document Databases Explained | `SD-E-015.pdf` | 🟢 **Completed** | Full 16-point rubric, embed/size-cap math & 12 Q&As |
+| `16-wide-column-stores` | Wide-Column Stores | `SD-E-016.pdf` | 🟢 **Completed** | Full 16-point rubric, bucket/tombstone math & 12 Q&As |
+| `17-graph-databases-explained` | Graph Databases Explained | `SD-E-017.pdf` | 🟢 **Completed** | Full 16-point rubric, hop-explosion math & 12 Q&As |
+| `18-time-series-databases` | Time-Series Databases | `SD-E-018.pdf` | 🟢 **Completed** | Full 16-point rubric, cardinality/retention math & 12 Q&As |
+| `19-leader-follower-replication` | Leader-Follower Replication | `SD-E-019.pdf` | 🟢 **Completed** | Full 16-point rubric, lag-loss/semi-sync math & 12 Q&As |
+| `20-read-replicas-replication-lag` | Read Replicas & Replication Lag | `SD-E-020.pdf` | 🟢 **Completed** | Full 16-point rubric, LSN/sticky math & 12 Q&As |
+| `21-multi-leader-leaderless-replication` | Multi-Leader & Leaderless Replication | `SD-E-021.pdf` | 🟢 **Completed** | Full 16-point rubric, W+R>N/CRDT math & 12 Q&As |
+| `22-database-sharding-fundamentals` | Database Sharding Fundamentals | `SD-E-022.pdf` | 🟢 **Completed** | Full 16-point rubric, remap/hotspot math & 12 Q&As |
+| `23-range-vs-hash-partitioning` | Range vs Hash Partitioning | `SD-E-023.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `24-rebalancing-hot-partitions` | Rebalancing & Hot Partitions | `SD-E-024.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `25-secondary-indexes-in-partitioned-data` | Secondary Indexes in Partitioned Data | `SD-E-025.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `26-postgres-table-partitioning` | Postgres Table Partitioning | `SD-E-026.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `27-distributed-id-generation` | Distributed ID Generation | `SD-E-027.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `28-zero-downtime-database-migrations` | Zero-Downtime Database Migrations | `SD-E-028.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `29-database-connection-pooling` | Database Connection Pooling | `SD-E-029.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `30-oltp-vs-olap` | OLTP vs OLAP | `SD-E-030.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `31-change-data-capture` | Change Data Capture (CDC) | `SD-E-031.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `32-distributed-sql-explained` | Distributed SQL Explained | `SD-E-032.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+| `33-how-to-choose-a-database` | How to Choose a Database | `SD-E-033.pdf` | 🟢 **Completed** | Full 16-point rubric (parallel rewrite) |
+
+---
+
 ## Phase Roadmap Overview
 
 Aligned with the YouTube playlists in `content/videos.json` and `C:\Users\tapan\Videos\System Design Videos`. Tracks **03–23** are scaffolded as planned (*Coming soon*) stubs; rewrite them with the 16-point rubric when ready. Videos may still play on related `backend/` / `learn/` / `genai/` modules until remounted here.
@@ -106,8 +180,8 @@ Aligned with the YouTube playlists in `content/videos.json` and `C:\Users\tapan\
 | :--- | :--- | :--- | :---: |
 | **1 Core Fundamentals** | `SD-A-*` (19) | `01-core-fundamentals` | 🟢 Live (19/19) |
 | **2 Networking** | `SD-N-*` (30) | `02-networking-from-zero` | 🟢 Live (30/30) |
-| **2 API Design** | `SD-C-*` (23) | `03-api-design` | 🟡 Coming soon (scaffolded) |
-| **2 Databases** | `SD-E-*` (33) | `04-databases` | 🟡 Coming soon (scaffolded) |
+| **2 API Design** | `SD-C-*` (23) | `03-api-design` | 🟢 Live (23/23) |
+| **2 Databases** | `SD-E-*` (33) | `04-databases` | 🟢 Live (33/33) |
 | **2 Estimation** | `SD-D-*` (14) | `05-estimation-and-numbers` | 🟡 Coming soon (scaffolded) |
 | **3 Load balancing** | `SD-G-*` (14) | `06-load-balancing` | 🟡 Coming soon (scaffolded) |
 | **3 Caching** | `SD-F-*` (19) | `07-caching` | 🟡 Coming soon (scaffolded) |

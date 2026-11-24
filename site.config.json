@@ -131,20 +131,20 @@
       "system-design": {
         "label": "System Design Interview Prep",
         "short": "System design",
-        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Phase 1 and Networking From Zero are live; every later track is scaffolded as Coming soon with the full lesson list.",
+        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Fundamentals, Networking, API Design, and Databases are live; later tracks are Coming soon.",
         "groups": [
           {
             "label": "Live",
             "tracks": [
               "01-core-fundamentals",
-              "02-networking-from-zero"
+              "02-networking-from-zero",
+              "03-api-design",
+              "04-databases"
             ]
           },
           {
-            "label": "Phase 2 — APIs, data, numbers (coming soon)",
+            "label": "Phase 2 — numbers (coming soon)",
             "tracks": [
-              "03-api-design",
-              "04-databases",
               "05-estimation-and-numbers"
             ]
           },
