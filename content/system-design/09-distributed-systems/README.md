@@ -26,7 +26,7 @@ Part of **Phase 4** on the [YouTube playlist](https://www.youtube.com/playlist?l
 | 10 | [Paxos Explained: Prepare, Promise, Accept — and vs Raft](10-paxos-explained/README.md) | Walk through Basic Paxos and Multi-Paxos, explain why the adoption rule matters, and compare it with Raft | **Live** |
 | 11 | [Quorums Explained: W + R Exceeds N, Sloppy Quorums & Hinted Handoff](11-quorums-explained/README.md) | Choose N, W and R, compute stale-read odds, and reason about sloppy quorums and hinted handoff | **Live** |
 | 12 | [Split Brain: Two Leaders, and How Quorums, Witnesses & STONITH Stop It](12-split-brain/README.md) | Prevent two primaries with majority quorums, witnesses and fencing, and size voters correctly | **Live** |
-| 13 | [Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens](13-distributed-locks/README.md) | Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens | *Soon* |
+| 13 | [Distributed Locks: Is Redis Redlock Safe? Leases & Fencing Tokens](13-distributed-locks/README.md) | Decide between efficiency and correctness locks, fence writes at the resource, and weigh the Redlock debate | **Live** |
 | 14 | [Gossip Protocols: How Clusters Spread News (Merkle Trees, SWIM)](14-gossip-protocols/README.md) | Gossip Protocols: How Clusters Spread News (Merkle Trees, SWIM) | *Soon* |
 | 15 | [Distributed Transactions in Microservices: 2PC vs Sagas vs Outbox](15-distributed-transactions-in-microservices/README.md) | Distributed Transactions in Microservices: 2PC vs Sagas vs Outbox | *Soon* |
 | 16 | [Two-Phase Commit (2PC) Explained — and Why It Blocks](16-two-phase-commit-explained-and-why-it-blocks/README.md) | Two-Phase Commit (2PC) Explained — and Why It Blocks | *Soon* |
