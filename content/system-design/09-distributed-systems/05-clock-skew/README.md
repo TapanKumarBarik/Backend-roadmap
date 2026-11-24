@@ -318,7 +318,7 @@ public sealed class Record
 
 ## 12. Hands-On CLI Verification Workflows
 
-The numbers in section 3 come from running the Python tab's `lost_updates` (Python 3.13, 200,000 trials per cell) and comparing with the formula. The two agree: for a 20 ms gap the simulation gives $0.23\%$, $7.86\%$ and $38.77\%$ for $\sigma = 5, 10, 50$ ms against $0.23\%$, $7.86\%$ and $38.86\%$ analytically.
+The numbers in section 3 come from running the Python tab's `lost_updates` (Python 3.13, 200,000 trials per cell) and comparing with the formula. The two agree: for a 20 ms gap the tab's function (seed 42) gives $0.24\%$, $7.92\%$ and $39.01\%$ for $\sigma = 5, 10, 50$ ms against $0.23\%$, $7.86\%$ and $38.86\%$ from the formula. The table in section 3 comes from a longer run with a different random stream, so its last digits differ.
 
 ```bash
 # How far off is this machine's clock right now? (Linux with chrony)
