@@ -1,0 +1,37 @@
+{
+  "title": "Class vs Instance Attributes",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Tell shared (class) data from per-object (instance) data: a school name for everyone, a roll number for each student.",
+  "statement": "Create a class `Student` with `Student(name)`.\n\n- **Class attributes** (shared by all students): `school`, which starts as `\"Green Valley\"`, and `count`, the number of students created so far, which starts at `0`.\n- **Instance attributes** (one per student): `name` and `roll_no`. The first student created gets roll number 1, the next 2, and so on; creating a student adds 1 to `count`.\n- `info()` prints `<roll_no>: <name> (<school>)`.\n- `rename_school(new_name)` is a **class method**: it changes `school` for the class, so every student who has not set their own school sees it.\n- `total()` is a **class method** that returns `count`.\n\nAssigning `student.school = \"X\"` on one student creates an instance attribute that affects **only that student**.",
+  "starter": "class Student:\n    school = \"Green Valley\"\n\n    def __init__(self, name):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert Student.school == \"Green Valley\" and Student.count == 0 and Student.total() == 0",
+    "a = Student(\"Asha\")\nb = Student(\"Ben\")\nc = Student(\"Cy\")",
+    "assert (a.roll_no, b.roll_no, c.roll_no) == (1, 2, 3) and (a.name, b.name) == (\"Asha\", \"Ben\")",
+    "assert Student.count == 3 and Student.total() == 3 and a.count == 3 and a.total() == 3",
+    "assert out(a.info) == [\"1: Asha (Green Valley)\"] and out(c.info) == [\"3: Cy (Green Valley)\"]",
+    "assert Student.rename_school(\"Blue Hill\") is None and Student.school == \"Blue Hill\"",
+    "assert out(a.info) == [\"1: Asha (Blue Hill)\"] and out(b.info) == [\"2: Ben (Blue Hill)\"]",
+    "b.school = \"Private Tutor\"",
+    "assert out(b.info) == [\"2: Ben (Private Tutor)\"] and out(a.info) == [\"1: Asha (Blue Hill)\"] and Student.school == \"Blue Hill\"",
+    "Student.rename_school(\"Red Oak\")",
+    "assert out(a.info) == [\"1: Asha (Red Oak)\"] and out(b.info) == [\"2: Ben (Private Tutor)\"]",
+    "a.count = 99",
+    "assert Student.count == 3 and Student.total() == 3 and b.count == 3",
+    "d = Student(\"Dee\")",
+    "assert d.roll_no == 4 and Student.count == 4 and Student.total() == 4",
+    "assert \"school\" in Student.__dict__ and \"count\" in Student.__dict__ and \"name\" not in Student.__dict__ and \"roll_no\" not in Student.__dict__",
+    "assert isinstance(Student.__dict__[\"rename_school\"], classmethod) and isinstance(Student.__dict__[\"total\"], classmethod)",
+    "assert \"name\" in a.__dict__ and \"roll_no\" in a.__dict__ and \"school\" not in c.__dict__"
+  ],
+  "hints": [
+    "Anything written directly inside the class body (`school = ...`, `count = 0`) belongs to the **class** and is shared. Anything set on `self` in `__init__` belongs to **one object**.",
+    "To change the shared counter write `Student.count += 1`. Writing `self.count += 1` would create a new instance attribute and leave the class counter alone.",
+    "A class method receives the class (`cls`) instead of an object: `cls.school = new_name` changes the shared attribute for everybody."
+  ],
+  "solution": "class Student:\n    school = \"Green Valley\"\n    count = 0\n\n    def __init__(self, name):\n        Student.count += 1\n        self.name = name\n        self.roll_no = Student.count\n\n    def info(self):\n        print(f\"{self.roll_no}: {self.name} ({self.school})\")\n\n    @classmethod\n    def rename_school(cls, new_name):\n        cls.school = new_name\n\n    @classmethod\n    def total(cls):\n        return cls.count\n",
+  "explanation": "**Two places for data.** Class attributes live on the class; instance attributes live on each object. When you read `student.school`, Python looks on the object first and then on the class. That is why one student can have a private `school` while the others follow the class.\n\n**The classic trap.** `self.count += 1` reads the class value, adds one and stores the result *on the object*: the shared counter never moves. The test `a.count = 99` shows that setting through an instance never changes the class.\n\n**Class method versus instance method.** An instance method works on one object (`self`). A class method works on the class (`cls`): counters, alternative constructors, settings shared by everyone."
+}

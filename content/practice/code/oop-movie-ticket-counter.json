@@ -1,0 +1,31 @@
+{
+  "title": "Movie Ticket Counter",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Write a Movie class that books tickets, refuses a booking when the seats run out, and prints its status.",
+  "statement": "Create a class `Movie`.\n\n**Attributes**\n\n- `movie_name`: the name of the movie\n- `total_seats`: total seats in the theatre\n- `ticket_price`: price of one ticket\n- `booked_seats`: starts at `0`\n\nCreate it with `Movie(movie_name, total_seats, ticket_price)`.\n\n**Methods**\n\n- `book_ticket(num_tickets)` books the given number of tickets. The method **prints** its answer (it returns nothing):\n  - fewer than 1 ticket: `Please book at least 1 ticket`\n  - enough seats left: the booking is confirmed (`booked_seats` goes up) and it prints `Booked <num_tickets> ticket(s). Total amount: <amount>` where `amount = num_tickets * ticket_price`\n  - not enough seats left: it prints `Sorry, not enough seats available` and **changes nothing**\n- `show_status()` prints three lines: `Movie: <movie_name>`, `Seats available: <seats left>` and `Seats booked: <booked_seats>`.\n\n**Example**\n\n```\nmovie = Movie(\"Leo\", 5, 150)\nmovie.book_ticket(2)    # Booked 2 ticket(s). Total amount: 300\nmovie.book_ticket(4)    # Sorry, not enough seats available\nmovie.show_status()     # Movie: Leo / Seats available: 3 / Seats booked: 2\n```",
+  "starter": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        ...\n\n    def book_ticket(self, num_tickets):\n        ...\n\n    def show_status(self):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nmovie = Movie(\"Leo\", 5, 150)",
+    "assert (movie.movie_name, movie.total_seats, movie.ticket_price, movie.booked_seats) == (\"Leo\", 5, 150, 0)",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 5\", \"Seats booked: 0\"]",
+    "assert out(movie.book_ticket, 2) == [\"Booked 2 ticket(s). Total amount: 300\"] and movie.booked_seats == 2",
+    "assert out(movie.book_ticket, 4) == [\"Sorry, not enough seats available\"] and movie.booked_seats == 2",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 3\", \"Seats booked: 2\"]",
+    "assert out(movie.book_ticket, 3) == [\"Booked 3 ticket(s). Total amount: 450\"] and movie.booked_seats == 5",
+    "assert out(movie.book_ticket, 1) == [\"Sorry, not enough seats available\"]",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 0\", \"Seats booked: 5\"]",
+    "other = Movie(\"Jawan\", 10, 200)",
+    "assert out(other.book_ticket, 0) == [\"Please book at least 1 ticket\"] and out(other.book_ticket, -2) == [\"Please book at least 1 ticket\"] and other.booked_seats == 0",
+    "assert out(other.book_ticket, 1) == [\"Booked 1 ticket(s). Total amount: 200\"] and movie.booked_seats == 5 and other.booked_seats == 1",
+    "assert other.book_ticket(1) is None"
+  ],
+  "hints": [
+    "`__init__` just stores the three arguments on `self` and sets `self.booked_seats = 0`. Every object gets its own copy of each attribute.",
+    "Seats left is not stored: it is `self.total_seats - self.booked_seats`. Check the bad-input case first, then \"enough seats\", and put the \"sorry\" message in the `else`.",
+    "Only the *successful* branch changes `booked_seats`. A refused booking must leave the object exactly as it was."
+  ],
+  "solution": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        self.movie_name = movie_name\n        self.total_seats = total_seats\n        self.ticket_price = ticket_price\n        self.booked_seats = 0\n\n    def book_ticket(self, num_tickets):\n        if num_tickets < 1:\n            print(\"Please book at least 1 ticket\")\n        elif num_tickets <= self.total_seats - self.booked_seats:\n            self.booked_seats += num_tickets\n            print(f\"Booked {num_tickets} ticket(s). Total amount: {num_tickets * self.ticket_price}\")\n        else:\n            print(\"Sorry, not enough seats available\")\n\n    def show_status(self):\n        print(f\"Movie: {self.movie_name}\")\n        print(f\"Seats available: {self.total_seats - self.booked_seats}\")\n        print(f\"Seats booked: {self.booked_seats}\")\n",
+  "explanation": "**The idea.** A class bundles data (`booked_seats`) with the actions that are allowed to change it (`book_ticket`). The rule \"never sell more seats than exist\" lives in *one* method, so no caller can forget it.\n\n**Derive, do not store.** Seats left is `total_seats - booked_seats`. Storing it as a fourth attribute would mean two numbers that must always agree.\n\n**Print versus return.** These methods *print* because the exercise is about what the user sees. In real code you would return a value (or raise an error) and let the caller decide how to show it; that is easier to test and to reuse.\n\n**Going further.** What should happen if `num_tickets` is `2.5`? Where would you put that check?"
+}

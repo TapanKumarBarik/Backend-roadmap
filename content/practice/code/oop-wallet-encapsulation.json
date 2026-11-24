@@ -1,0 +1,33 @@
+{
+  "title": "Encapsulated Wallet",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Encapsulation: hide the balance behind a read-only property, validate the owner in a setter and refuse bad amounts.",
+  "statement": "Create a class `Wallet` with `Wallet(owner, balance=0)`.\n\n- `owner` is a **property** with a setter. The owner must be a non-blank string, otherwise `ValueError(\"Owner required\")`; it is stored stripped of surrounding spaces. The constructor uses the same rule.\n- `balance` is a **read-only property**: reading works, but `wallet.balance = 5` must fail with `AttributeError`. A starting balance that is not an `int` of 0 or more (not a `bool`) is `ValueError(\"Balance cannot be negative\")` (check the owner first).\n- `deposit(amount)` adds money; `spend(amount)` takes money out. For both, `amount` must be an `int` above 0 (not a `bool`), otherwise `ValueError(\"Amount must be positive\")`. `spend` of more than the balance is `ValueError(\"Insufficient balance\")` and changes nothing.\n\nThe only way to change the balance from outside is `deposit` and `spend`.",
+  "starter": "class Wallet:\n    def __init__(self, owner, balance=0):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nw = Wallet(\" Asha \", 100)",
+    "assert w.owner == \"Asha\" and w.balance == 100 and Wallet(\"B\").balance == 0",
+    "for bad in (\"\", \"  \", None, 5):\n    assert error_of(Wallet, bad) == \"ValueError: Owner required\"\nfor bad in (-1, 1.5, True, None):\n    assert error_of(Wallet, \"A\", bad) == \"ValueError: Balance cannot be negative\"",
+    "assert error_of(Wallet, \"\", -1) == \"ValueError: Owner required\"",
+    "assert error_of(setattr, w, \"balance\", 5) is not None and error_of(setattr, w, \"balance\", 5).startswith(\"AttributeError\") and w.balance == 100",
+    "w.owner = \"  Ben \"",
+    "assert w.owner == \"Ben\" and error_of(setattr, w, \"owner\", \" \") == \"ValueError: Owner required\" and w.owner == \"Ben\"",
+    "assert w.deposit(50) is None and w.balance == 150 and w.spend(20) is None and w.balance == 130",
+    "for bad in (0, -5, 1.5, True, \"5\", None):\n    assert error_of(w.deposit, bad) == \"ValueError: Amount must be positive\" and error_of(w.spend, bad) == \"ValueError: Amount must be positive\"",
+    "assert error_of(w.spend, 131) == \"ValueError: Insufficient balance\" and w.balance == 130",
+    "w.spend(130)",
+    "assert w.balance == 0 and error_of(w.spend, 1) == \"ValueError: Insufficient balance\"",
+    "assert isinstance(Wallet.balance, property) and isinstance(Wallet.owner, property) and Wallet.balance.fset is None and Wallet.owner.fset is not None",
+    "other = Wallet(\"Z\", 10)\nother.deposit(5)",
+    "assert w.balance == 0 and other.balance == 15"
+  ],
+  "hints": [
+    "Store the real value in `self._balance` (a leading underscore means \"internal, please do not touch\"). `@property def balance(self)` returns it and has **no** setter, so assigning to `wallet.balance` raises `AttributeError`.",
+    "A setter is a method decorated with `@owner.setter`. In `__init__` write `self.owner = owner` (not `self._owner = ...`) so the same validation runs when the object is created.",
+    "Put the amount check in one small helper and call it from both `deposit` and `spend`."
+  ],
+  "solution": "class Wallet:\n    def __init__(self, owner, balance=0):\n        self.owner = owner\n        if type(balance) is not int or balance < 0:\n            raise ValueError(\"Balance cannot be negative\")\n        self._balance = balance\n\n    @property\n    def owner(self):\n        return self._owner\n\n    @owner.setter\n    def owner(self, value):\n        if not isinstance(value, str) or not value.strip():\n            raise ValueError(\"Owner required\")\n        self._owner = value.strip()\n\n    @property\n    def balance(self):\n        return self._balance\n\n    @staticmethod\n    def _check(amount):\n        if type(amount) is not int or amount < 1:\n            raise ValueError(\"Amount must be positive\")\n\n    def deposit(self, amount):\n        self._check(amount)\n        self._balance += amount\n\n    def spend(self, amount):\n        self._check(amount)\n        if amount > self._balance:\n            raise ValueError(\"Insufficient balance\")\n        self._balance -= amount\n",
+  "explanation": "**Encapsulation** = keep the data private and let only the class's own methods change it, so the rules (no negative balance) cannot be bypassed. Python has no `private` keyword; the convention is a leading underscore, and **properties** give you read-only or validated access.\n\n**Property versus plain attribute.** From outside `wallet.balance` looks like an attribute, but it is a method call, so it can be read-only. If you later need to calculate the balance from a list of transactions, callers do not change.\n\n**Why validate in the setter.** The rule \"owner must not be blank\" now holds in the constructor *and* every later assignment, because both go through the same code."
+}

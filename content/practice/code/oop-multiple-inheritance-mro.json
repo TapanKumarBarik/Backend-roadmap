@@ -1,0 +1,33 @@
+{
+  "title": "Multiple Inheritance and MRO",
+  "topic": "oop-and-classes",
+  "difficulty": "intermediate",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A class with two parents: use cooperative super() so every ability is collected once, in method resolution order.",
+  "statement": "Create a base class `Animal` with `Animal(name)`.\n\n- `abilities()` returns a list of ability names; for a plain `Animal` it is `[]`.\n- `describe()` prints `<name> can <abilities joined with \", \">`, or `<name> has no special abilities` when the list is empty.\n\nCreate three **mixin-style** subclasses of `Animal`. Each one's `abilities()` returns **its own ability first** and then whatever `super().abilities()` returns:\n\n- `Flyer`: `\"fly\"`\n- `Swimmer`: `\"swim\"`\n- `Runner`: `\"run\"`\n\nCreate these classes with **several parents**, and write **no** `abilities` method in them (the parents are enough):\n\n- `Duck(Flyer, Swimmer, Runner)`\n- `Otter(Swimmer, Runner)`\n\nWrite `mro_names(cls)` that returns the names of the classes in `cls.__mro__` (method resolution order), including `object`.",
+  "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n\nclass Flyer(Animal):\n    ...\n\n\ndef mro_names(cls):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\na = Animal(\"Thing\")",
+    "assert a.name == \"Thing\" and a.abilities() == [] and out(a.describe) == [\"Thing has no special abilities\"]",
+    "assert Flyer(\"Eagle\").abilities() == [\"fly\"] and Swimmer(\"Fish\").abilities() == [\"swim\"] and Runner(\"Dog\").abilities() == [\"run\"]",
+    "assert out(Flyer(\"Eagle\").describe) == [\"Eagle can fly\"]",
+    "duck, otter = Duck(\"Don\"), Otter(\"Ollie\")",
+    "assert duck.name == \"Don\" and duck.abilities() == [\"fly\", \"swim\", \"run\"] and otter.abilities() == [\"swim\", \"run\"]",
+    "assert out(duck.describe) == [\"Don can fly, swim, run\"] and out(otter.describe) == [\"Ollie can swim, run\"]",
+    "assert isinstance(duck, Flyer) and isinstance(duck, Swimmer) and isinstance(duck, Runner) and isinstance(duck, Animal) and not isinstance(otter, Flyer)",
+    "assert \"abilities\" not in Duck.__dict__ and \"abilities\" not in Otter.__dict__",
+    "assert mro_names(Duck) == [\"Duck\", \"Flyer\", \"Swimmer\", \"Runner\", \"Animal\", \"object\"] and mro_names(Otter) == [\"Otter\", \"Swimmer\", \"Runner\", \"Animal\", \"object\"] and mro_names(Animal) == [\"Animal\", \"object\"]",
+    "class Penguin(Swimmer, Flyer):\n    pass",
+    "assert Penguin(\"Pip\").abilities() == [\"swim\", \"fly\"] and mro_names(Penguin) == [\"Penguin\", \"Swimmer\", \"Flyer\", \"Animal\", \"object\"]",
+    "class Robot(Runner, Flyer, Swimmer):\n    def abilities(self):\n        return [\"charge\"] + super().abilities()",
+    "assert Robot(\"R2\").abilities() == [\"charge\", \"run\", \"fly\", \"swim\"] and out(Robot(\"R2\").describe) == [\"R2 can charge, run, fly, swim\"]",
+    "assert Duck.__bases__ == (Flyer, Swimmer, Runner) and Otter.__bases__ == (Swimmer, Runner)"
+  ],
+  "hints": [
+    "Each mixin writes `return [\"fly\"] + super().abilities()`. `super()` does **not** mean \"the parent\": it means \"the next class in the method resolution order\", which for a `Duck` after `Flyer` is `Swimmer`.",
+    "`class Duck(Flyer, Swimmer, Runner): pass` is the whole class. Python builds the order `Duck, Flyer, Swimmer, Runner, Animal, object` (see `Duck.__mro__`) so `Animal.abilities` is reached **once**, at the end.",
+    "Because every class in the chain calls `super()`, adding a new ability class never needs the others to change."
+  ],
+  "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def abilities(self):\n        return []\n\n    def describe(self):\n        abilities = self.abilities()\n        if abilities:\n            print(f\"{self.name} can {', '.join(abilities)}\")\n        else:\n            print(f\"{self.name} has no special abilities\")\n\n\nclass Flyer(Animal):\n    def abilities(self):\n        return [\"fly\"] + super().abilities()\n\n\nclass Swimmer(Animal):\n    def abilities(self):\n        return [\"swim\"] + super().abilities()\n\n\nclass Runner(Animal):\n    def abilities(self):\n        return [\"run\"] + super().abilities()\n\n\nclass Duck(Flyer, Swimmer, Runner):\n    pass\n\n\nclass Otter(Swimmer, Runner):\n    pass\n\n\ndef mro_names(cls):\n    return [c.__name__ for c in cls.__mro__]\n",
+  "explanation": "**Multiple inheritance** means a class has more than one parent. The danger is the *diamond*: `Flyer` and `Swimmer` both inherit `Animal`, so which `Animal` code runs, and how many times?\n\n```mermaid\nclassDiagram\n    Animal <|-- Flyer\n    Animal <|-- Swimmer\n    Animal <|-- Runner\n    Flyer <|-- Duck\n    Swimmer <|-- Duck\n    Runner <|-- Duck\n```\n\n**Python's answer is the MRO** (method resolution order, computed by the *C3 linearisation*): a single list in which every class appears once and every class comes before its parents. `super()` follows that list, so with cooperative `super()` calls each ability is added exactly once.\n\n**Order of the parents matters.** `Penguin(Swimmer, Flyer)` gives `[\"swim\", \"fly\"]`, while `Duck(Flyer, Swimmer)` gives `[\"fly\", \"swim\"]`. The test shows both.\n\n**Use with care.** Small *mixins* (one ability each) are a good use. Big trees of multiple inheritance are hard to read; prefer composition when in doubt. Java and C# avoid the problem by allowing only one parent class (plus many interfaces)."
+}

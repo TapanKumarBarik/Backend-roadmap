@@ -1,0 +1,35 @@
+{
+  "title": "Library Book Desk",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A small library that lends and takes back copies and prints a clear message for every case.",
+  "statement": "Create a class `Library` with no arguments. It keeps books by title.\n\n- `add_book(title, author, copies=1)` adds copies. A known title gets more copies (same author kept). `copies` below 1 is `ValueError(\"Copies must be at least 1\")`.\n- `checkout(title)` **prints**:\n  - `We do not have <title>` for an unknown title\n  - `Sorry, <title> is not available` when every copy is out\n  - otherwise it lends one copy and prints `You borrowed <title>`\n- `return_book(title)` **prints**:\n  - `We do not have <title>` for an unknown title\n  - `All copies are already here` when no copy is out (nothing changes)\n  - otherwise it takes one copy back and prints `Thanks for returning <title>`\n- `show_catalog()` prints one line per book, **sorted by title**: `<title> by <author>: <available>/<total> available`. An empty library prints `The library is empty`.",
+  "starter": "class Library:\n    def __init__(self):\n        ...\n\n    def add_book(self, title, author, copies=1):\n        ...\n\n    def checkout(self, title):\n        ...\n\n    def return_book(self, title):\n        ...\n\n    def show_catalog(self):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nlib = Library()",
+    "assert out(lib.show_catalog) == [\"The library is empty\"]",
+    "assert out(lib.checkout, \"Dune\") == [\"We do not have Dune\"] and out(lib.return_book, \"Dune\") == [\"We do not have Dune\"]",
+    "assert lib.add_book(\"Dune\", \"Herbert\", 2) is None and lib.add_book(\"Emma\", \"Austen\") is None",
+    "assert error_of(lib.add_book, \"X\", \"Y\", 0) == \"ValueError: Copies must be at least 1\" and error_of(lib.add_book, \"Dune\", \"Z\", -1) == \"ValueError: Copies must be at least 1\"",
+    "assert out(lib.show_catalog) == [\"Dune by Herbert: 2/2 available\", \"Emma by Austen: 1/1 available\"]",
+    "assert out(lib.checkout, \"Dune\") == [\"You borrowed Dune\"] and out(lib.checkout, \"Dune\") == [\"You borrowed Dune\"] and out(lib.checkout, \"Dune\") == [\"Sorry, Dune is not available\"]",
+    "assert out(lib.show_catalog) == [\"Dune by Herbert: 0/2 available\", \"Emma by Austen: 1/1 available\"]",
+    "assert out(lib.return_book, \"Dune\") == [\"Thanks for returning Dune\"] and out(lib.show_catalog)[0] == \"Dune by Herbert: 1/2 available\"",
+    "assert out(lib.return_book, \"Emma\") == [\"All copies are already here\"] and out(lib.show_catalog)[1] == \"Emma by Austen: 1/1 available\"",
+    "lib.add_book(\"Dune\", \"Someone Else\", 1)",
+    "assert out(lib.show_catalog)[0] == \"Dune by Herbert: 2/3 available\"",
+    "lib.add_book(\"Alice\", \"Carroll\", 1)",
+    "assert out(lib.show_catalog) == [\"Alice by Carroll: 1/1 available\", \"Dune by Herbert: 2/3 available\", \"Emma by Austen: 1/1 available\"]",
+    "other = Library()",
+    "assert out(other.show_catalog) == [\"The library is empty\"]",
+    "assert out(lib.checkout, \"dune\") == [\"We do not have dune\"]"
+  ],
+  "hints": [
+    "One dictionary from title to a small record (`author`, `total`, `available`) is enough. Create it in `__init__` so each library has its own.",
+    "Handle the cases in the order of the statement: unknown, none left (or none out), otherwise the normal path. Each branch prints exactly one line.",
+    "`sorted(self._books)` gives the titles in alphabetical order for the catalogue."
+  ],
+  "solution": "class Library:\n    def __init__(self):\n        self._books = {}\n\n    def add_book(self, title, author, copies=1):\n        if copies < 1:\n            raise ValueError(\"Copies must be at least 1\")\n        if title in self._books:\n            self._books[title][\"total\"] += copies\n            self._books[title][\"available\"] += copies\n        else:\n            self._books[title] = {\"author\": author, \"total\": copies, \"available\": copies}\n\n    def checkout(self, title):\n        book = self._books.get(title)\n        if book is None:\n            print(f\"We do not have {title}\")\n        elif book[\"available\"] == 0:\n            print(f\"Sorry, {title} is not available\")\n        else:\n            book[\"available\"] -= 1\n            print(f\"You borrowed {title}\")\n\n    def return_book(self, title):\n        book = self._books.get(title)\n        if book is None:\n            print(f\"We do not have {title}\")\n        elif book[\"available\"] == book[\"total\"]:\n            print(\"All copies are already here\")\n        else:\n            book[\"available\"] += 1\n            print(f\"Thanks for returning {title}\")\n\n    def show_catalog(self):\n        if not self._books:\n            print(\"The library is empty\")\n            return\n        for title in sorted(self._books):\n            book = self._books[title]\n            print(f\"{title} by {book['author']}: {book['available']}/{book['total']} available\")\n",
+  "explanation": "**The idea.** The class owns a small table and exposes a few actions. Callers never touch the numbers directly, so the rules (\"never lend a copy that is not there\", \"never take back more than were lent\") live in one place.\n\n**Every path says something.** A good beginner class never fails silently: each of the three outcomes of `checkout` and of `return_book` has its own message, and the tests check every one.\n\n**Why a dictionary per library.** `self._books = {}` is created in `__init__`, so two libraries never share books (the last test checks it). Writing `_books = {}` in the class body would share it."
+}

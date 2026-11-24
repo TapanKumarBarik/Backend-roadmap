@@ -1,0 +1,65 @@
+{
+  "title": "Inheritance, Abstraction and Polymorphism (Beginner)",
+  "topic": "lld",
+  "difficulty": "beginner",
+  "module": "lld/24-oop-interview-questions/04-overloading-overriding-and-polymorphism/README.md",
+  "section": "concepts",
+  "questions": [
+    {
+      "q": "What is inheritance, in plain words?",
+      "a": "Inheritance lets one class (the **child**, subclass or derived class) **reuse and extend** another (the **parent**, superclass or base class). The relationship is \"**is a**\": a `Student` *is a* `Person`, so it automatically has a `name` and an `age` and can add what is special (`student_id`, `study()`).\n\n```python\nclass Person:\n    def __init__(self, name, age):\n        self.name, self.age = name, age\n\nclass Student(Person):\n    def __init__(self, name, age, student_id):\n        super().__init__(name, age)   # reuse the parent's setup\n        self.student_id = student_id\n```\n\nIt gives you **code reuse** and **subtyping** (a `Student` can be used wherever a `Person` is expected). Use it only when the *is a* sentence is true; otherwise prefer composition (*has a*)."
+    },
+    {
+      "q": "What types of inheritance are there, and which does Python support?",
+      "a": "- **Single:** one parent (`B(A)`).\n- **Multilevel:** a chain (`Dog` -> `Mammal` -> `Animal`).\n- **Hierarchical:** several children of one parent (`Student` and `Teacher` from `Person`).\n- **Multiple:** one child, several parents (`Duck(Flyer, Swimmer)`).\n- **Hybrid:** a mix of the above (a diamond).\n\nPython supports **all** of them, including multiple inheritance, and resolves the lookup order with the **MRO** (`ClassName.__mro__`). Java and C# allow only one parent *class* (plus many interfaces) to avoid the diamond problem."
+    },
+    {
+      "q": "What does `super()` do?",
+      "a": "`super()` gives you access to the **next class in the method resolution order**, which in single inheritance is the parent. You use it to *extend* instead of *replace*: `super().__init__(name, age)` runs the parent's constructor, and `super().info()` runs the parent's method before you add your own lines. In multiple inheritance it does **not** mean \"the parent\" but \"the next class in the MRO\", which is what makes cooperative designs work."
+    },
+    {
+      "q": "What is method overriding?",
+      "a": "Overriding means a **child class defines a method with the same name** (and compatible parameters) as a method of its parent, so the child's version is used for child objects.\n\n```python\nclass Animal:\n    def speak(self): print(\"...\")\nclass Dog(Animal):\n    def speak(self): print(\"Woof\")   # overrides Animal.speak\n\nDog().speak()   # Woof\n```\n\nIt is the mechanism behind **runtime polymorphism**."
+    },
+    {
+      "q": "What is an abstract method?",
+      "a": "An abstract method is a method that is **declared but has no implementation** in the class where it appears: it only says \"every concrete subclass must provide this\". In Python you mark it with `@abstractmethod` (in a class that inherits from `ABC`). In C# and Java the keyword is `abstract`.\n\n```python\nfrom abc import ABC, abstractmethod\nclass Payment(ABC):\n    @abstractmethod\n    def pay(self, amount): ...\n```"
+    },
+    {
+      "q": "What is an abstract class, and can you create an object from it?",
+      "a": "An abstract class is a class that is **meant to be inherited, not instantiated**. It usually has at least one abstract method and may also have normal methods and attributes that every child shares. Trying to create one raises an error: in Python `TypeError: Can't instantiate abstract class Payment with abstract method pay`.\n\nA subclass that **still has an unimplemented abstract method is abstract too**: it can only be created once every abstract method has a body."
+    },
+    {
+      "q": "What is the difference between an abstract method and an abstract class?",
+      "a": "- An **abstract method** is a *single method without a body*, a promise that children must fill in.\n- An **abstract class** is a *whole class that cannot be instantiated*; it is abstract because it contains abstract methods (in some languages you can also mark a class abstract with none).\n\nAn abstract class can mix both: finished methods (shared code) and abstract ones (the blanks). A method can only be abstract inside an abstract class. This combination is the **template method** pattern."
+    },
+    {
+      "q": "What is polymorphism?",
+      "a": "Polymorphism (\"many forms\") means **one interface, many behaviours**: you call the same method on different objects and each does the right thing for its own type.\n\n```python\nfor animal in [Dog(\"Rex\"), Cat(\"Tom\")]:\n    animal.speak()    # Woof / Meow, no if/else needed\n```\n\nThe two classic kinds are **compile-time** (static) polymorphism, such as method overloading and operator overloading, and **runtime** (dynamic) polymorphism, which is method overriding."
+    },
+    {
+      "q": "What is the difference between compile-time and runtime polymorphism?",
+      "a": "| | Compile-time (static) | Runtime (dynamic) |\n|---|---|---|\n| Also called | method / operator **overloading**, early binding | method **overriding**, late binding |\n| Decided | by the **compiler**, from the declared argument types | **while the program runs**, from the real type of the object |\n| Where | several methods with one name in the *same* class, different parameters | a child redefines a *parent's* method, same signature |\n| Needs inheritance | no | yes (or an interface) |\n| Example | `Add(int, int)` and `Add(double, double)` in C# | `animal.Speak()` on a `Dog` held as `Animal` |\n\nRuntime polymorphism needs a lookup at call time (in C# and Java a *virtual table*); compile-time polymorphism has no run-time cost."
+    },
+    {
+      "q": "Does Python support compile-time polymorphism (method overloading)?",
+      "a": "**Not in the Java/C# sense.** Python has no compile step that picks a method by parameter types, and a second `def` with the same name in a class simply **replaces** the first. You get the same *effect* with:\n\n- **default arguments:** `def greet(name=None, title=None)`\n- **`*args` and `**kwargs`:** `def add(*numbers)`\n- **type checks or `functools.singledispatch`:** choose by `isinstance` at run time\n- **duck typing:** just call the method and let the object decide\n\nOperator overloading *is* supported through special methods (`__add__`, `__eq__`, `__str__`). A good interview answer says: \"all of Python's polymorphism is resolved at run time\"."
+    },
+    {
+      "q": "How does runtime polymorphism work under the hood?",
+      "a": "When you call `obj.method()`, the language looks at the **real class of `obj`** (not the variable's declared type) and finds the method there, walking up the parents if needed. Python does this lookup dynamically (the *method resolution order*); C# and Java use a **virtual table**: each class with virtual methods has a table of function pointers, and each object holds a pointer to its class's table. That is why `Animal a = new Dog(); a.Speak();` runs `Dog.Speak`."
+    },
+    {
+      "q": "What is the difference between method overloading and method overriding?",
+      "a": "- **Overloading:** same name, **different parameters**, in the **same class**; resolved at compile time; Python emulates it.\n- **Overriding:** same name, **same parameters**, in a **child class**; resolved at run time; the child replaces the parent's behaviour.\n\nA quick test: *Is there an inheritance relationship?* Yes means overriding; no means overloading."
+    },
+    {
+      "q": "What is duck typing, and how does it relate to polymorphism?",
+      "a": "\"If it walks like a duck and quacks like a duck, it is a duck.\" In Python an object is usable if it has the **methods you call**, whatever its class. `make_all_speak(animals)` works for any object with a `speak()` method, even one that does not inherit from `Animal`. It is polymorphism *without* inheritance or interfaces. The trade-off is that mistakes appear at run time (an `AttributeError`) instead of at compile time; abstract base classes or type hints bring some checking back."
+    },
+    {
+      "q": "When should you not use inheritance?",
+      "a": "Avoid it when the sentence \"*X is a Y*\" is not true, or just to reuse a few lines. A `Stack` that inherits from `list` *is not* a list (it should not offer `insert(0, x)`); it *has a* list. Problems with deep or wide inheritance: the **fragile base class** (a change in the parent breaks children), tight coupling, and the **diamond problem** in multiple inheritance. Prefer **composition** (hold an object and delegate to it) and keep hierarchies shallow: \"favour composition over inheritance\"."
+    }
+  ]
+}

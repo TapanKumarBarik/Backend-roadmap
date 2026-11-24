@@ -1,0 +1,29 @@
+{
+  "title": "Rectangle Class",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A first class with attributes, methods that compute values, a method that changes the object and a validation rule.",
+  "statement": "Create a class `Rectangle` with `Rectangle(width, height)`.\n\n- Both sides must be above 0, otherwise raise `ValueError(\"Sides must be positive\")`.\n- Attributes: `width` and `height`.\n- `area()` returns `width * height`; `perimeter()` returns `2 * (width + height)`.\n- `is_square()` returns `True` when both sides are equal.\n- `scale(factor)` multiplies **both** sides by `factor` (the same object changes; it returns nothing). A `factor` of 0 or less raises `ValueError(\"Factor must be positive\")` and changes nothing.\n- `describe()` **prints** `Rectangle <width> x <height>: area <area>, perimeter <perimeter>`.",
+  "starter": "class Rectangle:\n    def __init__(self, width, height):\n        ...\n\n    def area(self):\n        ...\n\n    def perimeter(self):\n        ...\n\n    def is_square(self):\n        ...\n\n    def scale(self, factor):\n        ...\n\n    def describe(self):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nr = Rectangle(3, 4)",
+    "assert (r.width, r.height, r.area(), r.perimeter()) == (3, 4, 12, 14)",
+    "assert r.is_square() is False and Rectangle(5, 5).is_square() is True",
+    "assert out(r.describe) == [\"Rectangle 3 x 4: area 12, perimeter 14\"]",
+    "assert r.scale(2) is None and (r.width, r.height) == (6, 8) and r.area() == 48",
+    "assert out(r.describe) == [\"Rectangle 6 x 8: area 48, perimeter 28\"]",
+    "assert error_of(r.scale, 0) == \"ValueError: Factor must be positive\" and error_of(r.scale, -1) == \"ValueError: Factor must be positive\" and (r.width, r.height) == (6, 8)",
+    "assert error_of(Rectangle, 0, 5) == \"ValueError: Sides must be positive\" and error_of(Rectangle, 5, -1) == \"ValueError: Sides must be positive\"",
+    "a, b = Rectangle(1, 2), Rectangle(1, 2)\na.scale(3)",
+    "assert (a.width, b.width) == (3, 1)",
+    "assert Rectangle(2, 3).area() == 6 and Rectangle(2.5, 2).area() == 5.0"
+  ],
+  "hints": [
+    "Store only `width` and `height`. `area()` and `perimeter()` calculate from them every time, so they can never be out of date after `scale`.",
+    "Validate in `__init__` *before* storing anything, so a bad rectangle is never created. `scale` checks the factor before it changes either side.",
+    "`describe()` can call `self.area()` and `self.perimeter()` instead of repeating the formulas."
+  ],
+  "solution": "class Rectangle:\n    def __init__(self, width, height):\n        if width <= 0 or height <= 0:\n            raise ValueError(\"Sides must be positive\")\n        self.width = width\n        self.height = height\n\n    def area(self):\n        return self.width * self.height\n\n    def perimeter(self):\n        return 2 * (self.width + self.height)\n\n    def is_square(self):\n        return self.width == self.height\n\n    def scale(self, factor):\n        if factor <= 0:\n            raise ValueError(\"Factor must be positive\")\n        self.width *= factor\n        self.height *= factor\n\n    def describe(self):\n        print(f\"Rectangle {self.width} x {self.height}: area {self.area()}, perimeter {self.perimeter()}\")\n",
+  "explanation": "**The idea.** Methods that *ask* (`area`, `is_square`) return a value and change nothing; methods that *change* (`scale`) alter the object and usually return nothing. Keeping the two kinds apart makes a class easy to reason about.\n\n**Validate at the door.** A `Rectangle(-3, 4)` that existed would poison every later calculation. Refusing it in `__init__` means every rectangle you ever hold is valid.\n\n**Reuse inside the class.** `describe` calls `area()`; if the formula changes, only one place needs to."
+}

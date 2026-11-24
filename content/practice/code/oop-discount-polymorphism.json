@@ -1,0 +1,31 @@
+{
+  "title": "Discounts and Polymorphism",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A shop applies a list of different discounts to a price; one function works for every kind, even new ones.",
+  "statement": "Create a class `Discount` whose `apply(price)` returns the price **unchanged**. Prices are whole numbers (rupees).\n\nCreate two subclasses that **override** `apply`:\n\n- `PercentDiscount(percent)` takes `percent` off: `price - price * percent // 100`. A percent outside 0 to 100 is `ValueError(\"Percent must be between 0 and 100\")`.\n- `FlatDiscount(amount)` takes a fixed `amount` off but never goes below 0: `max(0, price - amount)`. A negative amount is `ValueError(\"Amount cannot be negative\")`.\n\nWrite `final_price(price, discounts)` that applies the discounts **in the order given** (each one to the result of the previous) and returns the final price. It must not check what kind of discount each one is.\n\n**Example:** `final_price(1000, [PercentDiscount(10), FlatDiscount(50)])` is `850`.",
+  "starter": "class Discount:\n    def apply(self, price):\n        ...\n\n\nclass PercentDiscount(Discount):\n    ...\n\n\ndef final_price(price, discounts):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert Discount().apply(500) == 500",
+    "p = PercentDiscount(10)\nf = FlatDiscount(50)",
+    "assert isinstance(p, Discount) and isinstance(f, Discount)",
+    "assert p.apply(1000) == 900 and p.apply(99) == 90 and PercentDiscount(0).apply(80) == 80 and PercentDiscount(100).apply(80) == 0",
+    "assert f.apply(1000) == 950 and f.apply(30) == 0 and FlatDiscount(0).apply(30) == 30",
+    "assert error_of(PercentDiscount, -1) == \"ValueError: Percent must be between 0 and 100\" and error_of(PercentDiscount, 101) == \"ValueError: Percent must be between 0 and 100\"",
+    "assert error_of(FlatDiscount, -5) == \"ValueError: Amount cannot be negative\"",
+    "assert final_price(1000, [p, f]) == 850 and final_price(1000, [f, p]) == 855",
+    "assert final_price(1000, []) == 1000 and final_price(200, [FlatDiscount(500), PercentDiscount(50)]) == 0",
+    "class Festival(Discount):\n    def apply(self, price):\n        return price - 7",
+    "assert final_price(100, [Festival(), PercentDiscount(50)]) == 47 and final_price(100, [Discount(), Festival()]) == 93",
+    "assert final_price(1000, [PercentDiscount(10), PercentDiscount(10)]) == 810"
+  ],
+  "hints": [
+    "Each subclass keeps its own setting (`percent`, `amount`) in `__init__` and overrides only `apply`.",
+    "`final_price` is a loop that feeds the price through every discount: `price = discount.apply(price)`.",
+    "The tests define a new `Festival` discount that your function has never seen. If `final_price` works for it without any change, you have used polymorphism correctly."
+  ],
+  "solution": "class Discount:\n    def apply(self, price):\n        return price\n\n\nclass PercentDiscount(Discount):\n    def __init__(self, percent):\n        if not 0 <= percent <= 100:\n            raise ValueError(\"Percent must be between 0 and 100\")\n        self.percent = percent\n\n    def apply(self, price):\n        return price - price * self.percent // 100\n\n\nclass FlatDiscount(Discount):\n    def __init__(self, amount):\n        if amount < 0:\n            raise ValueError(\"Amount cannot be negative\")\n        self.amount = amount\n\n    def apply(self, price):\n        return max(0, price - self.amount)\n\n\ndef final_price(price, discounts):\n    for discount in discounts:\n        price = discount.apply(price)\n    return price\n",
+  "explanation": "**Run-time polymorphism for beginners.** `discount.apply(price)` looks the same for every discount, but each class does its own sum. The *caller* (`final_price`) knows nothing about percentages or flat amounts.\n\n**Open for extension.** Adding \"Buy one get one free\" means writing one new class. Nothing that already works is edited: no `if kind == ...` anywhere.\n\n**Order matters.** `final_price(1000, [10%, 50 off])` is 850 but the other way round is 855, because each discount applies to the result of the previous one. Say that out loud in a real shop."
+}

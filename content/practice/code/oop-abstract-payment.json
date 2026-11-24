@@ -1,0 +1,33 @@
+{
+  "title": "Abstract Payment Methods",
+  "topic": "oop-and-classes",
+  "difficulty": "intermediate",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "An abstract base class with an abstract method: it cannot be created, and every child must supply pay().",
+  "statement": "Use Python's `abc` module (`ABC`, `abstractmethod`).\n\nCreate an **abstract class** `Payment`.\n\n- It has an **abstract method** `pay(amount)`.\n- It has a normal (concrete) method `describe()` that returns the **class name** of the object, for example `\"UPI\"`.\n- Trying to create a `Payment` directly raises `TypeError`, and so does creating a subclass that has not implemented `pay`.\n\nCreate these concrete payment classes:\n\n- `CreditCard(number)`: `pay(amount)` prints `Paid <amount> by credit card ending <last 4 digits of number>`\n- `UPI(upi_id)`: `pay(amount)` prints `Paid <amount> using UPI <upi_id>`\n- `Wallet(balance)`: if `amount` is more than the balance it prints `Insufficient wallet balance` and changes nothing; otherwise it reduces `balance` and prints `Paid <amount> from wallet. Balance left: <balance>`\n\nWrite `checkout(payment, amount)` that calls `payment.pay(amount)`. It works for every kind of payment.",
+  "starter": "from abc import ABC, abstractmethod\n\n\nclass Payment:\n    ...\n\n\nclass CreditCard(Payment):\n    ...\n\n\ndef checkout(payment, amount):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert error_of(Payment) is not None and error_of(Payment).startswith(\"TypeError\")",
+    "class Half(Payment):\n    pass",
+    "assert error_of(Half).startswith(\"TypeError\")",
+    "card = CreditCard(\"1234567812345678\")\nupi = UPI(\"asha@bank\")\nwallet = Wallet(500)",
+    "assert isinstance(card, Payment) and isinstance(upi, Payment) and isinstance(wallet, Payment)",
+    "assert out(card.pay, 250) == [\"Paid 250 by credit card ending 5678\"] and out(upi.pay, 99) == [\"Paid 99 using UPI asha@bank\"]",
+    "assert out(wallet.pay, 200) == [\"Paid 200 from wallet. Balance left: 300\"] and wallet.balance == 300",
+    "assert out(wallet.pay, 301) == [\"Insufficient wallet balance\"] and wallet.balance == 300",
+    "assert out(wallet.pay, 300) == [\"Paid 300 from wallet. Balance left: 0\"] and wallet.balance == 0",
+    "assert (card.describe(), upi.describe(), wallet.describe()) == (\"CreditCard\", \"UPI\", \"Wallet\")",
+    "assert out(checkout, card, 10) == [\"Paid 10 by credit card ending 5678\"] and out(checkout, upi, 5) == [\"Paid 5 using UPI asha@bank\"]",
+    "class Cash(Payment):\n    def pay(self, amount):\n        print(\"Cash \" + str(amount))",
+    "assert out(checkout, Cash(), 7) == [\"Cash 7\"] and Cash().describe() == \"Cash\"",
+    "assert getattr(Payment.pay, \"__isabstractmethod__\", False) is True"
+  ],
+  "hints": [
+    "Write `class Payment(ABC):` and put `@abstractmethod` above `def pay(self, amount):`. The body can be just a docstring: it is never meant to run.",
+    "`describe()` is a normal method written once in `Payment`; `type(self).__name__` gives the name of the real class, so every child gets the right answer for free.",
+    "Python refuses to create an object whose class still has an unimplemented abstract method, and the error is a `TypeError`. You do not write that check yourself."
+  ],
+  "solution": "from abc import ABC, abstractmethod\n\n\nclass Payment(ABC):\n    @abstractmethod\n    def pay(self, amount):\n        \"\"\"Every payment method must say how it pays.\"\"\"\n\n    def describe(self):\n        return type(self).__name__\n\n\nclass CreditCard(Payment):\n    def __init__(self, number):\n        self.number = number\n\n    def pay(self, amount):\n        print(f\"Paid {amount} by credit card ending {self.number[-4:]}\")\n\n\nclass UPI(Payment):\n    def __init__(self, upi_id):\n        self.upi_id = upi_id\n\n    def pay(self, amount):\n        print(f\"Paid {amount} using UPI {self.upi_id}\")\n\n\nclass Wallet(Payment):\n    def __init__(self, balance):\n        self.balance = balance\n\n    def pay(self, amount):\n        if amount > self.balance:\n            print(\"Insufficient wallet balance\")\n            return\n        self.balance -= amount\n        print(f\"Paid {amount} from wallet. Balance left: {self.balance}\")\n\n\ndef checkout(payment, amount):\n    payment.pay(amount)\n",
+  "explanation": "**Abstract class versus abstract method.** An *abstract method* is a promise with no body: \"every payment can `pay`, but only a concrete one knows how\". An *abstract class* is a class that has at least one abstract method (or is marked that way), so it **cannot be instantiated**. The abstract class can still contain normal methods such as `describe()`.\n\n| | Abstract method | Abstract class |\n|---|---|---|\n| What it is | a method declared without a body | a class you cannot create objects from |\n| Who fills it in | each concrete subclass | it is extended, never created |\n| Enforced by | `@abstractmethod` + `ABC` | the same: `TypeError` on creation |\n\n**Why bother?** It turns a forgotten method into an error at once (`TypeError: Can't instantiate abstract class`), instead of a crash deep inside a program. And `checkout` can rely on \"everything I am given can `pay`\".\n\n**Plain Python alternative.** Many programmers just write `raise NotImplementedError` in the base method. It works, but the error appears only when `pay` is *called*, not when the object is created."
+}

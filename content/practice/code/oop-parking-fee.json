@@ -1,0 +1,33 @@
+{
+  "title": "Parking Ticket",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A ticket that works out a parking fee from entry and exit hours, with a daily cap and a one-time exit.",
+  "statement": "Create a class `ParkingTicket` with `ParkingTicket(plate, entry_hour)`.\n\n- `plate` must be a non-blank string, otherwise `ValueError(\"Plate required\")`; `entry_hour` must be an `int` of 0 or more (not a `bool`), otherwise `ValueError(\"Entry hour must be 0 or more\")` (plate first). Attributes: `plate`, `entry_hour`, `exited` (`False`) and `fee` (`None`).\n- `exit(exit_hour)` closes the ticket and **returns the fee**. Checks in order: already exited `ValueError(\"Already exited\")`; `exit_hour` not later than `entry_hour` `ValueError(\"Exit must be after entry\")`.\n- The fee for `hours = exit_hour - entry_hour` is **20 for the first hour plus 10 for every further hour**, but never more than **100**.\n- `exit` also **prints** `Vehicle <plate> parked <hours> hour(s). Fee: <fee>`, sets `exited` to `True` and stores the `fee`.",
+  "starter": "class ParkingTicket:\n    def __init__(self, plate, entry_hour):\n        ...\n\n    def exit(self, exit_hour):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(ParkingTicket, bad, 1) == \"ValueError: Plate required\"\nfor bad in (-1, 1.5, True, None):\n    assert error_of(ParkingTicket, \"KA01\", bad) == \"ValueError: Entry hour must be 0 or more\"",
+    "assert error_of(ParkingTicket, \"\", -1) == \"ValueError: Plate required\"",
+    "t = ParkingTicket(\"KA01\", 9)",
+    "assert (t.plate, t.entry_hour, t.exited, t.fee) == (\"KA01\", 9, False, None)",
+    "assert error_of(t.exit, 9) == \"ValueError: Exit must be after entry\" and error_of(t.exit, 3) == \"ValueError: Exit must be after entry\" and t.exited is False",
+    "buffer = io.StringIO()\nwith contextlib.redirect_stdout(buffer):\n    fee = t.exit(10)",
+    "assert fee == 20 and buffer.getvalue().splitlines() == [\"Vehicle KA01 parked 1 hour(s). Fee: 20\"] and t.exited is True and t.fee == 20",
+    "assert error_of(t.exit, 12) == \"ValueError: Already exited\" and t.fee == 20",
+    "assert error_of(t.exit, 3) == \"ValueError: Already exited\"",
+    "def fee_for(hours):\n    ticket = ParkingTicket(\"X\", 0)\n    result = []\n    out(lambda: result.append(ticket.exit(hours)))\n    return result[0]",
+    "assert [fee_for(h) for h in (1, 2, 3, 5, 9, 10, 11, 24)] == [20, 30, 40, 60, 100, 100, 100, 100]",
+    "assert out(ParkingTicket(\"MH12\", 8).exit, 11) == [\"Vehicle MH12 parked 3 hour(s). Fee: 40\"]",
+    "assert out(ParkingTicket(\"MH12\", 0).exit, 20) == [\"Vehicle MH12 parked 20 hour(s). Fee: 100\"]",
+    "second = ParkingTicket(\"TN09\", 5)",
+    "assert second.exited is False and t.exited is True"
+  ],
+  "hints": [
+    "Hours parked is `exit_hour - entry_hour`. The fee is `20 + 10 * (hours - 1)`, capped with `min(100, ...)`.",
+    "Check \"already exited\" before looking at the hour, and do all the checks before you change `exited`, so a refused call changes nothing.",
+    "Put the three prices in class attributes (`FIRST_HOUR`, `EXTRA_HOUR`, `DAILY_MAX`) so the numbers have names and one home."
+  ],
+  "solution": "class ParkingTicket:\n    FIRST_HOUR = 20\n    EXTRA_HOUR = 10\n    DAILY_MAX = 100\n\n    def __init__(self, plate, entry_hour):\n        if not isinstance(plate, str) or not plate.strip():\n            raise ValueError(\"Plate required\")\n        if type(entry_hour) is not int or entry_hour < 0:\n            raise ValueError(\"Entry hour must be 0 or more\")\n        self.plate = plate\n        self.entry_hour = entry_hour\n        self.exited = False\n        self.fee = None\n\n    def exit(self, exit_hour):\n        if self.exited:\n            raise ValueError(\"Already exited\")\n        if exit_hour <= self.entry_hour:\n            raise ValueError(\"Exit must be after entry\")\n        hours = exit_hour - self.entry_hour\n        fee = min(self.DAILY_MAX, self.FIRST_HOUR + self.EXTRA_HOUR * (hours - 1))\n        self.exited = True\n        self.fee = fee\n        print(f\"Vehicle {self.plate} parked {hours} hour(s). Fee: {fee}\")\n        return fee\n",
+  "explanation": "**The idea.** A ticket is a small state machine: *open* until `exit` is called, *closed* afterwards. The flag `exited` is what turns a second `exit` into an error instead of a second fee.\n\n**Names for numbers.** `20`, `10` and `100` written inline are \"magic numbers\". As class attributes they document themselves and a price change touches one line.\n\n**Table-test the boundaries.** The test lists hours `1, 2, 3, 5, 9, 10, 11, 24`: the interesting ones are 1 (no extra hours), 9 (exactly 100) and 10 (the cap starts to matter)."
+}

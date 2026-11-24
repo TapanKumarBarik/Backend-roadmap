@@ -15051,6 +15051,71 @@
     }
    ]
   },
+  "oop-inheritance-and-polymorphism": {
+   "title": "Inheritance, Abstraction and Polymorphism (Beginner)",
+   "topic": "lld",
+   "difficulty": "beginner",
+   "module": "lld/24-oop-interview-questions/04-overloading-overriding-and-polymorphism/README.md",
+   "section": "concepts",
+   "questions": [
+    {
+     "q": "What is inheritance, in plain words?",
+     "a": "Inheritance lets one class (the **child**, subclass or derived class) **reuse and extend** another (the **parent**, superclass or base class). The relationship is \"**is a**\": a `Student` *is a* `Person`, so it automatically has a `name` and an `age` and can add what is special (`student_id`, `study()`).\n\n```python\nclass Person:\n    def __init__(self, name, age):\n        self.name, self.age = name, age\n\nclass Student(Person):\n    def __init__(self, name, age, student_id):\n        super().__init__(name, age)   # reuse the parent's setup\n        self.student_id = student_id\n```\n\nIt gives you **code reuse** and **subtyping** (a `Student` can be used wherever a `Person` is expected). Use it only when the *is a* sentence is true; otherwise prefer composition (*has a*)."
+    },
+    {
+     "q": "What types of inheritance are there, and which does Python support?",
+     "a": "- **Single:** one parent (`B(A)`).\n- **Multilevel:** a chain (`Dog` -> `Mammal` -> `Animal`).\n- **Hierarchical:** several children of one parent (`Student` and `Teacher` from `Person`).\n- **Multiple:** one child, several parents (`Duck(Flyer, Swimmer)`).\n- **Hybrid:** a mix of the above (a diamond).\n\nPython supports **all** of them, including multiple inheritance, and resolves the lookup order with the **MRO** (`ClassName.__mro__`). Java and C# allow only one parent *class* (plus many interfaces) to avoid the diamond problem."
+    },
+    {
+     "q": "What does `super()` do?",
+     "a": "`super()` gives you access to the **next class in the method resolution order**, which in single inheritance is the parent. You use it to *extend* instead of *replace*: `super().__init__(name, age)` runs the parent's constructor, and `super().info()` runs the parent's method before you add your own lines. In multiple inheritance it does **not** mean \"the parent\" but \"the next class in the MRO\", which is what makes cooperative designs work."
+    },
+    {
+     "q": "What is method overriding?",
+     "a": "Overriding means a **child class defines a method with the same name** (and compatible parameters) as a method of its parent, so the child's version is used for child objects.\n\n```python\nclass Animal:\n    def speak(self): print(\"...\")\nclass Dog(Animal):\n    def speak(self): print(\"Woof\")   # overrides Animal.speak\n\nDog().speak()   # Woof\n```\n\nIt is the mechanism behind **runtime polymorphism**."
+    },
+    {
+     "q": "What is an abstract method?",
+     "a": "An abstract method is a method that is **declared but has no implementation** in the class where it appears: it only says \"every concrete subclass must provide this\". In Python you mark it with `@abstractmethod` (in a class that inherits from `ABC`). In C# and Java the keyword is `abstract`.\n\n```python\nfrom abc import ABC, abstractmethod\nclass Payment(ABC):\n    @abstractmethod\n    def pay(self, amount): ...\n```"
+    },
+    {
+     "q": "What is an abstract class, and can you create an object from it?",
+     "a": "An abstract class is a class that is **meant to be inherited, not instantiated**. It usually has at least one abstract method and may also have normal methods and attributes that every child shares. Trying to create one raises an error: in Python `TypeError: Can't instantiate abstract class Payment with abstract method pay`.\n\nA subclass that **still has an unimplemented abstract method is abstract too**: it can only be created once every abstract method has a body."
+    },
+    {
+     "q": "What is the difference between an abstract method and an abstract class?",
+     "a": "- An **abstract method** is a *single method without a body*, a promise that children must fill in.\n- An **abstract class** is a *whole class that cannot be instantiated*; it is abstract because it contains abstract methods (in some languages you can also mark a class abstract with none).\n\nAn abstract class can mix both: finished methods (shared code) and abstract ones (the blanks). A method can only be abstract inside an abstract class. This combination is the **template method** pattern."
+    },
+    {
+     "q": "What is polymorphism?",
+     "a": "Polymorphism (\"many forms\") means **one interface, many behaviours**: you call the same method on different objects and each does the right thing for its own type.\n\n```python\nfor animal in [Dog(\"Rex\"), Cat(\"Tom\")]:\n    animal.speak()    # Woof / Meow, no if/else needed\n```\n\nThe two classic kinds are **compile-time** (static) polymorphism, such as method overloading and operator overloading, and **runtime** (dynamic) polymorphism, which is method overriding."
+    },
+    {
+     "q": "What is the difference between compile-time and runtime polymorphism?",
+     "a": "| | Compile-time (static) | Runtime (dynamic) |\n|---|---|---|\n| Also called | method / operator **overloading**, early binding | method **overriding**, late binding |\n| Decided | by the **compiler**, from the declared argument types | **while the program runs**, from the real type of the object |\n| Where | several methods with one name in the *same* class, different parameters | a child redefines a *parent's* method, same signature |\n| Needs inheritance | no | yes (or an interface) |\n| Example | `Add(int, int)` and `Add(double, double)` in C# | `animal.Speak()` on a `Dog` held as `Animal` |\n\nRuntime polymorphism needs a lookup at call time (in C# and Java a *virtual table*); compile-time polymorphism has no run-time cost."
+    },
+    {
+     "q": "Does Python support compile-time polymorphism (method overloading)?",
+     "a": "**Not in the Java/C# sense.** Python has no compile step that picks a method by parameter types, and a second `def` with the same name in a class simply **replaces** the first. You get the same *effect* with:\n\n- **default arguments:** `def greet(name=None, title=None)`\n- **`*args` and `**kwargs`:** `def add(*numbers)`\n- **type checks or `functools.singledispatch`:** choose by `isinstance` at run time\n- **duck typing:** just call the method and let the object decide\n\nOperator overloading *is* supported through special methods (`__add__`, `__eq__`, `__str__`). A good interview answer says: \"all of Python's polymorphism is resolved at run time\"."
+    },
+    {
+     "q": "How does runtime polymorphism work under the hood?",
+     "a": "When you call `obj.method()`, the language looks at the **real class of `obj`** (not the variable's declared type) and finds the method there, walking up the parents if needed. Python does this lookup dynamically (the *method resolution order*); C# and Java use a **virtual table**: each class with virtual methods has a table of function pointers, and each object holds a pointer to its class's table. That is why `Animal a = new Dog(); a.Speak();` runs `Dog.Speak`."
+    },
+    {
+     "q": "What is the difference between method overloading and method overriding?",
+     "a": "- **Overloading:** same name, **different parameters**, in the **same class**; resolved at compile time; Python emulates it.\n- **Overriding:** same name, **same parameters**, in a **child class**; resolved at run time; the child replaces the parent's behaviour.\n\nA quick test: *Is there an inheritance relationship?* Yes means overriding; no means overloading."
+    },
+    {
+     "q": "What is duck typing, and how does it relate to polymorphism?",
+     "a": "\"If it walks like a duck and quacks like a duck, it is a duck.\" In Python an object is usable if it has the **methods you call**, whatever its class. `make_all_speak(animals)` works for any object with a `speak()` method, even one that does not inherit from `Animal`. It is polymorphism *without* inheritance or interfaces. The trade-off is that mistakes appear at run time (an `AttributeError`) instead of at compile time; abstract base classes or type hints bring some checking back."
+    },
+    {
+     "q": "When should you not use inheritance?",
+     "a": "Avoid it when the sentence \"*X is a Y*\" is not true, or just to reuse a few lines. A `Stack` that inherits from `list` *is not* a list (it should not offer `insert(0, x)`); it *has a* list. Problems with deep or wide inheritance: the **fragile base class** (a change in the parent breaks children), tight coupling, and the **diamond problem** in multiple inheritance. Prefer **composition** (hold an object and delegate to it) and keep hierarchies shallow: \"favour composition over inheritance\"."
+    }
+   ]
+  },
   "production-architecture-case-studies": {
    "title": "Production Architecture Case Studies",
    "topic": "system-design",
@@ -28188,6 +28253,659 @@
    ],
    "solution": "from collections import defaultdict\nfrom typing import Callable, Any, Dict, List\n\n\nclass EventBus:\n    def __init__(self):\n        self._handlers: Dict[str, List[Callable[..., Any]]] = defaultdict(list)\n\n    def subscribe(self, event_name: str, handler: Callable[..., Any]) -> Callable[[], None]:\n        self._handlers[event_name].append(handler)\n\n        def _unsub():\n            self.unsubscribe(event_name, handler)\n        return _unsub\n\n    def unsubscribe(self, event_name: str, handler: Callable[..., Any]) -> None:\n        if event_name in self._handlers:\n            handlers = self._handlers[event_name]\n            if handler in handlers:\n                handlers.remove(handler)\n                if not handlers:\n                    del self._handlers[event_name]\n\n    def publish(self, event_name: str, *args, **kwargs) -> int:\n        handlers = list(self._handlers.get(event_name, []))\n        for handler in handlers:\n            handler(*args, **kwargs)\n        return len(handlers)\n",
    "explanation": "**Shallow copy during dispatch.** If a subscriber unsubscribes itself or registers a new listener during the execution of `publish()`, mutating the underlying list while iterating over it causes skipped callbacks or runtime modification errors. Iterating over `list(handlers)` avoids this hazard.\n\n**Return unsubscription tokens.** Returning a simple parameterless cancellation callback (`unsub()`) gives callers ergonomic lifecycle management without forcing them to retain the original event name and handler reference."
+  },
+  "oop-abstract-payment": {
+   "title": "Abstract Payment Methods",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "An abstract base class with an abstract method: it cannot be created, and every child must supply pay().",
+   "statement": "Use Python's `abc` module (`ABC`, `abstractmethod`).\n\nCreate an **abstract class** `Payment`.\n\n- It has an **abstract method** `pay(amount)`.\n- It has a normal (concrete) method `describe()` that returns the **class name** of the object, for example `\"UPI\"`.\n- Trying to create a `Payment` directly raises `TypeError`, and so does creating a subclass that has not implemented `pay`.\n\nCreate these concrete payment classes:\n\n- `CreditCard(number)`: `pay(amount)` prints `Paid <amount> by credit card ending <last 4 digits of number>`\n- `UPI(upi_id)`: `pay(amount)` prints `Paid <amount> using UPI <upi_id>`\n- `Wallet(balance)`: if `amount` is more than the balance it prints `Insufficient wallet balance` and changes nothing; otherwise it reduces `balance` and prints `Paid <amount> from wallet. Balance left: <balance>`\n\nWrite `checkout(payment, amount)` that calls `payment.pay(amount)`. It works for every kind of payment.",
+   "starter": "from abc import ABC, abstractmethod\n\n\nclass Payment:\n    ...\n\n\nclass CreditCard(Payment):\n    ...\n\n\ndef checkout(payment, amount):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert error_of(Payment) is not None and error_of(Payment).startswith(\"TypeError\")",
+    "class Half(Payment):\n    pass",
+    "assert error_of(Half).startswith(\"TypeError\")",
+    "card = CreditCard(\"1234567812345678\")\nupi = UPI(\"asha@bank\")\nwallet = Wallet(500)",
+    "assert isinstance(card, Payment) and isinstance(upi, Payment) and isinstance(wallet, Payment)",
+    "assert out(card.pay, 250) == [\"Paid 250 by credit card ending 5678\"] and out(upi.pay, 99) == [\"Paid 99 using UPI asha@bank\"]",
+    "assert out(wallet.pay, 200) == [\"Paid 200 from wallet. Balance left: 300\"] and wallet.balance == 300",
+    "assert out(wallet.pay, 301) == [\"Insufficient wallet balance\"] and wallet.balance == 300",
+    "assert out(wallet.pay, 300) == [\"Paid 300 from wallet. Balance left: 0\"] and wallet.balance == 0",
+    "assert (card.describe(), upi.describe(), wallet.describe()) == (\"CreditCard\", \"UPI\", \"Wallet\")",
+    "assert out(checkout, card, 10) == [\"Paid 10 by credit card ending 5678\"] and out(checkout, upi, 5) == [\"Paid 5 using UPI asha@bank\"]",
+    "class Cash(Payment):\n    def pay(self, amount):\n        print(\"Cash \" + str(amount))",
+    "assert out(checkout, Cash(), 7) == [\"Cash 7\"] and Cash().describe() == \"Cash\"",
+    "assert getattr(Payment.pay, \"__isabstractmethod__\", False) is True"
+   ],
+   "hints": [
+    "Write `class Payment(ABC):` and put `@abstractmethod` above `def pay(self, amount):`. The body can be just a docstring: it is never meant to run.",
+    "`describe()` is a normal method written once in `Payment`; `type(self).__name__` gives the name of the real class, so every child gets the right answer for free.",
+    "Python refuses to create an object whose class still has an unimplemented abstract method, and the error is a `TypeError`. You do not write that check yourself."
+   ],
+   "solution": "from abc import ABC, abstractmethod\n\n\nclass Payment(ABC):\n    @abstractmethod\n    def pay(self, amount):\n        \"\"\"Every payment method must say how it pays.\"\"\"\n\n    def describe(self):\n        return type(self).__name__\n\n\nclass CreditCard(Payment):\n    def __init__(self, number):\n        self.number = number\n\n    def pay(self, amount):\n        print(f\"Paid {amount} by credit card ending {self.number[-4:]}\")\n\n\nclass UPI(Payment):\n    def __init__(self, upi_id):\n        self.upi_id = upi_id\n\n    def pay(self, amount):\n        print(f\"Paid {amount} using UPI {self.upi_id}\")\n\n\nclass Wallet(Payment):\n    def __init__(self, balance):\n        self.balance = balance\n\n    def pay(self, amount):\n        if amount > self.balance:\n            print(\"Insufficient wallet balance\")\n            return\n        self.balance -= amount\n        print(f\"Paid {amount} from wallet. Balance left: {self.balance}\")\n\n\ndef checkout(payment, amount):\n    payment.pay(amount)\n",
+   "explanation": "**Abstract class versus abstract method.** An *abstract method* is a promise with no body: \"every payment can `pay`, but only a concrete one knows how\". An *abstract class* is a class that has at least one abstract method (or is marked that way), so it **cannot be instantiated**. The abstract class can still contain normal methods such as `describe()`.\n\n| | Abstract method | Abstract class |\n|---|---|---|\n| What it is | a method declared without a body | a class you cannot create objects from |\n| Who fills it in | each concrete subclass | it is extended, never created |\n| Enforced by | `@abstractmethod` + `ABC` | the same: `TypeError` on creation |\n\n**Why bother?** It turns a forgotten method into an error at once (`TypeError: Can't instantiate abstract class`), instead of a crash deep inside a program. And `checkout` can rely on \"everything I am given can `pay`\".\n\n**Plain Python alternative.** Many programmers just write `raise NotImplementedError` in the base method. It works, but the error appears only when `pay` is *called*, not when the object is created."
+  },
+  "oop-abstract-report": {
+   "title": "Abstract Class With Shared Code",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "An abstract class that mixes finished code (render) with holes the children must fill (title, body).",
+   "statement": "Create an abstract class `Report` (use `ABC` and `abstractmethod`).\n\n- Abstract methods: `title()` and `body()`, each returns a string.\n- A concrete method `render()` returns the finished text: the line `=== <title> ===`, then a new line, then the body. For example `\"=== Sales ===\\nTotal: 500\"`.\n- A concrete method `print_report()` prints `render()`.\n- `Report` itself cannot be created (`TypeError`).\n\nCreate two concrete reports:\n\n- `SalesReport(total)`: title `Sales`, body `Total: <total>`\n- `AttendanceReport(present, total)`: title `Attendance`, body `Present: <present>/<total> (<percent>%)` where `percent` is `present * 100 / total` rounded to **1 decimal place** (`0.0` when `total` is 0).\n\n`render` and `print_report` are written **once**, in `Report`.",
+   "starter": "from abc import ABC, abstractmethod\n\n\nclass Report:\n    ...\n\n\nclass SalesReport(Report):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert error_of(Report).startswith(\"TypeError\")",
+    "class OnlyTitle(Report):\n    def title(self):\n        return \"T\"",
+    "assert error_of(OnlyTitle).startswith(\"TypeError\")",
+    "sales = SalesReport(500)",
+    "assert sales.title() == \"Sales\" and sales.body() == \"Total: 500\" and sales.render() == \"=== Sales ===\\nTotal: 500\"",
+    "att = AttendanceReport(45, 60)",
+    "assert att.title() == \"Attendance\" and att.body() == \"Present: 45/60 (75.0%)\" and att.render() == \"=== Attendance ===\\nPresent: 45/60 (75.0%)\"",
+    "assert AttendanceReport(1, 3).body() == \"Present: 1/3 (33.3%)\" and AttendanceReport(0, 0).body() == \"Present: 0/0 (0.0%)\"",
+    "assert out(sales.print_report) == [\"=== Sales ===\", \"Total: 500\"] and out(att.print_report) == [\"=== Attendance ===\", \"Present: 45/60 (75.0%)\"]",
+    "assert \"render\" not in SalesReport.__dict__ and \"render\" not in AttendanceReport.__dict__ and \"print_report\" not in SalesReport.__dict__",
+    "assert isinstance(sales, Report) and isinstance(att, Report)",
+    "class Custom(Report):\n    def title(self):\n        return \"Mine\"\n    def body(self):\n        return \"line one\\nline two\"\nc = Custom()",
+    "assert c.render() == \"=== Mine ===\\nline one\\nline two\" and out(c.print_report) == [\"=== Mine ===\", \"line one\", \"line two\"]",
+    "assert getattr(Report.title, \"__isabstractmethod__\", False) and getattr(Report.body, \"__isabstractmethod__\", False) and not getattr(Report.render, \"__isabstractmethod__\", False)"
+   ],
+   "hints": [
+    "Mark `title` and `body` with `@abstractmethod`; leave `render` and `print_report` as ordinary methods.",
+    "`render` calls `self.title()` and `self.body()`. In the base class they have no real code, but at run time `self` is a `SalesReport` or an `AttendanceReport`, so their versions run.",
+    "For the percentage use `round(x, 1)`; guard against `total == 0` before dividing."
+   ],
+   "solution": "from abc import ABC, abstractmethod\n\n\nclass Report(ABC):\n    @abstractmethod\n    def title(self):\n        \"\"\"The heading of the report.\"\"\"\n\n    @abstractmethod\n    def body(self):\n        \"\"\"The text under the heading.\"\"\"\n\n    def render(self):\n        return f\"=== {self.title()} ===\\n{self.body()}\"\n\n    def print_report(self):\n        print(self.render())\n\n\nclass SalesReport(Report):\n    def __init__(self, total):\n        self.total = total\n\n    def title(self):\n        return \"Sales\"\n\n    def body(self):\n        return f\"Total: {self.total}\"\n\n\nclass AttendanceReport(Report):\n    def __init__(self, present, total):\n        self.present = present\n        self.total = total\n\n    def title(self):\n        return \"Attendance\"\n\n    def body(self):\n        percent = round(self.present * 100 / self.total, 1) if self.total else 0.0\n        return f\"Present: {self.present}/{self.total} ({percent}%)\"\n",
+   "explanation": "**An abstract class is not \"empty\".** `Report` holds finished code (`render`, `print_report`) *and* two blanks (`title`, `body`) that each child must fill in. The common layout is written once; only what differs is left to the children. This shape is called the **template method** pattern.\n\n```mermaid\nflowchart LR\n    A[render in Report] --> B[title in the child]\n    A --> C[body in the child]\n```\n\n**Abstract method versus abstract class, again.** The *methods* are the blanks; the *class* is abstract because it has blanks, so you cannot make a `Report()` that would print half a report. Python enforces both.\n\n**Extending it.** A new report only writes `title` and `body` and gets `render` and `print_report` for free: the test defines `Custom` to prove it."
+  },
+  "oop-animal-sounds": {
+   "title": "Animal Sounds",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Runtime polymorphism: one loop makes every animal speak in its own way, including animals added later.",
+   "statement": "Create a class `Animal` with `Animal(name)`.\n\n- `speak()` prints `<name> makes a sound`.\n\nCreate subclasses that **override** `speak()`:\n\n- `Dog` prints `<name> says Woof`\n- `Cat` prints `<name> says Meow`\n- `Cow` prints `<name> says Moo`\n\nWrite a function `make_all_speak(animals)` that calls `speak()` on every animal in the list, in order. It must not check which kind of animal each one is.\n\n**Example**\n\n```\nmake_all_speak([Dog(\"Rex\"), Cat(\"Tom\"), Animal(\"Thing\")])\n# Rex says Woof\n# Tom says Meow\n# Thing makes a sound\n```",
+   "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n    def speak(self):\n        ...\n\n\nclass Dog(Animal):\n    ...\n\n\ndef make_all_speak(animals):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert out(Animal(\"Thing\").speak) == [\"Thing makes a sound\"]",
+    "assert out(Dog(\"Rex\").speak) == [\"Rex says Woof\"] and out(Cat(\"Tom\").speak) == [\"Tom says Meow\"] and out(Cow(\"Bella\").speak) == [\"Bella says Moo\"]",
+    "assert issubclass(Dog, Animal) and issubclass(Cat, Animal) and issubclass(Cow, Animal) and Dog(\"Rex\").name == \"Rex\"",
+    "herd = [Dog(\"Rex\"), Cat(\"Tom\"), Cow(\"Bella\"), Animal(\"Thing\")]",
+    "assert out(make_all_speak, herd) == [\"Rex says Woof\", \"Tom says Meow\", \"Bella says Moo\", \"Thing makes a sound\"]",
+    "assert out(make_all_speak, []) == []",
+    "class Duck(Animal):\n    def speak(self):\n        print(self.name + \" says Quack\")",
+    "assert out(make_all_speak, [Duck(\"Don\"), Dog(\"Rex\")]) == [\"Don says Quack\", \"Rex says Woof\"]",
+    "class Silent(Animal):\n    pass",
+    "assert out(make_all_speak, [Silent(\"Fish\")]) == [\"Fish makes a sound\"]",
+    "assert out(make_all_speak, [Cat(\"A\"), Cat(\"B\")]) == [\"A says Meow\", \"B says Meow\"]"
+   ],
+   "hints": [
+    "Only `Animal` needs an `__init__`; the children inherit it. They only override `speak`.",
+    "`make_all_speak` is a three-line loop: `for animal in animals: animal.speak()`. There is no `if isinstance(...)` anywhere.",
+    "A subclass that does not override `speak` (the tests define one called `Silent`) simply falls back to the parent's version."
+   ],
+   "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def speak(self):\n        print(f\"{self.name} makes a sound\")\n\n\nclass Dog(Animal):\n    def speak(self):\n        print(f\"{self.name} says Woof\")\n\n\nclass Cat(Animal):\n    def speak(self):\n        print(f\"{self.name} says Meow\")\n\n\nclass Cow(Animal):\n    def speak(self):\n        print(f\"{self.name} says Moo\")\n\n\ndef make_all_speak(animals):\n    for animal in animals:\n        animal.speak()\n",
+   "explanation": "**Polymorphism** means \"many forms\": the *same call* (`animal.speak()`) does *different things* depending on the object. The caller only needs to know that every animal can `speak`.\n\n**It runs at run time.** Python decides which `speak` to run when the line executes, by looking at the object's class (and then its parents). This is called *dynamic dispatch* or *late binding*.\n\n**Why it matters.** `make_all_speak` never changes when you add a `Duck`. Without polymorphism you would have a growing `if/elif` chain that has to be edited every time. That is the *open/closed* idea: open for new animals, closed for edits.\n\n**Duck typing.** Python does not even require `Duck` to inherit from `Animal`: any object with a `speak()` method works. Inheritance is one way to get polymorphism, not the only one."
+  },
+  "oop-class-vs-instance-attributes": {
+   "title": "Class vs Instance Attributes",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Tell shared (class) data from per-object (instance) data: a school name for everyone, a roll number for each student.",
+   "statement": "Create a class `Student` with `Student(name)`.\n\n- **Class attributes** (shared by all students): `school`, which starts as `\"Green Valley\"`, and `count`, the number of students created so far, which starts at `0`.\n- **Instance attributes** (one per student): `name` and `roll_no`. The first student created gets roll number 1, the next 2, and so on; creating a student adds 1 to `count`.\n- `info()` prints `<roll_no>: <name> (<school>)`.\n- `rename_school(new_name)` is a **class method**: it changes `school` for the class, so every student who has not set their own school sees it.\n- `total()` is a **class method** that returns `count`.\n\nAssigning `student.school = \"X\"` on one student creates an instance attribute that affects **only that student**.",
+   "starter": "class Student:\n    school = \"Green Valley\"\n\n    def __init__(self, name):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert Student.school == \"Green Valley\" and Student.count == 0 and Student.total() == 0",
+    "a = Student(\"Asha\")\nb = Student(\"Ben\")\nc = Student(\"Cy\")",
+    "assert (a.roll_no, b.roll_no, c.roll_no) == (1, 2, 3) and (a.name, b.name) == (\"Asha\", \"Ben\")",
+    "assert Student.count == 3 and Student.total() == 3 and a.count == 3 and a.total() == 3",
+    "assert out(a.info) == [\"1: Asha (Green Valley)\"] and out(c.info) == [\"3: Cy (Green Valley)\"]",
+    "assert Student.rename_school(\"Blue Hill\") is None and Student.school == \"Blue Hill\"",
+    "assert out(a.info) == [\"1: Asha (Blue Hill)\"] and out(b.info) == [\"2: Ben (Blue Hill)\"]",
+    "b.school = \"Private Tutor\"",
+    "assert out(b.info) == [\"2: Ben (Private Tutor)\"] and out(a.info) == [\"1: Asha (Blue Hill)\"] and Student.school == \"Blue Hill\"",
+    "Student.rename_school(\"Red Oak\")",
+    "assert out(a.info) == [\"1: Asha (Red Oak)\"] and out(b.info) == [\"2: Ben (Private Tutor)\"]",
+    "a.count = 99",
+    "assert Student.count == 3 and Student.total() == 3 and b.count == 3",
+    "d = Student(\"Dee\")",
+    "assert d.roll_no == 4 and Student.count == 4 and Student.total() == 4",
+    "assert \"school\" in Student.__dict__ and \"count\" in Student.__dict__ and \"name\" not in Student.__dict__ and \"roll_no\" not in Student.__dict__",
+    "assert isinstance(Student.__dict__[\"rename_school\"], classmethod) and isinstance(Student.__dict__[\"total\"], classmethod)",
+    "assert \"name\" in a.__dict__ and \"roll_no\" in a.__dict__ and \"school\" not in c.__dict__"
+   ],
+   "hints": [
+    "Anything written directly inside the class body (`school = ...`, `count = 0`) belongs to the **class** and is shared. Anything set on `self` in `__init__` belongs to **one object**.",
+    "To change the shared counter write `Student.count += 1`. Writing `self.count += 1` would create a new instance attribute and leave the class counter alone.",
+    "A class method receives the class (`cls`) instead of an object: `cls.school = new_name` changes the shared attribute for everybody."
+   ],
+   "solution": "class Student:\n    school = \"Green Valley\"\n    count = 0\n\n    def __init__(self, name):\n        Student.count += 1\n        self.name = name\n        self.roll_no = Student.count\n\n    def info(self):\n        print(f\"{self.roll_no}: {self.name} ({self.school})\")\n\n    @classmethod\n    def rename_school(cls, new_name):\n        cls.school = new_name\n\n    @classmethod\n    def total(cls):\n        return cls.count\n",
+   "explanation": "**Two places for data.** Class attributes live on the class; instance attributes live on each object. When you read `student.school`, Python looks on the object first and then on the class. That is why one student can have a private `school` while the others follow the class.\n\n**The classic trap.** `self.count += 1` reads the class value, adds one and stores the result *on the object*: the shared counter never moves. The test `a.count = 99` shows that setting through an instance never changes the class.\n\n**Class method versus instance method.** An instance method works on one object (`self`). A class method works on the class (`cls`): counters, alternative constructors, settings shared by everyone."
+  },
+  "oop-discount-polymorphism": {
+   "title": "Discounts and Polymorphism",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A shop applies a list of different discounts to a price; one function works for every kind, even new ones.",
+   "statement": "Create a class `Discount` whose `apply(price)` returns the price **unchanged**. Prices are whole numbers (rupees).\n\nCreate two subclasses that **override** `apply`:\n\n- `PercentDiscount(percent)` takes `percent` off: `price - price * percent // 100`. A percent outside 0 to 100 is `ValueError(\"Percent must be between 0 and 100\")`.\n- `FlatDiscount(amount)` takes a fixed `amount` off but never goes below 0: `max(0, price - amount)`. A negative amount is `ValueError(\"Amount cannot be negative\")`.\n\nWrite `final_price(price, discounts)` that applies the discounts **in the order given** (each one to the result of the previous) and returns the final price. It must not check what kind of discount each one is.\n\n**Example:** `final_price(1000, [PercentDiscount(10), FlatDiscount(50)])` is `850`.",
+   "starter": "class Discount:\n    def apply(self, price):\n        ...\n\n\nclass PercentDiscount(Discount):\n    ...\n\n\ndef final_price(price, discounts):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert Discount().apply(500) == 500",
+    "p = PercentDiscount(10)\nf = FlatDiscount(50)",
+    "assert isinstance(p, Discount) and isinstance(f, Discount)",
+    "assert p.apply(1000) == 900 and p.apply(99) == 90 and PercentDiscount(0).apply(80) == 80 and PercentDiscount(100).apply(80) == 0",
+    "assert f.apply(1000) == 950 and f.apply(30) == 0 and FlatDiscount(0).apply(30) == 30",
+    "assert error_of(PercentDiscount, -1) == \"ValueError: Percent must be between 0 and 100\" and error_of(PercentDiscount, 101) == \"ValueError: Percent must be between 0 and 100\"",
+    "assert error_of(FlatDiscount, -5) == \"ValueError: Amount cannot be negative\"",
+    "assert final_price(1000, [p, f]) == 850 and final_price(1000, [f, p]) == 855",
+    "assert final_price(1000, []) == 1000 and final_price(200, [FlatDiscount(500), PercentDiscount(50)]) == 0",
+    "class Festival(Discount):\n    def apply(self, price):\n        return price - 7",
+    "assert final_price(100, [Festival(), PercentDiscount(50)]) == 47 and final_price(100, [Discount(), Festival()]) == 93",
+    "assert final_price(1000, [PercentDiscount(10), PercentDiscount(10)]) == 810"
+   ],
+   "hints": [
+    "Each subclass keeps its own setting (`percent`, `amount`) in `__init__` and overrides only `apply`.",
+    "`final_price` is a loop that feeds the price through every discount: `price = discount.apply(price)`.",
+    "The tests define a new `Festival` discount that your function has never seen. If `final_price` works for it without any change, you have used polymorphism correctly."
+   ],
+   "solution": "class Discount:\n    def apply(self, price):\n        return price\n\n\nclass PercentDiscount(Discount):\n    def __init__(self, percent):\n        if not 0 <= percent <= 100:\n            raise ValueError(\"Percent must be between 0 and 100\")\n        self.percent = percent\n\n    def apply(self, price):\n        return price - price * self.percent // 100\n\n\nclass FlatDiscount(Discount):\n    def __init__(self, amount):\n        if amount < 0:\n            raise ValueError(\"Amount cannot be negative\")\n        self.amount = amount\n\n    def apply(self, price):\n        return max(0, price - self.amount)\n\n\ndef final_price(price, discounts):\n    for discount in discounts:\n        price = discount.apply(price)\n    return price\n",
+   "explanation": "**Run-time polymorphism for beginners.** `discount.apply(price)` looks the same for every discount, but each class does its own sum. The *caller* (`final_price`) knows nothing about percentages or flat amounts.\n\n**Open for extension.** Adding \"Buy one get one free\" means writing one new class. Nothing that already works is edited: no `if kind == ...` anywhere.\n\n**Order matters.** `final_price(1000, [10%, 50 off])` is 850 but the other way round is 855, because each discount applies to the result of the previous one. Say that out loud in a real shop."
+  },
+  "oop-employee-payroll": {
+   "title": "Employees and Payroll",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Inheritance plus overriding: three kinds of employee are paid differently, and one payroll function works for all of them.",
+   "statement": "Create a class `Employee` with `Employee(name, base_salary)`.\n\n- Attributes `name` and `base_salary`.\n- `calculate_pay()` returns the base salary.\n- `show()` prints `<name> earns <pay>` where `<pay>` is what `calculate_pay()` returns **for that kind of employee** (write `show` once, in `Employee`).\n\nCreate two subclasses that override `calculate_pay()`:\n\n- `Manager(name, base_salary)` has a `team` (an empty list at first) and `add_member(employee)` which appends to it. Pay is the base salary plus **1000 for every team member**.\n- `Developer(name, base_salary, overtime_hours=0)` has `overtime_hours`. Pay is the base salary plus **200 for every overtime hour**.\n\nFinally write a plain function `total_payroll(employees)` that returns the sum of every employee's pay. It must **not** check which kind of employee each one is.",
+   "starter": "class Employee:\n    def __init__(self, name, base_salary):\n        ...\n\n    def calculate_pay(self):\n        ...\n\n    def show(self):\n        ...\n\n\nclass Manager(Employee):\n    ...\n\n\nclass Developer(Employee):\n    ...\n\n\ndef total_payroll(employees):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nclerk = Employee(\"Asha\", 30000)",
+    "assert (clerk.name, clerk.base_salary, clerk.calculate_pay()) == (\"Asha\", 30000, 30000)",
+    "assert out(clerk.show) == [\"Asha earns 30000\"]",
+    "boss = Manager(\"Ben\", 50000)",
+    "assert boss.team == [] and boss.calculate_pay() == 50000 and isinstance(boss, Employee)",
+    "dev = Developer(\"Cy\", 40000, 10)\nother_dev = Developer(\"Dee\", 45000)",
+    "assert (dev.overtime_hours, other_dev.overtime_hours) == (10, 0) and dev.calculate_pay() == 42000 and other_dev.calculate_pay() == 45000 and isinstance(dev, Employee)",
+    "assert boss.add_member(dev) is None and boss.add_member(other_dev) is None and boss.team == [dev, other_dev]",
+    "assert boss.calculate_pay() == 52000",
+    "assert out(boss.show) == [\"Ben earns 52000\"] and out(dev.show) == [\"Cy earns 42000\"]",
+    "assert Manager(\"Zed\", 1).team is not boss.team",
+    "assert total_payroll([clerk, boss, dev, other_dev]) == 30000 + 52000 + 42000 + 45000",
+    "assert total_payroll([]) == 0",
+    "class Intern(Employee):\n    def calculate_pay(self):\n        return 5000",
+    "assert total_payroll([Intern(\"Kim\", 1), clerk]) == 35000 and out(Intern(\"Kim\", 1).show) == [\"Kim earns 5000\"]",
+    "dev.overtime_hours = 20",
+    "assert dev.calculate_pay() == 44000"
+   ],
+   "hints": [
+    "Each subclass overrides **one** method, `calculate_pay`. `show` is written once in `Employee` and calls `self.calculate_pay()`: `self` is the real object, so Python picks the right version.",
+    "Give `Manager` its own list in `__init__` (`self.team = []`). A list written at class level would be shared by every manager.",
+    "`total_payroll` just loops and calls `employee.calculate_pay()`. No `isinstance`, no `if`: that is the whole point of polymorphism, and the tests add a new `Intern` class that your function has never heard of."
+   ],
+   "solution": "class Employee:\n    def __init__(self, name, base_salary):\n        self.name = name\n        self.base_salary = base_salary\n\n    def calculate_pay(self):\n        return self.base_salary\n\n    def show(self):\n        print(f\"{self.name} earns {self.calculate_pay()}\")\n\n\nclass Manager(Employee):\n    def __init__(self, name, base_salary):\n        super().__init__(name, base_salary)\n        self.team = []\n\n    def add_member(self, employee):\n        self.team.append(employee)\n\n    def calculate_pay(self):\n        return self.base_salary + 1000 * len(self.team)\n\n\nclass Developer(Employee):\n    def __init__(self, name, base_salary, overtime_hours=0):\n        super().__init__(name, base_salary)\n        self.overtime_hours = overtime_hours\n\n    def calculate_pay(self):\n        return self.base_salary + 200 * self.overtime_hours\n\n\ndef total_payroll(employees):\n    return sum(employee.calculate_pay() for employee in employees)\n",
+   "explanation": "**Runtime polymorphism in one example.** `total_payroll` is written once and works for every kind of employee, including ones that do not exist yet. Which `calculate_pay` runs is decided **when the program runs**, by the real class of each object. That is *dynamic dispatch*.\n\n**The same for `show`.** It sits in the parent but calls `self.calculate_pay()`, so a `Manager` prints a manager's pay. Code in a base class can call methods that only the children define.\n\n**What to avoid.** `if type(e) is Manager: ... elif ...` inside `total_payroll` would break every time a new kind is added. Let the objects decide.\n\n**Going further.** What if every employee needs a tax? Where would you add `tax()` so that all subclasses get it for free, and one can still change it?"
+  },
+  "oop-library-books": {
+   "title": "Library Book Desk",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A small library that lends and takes back copies and prints a clear message for every case.",
+   "statement": "Create a class `Library` with no arguments. It keeps books by title.\n\n- `add_book(title, author, copies=1)` adds copies. A known title gets more copies (same author kept). `copies` below 1 is `ValueError(\"Copies must be at least 1\")`.\n- `checkout(title)` **prints**:\n  - `We do not have <title>` for an unknown title\n  - `Sorry, <title> is not available` when every copy is out\n  - otherwise it lends one copy and prints `You borrowed <title>`\n- `return_book(title)` **prints**:\n  - `We do not have <title>` for an unknown title\n  - `All copies are already here` when no copy is out (nothing changes)\n  - otherwise it takes one copy back and prints `Thanks for returning <title>`\n- `show_catalog()` prints one line per book, **sorted by title**: `<title> by <author>: <available>/<total> available`. An empty library prints `The library is empty`.",
+   "starter": "class Library:\n    def __init__(self):\n        ...\n\n    def add_book(self, title, author, copies=1):\n        ...\n\n    def checkout(self, title):\n        ...\n\n    def return_book(self, title):\n        ...\n\n    def show_catalog(self):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nlib = Library()",
+    "assert out(lib.show_catalog) == [\"The library is empty\"]",
+    "assert out(lib.checkout, \"Dune\") == [\"We do not have Dune\"] and out(lib.return_book, \"Dune\") == [\"We do not have Dune\"]",
+    "assert lib.add_book(\"Dune\", \"Herbert\", 2) is None and lib.add_book(\"Emma\", \"Austen\") is None",
+    "assert error_of(lib.add_book, \"X\", \"Y\", 0) == \"ValueError: Copies must be at least 1\" and error_of(lib.add_book, \"Dune\", \"Z\", -1) == \"ValueError: Copies must be at least 1\"",
+    "assert out(lib.show_catalog) == [\"Dune by Herbert: 2/2 available\", \"Emma by Austen: 1/1 available\"]",
+    "assert out(lib.checkout, \"Dune\") == [\"You borrowed Dune\"] and out(lib.checkout, \"Dune\") == [\"You borrowed Dune\"] and out(lib.checkout, \"Dune\") == [\"Sorry, Dune is not available\"]",
+    "assert out(lib.show_catalog) == [\"Dune by Herbert: 0/2 available\", \"Emma by Austen: 1/1 available\"]",
+    "assert out(lib.return_book, \"Dune\") == [\"Thanks for returning Dune\"] and out(lib.show_catalog)[0] == \"Dune by Herbert: 1/2 available\"",
+    "assert out(lib.return_book, \"Emma\") == [\"All copies are already here\"] and out(lib.show_catalog)[1] == \"Emma by Austen: 1/1 available\"",
+    "lib.add_book(\"Dune\", \"Someone Else\", 1)",
+    "assert out(lib.show_catalog)[0] == \"Dune by Herbert: 2/3 available\"",
+    "lib.add_book(\"Alice\", \"Carroll\", 1)",
+    "assert out(lib.show_catalog) == [\"Alice by Carroll: 1/1 available\", \"Dune by Herbert: 2/3 available\", \"Emma by Austen: 1/1 available\"]",
+    "other = Library()",
+    "assert out(other.show_catalog) == [\"The library is empty\"]",
+    "assert out(lib.checkout, \"dune\") == [\"We do not have dune\"]"
+   ],
+   "hints": [
+    "One dictionary from title to a small record (`author`, `total`, `available`) is enough. Create it in `__init__` so each library has its own.",
+    "Handle the cases in the order of the statement: unknown, none left (or none out), otherwise the normal path. Each branch prints exactly one line.",
+    "`sorted(self._books)` gives the titles in alphabetical order for the catalogue."
+   ],
+   "solution": "class Library:\n    def __init__(self):\n        self._books = {}\n\n    def add_book(self, title, author, copies=1):\n        if copies < 1:\n            raise ValueError(\"Copies must be at least 1\")\n        if title in self._books:\n            self._books[title][\"total\"] += copies\n            self._books[title][\"available\"] += copies\n        else:\n            self._books[title] = {\"author\": author, \"total\": copies, \"available\": copies}\n\n    def checkout(self, title):\n        book = self._books.get(title)\n        if book is None:\n            print(f\"We do not have {title}\")\n        elif book[\"available\"] == 0:\n            print(f\"Sorry, {title} is not available\")\n        else:\n            book[\"available\"] -= 1\n            print(f\"You borrowed {title}\")\n\n    def return_book(self, title):\n        book = self._books.get(title)\n        if book is None:\n            print(f\"We do not have {title}\")\n        elif book[\"available\"] == book[\"total\"]:\n            print(\"All copies are already here\")\n        else:\n            book[\"available\"] += 1\n            print(f\"Thanks for returning {title}\")\n\n    def show_catalog(self):\n        if not self._books:\n            print(\"The library is empty\")\n            return\n        for title in sorted(self._books):\n            book = self._books[title]\n            print(f\"{title} by {book['author']}: {book['available']}/{book['total']} available\")\n",
+   "explanation": "**The idea.** The class owns a small table and exposes a few actions. Callers never touch the numbers directly, so the rules (\"never lend a copy that is not there\", \"never take back more than were lent\") live in one place.\n\n**Every path says something.** A good beginner class never fails silently: each of the three outcomes of `checkout` and of `return_book` has its own message, and the tests check every one.\n\n**Why a dictionary per library.** `self._books = {}` is created in `__init__`, so two libraries never share books (the last test checks it). Writing `_books = {}` in the class body would share it."
+  },
+  "oop-money-operators": {
+   "title": "Money With Operators",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Operator overloading: make + - * == < and str() work on a Money class, including sum().",
+   "statement": "Create a class `Money` that stores whole **cents**: `Money(cents)`. `cents` must be an `int` of 0 or more (not a `bool`), otherwise `ValueError(\"Cents must be a non-negative integer\")`. The attribute is `cents`.\n\nMake it behave like a number by writing these **special methods**:\n\n- `Money + Money` gives a new `Money`; `sum([m1, m2, m3])` must work too (`sum` starts from the integer `0`).\n- `Money - Money` gives a new `Money`; if the result would be negative raise `ValueError(\"Result would be negative\")`.\n- `Money * n` and `n * Money` with an `int` of 0 or more give a new `Money`.\n- `==`, `<`, `<=`, `>`, `>=` compare the cents. Equal amounts have the same `hash`. Comparing with a plain number is not equal.\n- `str(money)` is `\"$<dollars>.<cents with 2 digits>\"`, for example `\"$12.50\"` and `\"$0.05\"`; `repr(money)` is `Money(1250)`.\n\nAnything unsupported (`Money + 5`, `Money * 1.5`, `Money < 5`) must raise `TypeError`: return `NotImplemented` from your method and Python does the rest.",
+   "starter": "class Money:\n    def __init__(self, cents):\n        ...\n\n    # __add__, __radd__, __sub__, __mul__, __rmul__, __eq__, __lt__, __hash__, __str__, __repr__\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\ndef kind_of(action):\n    try:\n        action()\n    except Exception as error:\n        return type(error).__name__\n    return None\na, b = Money(1250), Money(300)",
+    "assert a.cents == 1250 and str(a) == \"$12.50\" and str(Money(5)) == \"$0.05\" and str(Money(0)) == \"$0.00\" and str(Money(100)) == \"$1.00\" and repr(a) == \"Money(1250)\"",
+    "for bad in (-1, 1.5, True, \"5\", None):\n    assert error_of(Money, bad) == \"ValueError: Cents must be a non-negative integer\"",
+    "assert (a + b).cents == 1550 and isinstance(a + b, Money) and a.cents == 1250",
+    "assert (a - b).cents == 950 and (a - a).cents == 0 and error_of(lambda: b - a) == \"ValueError: Result would be negative\"",
+    "assert (a * 2).cents == 2500 and (3 * b).cents == 900 and (a * 0).cents == 0",
+    "assert sum([Money(100), Money(250), Money(5)]).cents == 355 and sum([]) == 0",
+    "assert a == Money(1250) and a != b and not (a == 1250) and a != 1250",
+    "assert b < a and a > b and b <= b and a >= a and not a < b and sorted([a, b, Money(1)]) == [Money(1), b, a] and max(a, b) is a",
+    "assert hash(Money(7)) == hash(Money(7)) and len({Money(7), Money(7), Money(8)}) == 2 and {Money(5): \"x\"}[Money(5)] == \"x\"",
+    "assert kind_of(lambda: a + 5) == \"TypeError\" and kind_of(lambda: 5 + a) == \"TypeError\" and kind_of(lambda: a * 1.5) == \"TypeError\" and kind_of(lambda: a * -1) == \"TypeError\" and kind_of(lambda: a < 5) == \"TypeError\" and kind_of(lambda: a - 1) == \"TypeError\"",
+    "assert kind_of(lambda: a * True) == \"TypeError\""
+   ],
+   "hints": [
+    "`a + b` is Python's shorthand for `a.__add__(b)`. Return a **new** `Money`; do not change either operand.",
+    "When the other side is not a `Money`, `return NotImplemented` (not `raise`). Python then tries the other operand and finally raises `TypeError` for you. `sum()` starts with `0 + money`, which is why `__radd__` exists.",
+    "`functools.total_ordering` fills in `<=`, `>` and `>=` once you write `__eq__` and `__lt__`. Objects that are equal must have equal hashes, so base `__hash__` on `cents`."
+   ],
+   "solution": "from functools import total_ordering\n\n\n@total_ordering\nclass Money:\n    def __init__(self, cents):\n        if type(cents) is not int or cents < 0:\n            raise ValueError(\"Cents must be a non-negative integer\")\n        self.cents = cents\n\n    def __add__(self, other):\n        if isinstance(other, Money):\n            return Money(self.cents + other.cents)\n        return NotImplemented\n\n    def __radd__(self, other):\n        if type(other) is int and other == 0:\n            return self\n        return NotImplemented\n\n    def __sub__(self, other):\n        if not isinstance(other, Money):\n            return NotImplemented\n        if other.cents > self.cents:\n            raise ValueError(\"Result would be negative\")\n        return Money(self.cents - other.cents)\n\n    def __mul__(self, times):\n        if type(times) is int and times >= 0:\n            return Money(self.cents * times)\n        return NotImplemented\n\n    __rmul__ = __mul__\n\n    def __eq__(self, other):\n        if not isinstance(other, Money):\n            return NotImplemented\n        return self.cents == other.cents\n\n    def __lt__(self, other):\n        if not isinstance(other, Money):\n            return NotImplemented\n        return self.cents < other.cents\n\n    def __hash__(self):\n        return hash(self.cents)\n\n    def __str__(self):\n        return f\"${self.cents // 100}.{self.cents % 100:02d}\"\n\n    def __repr__(self):\n        return f\"Money({self.cents})\"\n",
+   "explanation": "**Operator overloading is compile-time-style polymorphism done with special methods.** In C++ and C# it is a language feature; in Python the operators *are* method calls (`a + b` calls `a.__add__(b)`), so `Money` can define them. It is \"the same operator, different behaviour per type\".\n\n**Why `NotImplemented`.** `Money + 5` should not be Money's decision to reject: returning `NotImplemented` lets Python try `int.__radd__`, and only then raise `TypeError`. That also makes `5 + money` and `sum()` work through `__radd__`.\n\n**Money is a value object.** Whole cents in an `int`, never a float (`0.1 + 0.2` is not `0.3`), operations return *new* objects, and equal amounts compare and hash equal."
+  },
+  "oop-movie-ticket-counter": {
+   "title": "Movie Ticket Counter",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Write a Movie class that books tickets, refuses a booking when the seats run out, and prints its status.",
+   "statement": "Create a class `Movie`.\n\n**Attributes**\n\n- `movie_name`: the name of the movie\n- `total_seats`: total seats in the theatre\n- `ticket_price`: price of one ticket\n- `booked_seats`: starts at `0`\n\nCreate it with `Movie(movie_name, total_seats, ticket_price)`.\n\n**Methods**\n\n- `book_ticket(num_tickets)` books the given number of tickets. The method **prints** its answer (it returns nothing):\n  - fewer than 1 ticket: `Please book at least 1 ticket`\n  - enough seats left: the booking is confirmed (`booked_seats` goes up) and it prints `Booked <num_tickets> ticket(s). Total amount: <amount>` where `amount = num_tickets * ticket_price`\n  - not enough seats left: it prints `Sorry, not enough seats available` and **changes nothing**\n- `show_status()` prints three lines: `Movie: <movie_name>`, `Seats available: <seats left>` and `Seats booked: <booked_seats>`.\n\n**Example**\n\n```\nmovie = Movie(\"Leo\", 5, 150)\nmovie.book_ticket(2)    # Booked 2 ticket(s). Total amount: 300\nmovie.book_ticket(4)    # Sorry, not enough seats available\nmovie.show_status()     # Movie: Leo / Seats available: 3 / Seats booked: 2\n```",
+   "starter": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        ...\n\n    def book_ticket(self, num_tickets):\n        ...\n\n    def show_status(self):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nmovie = Movie(\"Leo\", 5, 150)",
+    "assert (movie.movie_name, movie.total_seats, movie.ticket_price, movie.booked_seats) == (\"Leo\", 5, 150, 0)",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 5\", \"Seats booked: 0\"]",
+    "assert out(movie.book_ticket, 2) == [\"Booked 2 ticket(s). Total amount: 300\"] and movie.booked_seats == 2",
+    "assert out(movie.book_ticket, 4) == [\"Sorry, not enough seats available\"] and movie.booked_seats == 2",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 3\", \"Seats booked: 2\"]",
+    "assert out(movie.book_ticket, 3) == [\"Booked 3 ticket(s). Total amount: 450\"] and movie.booked_seats == 5",
+    "assert out(movie.book_ticket, 1) == [\"Sorry, not enough seats available\"]",
+    "assert out(movie.show_status) == [\"Movie: Leo\", \"Seats available: 0\", \"Seats booked: 5\"]",
+    "other = Movie(\"Jawan\", 10, 200)",
+    "assert out(other.book_ticket, 0) == [\"Please book at least 1 ticket\"] and out(other.book_ticket, -2) == [\"Please book at least 1 ticket\"] and other.booked_seats == 0",
+    "assert out(other.book_ticket, 1) == [\"Booked 1 ticket(s). Total amount: 200\"] and movie.booked_seats == 5 and other.booked_seats == 1",
+    "assert other.book_ticket(1) is None"
+   ],
+   "hints": [
+    "`__init__` just stores the three arguments on `self` and sets `self.booked_seats = 0`. Every object gets its own copy of each attribute.",
+    "Seats left is not stored: it is `self.total_seats - self.booked_seats`. Check the bad-input case first, then \"enough seats\", and put the \"sorry\" message in the `else`.",
+    "Only the *successful* branch changes `booked_seats`. A refused booking must leave the object exactly as it was."
+   ],
+   "solution": "class Movie:\n    def __init__(self, movie_name, total_seats, ticket_price):\n        self.movie_name = movie_name\n        self.total_seats = total_seats\n        self.ticket_price = ticket_price\n        self.booked_seats = 0\n\n    def book_ticket(self, num_tickets):\n        if num_tickets < 1:\n            print(\"Please book at least 1 ticket\")\n        elif num_tickets <= self.total_seats - self.booked_seats:\n            self.booked_seats += num_tickets\n            print(f\"Booked {num_tickets} ticket(s). Total amount: {num_tickets * self.ticket_price}\")\n        else:\n            print(\"Sorry, not enough seats available\")\n\n    def show_status(self):\n        print(f\"Movie: {self.movie_name}\")\n        print(f\"Seats available: {self.total_seats - self.booked_seats}\")\n        print(f\"Seats booked: {self.booked_seats}\")\n",
+   "explanation": "**The idea.** A class bundles data (`booked_seats`) with the actions that are allowed to change it (`book_ticket`). The rule \"never sell more seats than exist\" lives in *one* method, so no caller can forget it.\n\n**Derive, do not store.** Seats left is `total_seats - booked_seats`. Storing it as a fourth attribute would mean two numbers that must always agree.\n\n**Print versus return.** These methods *print* because the exercise is about what the user sees. In real code you would return a value (or raise an error) and let the caller decide how to show it; that is easier to test and to reuse.\n\n**Going further.** What should happen if `num_tickets` is `2.5`? Where would you put that check?"
+  },
+  "oop-multilevel-inheritance": {
+   "title": "Multilevel Inheritance",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A chain Animal, Mammal, Dog: each level adds behaviour, and the bottom class has all of it.",
+   "statement": "Build three classes in a **chain** (multilevel inheritance).\n\n- `Animal(name)`: `eat()` prints `<name> eats`. `lineage()` returns the list of the class names of the object's own class and all its parents, **nearest first, leaving out `object`**, for example `[\"Dog\", \"Mammal\", \"Animal\"]`.\n- `Mammal(Animal)`: `feed_milk()` prints `<name> feeds milk`.\n- `Dog(Mammal)`: `bark()` prints `<name> barks`.\n\nA `Dog` must be able to use all three methods without defining `eat` or `feed_milk` itself. A plain `Animal` has only `eat` and `lineage`.",
+   "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n\nclass Mammal(Animal):\n    ...\n\n\nclass Dog(Mammal):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nrex = Dog(\"Rex\")\ncow = Mammal(\"Bella\")\nfish = Animal(\"Nemo\")",
+    "assert rex.name == \"Rex\" and out(rex.eat) == [\"Rex eats\"] and out(rex.feed_milk) == [\"Rex feeds milk\"] and out(rex.bark) == [\"Rex barks\"]",
+    "assert out(cow.eat) == [\"Bella eats\"] and out(cow.feed_milk) == [\"Bella feeds milk\"] and not hasattr(cow, \"bark\")",
+    "assert out(fish.eat) == [\"Nemo eats\"] and not hasattr(fish, \"feed_milk\") and not hasattr(fish, \"bark\")",
+    "assert issubclass(Dog, Mammal) and issubclass(Dog, Animal) and issubclass(Mammal, Animal) and not issubclass(Animal, Mammal)",
+    "assert rex.lineage() == [\"Dog\", \"Mammal\", \"Animal\"] and cow.lineage() == [\"Mammal\", \"Animal\"] and fish.lineage() == [\"Animal\"]",
+    "assert \"eat\" not in Dog.__dict__ and \"feed_milk\" not in Dog.__dict__ and \"eat\" not in Mammal.__dict__",
+    "class Puppy(Dog):\n    pass",
+    "assert Puppy(\"Bit\").lineage() == [\"Puppy\", \"Dog\", \"Mammal\", \"Animal\"] and out(Puppy(\"Bit\").feed_milk) == [\"Bit feeds milk\"]",
+    "assert isinstance(rex, Animal) and isinstance(rex, Mammal) and isinstance(rex, Dog) and not isinstance(fish, Dog)"
+   ],
+   "hints": [
+    "Only `Animal` needs `__init__`. `Mammal` and `Dog` inherit it, so `Dog(\"Rex\")` works without any constructor of its own.",
+    "`type(self)` is the real class of the object. Every class has `__mro__`, the tuple of the class and its parents in the order Python searches them.",
+    "Filter out `object` (the invisible parent of every class) so the list matches the statement."
+   ],
+   "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def eat(self):\n        print(f\"{self.name} eats\")\n\n    def lineage(self):\n        return [cls.__name__ for cls in type(self).__mro__ if cls is not object]\n\n\nclass Mammal(Animal):\n    def feed_milk(self):\n        print(f\"{self.name} feeds milk\")\n\n\nclass Dog(Mammal):\n    def bark(self):\n        print(f\"{self.name} barks\")\n",
+   "explanation": "**Multilevel inheritance** is a chain: grandparent, parent, child. Each level adds one thing, and the child gets all of it. Look at the tests: `Dog` does not define `eat` or `feed_milk`, yet `rex.eat()` works, because Python walks *up* the chain until it finds the method.\n\n```mermaid\nclassDiagram\n    Animal <|-- Mammal\n    Mammal <|-- Dog\n    class Animal {\n        +eat()\n    }\n    class Mammal {\n        +feed_milk()\n    }\n    class Dog {\n        +bark()\n    }\n```\n\n**The method resolution order.** `Dog.__mro__` is `(Dog, Mammal, Animal, object)`. That is exactly the order Python searches, and what `lineage()` prints.\n\n**Caution.** Deep chains are hard to read (the \"fragile base class\" problem): a change high up ripples down. Prefer shallow hierarchies and composition when you can."
+  },
+  "oop-multiple-inheritance-mro": {
+   "title": "Multiple Inheritance and MRO",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A class with two parents: use cooperative super() so every ability is collected once, in method resolution order.",
+   "statement": "Create a base class `Animal` with `Animal(name)`.\n\n- `abilities()` returns a list of ability names; for a plain `Animal` it is `[]`.\n- `describe()` prints `<name> can <abilities joined with \", \">`, or `<name> has no special abilities` when the list is empty.\n\nCreate three **mixin-style** subclasses of `Animal`. Each one's `abilities()` returns **its own ability first** and then whatever `super().abilities()` returns:\n\n- `Flyer`: `\"fly\"`\n- `Swimmer`: `\"swim\"`\n- `Runner`: `\"run\"`\n\nCreate these classes with **several parents**, and write **no** `abilities` method in them (the parents are enough):\n\n- `Duck(Flyer, Swimmer, Runner)`\n- `Otter(Swimmer, Runner)`\n\nWrite `mro_names(cls)` that returns the names of the classes in `cls.__mro__` (method resolution order), including `object`.",
+   "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n\nclass Flyer(Animal):\n    ...\n\n\ndef mro_names(cls):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\na = Animal(\"Thing\")",
+    "assert a.name == \"Thing\" and a.abilities() == [] and out(a.describe) == [\"Thing has no special abilities\"]",
+    "assert Flyer(\"Eagle\").abilities() == [\"fly\"] and Swimmer(\"Fish\").abilities() == [\"swim\"] and Runner(\"Dog\").abilities() == [\"run\"]",
+    "assert out(Flyer(\"Eagle\").describe) == [\"Eagle can fly\"]",
+    "duck, otter = Duck(\"Don\"), Otter(\"Ollie\")",
+    "assert duck.name == \"Don\" and duck.abilities() == [\"fly\", \"swim\", \"run\"] and otter.abilities() == [\"swim\", \"run\"]",
+    "assert out(duck.describe) == [\"Don can fly, swim, run\"] and out(otter.describe) == [\"Ollie can swim, run\"]",
+    "assert isinstance(duck, Flyer) and isinstance(duck, Swimmer) and isinstance(duck, Runner) and isinstance(duck, Animal) and not isinstance(otter, Flyer)",
+    "assert \"abilities\" not in Duck.__dict__ and \"abilities\" not in Otter.__dict__",
+    "assert mro_names(Duck) == [\"Duck\", \"Flyer\", \"Swimmer\", \"Runner\", \"Animal\", \"object\"] and mro_names(Otter) == [\"Otter\", \"Swimmer\", \"Runner\", \"Animal\", \"object\"] and mro_names(Animal) == [\"Animal\", \"object\"]",
+    "class Penguin(Swimmer, Flyer):\n    pass",
+    "assert Penguin(\"Pip\").abilities() == [\"swim\", \"fly\"] and mro_names(Penguin) == [\"Penguin\", \"Swimmer\", \"Flyer\", \"Animal\", \"object\"]",
+    "class Robot(Runner, Flyer, Swimmer):\n    def abilities(self):\n        return [\"charge\"] + super().abilities()",
+    "assert Robot(\"R2\").abilities() == [\"charge\", \"run\", \"fly\", \"swim\"] and out(Robot(\"R2\").describe) == [\"R2 can charge, run, fly, swim\"]",
+    "assert Duck.__bases__ == (Flyer, Swimmer, Runner) and Otter.__bases__ == (Swimmer, Runner)"
+   ],
+   "hints": [
+    "Each mixin writes `return [\"fly\"] + super().abilities()`. `super()` does **not** mean \"the parent\": it means \"the next class in the method resolution order\", which for a `Duck` after `Flyer` is `Swimmer`.",
+    "`class Duck(Flyer, Swimmer, Runner): pass` is the whole class. Python builds the order `Duck, Flyer, Swimmer, Runner, Animal, object` (see `Duck.__mro__`) so `Animal.abilities` is reached **once**, at the end.",
+    "Because every class in the chain calls `super()`, adding a new ability class never needs the others to change."
+   ],
+   "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def abilities(self):\n        return []\n\n    def describe(self):\n        abilities = self.abilities()\n        if abilities:\n            print(f\"{self.name} can {', '.join(abilities)}\")\n        else:\n            print(f\"{self.name} has no special abilities\")\n\n\nclass Flyer(Animal):\n    def abilities(self):\n        return [\"fly\"] + super().abilities()\n\n\nclass Swimmer(Animal):\n    def abilities(self):\n        return [\"swim\"] + super().abilities()\n\n\nclass Runner(Animal):\n    def abilities(self):\n        return [\"run\"] + super().abilities()\n\n\nclass Duck(Flyer, Swimmer, Runner):\n    pass\n\n\nclass Otter(Swimmer, Runner):\n    pass\n\n\ndef mro_names(cls):\n    return [c.__name__ for c in cls.__mro__]\n",
+   "explanation": "**Multiple inheritance** means a class has more than one parent. The danger is the *diamond*: `Flyer` and `Swimmer` both inherit `Animal`, so which `Animal` code runs, and how many times?\n\n```mermaid\nclassDiagram\n    Animal <|-- Flyer\n    Animal <|-- Swimmer\n    Animal <|-- Runner\n    Flyer <|-- Duck\n    Swimmer <|-- Duck\n    Runner <|-- Duck\n```\n\n**Python's answer is the MRO** (method resolution order, computed by the *C3 linearisation*): a single list in which every class appears once and every class comes before its parents. `super()` follows that list, so with cooperative `super()` calls each ability is added exactly once.\n\n**Order of the parents matters.** `Penguin(Swimmer, Flyer)` gives `[\"swim\", \"fly\"]`, while `Duck(Flyer, Swimmer)` gives `[\"fly\", \"swim\"]`. The test shows both.\n\n**Use with care.** Small *mixins* (one ability each) are a good use. Big trees of multiple inheritance are hard to read; prefer composition when in doubt. Java and C# avoid the problem by allowing only one parent class (plus many interfaces)."
+  },
+  "oop-overloading-in-python": {
+   "title": "Overloading in Python",
+   "topic": "oop-and-classes",
+   "difficulty": "intermediate",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Python has no compile-time overloading: write one method that behaves differently for different arguments (default values, *args, type checks).",
+   "statement": "Java and C# let you write several methods with the same name and different parameters (*method overloading*, \"compile-time polymorphism\"). In Python a second `def` with the same name simply **replaces** the first, so one method has to handle every case itself.\n\nWrite a class `Greeter` with:\n\n- `greet(name=None, title=None)` **returns** a string:\n  - `greet()` gives `\"Hello!\"`\n  - `greet(\"Ravi\")` gives `\"Hello, Ravi!\"`\n  - `greet(\"Ravi\", \"Dr.\")` gives `\"Hello, Dr. Ravi!\"`\n  - a `title` without a `name` is `ValueError(\"A title needs a name\")`\n\nWrite a class `Calculator` with:\n\n- `add(*numbers)` returns the sum of **any number** of arguments (`0` for none).\n- `describe(value)` returns, depending on the **type** of `value` (check in this order): a `bool` gives `\"Boolean <value>\"`; an `int` gives `\"Integer <value>\"`; a `float` gives `\"Decimal <value>\"`; a `str` gives `\"Text '<value>'\"`; a `list` or `tuple` gives `\"Collection of <n> items\"`; anything else gives `\"Something else\"`.",
+   "starter": "class Greeter:\n    def greet(self, name=None, title=None):\n        ...\n\n\nclass Calculator:\n    def add(self, *numbers):\n        ...\n\n    def describe(self, value):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\ng = Greeter()",
+    "assert g.greet() == \"Hello!\" and g.greet(\"Ravi\") == \"Hello, Ravi!\" and g.greet(\"Ravi\", \"Dr.\") == \"Hello, Dr. Ravi!\"",
+    "assert g.greet(name=\"Asha\") == \"Hello, Asha!\" and g.greet(title=\"Prof.\", name=\"Kim\") == \"Hello, Prof. Kim!\"",
+    "assert error_of(g.greet, None, \"Dr.\") == \"ValueError: A title needs a name\" and error_of(g.greet, title=\"Dr.\") == \"ValueError: A title needs a name\"",
+    "c = Calculator()",
+    "assert c.add() == 0 and c.add(5) == 5 and c.add(1, 2) == 3 and c.add(1, 2, 3, 4, 5) == 15 and c.add(1.5, 2.5) == 4.0",
+    "assert c.add(*range(101)) == 5050",
+    "assert c.describe(True) == \"Boolean True\" and c.describe(False) == \"Boolean False\"",
+    "assert c.describe(5) == \"Integer 5\" and c.describe(0) == \"Integer 0\" and c.describe(2.5) == \"Decimal 2.5\"",
+    "assert c.describe(\"hi\") == \"Text 'hi'\" and c.describe(\"\") == \"Text ''\"",
+    "assert c.describe([1, 2, 3]) == \"Collection of 3 items\" and c.describe((1,)) == \"Collection of 1 items\" and c.describe([]) == \"Collection of 0 items\"",
+    "assert c.describe(None) == \"Something else\" and c.describe({\"a\": 1}) == \"Something else\" and c.describe({1}) == \"Something else\""
+   ],
+   "hints": [
+    "A default value of `None` for a parameter means \"the caller did not give it\". Check for `None` to see which form of the call you were given.",
+    "`*numbers` collects every extra positional argument into a tuple, so `add` accepts any count. `sum(numbers)` works on it, including the empty tuple.",
+    "Order matters in the type checks: `True` is also an `int` in Python, so test for `bool` **before** `int`."
+   ],
+   "solution": "class Greeter:\n    def greet(self, name=None, title=None):\n        if name is None:\n            if title is not None:\n                raise ValueError(\"A title needs a name\")\n            return \"Hello!\"\n        if title is None:\n            return f\"Hello, {name}!\"\n        return f\"Hello, {title} {name}!\"\n\n\nclass Calculator:\n    def add(self, *numbers):\n        return sum(numbers)\n\n    def describe(self, value):\n        if isinstance(value, bool):\n            return f\"Boolean {value}\"\n        if isinstance(value, int):\n            return f\"Integer {value}\"\n        if isinstance(value, float):\n            return f\"Decimal {value}\"\n        if isinstance(value, str):\n            return f\"Text '{value}'\"\n        if isinstance(value, (list, tuple)):\n            return f\"Collection of {len(value)} items\"\n        return \"Something else\"\n",
+   "explanation": "**Compile-time (static) polymorphism** is *method overloading*: the same name, different parameter lists, and the **compiler** picks the version while compiling, from the argument types. Java, C# and C++ have it.\n\n**Python does not.** A class body is just a list of assignments, so a second `def greet` replaces the first. What Python gives you instead:\n\n- **Default arguments** (`name=None`): one method, several call shapes.\n- **`*args` / `**kwargs`**: any number of arguments.\n- **Type checks** (`isinstance`) or `functools.singledispatch`: choose by the type of an argument at run time.\n- **Duck typing**: just call the method and let the object decide.\n\n**Which kind is it then?** All of these decisions happen when the program *runs*, so in Python even \"overloading\" is really run-time behaviour. That is a classic interview question: say so.\n\n| | Compile-time (overloading) | Run-time (overriding) |\n|---|---|---|\n| Same name | in **one** class, different parameters | in **parent and child**, same parameters |\n| Chosen | by the compiler, from the declared types | by the real class of the object |\n| In Python | emulated (defaults, `*args`, `isinstance`) | built in |"
+  },
+  "oop-parking-fee": {
+   "title": "Parking Ticket",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A ticket that works out a parking fee from entry and exit hours, with a daily cap and a one-time exit.",
+   "statement": "Create a class `ParkingTicket` with `ParkingTicket(plate, entry_hour)`.\n\n- `plate` must be a non-blank string, otherwise `ValueError(\"Plate required\")`; `entry_hour` must be an `int` of 0 or more (not a `bool`), otherwise `ValueError(\"Entry hour must be 0 or more\")` (plate first). Attributes: `plate`, `entry_hour`, `exited` (`False`) and `fee` (`None`).\n- `exit(exit_hour)` closes the ticket and **returns the fee**. Checks in order: already exited `ValueError(\"Already exited\")`; `exit_hour` not later than `entry_hour` `ValueError(\"Exit must be after entry\")`.\n- The fee for `hours = exit_hour - entry_hour` is **20 for the first hour plus 10 for every further hour**, but never more than **100**.\n- `exit` also **prints** `Vehicle <plate> parked <hours> hour(s). Fee: <fee>`, sets `exited` to `True` and stores the `fee`.",
+   "starter": "class ParkingTicket:\n    def __init__(self, plate, entry_hour):\n        ...\n\n    def exit(self, exit_hour):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(ParkingTicket, bad, 1) == \"ValueError: Plate required\"\nfor bad in (-1, 1.5, True, None):\n    assert error_of(ParkingTicket, \"KA01\", bad) == \"ValueError: Entry hour must be 0 or more\"",
+    "assert error_of(ParkingTicket, \"\", -1) == \"ValueError: Plate required\"",
+    "t = ParkingTicket(\"KA01\", 9)",
+    "assert (t.plate, t.entry_hour, t.exited, t.fee) == (\"KA01\", 9, False, None)",
+    "assert error_of(t.exit, 9) == \"ValueError: Exit must be after entry\" and error_of(t.exit, 3) == \"ValueError: Exit must be after entry\" and t.exited is False",
+    "buffer = io.StringIO()\nwith contextlib.redirect_stdout(buffer):\n    fee = t.exit(10)",
+    "assert fee == 20 and buffer.getvalue().splitlines() == [\"Vehicle KA01 parked 1 hour(s). Fee: 20\"] and t.exited is True and t.fee == 20",
+    "assert error_of(t.exit, 12) == \"ValueError: Already exited\" and t.fee == 20",
+    "assert error_of(t.exit, 3) == \"ValueError: Already exited\"",
+    "def fee_for(hours):\n    ticket = ParkingTicket(\"X\", 0)\n    result = []\n    out(lambda: result.append(ticket.exit(hours)))\n    return result[0]",
+    "assert [fee_for(h) for h in (1, 2, 3, 5, 9, 10, 11, 24)] == [20, 30, 40, 60, 100, 100, 100, 100]",
+    "assert out(ParkingTicket(\"MH12\", 8).exit, 11) == [\"Vehicle MH12 parked 3 hour(s). Fee: 40\"]",
+    "assert out(ParkingTicket(\"MH12\", 0).exit, 20) == [\"Vehicle MH12 parked 20 hour(s). Fee: 100\"]",
+    "second = ParkingTicket(\"TN09\", 5)",
+    "assert second.exited is False and t.exited is True"
+   ],
+   "hints": [
+    "Hours parked is `exit_hour - entry_hour`. The fee is `20 + 10 * (hours - 1)`, capped with `min(100, ...)`.",
+    "Check \"already exited\" before looking at the hour, and do all the checks before you change `exited`, so a refused call changes nothing.",
+    "Put the three prices in class attributes (`FIRST_HOUR`, `EXTRA_HOUR`, `DAILY_MAX`) so the numbers have names and one home."
+   ],
+   "solution": "class ParkingTicket:\n    FIRST_HOUR = 20\n    EXTRA_HOUR = 10\n    DAILY_MAX = 100\n\n    def __init__(self, plate, entry_hour):\n        if not isinstance(plate, str) or not plate.strip():\n            raise ValueError(\"Plate required\")\n        if type(entry_hour) is not int or entry_hour < 0:\n            raise ValueError(\"Entry hour must be 0 or more\")\n        self.plate = plate\n        self.entry_hour = entry_hour\n        self.exited = False\n        self.fee = None\n\n    def exit(self, exit_hour):\n        if self.exited:\n            raise ValueError(\"Already exited\")\n        if exit_hour <= self.entry_hour:\n            raise ValueError(\"Exit must be after entry\")\n        hours = exit_hour - self.entry_hour\n        fee = min(self.DAILY_MAX, self.FIRST_HOUR + self.EXTRA_HOUR * (hours - 1))\n        self.exited = True\n        self.fee = fee\n        print(f\"Vehicle {self.plate} parked {hours} hour(s). Fee: {fee}\")\n        return fee\n",
+   "explanation": "**The idea.** A ticket is a small state machine: *open* until `exit` is called, *closed* afterwards. The flag `exited` is what turns a second `exit` into an error instead of a second fee.\n\n**Names for numbers.** `20`, `10` and `100` written inline are \"magic numbers\". As class attributes they document themselves and a price change touches one line.\n\n**Table-test the boundaries.** The test lists hours `1, 2, 3, 5, 9, 10, 11, 24`: the interesting ones are 1 (no extra hours), 9 (exactly 100) and 10 (the cap starts to matter)."
+  },
+  "oop-person-student-teacher": {
+   "title": "Person, Student and Teacher",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Inheritance: a base class Person and two derived classes that reuse its attributes and override introduce().",
+   "statement": "Create a base class `Person`.\n\n**Attributes:** `name` and `age`, set by `Person(name, age)`.\n**Method:** `introduce()` prints `Hi, I am <name> and I am <age> years old`.\n\nCreate a derived class `Student` that **inherits** from `Person`.\n\n- `Student(name, age, student_id, course)` has the extra attributes `student_id` and `course`.\n- `introduce()` **overrides** the parent method and prints `Hi, I am <name>, student ID <student_id>, studying <course>`.\n- `study(hours)` prints `<name> studied for <hours> hours`.\n\nCreate another derived class `Teacher` that inherits from `Person`.\n\n- `Teacher(name, age, employee_id, subject)` has the extra attributes `employee_id` and `subject`.\n- `introduce()` overrides the parent method and prints `Hi, I am <name>, employee ID <employee_id>, teaching <subject>`.\n- `teach(hours)` prints `<name> taught <subject> for <hours> hours`.\n\nReuse the parent's `__init__` (with `super().__init__`) instead of setting `name` and `age` again.\n\n**Example**\n\n```\nstudent = Student(\"Ravi\", 20, \"S101\", \"Python\")\nstudent.introduce()   # Hi, I am Ravi, student ID S101, studying Python\nstudent.study(3)      # Ravi studied for 3 hours\n```",
+   "starter": "class Person:\n    def __init__(self, name, age):\n        ...\n\n    def introduce(self):\n        ...\n\n\nclass Student(Person):\n    ...\n\n\nclass Teacher(Person):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nperson = Person(\"Asha\", 30)",
+    "assert (person.name, person.age) == (\"Asha\", 30)",
+    "assert out(person.introduce) == [\"Hi, I am Asha and I am 30 years old\"]",
+    "student = Student(\"Ravi\", 20, \"S101\", \"Python\")\nteacher = Teacher(\"Meena\", 35, \"T501\", \"Mathematics\")",
+    "assert isinstance(student, Person) and isinstance(teacher, Person) and issubclass(Student, Person) and issubclass(Teacher, Person)",
+    "assert not isinstance(student, Teacher) and not isinstance(teacher, Student)",
+    "assert (student.name, student.age, student.student_id, student.course) == (\"Ravi\", 20, \"S101\", \"Python\")",
+    "assert (teacher.name, teacher.age, teacher.employee_id, teacher.subject) == (\"Meena\", 35, \"T501\", \"Mathematics\")",
+    "assert out(student.introduce) == [\"Hi, I am Ravi, student ID S101, studying Python\"]",
+    "assert out(teacher.introduce) == [\"Hi, I am Meena, employee ID T501, teaching Mathematics\"]",
+    "assert out(student.study, 3) == [\"Ravi studied for 3 hours\"]",
+    "assert out(teacher.teach, 2) == [\"Meena taught Mathematics for 2 hours\"]",
+    "assert not hasattr(person, \"study\") and not hasattr(student, \"teach\") and not hasattr(teacher, \"study\")",
+    "assert Student.introduce is not Person.introduce and Teacher.introduce is not Person.introduce",
+    "people = [person, student, teacher]",
+    "assert [out(p.introduce)[0][:5] for p in people] == [\"Hi, I\", \"Hi, I\", \"Hi, I\"]",
+    "assert sum(len(out(p.introduce)) for p in people) == 3",
+    "class Intern(Student):\n    pass\nintern = Intern(\"Kim\", 19, \"S9\", \"Go\")",
+    "assert out(intern.introduce) == [\"Hi, I am Kim, student ID S9, studying Go\"] and isinstance(intern, Person)",
+    "second = Student(\"Zoe\", 22, \"S2\", \"SQL\")",
+    "assert second.name == \"Zoe\" and student.name == \"Ravi\""
+   ],
+   "hints": [
+    "`class Student(Person):` makes `Student` a child of `Person`. Its own `__init__` takes all four values, passes `name` and `age` to the parent with `super().__init__(name, age)`, and stores the two new ones itself.",
+    "Defining a method with the **same name** in the child *overrides* the parent's. When you call `student.introduce()`, Python looks in `Student` first and finds your version.",
+    "`study` belongs only to `Student` and `teach` only to `Teacher`: a child may add methods, but a sibling does not get them."
+   ],
+   "solution": "class Person:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name} and I am {self.age} years old\")\n\n\nclass Student(Person):\n    def __init__(self, name, age, student_id, course):\n        super().__init__(name, age)\n        self.student_id = student_id\n        self.course = course\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name}, student ID {self.student_id}, studying {self.course}\")\n\n    def study(self, hours):\n        print(f\"{self.name} studied for {hours} hours\")\n\n\nclass Teacher(Person):\n    def __init__(self, name, age, employee_id, subject):\n        super().__init__(name, age)\n        self.employee_id = employee_id\n        self.subject = subject\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name}, employee ID {self.employee_id}, teaching {self.subject}\")\n\n    def teach(self, hours):\n        print(f\"{self.name} taught {self.subject} for {hours} hours\")\n",
+   "explanation": "**Inheritance** means \"a `Student` *is a* `Person`\": the child starts with everything the parent has (`name`, `age`) and adds or changes what is special.\n\n```mermaid\nclassDiagram\n    class Person {\n        +name\n        +age\n        +introduce()\n    }\n    class Student {\n        +student_id\n        +course\n        +introduce()\n        +study()\n    }\n    class Teacher {\n        +employee_id\n        +subject\n        +introduce()\n        +teach()\n    }\n    Person <|-- Student\n    Person <|-- Teacher\n```\n\n**`super()`** gives you the parent's version. Calling `super().__init__(name, age)` reuses the parent's setup instead of copying its lines, so a change to `Person` reaches both children.\n\n**Overriding** replaces a parent method for the child. That is the seed of *polymorphism*: `for p in people: p.introduce()` prints a different sentence for each kind of person without an `if`.\n\n**Going further.** What would `Student.introduce` look like if it printed the parent's sentence first and then added the course (hint: `super().introduce()`)?"
+  },
+  "oop-playlist": {
+   "title": "Music Playlist",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A playlist with add, remove, play-next and a numbered listing, printing a message for each case.",
+   "statement": "Create a class `Playlist` with `Playlist(name)`. A blank name is `ValueError(\"Name required\")`. Attribute: `name`. `len(playlist)` is the number of songs.\n\n- `add(song)` adds the song at the end and prints `Added <song>`. A song already in the playlist is **not** added again: it prints `<song> is already in the playlist`. A blank song (not a string or only spaces) is `ValueError(\"Song required\")`.\n- `remove(song)` removes it and prints `Removed <song>`, or prints `<song> is not in the playlist`.\n- `play_next()` takes the **first** song out of the playlist and prints `Now playing: <song>`; with no songs it prints `Playlist is empty`.\n- `show()` prints `Playlist <name> (<n> songs)` and then each song on its own line as `<position>. <song>`, starting from 1, in order.",
+   "starter": "class Playlist:\n    def __init__(self, name):\n        ...\n\n    def add(self, song):\n        ...\n\n    def remove(self, song):\n        ...\n\n    def play_next(self):\n        ...\n\n    def show(self):\n        ...\n\n    def __len__(self):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(Playlist, bad) == \"ValueError: Name required\"\np = Playlist(\"Road trip\")",
+    "assert p.name == \"Road trip\" and len(p) == 0 and out(p.show) == [\"Playlist Road trip (0 songs)\"] and out(p.play_next) == [\"Playlist is empty\"]",
+    "assert out(p.add, \"Believer\") == [\"Added Believer\"] and out(p.add, \"Faded\") == [\"Added Faded\"] and out(p.add, \"Closer\") == [\"Added Closer\"] and len(p) == 3",
+    "assert out(p.add, \"Faded\") == [\"Faded is already in the playlist\"] and len(p) == 3",
+    "for bad in (\"\", \"  \", None, 7):\n    assert error_of(p.add, bad) == \"ValueError: Song required\"",
+    "assert out(p.show) == [\"Playlist Road trip (3 songs)\", \"1. Believer\", \"2. Faded\", \"3. Closer\"]",
+    "assert out(p.remove, \"Faded\") == [\"Removed Faded\"] and out(p.remove, \"Faded\") == [\"Faded is not in the playlist\"] and len(p) == 2",
+    "assert out(p.show) == [\"Playlist Road trip (2 songs)\", \"1. Believer\", \"2. Closer\"]",
+    "assert out(p.play_next) == [\"Now playing: Believer\"] and len(p) == 1 and out(p.show) == [\"Playlist Road trip (1 songs)\", \"1. Closer\"]",
+    "assert out(p.play_next) == [\"Now playing: Closer\"] and out(p.play_next) == [\"Playlist is empty\"] and len(p) == 0",
+    "assert out(p.add, \"Believer\") == [\"Added Believer\"] and out(p.show)[-1] == \"1. Believer\"",
+    "q = Playlist(\"Other\")",
+    "assert len(q) == 0 and len(p) == 1"
+   ],
+   "hints": [
+    "Keep the songs in a list (`self._songs = []` in `__init__`). A queue that plays from the front is `pop(0)`.",
+    "`__len__` lets you write `len(playlist)`: it just returns `len(self._songs)`.",
+    "`enumerate(self._songs, start=1)` gives you the position and the song together for `show`."
+   ],
+   "solution": "class Playlist:\n    def __init__(self, name):\n        if not isinstance(name, str) or not name.strip():\n            raise ValueError(\"Name required\")\n        self.name = name\n        self._songs = []\n\n    def __len__(self):\n        return len(self._songs)\n\n    def add(self, song):\n        if not isinstance(song, str) or not song.strip():\n            raise ValueError(\"Song required\")\n        if song in self._songs:\n            print(f\"{song} is already in the playlist\")\n            return\n        self._songs.append(song)\n        print(f\"Added {song}\")\n\n    def remove(self, song):\n        if song in self._songs:\n            self._songs.remove(song)\n            print(f\"Removed {song}\")\n        else:\n            print(f\"{song} is not in the playlist\")\n\n    def play_next(self):\n        if not self._songs:\n            print(\"Playlist is empty\")\n            return\n        print(f\"Now playing: {self._songs.pop(0)}\")\n\n    def show(self):\n        print(f\"Playlist {self.name} ({len(self._songs)} songs)\")\n        for position, song in enumerate(self._songs, start=1):\n            print(f\"{position}. {song}\")\n",
+   "explanation": "**The idea.** A playlist is a list with rules around it. Wrapping the list in a class means callers can only do what the playlist allows (no duplicates, no blank names), and `len(playlist)` works because the class defines `__len__`.\n\n**Special methods make classes feel built-in.** `len(p)` calls `p.__len__()`. The same idea powers `+` for `Money` and `==` for your own types.\n\n**FIFO.** `pop(0)` plays the oldest song first. For a long queue a `collections.deque` and `popleft()` is faster, but a list is fine here and easier to read."
+  },
+  "oop-rectangle-basics": {
+   "title": "Rectangle Class",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A first class with attributes, methods that compute values, a method that changes the object and a validation rule.",
+   "statement": "Create a class `Rectangle` with `Rectangle(width, height)`.\n\n- Both sides must be above 0, otherwise raise `ValueError(\"Sides must be positive\")`.\n- Attributes: `width` and `height`.\n- `area()` returns `width * height`; `perimeter()` returns `2 * (width + height)`.\n- `is_square()` returns `True` when both sides are equal.\n- `scale(factor)` multiplies **both** sides by `factor` (the same object changes; it returns nothing). A `factor` of 0 or less raises `ValueError(\"Factor must be positive\")` and changes nothing.\n- `describe()` **prints** `Rectangle <width> x <height>: area <area>, perimeter <perimeter>`.",
+   "starter": "class Rectangle:\n    def __init__(self, width, height):\n        ...\n\n    def area(self):\n        ...\n\n    def perimeter(self):\n        ...\n\n    def is_square(self):\n        ...\n\n    def scale(self, factor):\n        ...\n\n    def describe(self):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nr = Rectangle(3, 4)",
+    "assert (r.width, r.height, r.area(), r.perimeter()) == (3, 4, 12, 14)",
+    "assert r.is_square() is False and Rectangle(5, 5).is_square() is True",
+    "assert out(r.describe) == [\"Rectangle 3 x 4: area 12, perimeter 14\"]",
+    "assert r.scale(2) is None and (r.width, r.height) == (6, 8) and r.area() == 48",
+    "assert out(r.describe) == [\"Rectangle 6 x 8: area 48, perimeter 28\"]",
+    "assert error_of(r.scale, 0) == \"ValueError: Factor must be positive\" and error_of(r.scale, -1) == \"ValueError: Factor must be positive\" and (r.width, r.height) == (6, 8)",
+    "assert error_of(Rectangle, 0, 5) == \"ValueError: Sides must be positive\" and error_of(Rectangle, 5, -1) == \"ValueError: Sides must be positive\"",
+    "a, b = Rectangle(1, 2), Rectangle(1, 2)\na.scale(3)",
+    "assert (a.width, b.width) == (3, 1)",
+    "assert Rectangle(2, 3).area() == 6 and Rectangle(2.5, 2).area() == 5.0"
+   ],
+   "hints": [
+    "Store only `width` and `height`. `area()` and `perimeter()` calculate from them every time, so they can never be out of date after `scale`.",
+    "Validate in `__init__` *before* storing anything, so a bad rectangle is never created. `scale` checks the factor before it changes either side.",
+    "`describe()` can call `self.area()` and `self.perimeter()` instead of repeating the formulas."
+   ],
+   "solution": "class Rectangle:\n    def __init__(self, width, height):\n        if width <= 0 or height <= 0:\n            raise ValueError(\"Sides must be positive\")\n        self.width = width\n        self.height = height\n\n    def area(self):\n        return self.width * self.height\n\n    def perimeter(self):\n        return 2 * (self.width + self.height)\n\n    def is_square(self):\n        return self.width == self.height\n\n    def scale(self, factor):\n        if factor <= 0:\n            raise ValueError(\"Factor must be positive\")\n        self.width *= factor\n        self.height *= factor\n\n    def describe(self):\n        print(f\"Rectangle {self.width} x {self.height}: area {self.area()}, perimeter {self.perimeter()}\")\n",
+   "explanation": "**The idea.** Methods that *ask* (`area`, `is_square`) return a value and change nothing; methods that *change* (`scale`) alter the object and usually return nothing. Keeping the two kinds apart makes a class easy to reason about.\n\n**Validate at the door.** A `Rectangle(-3, 4)` that existed would poison every later calculation. Refusing it in `__init__` means every rectangle you ever hold is valid.\n\n**Reuse inside the class.** `describe` calls `area()`; if the formula changes, only one place needs to."
+  },
+  "oop-static-and-class-methods": {
+   "title": "Static and Class Methods",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Use @staticmethod for helpers that need no object and @classmethod for an alternative constructor that also works in subclasses.",
+   "statement": "Create a class `TemperatureConverter` with two **static methods** (they need no object and are called on the class):\n\n- `celsius_to_fahrenheit(c)` returns `c * 9 / 5 + 32`, rounded to 2 decimals.\n- `fahrenheit_to_celsius(f)` returns `(f - 32) * 5 / 9`, rounded to 2 decimals.\n\nCreate a class `Person` with `Person(name, age)` and the attributes `name` and `age`.\n\n- A class attribute `CURRENT_YEAR = 2025`.\n- `from_birth_year(name, year)` is a **class method** (an alternative constructor): it returns a new object of the class it was called on, with `age = CURRENT_YEAR - year`. A year after `CURRENT_YEAR` is `ValueError(\"Birth year is in the future\")`.\n- `is_adult(age)` is a **static method** that returns `True` when `age >= 18`.\n- `describe()` prints `<name> is <age> years old`.\n\nBecause `from_birth_year` is a class method, `Employee.from_birth_year(...)` on a subclass `Employee(Person)` must return an `Employee`.",
+   "starter": "class TemperatureConverter:\n    ...\n\n\nclass Person:\n    CURRENT_YEAR = 2025\n\n    def __init__(self, name, age):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert TemperatureConverter.celsius_to_fahrenheit(100) == 212.0 and TemperatureConverter.celsius_to_fahrenheit(0) == 32.0 and TemperatureConverter.celsius_to_fahrenheit(-40) == -40.0",
+    "assert TemperatureConverter.celsius_to_fahrenheit(37) == 98.6 and TemperatureConverter.celsius_to_fahrenheit(36.6) == 97.88 and TemperatureConverter.fahrenheit_to_celsius(212) == 100.0 and TemperatureConverter.fahrenheit_to_celsius(98.6) == 37.0 and TemperatureConverter.fahrenheit_to_celsius(0) == -17.78",
+    "assert isinstance(TemperatureConverter.__dict__[\"celsius_to_fahrenheit\"], staticmethod) and isinstance(TemperatureConverter.__dict__[\"fahrenheit_to_celsius\"], staticmethod)",
+    "assert TemperatureConverter().celsius_to_fahrenheit(10) == 50.0",
+    "p = Person(\"Asha\", 30)",
+    "assert (p.name, p.age, Person.CURRENT_YEAR) == (\"Asha\", 30, 2025) and out(p.describe) == [\"Asha is 30 years old\"]",
+    "q = Person.from_birth_year(\"Ben\", 2000)",
+    "assert isinstance(q, Person) and (q.name, q.age) == (\"Ben\", 25) and out(q.describe) == [\"Ben is 25 years old\"]",
+    "assert Person.from_birth_year(\"Baby\", 2025).age == 0 and error_of(Person.from_birth_year, \"Time\", 2026) == \"ValueError: Birth year is in the future\"",
+    "assert Person.is_adult(18) is True and Person.is_adult(17) is False and p.is_adult(40) is True",
+    "assert isinstance(Person.__dict__[\"from_birth_year\"], classmethod) and isinstance(Person.__dict__[\"is_adult\"], staticmethod)",
+    "class Employee(Person):\n    pass\ne = Employee.from_birth_year(\"Cy\", 1990)",
+    "assert type(e) is Employee and e.age == 35",
+    "class Century(Person):\n    CURRENT_YEAR = 2100",
+    "assert Century.from_birth_year(\"Old\", 2000).age == 100 and type(Century.from_birth_year(\"Old\", 2000)) is Century"
+   ],
+   "hints": [
+    "A static method has no `self` and no `cls`: it is a plain function that lives in the class because it belongs with it. Decorate it with `@staticmethod`.",
+    "A class method is decorated with `@classmethod` and receives the class as its first argument (`cls`). `return cls(name, age)` builds an object of **whatever class the method was called on**, so subclasses work without extra code.",
+    "Read `cls.CURRENT_YEAR` (not `Person.CURRENT_YEAR`) so a subclass that changes the year is respected."
+   ],
+   "solution": "class TemperatureConverter:\n    @staticmethod\n    def celsius_to_fahrenheit(c):\n        return round(c * 9 / 5 + 32, 2)\n\n    @staticmethod\n    def fahrenheit_to_celsius(f):\n        return round((f - 32) * 5 / 9, 2)\n\n\nclass Person:\n    CURRENT_YEAR = 2025\n\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\n    @classmethod\n    def from_birth_year(cls, name, year):\n        if year > cls.CURRENT_YEAR:\n            raise ValueError(\"Birth year is in the future\")\n        return cls(name, cls.CURRENT_YEAR - year)\n\n    @staticmethod\n    def is_adult(age):\n        return age >= 18\n\n    def describe(self):\n        print(f\"{self.name} is {self.age} years old\")\n",
+   "explanation": "**Three kinds of method.**\n\n| Kind | First argument | Use it for |\n|---|---|---|\n| instance method | `self` (one object) | behaviour of one object |\n| class method | `cls` (the class) | alternative constructors, class-wide settings |\n| static method | nothing | a helper that needs neither (unit conversion, validation) |\n\n**Alternative constructors.** `Person.from_birth_year` is a second way to build a `Person`. Using `cls(...)` instead of `Person(...)` means `Employee.from_birth_year(...)` returns an `Employee`: the method follows the class it was called on.\n\n**Static is not \"global\".** `is_adult` could be a module-level function, but keeping it in `Person` keeps related code together and makes it discoverable."
+  },
+  "oop-student-grades": {
+   "title": "Student Report Card",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "A student with marks per subject, an average, a letter grade, a printed report and a function that finds the topper.",
+   "statement": "Create a class `Student` with `Student(name)`. A blank name (not a string or only spaces) is `ValueError(\"Name required\")`. Attributes: `name` and `marks` (a dictionary from subject to mark, empty at first).\n\n- `add_mark(subject, mark)` stores a mark (a new mark for the same subject **replaces** the old one). A mark must be a number from 0 to 100 (a `bool` is not one), otherwise `ValueError(\"Mark must be between 0 and 100\")`.\n- `average()` returns the average mark rounded to 2 decimals, or `0` when there are no marks.\n- `grade()` returns `\"A\"` for an average of 90 or more, `\"B\"` for 80 or more, `\"C\"` for 70 or more, `\"D\"` for 60 or more, `\"F\"` below that, and `\"N/A\"` when there are no marks.\n- `report()` prints `Report for <name>`, then one line per subject **sorted by subject**: `  <subject>: <mark>` (two spaces first), then `Average: <average> (<grade>)`.\n\nWrite a function `topper(students)` that returns the student with the highest average (the first one in the list when tied), or `None` for an empty list.",
+   "starter": "class Student:\n    def __init__(self, name):\n        ...\n\n    def add_mark(self, subject, mark):\n        ...\n\n    def average(self):\n        ...\n\n    def grade(self):\n        ...\n\n    def report(self):\n        ...\n\n\ndef topper(students):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(Student, bad) == \"ValueError: Name required\"\ns = Student(\"Asha\")",
+    "assert s.name == \"Asha\" and s.marks == {} and s.average() == 0 and s.grade() == \"N/A\"",
+    "assert out(s.report) == [\"Report for Asha\", \"Average: 0 (N/A)\"]",
+    "assert s.add_mark(\"Maths\", 90) is None and s.add_mark(\"English\", 75) is None and s.add_mark(\"Art\", 85.5) is None",
+    "assert s.marks == {\"Maths\": 90, \"English\": 75, \"Art\": 85.5} and s.average() == 83.5 and s.grade() == \"B\"",
+    "assert out(s.report) == [\"Report for Asha\", \"  Art: 85.5\", \"  English: 75\", \"  Maths: 90\", \"Average: 83.5 (B)\"]",
+    "for bad in (-1, 100.5, 101, True, \"90\", None):\n    assert error_of(s.add_mark, \"X\", bad) == \"ValueError: Mark must be between 0 and 100\"",
+    "assert \"X\" not in s.marks and s.average() == 83.5",
+    "s.add_mark(\"English\", 95)",
+    "assert s.marks[\"English\"] == 95 and s.average() == 90.17 and s.grade() == \"A\"",
+    "def student(name, *marks):\n    st = Student(name)\n    for index, mark in enumerate(marks):\n        st.add_mark(\"s\" + str(index), mark)\n    return st",
+    "assert student(\"a\", 100, 0).average() == 50 and student(\"a\", 100, 0).grade() == \"F\"",
+    "assert [student(\"x\", m).grade() for m in (100, 90, 89.99, 80, 79, 70, 69, 60, 59, 0)] == [\"A\", \"A\", \"B\", \"B\", \"C\", \"C\", \"D\", \"D\", \"F\", \"F\"]",
+    "assert student(\"t\", 10, 20, 30).average() == 20 and student(\"t\", 0, 0, 1).average() == 0.33",
+    "a, b, c = student(\"a\", 70), student(\"b\", 90, 80), student(\"c\", 86)",
+    "assert topper([a, b, c]) is c and topper([c, b]) is c",
+    "assert topper([student(\"p\", 80), student(\"q\", 80)]).name == \"p\" and topper([]) is None and topper([a]) is a"
+   ],
+   "hints": [
+    "`marks` is a plain dictionary created in `__init__`; `add_mark` assigns `self.marks[subject] = mark`, which also replaces an older mark.",
+    "Compute the average once with `sum(...) / len(...)`, guard the empty case first, and let `grade()` and `report()` call `average()` instead of repeating the sum.",
+    "In `topper`, only replace the current best when a student is **strictly** higher: that keeps the first one on a tie."
+   ],
+   "solution": "class Student:\n    def __init__(self, name):\n        if not isinstance(name, str) or not name.strip():\n            raise ValueError(\"Name required\")\n        self.name = name\n        self.marks = {}\n\n    def add_mark(self, subject, mark):\n        if type(mark) not in (int, float) or not 0 <= mark <= 100:\n            raise ValueError(\"Mark must be between 0 and 100\")\n        self.marks[subject] = mark\n\n    def average(self):\n        if not self.marks:\n            return 0\n        return round(sum(self.marks.values()) / len(self.marks), 2)\n\n    def grade(self):\n        if not self.marks:\n            return \"N/A\"\n        average = self.average()\n        for limit, letter in ((90, \"A\"), (80, \"B\"), (70, \"C\"), (60, \"D\")):\n            if average >= limit:\n                return letter\n        return \"F\"\n\n    def report(self):\n        print(f\"Report for {self.name}\")\n        for subject in sorted(self.marks):\n            print(f\"  {subject}: {self.marks[subject]}\")\n        print(f\"Average: {self.average()} ({self.grade()})\")\n\n\ndef topper(students):\n    best = None\n    for student in students:\n        if best is None or student.average() > best.average():\n            best = student\n    return best\n",
+   "explanation": "**The idea.** The object stores *facts* (the marks) and answers *questions* (`average`, `grade`) by calculating from them. Nothing is stored twice, so a changed mark can never leave a stale average behind.\n\n**Grading by table.** The `for limit, letter in (...)` loop replaces four `if` statements and makes the boundaries (`89.99` is a B, `90` is an A) easy to read and change.\n\n**Edge cases first.** No marks: average `0`, grade `N/A`. Empty list: `topper` returns `None`. Interviewers watch for these."
+  },
+  "oop-vehicle-super": {
+   "title": "Vehicle, Car and Bike",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Use super() to extend a parent constructor and a parent method instead of copying them.",
+   "statement": "Create a class `Vehicle` with `Vehicle(brand, wheels)`.\n\n- `info()` prints `<brand> with <wheels> wheels`.\n\nCreate `Car(brand, doors)`, a `Vehicle` that always has **4** wheels and also stores `doors`.\n\n- `info()` first prints the parent's line (call the parent's `info`) and then prints `Doors: <doors>`.\n\nCreate `Bike(brand, has_carrier=False)`, a `Vehicle` with **2** wheels that stores `has_carrier`.\n\n- `info()` prints the parent's line and then `Carrier: yes` or `Carrier: no`.\n\nUse `super()` in both the constructor and `info()`: do not copy the parent's lines.",
+   "starter": "class Vehicle:\n    def __init__(self, brand, wheels):\n        ...\n\n    def info(self):\n        ...\n\n\nclass Car(Vehicle):\n    ...\n\n\nclass Bike(Vehicle):\n    ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nv = Vehicle(\"Truck\", 6)",
+    "assert (v.brand, v.wheels) == (\"Truck\", 6) and out(v.info) == [\"Truck with 6 wheels\"]",
+    "car = Car(\"Honda\", 4)",
+    "assert (car.brand, car.wheels, car.doors) == (\"Honda\", 4, 4) and isinstance(car, Vehicle)",
+    "assert out(car.info) == [\"Honda with 4 wheels\", \"Doors: 4\"]",
+    "assert Car(\"Mini\", 2).doors == 2 and out(Car(\"Mini\", 2).info) == [\"Mini with 4 wheels\", \"Doors: 2\"]",
+    "bike = Bike(\"Hero\")",
+    "assert (bike.brand, bike.wheels, bike.has_carrier) == (\"Hero\", 2, False) and isinstance(bike, Vehicle)",
+    "assert out(bike.info) == [\"Hero with 2 wheels\", \"Carrier: no\"]",
+    "assert out(Bike(\"Bajaj\", True).info) == [\"Bajaj with 2 wheels\", \"Carrier: yes\"] and Bike(\"Bajaj\", has_carrier=True).has_carrier is True",
+    "class Hybrid(Car):\n    def info(self):\n        super().info()\n        print(\"Hybrid\")",
+    "assert out(Hybrid(\"Toyota\", 4).info) == [\"Toyota with 4 wheels\", \"Doors: 4\", \"Hybrid\"]",
+    "original = Vehicle.info\nVehicle.info = lambda self: print(\"changed \" + self.brand)",
+    "assert out(Car(\"Ford\", 2).info) == [\"changed Ford\", \"Doors: 2\"] and out(Bike(\"Hero\").info) == [\"changed Hero\", \"Carrier: no\"]",
+    "Vehicle.info = original"
+   ],
+   "hints": [
+    "`Car.__init__` takes only `brand` and `doors`: it supplies the number of wheels itself when it calls `super().__init__(brand, 4)`.",
+    "To *extend* a method rather than replace it, call `super().info()` first and then print the extra line. The last test even changes `Vehicle.info` to check that you really call the parent.",
+    "Do not copy the `\"<brand> with <wheels> wheels\"` text into the children: that is the copy `super()` exists to avoid."
+   ],
+   "solution": "class Vehicle:\n    def __init__(self, brand, wheels):\n        self.brand = brand\n        self.wheels = wheels\n\n    def info(self):\n        print(f\"{self.brand} with {self.wheels} wheels\")\n\n\nclass Car(Vehicle):\n    def __init__(self, brand, doors):\n        super().__init__(brand, 4)\n        self.doors = doors\n\n    def info(self):\n        super().info()\n        print(f\"Doors: {self.doors}\")\n\n\nclass Bike(Vehicle):\n    def __init__(self, brand, has_carrier=False):\n        super().__init__(brand, 2)\n        self.has_carrier = has_carrier\n\n    def info(self):\n        super().info()\n        print(\"Carrier: \" + (\"yes\" if self.has_carrier else \"no\"))\n",
+   "explanation": "**`super()` is how a child cooperates with its parent.** Overriding *replaces* a method; calling `super().info()` inside the override *extends* it: do the parent's work, then add your own.\n\n**Why not copy the line?** If `Vehicle.info` later prints the brand in capitals, a copied line in `Car` would silently stay old. Calling the parent keeps one source of truth. The test changes `Vehicle.info` on purpose to prove you call it.\n\n**Fixed values in the child.** A `Car` always has 4 wheels, so its constructor does not ask for them. Children can *narrow* what the parent asks for."
+  },
+  "oop-wallet-encapsulation": {
+   "title": "Encapsulated Wallet",
+   "topic": "oop-and-classes",
+   "difficulty": "beginner",
+   "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+   "description": "Encapsulation: hide the balance behind a read-only property, validate the owner in a setter and refuse bad amounts.",
+   "statement": "Create a class `Wallet` with `Wallet(owner, balance=0)`.\n\n- `owner` is a **property** with a setter. The owner must be a non-blank string, otherwise `ValueError(\"Owner required\")`; it is stored stripped of surrounding spaces. The constructor uses the same rule.\n- `balance` is a **read-only property**: reading works, but `wallet.balance = 5` must fail with `AttributeError`. A starting balance that is not an `int` of 0 or more (not a `bool`) is `ValueError(\"Balance cannot be negative\")` (check the owner first).\n- `deposit(amount)` adds money; `spend(amount)` takes money out. For both, `amount` must be an `int` above 0 (not a `bool`), otherwise `ValueError(\"Amount must be positive\")`. `spend` of more than the balance is `ValueError(\"Insufficient balance\")` and changes nothing.\n\nThe only way to change the balance from outside is `deposit` and `spend`.",
+   "starter": "class Wallet:\n    def __init__(self, owner, balance=0):\n        ...\n",
+   "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nw = Wallet(\" Asha \", 100)",
+    "assert w.owner == \"Asha\" and w.balance == 100 and Wallet(\"B\").balance == 0",
+    "for bad in (\"\", \"  \", None, 5):\n    assert error_of(Wallet, bad) == \"ValueError: Owner required\"\nfor bad in (-1, 1.5, True, None):\n    assert error_of(Wallet, \"A\", bad) == \"ValueError: Balance cannot be negative\"",
+    "assert error_of(Wallet, \"\", -1) == \"ValueError: Owner required\"",
+    "assert error_of(setattr, w, \"balance\", 5) is not None and error_of(setattr, w, \"balance\", 5).startswith(\"AttributeError\") and w.balance == 100",
+    "w.owner = \"  Ben \"",
+    "assert w.owner == \"Ben\" and error_of(setattr, w, \"owner\", \" \") == \"ValueError: Owner required\" and w.owner == \"Ben\"",
+    "assert w.deposit(50) is None and w.balance == 150 and w.spend(20) is None and w.balance == 130",
+    "for bad in (0, -5, 1.5, True, \"5\", None):\n    assert error_of(w.deposit, bad) == \"ValueError: Amount must be positive\" and error_of(w.spend, bad) == \"ValueError: Amount must be positive\"",
+    "assert error_of(w.spend, 131) == \"ValueError: Insufficient balance\" and w.balance == 130",
+    "w.spend(130)",
+    "assert w.balance == 0 and error_of(w.spend, 1) == \"ValueError: Insufficient balance\"",
+    "assert isinstance(Wallet.balance, property) and isinstance(Wallet.owner, property) and Wallet.balance.fset is None and Wallet.owner.fset is not None",
+    "other = Wallet(\"Z\", 10)\nother.deposit(5)",
+    "assert w.balance == 0 and other.balance == 15"
+   ],
+   "hints": [
+    "Store the real value in `self._balance` (a leading underscore means \"internal, please do not touch\"). `@property def balance(self)` returns it and has **no** setter, so assigning to `wallet.balance` raises `AttributeError`.",
+    "A setter is a method decorated with `@owner.setter`. In `__init__` write `self.owner = owner` (not `self._owner = ...`) so the same validation runs when the object is created.",
+    "Put the amount check in one small helper and call it from both `deposit` and `spend`."
+   ],
+   "solution": "class Wallet:\n    def __init__(self, owner, balance=0):\n        self.owner = owner\n        if type(balance) is not int or balance < 0:\n            raise ValueError(\"Balance cannot be negative\")\n        self._balance = balance\n\n    @property\n    def owner(self):\n        return self._owner\n\n    @owner.setter\n    def owner(self, value):\n        if not isinstance(value, str) or not value.strip():\n            raise ValueError(\"Owner required\")\n        self._owner = value.strip()\n\n    @property\n    def balance(self):\n        return self._balance\n\n    @staticmethod\n    def _check(amount):\n        if type(amount) is not int or amount < 1:\n            raise ValueError(\"Amount must be positive\")\n\n    def deposit(self, amount):\n        self._check(amount)\n        self._balance += amount\n\n    def spend(self, amount):\n        self._check(amount)\n        if amount > self._balance:\n            raise ValueError(\"Insufficient balance\")\n        self._balance -= amount\n",
+   "explanation": "**Encapsulation** = keep the data private and let only the class's own methods change it, so the rules (no negative balance) cannot be bypassed. Python has no `private` keyword; the convention is a leading underscore, and **properties** give you read-only or validated access.\n\n**Property versus plain attribute.** From outside `wallet.balance` looks like an attribute, but it is a method call, so it can be read-only. If you later need to calculate the balance from a list of transactions, callers do not change.\n\n**Why validate in the setter.** The rule \"owner must not be blank\" now holds in the constructor *and* every later assignment, because both go through the same code."
   },
   "orders-in-a-month": {
    "title": "Orders in March",

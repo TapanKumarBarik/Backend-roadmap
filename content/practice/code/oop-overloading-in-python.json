@@ -1,0 +1,30 @@
+{
+  "title": "Overloading in Python",
+  "topic": "oop-and-classes",
+  "difficulty": "intermediate",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Python has no compile-time overloading: write one method that behaves differently for different arguments (default values, *args, type checks).",
+  "statement": "Java and C# let you write several methods with the same name and different parameters (*method overloading*, \"compile-time polymorphism\"). In Python a second `def` with the same name simply **replaces** the first, so one method has to handle every case itself.\n\nWrite a class `Greeter` with:\n\n- `greet(name=None, title=None)` **returns** a string:\n  - `greet()` gives `\"Hello!\"`\n  - `greet(\"Ravi\")` gives `\"Hello, Ravi!\"`\n  - `greet(\"Ravi\", \"Dr.\")` gives `\"Hello, Dr. Ravi!\"`\n  - a `title` without a `name` is `ValueError(\"A title needs a name\")`\n\nWrite a class `Calculator` with:\n\n- `add(*numbers)` returns the sum of **any number** of arguments (`0` for none).\n- `describe(value)` returns, depending on the **type** of `value` (check in this order): a `bool` gives `\"Boolean <value>\"`; an `int` gives `\"Integer <value>\"`; a `float` gives `\"Decimal <value>\"`; a `str` gives `\"Text '<value>'\"`; a `list` or `tuple` gives `\"Collection of <n> items\"`; anything else gives `\"Something else\"`.",
+  "starter": "class Greeter:\n    def greet(self, name=None, title=None):\n        ...\n\n\nclass Calculator:\n    def add(self, *numbers):\n        ...\n\n    def describe(self, value):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\ng = Greeter()",
+    "assert g.greet() == \"Hello!\" and g.greet(\"Ravi\") == \"Hello, Ravi!\" and g.greet(\"Ravi\", \"Dr.\") == \"Hello, Dr. Ravi!\"",
+    "assert g.greet(name=\"Asha\") == \"Hello, Asha!\" and g.greet(title=\"Prof.\", name=\"Kim\") == \"Hello, Prof. Kim!\"",
+    "assert error_of(g.greet, None, \"Dr.\") == \"ValueError: A title needs a name\" and error_of(g.greet, title=\"Dr.\") == \"ValueError: A title needs a name\"",
+    "c = Calculator()",
+    "assert c.add() == 0 and c.add(5) == 5 and c.add(1, 2) == 3 and c.add(1, 2, 3, 4, 5) == 15 and c.add(1.5, 2.5) == 4.0",
+    "assert c.add(*range(101)) == 5050",
+    "assert c.describe(True) == \"Boolean True\" and c.describe(False) == \"Boolean False\"",
+    "assert c.describe(5) == \"Integer 5\" and c.describe(0) == \"Integer 0\" and c.describe(2.5) == \"Decimal 2.5\"",
+    "assert c.describe(\"hi\") == \"Text 'hi'\" and c.describe(\"\") == \"Text ''\"",
+    "assert c.describe([1, 2, 3]) == \"Collection of 3 items\" and c.describe((1,)) == \"Collection of 1 items\" and c.describe([]) == \"Collection of 0 items\"",
+    "assert c.describe(None) == \"Something else\" and c.describe({\"a\": 1}) == \"Something else\" and c.describe({1}) == \"Something else\""
+  ],
+  "hints": [
+    "A default value of `None` for a parameter means \"the caller did not give it\". Check for `None` to see which form of the call you were given.",
+    "`*numbers` collects every extra positional argument into a tuple, so `add` accepts any count. `sum(numbers)` works on it, including the empty tuple.",
+    "Order matters in the type checks: `True` is also an `int` in Python, so test for `bool` **before** `int`."
+  ],
+  "solution": "class Greeter:\n    def greet(self, name=None, title=None):\n        if name is None:\n            if title is not None:\n                raise ValueError(\"A title needs a name\")\n            return \"Hello!\"\n        if title is None:\n            return f\"Hello, {name}!\"\n        return f\"Hello, {title} {name}!\"\n\n\nclass Calculator:\n    def add(self, *numbers):\n        return sum(numbers)\n\n    def describe(self, value):\n        if isinstance(value, bool):\n            return f\"Boolean {value}\"\n        if isinstance(value, int):\n            return f\"Integer {value}\"\n        if isinstance(value, float):\n            return f\"Decimal {value}\"\n        if isinstance(value, str):\n            return f\"Text '{value}'\"\n        if isinstance(value, (list, tuple)):\n            return f\"Collection of {len(value)} items\"\n        return \"Something else\"\n",
+  "explanation": "**Compile-time (static) polymorphism** is *method overloading*: the same name, different parameter lists, and the **compiler** picks the version while compiling, from the argument types. Java, C# and C++ have it.\n\n**Python does not.** A class body is just a list of assignments, so a second `def greet` replaces the first. What Python gives you instead:\n\n- **Default arguments** (`name=None`): one method, several call shapes.\n- **`*args` / `**kwargs`**: any number of arguments.\n- **Type checks** (`isinstance`) or `functools.singledispatch`: choose by the type of an argument at run time.\n- **Duck typing**: just call the method and let the object decide.\n\n**Which kind is it then?** All of these decisions happen when the program *runs*, so in Python even \"overloading\" is really run-time behaviour. That is a classic interview question: say so.\n\n| | Compile-time (overloading) | Run-time (overriding) |\n|---|---|---|\n| Same name | in **one** class, different parameters | in **parent and child**, same parameters |\n| Chosen | by the compiler, from the declared types | by the real class of the object |\n| In Python | emulated (defaults, `*args`, `isinstance`) | built in |"
+}

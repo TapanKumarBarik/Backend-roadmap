@@ -1,0 +1,35 @@
+{
+  "title": "Employees and Payroll",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Inheritance plus overriding: three kinds of employee are paid differently, and one payroll function works for all of them.",
+  "statement": "Create a class `Employee` with `Employee(name, base_salary)`.\n\n- Attributes `name` and `base_salary`.\n- `calculate_pay()` returns the base salary.\n- `show()` prints `<name> earns <pay>` where `<pay>` is what `calculate_pay()` returns **for that kind of employee** (write `show` once, in `Employee`).\n\nCreate two subclasses that override `calculate_pay()`:\n\n- `Manager(name, base_salary)` has a `team` (an empty list at first) and `add_member(employee)` which appends to it. Pay is the base salary plus **1000 for every team member**.\n- `Developer(name, base_salary, overtime_hours=0)` has `overtime_hours`. Pay is the base salary plus **200 for every overtime hour**.\n\nFinally write a plain function `total_payroll(employees)` that returns the sum of every employee's pay. It must **not** check which kind of employee each one is.",
+  "starter": "class Employee:\n    def __init__(self, name, base_salary):\n        ...\n\n    def calculate_pay(self):\n        ...\n\n    def show(self):\n        ...\n\n\nclass Manager(Employee):\n    ...\n\n\nclass Developer(Employee):\n    ...\n\n\ndef total_payroll(employees):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nclerk = Employee(\"Asha\", 30000)",
+    "assert (clerk.name, clerk.base_salary, clerk.calculate_pay()) == (\"Asha\", 30000, 30000)",
+    "assert out(clerk.show) == [\"Asha earns 30000\"]",
+    "boss = Manager(\"Ben\", 50000)",
+    "assert boss.team == [] and boss.calculate_pay() == 50000 and isinstance(boss, Employee)",
+    "dev = Developer(\"Cy\", 40000, 10)\nother_dev = Developer(\"Dee\", 45000)",
+    "assert (dev.overtime_hours, other_dev.overtime_hours) == (10, 0) and dev.calculate_pay() == 42000 and other_dev.calculate_pay() == 45000 and isinstance(dev, Employee)",
+    "assert boss.add_member(dev) is None and boss.add_member(other_dev) is None and boss.team == [dev, other_dev]",
+    "assert boss.calculate_pay() == 52000",
+    "assert out(boss.show) == [\"Ben earns 52000\"] and out(dev.show) == [\"Cy earns 42000\"]",
+    "assert Manager(\"Zed\", 1).team is not boss.team",
+    "assert total_payroll([clerk, boss, dev, other_dev]) == 30000 + 52000 + 42000 + 45000",
+    "assert total_payroll([]) == 0",
+    "class Intern(Employee):\n    def calculate_pay(self):\n        return 5000",
+    "assert total_payroll([Intern(\"Kim\", 1), clerk]) == 35000 and out(Intern(\"Kim\", 1).show) == [\"Kim earns 5000\"]",
+    "dev.overtime_hours = 20",
+    "assert dev.calculate_pay() == 44000"
+  ],
+  "hints": [
+    "Each subclass overrides **one** method, `calculate_pay`. `show` is written once in `Employee` and calls `self.calculate_pay()`: `self` is the real object, so Python picks the right version.",
+    "Give `Manager` its own list in `__init__` (`self.team = []`). A list written at class level would be shared by every manager.",
+    "`total_payroll` just loops and calls `employee.calculate_pay()`. No `isinstance`, no `if`: that is the whole point of polymorphism, and the tests add a new `Intern` class that your function has never heard of."
+  ],
+  "solution": "class Employee:\n    def __init__(self, name, base_salary):\n        self.name = name\n        self.base_salary = base_salary\n\n    def calculate_pay(self):\n        return self.base_salary\n\n    def show(self):\n        print(f\"{self.name} earns {self.calculate_pay()}\")\n\n\nclass Manager(Employee):\n    def __init__(self, name, base_salary):\n        super().__init__(name, base_salary)\n        self.team = []\n\n    def add_member(self, employee):\n        self.team.append(employee)\n\n    def calculate_pay(self):\n        return self.base_salary + 1000 * len(self.team)\n\n\nclass Developer(Employee):\n    def __init__(self, name, base_salary, overtime_hours=0):\n        super().__init__(name, base_salary)\n        self.overtime_hours = overtime_hours\n\n    def calculate_pay(self):\n        return self.base_salary + 200 * self.overtime_hours\n\n\ndef total_payroll(employees):\n    return sum(employee.calculate_pay() for employee in employees)\n",
+  "explanation": "**Runtime polymorphism in one example.** `total_payroll` is written once and works for every kind of employee, including ones that do not exist yet. Which `calculate_pay` runs is decided **when the program runs**, by the real class of each object. That is *dynamic dispatch*.\n\n**The same for `show`.** It sits in the parent but calls `self.calculate_pay()`, so a `Manager` prints a manager's pay. Code in a base class can call methods that only the children define.\n\n**What to avoid.** `if type(e) is Manager: ... elif ...` inside `total_payroll` would break every time a new kind is added. Let the objects decide.\n\n**Going further.** What if every employee needs a tax? Where would you add `tax()` so that all subclasses get it for free, and one can still change it?"
+}

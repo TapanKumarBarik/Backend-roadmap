@@ -1,0 +1,28 @@
+{
+  "title": "Multilevel Inheritance",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A chain Animal, Mammal, Dog: each level adds behaviour, and the bottom class has all of it.",
+  "statement": "Build three classes in a **chain** (multilevel inheritance).\n\n- `Animal(name)`: `eat()` prints `<name> eats`. `lineage()` returns the list of the class names of the object's own class and all its parents, **nearest first, leaving out `object`**, for example `[\"Dog\", \"Mammal\", \"Animal\"]`.\n- `Mammal(Animal)`: `feed_milk()` prints `<name> feeds milk`.\n- `Dog(Mammal)`: `bark()` prints `<name> barks`.\n\nA `Dog` must be able to use all three methods without defining `eat` or `feed_milk` itself. A plain `Animal` has only `eat` and `lineage`.",
+  "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n\nclass Mammal(Animal):\n    ...\n\n\nclass Dog(Mammal):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nrex = Dog(\"Rex\")\ncow = Mammal(\"Bella\")\nfish = Animal(\"Nemo\")",
+    "assert rex.name == \"Rex\" and out(rex.eat) == [\"Rex eats\"] and out(rex.feed_milk) == [\"Rex feeds milk\"] and out(rex.bark) == [\"Rex barks\"]",
+    "assert out(cow.eat) == [\"Bella eats\"] and out(cow.feed_milk) == [\"Bella feeds milk\"] and not hasattr(cow, \"bark\")",
+    "assert out(fish.eat) == [\"Nemo eats\"] and not hasattr(fish, \"feed_milk\") and not hasattr(fish, \"bark\")",
+    "assert issubclass(Dog, Mammal) and issubclass(Dog, Animal) and issubclass(Mammal, Animal) and not issubclass(Animal, Mammal)",
+    "assert rex.lineage() == [\"Dog\", \"Mammal\", \"Animal\"] and cow.lineage() == [\"Mammal\", \"Animal\"] and fish.lineage() == [\"Animal\"]",
+    "assert \"eat\" not in Dog.__dict__ and \"feed_milk\" not in Dog.__dict__ and \"eat\" not in Mammal.__dict__",
+    "class Puppy(Dog):\n    pass",
+    "assert Puppy(\"Bit\").lineage() == [\"Puppy\", \"Dog\", \"Mammal\", \"Animal\"] and out(Puppy(\"Bit\").feed_milk) == [\"Bit feeds milk\"]",
+    "assert isinstance(rex, Animal) and isinstance(rex, Mammal) and isinstance(rex, Dog) and not isinstance(fish, Dog)"
+  ],
+  "hints": [
+    "Only `Animal` needs `__init__`. `Mammal` and `Dog` inherit it, so `Dog(\"Rex\")` works without any constructor of its own.",
+    "`type(self)` is the real class of the object. Every class has `__mro__`, the tuple of the class and its parents in the order Python searches them.",
+    "Filter out `object` (the invisible parent of every class) so the list matches the statement."
+  ],
+  "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def eat(self):\n        print(f\"{self.name} eats\")\n\n    def lineage(self):\n        return [cls.__name__ for cls in type(self).__mro__ if cls is not object]\n\n\nclass Mammal(Animal):\n    def feed_milk(self):\n        print(f\"{self.name} feeds milk\")\n\n\nclass Dog(Mammal):\n    def bark(self):\n        print(f\"{self.name} barks\")\n",
+  "explanation": "**Multilevel inheritance** is a chain: grandparent, parent, child. Each level adds one thing, and the child gets all of it. Look at the tests: `Dog` does not define `eat` or `feed_milk`, yet `rex.eat()` works, because Python walks *up* the chain until it finds the method.\n\n```mermaid\nclassDiagram\n    Animal <|-- Mammal\n    Mammal <|-- Dog\n    class Animal {\n        +eat()\n    }\n    class Mammal {\n        +feed_milk()\n    }\n    class Dog {\n        +bark()\n    }\n```\n\n**The method resolution order.** `Dog.__mro__` is `(Dog, Mammal, Animal, object)`. That is exactly the order Python searches, and what `lineage()` prints.\n\n**Caution.** Deep chains are hard to read (the \"fragile base class\" problem): a change high up ripples down. Prefer shallow hierarchies and composition when you can."
+}

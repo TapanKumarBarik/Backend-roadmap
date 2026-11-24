@@ -1,0 +1,30 @@
+{
+  "title": "Animal Sounds",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Runtime polymorphism: one loop makes every animal speak in its own way, including animals added later.",
+  "statement": "Create a class `Animal` with `Animal(name)`.\n\n- `speak()` prints `<name> makes a sound`.\n\nCreate subclasses that **override** `speak()`:\n\n- `Dog` prints `<name> says Woof`\n- `Cat` prints `<name> says Meow`\n- `Cow` prints `<name> says Moo`\n\nWrite a function `make_all_speak(animals)` that calls `speak()` on every animal in the list, in order. It must not check which kind of animal each one is.\n\n**Example**\n\n```\nmake_all_speak([Dog(\"Rex\"), Cat(\"Tom\"), Animal(\"Thing\")])\n# Rex says Woof\n# Tom says Meow\n# Thing makes a sound\n```",
+  "starter": "class Animal:\n    def __init__(self, name):\n        ...\n\n    def speak(self):\n        ...\n\n\nclass Dog(Animal):\n    ...\n\n\ndef make_all_speak(animals):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert out(Animal(\"Thing\").speak) == [\"Thing makes a sound\"]",
+    "assert out(Dog(\"Rex\").speak) == [\"Rex says Woof\"] and out(Cat(\"Tom\").speak) == [\"Tom says Meow\"] and out(Cow(\"Bella\").speak) == [\"Bella says Moo\"]",
+    "assert issubclass(Dog, Animal) and issubclass(Cat, Animal) and issubclass(Cow, Animal) and Dog(\"Rex\").name == \"Rex\"",
+    "herd = [Dog(\"Rex\"), Cat(\"Tom\"), Cow(\"Bella\"), Animal(\"Thing\")]",
+    "assert out(make_all_speak, herd) == [\"Rex says Woof\", \"Tom says Meow\", \"Bella says Moo\", \"Thing makes a sound\"]",
+    "assert out(make_all_speak, []) == []",
+    "class Duck(Animal):\n    def speak(self):\n        print(self.name + \" says Quack\")",
+    "assert out(make_all_speak, [Duck(\"Don\"), Dog(\"Rex\")]) == [\"Don says Quack\", \"Rex says Woof\"]",
+    "class Silent(Animal):\n    pass",
+    "assert out(make_all_speak, [Silent(\"Fish\")]) == [\"Fish makes a sound\"]",
+    "assert out(make_all_speak, [Cat(\"A\"), Cat(\"B\")]) == [\"A says Meow\", \"B says Meow\"]"
+  ],
+  "hints": [
+    "Only `Animal` needs an `__init__`; the children inherit it. They only override `speak`.",
+    "`make_all_speak` is a three-line loop: `for animal in animals: animal.speak()`. There is no `if isinstance(...)` anywhere.",
+    "A subclass that does not override `speak` (the tests define one called `Silent`) simply falls back to the parent's version."
+  ],
+  "solution": "class Animal:\n    def __init__(self, name):\n        self.name = name\n\n    def speak(self):\n        print(f\"{self.name} makes a sound\")\n\n\nclass Dog(Animal):\n    def speak(self):\n        print(f\"{self.name} says Woof\")\n\n\nclass Cat(Animal):\n    def speak(self):\n        print(f\"{self.name} says Meow\")\n\n\nclass Cow(Animal):\n    def speak(self):\n        print(f\"{self.name} says Moo\")\n\n\ndef make_all_speak(animals):\n    for animal in animals:\n        animal.speak()\n",
+  "explanation": "**Polymorphism** means \"many forms\": the *same call* (`animal.speak()`) does *different things* depending on the object. The caller only needs to know that every animal can `speak`.\n\n**It runs at run time.** Python decides which `speak` to run when the line executes, by looking at the object's class (and then its parents). This is called *dynamic dispatch* or *late binding*.\n\n**Why it matters.** `make_all_speak` never changes when you add a `Duck`. Without polymorphism you would have a growing `if/elif` chain that has to be edited every time. That is the *open/closed* idea: open for new animals, closed for edits.\n\n**Duck typing.** Python does not even require `Duck` to inherit from `Animal`: any object with a `speak()` method works. Inheritance is one way to get polymorphism, not the only one."
+}

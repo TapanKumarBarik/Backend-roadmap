@@ -1,0 +1,31 @@
+{
+  "title": "Music Playlist",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A playlist with add, remove, play-next and a numbered listing, printing a message for each case.",
+  "statement": "Create a class `Playlist` with `Playlist(name)`. A blank name is `ValueError(\"Name required\")`. Attribute: `name`. `len(playlist)` is the number of songs.\n\n- `add(song)` adds the song at the end and prints `Added <song>`. A song already in the playlist is **not** added again: it prints `<song> is already in the playlist`. A blank song (not a string or only spaces) is `ValueError(\"Song required\")`.\n- `remove(song)` removes it and prints `Removed <song>`, or prints `<song> is not in the playlist`.\n- `play_next()` takes the **first** song out of the playlist and prints `Now playing: <song>`; with no songs it prints `Playlist is empty`.\n- `show()` prints `Playlist <name> (<n> songs)` and then each song on its own line as `<position>. <song>`, starting from 1, in order.",
+  "starter": "class Playlist:\n    def __init__(self, name):\n        ...\n\n    def add(self, song):\n        ...\n\n    def remove(self, song):\n        ...\n\n    def play_next(self):\n        ...\n\n    def show(self):\n        ...\n\n    def __len__(self):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(Playlist, bad) == \"ValueError: Name required\"\np = Playlist(\"Road trip\")",
+    "assert p.name == \"Road trip\" and len(p) == 0 and out(p.show) == [\"Playlist Road trip (0 songs)\"] and out(p.play_next) == [\"Playlist is empty\"]",
+    "assert out(p.add, \"Believer\") == [\"Added Believer\"] and out(p.add, \"Faded\") == [\"Added Faded\"] and out(p.add, \"Closer\") == [\"Added Closer\"] and len(p) == 3",
+    "assert out(p.add, \"Faded\") == [\"Faded is already in the playlist\"] and len(p) == 3",
+    "for bad in (\"\", \"  \", None, 7):\n    assert error_of(p.add, bad) == \"ValueError: Song required\"",
+    "assert out(p.show) == [\"Playlist Road trip (3 songs)\", \"1. Believer\", \"2. Faded\", \"3. Closer\"]",
+    "assert out(p.remove, \"Faded\") == [\"Removed Faded\"] and out(p.remove, \"Faded\") == [\"Faded is not in the playlist\"] and len(p) == 2",
+    "assert out(p.show) == [\"Playlist Road trip (2 songs)\", \"1. Believer\", \"2. Closer\"]",
+    "assert out(p.play_next) == [\"Now playing: Believer\"] and len(p) == 1 and out(p.show) == [\"Playlist Road trip (1 songs)\", \"1. Closer\"]",
+    "assert out(p.play_next) == [\"Now playing: Closer\"] and out(p.play_next) == [\"Playlist is empty\"] and len(p) == 0",
+    "assert out(p.add, \"Believer\") == [\"Added Believer\"] and out(p.show)[-1] == \"1. Believer\"",
+    "q = Playlist(\"Other\")",
+    "assert len(q) == 0 and len(p) == 1"
+  ],
+  "hints": [
+    "Keep the songs in a list (`self._songs = []` in `__init__`). A queue that plays from the front is `pop(0)`.",
+    "`__len__` lets you write `len(playlist)`: it just returns `len(self._songs)`.",
+    "`enumerate(self._songs, start=1)` gives you the position and the song together for `show`."
+  ],
+  "solution": "class Playlist:\n    def __init__(self, name):\n        if not isinstance(name, str) or not name.strip():\n            raise ValueError(\"Name required\")\n        self.name = name\n        self._songs = []\n\n    def __len__(self):\n        return len(self._songs)\n\n    def add(self, song):\n        if not isinstance(song, str) or not song.strip():\n            raise ValueError(\"Song required\")\n        if song in self._songs:\n            print(f\"{song} is already in the playlist\")\n            return\n        self._songs.append(song)\n        print(f\"Added {song}\")\n\n    def remove(self, song):\n        if song in self._songs:\n            self._songs.remove(song)\n            print(f\"Removed {song}\")\n        else:\n            print(f\"{song} is not in the playlist\")\n\n    def play_next(self):\n        if not self._songs:\n            print(\"Playlist is empty\")\n            return\n        print(f\"Now playing: {self._songs.pop(0)}\")\n\n    def show(self):\n        print(f\"Playlist {self.name} ({len(self._songs)} songs)\")\n        for position, song in enumerate(self._songs, start=1):\n            print(f\"{position}. {song}\")\n",
+  "explanation": "**The idea.** A playlist is a list with rules around it. Wrapping the list in a class means callers can only do what the playlist allows (no duplicates, no blank names), and `len(playlist)` works because the class defines `__len__`.\n\n**Special methods make classes feel built-in.** `len(p)` calls `p.__len__()`. The same idea powers `+` for `Money` and `==` for your own types.\n\n**FIFO.** `pop(0)` plays the oldest song first. For a long queue a `collections.deque` and `popleft()` is faster, but a list is fine here and easier to read."
+}

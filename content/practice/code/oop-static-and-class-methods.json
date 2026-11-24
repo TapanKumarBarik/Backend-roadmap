@@ -1,0 +1,34 @@
+{
+  "title": "Static and Class Methods",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Use @staticmethod for helpers that need no object and @classmethod for an alternative constructor that also works in subclasses.",
+  "statement": "Create a class `TemperatureConverter` with two **static methods** (they need no object and are called on the class):\n\n- `celsius_to_fahrenheit(c)` returns `c * 9 / 5 + 32`, rounded to 2 decimals.\n- `fahrenheit_to_celsius(f)` returns `(f - 32) * 5 / 9`, rounded to 2 decimals.\n\nCreate a class `Person` with `Person(name, age)` and the attributes `name` and `age`.\n\n- A class attribute `CURRENT_YEAR = 2025`.\n- `from_birth_year(name, year)` is a **class method** (an alternative constructor): it returns a new object of the class it was called on, with `age = CURRENT_YEAR - year`. A year after `CURRENT_YEAR` is `ValueError(\"Birth year is in the future\")`.\n- `is_adult(age)` is a **static method** that returns `True` when `age >= 18`.\n- `describe()` prints `<name> is <age> years old`.\n\nBecause `from_birth_year` is a class method, `Employee.from_birth_year(...)` on a subclass `Employee(Person)` must return an `Employee`.",
+  "starter": "class TemperatureConverter:\n    ...\n\n\nclass Person:\n    CURRENT_YEAR = 2025\n\n    def __init__(self, name, age):\n        ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None",
+    "assert TemperatureConverter.celsius_to_fahrenheit(100) == 212.0 and TemperatureConverter.celsius_to_fahrenheit(0) == 32.0 and TemperatureConverter.celsius_to_fahrenheit(-40) == -40.0",
+    "assert TemperatureConverter.celsius_to_fahrenheit(37) == 98.6 and TemperatureConverter.celsius_to_fahrenheit(36.6) == 97.88 and TemperatureConverter.fahrenheit_to_celsius(212) == 100.0 and TemperatureConverter.fahrenheit_to_celsius(98.6) == 37.0 and TemperatureConverter.fahrenheit_to_celsius(0) == -17.78",
+    "assert isinstance(TemperatureConverter.__dict__[\"celsius_to_fahrenheit\"], staticmethod) and isinstance(TemperatureConverter.__dict__[\"fahrenheit_to_celsius\"], staticmethod)",
+    "assert TemperatureConverter().celsius_to_fahrenheit(10) == 50.0",
+    "p = Person(\"Asha\", 30)",
+    "assert (p.name, p.age, Person.CURRENT_YEAR) == (\"Asha\", 30, 2025) and out(p.describe) == [\"Asha is 30 years old\"]",
+    "q = Person.from_birth_year(\"Ben\", 2000)",
+    "assert isinstance(q, Person) and (q.name, q.age) == (\"Ben\", 25) and out(q.describe) == [\"Ben is 25 years old\"]",
+    "assert Person.from_birth_year(\"Baby\", 2025).age == 0 and error_of(Person.from_birth_year, \"Time\", 2026) == \"ValueError: Birth year is in the future\"",
+    "assert Person.is_adult(18) is True and Person.is_adult(17) is False and p.is_adult(40) is True",
+    "assert isinstance(Person.__dict__[\"from_birth_year\"], classmethod) and isinstance(Person.__dict__[\"is_adult\"], staticmethod)",
+    "class Employee(Person):\n    pass\ne = Employee.from_birth_year(\"Cy\", 1990)",
+    "assert type(e) is Employee and e.age == 35",
+    "class Century(Person):\n    CURRENT_YEAR = 2100",
+    "assert Century.from_birth_year(\"Old\", 2000).age == 100 and type(Century.from_birth_year(\"Old\", 2000)) is Century"
+  ],
+  "hints": [
+    "A static method has no `self` and no `cls`: it is a plain function that lives in the class because it belongs with it. Decorate it with `@staticmethod`.",
+    "A class method is decorated with `@classmethod` and receives the class as its first argument (`cls`). `return cls(name, age)` builds an object of **whatever class the method was called on**, so subclasses work without extra code.",
+    "Read `cls.CURRENT_YEAR` (not `Person.CURRENT_YEAR`) so a subclass that changes the year is respected."
+  ],
+  "solution": "class TemperatureConverter:\n    @staticmethod\n    def celsius_to_fahrenheit(c):\n        return round(c * 9 / 5 + 32, 2)\n\n    @staticmethod\n    def fahrenheit_to_celsius(f):\n        return round((f - 32) * 5 / 9, 2)\n\n\nclass Person:\n    CURRENT_YEAR = 2025\n\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\n    @classmethod\n    def from_birth_year(cls, name, year):\n        if year > cls.CURRENT_YEAR:\n            raise ValueError(\"Birth year is in the future\")\n        return cls(name, cls.CURRENT_YEAR - year)\n\n    @staticmethod\n    def is_adult(age):\n        return age >= 18\n\n    def describe(self):\n        print(f\"{self.name} is {self.age} years old\")\n",
+  "explanation": "**Three kinds of method.**\n\n| Kind | First argument | Use it for |\n|---|---|---|\n| instance method | `self` (one object) | behaviour of one object |\n| class method | `cls` (the class) | alternative constructors, class-wide settings |\n| static method | nothing | a helper that needs neither (unit conversion, validation) |\n\n**Alternative constructors.** `Person.from_birth_year` is a second way to build a `Person`. Using `cls(...)` instead of `Person(...)` means `Employee.from_birth_year(...)` returns an `Employee`: the method follows the class it was called on.\n\n**Static is not \"global\".** `is_adult` could be a module-level function, but keeping it in `Person` keeps related code together and makes it discoverable."
+}

@@ -121,6 +121,10 @@ the lesson"). Their conventions, which the next batches follow:
 - A mermaid diagram in an `explanation` renders on the problem page. The panel is narrow (about 415 px): keep class diagrams to names and bare method names (`+charge() Receipt`, no parameter
   lists) and draw a flowchart as one column; a diagram wider than the panel still works (sideways scroll or full screen) but reads worse.
 
+## Beginner OOP problems (`oop-*`)
+
+Twenty print-based class exercises in the topic `oop-and-classes` ("create a class with these attributes and methods"): a movie ticket counter, Person/Student/Teacher inheritance, `super()`, multilevel and multiple inheritance (MRO), abstract classes and abstract methods, runtime polymorphism, overloading in Python (defaults, `*args`, `isinstance`), operator overloading, encapsulation with properties, class vs instance attributes, static and class methods. The statement spells out every printed line; the tests capture stdout with `contextlib.redirect_stdout` (helper `out(action, ...)` at the top of each test). Sources: `scripts/dev/problem-sources/oop-*.py`, mutants `problem-mutants/oop-1.mjs` (167, all caught). The concept questions behind them (inheritance, abstract method vs abstract class, compile-time vs runtime polymorphism, does Python overload) are the interview set `content/practice/interview/oop-inheritance-and-polymorphism.json`.
+
 ## The daily drill and the problem of the day
 
 At the top of Practice (and under the quest on the Learn page) are two things to do today, the same for everyone on a given UTC day:

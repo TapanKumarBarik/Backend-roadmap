@@ -1,0 +1,35 @@
+{
+  "title": "Student Report Card",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "A student with marks per subject, an average, a letter grade, a printed report and a function that finds the topper.",
+  "statement": "Create a class `Student` with `Student(name)`. A blank name (not a string or only spaces) is `ValueError(\"Name required\")`. Attributes: `name` and `marks` (a dictionary from subject to mark, empty at first).\n\n- `add_mark(subject, mark)` stores a mark (a new mark for the same subject **replaces** the old one). A mark must be a number from 0 to 100 (a `bool` is not one), otherwise `ValueError(\"Mark must be between 0 and 100\")`.\n- `average()` returns the average mark rounded to 2 decimals, or `0` when there are no marks.\n- `grade()` returns `\"A\"` for an average of 90 or more, `\"B\"` for 80 or more, `\"C\"` for 70 or more, `\"D\"` for 60 or more, `\"F\"` below that, and `\"N/A\"` when there are no marks.\n- `report()` prints `Report for <name>`, then one line per subject **sorted by subject**: `  <subject>: <mark>` (two spaces first), then `Average: <average> (<grade>)`.\n\nWrite a function `topper(students)` that returns the student with the highest average (the first one in the list when tied), or `None` for an empty list.",
+  "starter": "class Student:\n    def __init__(self, name):\n        ...\n\n    def add_mark(self, subject, mark):\n        ...\n\n    def average(self):\n        ...\n\n    def grade(self):\n        ...\n\n    def report(self):\n        ...\n\n\ndef topper(students):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nfor bad in (\"\", \"  \", None, 5):\n    assert error_of(Student, bad) == \"ValueError: Name required\"\ns = Student(\"Asha\")",
+    "assert s.name == \"Asha\" and s.marks == {} and s.average() == 0 and s.grade() == \"N/A\"",
+    "assert out(s.report) == [\"Report for Asha\", \"Average: 0 (N/A)\"]",
+    "assert s.add_mark(\"Maths\", 90) is None and s.add_mark(\"English\", 75) is None and s.add_mark(\"Art\", 85.5) is None",
+    "assert s.marks == {\"Maths\": 90, \"English\": 75, \"Art\": 85.5} and s.average() == 83.5 and s.grade() == \"B\"",
+    "assert out(s.report) == [\"Report for Asha\", \"  Art: 85.5\", \"  English: 75\", \"  Maths: 90\", \"Average: 83.5 (B)\"]",
+    "for bad in (-1, 100.5, 101, True, \"90\", None):\n    assert error_of(s.add_mark, \"X\", bad) == \"ValueError: Mark must be between 0 and 100\"",
+    "assert \"X\" not in s.marks and s.average() == 83.5",
+    "s.add_mark(\"English\", 95)",
+    "assert s.marks[\"English\"] == 95 and s.average() == 90.17 and s.grade() == \"A\"",
+    "def student(name, *marks):\n    st = Student(name)\n    for index, mark in enumerate(marks):\n        st.add_mark(\"s\" + str(index), mark)\n    return st",
+    "assert student(\"a\", 100, 0).average() == 50 and student(\"a\", 100, 0).grade() == \"F\"",
+    "assert [student(\"x\", m).grade() for m in (100, 90, 89.99, 80, 79, 70, 69, 60, 59, 0)] == [\"A\", \"A\", \"B\", \"B\", \"C\", \"C\", \"D\", \"D\", \"F\", \"F\"]",
+    "assert student(\"t\", 10, 20, 30).average() == 20 and student(\"t\", 0, 0, 1).average() == 0.33",
+    "a, b, c = student(\"a\", 70), student(\"b\", 90, 80), student(\"c\", 86)",
+    "assert topper([a, b, c]) is c and topper([c, b]) is c",
+    "assert topper([student(\"p\", 80), student(\"q\", 80)]).name == \"p\" and topper([]) is None and topper([a]) is a"
+  ],
+  "hints": [
+    "`marks` is a plain dictionary created in `__init__`; `add_mark` assigns `self.marks[subject] = mark`, which also replaces an older mark.",
+    "Compute the average once with `sum(...) / len(...)`, guard the empty case first, and let `grade()` and `report()` call `average()` instead of repeating the sum.",
+    "In `topper`, only replace the current best when a student is **strictly** higher: that keeps the first one on a tie."
+  ],
+  "solution": "class Student:\n    def __init__(self, name):\n        if not isinstance(name, str) or not name.strip():\n            raise ValueError(\"Name required\")\n        self.name = name\n        self.marks = {}\n\n    def add_mark(self, subject, mark):\n        if type(mark) not in (int, float) or not 0 <= mark <= 100:\n            raise ValueError(\"Mark must be between 0 and 100\")\n        self.marks[subject] = mark\n\n    def average(self):\n        if not self.marks:\n            return 0\n        return round(sum(self.marks.values()) / len(self.marks), 2)\n\n    def grade(self):\n        if not self.marks:\n            return \"N/A\"\n        average = self.average()\n        for limit, letter in ((90, \"A\"), (80, \"B\"), (70, \"C\"), (60, \"D\")):\n            if average >= limit:\n                return letter\n        return \"F\"\n\n    def report(self):\n        print(f\"Report for {self.name}\")\n        for subject in sorted(self.marks):\n            print(f\"  {subject}: {self.marks[subject]}\")\n        print(f\"Average: {self.average()} ({self.grade()})\")\n\n\ndef topper(students):\n    best = None\n    for student in students:\n        if best is None or student.average() > best.average():\n            best = student\n    return best\n",
+  "explanation": "**The idea.** The object stores *facts* (the marks) and answers *questions* (`average`, `grade`) by calculating from them. Nothing is stored twice, so a changed mark can never leave a stale average behind.\n\n**Grading by table.** The `for limit, letter in (...)` loop replaces four `if` statements and makes the boundaries (`89.99` is a B, `90` is an A) easy to read and change.\n\n**Edge cases first.** No marks: average `0`, grade `N/A`. Empty list: `topper` returns `None`. Interviewers watch for these."
+}

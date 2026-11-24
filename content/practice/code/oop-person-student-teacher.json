@@ -1,0 +1,39 @@
+{
+  "title": "Person, Student and Teacher",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Inheritance: a base class Person and two derived classes that reuse its attributes and override introduce().",
+  "statement": "Create a base class `Person`.\n\n**Attributes:** `name` and `age`, set by `Person(name, age)`.\n**Method:** `introduce()` prints `Hi, I am <name> and I am <age> years old`.\n\nCreate a derived class `Student` that **inherits** from `Person`.\n\n- `Student(name, age, student_id, course)` has the extra attributes `student_id` and `course`.\n- `introduce()` **overrides** the parent method and prints `Hi, I am <name>, student ID <student_id>, studying <course>`.\n- `study(hours)` prints `<name> studied for <hours> hours`.\n\nCreate another derived class `Teacher` that inherits from `Person`.\n\n- `Teacher(name, age, employee_id, subject)` has the extra attributes `employee_id` and `subject`.\n- `introduce()` overrides the parent method and prints `Hi, I am <name>, employee ID <employee_id>, teaching <subject>`.\n- `teach(hours)` prints `<name> taught <subject> for <hours> hours`.\n\nReuse the parent's `__init__` (with `super().__init__`) instead of setting `name` and `age` again.\n\n**Example**\n\n```\nstudent = Student(\"Ravi\", 20, \"S101\", \"Python\")\nstudent.introduce()   # Hi, I am Ravi, student ID S101, studying Python\nstudent.study(3)      # Ravi studied for 3 hours\n```",
+  "starter": "class Person:\n    def __init__(self, name, age):\n        ...\n\n    def introduce(self):\n        ...\n\n\nclass Student(Person):\n    ...\n\n\nclass Teacher(Person):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nperson = Person(\"Asha\", 30)",
+    "assert (person.name, person.age) == (\"Asha\", 30)",
+    "assert out(person.introduce) == [\"Hi, I am Asha and I am 30 years old\"]",
+    "student = Student(\"Ravi\", 20, \"S101\", \"Python\")\nteacher = Teacher(\"Meena\", 35, \"T501\", \"Mathematics\")",
+    "assert isinstance(student, Person) and isinstance(teacher, Person) and issubclass(Student, Person) and issubclass(Teacher, Person)",
+    "assert not isinstance(student, Teacher) and not isinstance(teacher, Student)",
+    "assert (student.name, student.age, student.student_id, student.course) == (\"Ravi\", 20, \"S101\", \"Python\")",
+    "assert (teacher.name, teacher.age, teacher.employee_id, teacher.subject) == (\"Meena\", 35, \"T501\", \"Mathematics\")",
+    "assert out(student.introduce) == [\"Hi, I am Ravi, student ID S101, studying Python\"]",
+    "assert out(teacher.introduce) == [\"Hi, I am Meena, employee ID T501, teaching Mathematics\"]",
+    "assert out(student.study, 3) == [\"Ravi studied for 3 hours\"]",
+    "assert out(teacher.teach, 2) == [\"Meena taught Mathematics for 2 hours\"]",
+    "assert not hasattr(person, \"study\") and not hasattr(student, \"teach\") and not hasattr(teacher, \"study\")",
+    "assert Student.introduce is not Person.introduce and Teacher.introduce is not Person.introduce",
+    "people = [person, student, teacher]",
+    "assert [out(p.introduce)[0][:5] for p in people] == [\"Hi, I\", \"Hi, I\", \"Hi, I\"]",
+    "assert sum(len(out(p.introduce)) for p in people) == 3",
+    "class Intern(Student):\n    pass\nintern = Intern(\"Kim\", 19, \"S9\", \"Go\")",
+    "assert out(intern.introduce) == [\"Hi, I am Kim, student ID S9, studying Go\"] and isinstance(intern, Person)",
+    "second = Student(\"Zoe\", 22, \"S2\", \"SQL\")",
+    "assert second.name == \"Zoe\" and student.name == \"Ravi\""
+  ],
+  "hints": [
+    "`class Student(Person):` makes `Student` a child of `Person`. Its own `__init__` takes all four values, passes `name` and `age` to the parent with `super().__init__(name, age)`, and stores the two new ones itself.",
+    "Defining a method with the **same name** in the child *overrides* the parent's. When you call `student.introduce()`, Python looks in `Student` first and finds your version.",
+    "`study` belongs only to `Student` and `teach` only to `Teacher`: a child may add methods, but a sibling does not get them."
+  ],
+  "solution": "class Person:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name} and I am {self.age} years old\")\n\n\nclass Student(Person):\n    def __init__(self, name, age, student_id, course):\n        super().__init__(name, age)\n        self.student_id = student_id\n        self.course = course\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name}, student ID {self.student_id}, studying {self.course}\")\n\n    def study(self, hours):\n        print(f\"{self.name} studied for {hours} hours\")\n\n\nclass Teacher(Person):\n    def __init__(self, name, age, employee_id, subject):\n        super().__init__(name, age)\n        self.employee_id = employee_id\n        self.subject = subject\n\n    def introduce(self):\n        print(f\"Hi, I am {self.name}, employee ID {self.employee_id}, teaching {self.subject}\")\n\n    def teach(self, hours):\n        print(f\"{self.name} taught {self.subject} for {hours} hours\")\n",
+  "explanation": "**Inheritance** means \"a `Student` *is a* `Person`\": the child starts with everything the parent has (`name`, `age`) and adds or changes what is special.\n\n```mermaid\nclassDiagram\n    class Person {\n        +name\n        +age\n        +introduce()\n    }\n    class Student {\n        +student_id\n        +course\n        +introduce()\n        +study()\n    }\n    class Teacher {\n        +employee_id\n        +subject\n        +introduce()\n        +teach()\n    }\n    Person <|-- Student\n    Person <|-- Teacher\n```\n\n**`super()`** gives you the parent's version. Calling `super().__init__(name, age)` reuses the parent's setup instead of copying its lines, so a change to `Person` reaches both children.\n\n**Overriding** replaces a parent method for the child. That is the seed of *polymorphism*: `for p in people: p.introduce()` prints a different sentence for each kind of person without an `if`.\n\n**Going further.** What would `Student.introduce` look like if it printed the parent's sentence first and then added the course (hint: `super().introduce()`)?"
+}

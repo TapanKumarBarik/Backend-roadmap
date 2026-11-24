@@ -1,0 +1,33 @@
+{
+  "title": "Vehicle, Car and Bike",
+  "topic": "oop-and-classes",
+  "difficulty": "beginner",
+  "module": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+  "description": "Use super() to extend a parent constructor and a parent method instead of copying them.",
+  "statement": "Create a class `Vehicle` with `Vehicle(brand, wheels)`.\n\n- `info()` prints `<brand> with <wheels> wheels`.\n\nCreate `Car(brand, doors)`, a `Vehicle` that always has **4** wheels and also stores `doors`.\n\n- `info()` first prints the parent's line (call the parent's `info`) and then prints `Doors: <doors>`.\n\nCreate `Bike(brand, has_carrier=False)`, a `Vehicle` with **2** wheels that stores `has_carrier`.\n\n- `info()` prints the parent's line and then `Carrier: yes` or `Carrier: no`.\n\nUse `super()` in both the constructor and `info()`: do not copy the parent's lines.",
+  "starter": "class Vehicle:\n    def __init__(self, brand, wheels):\n        ...\n\n    def info(self):\n        ...\n\n\nclass Car(Vehicle):\n    ...\n\n\nclass Bike(Vehicle):\n    ...\n",
+  "tests": [
+    "import io\nimport contextlib\ndef out(action, *args):\n    \"\"\"The lines a call prints.\"\"\"\n    buffer = io.StringIO()\n    with contextlib.redirect_stdout(buffer):\n        action(*args)\n    return buffer.getvalue().splitlines()\ndef error_of(action, *args, **kwargs):\n    try:\n        action(*args, **kwargs)\n    except Exception as error:\n        return type(error).__name__ + \": \" + str(error)\n    return None\nv = Vehicle(\"Truck\", 6)",
+    "assert (v.brand, v.wheels) == (\"Truck\", 6) and out(v.info) == [\"Truck with 6 wheels\"]",
+    "car = Car(\"Honda\", 4)",
+    "assert (car.brand, car.wheels, car.doors) == (\"Honda\", 4, 4) and isinstance(car, Vehicle)",
+    "assert out(car.info) == [\"Honda with 4 wheels\", \"Doors: 4\"]",
+    "assert Car(\"Mini\", 2).doors == 2 and out(Car(\"Mini\", 2).info) == [\"Mini with 4 wheels\", \"Doors: 2\"]",
+    "bike = Bike(\"Hero\")",
+    "assert (bike.brand, bike.wheels, bike.has_carrier) == (\"Hero\", 2, False) and isinstance(bike, Vehicle)",
+    "assert out(bike.info) == [\"Hero with 2 wheels\", \"Carrier: no\"]",
+    "assert out(Bike(\"Bajaj\", True).info) == [\"Bajaj with 2 wheels\", \"Carrier: yes\"] and Bike(\"Bajaj\", has_carrier=True).has_carrier is True",
+    "class Hybrid(Car):\n    def info(self):\n        super().info()\n        print(\"Hybrid\")",
+    "assert out(Hybrid(\"Toyota\", 4).info) == [\"Toyota with 4 wheels\", \"Doors: 4\", \"Hybrid\"]",
+    "original = Vehicle.info\nVehicle.info = lambda self: print(\"changed \" + self.brand)",
+    "assert out(Car(\"Ford\", 2).info) == [\"changed Ford\", \"Doors: 2\"] and out(Bike(\"Hero\").info) == [\"changed Hero\", \"Carrier: no\"]",
+    "Vehicle.info = original"
+  ],
+  "hints": [
+    "`Car.__init__` takes only `brand` and `doors`: it supplies the number of wheels itself when it calls `super().__init__(brand, 4)`.",
+    "To *extend* a method rather than replace it, call `super().info()` first and then print the extra line. The last test even changes `Vehicle.info` to check that you really call the parent.",
+    "Do not copy the `\"<brand> with <wheels> wheels\"` text into the children: that is the copy `super()` exists to avoid."
+  ],
+  "solution": "class Vehicle:\n    def __init__(self, brand, wheels):\n        self.brand = brand\n        self.wheels = wheels\n\n    def info(self):\n        print(f\"{self.brand} with {self.wheels} wheels\")\n\n\nclass Car(Vehicle):\n    def __init__(self, brand, doors):\n        super().__init__(brand, 4)\n        self.doors = doors\n\n    def info(self):\n        super().info()\n        print(f\"Doors: {self.doors}\")\n\n\nclass Bike(Vehicle):\n    def __init__(self, brand, has_carrier=False):\n        super().__init__(brand, 2)\n        self.has_carrier = has_carrier\n\n    def info(self):\n        super().info()\n        print(\"Carrier: \" + (\"yes\" if self.has_carrier else \"no\"))\n",
+  "explanation": "**`super()` is how a child cooperates with its parent.** Overriding *replaces* a method; calling `super().info()` inside the override *extends* it: do the parent's work, then add your own.\n\n**Why not copy the line?** If `Vehicle.info` later prints the brand in capitals, a copied line in `Car` would silently stay old. Calling the parent keeps one source of truth. The test changes `Vehicle.info` on purpose to prove you call it.\n\n**Fixed values in the child.** A `Car` always has 4 wheels, so its constructor does not ask for them. Children can *narrow* what the parent asks for."
+}
