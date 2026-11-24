@@ -33,7 +33,7 @@ function renderBitGrid() {
 
     let cls = 'bf-bit';
     if (isSet) cls += ' is-set';
-    if (isHighlighted) cls += ' is-active';
+    if (isHighlighted) cls += ' is-active is-flash';
 
     const cell = make('div', cls);
     cell.title = `Bit #${i}: ${isSet ? 1 : 0}`;

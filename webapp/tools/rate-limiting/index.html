@@ -21,17 +21,17 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Rate Limiting & Traffic Shaping Simulator","url":"%SITE_URL%/tools/rate-limiting/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
 </head>
 <body class="tool">
-<header class="tool-top">
+<header class="tool-top tool-top--wide">
   <a class="tool-brand" href="/">%SITE_NAME%</a>
   <nav aria-label="Related">
-    <a href="/tools/">Network Lab</a>
+    <a href="/tools/">Interactive Labs</a>
     <a href="/system-design/02-networking-from-zero/">Networking course</a>
     <a href="/practice/">Practice</a>
     <a href="/videos/">Videos</a>
   </nav>
 </header>
 
-<main class="tool-main">
+<main class="tool-main tool-main--lab">
   <h1>Rate Limiting &amp; Traffic Shaping Simulator</h1>
   <p class="tool-lead">How do API gateways, Stripe, and Cloudflare stop scrapers and traffic surges from taking down backend microservices? Compare Token Bucket, Leaky Bucket, and Sliding Window algorithms side-by-side under realistic bursty web traffic.</p>
 
@@ -66,14 +66,39 @@
       <div class="ll-stat"><span>Peak bucket / buffer</span><strong id="rl-buffer"></strong></div>
     </div>
 
-    <div class="tc-chart-box">
-      <div class="tc-chart-legend">
-        <span><i class="rl-sw-acc"></i> Accepted Requests</span>
-        <span><i class="rl-sw-rej"></i> Throttled (429)</span>
-        <span><i class="rl-sw-state"></i> Token / Queue Level</span>
-        <span><i class="rl-sw-rate"></i> Sustained Rate Limit</span>
+    <div class="rl-workbench">
+      <div class="tool-stage tool-stage--immersive" aria-label="Traffic timeline chart">
+        <p class="tool-stage__title">Live traffic timeline</p>
+        <div class="tc-chart-box" style="margin: 0;">
+          <div class="tc-chart-legend">
+            <span><i class="rl-sw-acc"></i> Accepted Requests</span>
+            <span><i class="rl-sw-rej"></i> Throttled (429)</span>
+            <span><i class="rl-sw-state"></i> Token / Queue Level</span>
+            <span><i class="rl-sw-rate"></i> Sustained Rate Limit</span>
+          </div>
+          <div id="rl-chart" class="tc-chart-container"></div>
+        </div>
       </div>
-      <div id="rl-chart" class="tc-chart-container"></div>
+      <div class="tool-stage" aria-label="Acceptance meters">
+        <p class="tool-stage__title">Gate pressure</p>
+        <div class="tool-meter">
+          <div class="tool-meter__row">
+            <span class="tool-meter__label">Accepted</span>
+            <div class="tool-meter__track"><div id="rl-meter-accept" class="tool-meter__fill is-ok"></div></div>
+            <span class="tool-meter__value" id="rl-meter-accept-val">0%</span>
+          </div>
+          <div class="tool-meter__row">
+            <span class="tool-meter__label">Throttled</span>
+            <div class="tool-meter__track"><div id="rl-meter-reject" class="tool-meter__fill is-danger"></div></div>
+            <span class="tool-meter__value" id="rl-meter-reject-val">0%</span>
+          </div>
+          <div class="tool-meter__row">
+            <span class="tool-meter__label">Bucket fill</span>
+            <div class="tool-meter__track"><div id="rl-meter-bucket" class="tool-meter__fill is-warn"></div></div>
+            <span class="tool-meter__value" id="rl-meter-bucket-val">0%</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <ul id="rl-advice" class="ll-advice"></ul>

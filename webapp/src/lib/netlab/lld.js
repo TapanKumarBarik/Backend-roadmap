@@ -130,7 +130,7 @@ export function renderSvgDiagram(preset, options = {}) {
     const titleY = it.stereotype ? it.y + 28 : it.y + 22;
 
     boxesSvg += `
-      <g class="lld-node" data-id="${escapeXml(it.id)}" style="cursor: pointer;">
+      <g class="lld-node${isSelected ? ' is-selected' : ''}" data-id="${escapeXml(it.id)}" data-selected="${isSelected ? 'true' : 'false'}" style="cursor: pointer;">
         <!-- Card Background -->
         <rect x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}" rx="6" fill="var(--bg, #ffffff)" stroke="${borderStroke}" stroke-width="${strokeWidth}" />
         <!-- Header Background -->

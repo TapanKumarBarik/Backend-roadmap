@@ -21,7 +21,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"CollectionPage","name":"Network Lab","url":"%SITE_URL%/tools/","isAccessibleForFree":true,"mainEntity":{"@type":"ItemList","itemListElement":[{"@type":"ListItem","position":1,"name":"Page load latency calculator","url":"%SITE_URL%/tools/page-load-latency/"},{"@type":"ListItem","position":2,"name":"Subnet calculator and CIDR practice","url":"%SITE_URL%/tools/subnet/"},{"@type":"ListItem","position":3,"name":"TCP Congestion & Flow Control Simulator","url":"%SITE_URL%/tools/tcp-congestion/"},{"@type":"ListItem","position":4,"name":"Consistent Hashing & Partitioning Lab","url":"%SITE_URL%/tools/consistent-hashing/"},{"@type":"ListItem","position":5,"name":"Rate Limiting & Traffic Shaping Simulator","url":"%SITE_URL%/tools/rate-limiting/"},{"@type":"ListItem","position":6,"name":"Bloom Filter Simulator & Sizing Calculator","url":"%SITE_URL%/tools/bloom-filter/"},{"@type":"ListItem","position":7,"name":"Low-Level Design (LLD) & Schema Studio","url":"%SITE_URL%/tools/lld-studio/"},{"@type":"ListItem","position":8,"name":"Raft Distributed Consensus Simulator","url":"%SITE_URL%/tools/raft-consensus/"},{"@type":"ListItem","position":9,"name":"Vector Clocks & Distributed Causality Lab","url":"%SITE_URL%/tools/vector-clocks/"},{"@type":"ListItem","position":10,"name":"SQL Query & Index Optimizer Playground","url":"%SITE_URL%/tools/sql-optimizer/"}]}}</script>
 </head>
 <body class="tool">
-<header class="tool-top">
+<header class="tool-top tool-top--wide">
   <a class="tool-brand" href="/">%SITE_NAME%</a>
   <nav aria-label="Related">
     <a href="/system-design/02-networking-from-zero/">Networking course</a>
@@ -30,87 +30,103 @@
   </nav>
 </header>
 
-<main class="tool-main">
-  <h1>Network Lab</h1>
-  <p class="tool-lead">Interactive tools for understanding how the network under your code works. They run in your browser, need no sign-in, and show their working, so you can check every number by hand.</p>
+<main class="tool-main tool-main--wide">
+  <h1>Interactive Labs</h1>
+  <p class="tool-lead">Hands-on simulators for networking, caching, consensus, LLD, and more. They run in your browser, need no sign-in, and show their working — so you can check every number by hand.</p>
 
   <div class="tool-hub">
     <section class="tool-card" aria-labelledby="load-h">
+      <span class="tool-hub__tag">Networking</span>
       <h2 id="load-h">Page load latency calculator</h2>
       <p>Set the distance to the server, the protocol and the size of the page. See DNS, the TCP and TLS handshakes and the request drawn as the messages that cross the network, and what each round trip costs, for TLS 1.2, TLS 1.3 and HTTP/3.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/page-load-latency/">Open the calculator</a>
     </section>
     <section class="tool-card" aria-labelledby="subnet-h">
+      <span class="tool-hub__tag">Networking</span>
       <h2 id="subnet-h">Subnet calculator and CIDR practice</h2>
       <p>Type a block like <code>10.0.5.40/29</code> for its network, broadcast and host range with the working written out. Then practise on endless questions, or play the puzzle of the day.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/subnet/">Open the calculator</a>
     </section>
     <section class="tool-card" aria-labelledby="tcp-h">
+      <span class="tool-hub__tag">Networking</span>
       <h2 id="tcp-h">TCP Congestion &amp; Flow Control Simulator</h2>
       <p>Explore the AIMD Sawtooth waveform, Slow Start exponential doubling, router bufferbloat, and receiver window flow control. See how TCP dynamically models network pipes and recovers from packet loss.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/tcp-congestion/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="hash-h">
+      <span class="tool-hub__tag">Distributed</span>
       <h2 id="hash-h">Consistent Hashing &amp; Partitioning Lab</h2>
       <p>Explore virtual nodes (vnodes), circular hash ring partitioning, failover rebalancing, and minimal key migration across distributed cache and storage clusters.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/consistent-hashing/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="rate-h">
+      <span class="tool-hub__tag">Traffic</span>
       <h2 id="rate-h">Rate Limiting &amp; Traffic Shaping Simulator</h2>
       <p>Compare Token Bucket, Leaky Bucket, and Sliding Window algorithms under real-world bursty web traffic. See how API gateways and CDNs protect microservices from abuse.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/rate-limiting/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="bloom-h">
+      <span class="tool-hub__tag">Data structures</span>
       <h2 id="bloom-h">Bloom Filter Simulator &amp; Sizing Calculator</h2>
       <p>Test probabilistic set membership on an interactive bit array, observe false positive collisions, and calculate optimal memory sizing and hash counts for production databases.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/bloom-filter/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="lld-h">
+      <span class="tool-hub__tag">LLD</span>
       <h2 id="lld-h">Low-Level Design (LLD) &amp; Schema Studio</h2>
       <p>Interactive UML class diagrams, relational ER schemas, and design pattern templates (Parking Lot, Elevator, Payment Gateway) with 1-click code export to Python, TypeScript, Go, SQL DDL, and Mermaid.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/lld-studio/">Open the studio</a>
     </section>
     <section class="tool-card" aria-labelledby="raft-h">
+      <span class="tool-hub__tag">Consensus</span>
       <h2 id="raft-h">Raft Distributed Consensus Simulator</h2>
       <p>Simulate a 5-node distributed cluster running Raft consensus. Watch leader election, split-vote scenarios, heartbeat intervals, and majority quorum log replication in real time.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/raft-consensus/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="vc-h">
+      <span class="tool-hub__tag">Causality</span>
       <h2 id="vc-h">Vector Clocks &amp; Distributed Causality Lab</h2>
       <p>Explore Lamport timestamps, vector clock rules, happens-before causal ordering ($V_1 \le V_2$), and multi-version concurrent conflict detection (Dynamo-style) across independent nodes.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/vector-clocks/">Open the lab</a>
     </section>
     <section class="tool-card" aria-labelledby="sqlopt-h">
+      <span class="tool-hub__tag">Databases</span>
       <h2 id="sqlopt-h">SQL Query &amp; Index Optimizer Playground</h2>
       <p>Visualize database query execution plans. Toggle B-tree indexes, test composite left-prefix rules, observe covering index-only scans, and understand query planner cost models.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/sql-optimizer/">Open the playground</a>
     </section>
     <section class="tool-card" aria-labelledby="stream-h">
+      <span class="tool-hub__tag">Streaming</span>
       <h2 id="stream-h">Kafka &amp; Event Streaming Simulator</h2>
       <p>Simulate partitioned commit logs, deterministic hash key routing, dynamic consumer group rebalancing, offset tracking, consumer lag, and delivery semantics (At-Least-Once vs Idempotent).</p>
       <a class="tool-btn tool-btn--primary" href="/tools/event-streaming/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="est-h">
+      <span class="tool-hub__tag">Estimation</span>
       <h2 id="est-h">System Design Capacity Estimator</h2>
       <p>Back-of-the-envelope calculations for distributed architectures. Estimate peak QPS, network ingress/egress bandwidth, multi-year replicated storage, 80/20 RAM cache sizing, and database sharding with 1-click Markdown export.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/system-design-estimator/">Open the estimator</a>
     </section>
     <section class="tool-card" aria-labelledby="distxt-h">
+      <span class="tool-hub__tag">Transactions</span>
       <h2 id="distxt-h">Distributed Transactions &amp; Saga Simulator</h2>
       <p>Compare strict ACID Two-Phase Commit (2PC) with eventually consistent Sagas. Test microservice partial failures, coordinator timeouts, and backwards compensating rollbacks.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/distributed-transactions/">Open the simulator</a>
     </section>
     <section class="tool-card" aria-labelledby="cache-h">
-      <h2 id="cache-h">Cache Strategies &amp; Stampede Protection Lab</h2>
-      <p>Explore Cache-Aside, Write-Through, and Write-Behind patterns. Simulate thundering herd cache stampedes and compare Mutex Locking vs XFetch probabilistic early refresh.</p>
-      <a class="tool-btn tool-btn--primary" href="/tools/caching-strategies/">Open the lab</a>
+      <span class="tool-hub__tag">Caching</span>
+      <h2 id="cache-h">Caching &amp; Stampede Protection</h2>
+      <p>Step through a hot-key expiration: warm hits, TTL cliff, thundering herd, mutex, and XFetch — live diagram and instruments, one pressure at a time.</p>
+      <a class="tool-btn tool-btn--primary" href="/tools/caching-strategies/">Open the lesson</a>
     </section>
     <section class="tool-card" aria-labelledby="ws-h">
+      <span class="tool-hub__tag">Realtime</span>
       <h2 id="ws-h">Real-Time Connection &amp; WebSocket Scaling Lab</h2>
       <p>Model socket buffer memory overhead (<code>rmem</code>/<code>wmem</code>), Linux file descriptor limits (<code>ulimit -n</code>), pub/sub backplane throughput, and reconnection storm jitter windows.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/websocket-scaling/">Open the lab</a>
     </section>
     <section class="tool-card" aria-labelledby="inc-h">
+      <span class="tool-hub__tag">Incidents</span>
       <h2 id="inc-h">Production Incident Troubleshooting &amp; RCA Simulator</h2>
       <p>Step into an on-call engineer's shoes during an active P0 backend outage. Inspect database locks, analyze JVM Full GC freezes, and mitigate thundering retry storms live.</p>
       <a class="tool-btn tool-btn--primary" href="/tools/incident-debugger/">Open the simulator</a>

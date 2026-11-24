@@ -77,6 +77,17 @@ function syncControls() {
 
 /* ------------------------------------------------------------------------------------------------ Stats Cards */
 
+function setMeter(fillId, valId, pct, kind) {
+  const fill = $(fillId);
+  const val = $(valId);
+  if (fill) {
+    fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    fill.classList.remove('is-ok', 'is-warn', 'is-danger');
+    if (kind) fill.classList.add(kind);
+  }
+  if (val) val.textContent = `${pct}%`;
+}
+
 function renderSummary(res) {
   const { summary } = res;
   $('rl-total').textContent = summary.totalIncoming.toLocaleString('en-US');
@@ -84,6 +95,15 @@ function renderSummary(res) {
   $('rl-rejected').textContent = summary.totalRejected.toLocaleString('en-US');
   $('rl-pct').textContent = `${summary.acceptancePct}%`;
   $('rl-buffer').textContent = `${summary.peakState} / ${res.config.burst}`;
+
+  const acceptPct = Number(summary.acceptancePct) || 0;
+  const rejectPct = Math.max(0, Math.min(100, Math.round(100 - acceptPct)));
+  const bucketPct = res.config.burst
+    ? Math.max(0, Math.min(100, Math.round((summary.peakState / res.config.burst) * 100)))
+    : 0;
+  setMeter('rl-meter-accept', 'rl-meter-accept-val', acceptPct, acceptPct >= 70 ? 'is-ok' : acceptPct >= 40 ? 'is-warn' : 'is-danger');
+  setMeter('rl-meter-reject', 'rl-meter-reject-val', rejectPct, rejectPct >= 40 ? 'is-danger' : rejectPct >= 15 ? 'is-warn' : 'is-ok');
+  setMeter('rl-meter-bucket', 'rl-meter-bucket-val', bucketPct, bucketPct >= 85 ? 'is-danger' : bucketPct >= 55 ? 'is-warn' : 'is-ok');
 }
 
 function renderAdvice(res) {
