@@ -47,3 +47,15 @@ test('"groups" must be a list, though it may be empty', () => {
   areas.lld.groups = undefined;
   assert.match(check(areas).problems[0], /area "lld": "groups" must be a list/);
 });
+
+test('a group may list a track of another area as "<area>/<track>"; it must exist there, and its own area does not report it as ungrouped', () => {
+  const areas = good();
+  areas.lld.groups = [{ label: 'Start', tracks: ['backend/03-c', 'x', 'y'] }];
+  const { problems, ungrouped } = check(areas);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(ungrouped, {}, '03-c is shown under lld, so backend has nothing left over');
+  areas.lld.groups = [{ label: 'Start', tracks: ['backend/09-typo', 'nope/x', 'x', 'y'] }];
+  const messages = check(areas).problems.join('\n');
+  assert.match(messages, /there is no folder content\/backend\/09-typo/);
+  assert.match(messages, /there is no folder content\/nope\/x/);
+});

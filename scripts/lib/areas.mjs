@@ -16,6 +16,9 @@ export function areaProblems(areas, curricula, tracksOf) {
     problems.push(`content.areas and content.curricula list the areas in a different order (${ids.join(', ')} against ${curricula.join(', ')}); the order is shown to readers, so keep one`);
   }
 
+  // A group may list a track from another area's folder as "<area>/<track>"; that track is shown here and left out of its own area's leftovers.
+  const claimed = new Set(ids.flatMap((id) => (Array.isArray(areas[id]?.groups) ? areas[id].groups : []).flatMap((g) => (Array.isArray(g?.tracks) ? g.tracks : []).filter((t) => typeof t === 'string' && t.includes('/')))));
+
   for (const id of ids) {
     const area = areas[id] || {};
     for (const field of ['label', 'short', 'blurb']) {
@@ -34,12 +37,15 @@ export function areaProblems(areas, curricula, tracksOf) {
         return;
       }
       for (const track of group.tracks) {
-        if (!onDisk.has(track)) problems.push(`${where} ("${group.label}"): there is no folder content/${id}/${track}`);
+        if (track.includes('/')) {
+          const [other, name] = track.split('/');
+          if (!curricula.includes(other) || !tracksOf(other).includes(name)) problems.push(`${where} ("${group.label}"): there is no folder content/${track}`);
+        } else if (!onDisk.has(track)) problems.push(`${where} ("${group.label}"): there is no folder content/${id}/${track}`);
         if (seen.has(track)) problems.push(`area "${id}": "${track}" is in two groups ("${seen.get(track)}" and "${group.label}")`);
         seen.set(track, group.label);
       }
     });
-    const rest = [...onDisk].filter((t) => !seen.has(t)).sort();
+    const rest = [...onDisk].filter((t) => !seen.has(t) && !claimed.has(`${id}/${t}`)).sort();
     if (area.groups.length && rest.length) ungrouped[id] = rest;
   }
   return { problems, ungrouped };
