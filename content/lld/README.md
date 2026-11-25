@@ -183,6 +183,7 @@ flowchart TD
 | **31** | [OOP Pillar 3: Inheritance](31-oop-pillar-3-inheritance/README.md) | super(), overriding, MRO and the diamond, LSP, composition over inheritance | Hierarchies that do not lie |
 | **32** | [OOP Pillar 4: Polymorphism](32-oop-pillar-4-polymorphism/README.md) | Compile-time vs runtime, overloading vs overriding, operators, duck typing | Replacing if/else ladders |
 | **33** | [UML Class Diagrams and Relationships](33-uml-class-diagram-relationships/README.md) | Class, object, association, aggregation, composition, dependency, realization | Draw it and code it |
+| **34** | [SOLID in Depth](34-solid-in-depth/README.md) | One lesson per principle (SRP, OCP, LSP, ISP, DIP) plus refactoring drills, with Python and C# | Refactor a messy class and prove nothing changed |
 | **03** | [Generics, Exceptions & Value Objects](03-generics-exceptions-and-value-objects/README.md) | Type covariance/contravariance, domain exception hierarchies, immutability | Robust value objects & domain primitives |
 
 ### Tier 2: SOLID & Architectural Principles

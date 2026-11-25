@@ -393,6 +393,7 @@
             "label": "Principles",
             "tracks": [
               "04-solid-principles",
+              "34-solid-in-depth",
               "05-core-design-principles"
             ]
           },
