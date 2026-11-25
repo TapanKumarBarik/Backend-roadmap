@@ -202,8 +202,10 @@ test('on Explore every area lists its tracks with something to open: no card say
     assert.deepEqual(counts.filter((c) => /^0 /.test(c)), [], `${name}: no track says 0 lessons`);
   }
   await page.locator('.xa .area-row .chip', { hasText: 'Low-level design' }).click();
-  await page.locator('.xa-track--single').first().waitFor();
-  assert.ok(await page.locator('a.xa-track--single[href]').count() > 5, 'single-lesson tracks are links');
+  const patterns = page.locator('.xa-track', { hasText: 'Design patterns' }).first();
+  await patterns.waitFor();
+  assert.ok(await patterns.locator('.xa-lessons a[href]').count() >= 5, 'Design patterns is one card listing its five lessons, as links');
+  assert.equal(await page.locator('.xa-track--single').count(), 0, 'no card is a lone one-lesson box');
   assert.ok(await page.locator('.xa-track', { hasText: 'Python Refresher' }).count() === 1, 'the Python refresher is under low-level design');
   await page.locator('.xa .area-row .chip', { hasText: 'Linux to Cloud' }).click();
   await page.locator('.xa-track').first().waitFor();

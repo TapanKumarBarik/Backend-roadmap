@@ -99,21 +99,23 @@ export default function ExploreView({
           {picked ? (
             <>
               <p className="xa-blurb">{picked.blurb}</p>
-              {groupTracks(picked, picked.node.children, AREA_COPY.more, areas).map((s, i) => (
-                <div key={s.label || i} className="xa-group">
-                  {s.label && <h2 className="xa-group__title">{s.label}</h2>}
-                  {s.nodes.some((t) => lessonsOf(t).length) && (
+              {groupTracks(picked, picked.node.children, AREA_COPY.more, areas).map((s, i) => {
+                // Tracks that are one lesson each are listed together as ONE card (Design patterns: five lessons), not five cards of one.
+                const multi = s.nodes.filter((t) => lessonsOf(t).length);
+                const singles = s.nodes.filter((t) => !lessonsOf(t).length && t.file);
+                const title = s.label || 'Lessons';
+                const only = !multi.length;
+                const bundle = singles.length ? { path: `${picked.id}/${title}#lessons`, name: only ? title : `More in ${title}`, title: only ? title : `More in ${title}`, children: singles } : null;
+                return (
+                  <div key={s.label || i} className="xa-group">
+                    {s.label && !only && <h2 className="xa-group__title">{s.label}</h2>}
                     <div className="xa-tracks">
-                      {s.nodes.filter((t) => lessonsOf(t).length).map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
+                      {multi.map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
+                      {bundle && <TrackCard track={bundle} statusMap={statusMap} onOpenFile={onOpenFile} />}
                     </div>
-                  )}
-                  {s.nodes.some((t) => !lessonsOf(t).length) && (
-                    <div className="xa-tracks xa-tracks--singles">
-                      {s.nodes.filter((t) => !lessonsOf(t).length).map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
-                    </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </>
           ) : (
             <ul className="xa-areas">
