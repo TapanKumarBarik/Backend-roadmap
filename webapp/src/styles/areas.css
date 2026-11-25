@@ -17,3 +17,8 @@
 .tree-group:first-child { margin-top: 2px; }
 .tree-group__label { display: block; padding: 4px 7px 3px; font-family: var(--display); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-subtle); }
 .tree-group__list { list-style: none; margin: 0; padding: 0; }
+
+@media (max-width: 640px) {
+  .area-head { margin: 2px 2px 8px; padding-bottom: 8px; }
+  .area-row .chip { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+}

@@ -8,3 +8,7 @@
 .pr-rec__why.is-weak { color: var(--danger); }
 .pr-recs__note { margin: var(--space-3) 0 0; font-size: var(--text-sm); }
 .pr-done { color: var(--done); font-weight: var(--weight-semibold); }
+
+@media (max-width: 640px) {
+  .pr-recs__list { grid-template-columns: minmax(0, 1fr); }
+}

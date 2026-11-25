@@ -215,3 +215,9 @@
   letter-spacing: normal;
   text-transform: none;
 }
+
+@media (max-width: 640px) {
+  #content { font-size: 15.5px; line-height: 1.64; }
+  #content h2 { font-size: 19px; margin-top: 32px; }
+  #content th, #content td { padding: 9px 11px; font-size: 13px; }
+}

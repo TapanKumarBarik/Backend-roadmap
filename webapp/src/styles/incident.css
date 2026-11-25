@@ -376,3 +376,16 @@
 .inc-archive__name { flex: 1; min-width: 12em; font-weight: var(--weight-semibold); }
 .inc-archive__state { flex: none; font-size: var(--text-xs); color: var(--fg-muted); }
 .inc-archive__state.is-solved { color: var(--signal); font-weight: var(--weight-semibold); }
+
+@media (max-width: 640px) {
+  .inc-header-bar, .inc-header-meta, .inc-module-link, .inc-earlier { flex-direction: column; align-items: flex-start; }
+  .inc-actions { justify-content: stretch; }
+  .inc-actions > button { width: 100%; }
+  .inc-postmortem__body { padding: var(--space-3); }
+  .inc-archive__item { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .inc-archive__name { min-width: 0; }
+}
+
+@media (pointer: coarse) {
+  .inc-option, .inc-archive__item { min-height: 44px; }
+}

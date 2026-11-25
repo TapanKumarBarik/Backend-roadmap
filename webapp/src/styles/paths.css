@@ -27,3 +27,10 @@
   font-size: 12px; line-height: 1.45; color: var(--fg-muted);
 }
 #root .lpath-hint button { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
+
+@media (max-width: 640px) {
+  #root .lpath-browse { flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 20px; }
+  #root .lpath-strip { flex-direction: column; align-items: flex-start; gap: 6px; }
+  #root .lpath-strip .bar { width: 100%; }
+  #root .lpath-strip .btn-ghost { margin-left: 0; }
+}

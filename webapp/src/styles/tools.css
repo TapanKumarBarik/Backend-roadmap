@@ -82,3 +82,18 @@
 .mk-topics { list-style: none; margin: var(--space-2) 0 var(--space-5); padding: 0; display: grid; gap: var(--space-2); }
 .mk-topics li { display: grid; grid-template-columns: minmax(8ch, 20ch) 1fr 5ch; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
 .mk-history { margin: 0; padding-left: var(--space-5); font-size: var(--text-sm); color: var(--fg-muted); }
+
+@media (max-width: 640px) {
+  .tl-grid, .mk-tracks { grid-template-columns: minmax(0, 1fr); }
+  .tl-card, .tl-plan { padding: var(--space-3); gap: var(--space-2); }
+  .pl-status { padding: var(--space-3); }
+  .pl-day > details > summary { flex-wrap: wrap; padding: var(--space-2) var(--space-3); gap: var(--space-2); }
+  .mk-bar { position: static; padding: var(--space-2) var(--space-3); }
+  .mk-problem { flex-direction: column; align-items: flex-start; padding: var(--space-3); }
+  .mk-topics li { grid-template-columns: minmax(0, 1fr) 5ch; }
+  .mk-topics li > :first-child { grid-column: 1 / -1; }
+}
+
+@media (pointer: coarse) {
+  .tl-card, .tl-plan, .mk-track, .pl-day > details > summary { min-height: 44px; }
+}

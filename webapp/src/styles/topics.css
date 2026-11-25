@@ -56,3 +56,10 @@
 .tp-tool:hover { border-color: var(--fg-subtle); }
 .tp-tool span:last-child { color: var(--fg-muted); line-height: 1.5; }
 .tp-scene-hold { height: 360px; margin: 24px 0; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-sunken); }
+
+@media (max-width: 640px) {
+  .tp-grid, .tp-tools { grid-template-columns: minmax(0, 1fr); }
+  .tp-card, .tp-stage { padding: 12px 14px; }
+  .tp-lesson { flex-wrap: wrap; gap: 4px 8px; }
+  .tp-scene-hold { height: 220px; margin: 16px 0; }
+}
