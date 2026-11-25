@@ -26,12 +26,12 @@ Same convention as `backend/`:
 | 1 | [Core Fundamentals](https://www.youtube.com/playlist?list=PLdZs-f1PXX48) | [01-core-fundamentals](01-core-fundamentals/README.md) | Live |
 | 2 | [Networking, APIs & Databases](https://www.youtube.com/playlist?list=PLEBaLYrJs0lI) | [02-networking-from-zero](02-networking-from-zero/README.md) · [03-api-design](03-api-design/README.md) · [04-databases](04-databases/README.md) · [05-estimation-and-numbers](05-estimation-and-numbers/README.md) | Networking + API + Databases + Estimation live |
 | 3 | [Caching, Scaling & Traffic](https://www.youtube.com/playlist?list=PLWDD-HPgiAnA) | [06-load-balancing](06-load-balancing/README.md) · [07-caching](07-caching/README.md) · [08-performance-and-traffic](08-performance-and-traffic/README.md) | Live |
-| 4 | [Distributed Systems & Messaging](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k) | [09-distributed-systems](09-distributed-systems/README.md) · [10-messaging](10-messaging/README.md) | 09 Live, 10 *Coming soon* |
-| 5 | [Architecture, Reliability, Security & Observability](https://www.youtube.com/playlist?list=PLNdzHik9GD0I) | [11-reliability-and-sre](11-reliability-and-sre/README.md) · [12-architecture-patterns](12-architecture-patterns/README.md) · [13-security](13-security/README.md) · [14-observability-and-delivery](14-observability-and-delivery/README.md) | *Coming soon* |
-| 6 | [Advanced & Specialized Systems](https://www.youtube.com/playlist?list=PLbu9hGadb_zQ) | [15-storage](15-storage/README.md) · [16-search](16-search/README.md) · [17-realtime-and-data](17-realtime-and-data/README.md) · [18-multi-tenant-saas](18-multi-tenant-saas/README.md) · [19-cloud-and-platform](19-cloud-and-platform/README.md) | *Coming soon* |
-| 7 | [AI & GenAI System Design](https://www.youtube.com/playlist?list=PLUzoYXMCrSX4) | [20-ai-and-genai-system-design](20-ai-and-genai-system-design/README.md) | *Coming soon* |
-| 8 | [Interview Design Problems](https://www.youtube.com/playlist?list=PLCa3R_S2yPGI) | [21-interview-framework](21-interview-framework/README.md) · [22-interview-design-problems](22-interview-design-problems/README.md) | *Coming soon* |
-| 9 | [Revision & Mock Interviews](https://www.youtube.com/playlist?list=PLY0eWXEZNuF8) | [23-revision-and-mock-interviews](23-revision-and-mock-interviews/README.md) | *Coming soon* |
+| 4 | [Distributed Systems & Messaging](https://www.youtube.com/playlist?list=PLTQZUTpyfa_k) | [09-distributed-systems](09-distributed-systems/README.md) · [10-messaging](10-messaging/README.md) | Live |
+| 5 | [Architecture, Reliability, Security & Observability](https://www.youtube.com/playlist?list=PLNdzHik9GD0I) | [11-reliability-and-sre](11-reliability-and-sre/README.md) · [12-architecture-patterns](12-architecture-patterns/README.md) · [13-security](13-security/README.md) · [14-observability-and-delivery](14-observability-and-delivery/README.md) | Live |
+| 6 | [Advanced & Specialized Systems](https://www.youtube.com/playlist?list=PLbu9hGadb_zQ) | [15-storage](15-storage/README.md) · [16-search](16-search/README.md) · [17-realtime-and-data](17-realtime-and-data/README.md) · [18-multi-tenant-saas](18-multi-tenant-saas/README.md) · [19-cloud-and-platform](19-cloud-and-platform/README.md) | Live |
+| 7 | [AI & GenAI System Design](https://www.youtube.com/playlist?list=PLUzoYXMCrSX4) | [20-ai-and-genai-system-design](20-ai-and-genai-system-design/README.md) | Live |
+| 8 | [Interview Design Problems](https://www.youtube.com/playlist?list=PLCa3R_S2yPGI) | [21-interview-framework](21-interview-framework/README.md) · [22-interview-design-problems](22-interview-design-problems/README.md) | Live |
+| 9 | [Revision & Mock Interviews](https://www.youtube.com/playlist?list=PLY0eWXEZNuF8) | [23-revision-and-mock-interviews](23-revision-and-mock-interviews/README.md) | Live |
 
 ## Tracks
 
@@ -46,19 +46,19 @@ Same convention as `backend/`:
 | 7 | [07-caching](07-caching/README.md) | Place caches, pick TTLs/eviction and avoid stampedes | Live |
 | 8 | [08-performance-and-traffic](08-performance-and-traffic/README.md) | Scale stateless and stateful services and apply backpressure | Live |
 | 9 | [09-distributed-systems](09-distributed-systems/README.md) | Reason about partitions, consensus, idempotency and consistency | Live |
-| 10 | [10-messaging](10-messaging/README.md) | Choose brokers vs streams and delivery semantics | Coming soon |
-| 11 | [11-reliability-and-sre](11-reliability-and-sre/README.md) | Set SLOs, error budgets and resilience patterns | Coming soon |
-| 12 | [12-architecture-patterns](12-architecture-patterns/README.md) | Choose monolith, modular monolith or services on purpose | Coming soon |
-| 13 | [13-security](13-security/README.md) | Cover authn/authz, secrets and threat modeling in a design | Coming soon |
-| 14 | [14-observability-and-delivery](14-observability-and-delivery/README.md) | Use logs/metrics/traces, canaries and feature flags | Coming soon |
-| 15 | [15-storage](15-storage/README.md) | Pick object/block/file storage and backup tiers | Coming soon |
-| 16 | [16-search](16-search/README.md) | Design full-text search and scale it | Coming soon |
-| 17 | [17-realtime-and-data](17-realtime-and-data/README.md) | Design chat, presence, feeds and top-K | Coming soon |
-| 18 | [18-multi-tenant-saas](18-multi-tenant-saas/README.md) | Isolate tenants and handle noisy neighbors | Coming soon |
-| 19 | [19-cloud-and-platform](19-cloud-and-platform/README.md) | Use regions, AZs and cloud service models deliberately | Coming soon |
-| 20 | [20-ai-and-genai-system-design](20-ai-and-genai-system-design/README.md) | Design LLM apps, RAG, serving, agents and safety | Coming soon |
-| 21 | [21-interview-framework](21-interview-framework/README.md) | Structure a 45-minute system design interview | Coming soon |
-| 22 | [22-interview-design-problems](22-interview-design-problems/README.md) | Walk classic and modern design prompts end to end | Coming soon |
-| 23 | [23-revision-and-mock-interviews](23-revision-and-mock-interviews/README.md) | Revise numbers, weak areas and check readiness | Coming soon |
+| 10 | [10-messaging](10-messaging/README.md) | Choose brokers vs streams and delivery semantics | Live |
+| 11 | [11-reliability-and-sre](11-reliability-and-sre/README.md) | Set SLOs, error budgets and resilience patterns | Live |
+| 12 | [12-architecture-patterns](12-architecture-patterns/README.md) | Choose monolith, modular monolith or services on purpose | Live |
+| 13 | [13-security](13-security/README.md) | Cover authn/authz, secrets and threat modeling in a design | Live |
+| 14 | [14-observability-and-delivery](14-observability-and-delivery/README.md) | Use logs/metrics/traces, canaries and feature flags | Live |
+| 15 | [15-storage](15-storage/README.md) | Pick object/block/file storage and backup tiers | Live |
+| 16 | [16-search](16-search/README.md) | Design full-text search and scale it | Live |
+| 17 | [17-realtime-and-data](17-realtime-and-data/README.md) | Design chat, presence, feeds and top-K | Live |
+| 18 | [18-multi-tenant-saas](18-multi-tenant-saas/README.md) | Isolate tenants and handle noisy neighbors | Live |
+| 19 | [19-cloud-and-platform](19-cloud-and-platform/README.md) | Use regions, AZs and cloud service models deliberately | Live |
+| 20 | [20-ai-and-genai-system-design](20-ai-and-genai-system-design/README.md) | Design LLM apps, RAG, serving, agents and safety | Live |
+| 21 | [21-interview-framework](21-interview-framework/README.md) | Structure a 45-minute system design interview | Live |
+| 22 | [22-interview-design-problems](22-interview-design-problems/README.md) | Walk classic and modern design prompts end to end | Live |
+| 23 | [23-revision-and-mock-interviews](23-revision-and-mock-interviews/README.md) | Revise numbers, weak areas and check readiness | Live |
 
 Start here → [01-core-fundamentals/01-what-is-system-design/README.md](01-core-fundamentals/01-what-is-system-design/README.md)

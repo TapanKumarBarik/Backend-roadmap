@@ -131,7 +131,7 @@
       "system-design": {
         "label": "System Design Interview Prep",
         "short": "System design",
-        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Fundamentals through Distributed Systems are live; the later tracks are Coming soon.",
+        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. All 23 tracks are live, from fundamentals through GenAI to mock interviews and a final readiness checklist.",
         "groups": [
           {
             "label": "Live",
@@ -148,13 +148,13 @@
             ]
           },
           {
-            "label": "Phase 4 — Messaging (coming soon)",
+            "label": "Phase 4 — Messaging",
             "tracks": [
               "10-messaging"
             ]
           },
           {
-            "label": "Phase 5 — Architecture, reliability, security, ops (coming soon)",
+            "label": "Phase 5 — Architecture, reliability, security, ops",
             "tracks": [
               "11-reliability-and-sre",
               "12-architecture-patterns",
@@ -163,7 +163,7 @@
             ]
           },
           {
-            "label": "Phase 6 — Specialized systems (coming soon)",
+            "label": "Phase 6 — Specialized systems",
             "tracks": [
               "15-storage",
               "16-search",
@@ -173,7 +173,7 @@
             ]
           },
           {
-            "label": "Phase 7–9 — GenAI, interviews, revision (coming soon)",
+            "label": "Phase 7–9 — GenAI, interviews, revision",
             "tracks": [
               "20-ai-and-genai-system-design",
               "21-interview-framework",

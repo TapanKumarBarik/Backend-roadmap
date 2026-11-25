@@ -157,7 +157,7 @@ sequenceDiagram
     C->>C: Step 1 - Convert daily volume / 10^5 -> Avg QPS, x5 -> Peak QPS
     C->>C: Step 2 - Writes/day x Bytes x 2000 -> 5-Yr Storage (x3 repl)
     C->>C: Step 3 - Peak QPS x Payload x 8 -> Peak Egress Gbps
-    C->>I: "Conclusion: 25k read QPS + 100 Gbps egress -> Redis + CDN; 250 write QPS -> single Postgres primary works. Agree?"
+    C->>I: "Conclusion: 25k read QPS + 100 Gbps egress means Redis + CDN, and 250 write QPS means a single Postgres primary works. Agree?"
     I-->>C: "Clean math. Let's jump into APIs and HLD."
 ```
 

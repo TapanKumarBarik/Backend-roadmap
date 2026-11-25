@@ -130,7 +130,7 @@ sequenceDiagram
     App->>Reg: Validate(ChatRequest{model, tools, json_schema})
     Reg-->>App: OK (supports tools=true, native_json=false)
     App->>Ad: Translate(ChatRequest)
-    Note over Ad: Extract system msg to top-level; convert role:tool to tool_result
+    Note over Ad: Extract system msg to top-level, then convert role:tool to tool_result
     Ad->>API: POST /v1/messages (stream=true)
     API-->>Ad: event: content_block_delta (input_json_delta)
     Ad-->>App: Canonical StreamChunk{Type: ToolDelta}
