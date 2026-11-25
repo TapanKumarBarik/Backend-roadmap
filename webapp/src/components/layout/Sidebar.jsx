@@ -34,7 +34,7 @@ function Sidebar({
   const countOf = (key) => (key === 'all' ? counts.total : key === 'path' ? pathCount : counts[key]);
   // One area at a time (its curriculum's tracks, in groups) while the whole library is listed; a status filter or a path looks across areas.
   const picked = filter === 'all' && area !== 'all' ? areas.find((a) => a.id === area && a.node) : null;
-  const sections = picked ? groupTracks(picked, picked.node.children, AREA_COPY.more) : null;
+  const sections = picked ? groupTracks(picked, picked.node.children, AREA_COPY.more, areas) : null;
 
   return (
     <aside id="sidebar" className="scroll">

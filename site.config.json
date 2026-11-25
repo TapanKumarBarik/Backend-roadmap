@@ -131,7 +131,7 @@
       "system-design": {
         "label": "System Design Interview Prep",
         "short": "System design",
-        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Through Phase 3 (Load Balancing, Caching, Performance) are live; later tracks are Coming soon.",
+        "blurb": "Nine phases from fundamentals to GenAI and mock interviews. Fundamentals through Distributed Systems are live; the later tracks are Coming soon.",
         "groups": [
           {
             "label": "Live",
@@ -143,13 +143,13 @@
               "05-estimation-and-numbers",
               "06-load-balancing",
               "07-caching",
-              "08-performance-and-traffic"
+              "08-performance-and-traffic",
+              "09-distributed-systems"
             ]
           },
           {
-            "label": "Phase 4 — Distributed systems & messaging (coming soon)",
+            "label": "Phase 4 — Messaging (coming soon)",
             "tracks": [
-              "09-distributed-systems",
               "10-messaging"
             ]
           },
@@ -315,7 +315,6 @@
           {
             "label": "Foundations",
             "tracks": [
-              "00-python-refresher",
               "01-linux",
               "02-docker",
               "03-kubernetes",
@@ -377,6 +376,7 @@
           {
             "label": "Foundations",
             "tracks": [
+              "learn/00-python-refresher",
               "00-programming-basics-python-and-csharp",
               "28-python-basics-step-by-step",
               "01-classes-objects-and-oop-building-blocks",

@@ -188,3 +188,25 @@ test('a reader without JavaScript gets the guide: headline, what to know first, 
   assert.ok(sitemap.includes(`${config.site.url}/topics/</loc>`));
   assert.ok(BASE.length > 0);
 });
+
+test('on Explore every area lists its tracks with something to open: no card says "0 lessons", and a one-lesson track is a link to it', async () => {
+  const { context, page } = await open('/#__explore');
+  await page.locator('.xa .area-row').waitFor();
+  const areas = await page.locator('.xa .area-row .chip').allTextContents();
+  assert.ok(areas.length >= 8, 'the area buttons are there');
+  for (const name of areas.filter((a) => a !== 'All areas')) {
+    await page.locator('.xa .area-row .chip', { hasText: name }).click();
+    await page.locator('.xa-track').first().waitFor();
+    const counts = await page.locator('.xa-track__count').allTextContents();
+    assert.ok(counts.length > 0, `${name} lists tracks`);
+    assert.deepEqual(counts.filter((c) => /^0 /.test(c)), [], `${name}: no track says 0 lessons`);
+  }
+  await page.locator('.xa .area-row .chip', { hasText: 'Low-level design' }).click();
+  await page.locator('.xa-track--single').first().waitFor();
+  assert.ok(await page.locator('a.xa-track--single[href]').count() > 5, 'single-lesson tracks are links');
+  assert.ok(await page.locator('.xa-track', { hasText: 'Python Refresher' }).count() === 1, 'the Python refresher is under low-level design');
+  await page.locator('.xa .area-row .chip', { hasText: 'Linux to Cloud' }).click();
+  await page.locator('.xa-track').first().waitFor();
+  assert.equal(await page.locator('.xa-track', { hasText: 'Python Refresher' }).count(), 0, 'and no longer under Linux to Cloud');
+  await context.close();
+});

@@ -58,3 +58,18 @@ test('the tree shows what the reader picked; with no pick, the area being read, 
   assert.equal(effectiveArea(null, null, AREAS), 'all');
   assert.equal(effectiveArea('gone', 'lld/x/README.md', AREAS), 'lld', 'a pick naming an area that is gone counts as no pick');
 });
+
+test('a track listed from another area shows in the area that lists it, its lessons belong there, and its own area does not list it again', () => {
+  const areas = {
+    learn: { groups: [{ label: 'Core', tracks: ['01-linux'] }] },
+    lld: { groups: [{ label: 'Start', tracks: ['learn/00-python', '01-oop'] }] }
+  };
+  const node = (area, name) => ({ name, path: `${area}/${name}`, file: `${area}/${name}/README.md` });
+  const list = areaList(areas, [{ path: 'learn', name: 'learn', children: [node('learn', '00-python'), node('learn', '01-linux')] }, { path: 'lld', name: 'lld', children: [node('lld', '01-oop')] }]);
+  const lld = list.find((a) => a.id === 'lld');
+  const learn = list.find((a) => a.id === 'learn');
+  assert.deepEqual(groupTracks(lld, lld.node.children, 'More', list)[0].nodes.map((n) => n.name), ['00-python', '01-oop']);
+  assert.deepEqual(groupTracks(learn, learn.node.children, 'More', list).map((s) => s.nodes.map((n) => n.name)), [['01-linux']], 'not under More in its own area');
+  assert.equal(areaOf('learn/00-python/01-x/README.md', areas), 'lld');
+  assert.equal(areaOf('learn/01-linux/README.md', areas), 'learn');
+});

@@ -20,8 +20,31 @@ function lessonsOf(node, out = []) {
   return out;
 }
 
+// A track that is one long lesson (a file, no folders of lessons) is a single row that opens it, never a card that says "0 lessons".
+function SingleLesson({ track, statusMap, onOpenFile }) {
+  const done = statusMap[track.file] === 'done';
+  return (
+    <a
+      className="xa-track xa-track--single"
+      href={routeUrl(track.file)}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+        e.preventDefault();
+        onOpenFile(track.file);
+      }}
+    >
+      <span className="xa-track__name">{stripOrdinal(track.title || track.name) || track.name}</span>
+      <span className="xa-track__count">{done ? 'Read ✓' : 'One lesson'}</span>
+    </a>
+  );
+}
+
+// Lessons under an area, a single-lesson track counting as one.
+const countLessons = (area) => area.children.reduce((n, t) => n + (lessonsOf(t).length || (t.file ? 1 : 0)), 0);
+
 function TrackCard({ track, statusMap, onOpenFile }) {
   const lessons = lessonsOf(track);
+  if (!lessons.length && track.file) return <SingleLesson track={track} statusMap={statusMap} onOpenFile={onOpenFile} />;
   const done = lessons.filter((l) => statusMap[l.file] === 'done').length;
   return (
     <details className="xa-track" open>
@@ -76,12 +99,19 @@ export default function ExploreView({
           {picked ? (
             <>
               <p className="xa-blurb">{picked.blurb}</p>
-              {groupTracks(picked, picked.node.children, AREA_COPY.more).map((s, i) => (
+              {groupTracks(picked, picked.node.children, AREA_COPY.more, areas).map((s, i) => (
                 <div key={s.label || i} className="xa-group">
                   {s.label && <h2 className="xa-group__title">{s.label}</h2>}
-                  <div className="xa-tracks">
-                    {s.nodes.map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
-                  </div>
+                  {s.nodes.some((t) => lessonsOf(t).length) && (
+                    <div className="xa-tracks">
+                      {s.nodes.filter((t) => lessonsOf(t).length).map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
+                    </div>
+                  )}
+                  {s.nodes.some((t) => !lessonsOf(t).length) && (
+                    <div className="xa-tracks xa-tracks--singles">
+                      {s.nodes.filter((t) => !lessonsOf(t).length).map((track) => <TrackCard key={track.path} track={track} statusMap={statusMap} onOpenFile={onOpenFile} />)}
+                    </div>
+                  )}
                 </div>
               ))}
             </>
@@ -92,7 +122,7 @@ export default function ExploreView({
                   <button type="button" className="xa-area" onClick={() => onPickArea(a.id)}>
                     <span className="xa-area__name">{a.label}</span>
                     <span className="xa-area__blurb">{a.blurb}</span>
-                    <span className="xa-area__count">{a.node.children.length} tracks · {lessonsOf(a.node).length} lessons</span>
+                    <span className="xa-area__count">{a.node.children.length} tracks · {countLessons(a.node)} lessons</span>
                   </button>
                 </li>
               ))}

@@ -3,8 +3,14 @@
 // areas are passed in, so the same code serves the app, the build and the tests.
 
 // The area a lesson (or a track) belongs to: the first folder of its key, when that is an area.
+// A group may list a track that lives in another area's folder, as "<area>/<track>" (the track's lessons keep their addresses). Such a track is
+// shown in the area that lists it, and its lessons belong to that area.
+const crossListed = (areas) => Object.entries(areas).flatMap(([id, a]) => (a.groups || []).flatMap((g) => g.tracks.filter((t) => t.includes('/')).map((t) => [id, t])));
+
 export function areaOf(file, areas) {
-  const first = String(file || '').split('/')[0];
+  const key = String(file || '');
+  for (const [id, track] of crossListed(areas)) if (key === track || key.startsWith(track + '/')) return id;
+  const first = key.split('/')[0];
   return first && Object.hasOwn(areas, first) ? first : null;
 }
 
@@ -21,19 +27,23 @@ export function areaList(areas, treeData) {
 
 // An area's tracks, in the groups the config names. Inside a group the tracks keep the folder order; a track no group names (one
 // just added) goes under "More" rather than disappearing, and an area with no groups is one list with no heading.
-export function groupTracks(area, nodes, moreLabel = 'More') {
+// `all` (optional) is the list of areas, so a track listed from another area can be found and is left out of its own area's "More".
+export function groupTracks(area, nodes, moreLabel = 'More', all = []) {
   const groups = area?.groups || [];
-  if (!groups.length) return [{ label: null, nodes }];
-  const byName = new Map(nodes.map((node) => [node.name, node]));
+  const elsewhere = new Map(all.flatMap((a) => (a.node?.children || []).map((node) => [node.path, node])));
+  const claimed = new Set(all.flatMap((a) => (a.groups || []).flatMap((g) => g.tracks.filter((t) => t.includes('/')))));
+  const own = nodes.filter((node) => !claimed.has(node.path));
+  if (!groups.length) return [{ label: null, nodes: own }];
+  const byName = new Map(own.map((node) => [node.name, node]));
   const used = new Set();
   const sections = [];
   for (const group of groups) {
-    const members = group.tracks.map((name) => byName.get(name)).filter(Boolean);
-    members.forEach((node) => used.add(node.name));
+    const members = group.tracks.map((name) => (name.includes('/') ? elsewhere.get(name) : byName.get(name))).filter(Boolean);
+    members.forEach((node) => used.add(node.path));
     members.sort((a, b) => a.name.localeCompare(b.name));
     if (members.length) sections.push({ label: group.label, nodes: members });
   }
-  const rest = nodes.filter((node) => !used.has(node.name));
+  const rest = own.filter((node) => !used.has(node.path));
   if (rest.length) sections.push({ label: sections.length ? moreLabel : null, nodes: rest });
   return sections;
 }
