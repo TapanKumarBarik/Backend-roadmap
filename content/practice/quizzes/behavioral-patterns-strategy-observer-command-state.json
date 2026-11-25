@@ -1,0 +1,300 @@
+{
+  "title": "Behavioral patterns: Strategy, Observer, Command, State and friends",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/08-behavioral-patterns-i/README.md",
+  "description": "How objects cooperate and share responsibility: swapping algorithms, notifying listeners, queuing requests and modelling state.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What do behavioral patterns focus on?",
+      "options": [
+        {
+          "id": "a",
+          "text": "How objects interact and divide responsibility"
+        },
+        {
+          "id": "b",
+          "text": "How classes are packaged"
+        },
+        {
+          "id": "c",
+          "text": "How memory is laid out"
+        },
+        {
+          "id": "d",
+          "text": "How objects are created"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Behavioral patterns describe communication and the distribution of responsibility between objects."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Different shipping cost calculators (flat, weight-based, express) must be swappable at runtime. Which pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Strategy"
+        },
+        {
+          "id": "b",
+          "text": "Facade"
+        },
+        {
+          "id": "c",
+          "text": "Singleton"
+        },
+        {
+          "id": "d",
+          "text": "Prototype"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Strategy encapsulates each algorithm behind one interface, so the context picks or receives one and the choice can change without editing the context."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A stock price changes and many screens, alerts and loggers must update without the stock knowing them. Which pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Adapter"
+        },
+        {
+          "id": "b",
+          "text": "Observer"
+        },
+        {
+          "id": "c",
+          "text": "Flyweight"
+        },
+        {
+          "id": "d",
+          "text": "Builder"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Observer lets a subject notify any number of subscribers through a small interface, so the subject depends on an abstraction, not on each listener."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Which pattern turns a request into an object so it can be queued, logged or undone?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Proxy"
+        },
+        {
+          "id": "b",
+          "text": "Command"
+        },
+        {
+          "id": "c",
+          "text": "Bridge"
+        },
+        {
+          "id": "d",
+          "text": "Composite"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Command packages the action and its parameters (and often an undo). That allows queues, macros, retries and history."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "An order moves through Pending, Paid, Shipped and Cancelled, and what `cancel()` does depends on the stage. Which pattern replaces the big `switch` on status?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Template Method"
+        },
+        {
+          "id": "b",
+          "text": "Iterator"
+        },
+        {
+          "id": "c",
+          "text": "Visitor"
+        },
+        {
+          "id": "d",
+          "text": "State"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "State puts each stage's behaviour in its own class, and the context delegates to the current one, so adding or changing a stage touches one place."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "What is the difference between Strategy and State?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A strategy is chosen by the client for how to do something; a state changes by itself as the object transitions, and changes its behaviour"
+        },
+        {
+          "id": "b",
+          "text": "State has no interface"
+        },
+        {
+          "id": "c",
+          "text": "None at all"
+        },
+        {
+          "id": "d",
+          "text": "Strategy needs inheritance of the context"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Both delegate to an interchangeable object. With Strategy the caller usually picks; with State the transitions are part of the model and states often know the next state."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Template Method fixes the skeleton of an algorithm in a base class. What do subclasses do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Replace the whole algorithm"
+        },
+        {
+          "id": "b",
+          "text": "Nothing"
+        },
+        {
+          "id": "c",
+          "text": "Override specific steps, leaving the order of steps as defined"
+        },
+        {
+          "id": "d",
+          "text": "Create the base class"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The base class owns the sequence (the \"template\") and exposes hooks for steps that vary. It uses inheritance, so prefer Strategy when you want to swap behaviour by composition."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "A request that passes through a list of handlers, each deciding whether to act or pass it on, is the Chain of Responsibility pattern.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Web middleware pipelines and approval chains are the usual examples: the sender does not know which handler will handle the request."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which are benefits of Observer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Notification order and speed are guaranteed"
+        },
+        {
+          "id": "b",
+          "text": "Several kinds of reaction can attach to one event"
+        },
+        {
+          "id": "c",
+          "text": "Listeners can be added or removed at runtime"
+        },
+        {
+          "id": "d",
+          "text": "The subject does not depend on concrete listeners"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "d"
+      ],
+      "explanation": "Loose coupling and dynamic subscription are the gain. The order and cost of notification is not guaranteed, and a slow listener can hurt the subject if notified synchronously."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "What does Memento provide?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A single global instance"
+        },
+        {
+          "id": "b",
+          "text": "A tree of objects"
+        },
+        {
+          "id": "c",
+          "text": "A way to capture and restore an object's state without exposing its internals"
+        },
+        {
+          "id": "d",
+          "text": "A way to share objects"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The memento stores a snapshot the originator can restore later, which supports undo and checkpoints while keeping encapsulation."
+    },
+    {
+      "id": "q11",
+      "type": "single",
+      "text": "Which pattern avoids a long `instanceof` chain by adding a new operation over a fixed set of element types without editing them?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Singleton"
+        },
+        {
+          "id": "b",
+          "text": "Observer"
+        },
+        {
+          "id": "c",
+          "text": "Visitor"
+        },
+        {
+          "id": "d",
+          "text": "Adapter"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Visitor moves an operation into its own class and uses double dispatch. It suits stable element types with changing operations, and hurts when new element types keep appearing."
+    }
+  ]
+}

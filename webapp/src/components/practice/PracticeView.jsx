@@ -4,13 +4,14 @@ import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { fetchPracticeCatalog, fetchQuizAttempts, fetchWeakAreas } from '../../lib/practiceApi.js';
 import { recommend } from '../../lib/practice/recommend.js';
 import { codeKey, drillKey } from '../../lib/practice/progressKeys.js';
-import { continueProblem, dailyProblem, drillsDone, filterGroups, groupByTopic, tally, withoutLldProblems } from '../../lib/practice/codeProgress.js';
+import { continueProblem, dailyProblem, drillsDone, filterGroups, groupByTopic, isLldTopic, tally, withoutLldProblems } from '../../lib/practice/codeProgress.js';
 import { dayName, dayNumber } from '../../lib/practice/days.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { CARDS, DIFFICULTY, PRACTICE, RECOMMEND } from '../../config/practice.js';
 import { CODE_TOPICS, HUB } from '../../config/code.js';
 import { GAME } from '../../config/game.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { Glyph } from '../game/glyphs.jsx';
 import { Tabs, TabPanel } from '../ui/Tabs.jsx';
 import { ChoiceChip } from '../ui/Chip.jsx';
 import { Button } from '../ui/Button.jsx';
@@ -46,7 +47,9 @@ const SCREENS = { drill: DrillView, level: LevelCheckView, review: ReviewView, m
 const LEVELS = Object.keys(DIFFICULTY);
 
 export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath, user, onLogin, onToast, nodeByFile, statusMap = {}, onMark }) {
-  const [tab, setTab] = useState('code');
+  const [pick, setPick] = useState(null); // null: the screen asks what to practise; else the tab that was chosen
+  const tab = pick || 'code';
+  const setTab = setPick;
   const [topic, setTopic] = useState('');
   const [level, setLevel] = useState('');
   const [query, setQuery] = useState('');
@@ -73,7 +76,10 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
   const bySlug = useMemo(() => Object.fromEntries((catalog ? catalog.quizzes : []).map((q) => [q.slug, q])), [catalog]);
 
   const code = useMemo(() => withoutLldProblems((catalog && catalog.code) || []), [catalog]);
-  const groups = useMemo(() => groupByTopic(code, statusMap, CODE_TOPICS, LEVELS), [code, statusMap]);
+  const lld = useMemo(() => ((catalog && catalog.code) || []).filter((p) => isLldTopic(p.topic)), [catalog]);
+  const isCodeTab = tab === 'code' || tab === 'lld';
+  const shelf = tab === 'lld' ? lld : code;
+  const groups = useMemo(() => groupByTopic(shelf, statusMap, CODE_TOPICS, LEVELS), [shelf, statusMap]);
   const shownGroups = useMemo(() => filterGroups(groups, statusMap, { query, level, unsolved }), [groups, statusMap, query, level, unsolved]);
   const today = dayNumber();
   const daily = useMemo(() => dailyProblem(code, today, GAME.dailyProblem.levels), [code, today]);
@@ -100,11 +106,11 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
     );
   }
 
-  const list = catalog && tab !== 'code' ? catalog[tab] : [];
+  const list = catalog && !isCodeTab ? catalog[tab] : [];
   const topics = [...new Set(list.map((c) => c.topic).filter(Boolean))].sort();
   const shown = list.filter((c) => (!topic || c.topic === topic) && (!level || c.difficulty === level));
   const current = PRACTICE.tabs.find((t) => t.id === tab);
-  const { solved, total } = tally(code, statusMap);
+  const { solved, total } = tally(shelf, statusMap);
   const drills = drillsDone(statusMap);
   const changeTab = (id) => { setTab(id); setTopic(''); };
 
@@ -115,10 +121,41 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
     </div>
   );
 
+  const counts = catalog ? { code: code.length, lld: lld.length, quizzes: catalog.quizzes.length, interview: catalog.interview.length, exercises: catalog.exercises.length, plans: (catalog.plans || []).length } : {};
+
   return (
     <div id="empty" className="pr-screen">
       <h2>{PRACTICE.title}</h2>
       <p className="home-sub">{PRACTICE.intro}</p>
+
+      {!pick && (
+        <section aria-labelledby="pr-ask-h">
+          <h3 id="pr-ask-h" className="pr-ask__h">{PRACTICE.ask}</h3>
+          <ul className="pr-ask">
+            {PRACTICE.choices.map((c) => {
+              const inner = (
+                <>
+                  <span className="pr-ask__icon" aria-hidden="true"><Glyph name={c.glyph} /></span>
+                  <span className="pr-ask__name">{c.label}</span>
+                  <span className="pr-ask__text">{c.text}</span>
+                  {c.id !== 'design' && counts[c.id] != null && <span className="pr-ask__count">{counts[c.id]}</span>}
+                </>
+              );
+              return (
+                <li key={c.id}>
+                  {c.href
+                    ? <a className="pr-ask__card" href={c.href}>{inner}</a>
+                    : <button type="button" className="pr-ask__card" onClick={() => changeTab(c.id)}>{inner}</button>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {pick && (
+        <p className="pr-back"><button type="button" className="signin-link" onClick={() => setPick(null)}>{PRACTICE.back}</button></p>
+      )}
 
       {catalog && (
         <>
@@ -139,22 +176,22 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
         </>
       )}
 
-      <Tabs
+      {pick && <Tabs
         label={PRACTICE.title}
         value={tab}
         onChange={changeTab}
         tabs={PRACTICE.tabs.map(({ id, label }) => ({
           id,
           label,
-          badge: catalog ? (id === 'code' ? code.length : (catalog[id] || []).length) : undefined
+          badge: catalog ? (id === 'code' ? code.length : id === 'lld' ? lld.length : (catalog[id] || []).length) : undefined
         }))}
         idPrefix="practice"
-      />
-      <TabPanel id={tab} value={tab} idPrefix="practice">
+      />}
+      {pick && <TabPanel id={tab} value={tab} idPrefix="practice">
         {error && <LoadError error={error} what={LOAD_WHAT.practice} onRetry={reload} />}
         {!catalog && !error && <Loading />}
 
-        {catalog && tab === 'code' && (
+        {catalog && isCodeTab && (
           <>
             <div className="hub-tools">
               <input className="hub-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={HUB.code.search} aria-label={HUB.code.searchLabel} />
@@ -197,7 +234,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
           </section>
         )}
 
-        {catalog && tab !== 'code' && (
+        {catalog && !isCodeTab && (
           <>
             <div className="pr-filters" role="group" aria-label="Filter by topic">
               <ChoiceChip selected={!topic} onClick={() => setTopic('')}>{PRACTICE.allTopics}</ChoiceChip>
@@ -228,7 +265,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, onOpenPath,
             </ul>
           </>
         )}
-      </TabPanel>
+      </TabPanel>}
     </div>
   );
 }

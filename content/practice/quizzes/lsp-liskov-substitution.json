@@ -1,0 +1,219 @@
+{
+  "title": "LSP: Liskov Substitution Principle",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "When a subtype really can stand in for its parent: contracts, preconditions, postconditions and the classic Rectangle/Square trap.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does the Liskov Substitution Principle require?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Subclasses must not override anything"
+        },
+        {
+          "id": "b",
+          "text": "Every class must have a base class"
+        },
+        {
+          "id": "c",
+          "text": "Code written against the parent type must keep working when given any subtype, without surprises"
+        },
+        {
+          "id": "d",
+          "text": "A subclass must have more methods than its parent"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A subtype must honour the contract callers rely on. If a caller needs to check \"is this really a Square?\" before using a Rectangle, the substitution failed."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "`Square` extends `Rectangle`, and setting its width also sets the height. A function sets width 5 and height 4 and expects an area of 20. What happens with a `Square`?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The area is 20 as expected"
+        },
+        {
+          "id": "b",
+          "text": "The area is 25"
+        },
+        {
+          "id": "c",
+          "text": "A compile error"
+        },
+        {
+          "id": "d",
+          "text": "The area is 16, so the subtype broke the caller's expectation"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The caller reasonably assumed width and height change independently. Square strengthens that rule, so substituting it breaks the code. The fix is to stop modelling it as a mutable Rectangle subtype."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which change to an overridden method most clearly breaks LSP?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Returning a more specific type than the parent promised"
+        },
+        {
+          "id": "b",
+          "text": "Throwing a new exception the parent never throws and callers do not expect"
+        },
+        {
+          "id": "c",
+          "text": "Adding a log line"
+        },
+        {
+          "id": "d",
+          "text": "Accepting a wider range of inputs than the parent"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Subtypes may weaken preconditions (accept more) and strengthen postconditions (promise more), but surprising new failure modes break callers written against the parent."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A `ReadOnlyList` extends `List` and throws `UnsupportedOperationException` on `add`. What does this suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Exceptions are not part of a contract"
+        },
+        {
+          "id": "b",
+          "text": "It is a good use of inheritance"
+        },
+        {
+          "id": "c",
+          "text": "The hierarchy is wrong: a read-only collection is not a substitutable mutable list"
+        },
+        {
+          "id": "d",
+          "text": "LSP only applies to interfaces"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Callers of `List` expect `add` to work. A subtype that rejects it forces `instanceof` checks. A separate read-only interface that `List` extends is the honest design."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Which rule do preconditions follow in a LSP-compliant override?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They may be strengthened"
+        },
+        {
+          "id": "b",
+          "text": "They must throw"
+        },
+        {
+          "id": "c",
+          "text": "They must always be removed"
+        },
+        {
+          "id": "d",
+          "text": "They may only stay the same or be weakened"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "If the parent accepted any positive number, a subtype demanding an even number would reject inputs the caller was allowed to send. Weakening is safe; strengthening is not."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "If a subclass compiles and matches the parent type's signature, it satisfies LSP.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False. LSP is about behaviour, not signatures. A method can have the right types and still break the promises (ordering, side effects, invariants) that callers rely on."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which are practical ways to catch LSP violations?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run the parent's contract tests against every subtype"
+        },
+        {
+          "id": "b",
+          "text": "Look for overrides that do nothing or throw \"not supported\""
+        },
+        {
+          "id": "c",
+          "text": "Check that subclass names end in the parent name"
+        },
+        {
+          "id": "d",
+          "text": "Look for `instanceof` or type checks in code that takes the parent type"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "d"
+      ],
+      "explanation": "Shared contract tests, type checks in callers and empty or throwing overrides are all symptoms that a subtype is not really substitutable. Naming conventions prove nothing."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A `Bird` base class has `fly()`, and `Penguin` extends it and throws in `fly()`. Which fix is best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Catch the exception in every caller"
+        },
+        {
+          "id": "b",
+          "text": "Make `Penguin` return silently"
+        },
+        {
+          "id": "c",
+          "text": "Rename `fly` to `move`"
+        },
+        {
+          "id": "d",
+          "text": "Split the hierarchy: `Bird` without `fly`, and a `FlyingBird` that adds it"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Model only what all subtypes can do in the base type, and put optional capabilities in a more specific type or interface. Then no caller can hold a Penguin and call fly()."
+    }
+  ]
+}

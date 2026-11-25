@@ -1,0 +1,218 @@
+{
+  "title": "OCP: Open/Closed Principle",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "Extend behaviour by adding code, not by editing tested code: polymorphism, strategies and the limits of the idea.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does \"open for extension, closed for modification\" mean?",
+      "options": [
+        {
+          "id": "a",
+          "text": "All code must be public"
+        },
+        {
+          "id": "b",
+          "text": "Classes must be declared `final`"
+        },
+        {
+          "id": "c",
+          "text": "You can add new behaviour without editing the code that already works and is tested"
+        },
+        {
+          "id": "d",
+          "text": "Nobody may ever edit a source file"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Adding a new case should mean adding a new class or registering a new strategy, not opening a stable method and adding another branch. Bug fixes still edit code; the principle is about growth."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A `discount()` method has an `if/else if` chain over customer types, and every new type means editing it. Which design follows OCP?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add one more `else if` each time"
+        },
+        {
+          "id": "b",
+          "text": "Store the discount in a global dictionary of lambdas edited by hand"
+        },
+        {
+          "id": "c",
+          "text": "Move the chain into a switch"
+        },
+        {
+          "id": "d",
+          "text": "Define a `DiscountPolicy` interface, one class per customer type, and have the caller depend on the interface"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "With a policy interface, a new customer type is a new class. The code that applies discounts does not change. Moving the chain to a switch only changes its syntax."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which pattern is the most direct way to make a payment step open to new methods (card, UPI, wallet)?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Strategy"
+        },
+        {
+          "id": "b",
+          "text": "Memento"
+        },
+        {
+          "id": "c",
+          "text": "Singleton"
+        },
+        {
+          "id": "d",
+          "text": "Flyweight"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Strategy puts each variant behind one interface so the checkout code stays the same while new variants are added beside it."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Where does the new class get wired in when you follow OCP?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the unit tests only"
+        },
+        {
+          "id": "b",
+          "text": "Inside the interface"
+        },
+        {
+          "id": "c",
+          "text": "Inside the old method, with an `if`"
+        },
+        {
+          "id": "d",
+          "text": "At the composition root or a registry, outside the stable logic"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Some place must know the full list of variants, but it should be the wiring layer (a registry, DI container or factory), not the business logic you wanted to leave untouched."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "You should make every class extensible from day one, in case it needs new behaviour later.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False. Guessing the axis of change up front yields speculative abstractions. A common rule is to wait for the second or third variant, then introduce the abstraction at the point of real change."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Which situation is a poor fit for the OCP-style abstraction?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A report format that already has five exports (CSV, PDF, XLSX...) and a sixth is requested"
+        },
+        {
+          "id": "b",
+          "text": "A tax rule that has already changed three times by country"
+        },
+        {
+          "id": "c",
+          "text": "A one-off script with a single, fixed behaviour that will never grow"
+        },
+        {
+          "id": "d",
+          "text": "A notification channel list that grows each quarter"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "OCP pays off where change keeps arriving along the same axis. A one-off with no variation gets only extra indirection from an interface."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these usually violate OCP?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A long `if/else` over a type code in a core method"
+        },
+        {
+          "id": "b",
+          "text": "Editing a bug fix inside one existing method"
+        },
+        {
+          "id": "c",
+          "text": "A plugin registry where new handlers register themselves"
+        },
+        {
+          "id": "d",
+          "text": "`switch (type)` blocks repeated in many places that must all be edited for a new type"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "Repeated type switches and a core method that grows a branch for each type are the classic violations. A plugin registry is the OCP-friendly shape, and fixing a bug is not extension."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A team adds a new export format. With OCP followed, what is the smallest change?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a new `Exporter` implementation and register it"
+        },
+        {
+          "id": "b",
+          "text": "Rewrite the report generator"
+        },
+        {
+          "id": "c",
+          "text": "Edit the `Exporter` base class and every subclass"
+        },
+        {
+          "id": "d",
+          "text": "Duplicate the service and rename it"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A new implementation plus registration leaves every existing exporter and its tests untouched, which is the whole benefit."
+    }
+  ]
+}

@@ -1,0 +1,273 @@
+{
+  "title": "Structural patterns: Adapter, Bridge, Composite, Decorator, Facade, Proxy",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/07-structural-patterns/README.md",
+  "description": "How objects are composed: wrap, forward, tree-build and simplify, and how to tell Adapter, Decorator and Proxy apart.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What do structural patterns deal with?",
+      "options": [
+        {
+          "id": "a",
+          "text": "How threads are scheduled"
+        },
+        {
+          "id": "b",
+          "text": "How objects are created"
+        },
+        {
+          "id": "c",
+          "text": "How classes and objects are composed into larger structures"
+        },
+        {
+          "id": "d",
+          "text": "How objects communicate at runtime only"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Structural patterns arrange classes and objects (wrapping, nesting, delegating) to build larger structures while keeping them flexible."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Your code expects `PaymentGateway.charge()`, but a vendor SDK exposes `makePayment()` with different arguments. Which pattern fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Singleton"
+        },
+        {
+          "id": "b",
+          "text": "Adapter"
+        },
+        {
+          "id": "c",
+          "text": "Prototype"
+        },
+        {
+          "id": "d",
+          "text": "Observer"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Adapter wraps the incompatible interface and translates calls to the one your code expects, without changing either side."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which pattern adds behaviour (compression, then encryption) to an object at runtime by wrapping it, keeping the same interface?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Facade"
+        },
+        {
+          "id": "b",
+          "text": "Decorator"
+        },
+        {
+          "id": "c",
+          "text": "Flyweight"
+        },
+        {
+          "id": "d",
+          "text": "Bridge"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Decorators wrap a component with the same interface and add behaviour before or after delegating. They can be stacked in any order."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Which difference between Decorator and Proxy is the most useful?",
+      "options": [
+        {
+          "id": "a",
+          "text": "None, they are the same class"
+        },
+        {
+          "id": "b",
+          "text": "Decorator is only for UI"
+        },
+        {
+          "id": "c",
+          "text": "Decorator adds behaviour the client chose; Proxy controls access to the same object (lazy load, cache, permission check)"
+        },
+        {
+          "id": "d",
+          "text": "Proxy changes the interface; Decorator keeps it"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Both keep the interface and hold a reference. A decorator is about extending behaviour; a proxy is about controlling access or cost: remote, virtual (lazy), protection, caching."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A file explorer shows folders that contain files and other folders, and both respond to `size()`. Which pattern models this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Memento"
+        },
+        {
+          "id": "b",
+          "text": "Command"
+        },
+        {
+          "id": "c",
+          "text": "Composite"
+        },
+        {
+          "id": "d",
+          "text": "Strategy"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Composite lets a client treat a single leaf and a group of children uniformly through one interface, which fits tree structures."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "What does Facade do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Gives a simple entry point to a complicated subsystem, which stays reachable for those who need it"
+        },
+        {
+          "id": "b",
+          "text": "Replaces an interface with an incompatible one"
+        },
+        {
+          "id": "c",
+          "text": "Adds state to an object"
+        },
+        {
+          "id": "d",
+          "text": "Copies objects"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A facade offers a small, task-oriented API over many classes. It does not hide the subsystem so strongly that nobody else may use it."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Bridge separates what two things?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A request from its handler"
+        },
+        {
+          "id": "b",
+          "text": "Creation from use"
+        },
+        {
+          "id": "c",
+          "text": "An abstraction from its implementation so that both can vary independently"
+        },
+        {
+          "id": "d",
+          "text": "Data from its view"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Bridge avoids a class explosion (for example Shape x Renderer = every combination as a subclass) by composing a Shape with a Renderer chosen separately."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "Flyweight saves memory by sharing the intrinsic (unchanging) part of many similar objects instead of storing a copy in each.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Shared, immutable intrinsic state (such as a glyph shape) lives once; the extrinsic state (position) is passed in by the caller."
+    },
+    {
+      "id": "q9",
+      "type": "multiple",
+      "text": "Which of these are proxy use cases?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Loading a large image only when it is first displayed"
+        },
+        {
+          "id": "b",
+          "text": "Translating one interface into another"
+        },
+        {
+          "id": "c",
+          "text": "Checking permissions before forwarding a call"
+        },
+        {
+          "id": "d",
+          "text": "Caching the result of a slow remote call"
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "d"
+      ],
+      "explanation": "Virtual (lazy), protection and caching proxies all control access to a real object. Translating an interface is the job of an Adapter."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "A logging wrapper and a retry wrapper both implement `HttpClient` and wrap another `HttpClient`. Which pattern is this, most likely?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Decorator"
+        },
+        {
+          "id": "b",
+          "text": "Visitor"
+        },
+        {
+          "id": "c",
+          "text": "Interpreter"
+        },
+        {
+          "id": "d",
+          "text": "Mediator"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Each wrapper adds one behaviour while keeping the interface, so they can be stacked: retry(log(real)). Middleware pipelines follow the same idea."
+    }
+  ]
+}

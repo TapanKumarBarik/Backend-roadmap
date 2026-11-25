@@ -1,0 +1,219 @@
+{
+  "title": "SRP: Single Responsibility Principle",
+  "topic": "object-oriented-design",
+  "difficulty": "beginner",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "One reason to change: how to spot a class that does too much and how to split it without over-splitting.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does the Single Responsibility Principle actually say?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A function must never be longer than ten lines"
+        },
+        {
+          "id": "b",
+          "text": "A class must have exactly one method"
+        },
+        {
+          "id": "c",
+          "text": "A class should have one reason to change, because it answers to one actor or concern"
+        },
+        {
+          "id": "d",
+          "text": "Every file must contain exactly one class"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The principle is about reasons to change, not about counting methods or lines. A class with ten methods can follow it if they all serve the same concern; a class with two can break it if one serves finance and the other serves operations."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "An `Invoice` class calculates totals, writes itself to the database and renders a PDF. The finance team changes the tax rules and the design team changes the PDF layout. Why is this a problem?",
+      "options": [
+        {
+          "id": "a",
+          "text": "PDF code is always slow"
+        },
+        {
+          "id": "b",
+          "text": "Two unrelated groups will edit the same class, so a change for one can break the other"
+        },
+        {
+          "id": "c",
+          "text": "Classes are not allowed to touch a database"
+        },
+        {
+          "id": "d",
+          "text": "It uses too much memory"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each group is a separate reason to change. When both edit one class their changes collide in merges, share fields by accident, and a bug in the PDF code can fail a tax test. Splitting by actor keeps each change local."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which refactoring best fixes a `UserService` that registers users, hashes passwords, sends welcome emails and writes audit logs?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Make all the methods private"
+        },
+        {
+          "id": "b",
+          "text": "Rename it to `UserManager`"
+        },
+        {
+          "id": "c",
+          "text": "Move every method to static helpers in one `Utils` class"
+        },
+        {
+          "id": "d",
+          "text": "Keep registration in `UserService` and move hashing, email and audit into their own collaborators that it calls"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Registration is the one job that stays. Hashing, mailing and auditing change for different reasons, so each gets its own small class, injected into the service. A renamed class or a `Utils` dump moves the mess without separating the reasons."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Which of these is the clearest sign that a class breaks SRP?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It implements an interface"
+        },
+        {
+          "id": "b",
+          "text": "Its constructor takes many unrelated dependencies, and tests need many mocks for one behaviour"
+        },
+        {
+          "id": "c",
+          "text": "It has a long name"
+        },
+        {
+          "id": "d",
+          "text": "It has a private field"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A constructor that needs a database, a mailer, a PDF engine and a clock usually means the class does several jobs. The test setup pain is the same signal seen from the other side."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A team splits a 30-line `Order` class into twelve one-method classes \"for SRP\". What went wrong?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They should have used inheritance"
+        },
+        {
+          "id": "b",
+          "text": "They split by method count instead of by reason to change, so one change now touches many files"
+        },
+        {
+          "id": "c",
+          "text": "SRP forbids classes with fewer than two methods"
+        },
+        {
+          "id": "d",
+          "text": "Nothing, more classes is always better"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Splitting past the real seams creates shotgun surgery: a single business change must edit many tiny classes. Split along actors and concerns, and stop when each class has one reason to change."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Two methods that always change together, for the same reason, belong in the same class even if they look like different tasks.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "True. Cohesion is judged by why code changes. Methods that change together for the same reason have one responsibility; separating them only adds indirection."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these are good ways to find the responsibilities in a class?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Check whether tests for one behaviour need unrelated fakes"
+        },
+        {
+          "id": "b",
+          "text": "Count the lines and split at 200"
+        },
+        {
+          "id": "c",
+          "text": "List who would ask for a change (finance, ops, design) and see how many groups appear"
+        },
+        {
+          "id": "d",
+          "text": "Describe the class in one sentence and see if it needs the word \"and\""
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "d"
+      ],
+      "explanation": "Actors, the \"and\" test and test-setup pain all point at the real concerns. A line count is a rough smell at best; a 300-line class can be one cohesive job."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "In an HTTP endpoint, which split follows SRP best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The controller handles HTTP, a service holds the business rule, a repository handles persistence"
+        },
+        {
+          "id": "b",
+          "text": "Everything lives in a static helper"
+        },
+        {
+          "id": "c",
+          "text": "The database does the business rules through triggers only"
+        },
+        {
+          "id": "d",
+          "text": "The controller parses the request, runs the business rules, queries SQL and formats JSON in one method"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "HTTP translation, business rules and storage change for different reasons (API shape, policy, schema). Keeping them apart lets you swap the transport or the database without rewriting the rules."
+    }
+  ]
+}

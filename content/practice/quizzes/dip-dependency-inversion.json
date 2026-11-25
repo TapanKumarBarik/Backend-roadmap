@@ -1,0 +1,219 @@
+{
+  "title": "DIP: Dependency Inversion Principle",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "High-level policy should not depend on low-level detail: abstractions, injection, ownership of the interface and the composition root.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does the Dependency Inversion Principle say?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interfaces must live in separate assemblies"
+        },
+        {
+          "id": "b",
+          "text": "High-level modules should depend on abstractions, and so should low-level modules, rather than policy depending on concrete details"
+        },
+        {
+          "id": "c",
+          "text": "Always use a dependency injection framework"
+        },
+        {
+          "id": "d",
+          "text": "Classes should never create objects"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Business policy should not import a specific database or mail library. Both sides depend on an abstraction that the high-level code defines and owns."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "`OrderService` does `new SqlOrderRepository()` in its constructor. What is the main cost?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It uses more memory"
+        },
+        {
+          "id": "b",
+          "text": "It cannot be tested without a database and cannot switch storage without editing the service"
+        },
+        {
+          "id": "c",
+          "text": "It breaks encapsulation"
+        },
+        {
+          "id": "d",
+          "text": "It is not thread safe"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Creating the concrete class inside ties policy to a detail. Taking an `OrderRepository` abstraction in the constructor lets tests pass a fake and production pass the SQL version."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which statement distinguishes dependency inversion from dependency injection?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Injection is a principle, inversion is a framework"
+        },
+        {
+          "id": "b",
+          "text": "They are the same thing"
+        },
+        {
+          "id": "c",
+          "text": "Inversion requires reflection"
+        },
+        {
+          "id": "d",
+          "text": "Inversion is the design rule about the direction of dependencies; injection is one technique to supply the implementation"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Inversion decides who depends on whom (details depend on policy's abstractions). Injection (constructor, setter, container) is a way to hand the chosen implementation in."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "In a layered design, who should own the `PaymentGateway` interface?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A shared \"interfaces\" project nobody owns"
+        },
+        {
+          "id": "b",
+          "text": "The Stripe adapter"
+        },
+        {
+          "id": "c",
+          "text": "The database layer"
+        },
+        {
+          "id": "d",
+          "text": "The business layer that needs payments, with the adapter implementing it"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Inversion means the abstraction is shaped by the needs of the high-level module. Then the adapter depends on the business layer, not the reverse."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Where should concrete classes normally be chosen and wired together?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the composition root, near the application entry point"
+        },
+        {
+          "id": "b",
+          "text": "Inside each domain class"
+        },
+        {
+          "id": "c",
+          "text": "Inside the interface itself"
+        },
+        {
+          "id": "d",
+          "text": "Deep inside business methods"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "One place that knows all the concrete types keeps the rest of the code free of them. That place is the composition root (a `main`, a startup file, a container configuration)."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Using an interface for every single class, even one that will never have a second implementation, is required by DIP.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False. DIP matters at the boundaries where detail changes or needs faking (databases, clocks, network). Wrapping stable internal helpers in interfaces adds noise."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which of these are signs of a DIP violation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Constructor injection of an interface"
+        },
+        {
+          "id": "b",
+          "text": "A domain class imports an ORM or HTTP client namespace"
+        },
+        {
+          "id": "c",
+          "text": "Business code calls `DateTime.Now` directly and tests need sleeps"
+        },
+        {
+          "id": "d",
+          "text": "A service creates its own collaborators with `new`"
+        }
+      ],
+      "answer": [
+        "b",
+        "c",
+        "d"
+      ],
+      "explanation": "Domain code that names infrastructure types, hidden clocks and self-created collaborators all weld policy to detail. Constructor injection of an abstraction is the remedy."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A test needs to prove a retry runs after the third failure, without waiting for real time. Which design helps most?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Make the retry code static"
+        },
+        {
+          "id": "b",
+          "text": "Skip testing it"
+        },
+        {
+          "id": "c",
+          "text": "Inject an abstraction of time/delay so the test can control it"
+        },
+        {
+          "id": "d",
+          "text": "Call `Thread.Sleep` in the test"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Time is a dependency like any other. Injecting a clock or scheduler lets tests advance it instantly."
+    }
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "title": "Creational patterns: Singleton, Factory, Builder, Prototype",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/06-creational-patterns/README.md",
+  "description": "How objects get created: when to reach for a factory, a builder or a prototype, and why Singleton is the one to handle with care.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the main job of a creational pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "To remove inheritance"
+        },
+        {
+          "id": "b",
+          "text": "To store objects in a database"
+        },
+        {
+          "id": "c",
+          "text": "To separate how objects are created and configured from the code that uses them"
+        },
+        {
+          "id": "d",
+          "text": "To make objects run faster"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Creational patterns hide construction details (which class, which arguments, how many instances) behind a stable interface, so callers do not depend on concrete types."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A `Notification` can be email, SMS or push, chosen at runtime from a setting. Which pattern lets the caller ask for \"a notification\" without naming the class?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Memento"
+        },
+        {
+          "id": "b",
+          "text": "Decorator"
+        },
+        {
+          "id": "c",
+          "text": "Observer"
+        },
+        {
+          "id": "d",
+          "text": "Factory Method / Simple Factory"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A factory takes the choice (a type key or config) and returns the right implementation behind a common interface. The caller never writes `new SmsNotification()`."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "What does Abstract Factory add beyond a single Factory Method?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It builds one product at a time"
+        },
+        {
+          "id": "b",
+          "text": "It copies existing objects"
+        },
+        {
+          "id": "c",
+          "text": "It caches objects"
+        },
+        {
+          "id": "d",
+          "text": "It creates whole families of related objects that must match (for example a dark-theme button, checkbox and dialog)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Abstract Factory groups several factory methods so a consistent set of products comes from one place. Mixing a Windows button with a Mac checkbox becomes impossible by construction."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A `Report` has 12 optional settings, and the constructor call is unreadable. Which pattern fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Singleton"
+        },
+        {
+          "id": "b",
+          "text": "Flyweight"
+        },
+        {
+          "id": "c",
+          "text": "Visitor"
+        },
+        {
+          "id": "d",
+          "text": "Builder"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Builder assembles an object step by step with named methods, validates it at `build()`, and avoids telescoping constructors with many positional arguments."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Which problem is Prototype designed for?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Notifying observers of a change"
+        },
+        {
+          "id": "b",
+          "text": "Choosing a subclass at runtime"
+        },
+        {
+          "id": "c",
+          "text": "Limiting a class to one instance"
+        },
+        {
+          "id": "d",
+          "text": "Creating a new object by copying an existing configured one, instead of building it from scratch"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Prototype clones a ready-made instance, useful when construction is expensive or the object is configured at runtime. The catch is deep versus shallow copies of nested state."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "A Singleton is simply a global variable with a nicer name, and it makes code harder to test.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Mostly true. A Singleton gives hidden global state and ties callers to a concrete class, which hurts tests. Create one instance at the composition root and inject it instead, where one instance is truly needed."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which are real problems with a classic Singleton?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Tests share state and can affect each other"
+        },
+        {
+          "id": "b",
+          "text": "Dependencies are hidden inside methods instead of the constructor"
+        },
+        {
+          "id": "c",
+          "text": "It cannot hold any data"
+        },
+        {
+          "id": "d",
+          "text": "Thread-safe lazy creation needs care"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "d"
+      ],
+      "explanation": "Shared state, hidden dependencies and race conditions in lazy initialisation are the usual costs. A Singleton can hold data; that is exactly what makes it risky."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A pool of 20 database connections is reused instead of opened per request. Which pattern is this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Builder"
+        },
+        {
+          "id": "b",
+          "text": "Object Pool"
+        },
+        {
+          "id": "c",
+          "text": "Adapter"
+        },
+        {
+          "id": "d",
+          "text": "Prototype"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Object Pool keeps expensive-to-create objects ready for reuse. It must make sure an object is reset when returned and that exhaustion is handled."
+    },
+    {
+      "id": "q9",
+      "type": "single",
+      "text": "Why might a Builder's `build()` method validate the data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Because constructors are forbidden"
+        },
+        {
+          "id": "b",
+          "text": "To make the builder faster"
+        },
+        {
+          "id": "c",
+          "text": "So that an invalid object can never be created"
+        },
+        {
+          "id": "d",
+          "text": "Because Builders cannot be tested"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Collecting fields first and checking the combination at the end means the finished object is always consistent, instead of half-initialised."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "Which statement about Simple Factory versus Factory Method is correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Simple Factory is one function or class with a conditional; Factory Method lets subclasses decide which product to create"
+        },
+        {
+          "id": "b",
+          "text": "Factory Method never uses inheritance"
+        },
+        {
+          "id": "c",
+          "text": "Simple Factory requires an interface per product"
+        },
+        {
+          "id": "d",
+          "text": "They are identical in the GoF book"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Simple Factory is a common idiom (not a GoF pattern) that centralises `new`. Factory Method defers the choice to subclasses through an overridable creation method."
+    },
+    {
+      "id": "q11",
+      "type": "single",
+      "text": "You see `if (type == \"pdf\") new PdfExporter() else if (type == \"csv\") ...` repeated in five places. What is the best first refactor?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a Singleton"
+        },
+        {
+          "id": "b",
+          "text": "Copy it to a sixth place"
+        },
+        {
+          "id": "c",
+          "text": "Pull it into one factory or registry and call that everywhere"
+        },
+        {
+          "id": "d",
+          "text": "Make the class static"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Centralising the choice means a new type is added in one place. A registry keyed by type also keeps the factory closed for modification."
+    }
+  ]
+}

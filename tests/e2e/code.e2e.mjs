@@ -237,6 +237,7 @@ test('the Practice hub shows today\'s drill and problem, the problems as a map o
   const { context, page, goto } = await open('/practice/');
   await seed(page, { [`practice/code/${SLUG}`]: 'done', 'practice/code/min-stack': 'wip' });
   await goto();
+  await page.getByRole('button', { name: /^Code/ }).click();
   await page.locator('.cm-topic').first().waitFor();
   assert.match(await page.locator('.hub-today').innerText(), /Today's drill[\s\S]*Problem of the day/i);
   assert.ok(await page.getByRole('button', { name: 'Start the drill' }).count() > 0);

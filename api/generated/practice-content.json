@@ -777,6 +777,306 @@
     }
    ]
   },
+  "behavioral-patterns-strategy-observer-command-state": {
+   "title": "Behavioral patterns: Strategy, Observer, Command, State and friends",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/08-behavioral-patterns-i/README.md",
+   "description": "How objects cooperate and share responsibility: swapping algorithms, notifying listeners, queuing requests and modelling state.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What do behavioral patterns focus on?",
+     "options": [
+      {
+       "id": "a",
+       "text": "How objects interact and divide responsibility"
+      },
+      {
+       "id": "b",
+       "text": "How classes are packaged"
+      },
+      {
+       "id": "c",
+       "text": "How memory is laid out"
+      },
+      {
+       "id": "d",
+       "text": "How objects are created"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Behavioral patterns describe communication and the distribution of responsibility between objects."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "Different shipping cost calculators (flat, weight-based, express) must be swappable at runtime. Which pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Strategy"
+      },
+      {
+       "id": "b",
+       "text": "Facade"
+      },
+      {
+       "id": "c",
+       "text": "Singleton"
+      },
+      {
+       "id": "d",
+       "text": "Prototype"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Strategy encapsulates each algorithm behind one interface, so the context picks or receives one and the choice can change without editing the context."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "A stock price changes and many screens, alerts and loggers must update without the stock knowing them. Which pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Adapter"
+      },
+      {
+       "id": "b",
+       "text": "Observer"
+      },
+      {
+       "id": "c",
+       "text": "Flyweight"
+      },
+      {
+       "id": "d",
+       "text": "Builder"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Observer lets a subject notify any number of subscribers through a small interface, so the subject depends on an abstraction, not on each listener."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Which pattern turns a request into an object so it can be queued, logged or undone?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Proxy"
+      },
+      {
+       "id": "b",
+       "text": "Command"
+      },
+      {
+       "id": "c",
+       "text": "Bridge"
+      },
+      {
+       "id": "d",
+       "text": "Composite"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Command packages the action and its parameters (and often an undo). That allows queues, macros, retries and history."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "An order moves through Pending, Paid, Shipped and Cancelled, and what `cancel()` does depends on the stage. Which pattern replaces the big `switch` on status?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Template Method"
+      },
+      {
+       "id": "b",
+       "text": "Iterator"
+      },
+      {
+       "id": "c",
+       "text": "Visitor"
+      },
+      {
+       "id": "d",
+       "text": "State"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "State puts each stage's behaviour in its own class, and the context delegates to the current one, so adding or changing a stage touches one place."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "What is the difference between Strategy and State?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A strategy is chosen by the client for how to do something; a state changes by itself as the object transitions, and changes its behaviour"
+      },
+      {
+       "id": "b",
+       "text": "State has no interface"
+      },
+      {
+       "id": "c",
+       "text": "None at all"
+      },
+      {
+       "id": "d",
+       "text": "Strategy needs inheritance of the context"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Both delegate to an interchangeable object. With Strategy the caller usually picks; with State the transitions are part of the model and states often know the next state."
+    },
+    {
+     "id": "q7",
+     "type": "single",
+     "text": "Template Method fixes the skeleton of an algorithm in a base class. What do subclasses do?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Replace the whole algorithm"
+      },
+      {
+       "id": "b",
+       "text": "Nothing"
+      },
+      {
+       "id": "c",
+       "text": "Override specific steps, leaving the order of steps as defined"
+      },
+      {
+       "id": "d",
+       "text": "Create the base class"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "The base class owns the sequence (the \"template\") and exposes hooks for steps that vary. It uses inheritance, so prefer Strategy when you want to swap behaviour by composition."
+    },
+    {
+     "id": "q8",
+     "type": "truefalse",
+     "text": "A request that passes through a list of handlers, each deciding whether to act or pass it on, is the Chain of Responsibility pattern.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Web middleware pipelines and approval chains are the usual examples: the sender does not know which handler will handle the request."
+    },
+    {
+     "id": "q9",
+     "type": "multiple",
+     "text": "Which are benefits of Observer?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Notification order and speed are guaranteed"
+      },
+      {
+       "id": "b",
+       "text": "Several kinds of reaction can attach to one event"
+      },
+      {
+       "id": "c",
+       "text": "Listeners can be added or removed at runtime"
+      },
+      {
+       "id": "d",
+       "text": "The subject does not depend on concrete listeners"
+      }
+     ],
+     "answer": [
+      "b",
+      "c",
+      "d"
+     ],
+     "explanation": "Loose coupling and dynamic subscription are the gain. The order and cost of notification is not guaranteed, and a slow listener can hurt the subject if notified synchronously."
+    },
+    {
+     "id": "q10",
+     "type": "single",
+     "text": "What does Memento provide?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A single global instance"
+      },
+      {
+       "id": "b",
+       "text": "A tree of objects"
+      },
+      {
+       "id": "c",
+       "text": "A way to capture and restore an object's state without exposing its internals"
+      },
+      {
+       "id": "d",
+       "text": "A way to share objects"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "The memento stores a snapshot the originator can restore later, which supports undo and checkpoints while keeping encapsulation."
+    },
+    {
+     "id": "q11",
+     "type": "single",
+     "text": "Which pattern avoids a long `instanceof` chain by adding a new operation over a fixed set of element types without editing them?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Singleton"
+      },
+      {
+       "id": "b",
+       "text": "Observer"
+      },
+      {
+       "id": "c",
+       "text": "Visitor"
+      },
+      {
+       "id": "d",
+       "text": "Adapter"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Visitor moves an operation into its own class and uses double dispatch. It suits stable element types with changing operations, and hurts when new element types keep appearing."
+    }
+   ]
+  },
   "big-o-and-data-structures": {
    "title": "Big-O and data structures",
    "topic": "algorithms",
@@ -2523,6 +2823,306 @@
     }
    ]
   },
+  "creational-patterns-singleton-factory-builder": {
+   "title": "Creational patterns: Singleton, Factory, Builder, Prototype",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/06-creational-patterns/README.md",
+   "description": "How objects get created: when to reach for a factory, a builder or a prototype, and why Singleton is the one to handle with care.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What is the main job of a creational pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "To remove inheritance"
+      },
+      {
+       "id": "b",
+       "text": "To store objects in a database"
+      },
+      {
+       "id": "c",
+       "text": "To separate how objects are created and configured from the code that uses them"
+      },
+      {
+       "id": "d",
+       "text": "To make objects run faster"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Creational patterns hide construction details (which class, which arguments, how many instances) behind a stable interface, so callers do not depend on concrete types."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "A `Notification` can be email, SMS or push, chosen at runtime from a setting. Which pattern lets the caller ask for \"a notification\" without naming the class?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Memento"
+      },
+      {
+       "id": "b",
+       "text": "Decorator"
+      },
+      {
+       "id": "c",
+       "text": "Observer"
+      },
+      {
+       "id": "d",
+       "text": "Factory Method / Simple Factory"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "A factory takes the choice (a type key or config) and returns the right implementation behind a common interface. The caller never writes `new SmsNotification()`."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "What does Abstract Factory add beyond a single Factory Method?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It builds one product at a time"
+      },
+      {
+       "id": "b",
+       "text": "It copies existing objects"
+      },
+      {
+       "id": "c",
+       "text": "It caches objects"
+      },
+      {
+       "id": "d",
+       "text": "It creates whole families of related objects that must match (for example a dark-theme button, checkbox and dialog)"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Abstract Factory groups several factory methods so a consistent set of products comes from one place. Mixing a Windows button with a Mac checkbox becomes impossible by construction."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "A `Report` has 12 optional settings, and the constructor call is unreadable. Which pattern fits best?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Singleton"
+      },
+      {
+       "id": "b",
+       "text": "Flyweight"
+      },
+      {
+       "id": "c",
+       "text": "Visitor"
+      },
+      {
+       "id": "d",
+       "text": "Builder"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Builder assembles an object step by step with named methods, validates it at `build()`, and avoids telescoping constructors with many positional arguments."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "Which problem is Prototype designed for?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Notifying observers of a change"
+      },
+      {
+       "id": "b",
+       "text": "Choosing a subclass at runtime"
+      },
+      {
+       "id": "c",
+       "text": "Limiting a class to one instance"
+      },
+      {
+       "id": "d",
+       "text": "Creating a new object by copying an existing configured one, instead of building it from scratch"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Prototype clones a ready-made instance, useful when construction is expensive or the object is configured at runtime. The catch is deep versus shallow copies of nested state."
+    },
+    {
+     "id": "q6",
+     "type": "truefalse",
+     "text": "A Singleton is simply a global variable with a nicer name, and it makes code harder to test.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "Mostly true. A Singleton gives hidden global state and ties callers to a concrete class, which hurts tests. Create one instance at the composition root and inject it instead, where one instance is truly needed."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which are real problems with a classic Singleton?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Tests share state and can affect each other"
+      },
+      {
+       "id": "b",
+       "text": "Dependencies are hidden inside methods instead of the constructor"
+      },
+      {
+       "id": "c",
+       "text": "It cannot hold any data"
+      },
+      {
+       "id": "d",
+       "text": "Thread-safe lazy creation needs care"
+      }
+     ],
+     "answer": [
+      "a",
+      "b",
+      "d"
+     ],
+     "explanation": "Shared state, hidden dependencies and race conditions in lazy initialisation are the usual costs. A Singleton can hold data; that is exactly what makes it risky."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "A pool of 20 database connections is reused instead of opened per request. Which pattern is this?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Builder"
+      },
+      {
+       "id": "b",
+       "text": "Object Pool"
+      },
+      {
+       "id": "c",
+       "text": "Adapter"
+      },
+      {
+       "id": "d",
+       "text": "Prototype"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Object Pool keeps expensive-to-create objects ready for reuse. It must make sure an object is reset when returned and that exhaustion is handled."
+    },
+    {
+     "id": "q9",
+     "type": "single",
+     "text": "Why might a Builder's `build()` method validate the data?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Because constructors are forbidden"
+      },
+      {
+       "id": "b",
+       "text": "To make the builder faster"
+      },
+      {
+       "id": "c",
+       "text": "So that an invalid object can never be created"
+      },
+      {
+       "id": "d",
+       "text": "Because Builders cannot be tested"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Collecting fields first and checking the combination at the end means the finished object is always consistent, instead of half-initialised."
+    },
+    {
+     "id": "q10",
+     "type": "single",
+     "text": "Which statement about Simple Factory versus Factory Method is correct?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Simple Factory is one function or class with a conditional; Factory Method lets subclasses decide which product to create"
+      },
+      {
+       "id": "b",
+       "text": "Factory Method never uses inheritance"
+      },
+      {
+       "id": "c",
+       "text": "Simple Factory requires an interface per product"
+      },
+      {
+       "id": "d",
+       "text": "They are identical in the GoF book"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Simple Factory is a common idiom (not a GoF pattern) that centralises `new`. Factory Method defers the choice to subclasses through an overridable creation method."
+    },
+    {
+     "id": "q11",
+     "type": "single",
+     "text": "You see `if (type == \"pdf\") new PdfExporter() else if (type == \"csv\") ...` repeated in five places. What is the best first refactor?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Add a Singleton"
+      },
+      {
+       "id": "b",
+       "text": "Copy it to a sixth place"
+      },
+      {
+       "id": "c",
+       "text": "Pull it into one factory or registry and call that everywhere"
+      },
+      {
+       "id": "d",
+       "text": "Make the class static"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Centralising the choice means a new type is added in one place. A registry keyed by type also keeps the factory closed for modification."
+    }
+   ]
+  },
   "csharp-clr-and-memory-management": {
    "title": "C# CLR, Structs & Memory Management",
    "topic": "concurrency",
@@ -3527,6 +4127,225 @@
       "c"
      ],
      "explanation": "Observer is an in-memory synchronous pattern; Pub/Sub is distributed and asynchronous; Chain of Responsibility passes requests sequentially along a pipeline."
+    }
+   ]
+  },
+  "dip-dependency-inversion": {
+   "title": "DIP: Dependency Inversion Principle",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "High-level policy should not depend on low-level detail: abstractions, injection, ownership of the interface and the composition root.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What does the Dependency Inversion Principle say?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Interfaces must live in separate assemblies"
+      },
+      {
+       "id": "b",
+       "text": "High-level modules should depend on abstractions, and so should low-level modules, rather than policy depending on concrete details"
+      },
+      {
+       "id": "c",
+       "text": "Always use a dependency injection framework"
+      },
+      {
+       "id": "d",
+       "text": "Classes should never create objects"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Business policy should not import a specific database or mail library. Both sides depend on an abstraction that the high-level code defines and owns."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "`OrderService` does `new SqlOrderRepository()` in its constructor. What is the main cost?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It uses more memory"
+      },
+      {
+       "id": "b",
+       "text": "It cannot be tested without a database and cannot switch storage without editing the service"
+      },
+      {
+       "id": "c",
+       "text": "It breaks encapsulation"
+      },
+      {
+       "id": "d",
+       "text": "It is not thread safe"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Creating the concrete class inside ties policy to a detail. Taking an `OrderRepository` abstraction in the constructor lets tests pass a fake and production pass the SQL version."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which statement distinguishes dependency inversion from dependency injection?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Injection is a principle, inversion is a framework"
+      },
+      {
+       "id": "b",
+       "text": "They are the same thing"
+      },
+      {
+       "id": "c",
+       "text": "Inversion requires reflection"
+      },
+      {
+       "id": "d",
+       "text": "Inversion is the design rule about the direction of dependencies; injection is one technique to supply the implementation"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Inversion decides who depends on whom (details depend on policy's abstractions). Injection (constructor, setter, container) is a way to hand the chosen implementation in."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "In a layered design, who should own the `PaymentGateway` interface?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A shared \"interfaces\" project nobody owns"
+      },
+      {
+       "id": "b",
+       "text": "The Stripe adapter"
+      },
+      {
+       "id": "c",
+       "text": "The database layer"
+      },
+      {
+       "id": "d",
+       "text": "The business layer that needs payments, with the adapter implementing it"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Inversion means the abstraction is shaped by the needs of the high-level module. Then the adapter depends on the business layer, not the reverse."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "Where should concrete classes normally be chosen and wired together?",
+     "options": [
+      {
+       "id": "a",
+       "text": "In the composition root, near the application entry point"
+      },
+      {
+       "id": "b",
+       "text": "Inside each domain class"
+      },
+      {
+       "id": "c",
+       "text": "Inside the interface itself"
+      },
+      {
+       "id": "d",
+       "text": "Deep inside business methods"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "One place that knows all the concrete types keeps the rest of the code free of them. That place is the composition root (a `main`, a startup file, a container configuration)."
+    },
+    {
+     "id": "q6",
+     "type": "truefalse",
+     "text": "Using an interface for every single class, even one that will never have a second implementation, is required by DIP.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False. DIP matters at the boundaries where detail changes or needs faking (databases, clocks, network). Wrapping stable internal helpers in interfaces adds noise."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which of these are signs of a DIP violation?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Constructor injection of an interface"
+      },
+      {
+       "id": "b",
+       "text": "A domain class imports an ORM or HTTP client namespace"
+      },
+      {
+       "id": "c",
+       "text": "Business code calls `DateTime.Now` directly and tests need sleeps"
+      },
+      {
+       "id": "d",
+       "text": "A service creates its own collaborators with `new`"
+      }
+     ],
+     "answer": [
+      "b",
+      "c",
+      "d"
+     ],
+     "explanation": "Domain code that names infrastructure types, hidden clocks and self-created collaborators all weld policy to detail. Constructor injection of an abstraction is the remedy."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "A test needs to prove a retry runs after the third failure, without waiting for real time. Which design helps most?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Make the retry code static"
+      },
+      {
+       "id": "b",
+       "text": "Skip testing it"
+      },
+      {
+       "id": "c",
+       "text": "Inject an abstraction of time/delay so the test can control it"
+      },
+      {
+       "id": "d",
+       "text": "Call `Thread.Sleep` in the test"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Time is a dependency like any other. Injecting a clock or scheduler lets tests advance it instantly."
     }
    ]
   },
@@ -5224,6 +6043,225 @@
       "a"
      ],
      "explanation": "Setting a value to its final state gives the same result however many times it runs. A relative change (balance + 50), an insert with a fresh id and an email each repeat their effect, so they need a stable event id and a record of what was processed."
+    }
+   ]
+  },
+  "isp-interface-segregation": {
+   "title": "ISP: Interface Segregation Principle",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "Small, role-shaped interfaces: fat interfaces, empty implementations and how to split them without exploding the count.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What is the Interface Segregation Principle?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Interfaces must have a single method"
+      },
+      {
+       "id": "b",
+       "text": "Each class must have its own interface"
+      },
+      {
+       "id": "c",
+       "text": "No client should be forced to depend on methods it does not use"
+      },
+      {
+       "id": "d",
+       "text": "Interfaces should be as large as possible"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Clients should see only the methods they need. A big interface couples every client to changes that do not concern them."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "A `Machine` interface has `print()`, `scan()` and `fax()`. A basic printer implements it and throws on `scan` and `fax`. What is the fix?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Make the printer return null for scanning"
+      },
+      {
+       "id": "b",
+       "text": "Delete `fax()`"
+      },
+      {
+       "id": "c",
+       "text": "Keep the interface and document the exceptions"
+      },
+      {
+       "id": "d",
+       "text": "Split it into `Printer`, `Scanner` and `FaxMachine` and let a multi-function device implement all three"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Role interfaces let a simple printer implement only `Printer`. The throwing stubs were a sign that the interface lumped separate roles together."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which smell most reliably points at an ISP violation?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A method with default arguments"
+      },
+      {
+       "id": "b",
+       "text": "A long class name"
+      },
+      {
+       "id": "c",
+       "text": "A class with a private constructor"
+      },
+      {
+       "id": "d",
+       "text": "An implementing class with several empty or \"not supported\" methods"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Methods a class cannot honestly implement are the clearest signal that the interface asks for more than some implementers can give."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Why does a fat interface hurt the callers?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It makes the code slower"
+      },
+      {
+       "id": "b",
+       "text": "A change to a method one caller never uses still forces that caller to be recompiled, retested or redeployed"
+      },
+      {
+       "id": "c",
+       "text": "It prevents polymorphism"
+      },
+      {
+       "id": "d",
+       "text": "It requires a base class"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Dependence on unused methods means unrelated changes ripple to you. Narrow interfaces shrink the blast radius of a change."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "Splitting every interface down to a single method is always the best application of ISP.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False. Interfaces should follow roles that clients really use together. One method per interface produces a pile of tiny types with no meaning, so group methods that always travel together."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "A service only needs to read users, yet it depends on a `UserRepository` with save, delete and reindex methods. What does ISP suggest?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Add a mock for each method"
+      },
+      {
+       "id": "b",
+       "text": "Pass the whole repository and trust the developer"
+      },
+      {
+       "id": "c",
+       "text": "Make the repository static"
+      },
+      {
+       "id": "d",
+       "text": "Define a narrow `UserReader` (or query) interface for that service"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Depend on the slice you use. The same implementation can still satisfy both the wide and the narrow interface."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which are benefits of role-shaped interfaces?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Fewer unrelated changes ripple into a client"
+      },
+      {
+       "id": "b",
+       "text": "It is easier to see what a client really needs"
+      },
+      {
+       "id": "c",
+       "text": "Tests need smaller fakes"
+      },
+      {
+       "id": "d",
+       "text": "Implementations never need any code"
+      }
+     ],
+     "answer": [
+      "a",
+      "b",
+      "c"
+     ],
+     "explanation": "Small interfaces make fakes tiny, limit ripple effects and document dependencies. They do not remove the work of implementing behaviour."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "In Go, small interfaces like `io.Reader` are idiomatic. Which principle does that style most directly reflect?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Interface Segregation"
+      },
+      {
+       "id": "b",
+       "text": "Single Responsibility only"
+      },
+      {
+       "id": "c",
+       "text": "Open/Closed only"
+      },
+      {
+       "id": "d",
+       "text": "Singleton"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "`io.Reader` has one method, and a type satisfies it implicitly. Consumers declare the small interface they need, which is ISP taken to its natural conclusion."
     }
    ]
   },
@@ -7050,6 +8088,225 @@
     }
    ]
   },
+  "lsp-liskov-substitution": {
+   "title": "LSP: Liskov Substitution Principle",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "When a subtype really can stand in for its parent: contracts, preconditions, postconditions and the classic Rectangle/Square trap.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What does the Liskov Substitution Principle require?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Subclasses must not override anything"
+      },
+      {
+       "id": "b",
+       "text": "Every class must have a base class"
+      },
+      {
+       "id": "c",
+       "text": "Code written against the parent type must keep working when given any subtype, without surprises"
+      },
+      {
+       "id": "d",
+       "text": "A subclass must have more methods than its parent"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "A subtype must honour the contract callers rely on. If a caller needs to check \"is this really a Square?\" before using a Rectangle, the substitution failed."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "`Square` extends `Rectangle`, and setting its width also sets the height. A function sets width 5 and height 4 and expects an area of 20. What happens with a `Square`?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The area is 20 as expected"
+      },
+      {
+       "id": "b",
+       "text": "The area is 25"
+      },
+      {
+       "id": "c",
+       "text": "A compile error"
+      },
+      {
+       "id": "d",
+       "text": "The area is 16, so the subtype broke the caller's expectation"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "The caller reasonably assumed width and height change independently. Square strengthens that rule, so substituting it breaks the code. The fix is to stop modelling it as a mutable Rectangle subtype."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which change to an overridden method most clearly breaks LSP?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Returning a more specific type than the parent promised"
+      },
+      {
+       "id": "b",
+       "text": "Throwing a new exception the parent never throws and callers do not expect"
+      },
+      {
+       "id": "c",
+       "text": "Adding a log line"
+      },
+      {
+       "id": "d",
+       "text": "Accepting a wider range of inputs than the parent"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Subtypes may weaken preconditions (accept more) and strengthen postconditions (promise more), but surprising new failure modes break callers written against the parent."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "A `ReadOnlyList` extends `List` and throws `UnsupportedOperationException` on `add`. What does this suggest?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Exceptions are not part of a contract"
+      },
+      {
+       "id": "b",
+       "text": "It is a good use of inheritance"
+      },
+      {
+       "id": "c",
+       "text": "The hierarchy is wrong: a read-only collection is not a substitutable mutable list"
+      },
+      {
+       "id": "d",
+       "text": "LSP only applies to interfaces"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Callers of `List` expect `add` to work. A subtype that rejects it forces `instanceof` checks. A separate read-only interface that `List` extends is the honest design."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "Which rule do preconditions follow in a LSP-compliant override?",
+     "options": [
+      {
+       "id": "a",
+       "text": "They may be strengthened"
+      },
+      {
+       "id": "b",
+       "text": "They must throw"
+      },
+      {
+       "id": "c",
+       "text": "They must always be removed"
+      },
+      {
+       "id": "d",
+       "text": "They may only stay the same or be weakened"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "If the parent accepted any positive number, a subtype demanding an even number would reject inputs the caller was allowed to send. Weakening is safe; strengthening is not."
+    },
+    {
+     "id": "q6",
+     "type": "truefalse",
+     "text": "If a subclass compiles and matches the parent type's signature, it satisfies LSP.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False. LSP is about behaviour, not signatures. A method can have the right types and still break the promises (ordering, side effects, invariants) that callers rely on."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which are practical ways to catch LSP violations?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Run the parent's contract tests against every subtype"
+      },
+      {
+       "id": "b",
+       "text": "Look for overrides that do nothing or throw \"not supported\""
+      },
+      {
+       "id": "c",
+       "text": "Check that subclass names end in the parent name"
+      },
+      {
+       "id": "d",
+       "text": "Look for `instanceof` or type checks in code that takes the parent type"
+      }
+     ],
+     "answer": [
+      "a",
+      "b",
+      "d"
+     ],
+     "explanation": "Shared contract tests, type checks in callers and empty or throwing overrides are all symptoms that a subtype is not really substitutable. Naming conventions prove nothing."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "A `Bird` base class has `fly()`, and `Penguin` extends it and throws in `fly()`. Which fix is best?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Catch the exception in every caller"
+      },
+      {
+       "id": "b",
+       "text": "Make `Penguin` return silently"
+      },
+      {
+       "id": "c",
+       "text": "Rename `fly` to `move`"
+      },
+      {
+       "id": "d",
+       "text": "Split the hierarchy: `Bird` without `fly`, and a `FlyingBird` that adds it"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Model only what all subtypes can do in the base type, and put optional capabilities in a more specific type or interface. Then no caller can hold a Penguin and call fly()."
+    }
+   ]
+  },
   "message-queues-and-event-streaming": {
    "title": "Message queues and event streaming",
    "topic": "messaging",
@@ -8186,6 +9443,224 @@
       "b"
      ],
      "explanation": "Page on symptoms that users feel, such as errors and latency measured against the SLO, because they matter directly and they catch causes nobody predicted. One busy CPU, one failed-and-retried request or a disk with weeks of room are causes or noise that rarely need a human at 3 a.m.; keep them on dashboards or as low-urgency tickets."
+    }
+   ]
+  },
+  "ocp-open-closed": {
+   "title": "OCP: Open/Closed Principle",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "Extend behaviour by adding code, not by editing tested code: polymorphism, strategies and the limits of the idea.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What does \"open for extension, closed for modification\" mean?",
+     "options": [
+      {
+       "id": "a",
+       "text": "All code must be public"
+      },
+      {
+       "id": "b",
+       "text": "Classes must be declared `final`"
+      },
+      {
+       "id": "c",
+       "text": "You can add new behaviour without editing the code that already works and is tested"
+      },
+      {
+       "id": "d",
+       "text": "Nobody may ever edit a source file"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Adding a new case should mean adding a new class or registering a new strategy, not opening a stable method and adding another branch. Bug fixes still edit code; the principle is about growth."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "A `discount()` method has an `if/else if` chain over customer types, and every new type means editing it. Which design follows OCP?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Add one more `else if` each time"
+      },
+      {
+       "id": "b",
+       "text": "Store the discount in a global dictionary of lambdas edited by hand"
+      },
+      {
+       "id": "c",
+       "text": "Move the chain into a switch"
+      },
+      {
+       "id": "d",
+       "text": "Define a `DiscountPolicy` interface, one class per customer type, and have the caller depend on the interface"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "With a policy interface, a new customer type is a new class. The code that applies discounts does not change. Moving the chain to a switch only changes its syntax."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which pattern is the most direct way to make a payment step open to new methods (card, UPI, wallet)?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Strategy"
+      },
+      {
+       "id": "b",
+       "text": "Memento"
+      },
+      {
+       "id": "c",
+       "text": "Singleton"
+      },
+      {
+       "id": "d",
+       "text": "Flyweight"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Strategy puts each variant behind one interface so the checkout code stays the same while new variants are added beside it."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Where does the new class get wired in when you follow OCP?",
+     "options": [
+      {
+       "id": "a",
+       "text": "In the unit tests only"
+      },
+      {
+       "id": "b",
+       "text": "Inside the interface"
+      },
+      {
+       "id": "c",
+       "text": "Inside the old method, with an `if`"
+      },
+      {
+       "id": "d",
+       "text": "At the composition root or a registry, outside the stable logic"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Some place must know the full list of variants, but it should be the wiring layer (a registry, DI container or factory), not the business logic you wanted to leave untouched."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "You should make every class extensible from day one, in case it needs new behaviour later.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False. Guessing the axis of change up front yields speculative abstractions. A common rule is to wait for the second or third variant, then introduce the abstraction at the point of real change."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "Which situation is a poor fit for the OCP-style abstraction?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A report format that already has five exports (CSV, PDF, XLSX...) and a sixth is requested"
+      },
+      {
+       "id": "b",
+       "text": "A tax rule that has already changed three times by country"
+      },
+      {
+       "id": "c",
+       "text": "A one-off script with a single, fixed behaviour that will never grow"
+      },
+      {
+       "id": "d",
+       "text": "A notification channel list that grows each quarter"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "OCP pays off where change keeps arriving along the same axis. A one-off with no variation gets only extra indirection from an interface."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which of these usually violate OCP?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A long `if/else` over a type code in a core method"
+      },
+      {
+       "id": "b",
+       "text": "Editing a bug fix inside one existing method"
+      },
+      {
+       "id": "c",
+       "text": "A plugin registry where new handlers register themselves"
+      },
+      {
+       "id": "d",
+       "text": "`switch (type)` blocks repeated in many places that must all be edited for a new type"
+      }
+     ],
+     "answer": [
+      "a",
+      "d"
+     ],
+     "explanation": "Repeated type switches and a core method that grows a branch for each type are the classic violations. A plugin registry is the OCP-friendly shape, and fixing a bug is not extension."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "A team adds a new export format. With OCP followed, what is the smallest change?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Add a new `Exporter` implementation and register it"
+      },
+      {
+       "id": "b",
+       "text": "Rewrite the report generator"
+      },
+      {
+       "id": "c",
+       "text": "Edit the `Exporter` base class and every subclass"
+      },
+      {
+       "id": "d",
+       "text": "Duplicate the service and rename it"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "A new implementation plus registration leaves every existing exporter and its tests untouched, which is the whole benefit."
     }
    ]
   },
@@ -11529,6 +13004,498 @@
     }
    ]
   },
+  "srp-single-responsibility": {
+   "title": "SRP: Single Responsibility Principle",
+   "topic": "object-oriented-design",
+   "difficulty": "beginner",
+   "module": "lld/04-solid-principles/README.md",
+   "description": "One reason to change: how to spot a class that does too much and how to split it without over-splitting.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What does the Single Responsibility Principle actually say?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A function must never be longer than ten lines"
+      },
+      {
+       "id": "b",
+       "text": "A class must have exactly one method"
+      },
+      {
+       "id": "c",
+       "text": "A class should have one reason to change, because it answers to one actor or concern"
+      },
+      {
+       "id": "d",
+       "text": "Every file must contain exactly one class"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "The principle is about reasons to change, not about counting methods or lines. A class with ten methods can follow it if they all serve the same concern; a class with two can break it if one serves finance and the other serves operations."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "An `Invoice` class calculates totals, writes itself to the database and renders a PDF. The finance team changes the tax rules and the design team changes the PDF layout. Why is this a problem?",
+     "options": [
+      {
+       "id": "a",
+       "text": "PDF code is always slow"
+      },
+      {
+       "id": "b",
+       "text": "Two unrelated groups will edit the same class, so a change for one can break the other"
+      },
+      {
+       "id": "c",
+       "text": "Classes are not allowed to touch a database"
+      },
+      {
+       "id": "d",
+       "text": "It uses too much memory"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Each group is a separate reason to change. When both edit one class their changes collide in merges, share fields by accident, and a bug in the PDF code can fail a tax test. Splitting by actor keeps each change local."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which refactoring best fixes a `UserService` that registers users, hashes passwords, sends welcome emails and writes audit logs?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Make all the methods private"
+      },
+      {
+       "id": "b",
+       "text": "Rename it to `UserManager`"
+      },
+      {
+       "id": "c",
+       "text": "Move every method to static helpers in one `Utils` class"
+      },
+      {
+       "id": "d",
+       "text": "Keep registration in `UserService` and move hashing, email and audit into their own collaborators that it calls"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "Registration is the one job that stays. Hashing, mailing and auditing change for different reasons, so each gets its own small class, injected into the service. A renamed class or a `Utils` dump moves the mess without separating the reasons."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Which of these is the clearest sign that a class breaks SRP?",
+     "options": [
+      {
+       "id": "a",
+       "text": "It implements an interface"
+      },
+      {
+       "id": "b",
+       "text": "Its constructor takes many unrelated dependencies, and tests need many mocks for one behaviour"
+      },
+      {
+       "id": "c",
+       "text": "It has a long name"
+      },
+      {
+       "id": "d",
+       "text": "It has a private field"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A constructor that needs a database, a mailer, a PDF engine and a clock usually means the class does several jobs. The test setup pain is the same signal seen from the other side."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "A team splits a 30-line `Order` class into twelve one-method classes \"for SRP\". What went wrong?",
+     "options": [
+      {
+       "id": "a",
+       "text": "They should have used inheritance"
+      },
+      {
+       "id": "b",
+       "text": "They split by method count instead of by reason to change, so one change now touches many files"
+      },
+      {
+       "id": "c",
+       "text": "SRP forbids classes with fewer than two methods"
+      },
+      {
+       "id": "d",
+       "text": "Nothing, more classes is always better"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Splitting past the real seams creates shotgun surgery: a single business change must edit many tiny classes. Split along actors and concerns, and stop when each class has one reason to change."
+    },
+    {
+     "id": "q6",
+     "type": "truefalse",
+     "text": "Two methods that always change together, for the same reason, belong in the same class even if they look like different tasks.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Cohesion is judged by why code changes. Methods that change together for the same reason have one responsibility; separating them only adds indirection."
+    },
+    {
+     "id": "q7",
+     "type": "multiple",
+     "text": "Which of these are good ways to find the responsibilities in a class?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Check whether tests for one behaviour need unrelated fakes"
+      },
+      {
+       "id": "b",
+       "text": "Count the lines and split at 200"
+      },
+      {
+       "id": "c",
+       "text": "List who would ask for a change (finance, ops, design) and see how many groups appear"
+      },
+      {
+       "id": "d",
+       "text": "Describe the class in one sentence and see if it needs the word \"and\""
+      }
+     ],
+     "answer": [
+      "a",
+      "c",
+      "d"
+     ],
+     "explanation": "Actors, the \"and\" test and test-setup pain all point at the real concerns. A line count is a rough smell at best; a 300-line class can be one cohesive job."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "In an HTTP endpoint, which split follows SRP best?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The controller handles HTTP, a service holds the business rule, a repository handles persistence"
+      },
+      {
+       "id": "b",
+       "text": "Everything lives in a static helper"
+      },
+      {
+       "id": "c",
+       "text": "The database does the business rules through triggers only"
+      },
+      {
+       "id": "d",
+       "text": "The controller parses the request, runs the business rules, queries SQL and formats JSON in one method"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "HTTP translation, business rules and storage change for different reasons (API shape, policy, schema). Keeping them apart lets you swap the transport or the database without rewriting the rules."
+    }
+   ]
+  },
+  "structural-patterns-adapter-decorator-facade-proxy": {
+   "title": "Structural patterns: Adapter, Bridge, Composite, Decorator, Facade, Proxy",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/07-structural-patterns/README.md",
+   "description": "How objects are composed: wrap, forward, tree-build and simplify, and how to tell Adapter, Decorator and Proxy apart.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What do structural patterns deal with?",
+     "options": [
+      {
+       "id": "a",
+       "text": "How threads are scheduled"
+      },
+      {
+       "id": "b",
+       "text": "How objects are created"
+      },
+      {
+       "id": "c",
+       "text": "How classes and objects are composed into larger structures"
+      },
+      {
+       "id": "d",
+       "text": "How objects communicate at runtime only"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Structural patterns arrange classes and objects (wrapping, nesting, delegating) to build larger structures while keeping them flexible."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "Your code expects `PaymentGateway.charge()`, but a vendor SDK exposes `makePayment()` with different arguments. Which pattern fits?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Singleton"
+      },
+      {
+       "id": "b",
+       "text": "Adapter"
+      },
+      {
+       "id": "c",
+       "text": "Prototype"
+      },
+      {
+       "id": "d",
+       "text": "Observer"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Adapter wraps the incompatible interface and translates calls to the one your code expects, without changing either side."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which pattern adds behaviour (compression, then encryption) to an object at runtime by wrapping it, keeping the same interface?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Facade"
+      },
+      {
+       "id": "b",
+       "text": "Decorator"
+      },
+      {
+       "id": "c",
+       "text": "Flyweight"
+      },
+      {
+       "id": "d",
+       "text": "Bridge"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Decorators wrap a component with the same interface and add behaviour before or after delegating. They can be stacked in any order."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Which difference between Decorator and Proxy is the most useful?",
+     "options": [
+      {
+       "id": "a",
+       "text": "None, they are the same class"
+      },
+      {
+       "id": "b",
+       "text": "Decorator is only for UI"
+      },
+      {
+       "id": "c",
+       "text": "Decorator adds behaviour the client chose; Proxy controls access to the same object (lazy load, cache, permission check)"
+      },
+      {
+       "id": "d",
+       "text": "Proxy changes the interface; Decorator keeps it"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Both keep the interface and hold a reference. A decorator is about extending behaviour; a proxy is about controlling access or cost: remote, virtual (lazy), protection, caching."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "A file explorer shows folders that contain files and other folders, and both respond to `size()`. Which pattern models this?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Memento"
+      },
+      {
+       "id": "b",
+       "text": "Command"
+      },
+      {
+       "id": "c",
+       "text": "Composite"
+      },
+      {
+       "id": "d",
+       "text": "Strategy"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Composite lets a client treat a single leaf and a group of children uniformly through one interface, which fits tree structures."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "What does Facade do?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Gives a simple entry point to a complicated subsystem, which stays reachable for those who need it"
+      },
+      {
+       "id": "b",
+       "text": "Replaces an interface with an incompatible one"
+      },
+      {
+       "id": "c",
+       "text": "Adds state to an object"
+      },
+      {
+       "id": "d",
+       "text": "Copies objects"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "A facade offers a small, task-oriented API over many classes. It does not hide the subsystem so strongly that nobody else may use it."
+    },
+    {
+     "id": "q7",
+     "type": "single",
+     "text": "Bridge separates what two things?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A request from its handler"
+      },
+      {
+       "id": "b",
+       "text": "Creation from use"
+      },
+      {
+       "id": "c",
+       "text": "An abstraction from its implementation so that both can vary independently"
+      },
+      {
+       "id": "d",
+       "text": "Data from its view"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "Bridge avoids a class explosion (for example Shape x Renderer = every combination as a subclass) by composing a Shape with a Renderer chosen separately."
+    },
+    {
+     "id": "q8",
+     "type": "truefalse",
+     "text": "Flyweight saves memory by sharing the intrinsic (unchanging) part of many similar objects instead of storing a copy in each.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "True. Shared, immutable intrinsic state (such as a glyph shape) lives once; the extrinsic state (position) is passed in by the caller."
+    },
+    {
+     "id": "q9",
+     "type": "multiple",
+     "text": "Which of these are proxy use cases?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Loading a large image only when it is first displayed"
+      },
+      {
+       "id": "b",
+       "text": "Translating one interface into another"
+      },
+      {
+       "id": "c",
+       "text": "Checking permissions before forwarding a call"
+      },
+      {
+       "id": "d",
+       "text": "Caching the result of a slow remote call"
+      }
+     ],
+     "answer": [
+      "a",
+      "c",
+      "d"
+     ],
+     "explanation": "Virtual (lazy), protection and caching proxies all control access to a real object. Translating an interface is the job of an Adapter."
+    },
+    {
+     "id": "q10",
+     "type": "single",
+     "text": "A logging wrapper and a retry wrapper both implement `HttpClient` and wrap another `HttpClient`. Which pattern is this, most likely?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Decorator"
+      },
+      {
+       "id": "b",
+       "text": "Visitor"
+      },
+      {
+       "id": "c",
+       "text": "Interpreter"
+      },
+      {
+       "id": "d",
+       "text": "Mediator"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Each wrapper adds one behaviour while keeping the interface, so they can be stacked: retry(log(real)). Middleware pipelines follow the same idea."
+    }
+   ]
+  },
   "system-design-availability-latency-and-spof": {
    "title": "Availability, latency, throughput and single points of failure",
    "topic": "system-design",
@@ -13134,6 +15101,279 @@
       "false"
      ],
      "explanation": "Validation checks that data has the expected shape, but many legitimate values, such as a name like O'Brien or a comment with a less-than sign, contain characters that matter in HTML, SQL or a shell. Encode for the place where the data is used, and use parameterised queries, as well as validating."
+    }
+   ]
+  },
+  "which-design-pattern-would-you-use": {
+   "title": "Which design pattern would you use?",
+   "topic": "object-oriented-design",
+   "difficulty": "intermediate",
+   "module": "lld/25-design-patterns-one-at-a-time/29-pattern-comparison-drills/README.md",
+   "description": "Short scenarios across all the families: read the need, name the pattern, and say why not the look-alike.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "You need to guarantee a single shared rate-limit counter service in a process, and tests must be able to replace it. What is the best approach?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A global variable"
+      },
+      {
+       "id": "b",
+       "text": "A hard-coded Singleton with a static `Instance`"
+      },
+      {
+       "id": "c",
+       "text": "A new instance per request"
+      },
+      {
+       "id": "d",
+       "text": "One instance created at startup and injected where needed"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "The need is \"one instance\", which is a lifetime decision, not necessarily a Singleton class. Registering it as a single instance in the container keeps it replaceable in tests."
+    },
+    {
+     "id": "q2",
+     "type": "single",
+     "text": "A checkout must apply stackable extras (gift wrap, insurance, express) to any item, each optional, in any combination. Which pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Factory Method"
+      },
+      {
+       "id": "b",
+       "text": "Decorator"
+      },
+      {
+       "id": "c",
+       "text": "Bridge"
+      },
+      {
+       "id": "d",
+       "text": "State"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Each extra wraps the item and adds to its price or description while keeping the same interface, so combinations come from stacking rather than from a subclass per combination."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "An app must show the same data as a table, a chart and a CSV, and new views will be added. Where should each view get its data?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Each view copies the logic"
+      },
+      {
+       "id": "b",
+       "text": "Views subscribe to a model (Observer) or consume a common interface, and the data logic is written once"
+      },
+      {
+       "id": "c",
+       "text": "Each view inherits from every other view"
+      },
+      {
+       "id": "d",
+       "text": "A switch in the model for each view"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Separating the model from its views, with change notification, is the idea behind Observer and MVC. New views plug in without touching the model."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "You must support undo/redo in a text editor. Which pattern is the natural fit?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Flyweight"
+      },
+      {
+       "id": "b",
+       "text": "Command (with a history stack), possibly with Memento"
+      },
+      {
+       "id": "c",
+       "text": "Singleton"
+      },
+      {
+       "id": "d",
+       "text": "Adapter"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Each edit is a command with `execute` and `undo`; a stack of them gives undo and redo. Memento can store snapshots when reversing an action is hard."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "A legacy XML client must be used by new code that expects JSON-returning methods. Which pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Proxy"
+      },
+      {
+       "id": "b",
+       "text": "Iterator"
+      },
+      {
+       "id": "c",
+       "text": "Observer"
+      },
+      {
+       "id": "d",
+       "text": "Adapter"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "The new code defines the interface it wants, and an adapter translates to the legacy client. Adapter is for mismatched interfaces; Facade is for simplifying one."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "Which is the best match for \"give callers one simple method to place an order, while internally calling inventory, payment and shipping subsystems\"?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Decorator"
+      },
+      {
+       "id": "b",
+       "text": "Flyweight"
+      },
+      {
+       "id": "c",
+       "text": "Facade"
+      },
+      {
+       "id": "d",
+       "text": "Prototype"
+      }
+     ],
+     "answer": [
+      "c"
+     ],
+     "explanation": "A facade presents a task-oriented API over several subsystem classes. It coordinates but does not change their interfaces."
+    },
+    {
+     "id": "q7",
+     "type": "single",
+     "text": "A cache that should be consulted before a slow service, with the same interface as the service. Which pattern describes the cache layer?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Builder"
+      },
+      {
+       "id": "b",
+       "text": "Interpreter"
+      },
+      {
+       "id": "c",
+       "text": "Memento"
+      },
+      {
+       "id": "d",
+       "text": "Proxy (caching proxy)"
+      }
+     ],
+     "answer": [
+      "d"
+     ],
+     "explanation": "A caching proxy shares the service's interface, intercepts the call, and only forwards on a miss. A decorator can look the same; the intent here is access control and cost."
+    },
+    {
+     "id": "q8",
+     "type": "multiple",
+     "text": "Which of these are good signals that Strategy is the right pattern?",
+     "options": [
+      {
+       "id": "a",
+       "text": "You want to test each algorithm alone"
+      },
+      {
+       "id": "b",
+       "text": "The object must change behaviour as it moves through lifecycle states automatically"
+      },
+      {
+       "id": "c",
+       "text": "You see a long `if/else` choosing an algorithm by type"
+      },
+      {
+       "id": "d",
+       "text": "The same step has several interchangeable algorithms"
+      }
+     ],
+     "answer": [
+      "a",
+      "c",
+      "d"
+     ],
+     "explanation": "Interchangeable algorithms, type-switching and isolated testing all suggest Strategy. Behaviour that changes by itself through a lifecycle points to State."
+    },
+    {
+     "id": "q9",
+     "type": "truefalse",
+     "text": "Using a pattern is always better than writing plain code, because patterns are proven.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "False. A pattern pays for itself only when the problem it solves is present. For a fixed two-case `if`, a pattern is extra indirection. Start with the simplest code and refactor to a pattern when the pain appears."
+    },
+    {
+     "id": "q10",
+     "type": "single",
+     "text": "Many `if (role == ...)` checks repeat before sensitive calls across the codebase. Which pattern moves them to one place?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Chain of Responsibility or a protection Proxy around the service"
+      },
+      {
+       "id": "b",
+       "text": "Prototype"
+      },
+      {
+       "id": "c",
+       "text": "Bridge"
+      },
+      {
+       "id": "d",
+       "text": "Memento"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "A protection proxy or a middleware chain performs the check once, uniformly, before the call reaches the real service."
     }
    ]
   }

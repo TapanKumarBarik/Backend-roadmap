@@ -10,13 +10,25 @@ export const PRACTICE = {
   intro: 'Solve problems in the browser, take quizzes, and rehearse interview questions. Progress counts toward your level and streak.',
   tabs: [
     { id: 'code', label: 'Problems', empty: 'No problem matches those filters.' },
+    { id: 'lld', label: 'LLD', empty: 'No design problem matches those filters.' },
     { id: 'quizzes', label: 'Quizzes', empty: 'No quiz matches those filters.' },
     { id: 'interview', label: 'Interview', empty: 'No interview set matches those filters.' },
     { id: 'plans', label: 'Plans', empty: 'No plan matches those filters.' },
     { id: 'exercises', label: 'Exercises', empty: 'No exercise matches those filters.' }
   ],
   // The kind of item each tab opens, as it is written in the item's address.
-  tabKind: { code: 'code', plans: 'plan', quizzes: 'quiz', exercises: 'exercise', interview: 'interview' },
+  tabKind: { code: 'code', lld: 'code', plans: 'plan', quizzes: 'quiz', exercises: 'exercise', interview: 'interview' },
+  ask: 'What do you want to practise?',
+  back: '← Choose something else',
+  choices: [
+    { id: 'code', glyph: 'code', label: 'Code', text: 'Python and SQL problems you solve and run in the page.' },
+    { id: 'lld', glyph: 'blocks', label: 'Low-level design', text: 'Write the classes for a parking lot, a cache, a booking system. Tests judge them.' },
+    { id: 'design', glyph: 'branch', label: 'Design', text: 'Draw class diagrams and database schemas in the studio.', href: '/tools/lld-studio/' },
+    { id: 'quizzes', glyph: 'target', label: 'Quizzes', text: 'Multiple-choice checks on one topic, with the reasoning after each answer.' },
+    { id: 'interview', glyph: 'pencil', label: 'Interview questions', text: 'Questions and model answers, as a list or as flash cards.' },
+    { id: 'exercises', glyph: 'flask', label: 'Exercises', text: 'Longer tasks: build, fix or tune something real.' },
+    { id: 'plans', glyph: 'calendar', label: 'Study plans', text: 'A day-by-day schedule that mixes all of the above.' }
+  ],
   allTopics: 'All topics',
   allLevels: 'All levels',
   /** Best quiz attempt as a clean /10 rating for the hub cards. */

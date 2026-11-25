@@ -1,0 +1,273 @@
+{
+  "title": "Which design pattern would you use?",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/25-design-patterns-one-at-a-time/29-pattern-comparison-drills/README.md",
+  "description": "Short scenarios across all the families: read the need, name the pattern, and say why not the look-alike.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "You need to guarantee a single shared rate-limit counter service in a process, and tests must be able to replace it. What is the best approach?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A global variable"
+        },
+        {
+          "id": "b",
+          "text": "A hard-coded Singleton with a static `Instance`"
+        },
+        {
+          "id": "c",
+          "text": "A new instance per request"
+        },
+        {
+          "id": "d",
+          "text": "One instance created at startup and injected where needed"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The need is \"one instance\", which is a lifetime decision, not necessarily a Singleton class. Registering it as a single instance in the container keeps it replaceable in tests."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A checkout must apply stackable extras (gift wrap, insurance, express) to any item, each optional, in any combination. Which pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Factory Method"
+        },
+        {
+          "id": "b",
+          "text": "Decorator"
+        },
+        {
+          "id": "c",
+          "text": "Bridge"
+        },
+        {
+          "id": "d",
+          "text": "State"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each extra wraps the item and adds to its price or description while keeping the same interface, so combinations come from stacking rather than from a subclass per combination."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "An app must show the same data as a table, a chart and a CSV, and new views will be added. Where should each view get its data?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Each view copies the logic"
+        },
+        {
+          "id": "b",
+          "text": "Views subscribe to a model (Observer) or consume a common interface, and the data logic is written once"
+        },
+        {
+          "id": "c",
+          "text": "Each view inherits from every other view"
+        },
+        {
+          "id": "d",
+          "text": "A switch in the model for each view"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Separating the model from its views, with change notification, is the idea behind Observer and MVC. New views plug in without touching the model."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "You must support undo/redo in a text editor. Which pattern is the natural fit?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Flyweight"
+        },
+        {
+          "id": "b",
+          "text": "Command (with a history stack), possibly with Memento"
+        },
+        {
+          "id": "c",
+          "text": "Singleton"
+        },
+        {
+          "id": "d",
+          "text": "Adapter"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each edit is a command with `execute` and `undo`; a stack of them gives undo and redo. Memento can store snapshots when reversing an action is hard."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A legacy XML client must be used by new code that expects JSON-returning methods. Which pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Proxy"
+        },
+        {
+          "id": "b",
+          "text": "Iterator"
+        },
+        {
+          "id": "c",
+          "text": "Observer"
+        },
+        {
+          "id": "d",
+          "text": "Adapter"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The new code defines the interface it wants, and an adapter translates to the legacy client. Adapter is for mismatched interfaces; Facade is for simplifying one."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Which is the best match for \"give callers one simple method to place an order, while internally calling inventory, payment and shipping subsystems\"?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Decorator"
+        },
+        {
+          "id": "b",
+          "text": "Flyweight"
+        },
+        {
+          "id": "c",
+          "text": "Facade"
+        },
+        {
+          "id": "d",
+          "text": "Prototype"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A facade presents a task-oriented API over several subsystem classes. It coordinates but does not change their interfaces."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A cache that should be consulted before a slow service, with the same interface as the service. Which pattern describes the cache layer?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Builder"
+        },
+        {
+          "id": "b",
+          "text": "Interpreter"
+        },
+        {
+          "id": "c",
+          "text": "Memento"
+        },
+        {
+          "id": "d",
+          "text": "Proxy (caching proxy)"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A caching proxy shares the service's interface, intercepts the call, and only forwards on a miss. A decorator can look the same; the intent here is access control and cost."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which of these are good signals that Strategy is the right pattern?",
+      "options": [
+        {
+          "id": "a",
+          "text": "You want to test each algorithm alone"
+        },
+        {
+          "id": "b",
+          "text": "The object must change behaviour as it moves through lifecycle states automatically"
+        },
+        {
+          "id": "c",
+          "text": "You see a long `if/else` choosing an algorithm by type"
+        },
+        {
+          "id": "d",
+          "text": "The same step has several interchangeable algorithms"
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "d"
+      ],
+      "explanation": "Interchangeable algorithms, type-switching and isolated testing all suggest Strategy. Behaviour that changes by itself through a lifecycle points to State."
+    },
+    {
+      "id": "q9",
+      "type": "truefalse",
+      "text": "Using a pattern is always better than writing plain code, because patterns are proven.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False. A pattern pays for itself only when the problem it solves is present. For a fixed two-case `if`, a pattern is extra indirection. Start with the simplest code and refactor to a pattern when the pain appears."
+    },
+    {
+      "id": "q10",
+      "type": "single",
+      "text": "Many `if (role == ...)` checks repeat before sensitive calls across the codebase. Which pattern moves them to one place?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Chain of Responsibility or a protection Proxy around the service"
+        },
+        {
+          "id": "b",
+          "text": "Prototype"
+        },
+        {
+          "id": "c",
+          "text": "Bridge"
+        },
+        {
+          "id": "d",
+          "text": "Memento"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A protection proxy or a middleware chain performs the check once, uniformly, before the call reaches the real service."
+    }
+  ]
+}

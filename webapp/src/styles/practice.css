@@ -229,3 +229,19 @@
 #root .cd-done p { margin: 0 0 var(--space-2); line-height: var(--leading-normal); color: var(--fg-muted); }
 .cd-done ul { margin: 0 0 var(--space-2); padding-left: 1.2em; display: grid; gap: var(--space-1); line-height: var(--leading-snug); }
 @media (max-width: 600px) { .cd-face { min-height: 200px; padding: var(--space-5); } #root .cd-text { font-size: var(--text-lg); } }
+
+/* The first thing on Practice: what do you want to practise? One card per kind of practice. */
+.pr-ask__h { margin: var(--space-5) 0 var(--space-3); font-size: var(--text-lg); }
+.pr-ask { list-style: none; margin: 0 0 var(--space-6); padding: 0; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.pr-ask__card {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); width: 100%; height: 100%;
+  padding: var(--space-4); text-align: left; font: inherit; color: var(--fg); text-decoration: none;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-md, 10px); cursor: pointer;
+}
+.pr-ask__card:hover, .pr-ask__card:focus-visible { border-color: var(--signal); background: var(--signal-bg); }
+.pr-ask__icon { display: inline-flex; width: 2rem; height: 2rem; color: var(--signal); }
+.pr-ask__icon svg { width: 100%; height: 100%; }
+.pr-ask__name { font-size: var(--text-md); font-weight: 600; }
+.pr-ask__text { font-size: var(--text-sm); color: var(--fg-muted); }
+.pr-ask__count { position: absolute; top: var(--space-3); right: var(--space-3); font-size: var(--text-xs); color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+.pr-back { margin: var(--space-2) 0 var(--space-3); }

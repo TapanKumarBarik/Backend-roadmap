@@ -1,0 +1,219 @@
+{
+  "title": "ISP: Interface Segregation Principle",
+  "topic": "object-oriented-design",
+  "difficulty": "intermediate",
+  "module": "lld/04-solid-principles/README.md",
+  "description": "Small, role-shaped interfaces: fat interfaces, empty implementations and how to split them without exploding the count.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the Interface Segregation Principle?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interfaces must have a single method"
+        },
+        {
+          "id": "b",
+          "text": "Each class must have its own interface"
+        },
+        {
+          "id": "c",
+          "text": "No client should be forced to depend on methods it does not use"
+        },
+        {
+          "id": "d",
+          "text": "Interfaces should be as large as possible"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Clients should see only the methods they need. A big interface couples every client to changes that do not concern them."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A `Machine` interface has `print()`, `scan()` and `fax()`. A basic printer implements it and throws on `scan` and `fax`. What is the fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Make the printer return null for scanning"
+        },
+        {
+          "id": "b",
+          "text": "Delete `fax()`"
+        },
+        {
+          "id": "c",
+          "text": "Keep the interface and document the exceptions"
+        },
+        {
+          "id": "d",
+          "text": "Split it into `Printer`, `Scanner` and `FaxMachine` and let a multi-function device implement all three"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Role interfaces let a simple printer implement only `Printer`. The throwing stubs were a sign that the interface lumped separate roles together."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which smell most reliably points at an ISP violation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A method with default arguments"
+        },
+        {
+          "id": "b",
+          "text": "A long class name"
+        },
+        {
+          "id": "c",
+          "text": "A class with a private constructor"
+        },
+        {
+          "id": "d",
+          "text": "An implementing class with several empty or \"not supported\" methods"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Methods a class cannot honestly implement are the clearest signal that the interface asks for more than some implementers can give."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Why does a fat interface hurt the callers?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It makes the code slower"
+        },
+        {
+          "id": "b",
+          "text": "A change to a method one caller never uses still forces that caller to be recompiled, retested or redeployed"
+        },
+        {
+          "id": "c",
+          "text": "It prevents polymorphism"
+        },
+        {
+          "id": "d",
+          "text": "It requires a base class"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Dependence on unused methods means unrelated changes ripple to you. Narrow interfaces shrink the blast radius of a change."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "Splitting every interface down to a single method is always the best application of ISP.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "False. Interfaces should follow roles that clients really use together. One method per interface produces a pile of tiny types with no meaning, so group methods that always travel together."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A service only needs to read users, yet it depends on a `UserRepository` with save, delete and reindex methods. What does ISP suggest?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add a mock for each method"
+        },
+        {
+          "id": "b",
+          "text": "Pass the whole repository and trust the developer"
+        },
+        {
+          "id": "c",
+          "text": "Make the repository static"
+        },
+        {
+          "id": "d",
+          "text": "Define a narrow `UserReader` (or query) interface for that service"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Depend on the slice you use. The same implementation can still satisfy both the wide and the narrow interface."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which are benefits of role-shaped interfaces?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Fewer unrelated changes ripple into a client"
+        },
+        {
+          "id": "b",
+          "text": "It is easier to see what a client really needs"
+        },
+        {
+          "id": "c",
+          "text": "Tests need smaller fakes"
+        },
+        {
+          "id": "d",
+          "text": "Implementations never need any code"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "Small interfaces make fakes tiny, limit ripple effects and document dependencies. They do not remove the work of implementing behaviour."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "In Go, small interfaces like `io.Reader` are idiomatic. Which principle does that style most directly reflect?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Interface Segregation"
+        },
+        {
+          "id": "b",
+          "text": "Single Responsibility only"
+        },
+        {
+          "id": "c",
+          "text": "Open/Closed only"
+        },
+        {
+          "id": "d",
+          "text": "Singleton"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "`io.Reader` has one method, and a type satisfies it implicitly. Consumers declare the small interface they need, which is ISP taken to its natural conclusion."
+    }
+  ]
+}
