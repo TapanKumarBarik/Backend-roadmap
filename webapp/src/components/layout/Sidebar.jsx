@@ -61,7 +61,7 @@ function Sidebar({
             <CaretIcon />
           </button>
         </div>
-        {filter === 'all' && <AreaSwitch areas={areas} area={picked ? area : 'all'} onPick={onSetArea} />}
+        {filter === 'all' && <AreaSwitch id="areaRow" areas={areas} area={picked ? area : 'all'} onPick={onSetArea} />}
       </div>
       {/* The tree shows only the path, so a module opened from outside it (a search, a link) would otherwise
           vanish from the panel with no explanation. */}

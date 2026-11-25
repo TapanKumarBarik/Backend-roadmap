@@ -269,6 +269,7 @@ test('Explore lists the learning paths, and a path has a page of its own with wh
   const { context, page, problems, goto } = await open('/#__explore', { email: null });
   await goto();
   await page.getByRole('heading', { level: 1, name: /^Explore/ }).waitFor();
+  await page.locator('.xa-more > summary').click();
   const link = page.getByRole('link', { name: 'Backend foundations' }).first();
   await link.waitFor();
   await link.click();

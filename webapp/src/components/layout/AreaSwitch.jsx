@@ -4,9 +4,9 @@ import { AREA_COPY } from '../../config/areas.js';
 
 // Which area of the library the module tree shows: one row of buttons above it ("All areas" and one for each), so a library of five long
 // lists is read one list at a time. It is a set of toggle buttons (aria-pressed), not tabs: the tree below is the same one region either way.
-export function AreaSwitch({ areas, area, onPick }) {
+export function AreaSwitch({ areas, area, onPick, id }) {
   return (
-    <div id="areaRow" role="group" aria-label={AREA_COPY.groupLabel}>
+    <div id={id} className="area-row" role="group" aria-label={AREA_COPY.groupLabel}>
       <button type="button" className={'chip' + (area === 'all' ? ' on' : '')} aria-pressed={area === 'all'} onClick={() => onPick('all')}>
         {AREA_COPY.all}
       </button>

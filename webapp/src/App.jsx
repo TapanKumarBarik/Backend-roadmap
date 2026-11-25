@@ -671,7 +671,7 @@ export default function App() {
                     initialTab={path === NOTES_ROUTE ? 'notes' : 'bookmarks'}
                   />
                 )}
-                {(isExploreRoute || (isPathRoute && !heading)) && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} onOpenTopic={openTopicPage} />}
+                {(isExploreRoute || (isPathRoute && !heading)) && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} onOpenTopic={openTopicPage} areas={areas} area={area} onPickArea={pickArea} onOpenFile={openFile} />}
                 {isTopicRoute && <TopicsView id={heading} nodeByFile={nodeByFile} statusMap={statusMap} onOpenTopic={openTopicPage} onBack={openTopicsPage} onOpenFile={openFile} onOpenPractice={openPractice} />}
                 {isPathRoute && !!heading && (
                   <PathView

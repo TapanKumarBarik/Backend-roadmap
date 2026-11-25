@@ -167,6 +167,7 @@ test('the landing page offers the guides in one line, and Explore leads with the
   await landing.context.close();
 
   const explore = await open('/#__explore');
+  await explore.page.locator('.xa-more > summary').click();
   await explore.page.locator('.explore-learn .tp-card').first().waitFor();
   assert.equal(await explore.page.locator('.explore-learn .tp-card').count(), TOPICS.length);
   await explore.context.close();
