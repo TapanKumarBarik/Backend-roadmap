@@ -104,6 +104,7 @@ Here is the production-grade benchmark evaluation runner you can use to test you
 
 ### Python (`feasibility_benchmark.py`)
 
+````carousel
 ```python
 import time
 import json
@@ -193,8 +194,9 @@ if __name__ == "__main__":
     run_feasibility_audit()
 ```
 
-### TypeScript / Node.js (`feasibility_test.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`feasibility_test.ts`)
 ```typescript
 import { z } from 'zod';
 
@@ -221,8 +223,9 @@ export function validateCandidatePayload(jsonString: string): boolean {
 }
 ```
 
-### Go (`feasibility_check.go`)
+<!-- slide -->
 
+### Go (`feasibility_check.go`)
 ```go
 package main
 
@@ -254,6 +257,7 @@ func main() {
 	fmt.Printf("Audit Schema Check: %v\n", ValidatePayload(sample))
 }
 ```
+````
 
 ---
 

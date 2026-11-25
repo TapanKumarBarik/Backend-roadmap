@@ -104,8 +104,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Pure Standard-Library SafeTensors Writer and Inspector
-
 ```python
 """
 Production SafeTensors Serialization Engine in Python.
@@ -192,8 +192,9 @@ if __name__ == "__main__":
         os.remove(test_path)
 ```
 
-### TypeScript: Low-Latency SafeTensors Header Parser (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency SafeTensors Header Parser (Node.js)
 ```typescript
 /**
  * Production SafeTensors Header Parser in TypeScript / Node.js.
@@ -235,8 +236,9 @@ export class SafeTensorsParser {
 console.log("TypeScript SafeTensorsParser verified and ready.");
 ```
 
-### Go: High-Throughput SafeTensors Header Inspector
+<!-- slide -->
 
+### Go: High-Throughput SafeTensors Header Inspector
 ```go
 package main
 
@@ -282,6 +284,7 @@ func main() {
 	fmt.Println("Go SafeTensors Header Inspector compiled successfully.")
 }
 ```
+````
 
 ---
 

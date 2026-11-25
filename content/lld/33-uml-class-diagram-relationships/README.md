@@ -1473,6 +1473,7 @@ classDiagram
   }
 ```
 
+````carousel
 ```python
 class Rectangle:
     def __init__(self, width: float, height: float) -> None:
@@ -1486,6 +1487,8 @@ class Rectangle:
 print(Rectangle(3, 4).area())
 ```
 
+<!-- slide -->
+
 ```csharp
 public class Rectangle
 {
@@ -1494,6 +1497,7 @@ public class Rectangle
     public double Area() => _width * _height;
 }
 ```
+````
 </details>
 
 ### Exercise 3. Two objects
@@ -1558,6 +1562,7 @@ classDiagram
   Speaker <|.. Robot
 ```
 
+````carousel
 ```python
 from abc import ABC, abstractmethod
 
@@ -1584,11 +1589,14 @@ def announce(s: Speaker) -> str:
 print(announce(Dog()), announce(Robot()))
 ```
 
+<!-- slide -->
+
 ```csharp
 public interface ISpeaker { string Speak(); }
 public class Dog : ISpeaker { public string Speak() => "Woof"; }
 public class Robot : ISpeaker { public string Speak() => "Beep"; }
 ```
+````
 </details>
 
 ### Exercise 7. Multiplicity to code
@@ -1598,6 +1606,7 @@ public class Robot : ISpeaker { public string Speak() => "Beep"; }
 <details>
 <summary>Answer</summary>
 
+````carousel
 ```python
 class Pilot: ...
 class Passenger: ...
@@ -1614,6 +1623,8 @@ class Flight:
 print(Flight([Passenger()])._pilot)
 ```
 
+<!-- slide -->
+
 ```csharp
 public class Flight
 {
@@ -1629,6 +1640,7 @@ public class Flight
 public class Pilot { }
 public class Passenger { }
 ```
+````
 </details>
 
 ### Exercise 8. Code to diagram

@@ -177,6 +177,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as crypto from 'crypto';
 
@@ -197,6 +198,8 @@ console.log(`Git Object Hash: ${gitHash}`);
 // Output: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import hashlib
@@ -214,6 +217,7 @@ if __name__ == "__main__":
     print(f"Git Hash: {compute_git_blob_sha1(payload)}")
     # Output: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
 ```
+````
 
 ---
 

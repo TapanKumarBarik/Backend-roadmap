@@ -122,8 +122,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Raw HTTP Client (Zero External SDK Dependencies)
-
 ```python
 """
 Production Raw HTTP OpenAI Client in Python.
@@ -214,8 +214,9 @@ if __name__ == "__main__":
     print("OpenAI Raw HTTP Client loaded. Interface ready for production dispatch.")
 ```
 
-### TypeScript: Low-Latency Native Fetch Client (Node.js 18+)
+<!-- slide -->
 
+### TypeScript: Low-Latency Native Fetch Client (Node.js 18+)
 ```typescript
 /**
  * Production Native Fetch OpenAI Client in TypeScript.
@@ -307,8 +308,9 @@ const client = new OpenAIHttpClient("sk-mock-key-for-compilation-test");
 console.log("TypeScript OpenAI HTTP client compiled and verified.");
 ```
 
-### Go: High-Throughput HTTP Client with Context & Telemetry
+<!-- slide -->
 
+### Go: High-Throughput HTTP Client with Context & Telemetry
 ```go
 package main
 
@@ -420,6 +422,7 @@ func main() {
 	fmt.Println("Go OpenAI Client compiled successfully. Ready for network dispatch.")
 }
 ```
+````
 
 ---
 

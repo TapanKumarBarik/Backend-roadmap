@@ -113,8 +113,8 @@ sequenceDiagram
 
 To see the operational difference in latency and resource footprint, compare these implementations of a sentiment classification pipeline.
 
+````carousel
 ### Python: Fast Discriminative (scikit-learn) vs. Generative (LLM)
-
 ```python
 import time
 from typing import Dict, Any
@@ -163,8 +163,9 @@ if __name__ == "__main__":
     print(f"Generative:     {gen_res['class']} in {gen_res['latency_ms']}ms")
 ```
 
-### TypeScript / Node.js (`hybrid_router.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`hybrid_router.ts`)
 ```typescript
 export interface ClassificationResult {
   intent: 'BILLING' | 'TECHNICAL' | 'GENERAL';
@@ -201,8 +202,9 @@ export function fastDiscriminativeTriage(text: string): ClassificationResult | n
 }
 ```
 
-### Go (`classifier_benchmark.go`)
+<!-- slide -->
 
+### Go (`classifier_benchmark.go`)
 ```go
 package main
 
@@ -240,6 +242,7 @@ func main() {
 	fmt.Printf("Classified as: %s in %v\n", result.Category, result.Latency)
 }
 ```
+````
 
 ---
 

@@ -156,6 +156,7 @@ Study these production implementations of Causal Self-Attention featuring the lo
 
 ### Python (`causal_self_attention.py`)
 
+````carousel
 ```python
 import numpy as np
 
@@ -214,8 +215,9 @@ if __name__ == "__main__":
     print("\nNotice that every row only attends to itself and previous columns (Upper triangle is 0.00)!")
 ```
 
-### TypeScript / Node.js (`causal_attention.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`causal_attention.ts`)
 ```typescript
 export function causalMaskedAttention(
   Q: number[][],
@@ -264,8 +266,9 @@ export function causalMaskedAttention(
 }
 ```
 
-### Go (`causal_mask.go`)
+<!-- slide -->
 
+### Go (`causal_mask.go`)
 ```go
 package main
 
@@ -304,6 +307,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

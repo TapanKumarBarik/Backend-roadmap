@@ -87,6 +87,21 @@ export function enhanceContent(root, { runnable = false } = {}) {
     wrap.appendChild(bar);
   });
 
+  // Hide/remove redundant static output blocks immediately following a runnable Python/JS block
+  // so output is not shown by default or duplicated once the learner clicks Run.
+  if (runnable) {
+    root.querySelectorAll('.codeblock').forEach((wrap) => {
+      if (!wrap.querySelector('.cb-run')) return;
+      const next = wrap.nextElementSibling;
+      if (!next || !next.classList.contains('codeblock')) return;
+      const nextLang = (next.querySelector('.cb-lang')?.textContent || '').trim().toLowerCase();
+      if (nextLang !== '' && nextLang !== 'text' && nextLang !== 'plaintext' && nextLang !== 'output') return;
+      const nextText = next.querySelector('pre > code')?.textContent || '';
+      if (/[┌┐└┘│─┬┴├┤╔╗╚╝║═]/.test(nextText) || /^\s*\+[-+]+\+/m.test(nextText)) return;
+      next.remove();
+    });
+  }
+
   // After synchronous heading ID / TOC extraction so anchors never capture KaTeX's duplicate MathML text.
   renderMathLater(root);
 }

@@ -182,6 +182,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -210,6 +211,8 @@ export async function auditCommitMessages(baseBranch = 'main'): Promise<void> {
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import subprocess
@@ -235,6 +238,7 @@ def verify_single_commit_per_pr(base_branch: str = "main") -> bool:
 if __name__ == "__main__":
     verify_single_commit_per_pr()
 ```
+````
 
 ---
 

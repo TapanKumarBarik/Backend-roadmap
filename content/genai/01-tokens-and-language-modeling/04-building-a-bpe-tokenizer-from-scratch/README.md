@@ -103,6 +103,7 @@ Study this complete, production-grade implementation of a Byte-Level BPE tokeniz
 
 ### Python (`byte_level_bpe.py`)
 
+````carousel
 ```python
 import regex as re
 from typing import List, Dict, Tuple
@@ -216,8 +217,9 @@ if __name__ == "__main__":
     print(f"Verification:    {'PASSED' if sample == decoded_text else 'FAILED'}")
 ```
 
-### TypeScript / Node.js (`bpe_engine.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`bpe_engine.ts`)
 ```typescript
 export class ByteLevelTokenizer {
   private vocab: Map<number, Uint8Array> = new Map();
@@ -257,8 +259,9 @@ export class ByteLevelTokenizer {
 }
 ```
 
-### Go (`bpe_tokenizer.go`)
+<!-- slide -->
 
+### Go (`bpe_tokenizer.go`)
 ```go
 package main
 
@@ -301,6 +304,7 @@ func main() {
 	fmt.Printf("Decoded string: %s\n", tok.Decode(encoded))
 }
 ```
+````
 
 ---
 

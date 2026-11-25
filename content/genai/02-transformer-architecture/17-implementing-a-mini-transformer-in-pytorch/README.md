@@ -105,8 +105,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Complete Runnable End-to-End Mini Transformer (PyTorch)
-
 ```python
 """
 Production Mini-Transformer Implementation in PyTorch.
@@ -273,8 +273,9 @@ if __name__ == "__main__":
     print(f"Generated Continuation: '{decoded}'")
 ```
 
-### TypeScript: Autoregressive Greedy Token Decoding Engine
+<!-- slide -->
 
+### TypeScript: Autoregressive Greedy Token Decoding Engine
 ```typescript
 /**
  * Production Autoregressive Decoding Loop in TypeScript / Node.js.
@@ -336,8 +337,9 @@ const sampledIdx = generator.sampleToken(probs);
 console.log(`Sampled Token ID ${sampledIdx}: '${vocab[sampledIdx]}'`);
 ```
 
-### Go: High-Throughput Autoregressive Token Sampler
+<!-- slide -->
 
+### Go: High-Throughput Autoregressive Token Sampler
 ```go
 package main
 
@@ -389,6 +391,7 @@ func main() {
 	fmt.Printf("Sampled Token: ID=%d ('%s')\n", tokenID, vocab[tokenID])
 }
 ```
+````
 
 ---
 

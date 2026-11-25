@@ -108,8 +108,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: The Three Architectural Families in PyTorch
-
 ```python
 """
 Comparative Implementation of Transformer Architectural Families.
@@ -175,8 +175,9 @@ if __name__ == "__main__":
     print("Verification Passed: Cross-attention output length is strictly query-driven.")
 ```
 
-### TypeScript: Cross-Attention Resolution Engine
+<!-- slide -->
 
+### TypeScript: Cross-Attention Resolution Engine
 ```typescript
 /**
  * Cross-Attention Dimension Dispatcher in TypeScript / Node.js.
@@ -213,8 +214,9 @@ console.log("Attention Matrix (Dec x Enc):", dims.attentionMatrixShape);
 console.log("Output Shape (Dec x dModel):  ", dims.outputShape);
 ```
 
-### Go: Multi-Topology Pipeline Router
+<!-- slide -->
 
+### Go: Multi-Topology Pipeline Router
 ```go
 package main
 
@@ -262,6 +264,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

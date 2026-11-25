@@ -103,6 +103,7 @@ Study these implementations showing how to use an LLM exclusively for extraction
 
 ### Python (`safe_extraction_pipeline.py`)
 
+````carousel
 ```python
 from decimal import Decimal
 from typing import List
@@ -159,8 +160,9 @@ if __name__ == "__main__":
         print(f"  {k:<15}: ${v}")
 ```
 
-### TypeScript / Node.js (`safe_extractor.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`safe_extractor.ts`)
 ```typescript
 import { z } from 'zod';
 
@@ -198,8 +200,9 @@ export function processInvoice(rawLLMJson: unknown) {
 }
 ```
 
-### Go (`invoice_processor.go`)
+<!-- slide -->
 
+### Go (`invoice_processor.go`)
 ```go
 package main
 
@@ -235,6 +238,7 @@ func main() {
 	fmt.Printf("Vendor: %s | Total with Tax: $%.2f\n", inv.Vendor, CalculateTotal(inv))
 }
 ```
+````
 
 ---
 

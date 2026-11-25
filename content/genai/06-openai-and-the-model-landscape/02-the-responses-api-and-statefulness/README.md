@@ -116,8 +116,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Responses API Client with Typed Item Parsing
-
 ```python
 """
 Production Responses API Client in Python.
@@ -202,8 +202,9 @@ if __name__ == "__main__":
     print("ResponsesApiClient loaded and verified. Polymorphic parsers ready.")
 ```
 
-### TypeScript: Low-Latency Responses API Consumer (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Responses API Consumer (Node.js)
 ```typescript
 /**
  * Production Responses API Handler in TypeScript.
@@ -293,8 +294,9 @@ const consumer = new ResponsesApiConsumer("sk-mock-key");
 console.log("TypeScript Responses API consumer compiled and verified.");
 ```
 
-### Go: Responses API Dispatcher & Item Aggregator
+<!-- slide -->
 
+### Go: Responses API Dispatcher & Item Aggregator
 ```go
 package main
 
@@ -400,6 +402,7 @@ func main() {
 	fmt.Println("Go ResponsesClient initialized and ready for execution.")
 }
 ```
+````
 
 ---
 

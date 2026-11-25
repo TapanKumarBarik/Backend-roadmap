@@ -184,6 +184,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as os from 'os';
 
@@ -222,6 +223,8 @@ if (identity.isRoot) {
   console.log('✅ Verified non-root execution context.');
 }
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -264,6 +267,7 @@ def audit_and_drop_privileges(target_user: str = "nobody") -> None:
 if __name__ == "__main__":
     audit_and_drop_privileges()
 ```
+````
 
 ---
 

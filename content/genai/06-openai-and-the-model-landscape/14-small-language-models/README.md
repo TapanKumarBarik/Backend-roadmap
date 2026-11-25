@@ -114,8 +114,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Production Model Cascade Router with Confidence Thresholding
-
 ```python
 """
 Production Model Cascade Router in Python.
@@ -189,8 +189,9 @@ if __name__ == "__main__":
     print(f"Query 2: Tier={res2['tier_used']} | Escalated={res2['escalated']} | Cost=${res2['estimated_cost_usd']}")
 ```
 
-### TypeScript: Low-Latency Cascade Dispatcher (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Cascade Dispatcher (Node.js)
 ```typescript
 /**
  * Production Model Cascade Dispatcher in TypeScript / Node.js.
@@ -258,8 +259,9 @@ dispatcher.execute("Reset my login pin").then((res) => {
 });
 ```
 
-### Go: High-Throughput Cascade Gateway
+<!-- slide -->
 
+### Go: High-Throughput Cascade Gateway
 ```go
 package main
 
@@ -308,6 +310,7 @@ func main() {
 	fmt.Printf("Query Routed To: %s (Confidence: %.2f)\n", res.Tier, res.Confidence)
 }
 ```
+````
 
 ---
 

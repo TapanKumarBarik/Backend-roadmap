@@ -141,6 +141,7 @@ To understand how an LLM transforms raw numbers (logits) into words, study this 
 
 ### Python (`autoregressive_sampling.py`)
 
+````carousel
 ```python
 import math
 import random
@@ -184,8 +185,9 @@ if __name__ == "__main__":
         print(f"  👉 Sampled Token: '{chosen_token.strip()}' (p = {chosen_prob * 100:.2f}%)")
 ```
 
-### TypeScript / Node.js (`autoregressive_sampling.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`autoregressive_sampling.ts`)
 ```typescript
 const VOCABULARY = [' Paris', ' London', ' Berlin', ' Rome', ' Madrid'];
 const RAW_LOGITS = [8.5, 3.2, 2.1, 1.8, 1.2];
@@ -220,8 +222,9 @@ const greedyProbs = computeSoftmax(RAW_LOGITS, 0.1);
 console.log('Greedy Top Candidate:', VOCABULARY[0], (greedyProbs[0] * 100).toFixed(2) + '%');
 ```
 
-### Go (`autoregressive_sampling.go`)
+<!-- slide -->
 
+### Go (`autoregressive_sampling.go`)
 ```go
 package main
 
@@ -272,6 +275,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

@@ -135,6 +135,7 @@ Study these implementations of Chinchilla FLOPs calculation and inference token 
 
 ### Python (`scaling_calculator.py`)
 
+````carousel
 ```python
 from dataclasses import dataclass
 
@@ -188,8 +189,9 @@ if __name__ == "__main__":
         print(f"  Status: {status}")
 ```
 
-### TypeScript / Node.js (`scaling_calculator.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`scaling_calculator.ts`)
 ```typescript
 export interface TokenEconomics {
   inputTokens: number;
@@ -226,8 +228,9 @@ const budget = estimateInferenceCost(50_000, 4, 800, 200, 0.15, 0.6);
 console.log(`Estimated Cloud AI Budget: $${budget.monthlyCost}/month`);
 ```
 
-### Go (`flops_estimator.go`)
+<!-- slide -->
 
+### Go (`flops_estimator.go`)
 ```go
 package main
 
@@ -247,6 +250,7 @@ func main() {
 	fmt.Printf("Llama 3 8B Pre-Training Compute: %.3e FLOPs\n", llama3_8b)
 }
 ```
+````
 
 ---
 

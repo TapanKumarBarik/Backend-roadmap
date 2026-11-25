@@ -177,6 +177,7 @@ The following implementations demonstrate production-grade integration testing:
 ```
 
 ### Python (pytest + Testcontainers + FastAPI)
+````carousel
 ```python
 import pytest
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -267,6 +268,8 @@ def test_create_duplicate_task_returns_409(client):
     assert res2.status_code == 409
 ```
 
+<!-- slide -->
+
 ### Go (testcontainers-go + pgx)
 ```go
 package integration_test
@@ -338,8 +341,10 @@ func TestTaskRepository_TransactionRollback(t *testing.T) {
 	// On exit, tx.Rollback() restores DB to pristine state
 }
 ```
+````
 
 ### Node.js / TypeScript (Supertest + Testcontainers)
+````carousel
 ```typescript
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -405,6 +410,8 @@ describe('Tasks API Integration Tests', () => {
 });
 ```
 
+<!-- slide -->
+
 ### C# (ASP.NET Core WebApplicationFactory + Testcontainers)
 ```csharp
 using System.Net;
@@ -459,6 +466,7 @@ public class TaskApiTests : IClassFixture<IntegrationTestFixture>
     }
 }
 ```
+````
 
 ---
 

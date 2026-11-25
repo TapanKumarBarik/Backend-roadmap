@@ -149,6 +149,7 @@ Study these production-grade implementations of vector normalization, cosine dis
 
 ### Python (`vector_arithmetic.py`)
 
+````carousel
 ```python
 import numpy as np
 from typing import Dict, List, Tuple
@@ -204,8 +205,9 @@ if __name__ == "__main__":
     print(f"Analogy: 'man' is to 'king' as 'woman' is to: '{analogy[0][0]}' (Score: {analogy[0][1]:.4f})")
 ```
 
-### TypeScript / Node.js (`vector_math.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`vector_math.ts`)
 ```typescript
 export function normalize(vector: number[]): number[] {
   const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
@@ -233,8 +235,9 @@ console.log('Similarity (Cat, Dog):', cosineSimilarity(vCat, vDog).toFixed(4));
 console.log('Similarity (Cat, Car):', cosineSimilarity(vCat, vCar).toFixed(4));
 ```
 
-### Go (`vector_math.go`)
+<!-- slide -->
 
+### Go (`vector_math.go`)
 ```go
 package main
 
@@ -280,6 +283,7 @@ func main() {
 	fmt.Printf("Sim(Checkout, Profile): %.4f\n", CosineSimilarity(vCheckout, vProfile))
 }
 ```
+````
 
 ---
 

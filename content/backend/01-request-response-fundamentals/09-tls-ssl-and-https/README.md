@@ -149,6 +149,7 @@ sequenceDiagram
 ### Go (`crypto/tls`)
 Production server enforcing TLS 1.2+ with modern cipher suites and HTTP/2:
 
+````carousel
 ```go
 package main
 
@@ -195,6 +196,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ### Node.js (Hardened HTTPS Configuration)
 ```typescript
 import https from 'https';
@@ -224,6 +227,7 @@ https.createServer(options, app).listen(8443, () => {
   console.log('Node.js HTTPS server active on port 8443');
 });
 ```
+````
 
 ### Python (FastAPI with Uvicorn SSL)
 ```python

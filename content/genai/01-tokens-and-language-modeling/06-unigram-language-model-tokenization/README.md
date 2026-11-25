@@ -118,6 +118,7 @@ Study this implementation of the Viterbi dynamic programming search over a Unigr
 
 ### Python (`unigram_viterbi.py`)
 
+````carousel
 ```python
 import math
 from typing import List, Dict, Tuple
@@ -185,8 +186,9 @@ if __name__ == "__main__":
     print(f"Optimal Viterbi Segmentation: {result}")
 ```
 
-### TypeScript / Node.js (`unigram_viterbi.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`unigram_viterbi.ts`)
 ```typescript
 export class UnigramViterbi {
   private vocab: Map<string, number> = new Map();
@@ -243,8 +245,9 @@ const viterbi = new UnigramViterbi({
 console.log('Viterbi Result:', viterbi.tokenize('microservices'));
 ```
 
-### Go (`unigram_viterbi.go`)
+<!-- slide -->
 
+### Go (`unigram_viterbi.go`)
 ```go
 package main
 
@@ -312,6 +315,7 @@ func main() {
 	fmt.Printf("Tokenized: %v\n", tok.Tokenize("databasequery"))
 }
 ```
+````
 
 ---
 

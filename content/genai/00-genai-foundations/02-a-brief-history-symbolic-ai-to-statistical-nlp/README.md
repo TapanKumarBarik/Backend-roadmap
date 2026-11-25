@@ -98,6 +98,7 @@ To understand the era of statistical NLP before neural networks, explore this Bi
 
 ### Python (`bigram_statistical_model.py`)
 
+````carousel
 ```python
 import random
 from collections import defaultdict, Counter
@@ -165,8 +166,9 @@ if __name__ == "__main__":
         print(f"  👉 '{model.generate()}'")
 ```
 
-### TypeScript / Node.js (`bigram_model.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`bigram_model.ts`)
 ```typescript
 export class BigramModel {
   private transitions: Map<string, Map<string, number>> = new Map();
@@ -202,8 +204,9 @@ nlp.train(['checkout completed successfully', 'checkout failed with timeout', 'l
 console.log('P(completed | checkout) =', nlp.predictNextProbability('checkout', 'completed'));
 ```
 
-### Go (`bigram_model.go`)
+<!-- slide -->
 
+### Go (`bigram_model.go`)
 ```go
 package main
 
@@ -249,6 +252,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

@@ -187,6 +187,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript (`@octokit/rest`)
+````carousel
 ```typescript
 import { Octokit } from '@octokit/rest';
 
@@ -212,6 +213,8 @@ export async function postReviewComment(
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import os
@@ -235,6 +238,7 @@ def verify_pr_mergeability(owner: str, repo: str, pr_num: int) -> bool:
 if __name__ == "__main__":
     print("Python GitHub PR validator initialized.")
 ```
+````
 
 ---
 

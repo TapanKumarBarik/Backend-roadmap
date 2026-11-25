@@ -157,8 +157,8 @@ sequenceDiagram
 
 Use these multi-language scripts to calculate allowable downtime windows and remaining error budgets for any production service.
 
+````carousel
 ### Go (`error_budget.go`)
-
 ```go
 package main
 
@@ -215,8 +215,9 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js (`error_budget.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`error_budget.ts`)
 ```typescript
 interface BudgetCalculation {
   targetSlo: number;
@@ -258,6 +259,7 @@ export function evaluateErrorBudget(
 const report = evaluateErrorBudget(99.95, 30, 10_000_000, 3_200);
 console.log(JSON.stringify(report, null, 2));
 ```
+````
 
 ### Python (`error_budget.py`)
 

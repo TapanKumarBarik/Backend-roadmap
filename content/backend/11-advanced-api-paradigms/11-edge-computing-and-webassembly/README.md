@@ -186,6 +186,7 @@ The following implementations demonstrate:
 ```
 
 ### JavaScript / TypeScript (Cloudflare Workers)
+````carousel
 ```typescript
 export interface Env {
   ORIGIN_URL: string;
@@ -234,6 +235,8 @@ export default {
 };
 ```
 
+<!-- slide -->
+
 ### Rust (Compiled to WebAssembly `wasm32-wasi`)
 ```rust
 use fastly::http::{header, Method, StatusCode};
@@ -269,6 +272,8 @@ fn main(mut req: Request) -> Result<Response, Error> {
 }
 ```
 
+<!-- slide -->
+
 ### Go (TinyGo / WebAssembly for Edge)
 ```go
 package main
@@ -301,6 +306,7 @@ func main() {
 	<-c // Keep Wasm module alive
 }
 ```
+````
 
 ### Python (Fastly Compute)
 ```python

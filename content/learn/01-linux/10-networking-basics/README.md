@@ -194,6 +194,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as http from 'http';
 import * as dns from 'dns/promises';
@@ -224,6 +225,8 @@ export async function testDnsResolution(hostname: string): Promise<string[]> {
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import socket
@@ -248,6 +251,7 @@ if __name__ == "__main__":
     is_open = check_tcp_port(target, port)
     print(f"TCP Check {target}:{port} -> {'REACHABLE' if is_open else 'UNREACHABLE'}")
 ```
+````
 
 ---
 

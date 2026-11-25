@@ -115,8 +115,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Unified Multi-Provider Gateway with Circuit Breaker
-
 ```python
 """
 Production Multi-Provider Gateway in Python.
@@ -221,8 +221,9 @@ if __name__ == "__main__":
     print(f"Content: {result.text}")
 ```
 
-### TypeScript: Strongly-Typed Multi-Provider Adapter Engine (Node.js)
+<!-- slide -->
 
+### TypeScript: Strongly-Typed Multi-Provider Adapter Engine (Node.js)
 ```typescript
 /**
  * Production Multi-Provider Adapter Engine in TypeScript / Node.js.
@@ -275,8 +276,9 @@ export class MultiProviderRouter {
 console.log("TypeScript MultiProviderRouter compiled and verified.");
 ```
 
-### Go: High-Throughput Concurrent Failover Gateway
+<!-- slide -->
 
+### Go: High-Throughput Concurrent Failover Gateway
 ```go
 package main
 
@@ -321,6 +323,7 @@ func main() {
 	fmt.Println("Go FailoverGateway compiled successfully.")
 }
 ```
+````
 
 ---
 

@@ -178,6 +178,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 /**
  * Asserts that the current process is not executing with root privileges.
@@ -192,6 +193,8 @@ export function enforceLeastPrivilege(): void {
 
 enforceLeastPrivilege();
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -210,6 +213,7 @@ def audit_runtime_security():
 if __name__ == "__main__":
     audit_runtime_security()
 ```
+````
 
 ---
 

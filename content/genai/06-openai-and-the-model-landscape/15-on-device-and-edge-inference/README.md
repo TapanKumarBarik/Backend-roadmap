@@ -111,8 +111,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Edge Device Hardware Budget & Decode Speed Calculator
-
 ```python
 """
 Production Edge Device Feasibility Calculator in Python.
@@ -193,8 +193,9 @@ if __name__ == "__main__":
         print(f"  {k}: {v}")
 ```
 
-### TypeScript: Browser WebGPU Capability & RAM Verifier
+<!-- slide -->
 
+### TypeScript: Browser WebGPU Capability & RAM Verifier
 ```typescript
 /**
  * Browser WebGPU Feasibility Verifier in TypeScript.
@@ -244,8 +245,9 @@ export class WebGpuProber {
 console.log("TypeScript WebGpuProber compiled and verified.");
 ```
 
-### Go: Edge Daemon Memory Pressure Monitor
+<!-- slide -->
 
+### Go: Edge Daemon Memory Pressure Monitor
 ```go
 package main
 
@@ -273,6 +275,7 @@ func main() {
 		fits, required, avail)
 }
 ```
+````
 
 ---
 

@@ -145,6 +145,7 @@ Study this complete implementation of BPE training and greedy merge encoding.
 
 ### Python (`bpe_from_scratch.py`)
 
+````carousel
 ```python
 from collections import defaultdict, Counter
 from typing import List, Dict, Tuple
@@ -233,8 +234,9 @@ if __name__ == "__main__":
         print(f"  '{test_word}' -> {bpe.tokenize(test_word)}")
 ```
 
-### TypeScript / Node.js (`bpe_encoder.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`bpe_encoder.ts`)
 ```typescript
 export interface MergeRule {
   pair: [string, string];
@@ -277,8 +279,9 @@ const merges: MergeRule[] = [
 console.log('Tokenized BPE:', applyMerges(initial, merges));
 ```
 
-### Go (`bpe_merger.go`)
+<!-- slide -->
 
+### Go (`bpe_merger.go`)
 ```go
 package main
 
@@ -319,6 +322,7 @@ func main() {
 	fmt.Printf("BPE Tokens: %v\n", tokens)
 }
 ```
+````
 
 ---
 

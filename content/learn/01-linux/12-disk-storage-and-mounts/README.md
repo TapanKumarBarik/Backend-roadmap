@@ -218,6 +218,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as fs from 'fs/promises';
 
@@ -254,6 +255,8 @@ auditDiskSpace().then((health) => {
 });
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import shutil
@@ -285,6 +288,7 @@ if __name__ == "__main__":
     h = check_filesystem_health()
     print(f"Mount '{h['mount']}': {h['disk_used_percent']}% bytes used, {h['inode_used_percent']}% inodes used.")
 ```
+````
 
 ---
 

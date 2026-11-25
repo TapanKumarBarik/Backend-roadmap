@@ -115,6 +115,7 @@ Study these implementations showing how to calculate the parameter allocation pe
 
 ### Python (`vocab_budget_calculator.py`)
 
+````carousel
 ```python
 from dataclasses import dataclass
 
@@ -173,8 +174,9 @@ if __name__ == "__main__":
         print(f"  Vocab VRAM:     {rep.vram_fp16_mb:.1f} MB (fp16)")
 ```
 
-### TypeScript / Node.js (`vocab_budget.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`vocab_budget.ts`)
 ```typescript
 export function computeVocabTax(
   modelParamsBillions: number,
@@ -197,8 +199,9 @@ export function computeVocabTax(
 console.log('Edge Model Tax:', computeVocabTax(1.5, 128000, 2048, false));
 ```
 
-### Go (`vocab_calc.go`)
+<!-- slide -->
 
+### Go (`vocab_calc.go`)
 ```go
 package main
 
@@ -224,6 +227,7 @@ func main() {
 	fmt.Printf("VRAM Footprint:   %.1f MB\n", vramMB)
 }
 ```
+````
 
 ---
 

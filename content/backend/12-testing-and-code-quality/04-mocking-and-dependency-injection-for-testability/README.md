@@ -187,6 +187,7 @@ The following implementations demonstrate:
 4. C# (Interface + in-memory Fake + Moq with MockBehavior.Strict)
 ```
 
+````carousel
 ### Python
 ```python
 import pytest
@@ -299,6 +300,8 @@ def test_zero_amount_validation_never_invokes_payment_gateway(mocker):
     mock_emailer.send_receipt.assert_not_called()
 ```
 
+<!-- slide -->
+
 ### Go
 ```go
 package checkout_test
@@ -404,8 +407,10 @@ func TestProcessOrder_Declined_DoesNotSendEmail(t *testing.T) {
 	}
 }
 ```
+````
 
 ### Node.js / TypeScript (Vitest)
+````carousel
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
 
@@ -467,6 +472,8 @@ describe('CheckoutService Tests', () => {
 });
 ```
 
+<!-- slide -->
+
 ### C# (xUnit + Moq with Strict Behavior)
 ```csharp
 using System;
@@ -524,6 +531,7 @@ public class CheckoutServiceTests
     }
 }
 ```
+````
 
 ---
 

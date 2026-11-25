@@ -192,6 +192,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as path from 'path';
 import * as fs from 'fs';
@@ -230,6 +231,8 @@ try {
   console.error(`🛡️ ${err.message}`);
 }
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -270,6 +273,7 @@ if __name__ == "__main__":
     except PermissionError as e:
         print(f"🛡️ {e}")
 ```
+````
 
 ---
 

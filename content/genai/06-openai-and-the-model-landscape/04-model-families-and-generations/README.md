@@ -111,8 +111,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Validated Model Registry & Task Router
-
 ```python
 """
 Production Model Registry and Task Router in Python.
@@ -191,8 +191,9 @@ if __name__ == "__main__":
     print(f"Routed task to: {cap.model_id} (Input Cost: ${cap.cost_per_million_input}/1M)")
 ```
 
-### TypeScript: Strictly-Typed Model Router (Node.js)
+<!-- slide -->
 
+### TypeScript: Strictly-Typed Model Router (Node.js)
 ```typescript
 /**
  * Production Model Registry in TypeScript.
@@ -252,8 +253,9 @@ const model = ProductionModelRouter.resolveModel("gpt-4o-2024-08-06");
 console.log(`Validated Pinned Snapshot: ${model.id} (Context: ${model.contextWindow.toLocaleString()} tokens)`);
 ```
 
-### Go: Concurrent Model Dispatcher & Registry
+<!-- slide -->
 
+### Go: Concurrent Model Dispatcher & Registry
 ```go
 package main
 
@@ -304,6 +306,7 @@ func main() {
 	fmt.Printf("Model Verified: %s (Context: %d tokens)\n", profile.ID, profile.ContextWindow)
 }
 ```
+````
 
 ---
 

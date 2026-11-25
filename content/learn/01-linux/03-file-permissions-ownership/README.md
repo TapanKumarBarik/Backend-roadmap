@@ -183,6 +183,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as fs from 'fs/promises';
 import { constants } from 'fs';
@@ -215,6 +216,8 @@ async function run() {
 
 run().catch(console.error);
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -249,6 +252,7 @@ if __name__ == "__main__":
     target = Path("/tmp/jwt_private.pem")
     write_hardened_secret(target, "-----BEGIN RSA PRIVATE KEY-----\nMIIE...")
 ```
+````
 
 ---
 

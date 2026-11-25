@@ -125,6 +125,7 @@ sequenceDiagram
 
 ### Python (PyTorch & NumPy Vectorized Implementation)
 
+````carousel
 ```python
 """
 Production Sinusoidal Positional Encoding in PyTorch.
@@ -179,8 +180,9 @@ if __name__ == "__main__":
     assert encoded.min().item() >= -1.0 and encoded.max().item() <= 1.0
 ```
 
-### TypeScript (Node.js High-Performance Float32Array Implementation)
+<!-- slide -->
 
+### TypeScript (Node.js High-Performance Float32Array Implementation)
 ```typescript
 /**
  * Production Sinusoidal Positional Encoding in TypeScript.
@@ -251,8 +253,9 @@ const pos1 = pe.getEncoding(1);
 console.log("PE(1):", Array.from(pos1.slice(0, 4)).map(v => v.toFixed(3)));
 ```
 
-### Go (High-Throughput SIMD-Ready Positional Precomputation Engine)
+<!-- slide -->
 
+### Go (High-Throughput SIMD-Ready Positional Precomputation Engine)
 ```go
 package main
 
@@ -323,6 +326,7 @@ func main() {
 		pe.table[8], pe.table[9], pe.table[10], pe.table[11])
 }
 ```
+````
 
 ---
 

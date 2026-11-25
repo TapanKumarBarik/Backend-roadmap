@@ -170,6 +170,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -190,6 +191,8 @@ export async function getReleaseTag(): Promise<string> {
   }
 }
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -218,6 +221,7 @@ if __name__ == "__main__":
     if not check_annotated_tag():
         sys.exit(1)
 ```
+````
 
 ---
 

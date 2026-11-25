@@ -335,6 +335,7 @@ export const graphqlResolvers = {
 ```
 
 ### Python (FastAPI + gRPC + Strawberry)
+````carousel
 ```python
 # ==========================================
 # 1. DOMAIN LAYER (Single Source of Truth)
@@ -399,6 +400,8 @@ class Mutation:
             return InvalidQtyResult(message=str(e))
 ```
 
+<!-- slide -->
+
 ### C#
 ```csharp
 using Grpc.Core;
@@ -450,6 +453,7 @@ public static class RestEndpoints
 }
 public record CreateOrderDto(string UserId, int Qty, decimal Price);
 ```
+````
 
 ---
 

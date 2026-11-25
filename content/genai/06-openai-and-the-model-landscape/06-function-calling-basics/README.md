@@ -118,8 +118,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Tool Execution Engine with Dispatch Table & Schema Validation
-
 ```python
 """
 Production Function Calling Dispatcher in Python.
@@ -241,8 +241,9 @@ if __name__ == "__main__":
     print("AgentToolRunner compiled successfully. Ready for agentic execution.")
 ```
 
-### TypeScript: Strongly-Typed Tool Registry & Loop Coordinator (Node.js)
+<!-- slide -->
 
+### TypeScript: Strongly-Typed Tool Registry & Loop Coordinator (Node.js)
 ```typescript
 /**
  * Production Tool Coordinator in TypeScript / Node.js.
@@ -334,8 +335,9 @@ const coordinator = new ToolAgentCoordinator("sk-mock-key");
 console.log("TypeScript ToolAgentCoordinator verified.");
 ```
 
-### Go: Interface-Based Tool Dispatcher
+<!-- slide -->
 
+### Go: Interface-Based Tool Dispatcher
 ```go
 package main
 
@@ -383,6 +385,7 @@ func main() {
 	fmt.Printf("Tool Execution Result: %s\n", res)
 }
 ```
+````
 
 ---
 

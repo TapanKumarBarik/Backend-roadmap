@@ -306,6 +306,7 @@ run();
 ```
 
 ### Python (Strawberry + FastAPI)
+````carousel
 ```python
 import time
 from typing import Optional
@@ -363,6 +364,8 @@ app = FastAPI()
 app.include_router(graphql_app, prefix="/graphql")
 app.mount("/metrics", make_asgi_app())
 ```
+
+<!-- slide -->
 
 ### C# (Hot Chocolate)
 ```csharp
@@ -436,6 +439,7 @@ public class FieldTelemetryDiagnosticListener : ExecutionDiagnosticEventListener
     }
 }
 ```
+````
 
 ---
 

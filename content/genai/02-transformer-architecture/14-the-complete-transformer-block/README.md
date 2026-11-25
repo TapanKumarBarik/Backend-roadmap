@@ -116,8 +116,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Production Modern Transformer Block (PyTorch)
-
 ```python
 """
 Production Modern Transformer Block (LLaMA / Mistral Architecture).
@@ -204,8 +204,9 @@ if __name__ == "__main__":
     print("Block successfully verified with exact shape preservation.")
 ```
 
-### TypeScript: Complete Transformer Block Pipeline Engine
+<!-- slide -->
 
+### TypeScript: Complete Transformer Block Pipeline Engine
 ```typescript
 /**
  * Production Transformer Block in TypeScript / Node.js.
@@ -278,8 +279,9 @@ console.log("Block execution completed. Output vector length:", result.length);
 console.log("First 4 elements:", Array.from(result.slice(0, 4)).map(v => v.toFixed(4)));
 ```
 
-### Go: High-Throughput Transformer Block Execution Engine
+<!-- slide -->
 
+### Go: High-Throughput Transformer Block Execution Engine
 ```go
 package main
 
@@ -357,6 +359,7 @@ func main() {
 		output[0], output[1], output[2], output[3])
 }
 ```
+````
 
 ---
 

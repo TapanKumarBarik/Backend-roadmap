@@ -205,6 +205,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -256,6 +257,8 @@ async function verifyAppDependencies() {
 verifyAppDependencies().catch(console.error);
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import subprocess
@@ -291,6 +294,7 @@ if __name__ == "__main__":
         else:
             print(f"❌ Missing required package: '{pkg}'")
 ```
+````
 
 ---
 

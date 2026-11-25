@@ -116,6 +116,7 @@ Study these implementations showing how to count tokens, inspect subword boundar
 
 ### Python (`token_inspector.py`)
 
+````carousel
 ```python
 import tiktoken
 from typing import List, Tuple
@@ -153,8 +154,9 @@ if __name__ == "__main__":
     print(f"Total Token Count: {len(token_details)} tokens")
 ```
 
-### TypeScript / Node.js (`token_counter.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`token_counter.ts`)
 ```typescript
 import { getEncoding } from 'js-tiktoken';
 
@@ -175,8 +177,9 @@ const res = analyzeTokens(sample);
 console.log(`Word: '${sample}' splits into ${res.count} tokens:`, res.tokenIds);
 ```
 
-### Go (`token_bounds.go`)
+<!-- slide -->
 
+### Go (`token_bounds.go`)
 ```go
 package main
 
@@ -206,6 +209,7 @@ func main() {
 	fmt.Printf("Estimated tokens: %d\n", EstimateTokenCount(query))
 }
 ```
+````
 
 ---
 

@@ -116,6 +116,7 @@ Build an automated post-generation validation layer that verifies whether assert
 
 ### Python (`ground_truth_validator.py`)
 
+````carousel
 ```python
 import re
 from typing import List, Tuple
@@ -161,8 +162,9 @@ if __name__ == "__main__":
     print(f"Generation B Safe: {bad_ok} (Hallucinated Figures Detected: {bad_figs})")
 ```
 
-### TypeScript / Node.js (`ground_truth_validator.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`ground_truth_validator.ts`)
 ```typescript
 export function detectUngroundedTerms(sourceContext: string, generatedText: string): string[] {
   // Extract capitalized entities (Potential names, organizations, case citations)
@@ -189,8 +191,9 @@ const leaks = detectUngroundedTerms(source, gen);
 console.log('Detected Hallucinated Entities:', leaks);
 ```
 
-### Go (`citation_check.go`)
+<!-- slide -->
 
+### Go (`citation_check.go`)
 ```go
 package main
 
@@ -217,6 +220,7 @@ func main() {
 	fmt.Printf("Citation verification status: %v\n", valid)
 }
 ```
+````
 
 ---
 

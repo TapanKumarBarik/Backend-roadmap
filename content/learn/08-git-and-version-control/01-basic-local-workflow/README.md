@@ -166,6 +166,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -200,6 +201,8 @@ assertNoStagedSecrets().catch((err) => {
 });
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import subprocess
@@ -227,6 +230,7 @@ if __name__ == "__main__":
     if not verify_git_cleanliness():
         sys.exit(1)
 ```
+````
 
 ---
 

@@ -98,8 +98,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Image Resizing, Base64 Encoding & Token Estimator
-
 ```python
 """
 Production Multimodal Vision Pipeline in Python.
@@ -200,8 +200,9 @@ if __name__ == "__main__":
     assert tokens == 765, f"Expected 765 tokens, got {tokens}"
 ```
 
-### TypeScript: Multimodal Payload Builder (Node.js)
+<!-- slide -->
 
+### TypeScript: Multimodal Payload Builder (Node.js)
 ```typescript
 /**
  * Production Multimodal Payload Builder in TypeScript / Node.js.
@@ -252,8 +253,9 @@ const dataUrl = MultimodalPayloadBuilder.bufferToDataUrl(sampleBuffer, "image/pn
 console.log("Constructed Data URL prefix:", dataUrl.slice(0, 30));
 ```
 
-### Go: High-Throughput Image Token Estimator
+<!-- slide -->
 
+### Go: High-Throughput Image Token Estimator
 ```go
 package main
 
@@ -297,6 +299,7 @@ func main() {
 	fmt.Printf("1080p Image Token Estimation: %d tokens\n", tokens)
 }
 ```
+````
 
 ---
 

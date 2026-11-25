@@ -110,8 +110,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Complete Stacked Transformer Language Model (PyTorch)
-
 ```python
 """
 Complete Stacked Transformer Language Model (MiniTransformerLM).
@@ -219,8 +219,9 @@ if __name__ == "__main__":
     assert abs(initial_loss - expected_loss) < 0.25, "Initialization sanity check failed!"
 ```
 
-### TypeScript: Stacked Model Inference Coordinator
+<!-- slide -->
 
+### TypeScript: Stacked Model Inference Coordinator
 ```typescript
 /**
  * Production Stacked Transformer Model Coordinator in TypeScript / Node.js.
@@ -268,8 +269,9 @@ console.log("Theoretical Initial Loss ln(32000):", model.getTheoreticalInitialLo
 console.log("Total Model Parameters (32 Layers):", (model.computeParameterCount(11008) / 1e9).toFixed(2) + " Billion");
 ```
 
-### Go: High-Throughput Stacked Pipeline Dispatcher
+<!-- slide -->
 
+### Go: High-Throughput Stacked Pipeline Dispatcher
 ```go
 package main
 
@@ -316,6 +318,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

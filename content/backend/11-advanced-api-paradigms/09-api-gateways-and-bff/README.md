@@ -292,6 +292,7 @@ app.listen(8080, () => {
 ```
 
 ### Python (FastAPI Reverse Proxy Gateway)
+````carousel
 ```python
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException, status
@@ -353,6 +354,8 @@ async def route_traffic(service_key: str, path: str, request: Request):
     )
 ```
 
+<!-- slide -->
+
 ### C# (YARP - Yet Another Reverse Proxy)
 ```csharp
 using Microsoft.AspNetCore.Builder;
@@ -405,6 +408,7 @@ var app = builder.Build();
 app.MapReverseProxy();
 app.Run();
 ```
+````
 
 ---
 

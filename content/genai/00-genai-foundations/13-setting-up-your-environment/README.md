@@ -102,6 +102,7 @@ Study these implementations of resilient environment loaders that validate API c
 
 ### Python (`env_config.py`)
 
+````carousel
 ```python
 import os
 import sys
@@ -130,8 +131,9 @@ if __name__ == "__main__":
     AIConfig.validate()
 ```
 
-### TypeScript / Node.js (`env_config.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`env_config.ts`)
 ```typescript
 import dotenv from 'dotenv';
 dotenv.config();
@@ -152,8 +154,9 @@ export function verifyEnvironment(): boolean {
 }
 ```
 
-### Go (`env_config.go`)
+<!-- slide -->
 
+### Go (`env_config.go`)
 ```go
 package main
 
@@ -189,6 +192,7 @@ func main() {
 	fmt.Printf("Configured Mode: %s | Base URL: %s\n", cfg.Mode, cfg.BaseURL)
 }
 ```
+````
 
 ---
 

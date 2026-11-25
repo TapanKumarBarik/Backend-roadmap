@@ -190,6 +190,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { spawn } from 'child_process';
 
@@ -236,6 +237,8 @@ async function execute() {
 execute();
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import subprocess
@@ -275,6 +278,7 @@ if __name__ == "__main__":
     """
     sys.exit(run_isolated_task(task))
 ```
+````
 
 ---
 

@@ -184,6 +184,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 enum SystemdLevel {
   EMERG = '<0>',
@@ -215,6 +216,8 @@ JournaldLogger.info('Microservice bootstrapped on port 8080');
 JournaldLogger.error('Failed to commit transaction to replica', new Error('ETIMEDOUT'));
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import sys
@@ -235,6 +238,7 @@ if __name__ == "__main__":
     JournaldLogger.log(6, "Application worker thread spawned successfully.")
     JournaldLogger.log(3, "CRITICAL: Downstream authentication service unresponsive.")
 ```
+````
 
 ---
 

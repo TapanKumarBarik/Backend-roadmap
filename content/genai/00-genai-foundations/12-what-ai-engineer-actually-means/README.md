@@ -136,6 +136,7 @@ Study this production evaluation harness that benchmarks an LLM's outputs agains
 
 ### Python (`eval_harness.py`)
 
+````carousel
 ```python
 import json
 import time
@@ -209,8 +210,9 @@ if __name__ == "__main__":
     run_ci_evals()
 ```
 
-### TypeScript / Node.js (`eval_runner.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`eval_runner.ts`)
 ```typescript
 export interface TestCase {
   id: string;
@@ -239,8 +241,9 @@ export function evaluatePromptCandidate(
 }
 ```
 
-### Go (`eval_suite.go`)
+<!-- slide -->
 
+### Go (`eval_suite.go`)
 ```go
 package main
 
@@ -275,6 +278,7 @@ func main() {
 	fmt.Printf("Evaluation Benchmark Result: Passed = %v\n", passed)
 }
 ```
+````
 
 ---
 

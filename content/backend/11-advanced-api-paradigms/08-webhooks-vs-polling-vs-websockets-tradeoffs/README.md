@@ -284,6 +284,7 @@ app.listen(3000, () => console.log('Status service active on port 3000'));
 ```
 
 ### Python (FastAPI)
+````carousel
 ```python
 import asyncio
 import hashlib
@@ -326,6 +327,8 @@ async def stream_status(request: Request):
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 ```
+
+<!-- slide -->
 
 ### C# (ASP.NET Core Minimal APIs)
 ```csharp
@@ -378,6 +381,7 @@ app.MapGet("/api/status/stream", async (HttpContext context, CancellationToken c
 
 app.Run();
 ```
+````
 
 ---
 

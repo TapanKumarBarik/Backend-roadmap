@@ -108,6 +108,7 @@ Study these implementations showing how to benchmark token counts and compressio
 
 ### Python (`cross_tokenizer_benchmark.py`)
 
+````carousel
 ```python
 import tiktoken
 from typing import Dict, Any
@@ -148,8 +149,9 @@ if __name__ == "__main__":
         print(f"  GPT-4o (200k): {res['gpt4o_tokens']:3d} tokens (Ratio: {res['gpt4o_compression_ratio']} bytes/token)")
 ```
 
-### TypeScript / Node.js (`cross_bench.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`cross_bench.ts`)
 ```typescript
 import { getEncoding } from 'js-tiktoken';
 
@@ -178,8 +180,9 @@ const pyCode = '    for i in range(10):\n        print(i)';
 console.log(compareTokenizers(pyCode));
 ```
 
-### Go (`compression_calc.go`)
+<!-- slide -->
 
+### Go (`compression_calc.go`)
 ```go
 package main
 
@@ -213,6 +216,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

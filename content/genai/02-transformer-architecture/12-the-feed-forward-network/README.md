@@ -125,8 +125,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Modern SwiGLU and Standard FFN (PyTorch)
-
 ```python
 """
 Production FFN Architectures: Standard Two-Layer and SwiGLU Gated MLP.
@@ -189,8 +189,9 @@ if __name__ == "__main__":
     print("Verification Passed: Token 0 output is strictly independent of Token 1 input.")
 ```
 
-### TypeScript: Low-Latency SwiGLU Activation Engine
+<!-- slide -->
 
+### TypeScript: Low-Latency SwiGLU Activation Engine
 ```typescript
 /**
  * Production SwiGLU Layer in TypeScript / Node.js.
@@ -263,8 +264,9 @@ ffn.forwardToken(tokenIn, tokenOut);
 console.log("SwiGLU output computed successfully. First 4 elements:", Array.from(tokenOut.slice(0, 4)).map(v => v.toFixed(4)));
 ```
 
-### Go: High-Throughput SIMD-Ready Position-Wise FFN Engine
+<!-- slide -->
 
+### Go: High-Throughput SIMD-Ready Position-Wise FFN Engine
 ```go
 package main
 
@@ -348,6 +350,7 @@ func main() {
 	fmt.Printf("Processed %d tokens concurrently. Token 0 output length: %d\n", len(res), len(res[0]))
 }
 ```
+````
 
 ---
 

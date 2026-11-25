@@ -102,6 +102,7 @@ Study these implementations showing how to safely truncate text to a maximum byt
 
 ### Python (`safe_utf8_truncator.py`)
 
+````carousel
 ```python
 def truncate_utf8_bytes(text: str, max_bytes: int) -> str:
     """
@@ -140,8 +141,9 @@ if __name__ == "__main__":
         print(f"Max Bytes: {cut:2d} -> Result: '{safe_cut}' (Actual Bytes: {len(safe_cut.encode('utf-8'))})")
 ```
 
-### TypeScript / Node.js (`safe_utf8.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`safe_utf8.ts`)
 ```typescript
 export function safeTruncateUtf8(str: string, maxBytes: number): string {
   const encoder = new TextEncoder();
@@ -166,8 +168,9 @@ const text = 'Order Status: 🚀 Shipped';
 console.log('Safe 16-byte cut:', safeTruncateUtf8(text, 16));
 ```
 
-### Go (`safe_utf8.go`)
+<!-- slide -->
 
+### Go (`safe_utf8.go`)
 ```go
 package main
 
@@ -195,6 +198,7 @@ func main() {
 	fmt.Printf("Truncated: %s (%d bytes)\n", truncated, len(truncated))
 }
 ```
+````
 
 ---
 

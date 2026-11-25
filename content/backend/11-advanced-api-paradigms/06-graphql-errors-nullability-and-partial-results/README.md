@@ -331,6 +331,7 @@ startStandaloneServer(server, { listen: { port: 4000 } }).then(({ url }) => {
 ```
 
 ### Python (Strawberry)
+````carousel
 ```python
 import uuid
 import logging
@@ -403,6 +404,8 @@ class Query:
 schema = strawberry.Schema(query=Query, mutation=Mutation, extensions=[ErrorMaskingExtension])
 ```
 
+<!-- slide -->
+
 ### C# (Hot Chocolate)
 ```csharp
 using HotChocolate;
@@ -473,6 +476,7 @@ public class CustomErrorFilter : IErrorFilter
     }
 }
 ```
+````
 
 ---
 

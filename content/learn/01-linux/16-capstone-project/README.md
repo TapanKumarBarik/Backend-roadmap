@@ -227,6 +227,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as fs from 'fs';
 import * as readline from 'readline';
@@ -267,6 +268,8 @@ export class WatchdogDaemon {
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import sys
@@ -305,6 +308,7 @@ if __name__ == "__main__":
     for raw_line in sys.stdin:
         dog.process_line(raw_line)
 ```
+````
 
 ---
 

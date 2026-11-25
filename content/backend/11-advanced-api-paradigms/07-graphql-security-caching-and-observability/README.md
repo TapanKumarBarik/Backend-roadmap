@@ -289,6 +289,7 @@ startStandaloneServer(server, { listen: { port: 4000 } }).then(({ url }) => {
 ```
 
 ### Python (Strawberry + Multiplicative Analysis)
+````carousel
 ```python
 from typing import List, Optional
 import strawberry
@@ -355,6 +356,8 @@ class Query:
 schema = strawberry.Schema(query=Query, extensions=[ComplexityGuardExtension])
 ```
 
+<!-- slide -->
+
 ### C# (Hot Chocolate)
 ```csharp
 using HotChocolate.Execution.Configuration;
@@ -399,6 +402,7 @@ public class Query
     }
 }
 ```
+````
 
 ---
 

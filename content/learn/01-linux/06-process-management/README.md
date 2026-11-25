@@ -182,6 +182,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as http from 'http';
 
@@ -221,6 +222,8 @@ process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import http.server
@@ -253,6 +256,7 @@ if __name__ == "__main__":
     app = GracefulServer()
     app.start()
 ```
+````
 
 ---
 

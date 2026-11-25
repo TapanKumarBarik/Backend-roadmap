@@ -190,6 +190,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as fs from 'fs';
 import * as readline from 'readline';
@@ -225,6 +226,8 @@ export async function countErrorFrequencies(logFilePath: string): Promise<Record
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import re
@@ -250,6 +253,7 @@ def analyze_http_errors(log_path: str) -> Dict[str, int]:
 if __name__ == "__main__":
     print("Python log processor initialized.")
 ```
+````
 
 ---
 

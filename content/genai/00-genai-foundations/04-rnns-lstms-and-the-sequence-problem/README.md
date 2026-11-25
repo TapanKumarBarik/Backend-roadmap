@@ -161,6 +161,7 @@ To understand how gates operate at the tensor level, study this pure mathematica
 
 ### Python (`lstm_cell_simulation.py`)
 
+````carousel
 ```python
 import numpy as np
 
@@ -220,8 +221,9 @@ if __name__ == "__main__":
     print("Hidden State h_1: \n", h1.T)
 ```
 
-### TypeScript / Node.js (`lstm_cell.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`lstm_cell.ts`)
 ```typescript
 export function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-Math.max(Math.min(x, 15), -15)));
@@ -262,8 +264,9 @@ const state1 = simulateLSTMStep(1.2, state0, weights);
 console.log('Next hidden state:', state1.h[0].toFixed(4));
 ```
 
-### Go (`lstm_step.go`)
+<!-- slide -->
 
+### Go (`lstm_step.go`)
 ```go
 package main
 
@@ -303,6 +306,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

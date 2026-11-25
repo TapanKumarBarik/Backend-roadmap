@@ -106,8 +106,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Automated VRAM & KV Cache Memory Calculator from `config.json`
-
 ```python
 """
 Production GPU Memory Estimator for Open-Weight Transformer Models.
@@ -183,8 +183,9 @@ if __name__ == "__main__":
         print(f"  {k}: {v}")
 ```
 
-### TypeScript: Model VRAM Sizing Engine (Node.js)
+<!-- slide -->
 
+### TypeScript: Model VRAM Sizing Engine (Node.js)
 ```typescript
 /**
  * Production Model Hardware Sizing Engine in TypeScript.
@@ -233,8 +234,9 @@ const vram = HardwareSizer.calculateVram(llama8b, 8, 4096, 16);
 console.log(`Llama 8B VRAM: Weight=${vram.weightGb}GB, KV=${vram.kvCacheGb}GB, Total=${vram.totalGb}GB`);
 ```
 
-### Go: Hardware Topology Validator
+<!-- slide -->
 
+### Go: Hardware Topology Validator
 ```go
 package main
 
@@ -269,6 +271,7 @@ func main() {
 	fmt.Println(recommendation)
 }
 ```
+````
 
 ---
 

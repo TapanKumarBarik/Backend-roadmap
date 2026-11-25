@@ -116,6 +116,7 @@ Study this implementation of an end-to-end decoding engine supporting Temperatur
 
 ### Python (`decoding_engine.py`)
 
+````carousel
 ```python
 import math
 import random
@@ -210,8 +211,9 @@ if __name__ == "__main__":
     print(f"Top-P Pool Size: {len(tokens_p)} tokens retained: {tokens_p}")
 ```
 
-### TypeScript / Node.js (`decoding_engine.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`decoding_engine.ts`)
 ```typescript
 export interface TokenCandidate {
   token: string;
@@ -260,8 +262,9 @@ export function sampleNucleus(
 }
 ```
 
-### Go (`sampling_engine.go`)
+<!-- slide -->
 
+### Go (`sampling_engine.go`)
 ```go
 package main
 
@@ -301,6 +304,7 @@ func main() {
 	fmt.Printf("Deterministic Greedy Selection: %s\n", SampleGreedy(candidates))
 }
 ```
+````
 
 ---
 

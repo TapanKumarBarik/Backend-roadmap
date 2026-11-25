@@ -193,6 +193,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -223,6 +224,8 @@ async function auditRepository() {
 
 auditRepository();
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -256,6 +259,7 @@ if __name__ == "__main__":
     if not audit_git_conflicts():
         sys.exit(1)
 ```
+````
 
 ---
 

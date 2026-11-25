@@ -135,6 +135,7 @@ sequenceDiagram
 ### Go (`net/http` & `quic-go`)
 Go has native first-class support for HTTP/2 in standard library `net/http` when TLS is enabled:
 
+````carousel
 ```go
 package main
 
@@ -173,6 +174,8 @@ func main() {
 }
 ```
 
+<!-- slide -->
+
 ### Node.js (Native `http2` Module)
 ```typescript
 import http2 from 'http2';
@@ -204,6 +207,7 @@ server.on('stream', (stream, headers) => {
 
 server.listen(8443);
 ```
+````
 
 ### Python (Hypercorn ASGI for HTTP/2 & HTTP/3)
 ```python

@@ -191,6 +191,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -215,6 +216,8 @@ export async function assertUpToDate(branch = 'main'): Promise<void> {
   console.log('✅ Remote synchronization verified: Zero pending upstream commits.');
 }
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -243,6 +246,7 @@ if __name__ == "__main__":
     if not check_remote_sync():
         sys.exit(1)
 ```
+````
 
 ---
 

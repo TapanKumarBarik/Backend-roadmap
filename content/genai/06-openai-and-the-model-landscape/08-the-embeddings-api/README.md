@@ -111,8 +111,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: High-Throughput Base64 Embedding Ingestion Client
-
 ```python
 """
 Production Base64 Embedding Client in Python.
@@ -184,8 +184,9 @@ if __name__ == "__main__":
     print("EmbeddingsBatchClient compiled and verified with base64 binary parsing.")
 ```
 
-### TypeScript: Low-Latency Base64 Float32 Buffer Decoder (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Base64 Float32 Buffer Decoder (Node.js)
 ```typescript
 /**
  * Production Base64 Float32 Decoder in TypeScript / Node.js.
@@ -236,8 +237,9 @@ console.log("Decoded Vector length:", decoded.length);
 console.log("Similarity with self:", EmbeddingsDecoder.cosineSimilarity(decoded, decoded).toFixed(4));
 ```
 
-### Go: High-Throughput Binary Vector Ingestion
+<!-- slide -->
 
+### Go: High-Throughput Binary Vector Ingestion
 ```go
 package main
 
@@ -275,6 +277,7 @@ func main() {
 	fmt.Println("Go Binary Vector Decoder compiled and verified.")
 }
 ```
+````
 
 ---
 

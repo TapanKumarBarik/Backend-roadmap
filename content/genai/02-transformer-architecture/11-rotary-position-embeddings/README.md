@@ -120,8 +120,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Production Vectorized RoPE (PyTorch / FlashAttention Compatible)
-
 ```python
 """
 Production Rotary Position Embedding (RoPE) implementation.
@@ -194,8 +194,9 @@ if __name__ == "__main__":
     print(f"RoPE applied successfully. Tensor shape: {q_rot.shape}")
 ```
 
-### TypeScript: Low-Latency Inference Engine RoPE Layer
+<!-- slide -->
 
+### TypeScript: Low-Latency Inference Engine RoPE Layer
 ```typescript
 /**
  * Production Rotary Position Embedding in TypeScript / Node.js.
@@ -272,8 +273,9 @@ console.log("m=7, n=5 (diff=2):", computeDot(7, 5).toFixed(6));
 console.log("m=20, n=18 (diff=2):", computeDot(20, 18).toFixed(6));
 ```
 
-### Go: High-Throughput RoPE Kernel for On-Device Inference
+<!-- slide -->
 
+### Go: High-Throughput RoPE Kernel for On-Device Inference
 ```go
 package main
 
@@ -343,6 +345,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

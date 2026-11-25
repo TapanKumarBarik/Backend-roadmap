@@ -91,8 +91,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Automated Ablation Testing Laboratory (PyTorch)
-
 ```python
 """
 Capstone Ablation Suite: Automated Empirical Validation.
@@ -243,8 +243,9 @@ if __name__ == "__main__":
             print(f"  Crashed with error: {e}")
 ```
 
-### TypeScript: Diagnostic Invariant Assertion Suite
+<!-- slide -->
 
+### TypeScript: Diagnostic Invariant Assertion Suite
 ```typescript
 /**
  * Capstone Diagnostic Invariant Asserter in TypeScript / Node.js.
@@ -300,8 +301,9 @@ const ablated = CapstoneDiagnosticSuite.evaluateRiskProfile({
 console.log("Full Ablation Risks:", ablated);
 ```
 
-### Go: Capstone Benchmark & Telemetry Aggregator
+<!-- slide -->
 
+### Go: Capstone Benchmark & Telemetry Aggregator
 ```go
 package main
 
@@ -334,6 +336,7 @@ func main() {
 	}
 }
 ```
+````
 
 ---
 

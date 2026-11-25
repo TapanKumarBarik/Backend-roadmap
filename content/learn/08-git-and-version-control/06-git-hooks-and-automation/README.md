@@ -156,6 +156,7 @@ exit 0
 ```
 
 ### Node.js / TypeScript: `.githooks/commit-msg` (Conventional Commits)
+````carousel
 ```javascript
 #!/usr/bin/env node
 const fs = require('fs');
@@ -180,6 +181,8 @@ if (!conventionalRegex.test(message)) {
 process.exit(0);
 ```
 
+<!-- slide -->
+
 ### Python: `.githooks/pre-push` (Fast Unit Test Validation)
 ```python
 #!/usr/bin/env python3
@@ -201,6 +204,7 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+````
 
 ---
 

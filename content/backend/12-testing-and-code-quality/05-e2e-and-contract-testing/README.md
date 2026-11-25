@@ -253,6 +253,7 @@ def test_e2e_task_lifecycle_journey():
 ```
 
 ### Node.js / TypeScript (Supertest + Jest-OpenAPI)
+````carousel
 ```typescript
 import express from 'express';
 import request from 'supertest';
@@ -297,6 +298,8 @@ describe('E2E User Journey', () => {
   });
 });
 ```
+
+<!-- slide -->
 
 ### Go (kin-openapi Contract Validation)
 ```go
@@ -347,6 +350,8 @@ func TestE2E_CriticalPathJourney(t *testing.T) {
 }
 ```
 
+<!-- slide -->
+
 ### C# (HttpClient + Readiness Polling)
 ```csharp
 using System;
@@ -388,6 +393,7 @@ public class E2EJourneyTests
     }
 }
 ```
+````
 
 ---
 

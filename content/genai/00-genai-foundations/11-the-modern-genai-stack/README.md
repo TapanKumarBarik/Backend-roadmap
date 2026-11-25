@@ -124,6 +124,7 @@ In production, never call raw provider SDKs directly from application controller
 
 ### Python (`ai_gateway_router.py`)
 
+````carousel
 ```python
 import os
 import time
@@ -185,8 +186,9 @@ if __name__ == "__main__":
     print(f"Result from {res['provider']} in {res['latency_ms']}ms:\n{res['content'][:120]}...")
 ```
 
-### TypeScript / Node.js (`ai_gateway.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`ai_gateway.ts`)
 ```typescript
 export interface GatewayResponse {
   provider: string;
@@ -223,8 +225,9 @@ export class ResilientAIGateway {
 }
 ```
 
-### Go (`gateway_router.go`)
+<!-- slide -->
 
+### Go (`gateway_router.go`)
 ```go
 package main
 
@@ -277,6 +280,7 @@ func main() {
 	fmt.Printf("Resolved via: %s in %v\n", res.Provider, res.Duration)
 }
 ```
+````
 
 ---
 

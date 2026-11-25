@@ -139,6 +139,7 @@ Study these production-grade implementations of a Scaled Dot-Product Attention f
 
 ### Python (`scaled_dot_product_attention.py`)
 
+````carousel
 ```python
 import numpy as np
 from typing import Tuple
@@ -198,8 +199,9 @@ if __name__ == "__main__":
     print(np.round(context, 3))
 ```
 
-### TypeScript / Node.js (`attention_layer.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`attention_layer.ts`)
 ```typescript
 export function computeAttention(
   query: number[],
@@ -250,8 +252,9 @@ console.log('Attention weights:', res.weights.map((w) => w.toFixed(3)));
 console.log('Computed Context:', res.context.map((c) => c.toFixed(2)));
 ```
 
-### Go (`attention_math.go`)
+<!-- slide -->
 
+### Go (`attention_math.go`)
 ```go
 package main
 
@@ -311,6 +314,7 @@ func main() {
 	fmt.Printf("Context: [%.2f, %.2f]\n", context[0], context[1])
 }
 ```
+````
 
 ---
 

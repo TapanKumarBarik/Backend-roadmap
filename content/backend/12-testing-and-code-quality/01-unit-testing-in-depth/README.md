@@ -183,6 +183,7 @@ The following implementations demonstrate how to structure table-driven tests th
 ```
 
 ### Python (pytest)
+````carousel
 ```python
 import pytest
 from decimal import Decimal
@@ -234,6 +235,8 @@ def test_calculate_discount_invalid_inputs(price, pct, match_err):
         calculate_discount(price_cents=price, discount_pct=pct)
     assert match_err in str(exc.value)
 ```
+
+<!-- slide -->
 
 ### Go (Table-Driven Subtests)
 ```go
@@ -333,8 +336,10 @@ func TestCalculateDiscount(t *testing.T) {
 	}
 }
 ```
+````
 
 ### Node.js / TypeScript (Vitest / Jest)
+````carousel
 ```typescript
 import { describe, it, expect } from 'vitest';
 
@@ -367,6 +372,8 @@ describe('calculateDiscount Table-Driven Tests', () => {
   });
 });
 ```
+
+<!-- slide -->
 
 ### C# (xUnit Theory)
 ```csharp
@@ -411,6 +418,7 @@ public class DiscountCalculatorTests
     }
 }
 ```
+````
 
 ---
 

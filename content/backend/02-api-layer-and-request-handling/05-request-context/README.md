@@ -138,6 +138,7 @@ rows, err := db.QueryContext(r.Context(), "SELECT ...")
 
 ## 4. Multi-Language Implementation: Production Context & Cancellation
 
+````carousel
 ### Go (`context.Context` Propagation & Timeouts)
 ```go
 package main
@@ -203,6 +204,8 @@ func reportHandler(db *sql.DB) http.HandlerFunc {
 }
 ```
 
+<!-- slide -->
+
 ### Node.js (`AsyncLocalStorage` Transparent Context Propagation)
 ```typescript
 import express, { Request, Response, NextFunction } from 'express';
@@ -248,6 +251,7 @@ app.post('/api/orders', async (req, res) => {
 
 app.listen(3000);
 ```
+````
 
 ### Python (FastAPI Scoped Dependency Injection with Teardown)
 ```python

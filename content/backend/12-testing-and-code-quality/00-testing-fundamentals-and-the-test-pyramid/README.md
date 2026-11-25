@@ -339,6 +339,7 @@ describe('OrderService Unit Tests', () => {
 ```
 
 ### Python (pytest)
+````carousel
 ```python
 import pytest
 from dataclasses import dataclass
@@ -420,6 +421,8 @@ def test_place_order_raises_insufficient_stock_when_oversold():
     
     assert exc_info.value.sku == "sku_ram"
 ```
+
+<!-- slide -->
 
 ### C# (xUnit)
 ```csharp
@@ -508,6 +511,7 @@ public class OrderServiceTests
     }
 }
 ```
+````
 
 ---
 

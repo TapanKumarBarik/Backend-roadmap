@@ -109,8 +109,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Production Token Bucket & Jittered Retry Engine
-
 ```python
 """
 Production Rate Limit & Backoff Engine in Python.
@@ -187,8 +187,9 @@ if __name__ == "__main__":
     print("TokenBucketRateLimiter and ResilientApiClient compiled successfully.")
 ```
 
-### TypeScript: Low-Latency Full Jitter Backoff Handler (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Full Jitter Backoff Handler (Node.js)
 ```typescript
 /**
  * Production Full Jitter Retry Engine in TypeScript / Node.js.
@@ -253,8 +254,9 @@ const resilientClient = new ResilientFetchClient();
 console.log("TypeScript ResilientFetchClient verified.");
 ```
 
-### Go: Channel-Based Rate Limiter & Retry Engine
+<!-- slide -->
 
+### Go: Channel-Based Rate Limiter & Retry Engine
 ```go
 package main
 
@@ -295,6 +297,7 @@ func main() {
 	_ = policy
 }
 ```
+````
 
 ---
 

@@ -121,8 +121,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Raw HTTP Anthropic Messages Client (Zero SDK Dependencies)
-
 ```python
 """
 Production Anthropic Messages API Client in Python.
@@ -212,8 +212,9 @@ if __name__ == "__main__":
     print("AnthropicMessagesClient loaded and verified. Ready for production dispatch.")
 ```
 
-### TypeScript: Low-Latency Claude Messages Consumer (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Claude Messages Consumer (Node.js)
 ```typescript
 /**
  * Production Anthropic Messages Consumer in TypeScript / Node.js.
@@ -296,8 +297,9 @@ const claude = new ClaudeApiClient("sk-mock-key");
 console.log("TypeScript ClaudeApiClient compiled and verified.");
 ```
 
-### Go: High-Throughput Claude Messages Client
+<!-- slide -->
 
+### Go: High-Throughput Claude Messages Client
 ```go
 package main
 
@@ -398,6 +400,7 @@ func main() {
 	fmt.Println("Go ClaudeClient initialized successfully.")
 }
 ```
+````
 
 ---
 

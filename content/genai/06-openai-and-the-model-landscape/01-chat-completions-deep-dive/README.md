@@ -124,8 +124,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Chat Completion Manager with Sliding Window Budgeting
-
 ```python
 """
 Production Chat Completion Manager in Python.
@@ -230,8 +230,9 @@ if __name__ == "__main__":
     print("ConversationManager compiled successfully. Ready for stateful session loops.")
 ```
 
-### TypeScript: Stateful Multi-Turn Conversation Coordinator (Node.js)
+<!-- slide -->
 
+### TypeScript: Stateful Multi-Turn Conversation Coordinator (Node.js)
 ```typescript
 /**
  * Production Multi-Turn Conversation Coordinator in TypeScript.
@@ -337,8 +338,9 @@ const session = new ChatSession();
 console.log("TypeScript ChatSession coordinator initialized and verified.");
 ```
 
-### Go: High-Throughput Chat Session Worker
+<!-- slide -->
 
+### Go: High-Throughput Chat Session Worker
 ```go
 package main
 
@@ -448,6 +450,7 @@ func main() {
 	fmt.Println("Go SessionManager compiled and ready for multi-turn dispatch.")
 }
 ```
+````
 
 ---
 

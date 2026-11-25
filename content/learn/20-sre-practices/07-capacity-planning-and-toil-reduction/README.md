@@ -123,8 +123,8 @@ sequenceDiagram
 
 Use these implementations to calculate saturation headroom and project future cluster requirements based on organic growth models.
 
+````carousel
 ### Go (`capacity_planner.go`)
-
 ```go
 package main
 
@@ -173,8 +173,9 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js (`capacity_planner.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`capacity_planner.ts`)
 ```typescript
 export interface HeadroomAssessment {
   currentUtilizationPct: number;
@@ -215,6 +216,7 @@ export function evaluateHeadroom(
 // Example: 5 nodes at 65% average CPU
 console.log(evaluateHeadroom(5, 65, 75));
 ```
+````
 
 ### Python (`capacity_planner.py`)
 

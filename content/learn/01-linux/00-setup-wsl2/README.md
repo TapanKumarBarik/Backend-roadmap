@@ -212,6 +212,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as fs from 'fs';
 import * as os from 'os';
@@ -259,6 +260,8 @@ if (!audit.isSafePath) {
 }
 ```
 
+<!-- slide -->
+
 ### Python
 ```python
 import os
@@ -298,6 +301,7 @@ if __name__ == "__main__":
     else:
         print(f"✅ I/O performance optimized at: {status['cwd']}")
 ```
+````
 
 ---
 

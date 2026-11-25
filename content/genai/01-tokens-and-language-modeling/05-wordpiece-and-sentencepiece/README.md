@@ -112,6 +112,7 @@ Study these implementations comparing WordPiece subword continuation parsing wit
 
 ### Python (`subword_reconstruction.py`)
 
+````carousel
 ```python
 from typing import List
 
@@ -148,8 +149,9 @@ if __name__ == "__main__":
     print("Decoded:    ", sentencepiece_detokenize(sp_tokens))
 ```
 
-### TypeScript / Node.js (`detokenizers.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`detokenizers.ts`)
 ```typescript
 export function decodeSentencePiece(tokens: string[]): string {
   // Join raw strings and replace Unicode Lower One Eighth Block (U+2581)
@@ -176,8 +178,9 @@ console.log('SP Decoded:', decodeSentencePiece([' Hello', ' world']));
 console.log('WP Decoded:', decodeWordPiece(['micro', '##services']));
 ```
 
-### Go (`detokenizers.go`)
+<!-- slide -->
 
+### Go (`detokenizers.go`)
 ```go
 package main
 
@@ -197,6 +200,7 @@ func main() {
 	fmt.Printf("Decoded string: '%s'\n", SentencePieceDecode(tokens))
 }
 ```
+````
 
 ---
 

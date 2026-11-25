@@ -131,8 +131,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Packet-Boundary-Proof SSE Stream Parser
-
 ```python
 """
 Production Server-Sent Events (SSE) Stream Decoder in Python.
@@ -233,8 +233,9 @@ if __name__ == "__main__":
     print("OpenAIStreamDecoder compiled and ready. Wire parser verified.")
 ```
 
-### TypeScript: Low-Latency SSE AsyncIterable Consumer (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency SSE AsyncIterable Consumer (Node.js)
 ```typescript
 /**
  * Production SSE AsyncIterable Consumer in TypeScript / Node.js.
@@ -330,8 +331,9 @@ const streamClient = new StreamingChatClient("sk-mock-key");
 console.log("TypeScript StreamingChatClient verified and ready.");
 ```
 
-### Go: High-Throughput SSE Stream Scanner
+<!-- slide -->
 
+### Go: High-Throughput SSE Stream Scanner
 ```go
 package main
 
@@ -430,6 +432,7 @@ func main() {
 	fmt.Println("Go StreamConsumer compiled successfully. Ready for token streaming.")
 }
 ```
+````
 
 ---
 

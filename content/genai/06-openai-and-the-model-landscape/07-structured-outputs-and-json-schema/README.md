@@ -119,8 +119,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Pydantic-Driven Structured Outputs (PyTorch / OpenAI SDK Pattern)
-
 ```python
 """
 Production Structured Outputs in Python with Pydantic.
@@ -225,8 +225,9 @@ if __name__ == "__main__":
     print(f"Schema Name: {schema.get('title')}, additionalProperties: {schema.get('additionalProperties')}")
 ```
 
-### TypeScript: Zod-Backed Structured Output Handler (Node.js)
+<!-- slide -->
 
+### TypeScript: Zod-Backed Structured Output Handler (Node.js)
 ```typescript
 /**
  * Production Structured Outputs in TypeScript with Zod.
@@ -314,8 +315,9 @@ export class StructuredExtractor {
 console.log("TypeScript Zod StructuredExtractor compiled and verified.");
 ```
 
-### Go: Struct-Validated Schema Deserializer
+<!-- slide -->
 
+### Go: Struct-Validated Schema Deserializer
 ```go
 package main
 
@@ -355,6 +357,7 @@ func main() {
 		report.Timestamp, report.CPUUsage, report.Status)
 }
 ```
+````
 
 ---
 

@@ -115,6 +115,7 @@ Study these implementations showing how to calculate the attention memory footpr
 
 ### Python (`token_efficiency_calculator.py`)
 
+````carousel
 ```python
 from dataclasses import dataclass
 
@@ -172,8 +173,9 @@ if __name__ == "__main__":
         print(f"  Attention Layer:   {res.attention_matrix_mb:8.2f} MB")
 ```
 
-### TypeScript / Node.js (`token_sizing.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`token_sizing.ts`)
 ```typescript
 export function compareTokenizationOverheads(wordCount: number): {
   subwordTokens: number;
@@ -200,8 +202,9 @@ console.log(
 );
 ```
 
-### Go (`sizing_check.go`)
+<!-- slide -->
 
+### Go (`sizing_check.go`)
 ```go
 package main
 
@@ -222,6 +225,7 @@ func main() {
 	fmt.Printf("Quadratic Attention Factor: %.1fx memory penalty\n", ratio)
 }
 ```
+````
 
 ---
 

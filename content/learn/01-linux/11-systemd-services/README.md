@@ -219,6 +219,7 @@ func main() {
 ```
 
 ### Node.js / TypeScript
+````carousel
 ```typescript
 import * as dgram from 'dgram';
 
@@ -247,6 +248,8 @@ export function notifySystemd(message: string): void {
 // Example usage upon HTTP server ready event
 notifySystemd('READY=1');
 ```
+
+<!-- slide -->
 
 ### Python
 ```python
@@ -278,6 +281,7 @@ if __name__ == "__main__":
     else:
         print("Notice: NOTIFY_SOCKET not present (local dev).")
 ```
+````
 
 ---
 

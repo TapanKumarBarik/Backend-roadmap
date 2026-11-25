@@ -121,8 +121,8 @@ sequenceDiagram
 
 These implementations provide an automated policy engine that queries current telemetry and programmatically gates CI/CD pipelines.
 
+````carousel
 ### Go (`budget_gate.go`)
-
 ```go
 package main
 
@@ -195,8 +195,9 @@ func main() {
 }
 ```
 
-### TypeScript / Node.js (`budget_gate.ts`)
+<!-- slide -->
 
+### TypeScript / Node.js (`budget_gate.ts`)
 ```typescript
 import axios from 'axios';
 
@@ -241,6 +242,7 @@ export async function evaluateDeploymentGate(
   }
 }
 ```
+````
 
 ### Python (`budget_gate.py`)
 

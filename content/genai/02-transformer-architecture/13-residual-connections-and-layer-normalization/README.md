@@ -107,8 +107,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Production RMSNorm & Pre-LN Residual Block (PyTorch)
-
 ```python
 """
 Production Pre-LN Residual Block with RMSNorm.
@@ -174,8 +174,9 @@ if __name__ == "__main__":
     print(f"Residual preservation factor: {grad_res_norm / max(grad_no_norm, 1e-12):.2e}x")
 ```
 
-### TypeScript: Low-Latency RMSNorm In-Place Kernel
+<!-- slide -->
 
+### TypeScript: Low-Latency RMSNorm In-Place Kernel
 ```typescript
 /**
  * Production RMSNorm Kernel in TypeScript / Node.js.
@@ -243,8 +244,9 @@ kernel.forwardInPlace(sample);
 console.log("RMSNorm Output:", Array.from(sample).map(v => v.toFixed(4)));
 ```
 
-### Go: Concurrent Pre-LN Residual Execution Engine
+<!-- slide -->
 
+### Go: Concurrent Pre-LN Residual Execution Engine
 ```go
 package main
 
@@ -310,6 +312,7 @@ func main() {
 		result[0], result[1], result[2], result[3])
 }
 ```
+````
 
 ---
 

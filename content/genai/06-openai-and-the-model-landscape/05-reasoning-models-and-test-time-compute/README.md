@@ -124,8 +124,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Reasoning Model Client with Token Detail Inspection
-
 ```python
 """
 Production Reasoning Model Integration in Python.
@@ -214,8 +214,9 @@ if __name__ == "__main__":
     print("ReasoningModelClient compiled and verified.")
 ```
 
-### TypeScript: Robust Reasoning Task Handler (Node.js)
+<!-- slide -->
 
+### TypeScript: Robust Reasoning Task Handler (Node.js)
 ```typescript
 /**
  * Production Reasoning Task Handler in TypeScript / Node.js.
@@ -299,8 +300,9 @@ const handler = new ReasoningTaskHandler("sk-mock-key");
 console.log("TypeScript ReasoningTaskHandler verified.");
 ```
 
-### Go: Concurrent Best-of-N Candidate Sampler
+<!-- slide -->
 
+### Go: Concurrent Best-of-N Candidate Sampler
 ```go
 package main
 
@@ -350,6 +352,7 @@ func main() {
 		consensus, votes, len(samples), (float64(votes)/float64(len(samples)))*100)
 }
 ```
+````
 
 ---
 

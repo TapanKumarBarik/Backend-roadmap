@@ -126,8 +126,8 @@ sequenceDiagram
 
 ## Multi-Language Production Implementations
 
+````carousel
 ### Python: Robust Gemini API Client with Safety & Tool Handling
-
 ```python
 """
 Production Google Gemini API Client in Python.
@@ -219,8 +219,9 @@ if __name__ == "__main__":
     print("GeminiApiClient loaded and verified. Ready for REST dispatch.")
 ```
 
-### TypeScript: Low-Latency Gemini API Consumer (Node.js)
+<!-- slide -->
 
+### TypeScript: Low-Latency Gemini API Consumer (Node.js)
 ```typescript
 /**
  * Production Gemini API Consumer in TypeScript / Node.js.
@@ -303,8 +304,9 @@ const gemini = new GeminiService("mock-gemini-key");
 console.log("TypeScript GeminiService compiled and verified.");
 ```
 
-### Go: High-Throughput Gemini REST Client
+<!-- slide -->
 
+### Go: High-Throughput Gemini REST Client
 ```go
 package main
 
@@ -415,6 +417,7 @@ func main() {
 	fmt.Println("Go GeminiClient compiled successfully.")
 }
 ```
+````
 
 ---
 
