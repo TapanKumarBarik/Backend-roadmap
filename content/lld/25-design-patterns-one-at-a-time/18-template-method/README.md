@@ -297,6 +297,205 @@ public class Program
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET / C#** | `AuthenticationHandler<TOptions>.HandleAuthenticateOnceAsync()`, `BackgroundService.StartAsync()` $\to$ `ExecuteAsync()`, `System.IO.Stream.Read()`, `IDisposable` pattern | Multi-Format Data Ingestion / ETL Pipeline |
+| **Python** | `unittest.TestCase` (`setUp` $\to$ `runTest` $\to$ `tearDown`), Django `ListView` / `DetailView` (`get_queryset`, `get_context_data`), `http.server.BaseHTTPRequestHandler` | Report Generator (CSV / PDF / HTML) |
+| **Go** | `sort.Interface` (`Len`, `Less`, `Swap` called by `sort.Sort`), `http.Handler` wrapper skeletons, custom `testing.M` setup/teardown harnesses | Order Checkout / Payment Settlement Lifecycle |
+| **TypeScript / Node.js** | Angular / React class component lifecycles (`ngOnInit`, `componentDidMount`), NestJS `CanActivate` / `PipeTransform` base classes, Jest `beforeEach` / `afterEach` | Custom Auth Provider Pipeline (JWT / OAuth / API Key) |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code (Duplicated Lifecycle per Class)
+Suppose you start with two report exporters, `CsvExporter` and `JsonExporter`:
+
+```python
+class CsvExporter:
+  def export(self, rows: list[dict]) -> str:
+    # 1. Validate
+    if not rows:
+      raise ValueError("No rows")
+    # 2. Format (varies)
+    body = "\n".join(",".join(map(str, r.values())) for r in rows)
+    # 3. Audit
+    return f"[AUDIT:csv:{len(rows)}]\n{body}"
+
+
+class JsonExporter:
+  def export(self, rows: list[dict]) -> str:
+    if not rows:
+      raise ValueError("No rows")
+    import json
+    body = json.dumps(rows)
+    return f"[AUDIT:json:{len(rows)}]\n{body}"
+```
+
+#### What Breaks as Requirements Grow
+- **Requirement 2 arrives ("Every export must redact PII fields before formatting and emit a telemetry event even if formatting fails"):** You now have to copy-paste `redact_pii()` and a `try/finally` telemetry block into `CsvExporter.export()`, `JsonExporter.export()`, and every future exporter. A new engineer adding `ParquetExporter` forgets `redact_pii()`—creating a compliance incident.
+- **Requirement 3 arrives ("Some exporters need an optional post-export compression step"):** Duplicating `if compress:` across every exporter bloats every class and violates DRY and Open/Closed.
+
+#### Step-by-Step Refactoring into Template Method
+1. **Lock the skeleton in the base class:** Move `export()` into `BaseExporter` and decorate it with `@final` so subclasses cannot reorder or skip validation, PII redaction, or telemetry.
+2. **Keep invariants private/concrete:** `_validate()` and `_redact_pii()` live once in `BaseExporter`.
+3. **Expose abstract primitives and optional hooks:** `_format()` is `@abstractmethod` (subclasses *must* implement it), while `_post_process()` is a virtual hook with a default no-op.
+
+### Progressive Real-World Examples
+
+#### Example A (Simple Core): Report Generator with Required Step & Optional Hook
+```python
+from abc import ABC, abstractmethod
+from typing import final
+
+
+class ReportGenerator(ABC):
+  @final
+  def generate(self, title: str, items: list[str]) -> str:
+    header = f"=== {title.upper()} ==="
+    body = self._format_body(items)
+    footer = self._format_footer(len(items))
+    return "\n".join(part for part in (header, body, footer) if part)
+
+  @abstractmethod
+  def _format_body(self, items: list[str]) -> str: ...
+
+  def _format_footer(self, count: int) -> str:
+    return ""  # Optional hook
+
+
+class MarkdownReport(ReportGenerator):
+  def _format_body(self, items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items)
+
+
+class AuditedTextReport(ReportGenerator):
+  def _format_body(self, items: list[str]) -> str:
+    return "\n".join(f"* {item}" for item in items)
+
+  def _format_footer(self, count: int) -> str:
+    return f"Total items: {count}"
+
+
+assert "=== SALES ===" in MarkdownReport().generate("sales", ["A", "B"])
+assert "Total items: 2" in AuditedTextReport().generate("sales", ["A", "B"])
+```
+
+#### Example B (Production Backend): Pluggable Authentication Handler Lifecycle
+Mirroring ASP.NET Core's `AuthenticationHandler<TOptions>`, the base class guarantees header extraction, failure handling, and audit logging, while subclasses only implement token verification:
+
+```python
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import final
+
+
+@dataclass
+class AuthResult:
+  authenticated: bool
+  subject: str | None = None
+  reason: str | None = None
+
+
+class BaseAuthHandler(ABC):
+  def __init__(self) -> None:
+    self.audit_events: list[str] = []
+
+  @final
+  def authenticate(self, headers: dict[str, str]) -> AuthResult:
+    raw_token = self._extract_credential(headers)
+    if not raw_token:
+      result = AuthResult(False, reason="missing_credential")
+    else:
+      result = self._verify_credential(raw_token)
+    self._on_audit(result)
+    return result
+
+  @abstractmethod
+  def _extract_credential(self, headers: dict[str, str]) -> str | None: ...
+
+  @abstractmethod
+  def _verify_credential(self, token: str) -> AuthResult: ...
+
+  def _on_audit(self, result: AuthResult) -> None:
+    status = "ALLOW" if result.authenticated else f"DENY:{result.reason}"
+    self.audit_events.append(status)
+
+
+class ApiKeyAuthHandler(BaseAuthHandler):
+  def __init__(self, valid_keys: dict[str, str]) -> None:
+    super().__init__()
+    self._valid_keys = valid_keys
+
+  def _extract_credential(self, headers: dict[str, str]) -> str | None:
+    return headers.get("X-API-Key")
+
+  def _verify_credential(self, token: str) -> AuthResult:
+    owner = self._valid_keys.get(token)
+    return AuthResult(True, subject=owner) if owner else AuthResult(False, reason="invalid_key")
+
+
+handler = ApiKeyAuthHandler({"k-123": "svc-billing"})
+assert handler.authenticate({"X-API-Key": "k-123"}).subject == "svc-billing"
+assert not handler.authenticate({}).authenticated
+assert handler.audit_events == ["ALLOW", "DENY:missing_credential"]
+```
+
+#### Example C (Classic LLD Interview Problem): Order Fulfillment & Settlement Pipeline
+In an e-commerce LLD interview, physical goods, digital downloads, and gift cards share the exact same checkout invariants (`validate_cart` $\to$ `reserve_or_provision` $\to$ `charge_payment` $\to$ `send_confirmation`), with only provisioning and optional shipping differing:
+
+```python
+from abc import ABC, abstractmethod
+from typing import final
+
+
+class OrderCheckoutTemplate(ABC):
+  @final
+  def checkout(self, order_id: str, amount: float) -> list[str]:
+    trace: list[str] = []
+    if amount <= 0:
+      raise ValueError("Order amount must be positive")
+    trace.append(self._reserve_inventory(order_id))
+    trace.append(f"charged:{amount:.2f}")
+    trace.append(self._deliver(order_id))
+    trace.append("receipt_sent")
+    return trace
+
+  @abstractmethod
+  def _reserve_inventory(self, order_id: str) -> str: ...
+
+  @abstractmethod
+  def _deliver(self, order_id: str) -> str: ...
+
+
+class PhysicalOrderCheckout(OrderCheckoutTemplate):
+  def _reserve_inventory(self, order_id: str) -> str:
+    return f"warehouse_picked:{order_id}"
+
+  def _deliver(self, order_id: str) -> str:
+    return f"carrier_label_created:{order_id}"
+
+
+class DigitalOrderCheckout(OrderCheckoutTemplate):
+  def _reserve_inventory(self, order_id: str) -> str:
+    return f"license_key_allocated:{order_id}"
+
+  def _deliver(self, order_id: str) -> str:
+    return f"download_link_emailed:{order_id}"
+
+
+assert PhysicalOrderCheckout().checkout("ORD-1", 49.99) == [
+    "warehouse_picked:ORD-1", "charged:49.99", "carrier_label_created:ORD-1", "receipt_sent"
+]
+assert DigitalOrderCheckout().checkout("ORD-2", 19.99) == [
+    "license_key_allocated:ORD-2", "charged:19.99", "download_link_emailed:ORD-2", "receipt_sent"
+]
+```
+
+---
+
 ## 4. Where You Already Use It
 
 The Template Method pattern is the primary structural backbone for frameworks that expose lifecycle extension points:

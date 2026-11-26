@@ -402,6 +402,246 @@ public class Program
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET (C#)** | `MediatR` (`Send`, `Publish`), `IPipelineBehavior<TReq, TRes>`, `CommunityToolkit.Mvvm` `WeakReferenceMessenger` | In-process CQRS order pipeline, decoupled ViewModel messaging |
+| **Python** | `django.dispatch.Signal`, `blinker` event hub, PyQt/Tkinter dialog controllers, Airflow DAG orchestration | Chat room / Slack workspace, Smart Home automation hub |
+| **Go** | `go-mediatr` CQRS bus, WebSocket `Hub` goroutine coordinating client channels | Real-time multiplayer lobby / chat hub, Air Traffic Control (ATC) |
+| **TypeScript** | NestJS `@nestjs/cqrs` (`CommandBus`, `EventBus`), NgRx Effects, complex form-state coordinators | Multi-step checkout wizard, dynamic form-field dependency manager |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code ($O(N^2)$ Mesh of Direct References)
+Consider a checkout form where toggling a "Business Purchase" checkbox enables a VAT ID field and disables the Submit button until VAT is filled:
+
+```python
+class VatInput:
+    def __init__(self, submit_btn: "SubmitButton") -> None:
+        self.enabled = False
+        self.value = ""
+        self.submit_btn = submit_btn
+
+    def set_text(self, text: str) -> None:
+        self.value = text
+        # Tightly coupled to SubmitButton!
+        self.submit_btn.enabled = bool(self.value) if self.enabled else True
+
+
+class BusinessCheckbox:
+    def __init__(self, vat_input: VatInput, submit_btn: "SubmitButton") -> None:
+        self.checked = False
+        self.vat_input = vat_input
+        self.submit_btn = submit_btn
+
+    def toggle(self) -> None:
+        self.checked = not self.checked
+        self.vat_input.enabled = self.checked
+        self.submit_btn.enabled = not self.checked or bool(self.vat_input.value)
+
+
+class SubmitButton:
+    def __init__(self) -> None:
+        self.enabled = True
+```
+
+#### What Breaks as Requirements Arrive
+1. **Requirement 2 — Add a `CountryDropdown` & `CouponInput`:** Every new widget must be injected into existing widgets' constructors. With 6 controls, you risk $6 \times 5 = 30$ bidirectional references and circular initialization bugs (`A` needs `B` which needs `A`).
+2. **Requirement 3 — Reuse & Isolated Testing:** You cannot reuse `BusinessCheckbox` in a profile settings page because its constructor demands `VatInput` and `SubmitButton`. Validation rules are scattered across 4 classes.
+
+#### Step-by-Step Refactor Into the Pattern
+1. **Step 1 (Introduce `FormMediator`):** Give every widget a single reference to `mediator: FormMediator` and have widgets emit `self._mediator.notify(self, "toggled")` instead of calling peers.
+2. **Step 2 (Centralize Coordination):** Move the cross-widget `if/else` rules into `CheckoutFormMediator.notify()`. Widgets become dumb, reusable components; interaction rules live in one testable hub.
+
+### Progressive Real-World Examples
+
+#### Example A (Simple Core): Checkout Form Widget Coordinator
+Widgets only know `FormMediator`. Adding a new rule (e.g., disabling submit when VAT is empty) requires editing only `CheckoutFormMediator`.
+
+```python
+from typing import Optional, Protocol
+
+
+class FormMediator(Protocol):
+    def notify(self, sender: object, event: str) -> None: ...
+
+
+class Widget:
+    def __init__(self, mediator: Optional[FormMediator] = None) -> None:
+        self._mediator = mediator
+
+    def set_mediator(self, mediator: FormMediator) -> None:
+        self._mediator = mediator
+
+
+class BusinessCheckbox(Widget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.checked = False
+
+    def toggle(self) -> None:
+        self.checked = not self.checked
+        if self._mediator:
+            self._mediator.notify(self, "toggle")
+
+
+class VatInput(Widget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.enabled = False
+        self.value = ""
+
+    def set_text(self, value: str) -> None:
+        self.value = value
+        if self._mediator:
+            self._mediator.notify(self, "text_changed")
+
+
+class SubmitButton(Widget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.enabled = True
+
+
+class CheckoutFormMediator:
+    def __init__(self, checkbox: BusinessCheckbox, vat: VatInput, submit: SubmitButton) -> None:
+        self._checkbox = checkbox
+        self._vat = vat
+        self._submit = submit
+        for w in (checkbox, vat, submit):
+            w.set_mediator(self)
+
+    def notify(self, sender: object, event: str) -> None:
+        if sender is self._checkbox and event == "toggle":
+            self._vat.enabled = self._checkbox.checked
+        self._submit.enabled = (not self._checkbox.checked) or bool(self._vat.value.strip())
+
+
+cb, vat, btn = BusinessCheckbox(), VatInput(), SubmitButton()
+CheckoutFormMediator(cb, vat, btn)
+cb.toggle()
+assert vat.enabled is True and btn.enabled is False
+vat.set_text("DE123456789")
+assert btn.enabled is True
+```
+
+#### Example B (Production Backend): CQRS Mediator with Pipeline Behaviors
+In production backends (like `MediatR` in .NET or NestJS CQRS), the Mediator wraps command execution in **pipeline behaviors** (logging, validation, metrics) so handlers stay focused purely on domain logic.
+
+```python
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Type
+
+
+@dataclass
+class TransferFundsCommand:
+    from_account: str
+    to_account: str
+    amount: float
+
+
+class PipelineMediator:
+    def __init__(self) -> None:
+        self._handlers: Dict[Type[Any], Callable[[Any], Any]] = {}
+        self._behaviors: List[Callable[[Any, Callable[[Any], Any]], Any]] = []
+
+    def register(self, cmd_type: Type[Any], handler: Callable[[Any], Any]) -> None:
+        self._handlers[cmd_type] = handler
+
+    def add_behavior(self, behavior: Callable[[Any, Callable[[Any], Any]], Any]) -> None:
+        self._behaviors.append(behavior)
+
+    def send(self, command: Any) -> Any:
+        handler = self._handlers[type(command)]
+        # Build middleware chain around the handler
+        next_fn: Callable[[Any], Any] = handler
+        for behavior in reversed(self._behaviors):
+            current_next = next_fn
+            next_fn = lambda cmd, b=behavior, nxt=current_next: b(cmd, nxt)
+        return next_fn(command)
+
+
+def validation_behavior(cmd: Any, next_fn: Callable[[Any], Any]) -> Any:
+    if hasattr(cmd, "amount") and cmd.amount <= 0:
+        raise ValueError("Transfer amount must be positive")
+    return next_fn(cmd)
+
+
+def audit_behavior(cmd: Any, next_fn: Callable[[Any], Any]) -> Any:
+    print(f"[AUDIT] Executing {type(cmd).__name__}")
+    return next_fn(cmd)
+
+
+mediator = PipelineMediator()
+mediator.add_behavior(audit_behavior)
+mediator.add_behavior(validation_behavior)
+mediator.register(TransferFundsCommand, lambda c: f"Transferred ${c.amount:.2f} to {c.to_account}")
+
+print(mediator.send(TransferFundsCommand("ACC-1", "ACC-2", 250.0)))
+```
+
+#### Example C (Classic LLD Interview Problem): Air Traffic Control (ATC) Tower
+Airplanes never communicate directly with each other to negotiate runway access. All clearance requests go through `ATCTower`, which owns runway state and holding queues.
+
+```python
+from collections import deque
+from typing import Deque, Optional
+
+
+class ATCTower:
+    """Mediator coordinating runway access across independent flights."""
+
+    def __init__(self) -> None:
+        self._runway_occupied_by: Optional[str] = None
+        self._holding_queue: Deque["Flight"] = deque()
+
+    def request_landing(self, flight: "Flight") -> None:
+        if self._runway_occupied_by is None:
+            self._runway_occupied_by = flight.call_sign
+            flight.receive_clearance(f"Cleared to land on Runway 1")
+        else:
+            self._holding_queue.append(flight)
+            flight.receive_clearance(f"Hold pattern (Runway busy with {self._runway_occupied_by})")
+
+    def notify_runway_cleared(self, flight: "Flight") -> None:
+        if self._runway_occupied_by == flight.call_sign:
+            self._runway_occupied_by = None
+            if self._holding_queue:
+                next_flight = self._holding_queue.popleft()
+                self.request_landing(next_flight)
+
+
+class Flight:
+    def __init__(self, call_sign: str, tower: ATCTower) -> None:
+        self.call_sign = call_sign
+        self._tower = tower
+        self.last_instruction = ""
+
+    def land(self) -> None:
+        self._tower.request_landing(self)
+
+    def clear_runway(self) -> None:
+        self._tower.notify_runway_cleared(self)
+
+    def receive_clearance(self, msg: str) -> None:
+        self.last_instruction = msg
+
+
+tower = ATCTower()
+f1, f2 = Flight("UA-101", tower), Flight("DL-202", tower)
+f1.land()
+f2.land()
+assert "Cleared to land" in f1.last_instruction
+assert "Hold pattern" in f2.last_instruction
+f1.clear_runway()
+assert "Cleared to land" in f2.last_instruction
+```
+
+---
+
 ## 4. Where You Already Use It
 
 - **In .NET / C#:**

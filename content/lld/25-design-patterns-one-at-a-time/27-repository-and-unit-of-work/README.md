@@ -524,6 +524,265 @@ Alice balance: $150.00 | Bob balance: $200.00 | Audit logs: 1
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET** | EF Core `DbSet<T>` (Repository) + `DbContext.SaveChangesAsync()` (Unit of Work), Dapper with `IDbTransaction`, Marten `IDocumentSession` | Banking Ledger Transfer, E-Commerce Order & Inventory Reservation |
+| **Python** | SQLAlchemy `Session` (identity map + `commit()`/`rollback()`), Django `models.Manager` + `transaction.atomic()` | Wallet & Escrow System, Airline / Hotel Seat Booking |
+| **Go** | `sqlc` / `pgx` repositories accepting a `pgx.Tx` transaction handle, `WithTx(ctx, fn)` UoW wrapper | Ticketmaster Seat-Locking Service, Multi-Tenant Billing |
+| **TypeScript** | Prisma `prisma.$transaction(async (tx) => ...)`, TypeORM `EntityManager.transaction(...)`, MikroORM `em.flush()` | Marketplace Checkout & Payouts, SaaS Plan Upgrade |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+Imagine you are building an e-commerce checkout endpoint that reserves inventory and creates an order.
+
+#### Stage 0: Naive Code (Repositories/Helpers That Commit Immediately)
+
+```python
+class NaiveInventoryStore:
+    def __init__(self, stock: dict[str, int]):
+        self.stock = stock
+
+    def reserve_and_commit(self, sku: str, qty: int) -> None:
+        if self.stock.get(sku, 0) < qty:
+            raise ValueError("Out of stock")
+        self.stock[sku] -= qty  # Committed to DB immediately!
+
+
+class NaiveOrderStore:
+    def __init__(self):
+        self.orders = []
+
+    def insert_and_commit(self, order_id: str, total: float) -> None:
+        if total <= 0:
+            raise ValueError("Invalid order total")
+        self.orders.append((order_id, total))
+```
+
+#### What Breaks as New Requirements Arrive
+
+1. **Requirement 2 (Multi-Aggregate Atomicity):** `reserve_and_commit("SKU-1", 2)` succeeds and commits `-2` units to the database, then `insert_and_commit("ORD-1", -10)` raises `ValueError`. Inventory is now permanently corrupted (ghost deduction) with no matching order.
+2. **Requirement 3 (Domain Query Encapsulation & Unit Testing):** Services start embedding raw SQL (`SELECT * FROM orders WHERE status = 'PENDING'`) and calling `conn.commit()` in 12 places, making it impossible to test business rules without a live database.
+
+#### Step-by-Step Refactoring Into Repository + Unit of Work
+
+1. **Step 1 — Collection-Like Repositories (No Commits):** `InventoryRepository` and `OrderRepository` track staged changes in memory or within a shared transaction session and **never commit**.
+2. **Step 2 — Context-Managed Unit of Work:** `UnitOfWork` owns the transaction boundary (`__enter__` / `__exit__`), snapshots/stages writes, commits atomically when the `with` block succeeds, and rolls back everything if any exception is raised.
+
+```python
+from copy import deepcopy
+from typing import Dict, List
+
+
+class OrderRepository:
+    def __init__(self, orders: Dict[str, float]):
+        self._orders = orders
+
+    def add(self, order_id: str, total: float) -> None:
+        if total <= 0:
+            raise ValueError("Invalid order total")
+        self._orders[order_id] = total
+
+
+class InventoryRepository:
+    def __init__(self, stock: Dict[str, int]):
+        self._stock = stock
+
+    def reserve(self, sku: str, qty: int) -> None:
+        if self._stock.get(sku, 0) < qty:
+            raise ValueError("Out of stock")
+        self._stock[sku] -= qty
+
+
+class CheckoutUnitOfWork:
+    def __init__(self, stock_db: Dict[str, int], orders_db: Dict[str, float]):
+        self._stock_db = stock_db
+        self._orders_db = orders_db
+
+    def __enter__(self):
+        # Stage isolated working copies (simulates DB transaction snapshot)
+        self._staged_stock = deepcopy(self._stock_db)
+        self._staged_orders = deepcopy(self._orders_db)
+        self.inventory = InventoryRepository(self._staged_stock)
+        self.orders = OrderRepository(self._staged_orders)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            # Atomic commit: both stores updated together
+            self._stock_db.clear()
+            self._stock_db.update(self._staged_stock)
+            self._orders_db.clear()
+            self._orders_db.update(self._staged_orders)
+        # On exception: staged copies are discarded (automatic rollback)
+        return False
+
+
+stock_db = {"SKU-1": 5}
+orders_db: Dict[str, float] = {}
+
+try:
+    with CheckoutUnitOfWork(stock_db, orders_db) as uow:
+        uow.inventory.reserve("SKU-1", 2)
+        uow.orders.add("ORD-1", -50.0)  # Fails!
+except ValueError:
+    pass
+
+# Inventory was rolled back atomically: still 5!
+assert stock_db["SKU-1"] == 5 and orders_db == {}
+```
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+#### Example A (Simple Core): Domain-Specific Repository (Collection Illusion)
+
+Instead of exposing a leaky `get_all()` or raw SQL, a domain repository exposes intention-revealing methods (`find_overdue`) that work identically against an in-memory dictionary or a SQL backend.
+
+```python
+from dataclasses import dataclass
+from datetime import date
+from typing import Dict, List, Optional
+
+
+@dataclass
+class Invoice:
+    invoice_id: str
+    due_date: date
+    paid: bool = False
+
+
+class InMemoryInvoiceRepository:
+    def __init__(self):
+        self._items: Dict[str, Invoice] = {}
+
+    def save(self, invoice: Invoice) -> None:
+        self._items[invoice.invoice_id] = invoice
+
+    def get_by_id(self, invoice_id: str) -> Optional[Invoice]:
+        return self._items.get(invoice_id)
+
+    def find_overdue(self, as_of: date) -> List[Invoice]:
+        return [inv for inv in self._items.values() if not inv.paid and inv.due_date < as_of]
+
+
+repo = InMemoryInvoiceRepository()
+repo.save(Invoice("INV-1", date(2026, 1, 10), paid=False))
+repo.save(Invoice("INV-2", date(2026, 1, 10), paid=True))
+assert [i.invoice_id for i in repo.find_overdue(date(2026, 2, 1))] == ["INV-1"]
+```
+
+#### Example B (Production Backend / Middleware): Unit of Work with Optimistic Concurrency
+
+Production ORMs (EF Core `[Timestamp]`, SQLAlchemy `version_id_col`) use the Unit of Work to detect **lost updates** when two concurrent requests modify the same aggregate.
+
+```python
+from dataclasses import dataclass, replace
+from typing import Dict
+
+
+class ConcurrencyError(Exception):
+    pass
+
+
+@dataclass
+class Wallet:
+    wallet_id: str
+    balance: int
+    version: int = 1
+
+
+class OptimisticUnitOfWork:
+    def __init__(self, db: Dict[str, Wallet]):
+        self._db = db
+        self._loaded_versions: Dict[str, int] = {}
+        self._dirty: Dict[str, Wallet] = {}
+
+    def get(self, wallet_id: str) -> Wallet:
+        row = self._db[wallet_id]
+        self._loaded_versions[wallet_id] = row.version
+        return replace(row)  # Detached copy for mutation
+
+    def register_dirty(self, wallet: Wallet) -> None:
+        self._dirty[wallet.wallet_id] = wallet
+
+    def commit(self) -> None:
+        for wid, updated in self._dirty.items():
+            current = self._db[wid]
+            if current.version != self._loaded_versions[wid]:
+                raise ConcurrencyError(f"Wallet {wid} modified concurrently")
+            updated.version += 1
+            self._db[wid] = updated
+        self._dirty.clear()
+
+
+db = {"W1": Wallet("W1", balance=100, version=1)}
+uow_a = OptimisticUnitOfWork(db)
+uow_b = OptimisticUnitOfWork(db)
+
+w_a = uow_a.get("W1")
+w_b = uow_b.get("W1")
+
+w_a.balance -= 30
+uow_a.register_dirty(w_a)
+uow_a.commit()  # Succeeds: version becomes 2
+
+w_b.balance -= 50
+uow_b.register_dirty(w_b)
+try:
+    uow_b.commit()  # Fails: loaded version 1 != current version 2
+    assert False, "Expected ConcurrencyError"
+except ConcurrencyError:
+    pass
+assert db["W1"].balance == 70
+```
+
+#### Example C (Classic LLD Interview Problem): Order Placement + Transactional Outbox
+
+In distributed backend interviews ("How do you update the database AND publish a Kafka event atomically without 2PC?"), the Unit of Work writes both the `Order` and an `OutboxEvent` into the **same** atomic transaction.
+
+```python
+from copy import deepcopy
+from typing import Dict, List
+
+
+class OrderPlacementUoW:
+    def __init__(self, orders_table: Dict[str, dict], outbox_table: List[dict]):
+        self._orders_table = orders_table
+        self._outbox_table = outbox_table
+
+    def __enter__(self):
+        self._orders_buf = deepcopy(self._orders_table)
+        self._outbox_buf = deepcopy(self._outbox_table)
+        return self
+
+    def save_order(self, order_id: str, user_id: str, amount: float) -> None:
+        self._orders_buf[order_id] = {"user_id": user_id, "amount": amount}
+
+    def enqueue_event(self, event_type: str, payload: dict) -> None:
+        self._outbox_buf.append({"type": event_type, "payload": payload})
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self._orders_table.update(self._orders_buf)
+            self._outbox_table[:] = self._outbox_buf
+        return False
+
+
+orders_tbl: Dict[str, dict] = {}
+outbox_tbl: List[dict] = []
+
+with OrderPlacementUoW(orders_tbl, outbox_tbl) as uow:
+    uow.save_order("ORD-99", "U-7", 149.0)
+    uow.enqueue_event("OrderPlaced", {"order_id": "ORD-99", "amount": 149.0})
+
+assert "ORD-99" in orders_tbl and len(outbox_tbl) == 1
+```
+
+---
+
 ## 4. Where You Already Use It
 
 Modern backend frameworks and persistence tools implement these patterns out of the box:

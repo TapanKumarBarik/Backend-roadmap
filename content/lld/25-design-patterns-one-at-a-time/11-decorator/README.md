@@ -360,6 +360,200 @@ Email dispatched to alice@example.com: [ENC:U3lzdGVtIGFsZXJ0OiBEaXNrIGF0IDkwJQ==
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET / C#** | `System.IO.Stream` (`GZipStream(CryptoStream(FileStream))`), `HttpClient` `DelegatingHandler`, Scrutor `services.Decorate<IService, CachingDecorator>()`. | Design a Caching + Retry + Telemetry `IOrderRepository` pipeline. |
+| **Python** | `io` module (`TextIOWrapper(BufferedReader(FileIO))`), WSGI/ASGI middleware wrappers, `httpx` custom transports. | Design a composable Data Stream Pipeline (Compress -> Encrypt -> Checksum). |
+| **Go** | `http.Handler` middleware (`WithLogging(WithAuth(mux))`), `io.Reader`/`io.Writer` (`gzip.NewWriter`, `bufio.NewWriter`, `io.LimitReader`). | Design an HTTP API Gateway Middleware Chain (RateLimit -> Auth -> Metrics). |
+| **TypeScript / Node.js** | Express/Koa/Hono middleware, `node:stream` `Transform` chains, Fetch/Axios wrapper clients. | Design a Coffee/Pizza Ordering System or Multi-Layer Repository Decorator. |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code ($2^N$ Subclass Explosion)
+```python
+class UserRepo:
+    def get_user(self, uid: str) -> str:
+        return f"db_user:{uid}"
+
+
+class CachedUserRepo(UserRepo):
+    def get_user(self, uid: str) -> str:
+        return f"cached({super().get_user(uid)})"
+
+
+class LoggedUserRepo(UserRepo):
+    def get_user(self, uid: str) -> str:
+        return f"logged({super().get_user(uid)})"
+
+
+class CachedAndLoggedUserRepo(UserRepo):
+    # Must duplicate caching + logging logic together!
+    pass
+```
+
+#### What Breaks as Requirements Arrive
+- **Requirement 2 (Add `Retry` and `Metrics`):** 4 optional features require up to $2^4 = 16$ subclasses. Swapping `SqlUserRepo` for `PostgresUserRepo` doubles it to 32.
+- **Requirement 3 (Per-tenant runtime composition):** Enterprise tenants need `Logging -> Caching -> Retry -> Repo`, while free-tier tenants need `Caching -> Repo`. Static inheritance cannot assemble or reorder layers at runtime.
+
+#### Step-by-Step Refactoring to Decorator
+1. **Share One Interface:** Define `UserRepo` (`Protocol`/ABC) with `get_user(uid: str) -> str`.
+2. **Wrap via Composition:** Each decorator (`CachingRepo`, `RetryingRepo`) implements `UserRepo` and holds `self._inner: UserRepo`.
+3. **Stack Dynamically:** Compose any combination in $O(N)$ classes at runtime.
+
+### Progressive Real-World Examples
+
+#### Example A: Simple Core — Composable Beverage Pricing
+Adds toppings dynamically without creating `EspressoWithMilkAndCaramel` subclasses.
+
+```python
+from typing import Protocol
+
+
+class Beverage(Protocol):
+    def cost_cents(self) -> int: ...
+    def description(self) -> str: ...
+
+
+class Espresso:
+    def cost_cents(self) -> int:
+        return 300
+
+    def description(self) -> str:
+        return "Espresso"
+
+
+class MilkDecorator:
+    def __init__(self, inner: Beverage) -> None:
+        self._inner = inner
+
+    def cost_cents(self) -> int:
+        return self._inner.cost_cents() + 50
+
+    def description(self) -> str:
+        return f"{self._inner.description()} + Milk"
+
+
+class CaramelDecorator:
+    def __init__(self, inner: Beverage) -> None:
+        self._inner = inner
+
+    def cost_cents(self) -> int:
+        return self._inner.cost_cents() + 75
+
+    def description(self) -> str:
+        return f"{self._inner.description()} + Caramel"
+
+
+drink: Beverage = CaramelDecorator(MilkDecorator(Espresso()))
+assert drink.cost_cents() == 425
+assert drink.description() == "Espresso + Milk + Caramel"
+```
+
+#### Example B: Production Backend — HTTP Handler Middleware Stack
+Every layer implements the exact same `HttpHandler` interface, adding auth and audit logging around the core route handler.
+
+```python
+from typing import Protocol
+
+
+class HttpHandler(Protocol):
+    def handle(self, req: dict[str, str]) -> tuple[int, str]: ...
+
+
+class OrdersHandler:
+    def handle(self, req: dict[str, str]) -> tuple[int, str]:
+        return 200, f"orders for {req.get('user', 'anon')}"
+
+
+class AuthMiddleware:
+    def __init__(self, inner: HttpHandler) -> None:
+        self._inner = inner
+
+    def handle(self, req: dict[str, str]) -> tuple[int, str]:
+        if req.get("token") != "valid-jwt":
+            return 401, "Unauthorized"
+        return self._inner.handle(req)
+
+
+class AuditLogMiddleware:
+    def __init__(self, inner: HttpHandler, logs: list[str]) -> None:
+        self._inner = inner
+        self._logs = logs
+
+    def handle(self, req: dict[str, str]) -> tuple[int, str]:
+        status, body = self._inner.handle(req)
+        self._logs.append(f"path={req.get('path')} status={status}")
+        return status, body
+
+
+audit_logs: list[str] = []
+pipeline: HttpHandler = AuditLogMiddleware(AuthMiddleware(OrdersHandler()), audit_logs)
+assert pipeline.handle({"path": "/orders", "token": "bad"}) == (401, "Unauthorized")
+assert pipeline.handle({"path": "/orders", "token": "valid-jwt", "user": "alice"}) == (200, "orders for alice")
+assert audit_logs == ["path=/orders status=401", "path=/orders status=200"]
+```
+
+#### Example C: Classic LLD Interview Problem — Resilient Caching & Retrying Repository
+Stacks a read-through cache outside a transient-fault-retrying repository so temporary DB blips are retried once, and subsequent reads hit the cache.
+
+```python
+from typing import Protocol
+
+
+class KeyValueRepo(Protocol):
+    def get(self, key: str) -> str: ...
+
+
+class FlakyDbRepo:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def get(self, key: str) -> str:
+        self.calls += 1
+        if self.calls == 1:
+            raise ConnectionError("Transient DB timeout")
+        return f"value:{key}"
+
+
+class RetryingRepo:
+    def __init__(self, inner: KeyValueRepo, max_attempts: int = 3) -> None:
+        self._inner = inner
+        self._max_attempts = max_attempts
+
+    def get(self, key: str) -> str:
+        for attempt in range(self._max_attempts):
+            try:
+                return self._inner.get(key)
+            except ConnectionError:
+                if attempt == self._max_attempts - 1:
+                    raise
+        raise RuntimeError("Unreachable")
+
+
+class CachingRepo:
+    def __init__(self, inner: KeyValueRepo) -> None:
+        self._inner = inner
+        self._cache: dict[str, str] = {}
+
+    def get(self, key: str) -> str:
+        if key not in self._cache:
+            self._cache[key] = self._inner.get(key)
+        return self._cache[key]
+
+
+db = FlakyDbRepo()
+repo: KeyValueRepo = CachingRepo(RetryingRepo(db, max_attempts=2))
+assert repo.get("user:42") == "value:user:42"  # 1st attempt fails, 2nd succeeds
+assert repo.get("user:42") == "value:user:42"  # Served from cache (no extra DB call)
+assert db.calls == 2
+```
+
+---
+
 ## 4. Where You Already Use It
 
 ### In .NET / C#

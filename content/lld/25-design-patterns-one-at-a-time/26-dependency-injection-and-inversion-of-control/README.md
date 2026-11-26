@@ -351,6 +351,262 @@ Charged $450.00 via Stripe | Sent email to vip@example.com: Receipt for $450.00
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET** | `Microsoft.Extensions.DependencyInjection` (`IServiceCollection`), ASP.NET Core controller/minimal API activation, `IHttpClientFactory`, `IOptions<T>` | Payment Gateway Switcher, Multi-Channel Notification System |
+| **Python** | FastAPI `Depends(...)` request-scoped injection, `pytest` fixture graph resolution, `punq` / `dependency-injector` | Multi-Tenant Auth & Rate-Limiting Middleware, Pluggable Cache Layer |
+| **Go** | Explicit constructor wiring (`NewService(repo, clock)`), Google `wire` (compile-time codegen), Uber `fx` | Distributed Job Scheduler, HTTP Middleware Pipeline |
+| **TypeScript** | NestJS `@Injectable()` container, Angular hierarchical injectors, `tsyringe` / InversifyJS | E-Commerce Checkout Orchestrator, Pluggable Analytics & Telemetry |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+Imagine you are building an account-security service that sends login alerts and writes an audit trail.
+
+#### Stage 0: Naive Code (Direct Instantiation Inside Business Class)
+
+```python
+import os
+
+
+class SmtpClient:
+    def __init__(self, host: str):
+        self.host = host  # Opens real network socket in production
+
+    def send(self, to: str, body: str) -> None:
+        raise ConnectionError(f"Cannot reach {self.host} from CI")
+
+
+class PostgresAuditStore:
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+
+    def write(self, event: str) -> None:
+        raise ConnectionError(f"No Postgres at {self.dsn}")
+
+
+class SecurityAlertService:
+    def __init__(self):
+        # PAIN: Concrete collaborators are hard-wired inside the constructor
+        self._smtp = SmtpClient("smtp.prod.internal")
+        self._audit = PostgresAuditStore(os.environ.get("DB_DSN", "postgres://prod"))
+
+    def alert_suspicious_login(self, email: str) -> None:
+        self._smtp.send(email, "New login detected")
+        self._audit.write(f"ALERT:{email}")
+```
+
+#### What Breaks as New Requirements Arrive
+
+1. **Requirement 2 (Fast, Hermetic Unit Tests in CI):** Every attempt to instantiate `SecurityAlertService()` in `pytest` crashes with `ConnectionError` because it immediately constructs production `SmtpClient` and `PostgresAuditStore`. Engineers are forced into fragile `unittest.mock.patch` hacks tied to private attribute names.
+2. **Requirement 3 (Channel & Environment Switching):** Enterprise tenants want alerts delivered via Slack or PagerDuty instead of SMTP, and local development needs a console logger. Adding `if channel == "slack": ...` inside `SecurityAlertService` bloats the business class with vendor SDKs and breaks the Open/Closed Principle.
+
+#### Step-by-Step Refactoring Into Dependency Injection
+
+1. **Step 1 — Invert Dependencies (DIP):** Define narrow `Protocol` interfaces (`AlertSender`, `AuditStore`) owned by the domain/application layer.
+2. **Step 2 — Constructor Injection (DI):** Accept `AlertSender` and `AuditStore` as `__init__` parameters; delete all `SmtpClient(...)` / `PostgresAuditStore(...)` calls from `SecurityAlertService`.
+3. **Step 3 — Wire in the Composition Root:** Construct concrete classes once at application startup (`build_prod_service()`), and pass lightweight in-memory fakes in tests.
+
+```python
+from typing import List, Protocol
+
+
+class AlertSender(Protocol):
+    def send(self, to: str, body: str) -> None: ...
+
+
+class AuditStore(Protocol):
+    def write(self, event: str) -> None: ...
+
+
+class SecurityAlertService:
+    def __init__(self, sender: AlertSender, audit: AuditStore):
+        self._sender = sender
+        self._audit = audit
+
+    def alert_suspicious_login(self, email: str) -> None:
+        self._sender.send(email, "New login detected")
+        self._audit.write(f"ALERT:{email}")
+
+
+# In-memory test doubles (zero mocking frameworks needed)
+class FakeSender:
+    def __init__(self):
+        self.sent: List[tuple] = []
+
+    def send(self, to: str, body: str) -> None:
+        self.sent.append((to, body))
+
+
+class InMemoryAudit:
+    def __init__(self):
+        self.events: List[str] = []
+
+    def write(self, event: str) -> None:
+        self.events.append(event)
+
+
+fake_sender, fake_audit = FakeSender(), InMemoryAudit()
+svc = SecurityAlertService(sender=fake_sender, audit=fake_audit)
+svc.alert_suspicious_login("alice@example.com")
+assert fake_sender.sent == [("alice@example.com", "New login detected")]
+assert fake_audit.events == ["ALERT:alice@example.com"]
+```
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+#### Example A (Simple Core): Deterministic Clock Injection for Token Expiry
+
+Calling `datetime.utcnow()` directly inside business logic makes TTL and expiration tests flaky. Injecting a `Clock` abstraction makes time-sensitive logic 100% deterministic.
+
+```python
+from datetime import datetime, timedelta, timezone
+from typing import Protocol
+
+
+class Clock(Protocol):
+    def now(self) -> datetime: ...
+
+
+class SystemClock:
+    def now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+
+class FixedClock:
+    def __init__(self, current: datetime):
+        self.current = current
+
+    def advance(self, seconds: int) -> None:
+        self.current += timedelta(seconds=seconds)
+
+    def now(self) -> datetime:
+        return self.current
+
+
+class SessionTokenValidator:
+    def __init__(self, clock: Clock, ttl_seconds: int = 300):
+        self._clock = clock
+        self._ttl = timedelta(seconds=ttl_seconds)
+
+    def is_expired(self, issued_at: datetime) -> bool:
+        return (self._clock.now() - issued_at) > self._ttl
+
+
+t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+clock = FixedClock(t0)
+validator = SessionTokenValidator(clock=clock, ttl_seconds=60)
+assert validator.is_expired(t0) is False
+clock.advance(61)
+assert validator.is_expired(t0) is True
+```
+
+#### Example B (Production Backend / Middleware): Request-Scoped Composition Root
+
+Web frameworks like ASP.NET Core and FastAPI manage **Singleton** (app-wide config/pool) vs. **Scoped** (per-HTTP-request DB session) lifetimes. Even without a framework, a clean composition root enforces lifetime boundaries.
+
+```python
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    rate_limit_per_min: int = 100
+
+
+class RateLimiter(Protocol):
+    def allow(self, client_id: str) -> bool: ...
+
+
+class InMemoryRateLimiter:
+    def __init__(self, config: AppConfig):
+        self._limit = config.rate_limit_per_min
+        self._counts: dict[str, int] = {}
+
+    def allow(self, client_id: str) -> bool:
+        count = self._counts.get(client_id, 0) + 1
+        self._counts[client_id] = count
+        return count <= self._limit
+
+
+class RequestContext:
+    def __init__(self, request_id: str):
+        self.request_id = request_id
+
+
+class ApiEndpoint:
+    def __init__(self, limiter: RateLimiter, ctx: RequestContext):
+        self._limiter = limiter
+        self._ctx = ctx
+
+    def handle(self, client_id: str) -> int:
+        if not self._limiter.allow(client_id):
+            return 429
+        return 200
+
+
+# Composition Root: Singleton config + Singleton limiter + Scoped request context
+singleton_config = AppConfig(rate_limit_per_min=2)
+singleton_limiter = InMemoryRateLimiter(singleton_config)
+
+assert ApiEndpoint(singleton_limiter, RequestContext("req-1")).handle("u1") == 200
+assert ApiEndpoint(singleton_limiter, RequestContext("req-2")).handle("u1") == 200
+assert ApiEndpoint(singleton_limiter, RequestContext("req-3")).handle("u1") == 429
+```
+
+#### Example C (Classic LLD Interview Problem): Ride-Sharing Fare & Surge Service
+
+In a "Design Uber/Lyft" LLD interview, `RideFareService` must remain decoupled from surge-pricing providers and trip persistence so new pricing rules or regional tax calculators can be swapped cleanly.
+
+```python
+from typing import Protocol
+
+
+class SurgeProvider(Protocol):
+    def multiplier_for(self, zone: str) -> float: ...
+
+
+class FareCalculator(Protocol):
+    def base_fare(self, distance_km: float, duration_min: float) -> float: ...
+
+
+class StandardFareCalculator:
+    def base_fare(self, distance_km: float, duration_min: float) -> float:
+        return 2.50 + (1.20 * distance_km) + (0.25 * duration_min)
+
+
+class StaticSurgeProvider:
+    def __init__(self, zones: dict[str, float]):
+        self._zones = zones
+
+    def multiplier_for(self, zone: str) -> float:
+        return self._zones.get(zone, 1.0)
+
+
+class RideFareService:
+    def __init__(self, calculator: FareCalculator, surge: SurgeProvider):
+        self._calculator = calculator
+        self._surge = surge
+
+    def quote(self, zone: str, distance_km: float, duration_min: float) -> float:
+        raw = self._calculator.base_fare(distance_km, duration_min)
+        return round(raw * self._surge.multiplier_for(zone), 2)
+
+
+fare_svc = RideFareService(
+    calculator=StandardFareCalculator(),
+    surge=StaticSurgeProvider({"airport": 1.5}),
+)
+assert fare_svc.quote("airport", distance_km=10, duration_min=20) == 29.25
+assert fare_svc.quote("suburbs", distance_km=10, duration_min=20) == 19.50
+```
+
+---
+
 ## 4. Where You Already Use It
 
 Dependency injection is the bedrock of modern backend software design:

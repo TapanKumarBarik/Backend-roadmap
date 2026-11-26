@@ -339,6 +339,114 @@ Final Receipt: Order=ORD-501, Status=COMPLETED, Tracking=TRACK-501-EXP
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET** | `HttpClient`, EF Core `DbContext`, `File.ReadAllText`, ASP.NET `WebApplicationBuilder` | E-Commerce Checkout Service, Banking Transfer Orchestrator |
+| **Python** | `requests.get()`, `shutil.copytree()`, `pathlib.Path`, `subprocess.run()` | Video Transcoding Pipeline, Travel Booking Aggregator |
+| **Go** | `net/http.Get()`, `database/sql.DB`, `os.ReadFile()`, `log/slog` default logger | Distributed Job Runner, Cloud Provisioning CLI |
+| **TypeScript** | `fetch()` / `axios`, PrismaClient, NestJS `AppModule` bootstrap, Node `fs.promises` | Food Delivery Order Coordinator, Smart Home Controller |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code (Direct Subsystem Calls in Every Caller)
+When an application starts small, a web controller talks directly to the subsystem classes:
+
+```python
+def checkout_endpoint(user_id: str, sku: str, amount: float) -> dict:
+    inv = InventoryService()
+    pay = PaymentGateway()
+    ship = ShippingService()
+
+    inv.check_and_reserve(sku, 1)
+    txn = pay.process_payment(user_id, amount)
+    tracking = ship.generate_label("ORD-1", "123 Main St")
+    return {"txn": txn, "tracking": tracking}
+```
+
+#### What Breaks as Requirements Grow
+- **Requirement 2 arrives ("Add Mobile API, CLI Admin Tool, and Retry Worker"):** All three new entry points copy-paste the exact same 4-step sequence (`Inventory -> Payment -> Shipping -> Notification`). Now 4 places know the internal call order, constructor arguments, and error handling of every subsystem.
+- **Requirement 3 arrives ("Add Fraud Check before Payment and Compensating Rollback if Payment Fails"):** Every single caller must be updated in lockstep. If the Mobile API forgets to release inventory on payment failure, you leak stock in production. Changing `ShippingService.generate_label()` signature breaks 4 modules at once.
+
+#### Step-by-Step Refactoring into Facade
+1. **Extract the orchestration** into a single `OrderProcessingFacade` class that owns the subsystem references and step ordering.
+2. **Define a coarse-grained contract** (`place_order(...) -> OrderReceipt`) that hides intermediate steps and translates subsystem exceptions into domain results.
+3. **Keep subsystem classes public** so specialized callers (like an admin manifest-reprint tool) can still call `ShippingService` directly without bloating the facade.
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+#### Example A: Simple Core — Home Theater "Movie Mode"
+A single method coordinates TV, soundbar, and lighting without forbidding manual remote control of each device:
+
+```python
+class Lights:
+    def dim(self, level: int) -> None: self.level = level
+
+class Soundbar:
+    def set_surround(self, mode: str) -> None: self.mode = mode
+
+class Projector:
+    def power_on(self, source: str) -> None: self.source = source
+
+class HomeTheaterFacade:
+    def __init__(self, lights: Lights, sound: Soundbar, proj: Projector) -> None:
+        self._lights, self._sound, self._proj = lights, sound, proj
+
+    def watch_movie(self, source: str = "HDMI-1") -> None:
+        self._lights.dim(15)
+        self._sound.set_surround("Dolby-Atmos")
+        self._proj.power_on(source)
+```
+
+#### Example B: Production Backend — Video Transcoding & CDN Publishing Facade
+In a media backend, uploading a video requires probing metadata, transcoding to HLS, generating thumbnails, and invalidating CDN caches—wrapped with domain error translation:
+
+```python
+class MediaPublishError(Exception):
+    pass
+
+class VideoPublishingFacade:
+    def __init__(self, prober, transcoder, thumb_gen, cdn_client) -> None:
+        self._prober = prober
+        self._transcoder = transcoder
+        self._thumb_gen = thumb_gen
+        self._cdn = cdn_client
+
+    def publish(self, raw_path: str, video_id: str) -> str:
+        try:
+            meta = self._prober.inspect(raw_path)
+            hls_url = self._transcoder.to_hls(raw_path, meta.bitrate)
+            self._thumb_gen.extract_frame(raw_path, at_sec=5)
+            self._cdn.purge(f"/videos/{video_id}/*")
+            return hls_url
+        except TimeoutError as exc:
+            raise MediaPublishError(f"Transcode pipeline timed out for {video_id}") from exc
+```
+
+#### Example C: Classic LLD Interview Problem — Travel Booking Aggregator (Flight + Hotel + Cab)
+In a "Design MakeMyTrip / Expedia" LLD interview, a `TravelPackageFacade` coordinates three independent booking subsystems with rollback compensation if a downstream step fails:
+
+```python
+class TravelPackageFacade:
+    def __init__(self, flights, hotels, cabs) -> None:
+        self._flights, self._hotels, self._cabs = flights, hotels, cabs
+
+    def book_trip(self, user_id: str, city: str, date: str) -> dict:
+        flight_id = self._flights.reserve(user_id, city, date)
+        try:
+            hotel_id = self._hotels.reserve(user_id, city, date)
+        except Exception:
+            self._flights.cancel(flight_id)  # Compensating rollback
+            raise
+        cab_id = self._cabs.schedule_pickup(user_id, city, date)
+        return {"flight": flight_id, "hotel": hotel_id, "cab": cab_id}
+```
+
+---
+
 ## 4. Where You Already Use It
 
 ### In .NET / C#

@@ -266,6 +266,120 @@ Contents of DOC-101: Classified System Architecture Specs
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET** | EF Core `UseLazyLoadingProxies()`, Castle DynamicProxy / Moq, gRPC `ClientBase<T>`, `DispatchProxy` | Rate-Limiting API Gateway, Lazy-Loading Media Gallery |
+| **Python** | `unittest.mock.MagicMock`, SQLAlchemy `lazy="select"`, `weakref.proxy`, `multiprocessing.managers` | RBAC Document Vault, Caching Query Proxy |
+| **Go** | `net/http/httputil.ReverseProxy`, gRPC `ClientConn` stubs, generated mock/interceptor wrappers | Reverse Proxy / Load Balancer, Circuit-Breaking RPC Client |
+| **TypeScript** | ES6 `new Proxy(target, handler)`, Vue 3 reactivity system, MobX observables, tRPC client proxies | Reactive State Store, Permission-Guarded Admin Service |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code (Direct Instantiation & Unchecked Access)
+A report controller directly instantiates and calls a heavy database-backed report generator:
+
+```python
+class HeavyReportGenerator:
+    def __init__(self, db_dsn: str) -> None:
+        self._conn = f"Connected({db_dsn})"  # Expensive startup
+
+    def generate(self, report_id: str, user_role: str) -> str:
+        return f"Financial Report {report_id}"
+
+def handle_request(report_id: str, role: str) -> str:
+    svc = HeavyReportGenerator("postgres://prod-db")
+    return svc.generate(report_id, role)
+```
+
+#### What Breaks as Requirements Grow
+- **Requirement 2 arrives ("Only `FINANCE` or `ADMIN` roles may view financial reports; reject others with zero DB connections opened"):** In Stage 0, `HeavyReportGenerator(...)` already opens the DB connection before checking permissions, or every caller has to duplicate `if role not in ...` checks before instantiating `HeavyReportGenerator`.
+- **Requirement 3 arrives ("Repeated requests for the same `report_id` within 60s must not hit the database, and callers must not change"):** Adding caching and lazy connection creation directly inside `HeavyReportGenerator` violates Single Responsibility and mixes infrastructure concerns (auth, TTL cache, lazy init) into core report generation.
+
+#### Step-by-Step Refactoring into Proxy
+1. **Extract a shared interface** (`ReportService`) implemented by both `HeavyReportGenerator` and `ReportServiceProxy`.
+2. **Move lifecycle ownership into the Proxy:** `ReportServiceProxy` holds `None` initially instead of opening a DB connection on startup (Virtual Proxy).
+3. **Gate and memoize in `generate()`:** Check `role` first (Protection Proxy), check the in-memory cache second (Caching Proxy), and only instantiate `HeavyReportGenerator` on the first authorized cache miss.
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+#### Example A: Simple Core — Virtual Proxy for Lazy Image Loading
+A gallery loads 500 image thumbnails; high-resolution bitmaps are only decoded from disk when `render()` is actually called:
+
+```python
+class HighResImage:
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._pixels = f"<loaded 24MB from {path}>"
+
+    def render(self) -> str:
+        return self._pixels
+
+class LazyImageProxy:
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._real: HighResImage | None = None
+
+    def render(self) -> str:
+        if self._real is None:
+            self._real = HighResImage(self._path)
+        return self._real.render()
+```
+
+#### Example B: Production Backend — Rate-Limiting & Caching Proxy for External APIs
+In a backend service calling a costly third-party geolocation or LLM API, a proxy enforces per-tenant rate limits and caches identical lookups behind the same `GeoClient` interface:
+
+```python
+import time
+
+class CachingRateLimitGeoProxy:
+    def __init__(self, real_client, max_rpm: int = 60) -> None:
+        self._real = real_client
+        self._max_rpm = max_rpm
+        self._cache: dict[str, str] = {}
+        self._calls: list[float] = []
+
+    def lookup_city(self, ip: str) -> str:
+        if ip in self._cache:
+            return self._cache[ip]
+        now = time.monotonic()
+        self._calls = [t for t in self._calls if now - t < 60.0]
+        if len(self._calls) >= self._max_rpm:
+            raise RuntimeError("429 Too Many Requests: upstream quota protected")
+        self._calls.append(now)
+        self._cache[ip] = self._real.lookup_city(ip)
+        return self._cache[ip]
+```
+
+#### Example C: Classic LLD Interview Problem — Protection + Audit Proxy for a Banking Vault
+In a "Design a Banking System / Role-Based File Vault" LLD interview, interviewers ask how to enforce RBAC and immutable audit trails without modifying the legacy `AccountLedger` class:
+
+```python
+class AccountLedger:
+    def withdraw(self, account_id: str, amount: float, actor_role: str) -> str:
+        return f"Withdrew ${amount:.2f} from {account_id}"
+
+class ProtectedLedgerProxy:
+    def __init__(self, ledger: AccountLedger, audit_log: list[str]) -> None:
+        self._ledger = ledger
+        self._audit = audit_log
+
+    def withdraw(self, account_id: str, amount: float, actor_role: str) -> str:
+        if actor_role not in ("TELLER", "MANAGER"):
+            self._audit.append(f"DENIED:{actor_role}:{account_id}:{amount}")
+            raise PermissionError("Insufficient privileges for withdrawal")
+        if amount > 10_000 and actor_role != "MANAGER":
+            raise PermissionError("Manager approval required above $10,000")
+        result = self._ledger.withdraw(account_id, amount, actor_role)
+        self._audit.append(f"OK:{actor_role}:{account_id}:{amount}")
+        return result
+```
+
+---
+
 ## 4. Where You Already Use It
 
 ### In .NET / C#

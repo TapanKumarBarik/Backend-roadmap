@@ -358,6 +358,117 @@ Status: SUCCESS | Applied 100% courtesy discount voucher for $35.00
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET** | `IComparer<T>`, `JsonNamingPolicy`, ASP.NET `IAuthenticationHandler`, Polly retry policies | Parking Lot Fee Calculator, Payment Gateway Router |
+| **Python** | `sorted(key=...)`, `collections.defaultdict(factory)`, `json.dump(default=...)`, `logging.Formatter` | Ride-Sharing Surge Pricing (Uber), E-Commerce Tax/Discount Engine |
+| **Go** | `sort.Slice` comparator, `http.Handler` / `RoundTripper`, `compress` encoders | Load Balancer Routing (Round-Robin / Least-Conn), Compression Pipeline |
+| **TypeScript** | `Array.prototype.sort(compareFn)`, Passport.js auth strategies, ESLint/Prettier formatters | Notification Channel Dispatcher, Game AI Behavior Switching |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code (Growing `if/elif` Inside Core Business Logic)
+A shipping calculator starts with two flat rules:
+
+```python
+def calculate_shipping(carrier: str, weight_kg: float) -> float:
+    if carrier == "STANDARD":
+        return 5.0 + weight_kg * 1.2
+    elif carrier == "EXPRESS":
+        return 15.0 + weight_kg * 2.5
+    raise ValueError(f"Unknown carrier: {carrier}")
+```
+
+#### What Breaks as Requirements Grow
+- **Requirement 2 arrives ("Add International Freight with customs zones, Hazmat surcharge, and Overnight Air"):** `calculate_shipping` swells to 150 lines with nested `if`s and carrier-specific API clients. Every team editing a carrier rule causes merge conflicts in the same function.
+- **Requirement 3 arrives ("Enterprise tenants get custom negotiated rate tables loaded at runtime"):** Hardcoded `if/elif` branches cannot be swapped or injected per tenant without modifying and redeploying the core shipping module—violating the Open/Closed Principle.
+
+#### Step-by-Step Refactoring into Strategy
+1. **Define a unified Strategy contract** (`ShippingStrategy` / `Callable[[float], float]`).
+2. **Isolate each carrier algorithm** into its own class or function (`StandardShipping`, `ExpressShipping`, `InternationalFreight`).
+3. **Inject the strategy** into `ShippingCalculator` via constructor or a `dict[str, ShippingStrategy]` registry so adding a new carrier requires zero edits to `ShippingCalculator`.
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+#### Example A: Simple Core — Pluggable Retry Backoff Policies
+A network client accepts a backoff strategy function so callers can choose constant, linear, or exponential backoff without changing the retry loop:
+
+```python
+from typing import Callable
+
+BackoffStrategy = Callable[[int], float]
+
+def constant_backoff(attempt: int) -> float:
+    return 1.0
+
+def exponential_backoff(attempt: int) -> float:
+    return float(2 ** attempt)
+
+def next_delay(attempt: int, policy: BackoffStrategy = exponential_backoff) -> float:
+    return policy(attempt)
+```
+
+#### Example B: Production Backend — Load Balancer Routing Strategies
+An API gateway or service mesh swaps load-balancing algorithms (`RoundRobin`, `LeastConnections`, `WeightedRandom`) at runtime via config without touching request forwarding logic:
+
+```python
+from abc import ABC, abstractmethod
+
+class RoutingStrategy(ABC):
+    @abstractmethod
+    def select_host(self, hosts: list[str], active_conns: dict[str, int]) -> str:
+        pass
+
+class RoundRobinStrategy(RoutingStrategy):
+    def __init__(self) -> None:
+        self._idx = 0
+
+    def select_host(self, hosts: list[str], active_conns: dict[str, int]) -> str:
+        host = hosts[self._idx % len(hosts)]
+        self._idx += 1
+        return host
+
+class LeastConnectionsStrategy(RoutingStrategy):
+    def select_host(self, hosts: list[str], active_conns: dict[str, int]) -> str:
+        return min(hosts, key=lambda h: active_conns.get(h, 0))
+```
+
+#### Example C: Classic LLD Interview Problem — Parking Lot Dynamic Pricing
+In a "Design a Parking Lot" LLD interview, `ParkingTicketService` delegates fee computation to an injected `PricingStrategy` (Hourly, Flat Weekend, EV-Charging Tier) so new vehicle or membership rules never break existing billing:
+
+```python
+from abc import ABC, abstractmethod
+
+class PricingStrategy(ABC):
+    @abstractmethod
+    def calculate_fee(self, hours: float) -> float:
+        pass
+
+class HourlyPricing(PricingStrategy):
+    def __init__(self, rate_per_hour: float) -> None:
+        self._rate = rate_per_hour
+
+    def calculate_fee(self, hours: float) -> float:
+        return round(max(1.0, hours) * self._rate, 2)
+
+class WeekendFlatPricing(PricingStrategy):
+    def calculate_fee(self, hours: float) -> float:
+        return 15.00 if hours <= 12 else 25.00
+
+class ParkingCheckout:
+    def __init__(self, pricing: PricingStrategy) -> None:
+        self._pricing = pricing
+
+    def bill(self, hours: float) -> float:
+        return self._pricing.calculate_fee(hours)
+```
+
+---
+
 ## 4. Where You Already Use It
 
 The Strategy pattern is woven deeply into modern standard libraries and backend frameworks:

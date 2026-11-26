@@ -290,6 +290,124 @@ public class Program
 
 ---
 
+## 3A. Where It Is Used, Why It Exists & Progressive Buildup
+
+### Where It Is Used (Real-World Systems & LLD Interviews)
+
+| Domain / Ecosystem | Concrete Real-World Usage | LLD Interview Problem Where You Use It |
+| :--- | :--- | :--- |
+| **.NET BCL / ASP.NET Core** | `IHttpClientFactory`, `ILoggerFactory.CreateLogger()`, `DbProviderFactories.GetFactory()`, `Task.Run()` | **Notification / Payment Gateway:** Dispatching `Email`, `SMS`, `Push`, or `Stripe` / `Razorpay` processors dynamically. |
+| **Python stdlib / Django / FastAPI** | `pathlib.Path()` (returns `PosixPath` or `WindowsPath`), `datetime.fromtimestamp()`, `logging.getLogger()` | **Document Exporter / Parser:** Creating `PdfParser`, `CsvParser`, or `JsonParser` from file extension or MIME type. |
+| **Go stdlib** | `sql.Register(name, driver)` + `sql.Open(driverName, dsn)`, `image.Decode` format registry | **Parking Lot Vehicle/Spot Factory:** Instantiating `Car`, `Truck`, or `Motorcycle` and matching `Spot` types. |
+| **TypeScript / Node.js** | NestJS dynamic providers (`useFactory`), Express/Fastify middleware factories, TypeORM `DataSource` drivers | **Ride-Sharing Pricing / Vehicle:** Selecting `Sedan`, `SUV`, or `Auto` ride objects and fare calculators at runtime. |
+| **Game Engines / Logistics** | Enemy/NPC spawners (`Level1Spawner.CreateEnemy()`), shipping carrier adapters (`FedEx`, `UPS`, `DHL`) | **Chess / Board Game Piece Factory:** Creating `Piece` subclasses from board notation without coupling the board parser. |
+
+### Why It Is Used — The Step-by-Step Buildup (Before -> Pain -> Pattern)
+
+#### Stage 0: Naive Code (Hardcoded `new` + Growing `if/elif` in Business Logic)
+
+```python
+# Stage 0: OrderService directly instantiates concrete payment processors
+class OrderService:
+    def checkout(self, method: str, amount: float) -> str:
+        if method == "stripe":
+            return f"Stripe charged ${amount:.2f}"
+        elif method == "paypal":
+            return f"PayPal charged ${amount:.2f}"
+        else:
+            raise ValueError(f"Unsupported method: {method}")
+```
+
+#### What Breaks as Requirements Grow
+- **Requirement 2 (4 More Payment Providers + Unit Testing):** You add Apple Pay, Razorpay, SEPA, and Crypto. `OrderService` balloons into a 300-line `if/elif` block. Every time a new provider is added, you must edit and re-deploy `OrderService` (violating **OCP**), and you cannot unit-test `OrderService` without hitting real payment SDKs.
+- **Requirement 3 (Per-Region Workflows & Dependencies):** Stripe needs an API key, while SEPA needs an IBAN validator and retry policy. Constructing them inline inside `OrderService` leaks infrastructure secrets into domain logic.
+
+#### Step-by-Step Refactoring
+1. **Step 1 (Simple Factory):** Extract the `if/elif` into `PaymentFactory.create(method)` returning an `IPaymentProcessor` interface. `OrderService` is now clean and testable, though `PaymentFactory` still has a `switch`.
+2. **Step 2 (Factory Method / Registry):** Replace the `switch` with either subclasses overriding `create_processor()` (GoF Factory Method when an invariant workflow wraps creation) or a `dict[str, Callable[[], IPaymentProcessor]]` registry where new providers register themselves at startup with zero edits to existing code.
+
+### Progressive Real-World Examples (More & More Typical Use Cases)
+
+````carousel
+```python
+# Example A (Everyday Simple Case): Simple Factory for Document Parsers
+from abc import ABC, abstractmethod
+
+class IDocumentParser(ABC):
+    @abstractmethod
+    def parse(self, raw: bytes) -> dict: ...
+
+class JsonParser(IDocumentParser):
+    def parse(self, raw: bytes) -> dict:
+        return {"format": "json", "size": len(raw)}
+
+class CsvParser(IDocumentParser):
+    def parse(self, raw: bytes) -> dict:
+        return {"format": "csv", "size": len(raw)}
+
+def create_parser(ext: str) -> IDocumentParser:
+    parsers = {".json": JsonParser, ".csv": CsvParser}
+    if ext not in parsers:
+        raise ValueError(f"Unsupported extension: {ext}")
+    return parsers[ext]()
+```
+<!-- slide -->
+```typescript
+// Example B (Production Backend / Middleware Case): Auth Strategy Registry Factory
+interface AuthVerifier {
+  verify(token: string): Promise<{ userId: string }>;
+}
+
+class JwtVerifier implements AuthVerifier {
+  async verify(token: string) { return { userId: `jwt:${token.slice(0, 6)}` }; }
+}
+
+class ApiKeyVerifier implements AuthVerifier {
+  async verify(token: string) { return { userId: `key:${token.slice(0, 6)}` }; }
+}
+
+const verifierRegistry = new Map<string, () => AuthVerifier>([
+  ["Bearer", () => new JwtVerifier()],
+  ["ApiKey", () => new ApiKeyVerifier()],
+]);
+
+export function resolveAuthVerifier(scheme: string): AuthVerifier {
+  const factory = verifierRegistry.get(scheme);
+  if (!factory) throw new Error(`Unknown auth scheme: ${scheme}`);
+  return factory();
+}
+```
+<!-- slide -->
+```python
+# Example C (Classic LLD Interview Problem): Parking Lot Vehicle & Ticket Workflow (Factory Method)
+from abc import ABC, abstractmethod
+
+class IVehicle(ABC):
+    @abstractmethod
+    def spot_size(self) -> str: ...
+
+class Motorcycle(IVehicle):
+    def spot_size(self) -> str: return "COMPACT"
+
+class Truck(IVehicle):
+    def spot_size(self) -> str: return "LARGE"
+
+class GateEntryProcessor(ABC):
+    @abstractmethod
+    def create_vehicle(self, plate: str) -> IVehicle: ...
+
+    def admit(self, plate: str) -> str:
+        vehicle = self.create_vehicle(plate)
+        return f"Admitted {plate} to {vehicle.spot_size()} spot"
+
+class TruckGateProcessor(GateEntryProcessor):
+    def create_vehicle(self, plate: str) -> IVehicle:
+        return Truck()
+```
+````
+
+---
+
 ## 4. Where You Already Use It
 
 ### In .NET / C#
