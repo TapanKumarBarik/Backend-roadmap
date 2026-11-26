@@ -657,11 +657,18 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 
 /* KaTeX math blocks & inline expressions */
 #content .math-display {
-  display: block; overflow-x: auto; overflow-y: hidden;
+  display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   margin: 14px 0; padding: 4px 0; text-align: center;
 }
 #content .math-display .katex-display { margin: 0; }
+#content .katex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; -webkit-overflow-scrolling: touch; }
 #content .math-inline .katex { font-size: 1.04em; }
+
+@media (max-width: 640px) {
+  .codeblock pre { font-size: 12px; padding: 12px; line-height: 1.55; }
+  #content > pre { max-width: 100%; overflow-x: auto; font-size: 12px; }
+}
 
 /* ---------- finish bar ----------
    Closes the loop where the decision actually happens: at the end of the

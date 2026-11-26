@@ -77,4 +77,12 @@
 }
 .dg-list__item:hover { background: var(--hover); }
 .dg-list__item.is-selected { font-weight: var(--weight-semibold); border-color: var(--border-strong); border-style: dashed; }
-@media (pointer: coarse) { .dg-list__item { min-height: 44px; } }
+@media (pointer: coarse) {
+  .dg-list__item { min-height: 44px; }
+  .dg-toolbar button, .dg-inspector button, .dg-inspector select { min-height: 44px; }
+}
+
+@media (max-width: 640px) {
+  .dg-toolbar__end { margin-left: 0; }
+  .dg-stage { height: clamp(280px, 52vh, 480px); }
+}

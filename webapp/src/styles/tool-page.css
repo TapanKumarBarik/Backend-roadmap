@@ -1190,3 +1190,12 @@ html[data-theme="auto"] .sd-meter.is-ok .sd-meter__value { color: #4ade80; }
 .inc-actions-list { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); }
 .inc-action-card { background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-md); padding: var(--space-3); display: flex; flex-direction: column; gap: 6px; }
 .inc-output-box { font-family: var(--mono); font-size: 11px; background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--r-sm); padding: 8px; line-height: 1.5; color: var(--fg); }
+
+@media (max-width: 640px) {
+  .tool-card, .tool-stage { padding: var(--space-3); }
+  .tool-btn--boom { min-width: 0; width: 100%; }
+  .sd-interact { padding: var(--space-3); }
+  .sd-actions > button { flex: 1 1 auto; }
+  .ws-cluster-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+  .inc-output-box { overflow-x: auto; }
+}
