@@ -21,10 +21,49 @@
 | :--- | :--- | :--- |
 | 1 | See a fat interface and its empty methods | 2 |
 | 2 | Learn why the callers suffer too | 3 |
-| 3 | Split it, in Python and C# | 4, 5 |
-| 4 | Learn how small is small enough | 6 |
-| 5 | Drills | 7 |
-| 6 | Interview answers | 8 |
+| 3 | Split it, in Python, C#, Go, and TypeScript | 4 |
+| 4 | Learn how small is small enough | 5 |
+| 5 | Drills | 6 |
+| 6 | Interview answers | 7 |
+
+---
+
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+In naive code, a single fat `Machine` interface declares `print_doc()`, `scan()`, and `fax()`. When `BasicPrinter` implements `Machine`, it is forced to stub `scan()` and `fax()` with `raise NotImplementedError`. Any caller holding `Machine` can crash at runtime, and a signature change to `fax()` forces print-only clients to recompile, retest, and redeploy even though they never fax.
+
+### Real-World Analogy
+
+Imagine handing a **30-function Swiss Army knife** to someone who only asked for a **screwdriver**, or forcing a **pocket flashlight** to include a fake, glued-shut bottle opener just to qualify as a "Tool". Callers should only depend on the exact capability they use, and devices should only promise what they actually do.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+  subgraph Before["Before: Fat Interface Forces Lies"]
+    PC1["Print Client"] --> FAT["Machine (print, scan, fax)"]
+    BP1["BasicPrinter (scan throws!)"] --> FAT
+  end
+  subgraph After["After: Role Interfaces"]
+    PC2["Print Client"] --> IP["Printer (print_doc)"]
+    SC2["Scan Client"] --> IS["Scanner (scan)"]
+    BP2["BasicPrinter"] --> IP
+    AIO["OfficeAllInOne"] --> IP
+    AIO --> IS
+  end
+```
+
+### Where It Is Used (Production & LLD Interviews)
+
+| Ecosystem / Context | Concrete Application of ISP |
+| :--- | :--- |
+| **.NET** | `IReadOnlyList<T>` vs `IList<T>`, `IEnumerable<T>` vs `ICollection<T>`, `IDisposable` |
+| **Python** | Small `typing.Protocol` interfaces (`SupportsRead`, `SupportsWrite`), `collections.abc` granular ABCs |
+| **Go** | Idiomatic 1-method interfaces (`io.Reader`, `io.Writer`, `io.Closer`, `fmt.Stringer`) composed as `io.ReadCloser` |
+| **TypeScript** | Narrow `Pick<T, K>` / role interfaces (`Readable`, `Writable`) for React props and service dependencies |
+| **LLD Interviews** | **Smart Home Devices** (`Switchable`, `Dimmable`, `Thermostat`), **Repository Split** (`UserReader` vs `UserWriter`), **Parking Lot Display** (`TicketIssuer`, `GateController`) |
 
 ---
 
@@ -99,10 +138,11 @@ A change to `fax` reaches all three clients. With segregated interfaces, only th
 
 ---
 
-## 4. The fix in Python
+## 4. The fix in Python, C#, Go, and TypeScript
 
 Split by **role**: what a particular client wants from the object.
 
+````carousel
 ```python
 from abc import ABC, abstractmethod
 
@@ -145,23 +185,7 @@ def print_report(device: Printer):
 print(print_report(BasicPrinter()))
 print(print_report(OfficeAllInOne()))
 ```
-
-Output:
-
-```text
-printed report
-printed report
-```
-
-`print_report` asks only for a `Printer`, so it works with both devices. `BasicPrinter` has no dishonest methods. The all-in-one device implements all three roles by listing them.
-
-> [!NOTE]
-> Python also has `typing.Protocol`, a structural interface: any object with a `print_doc` method satisfies `Printer` without inheriting from it. It is the closest match to Go's small, implicit interfaces.
-
----
-
-## 5. The same idea in C#
-
+<!-- slide -->
 ```csharp
 public interface IPrinter  { string Print(string doc); }
 public interface IScanner  { string Scan(); }
@@ -179,6 +203,85 @@ public class OfficeAllInOne : IPrinter, IScanner, IFaxSender
     public string Fax(string doc) => $"faxed {doc}";
 }
 ```
+<!-- slide -->
+```go
+package main
+
+type Printer interface {
+	Print(doc string) string
+}
+
+type Scanner interface {
+	Scan() string
+}
+
+type FaxSender interface {
+	Fax(doc string) string
+}
+
+type BasicPrinter struct{}
+
+func (BasicPrinter) Print(doc string) string { return "printed " + doc }
+
+type OfficeAllInOne struct{}
+
+func (OfficeAllInOne) Print(doc string) string { return "printed " + doc }
+func (OfficeAllInOne) Scan() string            { return "scanned page" }
+func (OfficeAllInOne) Fax(doc string) string   { return "faxed " + doc }
+
+func PrintReport(device Printer) string {
+	return device.Print("report")
+}
+```
+<!-- slide -->
+```typescript
+export interface Printer {
+  print(doc: string): string;
+}
+
+export interface Scanner {
+  scan(): string;
+}
+
+export interface FaxSender {
+  fax(doc: string): string;
+}
+
+export class BasicPrinter implements Printer {
+  print(doc: string): string {
+    return `printed ${doc}`;
+  }
+}
+
+export class OfficeAllInOne implements Printer, Scanner, FaxSender {
+  print(doc: string): string {
+    return `printed ${doc}`;
+  }
+  scan(): string {
+    return "scanned page";
+  }
+  fax(doc: string): string {
+    return `faxed ${doc}`;
+  }
+}
+
+export function printReport(device: Printer): string {
+  return device.print("report");
+}
+```
+````
+
+Output:
+
+```text
+printed report
+printed report
+```
+
+`print_report` asks only for a `Printer`, so it works with both devices. `BasicPrinter` has no dishonest methods. The all-in-one device implements all three roles by listing them.
+
+> [!NOTE]
+> Python also has `typing.Protocol`, a structural interface: any object with a `print_doc` method satisfies `Printer` without inheriting from it. It is the closest match to Go's small, implicit interfaces.
 
 C# allows a class to implement many interfaces, which makes role interfaces cheap. A method parameter of type `IPrinter` accepts both classes.
 
@@ -186,7 +289,7 @@ A second real-world example is `IReadOnlyList<T>` versus `IList<T>`: a method th
 
 ---
 
-## 6. How small is small enough?
+## 5. How small is small enough?
 
 | Too big | About right | Too small |
 | :--- | :--- | :--- |
@@ -198,7 +301,7 @@ Look at your callers, not at the implementation. The implementation will often i
 
 ---
 
-## 7. Practice theory: three drills
+## 6. Practice theory: three drills
 
 ### Drill 1: the repository
 
@@ -255,7 +358,7 @@ No. Callers use these methods together, and no client wants only `peek` from a s
 
 ---
 
-## 8. Interview corner
+## 7. Interview corner
 
 **"What is the Interface Segregation Principle?"**
 Clients should not be forced to depend on methods they do not use. I make interfaces small and role-shaped, so a class implements only what it can honestly provide and a caller sees only what it needs.
@@ -271,7 +374,7 @@ No. I group methods that clients use together. Go's `io.Reader` has one method b
 
 ---
 
-## 9. Cheat sheet
+## 8. Cheat sheet
 
 | Idea | Remember |
 | :--- | :--- |

@@ -21,10 +21,48 @@
 | :--- | :--- | :--- |
 | 1 | See the `if/else` chain that grows | 2 |
 | 2 | Understand "open" and "closed" | 3 |
-| 3 | Refactor it with polymorphism, in Python and C# | 4, 5 |
-| 4 | Know the price and when not to pay it | 6 |
-| 5 | Practise on three drills | 7 |
-| 6 | Interview answers | 8 |
+| 3 | Refactor it with polymorphism, in Python, C#, Go, and TypeScript | 4 |
+| 4 | Know the price and when not to pay it | 5 |
+| 5 | Practise on three drills | 6 |
+| 6 | Interview answers | 7 |
+
+---
+
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+In naive code, `shipping_cost(order_kind, weight_kg)` is an `if-elif` ladder that grows every sprint (`standard`, `express`, `pickup`, `same_day`, `drone`). Every new delivery option forces you to reopen and edit a tested function, risking regressions in existing branches—and worse, the exact same `if-elif` chain is often duplicated in invoice generation and analytics.
+
+### Real-World Analogy
+
+Think of a **standard wall outlet**. You do not tear open the drywall and rewire your house every time you buy a new appliance. The outlet exposes a stable contract (shape and voltage), so a lamp, a laptop charger, or a coffee maker can all plug in without modifying the wiring behind the wall.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+  subgraph Before["Before: Edit Tested Code Every Sprint"]
+    C1["Checkout"] --> IF["if standard / elif express / elif same_day"]
+    NEW1["New Drone Delivery"] -.reopens & edits.-> IF
+  end
+  subgraph After["After: Extend via Interface"]
+    C2["Checkout"] --> IP["IShippingPolicy (cost)"]
+    ST["Standard"] --> IP
+    EX["Express"] --> IP
+    DR["Drone (added without editing Checkout)"] --> IP
+  end
+```
+
+### Where It Is Used (Production & LLD Interviews)
+
+| Ecosystem / Context | Concrete Application of OCP |
+| :--- | :--- |
+| **.NET (ASP.NET Core)** | Middleware pipeline, `IAuthenticationHandler`, and `IEnumerable<IStrategy>` injected via DI |
+| **Python (FastAPI / Django)** | Strategy registries (`dict[str, Policy]`), Django custom storage backends, Pytest plugin hooks |
+| **Go** | `http.Handler` middleware wrapping, `io.Reader` / `io.Writer` decorators, registered driver maps (`database/sql`) |
+| **TypeScript (NestJS / Express)** | Express/Fastify middleware chains, passport.js authentication strategies, plugin registries |
+| **LLD Interviews** | **E-commerce Pricing / Discount Engine** (`DiscountPolicy`), **Notification System** (`NotificationChannel`), **Payment Gateway** (`PaymentProcessor`) |
 
 ---
 
@@ -90,8 +128,9 @@ classDiagram
 
 ---
 
-## 4. The fix in Python
+## 4. The fix in Python, C#, Go, and TypeScript
 
+````carousel
 ```python
 from abc import ABC, abstractmethod
 
@@ -136,25 +175,7 @@ class SameDay(ShippingPolicy):
 POLICIES["same_day"] = SameDay()
 print(shipping_cost("same_day", 4))
 ```
-
-Output:
-
-```text
-7.0
-16.0
-0
-26.0
-```
-
-The last two lines are the point: `SameDay` was added **after** the original code, and `shipping_cost` and the three existing classes were not touched.
-
-> [!NOTE]
-> Something still has to know the full list of policies. Here it is the `POLICIES` registry. That is fine: the list lives in a **wiring** place, not in the business logic you wanted to protect.
-
----
-
-## 5. The same idea in C#
-
+<!-- slide -->
 ```csharp
 public interface IShippingPolicy
 {
@@ -173,12 +194,91 @@ public class Checkout
     public decimal ShippingCost(string kind, decimal weightKg) => _policies[kind].Cost(weightKg);
 }
 ```
+<!-- slide -->
+```go
+package main
+
+type ShippingPolicy interface {
+	Cost(weightKg float64) float64
+}
+
+type Standard struct{}
+
+func (Standard) Cost(w float64) float64 { return 5 + 0.5*w }
+
+type Express struct{}
+
+func (Express) Cost(w float64) float64 { return 12 + 1.0*w }
+
+type Pickup struct{}
+
+func (Pickup) Cost(w float64) float64 { return 0 }
+
+type Checkout struct {
+	policies map[string]ShippingPolicy
+}
+
+func (c Checkout) ShippingCost(kind string, weightKg float64) float64 {
+	return c.policies[kind].Cost(weightKg)
+}
+
+// Adding SameDay requires zero edits to Checkout or existing policies:
+type SameDay struct{}
+
+func (SameDay) Cost(w float64) float64 { return 20 + 1.5*w }
+```
+<!-- slide -->
+```typescript
+export interface ShippingPolicy {
+  cost(weightKg: number): number;
+}
+
+export class Standard implements ShippingPolicy {
+  cost(w: number): number { return 5 + 0.5 * w; }
+}
+
+export class Express implements ShippingPolicy {
+  cost(w: number): number { return 12 + 1.0 * w; }
+}
+
+export class Pickup implements ShippingPolicy {
+  cost(_w: number): number { return 0; }
+}
+
+export class Checkout {
+  constructor(private readonly policies: Record<string, ShippingPolicy>) {}
+
+  shippingCost(kind: string, weightKg: number): number {
+    return this.policies[kind].cost(weightKg);
+  }
+}
+
+// A new option arrives without editing Checkout:
+export class SameDay implements ShippingPolicy {
+  cost(w: number): number { return 20 + 1.5 * w; }
+}
+```
+````
+
+Output:
+
+```text
+7.0
+16.0
+0
+26.0
+```
+
+The last two lines in the Python run are the point: `SameDay` was added **after** the original code, and `shipping_cost` and the three existing classes were not touched.
+
+> [!NOTE]
+> Something still has to know the full list of policies. Here it is the `POLICIES` registry. That is fine: the list lives in a **wiring** place, not in the business logic you wanted to protect.
 
 In ASP.NET Core you would register each implementation in the dependency injection container, and `Checkout` would receive the whole set. Adding a `SameDay` class and one registration line leaves `Checkout` untouched.
 
 ---
 
-## 6. The price, and when to skip it
+## 5. The price, and when to skip it
 
 OCP is not free. The abstraction is one more thing to read, and it must guess **the axis of change**.
 
@@ -193,7 +293,7 @@ Another warning: if a new requirement cuts **across** all your variants (every p
 
 ---
 
-## 7. Practice theory: three drills
+## 6. Practice theory: three drills
 
 ### Drill 1: spot the violation
 
@@ -259,7 +359,7 @@ The caller asks the registry for an exporter by name. The Excel work adds one cl
 
 ---
 
-## 8. Interview corner
+## 7. Interview corner
 
 **"Explain the Open/Closed Principle."**
 Software should be open for extension and closed for modification. I put the varying behaviour behind an interface, so a new case is a new class, and the stable code that uses the interface stays unchanged.
@@ -275,7 +375,7 @@ SRP separates the reasons to change into classes. OCP makes it cheap to add a ne
 
 ---
 
-## 9. Cheat sheet
+## 8. Cheat sheet
 
 | Idea | Remember |
 | :--- | :--- |

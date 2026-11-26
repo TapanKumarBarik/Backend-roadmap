@@ -30,6 +30,57 @@ A senior candidate answers with **structural capability and evolution**:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+
+Your notification service starts with an abstract class `NotificationSender` holding `smtpHost`, `retryCount`, and `send()`. Two quarters later, you need a `SlackWebhookNotifier` (no SMTP host, just an HTTP URL) and a `MockNotifier` for unit tests. Because `SlackWebhookNotifier` is forced to inherit `NotificationSender`, it carries dead `smtpHost` fields and overrides half the base methods with no-ops—or worse, you want `AuditLogger` to also be `HealthCheckable`, which single-inheritance forbids.
+
+### Real-World Analogy
+
+Think of **a Swiss Army Knife vs. a USB-C Port**:
+- **Abstract Class ("is-a"):** A **Passenger Vehicle** chassis—every car/truck shares an engine bay, VIN, and ignition sequence (`template method`) built into its physical frame. You can only be built on one chassis.
+- **Interface ("can-do"):** A **USB-C Port**—a laptop, a desk lamp, a microphone, and a power bank share zero chassis ancestry, yet all support the `IChargeable` capability contract.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Forced Inheritance Hierarchy"]
+        B1["Abstract NotificationSender holds SMTP state"]
+        B2["SlackWebhook forced to inherit unused SMTP fields"]
+        B3["Cannot add IHealthCheckable to unrelated types"]
+        B1 --> B2 --> B3
+    end
+
+    subgraph After["After: Capability Interfaces + Shared Base"]
+        A1["INotifier & IHealthCheckable interfaces (can-do)"]
+        A2["Abstract Channel holds shared retry state (is-a)"]
+        A3["EmailChannel extends Channel; SlackWebhook implements INotifier"]
+        A1 --> A3
+        A2 --> A3
+    end
+
+    Before -.->|"Separate Identity from Capability"| After
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | Real-World Usage |
+| :--- | :--- |
+| **.NET** | Interfaces: `IEnumerable<T>`, `IDisposable`, `ILogger`. Abstract classes: `Stream`, `DbConnection`, `BackgroundService`. |
+| **Python** | `typing.Protocol` for structural interfaces (`SupportsRead`); `abc.ABC` for template bases (`collections.abc.Sequence`). |
+| **Go** | Pure interfaces (`io.Reader`, `io.Writer`, `error`) everywhere; struct embedding for shared mechanics (no abstract classes). |
+| **TypeScript** | `interface` for zero-runtime-cost contracts and DI tokens; `abstract class` for shared base controllers/repositories. |
+| **LLD Interviews** | Notification Service, Plugin/Middleware Pipeline, Document Exporter (`IExportable`), Smart Home Devices (`ISwitchable`, `IDimmable`). |
+
+**Progressive Buildup:**
+1. **Simple:** Start with an interface (`INotifier`) so callers depend on a pure capability contract with zero state coupling.
+2. **Shared Mechanics:** Introduce an abstract class (`Channel`) only when 2+ closely related implementations share protected state, constructor invariants, or a template workflow.
+3. **Production:** Compose small capability interfaces (`INotifier`, `IHealthCheckable`, `IDisposable`) across independent classes while keeping base inheritance trees shallow (1-2 levels max).
+
+---
+
 ## 2. Taxonomic Comparison: Decision Matrix
 
 | Dimension | Interface (`interface` / `Protocol`) | Abstract Class (`abstract class` / `ABC`) |

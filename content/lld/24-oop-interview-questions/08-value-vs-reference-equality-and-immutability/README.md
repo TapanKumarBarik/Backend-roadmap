@@ -36,6 +36,52 @@ These answers overlook the underlying mechanics:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+
+An engineer models `Money(Amount, Currency)` as a mutable `class` and overrides `Equals()` without overriding `GetHashCode()`. They insert `new Money(100, "USD")` into a `HashSet<Money>`. Later, looking up an identical `new Money(100, "USD")` returns `false` because the default hash code uses memory address identity, routing the lookup to the wrong bucket. Worse, another function mutates `price.Amount = 200` *after* inserting it into a dictionary—now the key sits in the bucket for `100` while its value says `200`, making it permanently unreachable (a silent memory leak and data corruption).
+
+### Real-World Analogy
+
+Think of a **Library Book with an Erasable Cover vs. a Sealed Dollar Bill**:
+- **A mutable hash key** is like filing a book under `"M"` for `"Money: $100"` and then erasing the title on the cover to `"$200"` without moving the book. A librarian searching for `"$200"` checks the `"2"` shelf and swears the book does not exist, while the book sits orphaned on the `"M"` shelf forever.
+- **An immutable Value Object** is like a sealed `$100` bill. You never erase `100` and write `200` on the same paper; you exchange it for a new bill, and any two `$100` bills are equal by value regardless of serial number.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Mutable Key and Broken Hash"]
+        BInsert["Insert Money(100) into Bucket 2"] --> BMutate["Mutate price.Amount = 200 in-place"]
+        BMutate --> BLookup["Lookup Money(200) checks Bucket 3"]
+        BLookup --> BFail["Not Found: Orphaned Entry in Bucket 2"]
+    end
+
+    subgraph After["After: Immutable Value Object"]
+        AObj["Money(100, USD) (Frozen / Record)"] --> AHash["Consistent Value Hash -> Bucket 2"]
+        AObj -->|"Non-destructive update (with / replace)"| ANew["New Money(200, USD) -> Bucket 3"]
+        AHash --> AFound["Lookup Always Succeeds"]
+    end
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | Real-World Usage |
+| :--- | :--- |
+| **.NET** | `record class`, `readonly record struct`, `HashCode.Combine()`, `with` non-destructive mutation |
+| **Python** | `@dataclass(frozen=True)`, `NamedTuple`, `dataclasses.replace()`, `None` sentinel for default args |
+| **Go** | Comparable value structs as `map` keys, value vs pointer receivers |
+| **TypeScript** | `Readonly<T>`, value-object `equals()` methods, immutable state updates in Redux/Zustand |
+| **LLD Interviews** | Splitwise `Money` / `Currency`, Chess `Position(row, col)`, RateLimiter `WindowKey`, Cache keys |
+
+**3-Step Progressive Buildup:**
+1. **Step 1 (Simple):** Separate reference identity (`is` / `ReferenceEquals`) from structural value equality (`==` / `Equals`).
+2. **Step 2 (Growing):** Enforce the hash contract ($a == b \implies \text{hash}(a) == \text{hash}(b)$) and keep all hash-contributing fields immutable.
+3. **Step 3 (Production):** Use language-native immutable value types (`record`, `readonly record struct`, `@dataclass(frozen=True)`) with non-destructive copies (`with` / `replace`) for thread-safe sharing and reliable hash collections.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### Memory Layout: Stack vs. Managed Heap in C#

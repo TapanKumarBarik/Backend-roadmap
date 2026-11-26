@@ -35,6 +35,65 @@ A senior engineer explains with **coupling dynamics, dispatch algorithms, and te
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+
+Imagine you start with a clean `Notifier` base class and two subclasses: `EmailNotifier` and `SmsNotifier`. Next quarter, Product asks for retryable notifications, encrypted payloads, and audit logging. Using inheritance, you end up with `EncryptedRetryableEmailNotifier`, `AuditedSmsNotifier`, and six more permutations—a **combinatorial class explosion**. Worse, when a teammate optimizes `Notifier.SendBatch()` to call `Send()` internally, every subclass that overrides both `Send()` and `SendBatch()` suddenly double-counts metrics and double-sends messages (the **Fragile Base Class** problem). And if you try multiple inheritance (`class HybridNotifier(EmailNotifier, SmsNotifier)`), both parents inherit from `Notifier` and override `Format()`, triggering **diamond ambiguity**.
+
+### Real-World Analogy
+
+Think of a **welded Swiss Army Knife vs. a Modular Camera Rig**:
+- **Inheritance** is like welding a flashlight, tripod, and microphone onto a camera body at the factory. You can never swap the microphone without rebuilding the entire camera, and if two welded attachments share the same internal power rail, they short-circuit.
+- **Composition** is like a modular camera rig with standard cold-shoe mounts (interfaces). You can snap in any lens, microphone, or light at runtime, test each component independently, and upgrade one piece without touching the others.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Fragile Hierarchy and Diamond"]
+        BBase["Notifier (Base)"]
+        BEmail["EmailNotifier"]
+        BSms["SmsNotifier"]
+        BHybrid["HybridNotifier (Ambiguous Format)"]
+        BExplode["EncryptedRetryEmailNotifier (Class Explosion)"]
+
+        BBase --> BEmail
+        BBase --> BSms
+        BEmail --> BHybrid
+        BSms --> BHybrid
+        BEmail --> BExplode
+    end
+
+    subgraph After["After: Composition and Interfaces"]
+        ANotifier["NotifierService"]
+        ITransport["ITransport (Interface)"]
+        IRetry["IRetryPolicy (Interface)"]
+        IEncrypt["IEncryptor (Interface)"]
+
+        ANotifier -->|"has-a"| ITransport
+        ANotifier -->|"has-a"| IRetry
+        ANotifier -->|"has-a"| IEncrypt
+    end
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | Real-World Usage |
+| :--- | :--- |
+| **.NET** | `Stream` decorators (`BufferedStream`, `GZipStream`), ASP.NET Core `DelegatingHandler` pipelines, interface-based DI |
+| **Python** | `io.BufferedReader` wrapping raw streams, Django Class-Based View mixins resolved via C3 MRO |
+| **Go** | `io.Reader` / `io.Writer` composition and struct embedding (zero class inheritance by design) |
+| **TypeScript** | NestJS / Angular constructor-injected services, React component composition over inheritance |
+| **LLD Interviews** | Notification Service, Coffee/Pizza Decorator, Logging/Caching pipelines, Strategy-based Pricing Engines |
+
+**3-Step Progressive Buildup:**
+1. **Step 1 (Simple):** Single-level inheritance (`Dog is-a Animal`) works cleanly when the subtype strictly honours the base contract and the hierarchy is shallow.
+2. **Step 2 (Growing):** Orthogonal features (retry, encryption, logging) cause subclass explosion -> extract `IRetryPolicy`, `IEncryptor`, and `ITransport` and compose them into `NotifierService`.
+3. **Step 3 (Production):** Wire collaborators via Dependency Injection so policies swap per-tenant at runtime, or use stateless mixins with C3 MRO only when a framework requires class-level traits.
+
+---
+
 ## 2. Visual Mental Model & Taxonomic Comparison
 
 ### The Diamond Problem Architecture & C3 Resolution

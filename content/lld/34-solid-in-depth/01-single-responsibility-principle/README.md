@@ -21,12 +21,52 @@
 | :--- | :--- | :--- |
 | 1 | See a class that does too much | 2 |
 | 2 | State the principle precisely | 3 |
-| 3 | Split it, in Python and in C# | 4, 5 |
-| 4 | Learn when to stop splitting | 6 |
-| 5 | Practise on three drills with answers | 7 |
-| 6 | Say it in an interview | 8 |
+| 3 | Split it, in Python, C#, Go, and TypeScript | 4 |
+| 4 | Learn when to stop splitting | 5 |
+| 5 | Practise on three drills with answers | 6 |
+| 6 | Say it in an interview | 7 |
 
 After this lesson you can find the responsibilities in a class by naming its **actors**, split it without creating a pile of one-method classes, and explain why a split made the code easier to change and to test.
+
+---
+
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+In naive codebases, a single `Invoice` or `UserManager` class accumulates every operation that touches an invoice: tax calculation, SQL persistence, and receipt formatting. Three different teams (Finance, Platform, Design) end up editing the same file. A rounding-rule tweak by Finance triggers merge conflicts with Design's layout PR, and unit-testing `total()` forces developers to spin up or mock a database connection.
+
+### Real-World Analogy
+
+Imagine a restaurant where one person is simultaneously the **Head Chef**, the **Bookkeeper**, and the **Sign Painter**. Changing the tax rate forces the kitchen to stop cooking; repainting the menu board risks corrupting the ledger. Splitting those roles means the Chef only cares about recipes, the Bookkeeper only cares about ledgers, and the Sign Painter only cares about presentation.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+  subgraph Before["Before: 1 Class, 3 Actors"]
+    F1["Finance Team"] --> INV["Invoice (total, save, render)"]
+    P1["Platform Team"] --> INV
+    D1["Design Team"] --> INV
+  end
+  subgraph After["After: 1 Class per Actor"]
+    F2["Finance Team"] --> I2["Invoice (lines, total)"]
+    P2["Platform Team"] --> R2["InvoiceRepository (save)"]
+    D2["Design Team"] --> PR2["InvoicePrinter (render)"]
+    R2 --> I2
+    PR2 --> I2
+  end
+```
+
+### Where It Is Used (Production & LLD Interviews)
+
+| Ecosystem / Context | Concrete Application of SRP |
+| :--- | :--- |
+| **.NET (ASP.NET Core)** | Thin Controllers (HTTP translation), Services/Handlers (domain rules), Repositories/EF Core `DbContext` (persistence) |
+| **Python (FastAPI / Django)** | Pydantic schemas (validation), domain services (business rules), SQLAlchemy repositories (storage) |
+| **Go** | Small structs per concern (`OrderCalculator`, `OrderStore`, `ReceiptFormatter`) composed in `main` |
+| **TypeScript (NestJS / Express)** | Route handlers, domain services, and TypeORM/Prisma repositories separated into distinct modules |
+| **LLD Interviews** | **Splitwise** (splitting `ExpenseCalculator`, `BalanceSheetRepository`, `StatementFormatter`); **Parking Lot** (separating `ParkingSpotAllocator`, `TicketPricingService`, `GateDisplay`) |
 
 ---
 
@@ -101,10 +141,11 @@ A class that sits where all three arrows land is a class with three bosses.
 
 ---
 
-## 4. The fix in Python
+## 4. The fix in Python, C#, Go, and TypeScript
 
-Split by actor. The data stays in a small class, and each concern gets its own collaborator:
+Split by actor. The data stays in a small class, and each concern gets its own collaborator. The shape is identical across all four languages: a small type for the data and the money rule, and one collaborator per other concern.
 
+````carousel
 ```python
 class Invoice:
     """Data and the money rule. Finance owns it."""
@@ -137,29 +178,7 @@ InvoiceRepository(db).save(inv)
 print(InvoicePrinter().render(inv))
 print(len(db))
 ```
-
-The output is the same as before:
-
-```text
-pen x2 @ 1.50
-book x1 @ 12.00
-TOTAL 15.00
-1
-```
-
-What changed:
-
-| Before | After |
-| :--- | :--- |
-| One class, three reasons to change | Three classes, one reason each |
-| Testing `total()` needs a database object in scope | `Invoice` is tested with a list, nothing else |
-| Layout change edits the money class | Layout change edits only `InvoicePrinter` |
-| Storage change risks the printer | Storage change touches only `InvoiceRepository` |
-
----
-
-## 5. The same fix in C#
-
+<!-- slide -->
 ```csharp
 public record InvoiceLine(string Name, int Qty, decimal UnitPrice);
 
@@ -191,12 +210,114 @@ public class InvoicePrinter
     }
 }
 ```
+<!-- slide -->
+```go
+package main
 
-The shape is identical in both languages: a small class for the data and the rule, and one collaborator per other concern.
+import (
+	"fmt"
+	"strings"
+)
+
+type InvoiceLine struct {
+	Name      string
+	Qty       int
+	UnitPrice float64
+}
+
+// Invoice holds data and the money rule. Finance owns it.
+type Invoice struct {
+	Lines []InvoiceLine
+}
+
+func (inv Invoice) Total() float64 {
+	total := 0.0
+	for _, l := range inv.Lines {
+		total += float64(l.Qty) * l.UnitPrice
+	}
+	return total
+}
+
+// InvoiceRepository handles storage. The platform team owns it.
+type InvoiceRepository struct {
+	db *[]Invoice
+}
+
+func (r *InvoiceRepository) Save(inv Invoice) {
+	*r.db = append(*r.db, inv)
+}
+
+// InvoicePrinter handles layout. The design team owns it.
+type InvoicePrinter struct{}
+
+func (p InvoicePrinter) Render(inv Invoice) string {
+	rows := make([]string, 0, len(inv.Lines)+1)
+	for _, l := range inv.Lines {
+		rows = append(rows, fmt.Sprintf("%s x%d @ %.2f", l.Name, l.Qty, l.UnitPrice))
+	}
+	rows = append(rows, fmt.Sprintf("TOTAL %.2f", inv.Total()))
+	return strings.Join(rows, "\n")
+}
+```
+<!-- slide -->
+```typescript
+export interface InvoiceLine {
+  name: string;
+  qty: number;
+  unitPrice: number;
+}
+
+// Finance owns this rule.
+export class Invoice {
+  constructor(public readonly lines: readonly InvoiceLine[]) {}
+
+  total(): number {
+    return this.lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
+  }
+}
+
+// The platform team owns storage.
+export class InvoiceRepository {
+  constructor(private readonly db: Array<{ lines: readonly InvoiceLine[]; total: number }>) {}
+
+  save(invoice: Invoice): void {
+    this.db.push({ lines: invoice.lines, total: invoice.total() });
+  }
+}
+
+// The design team owns layout.
+export class InvoicePrinter {
+  render(invoice: Invoice): string {
+    const rows = invoice.lines.map(
+      (l) => `${l.name} x${l.qty} @ ${l.unitPrice.toFixed(2)}`
+    );
+    return [...rows, `TOTAL ${invoice.total().toFixed(2)}`].join("\n");
+  }
+}
+```
+````
+
+The output is the same as before:
+
+```text
+pen x2 @ 1.50
+book x1 @ 12.00
+TOTAL 15.00
+1
+```
+
+What changed:
+
+| Before | After |
+| :--- | :--- |
+| One class, three reasons to change | Three classes, one reason each |
+| Testing `total()` needs a database object in scope | `Invoice` is tested with a list, nothing else |
+| Layout change edits the money class | Layout change edits only `InvoicePrinter` |
+| Storage change risks the printer | Storage change touches only `InvoiceRepository` |
 
 ---
 
-## 6. When to stop splitting
+## 5. When to stop splitting
 
 Over-applying SRP is as costly as ignoring it. A change that touches ten tiny classes is called **shotgun surgery**, and it is the cost of splitting by method count.
 
@@ -211,7 +332,7 @@ A useful test: describe the class in one sentence without the word **and**. "It 
 
 ---
 
-## 7. Practice theory: three drills
+## 6. Practice theory: three drills
 
 Try each drill on paper before you open the answer.
 
@@ -284,7 +405,7 @@ Actors: analysts (the numbers in `monthly_totals`), the people who consume sprea
 
 ---
 
-## 8. Interview corner
+## 7. Interview corner
 
 **"What is the Single Responsibility Principle?"**
 A class should have one reason to change, meaning one actor who can ask for a change. I find the responsibilities by listing who would edit the class: finance, operations, design. If it is more than one group, I split along those lines.
@@ -300,7 +421,7 @@ A controller method that parses the request, applies business rules, runs SQL an
 
 ---
 
-## 9. Cheat sheet
+## 8. Cheat sheet
 
 | Idea | Remember |
 | :--- | :--- |

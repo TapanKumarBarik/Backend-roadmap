@@ -24,6 +24,51 @@ This revision sheet serves as your **ultimate night-before reference guide**. It
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+During a 30-minute rapid-fire screening, a strong engineer fails not because they never used polymorphism, but because they **memorized textbook definitions without trade-offs or runtime mechanics**. When asked *"What is the difference between an abstract class and an interface?"* or *"Why does `==` behave differently on strings vs. custom classes?"*, reciting *"an interface has no implementation"* collapses under the very next follow-up (*"What about default interface methods in C# 8+ or `typing.Protocol` in Python?"*). Without a structured mental map linking **definition -> runtime mechanism -> language trade-off**, answers turn into 3-minute rambles that burn interview time and signal shallow understanding.
+
+### Real-World Analogy
+Think of a **medical ER triage card vs. a 900-page anatomy textbook**. In an emergency, a surgeon does not flip through chapter 14 to recall how a scalpel works—they rely on a **color-coded, pocket-sized triage protocol** indexed by symptom, root cause, and immediate action. Rapid-fire OOP interviews are triage rounds: you need each concept indexed by **1-sentence definition -> underlying mechanism (`vtable`, MRO, heap vs. stack) -> idiomatic code contrast**.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Unindexed Textbook Recall"]
+        Q1["Interviewer Question"]
+        R1["3-Minute Ramble\n(No Structure)"]
+        F1["Follow-Up Trap\n(Trade-offs Missed)"]
+        Q1 --> R1 --> F1
+    end
+
+    subgraph After["After: 3-Beat Triage Answer Pattern"]
+        Q2["Interviewer Question"]
+        B1["Beat 1: Crisp Definition\n(1 Sentence)"]
+        B2["Beat 2: Mechanism & Trade-off\n(vtable, MRO, Stack vs Heap)"]
+        B3["Beat 3: Idiomatic Example\n(C# vs Python Contrast)"]
+        Q2 --> B1 --> B2 --> B3
+    end
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | What Rapid-Fire Interviews Probe Under the Hood |
+| :--- | :--- |
+| **.NET (`CLR / C#`)** | `struct` vs `class` allocation, `virtual`/`override` `vtable` dispatch, `record` value equality, and `IDisposable` deterministic cleanup. |
+| **Python (`CPython`)** | C3 Linearization MRO (`super()`), `typing.Protocol` duck typing, `__eq__` vs `is` identity, and `__slots__` memory optimization. |
+| **Go (`Interfaces / Structs`)** | Structural interface satisfaction (implicit `itable`), pointer vs. value receivers, and embedding vs. inheritance. |
+| **TypeScript (`Structural Typing`)** | Compile-time structural compatibility, `readonly` immutability, discriminated unions vs. class polymorphism, and `private` vs `#field`. |
+| **LLD Interview Problems** | Explaining *why* you chose composition, value objects (`Money`), or `Protocol`/interfaces during Parking Lot, Cache, or Rate Limiter rounds. |
+
+**3-Step Progressive Buildup:**
+1. **Anchor the Core Definition:** Lead with a single, exact sentence naming the concept and its primary purpose.
+2. **Name the Runtime Mechanism:** State *how* the runtime executes it (`vtable`, MRO lookup, stack copy vs. heap reference, or GC/refcount).
+3. **Deliver the Language Contrast:** Give one concrete C# or Python keyword/idiom and state when you would avoid the pattern.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### The 7 Core Domains of OOP Mastery

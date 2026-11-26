@@ -21,10 +21,46 @@
 | :--- | :--- | :--- |
 | 1 | See a service welded to its database | 2 |
 | 2 | Separate inversion, injection and IoC | 3 |
-| 3 | Invert it, in Python and C# | 4, 5 |
-| 4 | Test it with a fake, and wire it at the root | 6 |
-| 5 | Drills | 7 |
-| 6 | Interview answers | 8 |
+| 3 | Invert it, in Python, C#, Go, and TypeScript | 4 |
+| 4 | Test it with a fake, and wire it at the root | 5 |
+| 5 | Drills | 6 |
+| 6 | Interview answers | 7 |
+
+---
+
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+In naive code, `OrderService` instantiates `SqlOrderStore()` (or `new MySqlRepo()`) directly inside its constructor. The high-level business rule (`total > 0`) is welded to a concrete database driver: you cannot unit-test `place()` without spinning up SQL, dependencies are hidden from callers, and switching storage engines forces edits inside core domain logic.
+
+### Real-World Analogy
+
+Imagine **soldering a desk lamp's wires directly into your house's electrical junction box** instead of using a **wall plug**. You cannot test the lamp on a portable battery, move it to another outlet, or swap the power grid without an electrician. When both the lamp and the house wiring depend on a standard socket contract, either side can be swapped independently.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+  subgraph Before["Before: Policy Depends on Detail"]
+    OS1["OrderService (Business Policy)"] -->|instantiates directly| DB1["SqlOrderStore (Low-Level Detail)"]
+  end
+  subgraph After["After: Inverted Dependency"]
+    OS2["OrderService (Business Policy)"] --> IF["OrderStore (Interface Owned by Policy)"]
+    DB2["SqlOrderStore"] -.implements.-> IF
+    FK["FakeOrderStore (Tests)"] -.implements.-> IF
+  end
+```
+
+### Where It Is Used (Production & LLD Interviews)
+
+| Ecosystem / Context | Concrete Application of DIP |
+| :--- | :--- |
+| **.NET (ASP.NET Core)** | `IServiceCollection` DI container wiring `IOrderStore` -> `SqlOrderStore` in `Program.cs` (Composition Root) |
+| **Python (FastAPI)** | `Depends(...)` injection, `Protocol` / `ABC` ports in domain packages with SQLAlchemy/HTTP adapters at the edge |
+| **Go** | Consumer-defined interfaces (small interfaces in the caller's package) wired in `cmd/server/main.go` |
+| **TypeScript (NestJS / Inversify)** | Constructor injection with `@Inject(TOKEN)` symbols bound to concrete repositories in module configuration |
+| **LLD Interviews** | **Order / Checkout Service** (`OrderStore`, `PaymentGateway`), **Rate Limiter** (`Clock`, `CounterStore`), **Uber / Ride-Sharing** (`DriverMatcher`, `LocationStore`) |
 
 ---
 
@@ -96,8 +132,9 @@ After inversion, the SQL class depends on the interface that the business layer 
 
 ---
 
-## 4. The fix in Python
+## 4. The fix in Python, C#, Go, and TypeScript
 
+````carousel
 ```python
 from abc import ABC, abstractmethod
 
@@ -149,22 +186,7 @@ except ValueError as e:
     print("rejected:", e)
 print(len(fake.saved))
 ```
-
-Output:
-
-```text
-saved to SQL
-[('o2', 10.0)]
-rejected: total must be positive
-1
-```
-
-The last line shows the rule's guard works and a rejected order was **not** saved, checked with no database.
-
----
-
-## 5. The same idea in C#
-
+<!-- slide -->
 ```csharp
 public interface IOrderStore                       // owned by the business layer
 {
@@ -188,6 +210,76 @@ public class SqlOrderStore : IOrderStore
     public string Save(string orderId, decimal total) => "saved to SQL";
 }
 ```
+<!-- slide -->
+```go
+package main
+
+import "errors"
+
+// OrderStore is owned by the business layer.
+type OrderStore interface {
+	Save(orderID string, total float64) string
+}
+
+type OrderService struct {
+	store OrderStore
+}
+
+func NewOrderService(store OrderStore) *OrderService {
+	return &OrderService{store: store}
+}
+
+func (s *OrderService) Place(orderID string, total float64) (string, error) {
+	if total <= 0 {
+		return "", errors.New("total must be positive")
+	}
+	return s.store.Save(orderID, total), nil
+}
+
+// SqlOrderStore is a low-level detail wired in main().
+type SqlOrderStore struct{}
+
+func (SqlOrderStore) Save(orderID string, total float64) string {
+	return "saved to SQL"
+}
+```
+<!-- slide -->
+```typescript
+// Owned by the business layer.
+export interface OrderStore {
+  save(orderId: string, total: number): string;
+}
+
+export class OrderService {
+  constructor(private readonly store: OrderStore) {}
+
+  place(orderId: string, total: number): string {
+    if (total <= 0) {
+      throw new Error("total must be positive");
+    }
+    return this.store.save(orderId, total);
+  }
+}
+
+// Low-level detail, wired at the composition root.
+export class SqlOrderStore implements OrderStore {
+  save(_orderId: string, _total: number): string {
+    return "saved to SQL";
+  }
+}
+```
+````
+
+Output:
+
+```text
+saved to SQL
+[('o2', 10.0)]
+rejected: total must be positive
+1
+```
+
+The last line shows the rule's guard works and a rejected order was **not** saved, checked with no database.
 
 In ASP.NET Core the container does the wiring:
 
@@ -200,7 +292,7 @@ The one place that lists the concrete classes is the **composition root**. Every
 
 ---
 
-## 6. Time, randomness and the network are dependencies too
+## 5. Time, randomness and the network are dependencies too
 
 The same rule applies to anything that makes a test slow or non-repeatable:
 
@@ -247,7 +339,7 @@ Without the injected `Clock`, the test would call `datetime.now()` and either wa
 
 ---
 
-## 7. Practice theory: three drills
+## 6. Practice theory: three drills
 
 ### Drill 1: find the hidden dependency
 
@@ -299,7 +391,7 @@ No. It is a stable, pure function with no I/O and no variation. An interface wou
 
 ---
 
-## 8. Interview corner
+## 7. Interview corner
 
 **"What is the Dependency Inversion Principle?"**
 High-level modules should not depend on low-level modules; both should depend on abstractions. The business code owns an interface, and the database or HTTP code implements it. The dependency arrow in the source points toward the policy.
@@ -315,7 +407,7 @@ The unit test passes a fake that implements the same interface, so the rule runs
 
 ---
 
-## 9. Cheat sheet
+## 8. Cheat sheet
 
 | Idea | Remember |
 | :--- | :--- |

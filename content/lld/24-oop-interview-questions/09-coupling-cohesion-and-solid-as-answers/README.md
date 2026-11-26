@@ -96,6 +96,63 @@ Interviewers often ask how SOLID relates to pragmatic software engineering heuri
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+Imagine an e-commerce team shipping a `CheckoutManager` class in a hurry. It validates inventory, computes regional taxes, calls Stripe's SDK directly, writes a row via raw SQL, and formats an HTML receipt email—all inside one 600-line `ProcessOrder()` method. Two sprints later, Finance changes tax rounding, Marketing redesigns the receipt footer, and Infra migrates from Stripe to Adyen. Every team edits the exact same file, merge conflicts erupt daily, and a typo in the email template crashes credit-card charging. That is the **high-coupling, low-cohesion ball of mud**: unrelated reasons to change are welded together, and business logic is hardcoded to concrete I/O details.
+
+### Real-World Analogy
+Think of a **modern modular kitchen vs. a 1950s hardwired appliance wall**. If your oven, refrigerator, and dishwasher are soldered directly into the main breaker panel with no plugs, replacing a broken toaster requires an electrician to cut drywall and shut off power to the fridge. With **standardized wall outlets (interfaces)** and **dedicated appliances (high cohesion)**, each appliance does one job well and plugs into a stable socket—you can swap a toaster for an espresso machine in seconds without rewiring the house.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Tangled Ball of Mud (High Coupling, Low Cohesion)"]
+        CM["CheckoutManager\n(Tax + SQL + Stripe + Email)"]
+        DB1["MySQL Driver"]
+        ST1["Stripe SDK"]
+        SM1["SMTP Server"]
+        CM --> DB1
+        CM --> ST1
+        CM --> SM1
+    end
+
+    subgraph After["After: SOLID Boundaries (High Cohesion, Low Coupling)"]
+        CO["OrderCheckoutService\n(Pure Orchestration)"]
+        IPay["IPaymentGateway"]
+        IRepo["IOrderRepository"]
+        INotify["IReceiptNotifier"]
+        Adyen["AdyenGateway"]
+        Postgres["PostgresOrderRepo"]
+        Email["SesReceiptNotifier"]
+
+        CO --> IPay
+        CO --> IRepo
+        CO --> INotify
+        Adyen -.->|"implements"| IPay
+        Postgres -.->|"implements"| IRepo
+        Email -.->|"implements"| INotify
+    end
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | Concrete Application of Coupling, Cohesion & SOLID |
+| :--- | :--- |
+| **.NET (`ASP.NET Core`)** | Built-in `IServiceCollection` IoC container wires `IOrderRepository` and `IPaymentGateway` via constructor injection (DIP + ISP). |
+| **Python (`FastAPI` / `Protocols`)** | `Depends(...)` injects narrow `typing.Protocol` contracts into route handlers so domain services stay testable without a live DB. |
+| **Go (`io.Reader` / `http.Handler`)** | Single-method interfaces (`io.Reader`, `io.Writer`) exemplify ISP and DIP—callers depend on behavior, not concrete structs. |
+| **TypeScript (`NestJS` / `Angular`)** | Token-based DI providers and module boundaries isolate domain services from TypeORM/Prisma adapters and HTTP controllers. |
+| **LLD Interview Problems** | Payment Gateway (Strategy + OCP), Notification Service (ISP + DIP), Parking Lot / Elevator (SRP per controller, scheduler, hardware). |
+
+**3-Step Progressive Buildup:**
+1. **Isolate Reasons to Change (SRP):** Split the God class so tax rules, persistence, and notifications live in separate, cohesive modules.
+2. **Invert Dependencies (ISP + DIP):** Define minimal role interfaces in the domain layer and inject concrete adapters from the outside.
+3. **Extend Without Editing (OCP + LSP):** Add new payment providers or tax strategies as new classes that honor base invariants—never edit core orchestration `switch` blocks.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### The SOLID Principles at a Glance

@@ -40,6 +40,56 @@ A senior engineer explains with **memory structures, dispatch latency, and inter
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+
+In a billing engine, a developer adds a `DiscountedInvoice` subclass and accidentally uses C#'s `new` keyword (`public new decimal CalculateTotal()`) instead of `override`, or writes a `switch (invoice.Type)` block in the caller. When `BillingRunner` iterates over `List<Invoice>` and calls `invoice.CalculateTotal()`, the base `Invoice.CalculateTotal()` runs silently instead of `DiscountedInvoice`'s logic—overcharging enterprise customers by thousands of dollars with zero compiler warnings.
+
+### Real-World Analogy
+
+Think of **a universal remote's "Play" button vs. a restaurant combo menu**:
+- **Overriding (Runtime Polymorphism):** Pressing **Play** on a universal remote sends the same `Play()` signal, but at runtime a **Blu-ray player** spins a disc while a **Spotify speaker** streams audio—resolved by the actual device receiving the signal.
+- **Overloading (Compile-Time Polymorphism):** Ordering **"Coffee()"** vs. **"Coffee(size, oatMilk)"**—the barista knows at order time (compile time) which exact recipe to run based on the arguments you passed.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Method Hiding & Type Switching"]
+        B1["Caller holds Base reference: Invoice inv = new DiscountedInvoice()"]
+        B2["Subclass uses 'new' hiding -> Base vtable slot unchanged"]
+        B3["inv.CalculateTotal() silently runs Base logic (wrong bill)"]
+        B1 --> B2 --> B3
+    end
+
+    subgraph After["After: True Virtual Dispatch (override)"]
+        A1["Base declares virtual CalculateTotal()"]
+        A2["Subclass uses override -> Replaces vtable slot"]
+        A3["inv.CalculateTotal() dispatches to DiscountedInvoice at runtime"]
+        A1 --> A2 --> A3
+    end
+
+    Before -.->|"Replace Hiding with Override"| After
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | Real-World Usage |
+| :--- | :--- |
+| **.NET** | `virtual`/`override` in `DbContext.SaveChanges()`, `Object.ToString()`, `HttpMessageHandler.SendAsync`; method overloading in `Console.WriteLine`. |
+| **Python** | Dynamic method overriding via MRO (`super()`), operator overloading (`__add__`, `__eq__`), `@functools.singledispatch` for type-based dispatch. |
+| **Go** | No method overloading (explicit names like `ParseInt` vs `ParseFloat`); runtime polymorphism via interface `itable` dispatch. |
+| **TypeScript** | Method overloading via type-level signature overloads + single implementation; runtime overriding via `override` keyword (TS 4.3+ `noImplicitOverride`). |
+| **LLD Interviews** | Pricing/Discount Engine, Logger Sinks, File Parsers, Shape/Canvas Renderer, Middleware Chain. |
+
+**Progressive Buildup:**
+1. **Simple:** Use **overloading** (or default args) for ergonomic caller APIs that accept different input shapes for the same operation.
+2. **Extensible:** Use **overriding** (`virtual`/`override` or interface dispatch) so callers operate on a base/interface type without `switch` statements.
+3. **Production:** Enable compiler guardrails (`noImplicitOverride` in TS, `override` checks in C#, `Protocol` + `mypy` in Python) so accidental method hiding is caught at build time, never in billing production.
+
+---
+
 ## 2. Visual Mental Model & Taxonomic Comparison
 
 ### The Virtual Method Table (vtable) Architecture

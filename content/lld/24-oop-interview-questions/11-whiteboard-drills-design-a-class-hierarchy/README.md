@@ -53,6 +53,58 @@ Instead of making `HourlyEmployee` a subclass of `Employee`, the senior engineer
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Breaks)
+Imagine an interview candidate asked to design an Employee Payroll hierarchy. Without pausing to discover entities and variation points, they immediately draw `Employee -> SalariedEmployee -> SalariedManager` and `Employee -> HourlyEmployee -> HourlyContractor`. Ten minutes later, the interviewer asks: *"What if a salaried manager also earns commission, or a contractor switches to salaried next quarter?"* Suddenly, the candidate is trapped in an **inheritance avalanche**—creating `SalariedManagerWithCommission`, duplicating tax logic, or mutating an object's class at runtime. Jumping straight into inheritance before separating **stable identity (nouns)** from **varying behavior (verbs/strategies)** turns a clean 20-minute drill into an unmaintainable class explosion.
+
+### Real-World Analogy
+Think of **Lego minifigures vs. porcelain statues**. A porcelain statue of a "Firefighter with Axe" is molded as one solid piece—if you need a "Firefighter with Hose" or a "Doctor with Axe," you must smash the mold and sculpt a brand-new statue. A Lego minifigure separates the **core figure (stable identity)** from **snap-on tools and hats (pluggable interfaces/strategies)**. You can swap an axe for a stethoscope in one click without rebuilding the figure.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Inheritance Explosion (Rigid Statue)"]
+        E1["Employee"]
+        S1["SalariedEmployee"]
+        H1["HourlyEmployee"]
+        SM1["SalariedManagerWithCommission"]
+        HC1["HourlyContractorWithBonus"]
+        E1 --> S1 --> SM1
+        E1 --> H1 --> HC1
+    end
+
+    subgraph After["After: Noun + Strategy Composition (Lego Blocks)"]
+        E2["Employee\n(Stable Identity)"]
+        IP["IPayStrategy\n(Varying Behavior)"]
+        SP["SalariedPay"]
+        HP["HourlyPay"]
+        CP["CommissionPay"]
+        E2 -->|"composes"| IP
+        SP -.->|"implements"| IP
+        HP -.->|"implements"| IP
+        CP -.->|"implements"| IP
+    end
+```
+
+### Where It Is Used & Progressive Buildup
+
+| Ecosystem / Context | How Real Systems Model Hierarchies & Variation |
+| :--- | :--- |
+| **.NET (`IAuthorizationHandler` / `Middleware`)** | ASP.NET Core composes small `IAuthorizationRequirement` and middleware handlers rather than subclassing a giant `BaseController`. |
+| **Python (`logging.Handler` / `Strategies`)** | `Logger` (stable identity) composes pluggable `Handler` and `Formatter` objects instead of `FileJsonLogger` subclasses. |
+| **Go (`http.RoundTripper` / Struct Embedding)** | `http.Client` composes a `Transport` (`RoundTripper` interface) so retry, auth, and logging wrap cleanly without inheritance. |
+| **TypeScript (`Express` / `Strategy Maps`)** | Payment/notification pipelines compose typed handler interfaces (`ChannelDispatcher`) in a registry map rather than subclassing. |
+| **LLD Interview Problems** | Parking Lot (`PricingStrategy`), Notification System (`INotificationChannel`), Elevator (`SchedulingPolicy`), Chess (`MoveValidator`). |
+
+**3-Step Progressive Buildup:**
+1. **Discover Nouns & Invariants:** Clarify requirements for 90 seconds and list the core domain entities (`Employee`, `Shape`, `NotificationService`).
+2. **Isolate What Varies:** Extract every axis of change (pay formula, transport channel, pricing rule) behind a narrow interface (`IPayStrategy`).
+3. **Demo One Extension Live:** Prove Open/Closed compliance by adding one new requirement (e.g., `WebhookChannel` or `CompositePay`) without touching existing classes.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 Below is the architectural taxonomy of the three classic whiteboard drills: Shapes, Employees, and Notifications.

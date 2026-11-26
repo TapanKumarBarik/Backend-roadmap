@@ -21,10 +21,47 @@
 | :--- | :--- | :--- |
 | 1 | Watch the Rectangle/Square break a caller | 2 |
 | 2 | Learn the contract rules | 3 |
-| 3 | Fix it in Python and C# | 4, 5 |
-| 4 | Test for it with a contract test | 6 |
-| 5 | Drills | 7 |
-| 6 | Interview answers | 8 |
+| 3 | Fix it in Python, C#, Go, and TypeScript | 4 |
+| 4 | Test for it with a contract test | 5 |
+| 5 | Drills | 6 |
+| 6 | Interview answers | 7 |
+
+---
+
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+In naive OOP, developers model real-world taxonomy directly: `Square` extends mutable `Rectangle`. A caller `stretch(rect)` sets `rect.width = 5` and `rect.height = 4`, expecting `rect.area() == 20`. Because `Square` forces both sides to stay equal, setting `height = 4` silently overwrites `width` to `4` and returns `16`. No compiler error, no exception—just silent invariant corruption in production.
+
+### Real-World Analogy
+
+Think of a **charging-only USB-C cable** versus a **full-featured USB-C data/display cable**. Both have the exact same physical plug, so both fit into your laptop's USB-C port. Yet if your monitor expects a video signal and you substitute the charging-only cable, the connection silently fails. Substitutability requires keeping the **promised behaviour**, not just matching the plug shape.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+  subgraph Before["Before: Mutable Square Breaks Rectangle"]
+    CAL1["stretch(rect): w=5, h=4, expect 20"] --> R1["Rectangle (w, h independent)"]
+    SQ1["Square extends Rectangle (couples w and h)"] -.breaks invariant.-> R1
+  end
+  subgraph After["After: Shared Immutable Shape Contract"]
+    CAL2["totalArea(shapes)"] --> SH["Shape / IShape (area)"]
+    R2["Rectangle (Width, Height)"] --> SH
+    SQ2["Square (Side)"] --> SH
+  end
+```
+
+### Where It Is Used (Production & LLD Interviews)
+
+| Ecosystem / Context | Concrete Application of LSP |
+| :--- | :--- |
+| **.NET** | `IReadOnlyList<T>` vs `IList<T>` (so read-only collections never throw `NotSupportedException` on `Add`), covariant return types |
+| **Python** | `collections.abc.Sequence` vs `MutableSequence`; `Protocol` contracts verified by `mypy` and shared pytest contract suites |
+| **Go** | `io.Reader` / `io.Writer` implementations honouring exact EOF and byte-count contracts (`bytes.Buffer`, `os.File`, `net.Conn`) |
+| **TypeScript** | `ReadonlyArray<T>` vs `Array<T>`, discriminated unions instead of subclass overrides that throw `NotImplementedError` |
+| **LLD Interviews** | **Parking Lot / Vehicle** (separating `ElectricVehicle` vs `FuelVehicle` instead of `charge()` throwing on gas cars), **Chess** (`Piece.validMoves()`), **Payment Gateway** (consistent error contracts across Stripe/PayPal) |
 
 ---
 
@@ -104,12 +141,13 @@ flowchart TD
 
 ---
 
-## 4. The fix in Python
+## 4. The fix in Python, C#, Go, and TypeScript
 
 Do not make `Square` a mutable `Rectangle`. Two honest designs:
 
 **Option 1: make shapes immutable, with one shared interface.**
 
+````carousel
 ```python
 from abc import ABC, abstractmethod
 
@@ -141,6 +179,83 @@ def total_area(shapes):
 
 print(total_area([Rectangle(5, 4), Square(3)]))
 ```
+<!-- slide -->
+```csharp
+public interface IShape { double Area(); }
+
+public record Rectangle(double Width, double Height) : IShape
+{
+    public double Area() => Width * Height;
+}
+
+public record Square(double Side) : IShape
+{
+    public double Area() => Side * Side;
+}
+
+public static class Shapes
+{
+    public static double TotalArea(IEnumerable<IShape> shapes) => shapes.Sum(s => s.Area());
+}
+```
+<!-- slide -->
+```go
+package main
+
+type Shape interface {
+	Area() float64
+}
+
+type Rectangle struct {
+	Width, Height float64
+}
+
+func (r Rectangle) Area() float64 { return r.Width * r.Height }
+
+type Square struct {
+	Side float64
+}
+
+func (s Square) Area() float64 { return s.Side * s.Side }
+
+func TotalArea(shapes []Shape) float64 {
+	total := 0.0
+	for _, s := range shapes {
+		total += s.Area()
+	}
+	return total
+}
+```
+<!-- slide -->
+```typescript
+export interface Shape {
+  area(): number;
+}
+
+export class Rectangle implements Shape {
+  constructor(
+    public readonly width: number,
+    public readonly height: number
+  ) {}
+
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+export class Square implements Shape {
+  constructor(public readonly side: number) {}
+
+  area(): number {
+    return this.side * this.side;
+  }
+}
+
+export function totalArea(shapes: readonly Shape[]): number {
+  return shapes.reduce((sum, s) => sum + s.area(), 0);
+}
+```
+````
 
 Output:
 
@@ -149,6 +264,8 @@ Output:
 ```
 
 `total_area` needs only `area()`, and both types keep that promise. The broken part, independent setters, is gone because it was never a shared promise.
+
+In C#, records are immutable by default, which removes the "setting one side changes the other" trap. C# also makes the **return type** rule visible: an override can return a more specific type (covariant returns, since C# 9) but cannot narrow what it accepts.
 
 **Option 2: put optional capabilities in a narrower type.** The famous bird example:
 
@@ -188,32 +305,7 @@ flying
 
 ---
 
-## 5. The same ideas in C#
-
-```csharp
-public interface IShape { double Area(); }
-
-public record Rectangle(double Width, double Height) : IShape
-{
-    public double Area() => Width * Height;
-}
-
-public record Square(double Side) : IShape
-{
-    public double Area() => Side * Side;
-}
-
-public static class Shapes
-{
-    public static double TotalArea(IEnumerable<IShape> shapes) => shapes.Sum(s => s.Area());
-}
-```
-
-Records are immutable by default, which removes the "setting one side changes the other" trap. C# also makes the **return type** rule visible: an override can return a more specific type (covariant returns, since C# 9) but cannot narrow what it accepts.
-
----
-
-## 6. Catching it: a contract test
+## 5. Catching it: a contract test
 
 The most practical defence is to write the parent's expectations once and run them against **every** subtype:
 
@@ -246,7 +338,7 @@ Other smells to search for in a code base:
 
 ---
 
-## 7. Practice theory: three drills
+## 6. Practice theory: three drills
 
 ### Drill 1: the read-only list
 
@@ -313,7 +405,7 @@ Yes. Weakening a precondition (accepting any iterable instead of only lists) can
 
 ---
 
-## 8. Interview corner
+## 7. Interview corner
 
 **"State the Liskov Substitution Principle."**
 Objects of a subtype must be usable anywhere the parent is expected, without changing the correctness of the program. In practice a subtype keeps the parent's contract: it accepts at least the same inputs, promises at least the same results, and keeps its invariants.
@@ -329,7 +421,7 @@ No, it applies to any substitution behind an interface: two implementations of `
 
 ---
 
-## 9. Cheat sheet
+## 8. Cheat sheet
 
 | Rule | Subtype may |
 | :--- | :--- |
