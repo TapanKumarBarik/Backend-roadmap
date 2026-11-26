@@ -22,3 +22,37 @@
   .area-head { margin: 2px 2px 8px; padding-bottom: 8px; }
   .area-row .chip { min-height: 36px; padding: 6px 10px; font-size: 12px; }
 }
+
+/* One accent per area, so the reader can tell at a glance which part of the library a tab, a heading or a rule belongs to. Only these places use it: the
+   page's own accent (links, buttons) stays the violet one. --area is the colour, --area-fg the text that sits on it. Contrast is at least 4.5:1 in each theme. */
+[data-area] { --area: var(--accent); --area-fg: var(--accent-fg); }
+[data-area="backend"]         { --area: #5a1fe0; --area-fg: #fff; }
+[data-area="system-design"]   { --area: #1d4ed8; --area-fg: #fff; }
+[data-area="ml"]              { --area: #0b7f73; --area-fg: #fff; }
+[data-area="neural-networks"] { --area: #b4237a; --area-fg: #fff; }
+[data-area="genai"]           { --area: #c2490c; --area-fg: #fff; }
+[data-area="learn"]           { --area: #2f7d32; --area-fg: #fff; }
+[data-area="lld"]             { --area: #0e7490; --area-fg: #fff; }
+@media (prefers-color-scheme: dark) {
+  html[data-theme="auto"] [data-area="backend"]         { --area: #b69cff; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="system-design"]   { --area: #7ea6ff; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="ml"]              { --area: #4fd1bd; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="neural-networks"] { --area: #f08cc8; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="genai"]           { --area: #ffa066; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="learn"]           { --area: #7fd48a; --area-fg: #0e1116; }
+  html[data-theme="auto"] [data-area="lld"]             { --area: #5cc8e6; --area-fg: #0e1116; }
+}
+html[data-theme="dark"] [data-area="backend"]         { --area: #b69cff; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="system-design"]   { --area: #7ea6ff; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="ml"]              { --area: #4fd1bd; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="neural-networks"] { --area: #f08cc8; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="genai"]           { --area: #ffa066; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="learn"]           { --area: #7fd48a; --area-fg: #0e1116; }
+html[data-theme="dark"] [data-area="lld"]             { --area: #5cc8e6; --area-fg: #0e1116; }
+
+/* The tab carries its colour as a dot; the picked one fills with it. */
+.area-chip::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--area); vertical-align: 1px; }
+.chip.area-chip.on { background: var(--area); border-color: var(--area); color: var(--area-fg); }
+.chip.area-chip.on::before { background: var(--area-fg); }
+.area-head { border-bottom-color: var(--area, var(--signal)); }
+.area-head__name a { color: var(--area, var(--signal)); }

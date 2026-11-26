@@ -11,7 +11,7 @@ export function AreaSwitch({ areas, area, onPick, id }) {
         {AREA_COPY.all}
       </button>
       {areas.map((a) => (
-        <button key={a.id} type="button" className={'chip' + (area === a.id ? ' on' : '')} aria-pressed={area === a.id} onClick={() => onPick(a.id)} title={a.label}>
+        <button key={a.id} type="button" data-area={a.id} className={'chip area-chip' + (area === a.id ? ' on' : '')} aria-pressed={area === a.id} onClick={() => onPick(a.id)} title={a.label}>
           {a.short}
         </button>
       ))}
@@ -24,7 +24,7 @@ export function AreaHead({ area, node, statusMap }) {
   const stats = node ? subtreeStats(node, statusMap) : null;
   const url = node?.file ? routeUrl(node.file) : null;
   return (
-    <header className="area-head">
+    <header className="area-head" data-area={area.id}>
       <h2 className="area-head__name">{url ? <a href={url}>{area.label}</a> : area.label}</h2>
       {stats && stats.total > 0 && <p className="area-head__count">{AREA_COPY.progress(stats.done, stats.total)}</p>}
       <p className="area-head__blurb">{area.blurb}</p>
