@@ -26,18 +26,18 @@
 
 ```mermaid
 sequenceDiagram
-  participant Loop as Event loop (1 thread)
+  participant EL as Event loop, one thread
   participant A as task A
   participant B as task B
-  Loop->>A: run until first await
-  A-->>Loop: await sleep(0.1)  (yield)
-  Loop->>B: run until first await
-  B-->>Loop: await sleep(0.1)  (yield)
-  Note over Loop: both timers pending... loop idle
-  Loop->>A: timer done → resume
-  A-->>Loop: finished
-  Loop->>B: timer done → resume
-  B-->>Loop: finished
+  EL->>A: run until first await
+  A-->>EL: hits await sleep 0.1, yields
+  EL->>B: run until first await
+  B-->>EL: hits await sleep 0.1, yields
+  Note over EL: both timers pending... loop idle
+  EL->>A: timer done → resume
+  A-->>EL: finished
+  EL->>B: timer done → resume
+  B-->>EL: finished
 ```
 
 A blocking call in A (`time.sleep`) never yields: B can't run, the timers can't fire, the whole server stalls.

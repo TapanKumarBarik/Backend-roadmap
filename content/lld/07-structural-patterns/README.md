@@ -378,7 +378,7 @@ sequenceDiagram
   participant Http as HttpClient
   Client->>Retry: execute
   Retry->>Auth: execute
-  Note over Auth: refresh fails; wrongly calls outer pipeline
+  Note over Auth: refresh fails, wrongly calls outer pipeline
   Auth->>Retry: execute
   Retry->>Auth: execute
   Note over Retry,Auth: stack grows until crash

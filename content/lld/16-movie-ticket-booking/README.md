@@ -50,7 +50,7 @@ sequenceDiagram
   participant P as PaymentGateway
 
   U->>S: hold([A1, A2])
-  S->>R: sort ids; CAS A1 AVAILABLE->HELD
+  S->>R: sort ids, CAS A1 AVAILABLE->HELD
   S->>R: CAS A2 AVAILABLE->HELD
   alt any CAS loses
     S->>R: release seats this hold already took

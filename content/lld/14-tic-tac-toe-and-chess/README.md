@@ -102,7 +102,7 @@ sequenceDiagram
   participant W as WinStrategy
 
   P->>G: play(X, row, col, expected_move_no)
-  G->>G: lock; validate turn, status, move_no
+  G->>G: lock, validate turn, status, move_no
   G->>B: place(row, col, X)
   alt out of bounds or occupied
     B-->>G: IllegalMove

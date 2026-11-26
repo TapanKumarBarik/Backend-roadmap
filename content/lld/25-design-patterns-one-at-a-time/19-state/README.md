@@ -86,8 +86,8 @@ flowchart LR
         StateIface --> S1["NewOrderState"]
         StateIface --> S2["PaidOrderState"]
         StateIface --> S3["ShippedOrderState"]
-        S1 -->|pay() transitions to| S2
-        S2 -->|ship() transitions to| S3
+        S1 -->|"pay() transitions to"| S2
+        S2 -->|"ship() transitions to"| S3
     end
 ```
 
