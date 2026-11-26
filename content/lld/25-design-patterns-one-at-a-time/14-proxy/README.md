@@ -34,6 +34,42 @@ A senior engineer answers with precision:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Suppose your dashboard lists 500 high-resolution 4K medical scans or gigabyte-sized video files, and your service eagerly instantiates every `HeavyVideoFile` and opens a database connection on startup—even though the user only clicks on 2 of them. Startup takes 45 seconds, RAM spikes immediately, and worse: because callers talk directly to the real database service, there is no central gatekeeper to enforce role-based access checks or cache repeated reads.
+
+### Real-World Analogy
+
+Think of a **credit card** as a proxy for **cash in your bank vault**. Both implement the exact same "pay at checkout" interface. However, you don't carry a suitcase of physical bills everywhere: the credit card acts as a stand-in that verifies your identity (PIN/fraud check), logs the purchase, and only settles with the real bank vault when the transaction is actually authorized.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Direct Uncontrolled Access"]
+        Client1["Client"] -->|"Eager load, no auth, no cache"| Real1["RealDatabase / HeavyVideo"]
+    end
+
+    subgraph After["After: Proxy Controls Access & Lifecycle"]
+        Client2["Client"] -->|"Same interface"| Proxy["ServiceProxy (Auth + Cache + Lazy Init)"]
+        Proxy -->|"Only if authorized & cache miss"| Real2["RealDatabase / HeavyVideo"]
+    end
+```
+
+### Applicability & Pattern Relations
+
+- **Use when** you need **lazy initialization** (Virtual Proxy) so heavyweight objects are only created when actually used.
+- **Use when** you need **access control** (Protection Proxy), **caching** (Caching Proxy), or **audit logging** without modifying the real service's code.
+- **Use when** you want **location transparency** (Remote Proxy) so calling a remote gRPC/RPC service looks like a local method call.
+- **Relations with Other Patterns:**
+  - **Decorator:** Receives an *already created* object from the caller to add behavior; **Proxy** *owns and controls* the lifecycle (creation, deferral, or rejection) of the real subject.
+  - **Adapter:** Changes the interface to match what the client expects; **Proxy** keeps the *exact same* interface.
+  - **Facade:** Simplifies *many* subsystem classes behind a new interface; **Proxy** stands in for *one* subject with the same interface.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### The Multi-Faceted Proxy Workflow

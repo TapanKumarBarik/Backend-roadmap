@@ -41,6 +41,57 @@ A senior engineer answers with strict behavioral decoupling:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine adding `Ctrl+Z` (Undo) to a rich document editor or a financial ledger. A naive implementation has the `HistoryManager` copy every field of `TextEditor` before each edit:
+
+1. **Encapsulation shatters:** To save and restore state, `TextEditor` must expose public getters and setters for every internal field—`TextBuffer`, `CursorRow`, `CursorCol`, `SelectionRange`, `SpellcheckCache`, `FontStyleMap`. Now *any* class in the codebase can mutate the editor's private invariants directly.
+2. **Brittle coupling:** The day you refactor `TextEditor`'s internal representation from a `string` to a **Piece Table** or **Rope**, `HistoryManager` fails to compile because all the fields it was reading no longer exist.
+3. **Accidental corruption:** If the snapshot is just a plain mutable struct exposed to `HistoryManager`, a bug in the undo stack could accidentally mutate a historical checkpoint in-place.
+
+### Real-World Analogy
+
+Think of a **Video Game Checkpoint Save File**:
+
+- **The Game Engine (Originator):** Knows every private detail of your session—exact XYZ coordinates, boss phase, inventory durability, quest flags, and RNG seed.
+- **The `.sav` File (Memento):** When you hit a checkpoint, the engine packs all that state into an **opaque binary save file**.
+- **The Memory Card / Save Slot Manager (Caretaker):** Your console's save manager can list save slots by timestamp, store them, delete them, or hand a `.sav` file back to the engine when you click "Load Game"—but the save manager **cannot open or edit** your health points inside the `.sav` file.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: HistoryManager Reads Private Fields"]
+        direction TB
+        H1["HistoryManager"] -->|"GetText / GetCursor / GetStyles"| E1["TextEditor (Exposed Internals)"]
+        H1 -->|"SetText / SetCursor / SetStyles"| E1
+        Note1["Refactoring TextEditor breaks HistoryManager"]
+    end
+
+    subgraph After["After: Opaque Memento Snapshot"]
+        direction TB
+        H2["HistoryManager (Caretaker)"] -->|"1. Save()"| E2["TextEditor (Originator)"]
+        E2 -->|"2. Creates"| M["Opaque IMemento"]
+        H2 -->|"3. Stores in Undo Stack"| M
+        H2 -->|"4. Restore(memento)"| E2
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use when:**
+- You need to produce snapshots of an object's state to restore it later (Undo/Redo, transaction rollback, game checkpoints).
+- Direct access to the object's fields/getters/setters would violate encapsulation and expose implementation details.
+
+**Relations with Other Patterns:**
+- **Command:** **Command** and **Memento** are frequently combined for Undo/Redo—Command executes the operation, while Memento captures the pre-operation state snapshot when writing an inverse `Unexecute()` is too complex or error-prone.
+- **Iterator:** Memento can capture an Iterator's current traversal position so you can roll back or bookmark an iteration.
+- **Prototype:** Sometimes used as a simpler alternative to Memento when the object's state is simple enough that cloning the entire object (`Clone()`) is acceptable and encapsulation boundaries are relaxed.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### Memento Interaction Sequence

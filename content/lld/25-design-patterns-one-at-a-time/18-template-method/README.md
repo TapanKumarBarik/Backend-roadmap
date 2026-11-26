@@ -30,6 +30,51 @@ A senior engineer explains **the Template Method Pattern**:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine you are building a data-mining tool that extracts insights from **PDF**, **CSV**, and **DOCX** files. You write three separate classes: `PdfMiner`, `CsvMiner`, and `DocxMiner`. All three open a file, extract raw bytes, parse records, run the exact same analytics engine, persist results, and close the file handle. Within weeks, 80% of the boilerplate—error handling, file cleanup, metrics emission—is copy-pasted across all three classes. When a security patch requires changing how files are opened or audited, you have to hunt down and update every single miner class.
+
+### Real-World Analogy
+
+Think of a **standardized house blueprint** used by a construction company. Every house follows the exact same construction sequence: *pour foundation -> frame walls -> install roof -> wire plumbing -> paint interior*. The blueprint fixes this order so nobody puts the roof on before pouring the foundation. However, individual buyers can customize specific steps—choosing a flat or pitched roof, or hardwood vs. tile flooring—without altering the core building sequence.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Duplicated Pipeline Boilerplate)"]
+        PDF["PdfMiner: open + parsePDF + analyze + close"]
+        CSV["CsvMiner: open + parseCSV + analyze + close"]
+        DOC["DocxMiner: open + parseDOCX + analyze + close"]
+    end
+
+    subgraph After["After (Template Method)"]
+        Base["DataMiner Base: process() calls open -> parse() -> analyze -> close"]
+        Sub1["PdfMiner: overrides parse() only"]
+        Sub2["CsvMiner: overrides parse() only"]
+        Sub3["DocxMiner: overrides parse() only"]
+        Base -->|Calls subclass step| Sub1
+        Base -->|Calls subclass step| Sub2
+        Base -->|Calls subclass step| Sub3
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use Template Method when:**
+- Multiple classes share the exact same algorithmic skeleton and differ only in specific sub-steps.
+- You must enforce an invariant execution order (e.g., always validate and audit before persisting) so subclasses cannot skip critical steps.
+- You want to eliminate duplicated boilerplate across sibling implementations by pulling invariant logic into a base class.
+
+**Relations with Other Patterns:**
+- **Factory Method:** Often acts as a specialized step inside a Template Method to let subclasses decide which helper object to instantiate.
+- **Strategy:** Strategy uses composition to swap the *entire* algorithm at runtime, whereas Template Method uses inheritance to vary *parts* of an algorithm at compile time.
+- **Observer / Hooks:** Virtual hook methods in Template Method provide lightweight extension points similar to lifecycle callbacks.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 In the Template Method pattern, control is inverted: the base class method drives the algorithm, calling downward into primitive steps and hooks implemented by derived classes.

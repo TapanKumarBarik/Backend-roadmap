@@ -39,6 +39,55 @@ A senior engineer answers with clear architectural boundaries:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine you are building a feature-flag and pricing rule engine for an e-commerce checkout service. Product managers start with simple rules: `"country == 'US'"` and `"age > 21"`. You write a quick `if/elif` helper that splits strings on `"=="` and `">"`.
+
+Next week, marketing asks for `"country == 'US' AND age > 21"`. A month later, finance wants `"(country == 'US' AND age > 21) OR (is_vip == True AND cart_total >= 500)"`, plus `NOT` clauses and parentheses. Your string-splitting code turns into a fragile pile of nested regexes, `split("AND")` hacks, and special-case precedence bugs where `"A OR B AND C"` evaluates in the wrong order or crashes whenever a user's country string happens to contain `"OR"`.
+
+### Real-World Analogy
+
+Think of **sheet music** or a **mathematical expression tree** (`(3 + 5) * 2`). A musician does not read raw prose describing how to vibrate air; they read standardized symbols (notes, rests, dynamics) arranged in a structured score. Similarly, a calculator does not regex-match `(3 + 5) * 2` repeatedly at runtime—it builds a tree where `+` and `*` are branch nodes and `3`, `5`, `2` are leaf nodes. Each node knows how to evaluate itself given the current inputs, and the whole tree collapses to a single answer.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Fragile String-Splitting & Regex)"]
+        direction TB
+        RawRule["Raw Rule String\n'(country == US AND age > 21) OR vip'"] --> Regex["Nested Regex & string.split()"]
+        Regex --> Bugs["Precedence Bugs, Escaping Hell\n& Unmaintainable if/elif Chains"]
+    end
+
+    subgraph After["After (Interpreter AST)"]
+        direction TB
+        Ctx["Context\n(country='US', age=25, vip=False)"]
+        OrNode["OrExpression"] --> AndNode["AndExpression"]
+        OrNode --> VipLeaf["EqualsExpression\n(is_vip == True)"]
+        AndNode --> CountryLeaf["EqualsExpression\n(country == 'US')"]
+        AndNode --> AgeLeaf["GreaterThanExpression\n(age > 21)"]
+        CountryLeaf -.->|"reads"| Ctx
+        AgeLeaf -.->|"reads"| Ctx
+        VipLeaf -.->|"reads"| Ctx
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use when:**
+- You have a **small, stable grammar** (boolean filters, authorization rules, discount criteria, search queries) where each rule maps cleanly to a class.
+- Efficiency of raw CPU execution is **not** your primary bottleneck (tree-walking is fast enough for small rule trees).
+- Rules need to be **composed dynamically** at runtime (e.g., from JSON configs or UI query builders) and evaluated against a shared `Context`.
+
+**Relations with Other Patterns:**
+- **Composite:** The Interpreter AST *is* a Composite tree—Terminal Expressions are Leaves and Non-Terminal Expressions are Composites.
+- **Visitor:** Use Visitor when you want to add new operations (e.g., pretty-printing, SQL generation, type-checking) across an existing Interpreter AST without cluttering expression classes.
+- **Flyweight:** Terminal symbols (like variable names or common constants) can be shared as Flyweights across large ASTs to save memory.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### Grammar Tree Interpretation

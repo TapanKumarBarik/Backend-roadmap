@@ -65,6 +65,43 @@ IOrderRepository repo = new LoggingOrderRepository(
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine your application starts with a simple `Notifier` class that sends email alerts. Soon, users ask for **SMS** alerts, **Slack** alerts, and **Facebook** alerts. Easy enough—you create `SMSNotifier`, `SlackNotifier`, and `FacebookNotifier`. Then a critical incident hits and a user says: *"Send critical alerts to Email AND SMS AND Slack!"* If you use inheritance, you must create `EmailAndSMSNotifier`, `EmailAndSlackNotifier`, `SMSAndSlackNotifier`, and `EmailAndSMSAndSlackNotifier`. With just 4 channels, you face $2^4 - 1 = 15$ combination classes; with 6 channels, 63 classes!
+
+### Real-World Analogy
+
+Think of **wearing layered winter clothes**. When you are cold, you put on a **sweater** over your t-shirt. If it starts raining, you put a **waterproof raincoat** over the sweater. If it gets freezing, you add a **scarf** on top. You do not surgically mutate your body, and you do not buy a single fused `TShirtSweaterRaincoatScarf` garment. Each layer wraps you, adds one specific capability (warmth, waterproofing, wind-blocking), and can be stacked or removed dynamically in any combination.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: 2^N Subclass Explosion"]
+        N0["Notifier"] --> E["EmailNotifier"]
+        N0 --> ES["EmailAndSMSNotifier"]
+        N0 --> ESS["EmailAndSMSAndSlackNotifier"]
+        N0 --> All["... (2^N combinations)"]
+    end
+
+    subgraph After["After: Stackable Decorator Wrappers"]
+        C["Client"] -->|"Send()"| Slack["SlackDecorator"]
+        Slack -->|"wraps"| SMS["SMSDecorator"]
+        SMS -->|"wraps"| Email["EmailNotifier (Core)"]
+    end
+```
+
+### Applicability & Pattern Relations
+
+- **Use when:** You need to assign extra behaviors to objects at runtime without breaking the code that uses these objects.
+- **Use when:** It is awkward or impossible to extend an object's behavior using inheritance (e.g., `sealed`/`final` classes or $2^N$ feature combinations).
+- **Use when:** Cross-cutting concerns (logging, caching, retries, rate-limiting, encryption) should be toggled and stacked independently.
+- **Relations with Other Patterns:** **Adapter** changes the interface of an existing object, whereas **Decorator** enhances an object *without* changing its interface; **Proxy** shares the same interface too, but controls access/lifecycle rather than stacking behaviors; **Composite** aggregates multiple children into a tree, whereas **Decorator** wraps a single child in a linear chain.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### The Decorator Composition Pipeline

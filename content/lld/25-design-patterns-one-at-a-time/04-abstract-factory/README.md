@@ -34,6 +34,41 @@ An interviewer will immediately follow up:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+Imagine building a furniture store simulator with `Chair`, `Sofa`, and `CoffeeTable` across three styles: `Modern`, `Victorian`, and `ArtDeco`. If room-assembly code directly instantiates `new ModernChair()`, `new VictorianSofa()`, and `new ArtDecoCoffeeTable()`, nothing stops a developer from accidentally pairing a Victorian sofa with a Modern chair. Worse, adding a `Scandinavian` line forces you to update conditional `switch` statements in every room-assembly module across the codebase.
+
+### Real-World Analogy
+A **Furniture Showroom Brand Lineup** (e.g., an IKEA Modern collection vs. an Antique Victorian collection). Once you choose a showroom collection (`ModernFurnitureFactory`), every item you request—chair, sofa, or coffee table—is guaranteed to come from the exact same aesthetic family without you inspecting each piece's concrete label.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Mismatched Families & Conditional Coupling"]
+        Client1["RoomAssembler"] -->|"new ModernChair()"| MC["ModernChair"]
+        Client1 -->|"new VictorianSofa()"| VS["VictorianSofa (Mismatch!)"]
+    end
+
+    subgraph After["After: Abstract Factory Guarantees Family Consistency"]
+        Client2["RoomAssembler"] -->|"uses"| IFac["FurnitureFactory"]
+        ModFac["ModernFactory"] -.->|implements| IFac
+        VicFac["VictorianFactory"] -.->|implements| IFac
+        ModFac -->|"creates"| MC2["ModernChair + ModernSofa"]
+        VicFac -->|"creates"| VS2["VictorianChair + VictorianSofa"]
+    end
+```
+
+### Applicability & Pattern Relations
+- **Use when:** your code needs to work with various families of related products, but you do not want it to depend on the concrete classes of those products; or you have a class with a set of Factory Methods that blur its primary responsibility.
+- **Relations with Other Patterns:**
+  - **Abstract Factory** classes are often implemented using a set of **Factory Methods**, though you can also use **Prototype** to compose them.
+  - **Builder** focuses on constructing a complex object step by step, whereas **Abstract Factory** specializes in creating families of related objects immediately in one shot.
+  - **Abstract Factory** can serve as an alternative to **Facade** when you only want to hide the way subsystem objects are created from client code.
+
+---
+
 ## 2. Visual Mental Model: Product Families & Taxonomic Comparison
 
 An Abstract Factory groups multiple related Factory Methods into a single cohesive interface:

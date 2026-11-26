@@ -30,6 +30,49 @@ Furthermore, this same pattern underpins modern architectural foundations: **CQR
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine building a rich-text editor with a toolbar, context menus, and keyboard shortcuts. You have 15 UI buttons—**Save**, **Copy**, **Cut**, **Paste**, **Bold**, **Undo**—and each button subclasses `Button` with its own `onClick()` handler. Soon, **Save** logic is duplicated across the toolbar button, the `File -> Save` menu item, and the `Ctrl+S` shortcut handler. Worse, because actions are just direct method calls on `TextDocument`, there is no object to push onto an undo stack, serialize into a macro, or enqueue for background execution.
+
+### Real-World Analogy
+
+Think of a **restaurant order slip**. You (the **Client**) do not walk into the kitchen and yell cooking instructions at the **Chef** (the **Receiver**). Instead, you give your order to a **Waiter** (the **Invoker**), who writes it down on a paper **Order Slip** (the **Command**). The waiter pins the slip to the kitchen queue. The slip holds everything needed to execute the meal—and if you cancel before cooking starts, that same slip can be pulled off the rail to undo the request.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Direct UI-to-Receiver Coupling)"]
+        Btn1["Toolbar Save Button"] -->|Direct call| Doc1["TextDocument.save()"]
+        Btn2["Menu Save Item"] -->|Duplicate logic| Doc1
+        Key1["Ctrl+S Shortcut"] -->|Direct call| Doc1
+        Note1["No undo stack, no queue, no audit log"]
+    end
+
+    subgraph After["After (Command Pattern)"]
+        UI["Toolbar / Menu / Shortcut"] -->|Creates| Cmd["SaveCommand (execute + undo)"]
+        UI -->|Submits| Inv["EditorInvoker (Undo/Redo Stacks)"]
+        Cmd -.->|Executes on| Doc2["TextDocument (Receiver)"]
+        Inv -->|Invokes| Cmd
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use Command when:**
+- You need to parameterize objects with operations, queue requests, schedule them, or execute them remotely.
+- You need reversible operations (multi-level **Undo/Redo**), transactional rollbacks, or macro recording.
+- You want to decouple the UI or API trigger from the domain object that executes the work.
+
+**Relations with Other Patterns:**
+- **Chain of Responsibility:** Can be combined with Command when a command is passed through a pipeline of handlers before one executes it.
+- **Memento:** Often paired with Command to store snapshots when computing an exact inverse delta for `Undo()` is too complex.
+- **Strategy:** Both parameterize objects with behavior, but Strategy swaps *how* an algorithm runs, whereas Command reifies *a specific request* over time.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 The Command pattern cleanly separates four distinct responsibilities:

@@ -32,6 +32,42 @@ An interviewer will immediately test your depth:
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+Imagine building a logistics platform that initially only supports road transport (`Truck`). Your `OrderProcessor`, `RoutePlanner`, and `DispatchService` all hardcode `new Truck()`. Six months later, the business expands to sea freight (`Ship`) and air freight (`Plane`). Now you must hunt down every `new Truck()` across 30 files and wrap them in sprawling `if (mode == "sea") new Ship() else if (mode == "air") new Plane() else new Truck()` blocks. Every new transport mode forces you to crack open and re-test core business logic.
+
+### Real-World Analogy
+A **Logistics Company's Dispatch Office**. The head office runs the exact same delivery workflow (`planDelivery()` -> load cargo -> dispatch -> track), whether the cargo travels by road or sea. `RoadLogistics` overrides the creation step to supply a `Truck`, while `SeaLogistics` overrides it to supply a `Ship`—the core delivery workflow never changes.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Hardcoded 'new' & Sprawling Conditionals"]
+        App["OrderProcessor"] -->|"if road -> new Truck()"| Truck1["Truck"]
+        App -->|"if sea -> new Ship()"| Ship1["Ship"]
+        App -->|"Edit on every new type"| Plane1["Plane"]
+    end
+
+    subgraph After["After: Factory Method Decouples Workflow from Type"]
+        Base["Logistics\n+ planDelivery()\n# createTransport(): Transport"]
+        Road["RoadLogistics\n# createTransport()"] -->|"creates"| Truck2["Truck"]
+        Sea["SeaLogistics\n# createTransport()"] -->|"creates"| Ship2["Ship"]
+        Road -->|inherits| Base
+        Sea -->|inherits| Base
+    end
+```
+
+### Applicability & Pattern Relations
+- **Use when:** you do not know beforehand the exact types and dependencies of the objects your code should work with; you want to provide users of your library or framework with a way to extend its internal components; or you want to save system resources by reusing existing objects instead of rebuilding them each time.
+- **Relations with Other Patterns:**
+  - Many designs start by using **Factory Method** (less complicated and more customizable via subclasses) and evolve toward **Abstract Factory**, **Prototype**, or **Builder** (more flexible, but more complex).
+  - **Template Method** often calls a **Factory Method** as one of its steps to let subclasses decide which concrete helper object to create.
+  - **Abstract Factory** classes are often based on a set of **Factory Methods**, though you can also use **Prototype** to compose the methods on these classes.
+
+---
+
 ## 2. Visual Mental Model: Simple Factory vs. Factory Method vs. Registry
 
 Understanding the structural differences between these three approaches is essential for technical interviews:

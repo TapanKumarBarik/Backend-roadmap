@@ -34,6 +34,47 @@ When you explain Strategy, articulate it not as "a way to avoid `if` statements,
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine building a navigation app. Version 1 only supports car routing, so all pathfinding logic lives cleanly inside `Navigator.buildRoute()`. Then product asks for walking routes, then cycling, then public transit, then scenic toll-free roads. Every new mode gets stuffed into `buildRoute()` as another `else if` branch. Soon the class balloons to 2,000 lines—fixing a bug in the bus-schedule branch accidentally breaks highway routing, and two engineers cannot add new transport modes in parallel without constant merge conflicts.
+
+### Real-World Analogy
+
+Think of **getting to the airport**. Your goal ("travel from home to Terminal 2") stays identical, but you can swap your transport strategy at the last minute—take a **cab**, ride the **subway**, hop on an **airport shuttle**, or **cycle**—depending on traffic, budget, and luggage. You don't rebuild the airport or rewrite your flight itinerary just because you switched from a cab to the train.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Bloated Conditional Monolith"]
+        Nav1["Navigator.buildRoute()"] --> Branch{"if car / elif walk / elif transit"}
+        Branch --> Car1["Car Logic"]
+        Branch --> Walk1["Walk Logic"]
+        Branch --> Transit1["Transit Logic"]
+    end
+
+    subgraph After["After: Pluggable Strategy Interface"]
+        Nav2["Navigator (Context)"] -->|"Delegates"| Strat["RouteStrategy Interface"]
+        Car2["CarStrategy"] -.->|"Implements"| Strat
+        Walk2["WalkStrategy"] -.->|"Implements"| Strat
+        Transit2["TransitStrategy"] -.->|"Implements"| Strat
+    end
+```
+
+### Applicability & Pattern Relations
+
+- **Use when** you have multiple variants of an algorithm (routing, pricing, tax, compression, payment) and need to swap them at runtime.
+- **Use when** a class has a massive conditional (`if/else` or `switch`) selecting between different behaviors for the same task.
+- **Use when** you want to isolate complex algorithm internals and third-party dependencies from the business context that invokes them.
+- **Relations with Other Patterns:**
+  - **State:** Looks structurally similar, but **Strategy** algorithms are independent and chosen by the client, whereas **State** objects know about sibling states and trigger internal transitions.
+  - **Template Method:** Uses *inheritance* to vary sub-steps at compile time; **Strategy** uses *composition* to swap the entire algorithm at runtime.
+  - **Command:** Encapsulates *an action/request* (for queuing, undo, logging); **Strategy** encapsulates *how* a single operation is computed.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 In the Strategy pattern, the **Context** maintains a reference to a generic **Strategy Contract**. At runtime, concrete implementations are injected into the context. The context remains completely agnostic to whether the payment is processed via credit card, PayPal, crypto, or a courtesy coupon voucher.

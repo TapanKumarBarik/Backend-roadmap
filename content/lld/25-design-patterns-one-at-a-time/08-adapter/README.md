@@ -38,6 +38,39 @@ Candidates often mix up structural patterns that wrap an underlying object. Use 
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine you are building a stock-market dashboard. Your application fetches market ticks from multiple exchanges in **XML format**, and your entire UI and domain pipeline expects `XmlDataFeed`. Now you want to integrate a lightning-fast third-party analytics library (`JsonAnalyticsEngine`)—but it **only accepts JSON**. You cannot rewrite the third-party library (it is a closed-source package), and rewriting your entire ingestion pipeline to speak JSON would break 30 existing services. If you scatter `xml_to_json()` conversion hacks inside every controller, your business logic becomes polluted with format-translation glue.
+
+### Real-World Analogy
+
+Think of a **power plug travel adapter**. When you fly from Europe to the United States, your laptop charger has a European two-round-pin plug, while the hotel wall outlet has a US three-flat-pin socket. You do not rewire the hotel's electrical grid, and you do not cut off your laptop's plug. Instead, you snap a **travel adapter** between them: the adapter's back accepts your European plug, and its front fits the US wall socket, translating the physical interface without either side knowing the difference.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Incompatible Interfaces"]
+        App1["Trading App\n(Produces XML)"] -.->|"Format Mismatch Error!"| Lib1["3rd-Party Analytics\n(Expects JSON only)"]
+    end
+
+    subgraph After["After: Adapter Layer"]
+        App2["Trading App\n(Calls IAnalytics.Analyze)"] -->|"XML Payload"| Adp["XmlToJsonAdapter\n(Converts XML -> JSON)"]
+        Adp -->|"JSON Payload"| Lib2["3rd-Party Analytics\n(Processes JSON)"]
+    end
+```
+
+### Applicability & Pattern Relations
+
+- **Use when:** You want to integrate an existing class or third-party SDK whose interface does not match the contract your application expects.
+- **Use when:** You want to isolate your core domain from external vendor churn (an **Anti-Corruption Layer** in Domain-Driven Design).
+- **Use when:** You need to reuse several existing subclasses that lack common functionality, and you cannot subclass each one individually.
+- **Relations with Other Patterns:** **Bridge** is designed *up front* so abstraction and implementation vary independently, whereas **Adapter** is applied *after the fact* to make existing incompatible interfaces work together; **Decorator** enhances an object without changing its interface, while **Adapter** changes the interface; **Facade** defines a new simplified interface for an entire subsystem, whereas **Adapter** makes one existing interface usable.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 In the Adapter pattern, the **Client** depends strictly on a domain-owned abstraction (the **Target Interface**). The **Adapter** implements this interface by wrapping an instance of the third-party or legacy class (the **Adaptee**) and translating method calls, parameters, and exceptions.

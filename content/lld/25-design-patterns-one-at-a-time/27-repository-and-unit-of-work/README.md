@@ -43,6 +43,52 @@ When asked: *"Should you wrap Entity Framework Core (or SQLAlchemy) in a reposit
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Picture a `TransferController` handling a bank transfer between two accounts. Without Repository and Unit of Work, raw SQL queries (`UPDATE accounts SET balance = ...`) and `COMMIT` calls are scattered directly inside HTTP controllers and business handlers.
+
+Worse, each helper method commits its own work: `debit_account()` executes and commits, `credit_account()` executes and commits, and then `write_audit_log()` throws a timeout exception. Now the customer's money moved, but no audit record exists—or `debit` succeeded and `credit` crashed, leaving the ledger permanently out of balance. Meanwhile, every unit test requires spinning up a real database just to verify transfer rules.
+
+### Real-World Analogy
+
+Think of a **warehouse librarian paired with an atomic shipping manifest**. Instead of walking into the warehouse aisles yourself to dig through crates (raw SQL in controllers), you ask the **librarian (Repository)** for items as if they were neatly organized on a shelf. When you pack a multi-item order, you write every pickup and restock onto a single **clipboard manifest (Unit of Work)**. Nothing actually leaves the loading dock until the supervisor stamps **"SHIP ALL" (`Commit()`)**—and if any item is damaged, the entire manifest is torn up (**`Rollback()`**).
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Scattered SQL & Partial Commits)"]
+        direction TB
+        Ctrl["TransferController"] -->|"SQL + COMMIT"| DB1["Accounts Table\n(Debited!)"]
+        Ctrl -->|"SQL + COMMIT"| DB2["Ledger Table\n(Crashes Halfway!)"]
+        DB1 --- Corrupted["Partial State:\nMoney Lost or Unaudited"]
+    end
+
+    subgraph After["After (Repository + Unit of Work)"]
+        direction TB
+        Svc["BankingService"] -->|"1. Mutates via"| RepoA["IAccountRepository"]
+        Svc -->|"2. Logs via"| RepoB["IAuditLogRepository"]
+        Svc -->|"3. Single Commit()"| UoW["IUnitOfWork\n(Tracks All Changes)"]
+        UoW -->|"One Atomic Transaction"| DB3["Database\n(All Succeed or All Rollback)"]
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use when:**
+- Multiple domain aggregates or tables must be modified together in **one atomic business transaction** (e.g., debit + credit + audit log).
+- You want **domain logic isolated** from ORM entity schemas, SQL dialects, and connection lifecycle management.
+- You want to **unit-test complex business workflows** against an in-memory fake repository without hitting a database.
+
+**Relations with Other Patterns:**
+- **Specification:** Often paired with Repository (`repo.Find(spec)`) to avoid bloating the repository interface with dozens of `GetByXAndY()` methods.
+- **Data Mapper:** ORMs like EF Core and SQLAlchemy implement Data Mapper underneath; Repository + Unit of Work sit cleanly on top when building DDD aggregates.
+- **Identity Map:** Unit of Work typically maintains an Identity Map so loading the same entity ID twice in one transaction returns the exact same object instance.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 The relationship between the Domain Layer, Repositories, Unit of Work, and Underlying Persistence:

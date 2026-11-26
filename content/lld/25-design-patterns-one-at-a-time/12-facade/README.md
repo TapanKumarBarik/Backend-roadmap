@@ -46,6 +46,53 @@ With a Facade, clients call a single method: `orderProcessingFacade.PlaceOrder(.
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine building a media platform where every controller, background worker, and CLI tool needs to convert uploaded videos to MP4. Without a Facade, each caller must directly instantiate, wire, and orchestrate 12 low-level classes (`VideoFile`, `CodecFactory`, `MPEG4CompressionCodec`, `OggCompressionCodec`, `BitrateReader`, `AudioMixer`, `FrameBuffer`, `MetadataStripper`, etc.) in the exact right order. When the `AudioMixer` library upgrades and changes a constructor parameter, 18 unrelated files across the codebase fail to compile.
+
+### Real-World Analogy
+
+Think of calling a **hotel concierge** or **phone order desk**. When you want dinner delivered to your room, you do not dial the produce supplier, the sous-chef, the plating station, the billing clerk, and the bellhop individually in a strict sequence. You make one call to the concierge (`"Send a Margherita pizza to Room 402"`), and the concierge coordinates the kitchen, billing, and delivery behind the scenes—while still leaving the kitchen's direct line open for the banquet manager who needs custom catering.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Client Coupled to Subsystem"]
+        C1["Web Controller"] --> S1["VideoFile"]
+        C1 --> S2["CodecFactory"]
+        C1 --> S3["BitrateReader"]
+        C1 --> S4["AudioMixer"]
+        C2["Mobile API"] --> S1
+        C2 --> S2
+        C2 --> S3
+        C2 --> S4
+    end
+
+    subgraph After["After: Facade Simplifies Entry Point"]
+        C3["Web Controller"] --> F["VideoConverterFacade"]
+        C4["Mobile API"] --> F
+        F --> S5["VideoFile"]
+        F --> S6["CodecFactory"]
+        F --> S7["BitrateReader"]
+        F --> S8["AudioMixer"]
+    end
+```
+
+### Applicability & Pattern Relations
+
+- **Use when** you need a simple, opinionated entry point to a complex, multi-class subsystem for the 80% common case.
+- **Use when** you want to layer a system into clean architectural boundaries (each layer exposes a Facade so subsystems only talk through well-defined doorways).
+- **Use when** wrapping a noisy third-party SDK so your domain code doesn't scatter vendor types across dozens of files.
+- **Relations with Other Patterns:**
+  - **Adapter:** Wraps *one* existing object to match an expected interface; **Facade** creates a *new* simplified interface over *many* subsystem objects.
+  - **Mediator:** Centralizes *bidirectional* peer-to-peer communication among colleagues; **Facade** is *unidirectional* (clients call Facade, subsystem doesn't know Facade exists).
+  - **Singleton:** A Facade is often implemented as a Singleton (or stateless DI service) because one orchestrator instance is usually sufficient.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### Subsystem Orchestration Architecture

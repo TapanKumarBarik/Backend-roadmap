@@ -45,6 +45,55 @@ When asked: *"What is the difference between Inversion of Control, the Dependenc
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine an `OrderService` that processes customer checkouts. Inside its constructor, it directly instantiates `new SqlOrderRepository()`, `new StripePaymentGateway("sk_live_...")`, and `new SmtpEmailSender()`. Those classes in turn instantiate `new SqlConnection(...)` and `new HttpClient()`.
+
+Now try to write a fast unit test for `OrderService.PlaceOrder()`. You cannot! Every test run tries to open a live SQL Server connection, charge a real Stripe card, and send an SMTP email. Swapping Stripe for Adyen or running an in-memory fake in CI requires editing `OrderService` itself—the exact high-level business policy that should never care *how* bytes hit a wire.
+
+### Real-World Analogy
+
+Think of **standardized electrical wall outlets and household appliances**. A toaster does not weld its own private copper power line directly to a coal power plant. Instead, the toaster exposes a standard **plug** (the interface/abstraction), and the building's **electrical grid** (the Composition Root / DI Container) supplies power from solar, hydro, or nuclear sources without the toaster ever knowing or caring. You can test the toaster on a portable battery or run it in a house without rebuilding the toaster.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Hardcoded new Chains)"]
+        direction TB
+        OS1["OrderService"] -->|"new SqlOrderRepo()"| SQL1["SqlOrderRepo"]
+        OS1 -->|"new StripeGateway()"| ST1["StripeGateway"]
+        ST1 -->|"new HttpClient()"| NET["Live Stripe API\n(Impossible to Unit Test)"]
+    end
+
+    subgraph After["After (Dependency Injection)"]
+        direction TB
+        Root["Composition Root\n(Main / DI Container)"] -->|"wires"| OS2["OrderService"]
+        Root -->|"injects"| RepoImpl["SqlOrderRepo or FakeRepo"]
+        Root -->|"injects"| PayImpl["StripeGateway or MockPay"]
+        OS2 -.->|"depends on"| IRepo["IOrderRepository"]
+        OS2 -.->|"depends on"| IPay["IPaymentGateway"]
+        RepoImpl -.->|"implements"| IRepo
+        PayImpl -.->|"implements"| IPay
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use when:**
+- You want to **decouple high-level business logic** from volatile infrastructure details (databases, HTTP clients, clocks, queues).
+- You need **fast, deterministic unit tests** using fakes, stubs, or mocks without monkey-patching globals.
+- Collaborators have **different lifetimes** (Singleton config, Scoped DB session per HTTP request, Transient validators) managed at a single Composition Root.
+
+**Relations with Other Patterns:**
+- **Factory / Abstract Factory:** DI containers act like supercharged Factories; you can also inject a Factory when a service needs to create short-lived objects on demand.
+- **Strategy:** DI is the delivery mechanism that injects the chosen Strategy implementation into a Context class at runtime.
+- **Template Method vs. DI:** Template Method uses inheritance (compile-time IoC), whereas DI uses composition (runtime IoC) and is far more flexible.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 Understanding how IoC, DIP, DI, and DI Containers relate prevents confusing concepts during architectural evaluations:

@@ -48,6 +48,62 @@ The Visitor pattern represents one specific side of the fundamental **Expression
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine you maintain a compiler's **Abstract Syntax Tree (AST)** (`Literal`, `Addition`, `Multiplication`) or a city map's **GeoGraph** (`Residential`, `Bank`, `Factory`). Your node classes are rock-solid and tested. Then product asks for:
+1. Export to **XML**
+2. Export to **JSON**
+3. Calculate **Tax Assessment**
+4. Run **Type Checking** / **Pretty Printing**
+
+If you put `ToXml()`, `ToJson()`, `CalculateTax()`, and `PrettyPrint()` directly on every node class:
+- **Single Responsibility explodes:** A `Bank` node now contains XML formatting logic, JSON serialization logic, and tax law formulas—none of which belong to a bank's domain model.
+- **Risky edits to stable code:** Every time marketing asks for a new CSV or YAML report, you have to open, modify, and re-test every single node class in the hierarchy.
+
+### Real-World Analogy
+
+Think of a **Traveling Insurance Agent**:
+
+- **The City Buildings (Stable Elements):** A `ResidentialHome`, a `Bank`, and a `Factory` already exist and rarely change their structure.
+- **The Insurance Agent (Visitor):** Rather than forcing banks and factories to learn insurance underwriting, the agent visits each building.
+- **Double Dispatch (`Accept` -> `Visit`):** Each building simply opens its door (`building.Accept(agent)`). Once inside, the agent sees what kind of building it is and pitches the tailored policy: medical/fire insurance for the `ResidentialHome`, theft insurance for the `Bank`, and workers' comp for the `Factory`. Tomorrow, a **Fire Inspector (new Visitor)** can visit the exact same buildings without modifying a single brick.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before: Node Classes Polluted with Operations"]
+        direction TB
+        N1["Bank Node (ToXml, ToJson, CalcTax, ExportCsv)"]
+        N2["Factory Node (ToXml, ToJson, CalcTax, ExportCsv)"]
+        Note1["Every new report forces edits to every node"]
+    end
+
+    subgraph After["After: Stable Nodes + Extensible Visitors"]
+        direction TB
+        B["Bank (Accept)"] -->|"VisitBank(this)"| V1["XmlExportVisitor"]
+        F["Factory (Accept)"] -->|"VisitFactory(this)"| V1
+        B -->|"VisitBank(this)"| V2["TaxAuditVisitor"]
+        F -->|"VisitFactory(this)"| V2
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use when:**
+- You need to perform many distinct, unrelated operations across a **stable** object structure (ASTs, DOM trees, billing graphs) without polluting the node classes.
+- Your element class hierarchy rarely changes, while new operations/reports are added frequently.
+- You want to accumulate state while traversing a heterogeneous tree (e.g., evaluating an expression or computing total tax).
+
+**Relations with Other Patterns:**
+- **Composite:** Visitor is most commonly paired with **Composite** to execute an operation over an entire recursive tree of heterogeneous nodes.
+- **Iterator:** You can use an **Iterator** to traverse a complex data structure and apply a **Visitor** to each yielded element.
+- **Command:** Visitor can be viewed as a specialized, multi-type **Command** that dispatches based on the runtime type of both the operation and the target element.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 ### The Double Dispatch Handshake

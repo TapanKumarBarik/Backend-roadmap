@@ -58,6 +58,53 @@ Candidates frequently confuse the State and Strategy patterns because their UML 
 
 ---
 
+## 1A. The Visual Story: Problem -> Analogy -> Solution
+
+### The Problem (Why Naive Code Explodes)
+
+Imagine modeling a **Document** (Draft, Moderation, Published) or a **Vending Machine** (Idle, HasCoin, Dispensing, SoldOut). At first, you add a `status` field and a `switch (state)` inside `publish()`. Then you need `edit()`, `reject()`, `archive()`, and `refund()`, and you copy that same `switch (state)` into all six methods. Every time a product manager introduces a new state—like `Scheduled` or `OutOfOrder`—you must open all six methods, add another branch, and pray you didn't miss an invalid transition.
+
+### Real-World Analogy
+
+Think of the **physical buttons on your smartphone**. When the screen is **Unlocked**, pressing the power button locks the screen, and pressing volume adjusts media audio. When the screen is **Locked**, pressing the power button wakes the lock screen, and holding volume might trigger emergency SOS. The *same button* produces completely different behavior depending on the phone's current internal state—and each state knows which state comes next.
+
+### Visual Problem -> Solution Diagram
+
+```mermaid
+flowchart LR
+    subgraph Before["Before (Switch Statement Sprawl)"]
+        Ctx1["Document / VendingMachine"] --> Sw1["switch(state) in pay()"]
+        Ctx1 --> Sw2["switch(state) in ship()"]
+        Ctx1 --> Sw3["switch(state) in cancel()"]
+        Sw1 --> Pain["Adding 1 state breaks 6 methods"]
+        Sw2 --> Pain
+        Sw3 --> Pain
+    end
+
+    subgraph After["After (State Pattern)"]
+        Ctx2["Order Context"] -->|Delegates to| StateIface["OrderState Interface"]
+        StateIface --> S1["NewOrderState"]
+        StateIface --> S2["PaidOrderState"]
+        StateIface --> S3["ShippedOrderState"]
+        S1 -->|pay() transitions to| S2
+        S2 -->|ship() transitions to| S3
+    end
+```
+
+### Applicability & Pattern Relations
+
+**Use State when:**
+- An object's behavior changes dramatically depending on its current state, and the number of states grows over time.
+- You have giant `switch` or `if/elif` blocks duplicated across multiple methods of a class, checking the same status field.
+- Transitions between states follow strict domain rules that are cleaner to co-locate inside dedicated state classes.
+
+**Relations with Other Patterns:**
+- **Strategy:** Structurally identical (both delegate to a polymorphic interface), but Strategy implementations are independent and swapped externally, whereas State objects know about each other and trigger transitions.
+- **Flyweight:** Stateless state objects (e.g., `NewOrderState` with no instance fields) can be shared as Flyweight singletons across millions of context instances.
+- **Bridge:** Both separate abstraction from implementation, but State models dynamic lifecycle transitions rather than independent platform/feature hierarchies.
+
+---
+
 ## 2. Visual Mental Model / Taxonomic Comparison
 
 In the State pattern, the `Order` context holds a reference to an `OrderState`. When a client calls `order.Ship()`, the context delegates to `_state.Ship(this)`.
